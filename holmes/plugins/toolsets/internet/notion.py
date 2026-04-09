@@ -125,7 +125,6 @@ class NotionToolset(InternetBaseToolset):
             tags=[
                 ToolsetTag.CORE,
             ],
-            is_default=False,
         )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
@@ -134,5 +133,4 @@ class NotionToolset(InternetBaseToolset):
                 False,
                 "Notion toolset is misconfigured. Authorization header is required.",
             )
-        self.additional_headers = config["additional_headers"]
-        return True, ""
+        return super().prerequisites_callable(config)

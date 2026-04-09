@@ -1,2 +1,0 @@
-{"toolset_name":"kubernetes/logs","tool_name":"fetch_pod_logs","match_params":{"pod_name":"orders-app-6c8868cb6d-qcv2t","namespace":"ask-holmes-namespace-55","filter":"error"}}
-{"schema_version": "robusta:v1.0.0", "status": "no_data", "error": null, "return_code": null, "data": null, "url": null, "invocation": null, "params": {"namespace": "ask-holmes-namespace-55", "pod_name": "orders-app-6c8868cb6d-qcv2t", "start_time": null, "end_time": null, "filter": "error", "limit": null}}

@@ -1,83 +1,60 @@
 # OpenAI-Compatible Models
 
-Configure HolmesGPT to use any OpenAI-compatible API.
+HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes API gateways, proxy servers, and local inference servers—as long as they expose an OpenAI-compatible interface with function calling support.
 
 !!! warning "Function Calling Required"
     Your model and inference server must support function calling (tool calling). Models that lack this capability may produce incorrect results.
 
-## Requirements
+## Quick Start
 
-- **Function calling support** - OpenAI-style tool calling
-- **OpenAI-compatible API** - Standard endpoints and request/response format
+Point HolmesGPT at your OpenAI-compatible endpoint:
 
-## Supported Inference Servers
-
-- [llama-cpp-python](https://github.com/abetlen/llama-cpp-python){:target="_blank"}
-- [LocalAI](https://localai.io/){:target="_blank"}
-- [Text Generation WebUI](https://github.com/oobabooga/text-generation-webui){:target="_blank"} (with OpenAI extension)
-
-## Configuration
+- Set `OPENAI_API_BASE` to your endpoint URL
+- Set `OPENAI_API_KEY` to your endpoint's API key, or any placeholder value like `"none"` if your endpoint doesn't require authentication (this parameter is always required by LiteLLM)
+- Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your endpoint expects
+- Optional: Set `CERTIFICATE` to a base64-encoded CA certificate if your endpoint uses a custom CA
 
 === "Holmes CLI"
 
     ```bash
     export OPENAI_API_BASE="http://localhost:8000/v1"
-    export OPENAI_API_KEY="not-needed"
+    export OPENAI_API_KEY="none"  # Or any placeholder if endpoint doesn't need auth
+    # Optional: Custom CA certificate (base64-encoded)
+    # export CERTIFICATE="$(cat /path/to/ca.crt | base64)"
     holmes ask "what pods are failing?" --model="openai/<your-model>"
     ```
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret (if authentication is required):**
-    ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="your-api-key-if-needed" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
     ```yaml
     # values.yaml
     additionalEnvVars:
       - name: OPENAI_API_BASE
         value: "http://your-inference-server:8000/v1"
       - name: OPENAI_API_KEY
-        value: "not-needed"
-        # OR if authentication is required:
+        value: "none"  # Or any placeholder if endpoint doesn't need auth
+        # If authentication is required, use a secret instead:
         # valueFrom:
         #   secretKeyRef:
         #     name: holmes-secrets
         #     key: openai-api-key
 
-    # Configure at least one model using modelList
-    modelList:
-      local-llama:
-        api_key: "not-needed"
-        api_base: "{{ env.OPENAI_API_BASE }}"
-        model: openai/llama3
-        temperature: 1
+    # Optional: Custom CA certificate (base64-encoded)
+    # certificate: "LS0tLS1CRUdJTi..."
 
-      custom-model:
+    modelList:
+      my-model:
         api_key: "{{ env.OPENAI_API_KEY }}"
         api_base: "{{ env.OPENAI_API_BASE }}"
-        model: openai/your-custom-model
+        model: openai/your-model-name
         temperature: 1
 
-    # Optional: Set default model (use modelList key name)
     config:
-      model: "local-llama"  # This refers to the key name in modelList above
+      model: "my-model"
     ```
 
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret (if authentication is required):**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="your-api-key-if-needed" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
     ```yaml
     # values.yaml
     holmes:
@@ -85,72 +62,30 @@ Configure HolmesGPT to use any OpenAI-compatible API.
         - name: OPENAI_API_BASE
           value: "http://your-inference-server:8000/v1"
         - name: OPENAI_API_KEY
-          value: "not-needed"
-          # OR if authentication is required:
+          value: "none"  # Or any placeholder if endpoint doesn't need auth
+          # If authentication is required, use a secret instead:
           # valueFrom:
           #   secretKeyRef:
           #     name: robusta-holmes-secret
           #     key: openai-api-key
 
-      # Configure at least one model using modelList
-      modelList:
-        local-llama:
-          api_key: "not-needed"
-          api_base: "{{ env.OPENAI_API_BASE }}"
-          model: openai/llama3
-          temperature: 1
+      # Optional: Custom CA certificate (base64-encoded)
+      # certificate: "LS0tLS1CRUdJTi..."
 
-        custom-model:
+      modelList:
+        my-model:
           api_key: "{{ env.OPENAI_API_KEY }}"
           api_base: "{{ env.OPENAI_API_BASE }}"
-          model: openai/your-custom-model
+          model: openai/your-model-name
           temperature: 1
 
-      # Optional: Set default model (use modelList key name)
       config:
-        model: "local-llama"  # This refers to the key name in modelList above
+        model: "my-model"
     ```
-
-## Using CLI Parameters
-
-You can also specify the model directly as a command-line parameter:
-
-```bash
-holmes ask "what pods are failing?" --model="openai/<your-model>"
-```
-
-## Setup Examples
-
-### LocalAI
-
-```bash
-docker run -p 8080:8080 localai/localai:latest
-export OPENAI_API_BASE="http://localhost:8080/v1"
-```
-
-### llama-cpp-python
-
-```bash
-pip install 'llama-cpp-python[server]'
-python -m llama_cpp.server --model model.gguf --chat_format chatml
-export OPENAI_API_BASE="http://localhost:8000/v1"
-holmes ask "analyze my deployment" --model=openai/your-loaded-model
-```
-
-## Custom SSL Certificates
-
-If your LLM provider uses a custom Certificate Authority (CA):
-
-```bash
-# Base64 encode your certificate and set it as an environment variable
-export CERTIFICATE="base64-encoded-cert-here"
-```
 
 ## Known Limitations
 
-- **vLLM**: [Does not yet support function calling](https://github.com/vllm-project/vllm/issues/1869){:target="_blank"}
-- **Text Generation WebUI**: Requires OpenAI extension enabled
-- **Some models**: May hallucinate responses instead of reporting function calling limitations
+- **Some models**: May hallucinate responses instead of reporting function calling limitations. See [benchmark results](../development/evaluations/index.md) for recommended models.
 
 ## Additional Resources
 

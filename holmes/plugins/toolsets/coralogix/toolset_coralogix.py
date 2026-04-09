@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, ClassVar, Optional, Tuple, Type
 from urllib.parse import quote
 
 from holmes.core.tools import (
@@ -30,6 +30,14 @@ def _build_coralogix_query_url(
     end_date: str,
     tier: Optional[CoralogixTier] = None,
 ) -> Optional[str]:
+    """Build a clickable Coralogix UI permalink URL.
+
+    Returns None if team_slug is not configured (it's optional).
+    """
+    # team_slug is optional - without it we can't build UI URLs
+    if not config.team_slug:
+        return None
+
     try:
         if tier == CoralogixTier.ARCHIVE:
             data_pipeline = "archive-logs"
@@ -43,7 +51,7 @@ def _build_coralogix_query_url(
 
         encoded_query = quote(query)
         encoded_time = quote(time_range)
-        base_url = f"https://{config.team_hostname}.{config.domain}"
+        base_url = f"https://{config.team_slug}.{config.domain}"
 
         url = (
             f"{base_url}/#/query-new/{data_pipeline}"
@@ -181,6 +189,8 @@ class ExecuteDataPrimeQuery(Tool):
 
 
 class CoralogixToolset(Toolset):
+    config_classes: ClassVar[list[Type[CoralogixConfig]]] = [CoralogixConfig]
+
     def __init__(self):
         super().__init__(
             name="coralogix",
@@ -196,12 +206,6 @@ class CoralogixToolset(Toolset):
             self._load_llm_instructions(
                 jinja_template=f"file://{os.path.abspath(template_path)}"
             )
-
-    def get_example_config(self):
-        example_config = CoralogixConfig(
-            api_key="<cxuw_...>", team_hostname="my-team", domain="eu2.coralogix.com"
-        )
-        return example_config.model_dump()
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         if not config:

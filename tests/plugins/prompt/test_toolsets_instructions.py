@@ -36,9 +36,6 @@ class MockToolset(Toolset):
         if self.enabled:
             self.check_prerequisites()
 
-    def get_example_config(self):
-        return {}
-
 
 def test_renders_single_toolset_with_instructions():
     """Test that template properly renders toolsets with llm_instructions."""

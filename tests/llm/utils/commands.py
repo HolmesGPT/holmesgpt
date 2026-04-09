@@ -5,10 +5,13 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from tests.llm.utils.env_vars import is_run_live_enabled
 from tests.llm.utils.test_case_utils import HolmesTestCase
+
+if TYPE_CHECKING:
+    from tests.llm.utils.env_config import EnvConfig
 
 EVAL_SETUP_TIMEOUT = int(
     os.environ.get("EVAL_SETUP_TIMEOUT", "300")
@@ -296,32 +299,38 @@ def run_commands(
 
 
 @contextmanager
-def set_test_env_vars(test_case: HolmesTestCase):
-    """Context manager to set and restore environment variables for test execution."""
-    if not test_case.test_env_vars:
+def _temporary_env_vars(env_vars: Dict[str, str]):
+    """Context manager that temporarily sets environment variables and restores them on exit.
+
+    Values support environment variable expansion via os.path.expandvars.
+    """
+    if not env_vars:
         yield
         return
 
-    # Save current environment variable values
-    saved_env_vars: Dict[str, Optional[str]] = {}
-    for key in test_case.test_env_vars.keys():
-        saved_env_vars[key] = os.environ.get(key)
+    saved: Dict[str, Optional[str]] = {key: os.environ.get(key) for key in env_vars}
 
     try:
-        # Set test environment variables
-        for key, value in test_case.test_env_vars.items():
-            # Expand environment variables in the value
-            expanded_value = os.path.expandvars(value)
-            os.environ[key] = expanded_value
-
+        for key, value in env_vars.items():
+            os.environ[key] = os.path.expandvars(value)
         yield
     finally:
-        # Restore original environment variable values
-        for key, original_value in saved_env_vars.items():
-            if original_value is None:
-                # Variable didn't exist before, remove it
-                if key in os.environ:
-                    del os.environ[key]
+        for key, original in saved.items():
+            if original is None:
+                os.environ.pop(key, None)
             else:
-                # Variable existed before, restore original value
-                os.environ[key] = original_value
+                os.environ[key] = original
+
+
+@contextmanager
+def set_test_env_vars(test_case: HolmesTestCase):
+    """Context manager to set test case environment variables during execution."""
+    with _temporary_env_vars(test_case.test_env_vars or {}):
+        yield
+
+
+@contextmanager
+def apply_env_config(env_config: "EnvConfig"):
+    """Context manager to apply an EnvConfig's environment variables during execution."""
+    with _temporary_env_vars(env_config.env_vars):
+        yield

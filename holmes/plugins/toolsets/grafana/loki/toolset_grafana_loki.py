@@ -35,7 +35,7 @@ def _build_grafana_loki_explore_url(
     if not config.grafana_datasource_uid:
         return None
     try:
-        base_url = config.external_url or config.url
+        base_url = config.external_url or config.api_url
         datasource_uid = config.grafana_datasource_uid or "loki"
 
         from_str = start if start else "now-1h"
@@ -81,7 +81,7 @@ class GrafanaLokiToolset(BaseGrafanaToolset):
             _ = execute_loki_query(
                 base_url=get_base_url(c),
                 api_key=c.api_key,
-                headers=c.headers,
+                headers=c.additional_headers,
                 query='{job="test_endpoint"}',
                 start=start,
                 end=end,
@@ -153,7 +153,7 @@ class LokiQuery(Tool):
             data = execute_loki_query(
                 base_url=get_base_url(config),
                 api_key=config.api_key,
-                headers=config.headers,
+                headers=config.additional_headers,
                 query=query_str,
                 start=start,
                 end=end,

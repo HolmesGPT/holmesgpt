@@ -40,10 +40,18 @@ class VersionCheckResult(NamedTuple):
 
 
 def is_official_release() -> bool:
-    """Check if this is an official release (version was patched by CI/CD)"""
+    """Check if this is an official release (version was patched by CI/CD).
+
+    Returns True only for clean semver release versions (e.g. "1.2.3").
+    Returns False for unpatched "0.0.0", dev builds (e.g. "1.2.4-dev.3+a1b2c3f"),
+    and any version with pre-release or build metadata segments.
+    """
     from holmes import __version__
 
-    return not __version__.startswith("0.0.0")
+    if __version__.startswith("0.0.0"):
+        return False
+    # Dev CI builds have pre-release segment (e.g. "1.2.4-dev.3+a1b2c3f")
+    return "-" not in __version__ and "+" not in __version__
 
 
 @cache
@@ -54,11 +62,11 @@ def get_version() -> str:
     """
     from holmes import __version__
 
-    # the version string was patched by a release - return __version__ which will be correct
-    if is_official_release():
+    # __version__ was patched by CI/CD (release or dev build) - return it directly
+    if not __version__.startswith("0.0.0"):
         return __version__
 
-    # we are running from an unreleased dev version
+    # we are running from an unreleased dev version (local/unpatched)
     archival_file_path = os.path.join(this_path, ".git_archival.json")
     if os.path.exists(archival_file_path):
         try:
@@ -158,8 +166,8 @@ def check_version() -> VersionCheckResult:
             is_latest=True, current_version=current_version or "unknown"
         )
 
-    # Dev versions are considered latest
-    if current_version.startswith("dev-"):
+    # Dev versions are considered latest (both local "dev-..." and CI "X.Y.Z-dev.N+hash")
+    if current_version.startswith("dev-") or "-dev." in current_version:
         return VersionCheckResult(
             is_latest=True,
             current_version=current_version,

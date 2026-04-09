@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"pod","name":"frontend-service","namespace":"default"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide pod frontend-service -n default", "params": {"kind": "pod", "name": "frontend-service", "namespace": "default"}}
-NAME               READY   STATUS    RESTARTS   AGE   IP            NODE                      NOMINATED NODE   READINESS GATES   LABELS
-frontend-service   1/1     Running   0          47m   10.244.1.70   kind-double-node-worker   <none>           <none>            <none>

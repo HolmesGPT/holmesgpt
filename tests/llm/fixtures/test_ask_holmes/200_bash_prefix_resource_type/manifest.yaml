@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: silver-moon
+  namespace: app-200
+  labels:
+    app: bash-test
+spec:
+  containers:
+    - name: nginx
+      image: nginx:1.25
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "100m"

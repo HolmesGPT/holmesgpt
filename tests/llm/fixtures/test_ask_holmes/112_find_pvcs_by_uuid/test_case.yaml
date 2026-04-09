@@ -2,6 +2,8 @@ user_prompt: "Find all PVCs that were created from backup ID b7f3a521-8c4d-4e6a-
 tags:
   - kubernetes
   - medium
+  - regression
+# The llm usually tries the kubectl toolset and reverts to the bash toolset or in rarer cases calls kubernetes_tabular_query
 expected_output:
   - Found 4 PVCs with the specified backup ID
   - database-pvc in namespace app-112-prod (2Mi)
@@ -10,6 +12,21 @@ expected_output:
   - build-cache in namespace app-112-dev (2Mi)
 before_test: |
   kubectl apply -f ./manifest.yaml
-  sleep 5
+
+  # Verify all 4 PVCs with target backup ID exist
+  READY=false
+  for i in {1..60}; do
+    COUNT=$(kubectl get pvc -A -o json | jq '[.items[] | select(.metadata.annotations."backup.velero.io/backup-id" == "b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e")] | length')
+    if [ "$COUNT" -eq 4 ]; then
+      echo "✅ Found all 4 PVCs with backup ID b7f3a521-8c4d-4e6a-9f2b-1a3d5e7f9c2e"
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "❌ Expected 4 PVCs with backup ID, found $COUNT"
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./manifest.yaml

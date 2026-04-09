@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_kind_in_namespace","match_params":{"kind":"pod","namespace":"ask-holmes-namespace-45"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide pod -n ask-holmes-namespace-45", "params": {"kind": "pod", "namespace": "ask-holmes-namespace-45"}}
-NAME                                    READY   STATUS    RESTARTS   AGE    IP            NODE                   NOMINATED NODE   READINESS GATES   LABELS
-my-server-deployment-79f4ff4d45-g4xvs   1/1     Running   0          6m4s   10.244.0.26   pool-5rdd4oamz-gl4h4   <none>           <none>            app=nginx-app,environment=production,pod-template-hash=79f4ff4d45

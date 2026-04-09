@@ -16,8 +16,11 @@ from holmes.core.tools import Toolset, ToolsetType, ToolsetYamlFromConfig, YAMLT
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
+from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
+from holmes.plugins.toolsets.database.database import DatabaseToolset
+from holmes.plugins.toolsets.mongodb.mongodb import MongoDBToolset
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
     DatadogGeneralToolset,
 )
@@ -35,16 +38,17 @@ from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
 from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
     OpenSearchQueryAssistToolset,
 )
-from holmes.plugins.toolsets.git import GitToolset
 from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import GrafanaLokiToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import GrafanaTempoToolset
+from holmes.plugins.toolsets.http.http_toolset import HttpToolset
 from holmes.plugins.toolsets.internet.internet import InternetToolset
 from holmes.plugins.toolsets.internet.notion import NotionToolset
 from holmes.plugins.toolsets.investigator.core_investigation import (
     CoreInvestigationToolset,
 )
 from holmes.plugins.toolsets.kafka import KafkaToolset
+from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
@@ -69,6 +73,13 @@ def load_toolsets_from_file(
                 f"Failed to load toolsets from {toolsets_path}: file is empty or invalid YAML."
             )
         toolsets_dict = parsed_yaml.get("toolsets", {})
+        mcp_config = parsed_yaml.get("mcp_servers", {})
+
+        for server_config in mcp_config.values():
+            server_config["type"] = ToolsetType.MCP.value
+            server_config.setdefault("enabled", True)
+
+        toolsets_dict.update(mcp_config)
 
         toolsets.extend(load_toolsets_from_config(toolsets_dict, strict_check))
 
@@ -98,12 +109,14 @@ def load_python_toolsets(
         OpenSearchQueryAssistToolset(),
         CoralogixToolset(),
         RabbitMQToolset(),
-        GitToolset(),
         BashExecutorToolset(),
+        KubectlRunToolset(),
+        ConfluenceToolset(),
         MongoDBAtlasToolset(),
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        DatabaseToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
     ]
@@ -187,13 +200,31 @@ def load_toolsets_from_config(
             # Resolve env var placeholders before creating the Toolset.
             # If done after, .override_with() will overwrite resolved values with placeholders
             # because model_dump() returns the original, unprocessed config from YAML.
+            #
+            # For MCP servers, preserve extra_headers templates so they can be
+            # dynamically resolved at request time (e.g., for refreshing tokens).
+            saved_extra_headers = None
+            if toolset_type == ToolsetType.MCP.value and isinstance(
+                config.get("config"), dict
+            ):
+                saved_extra_headers = config["config"].pop("extra_headers", None)
+
             if config:
                 config = env_utils.replace_env_vars_values(config)
+
+            if saved_extra_headers is not None:
+                config.setdefault("config", {})["extra_headers"] = saved_extra_headers
 
             validated_toolset: Optional[Toolset] = None
             # MCP server is not a built-in toolset, so we need to set the type explicitly
             if toolset_type == ToolsetType.MCP.value:
                 validated_toolset = RemoteMCPToolset(**config, name=name)
+            elif toolset_type == ToolsetType.HTTP.value:
+                validated_toolset = HttpToolset(name=name, **config)
+            elif toolset_type == ToolsetType.DATABASE.value:
+                validated_toolset = DatabaseToolset(name=name, **config)
+            elif toolset_type == ToolsetType.MONGODB.value:
+                validated_toolset = MongoDBToolset(name=name, **config)
             elif strict_check:
                 validated_toolset = YAMLToolset(**config, name=name)  # type: ignore
             else:

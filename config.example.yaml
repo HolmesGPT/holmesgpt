@@ -30,9 +30,6 @@
 #github_query: "is:issue is:open"
 
 # give the LLM explicit instructions how to investigate certain alerts
-# try adding runbooks to get better results on known alerts
-#custom_runbooks: ["examples/custom_runbooks.yaml"]
-
-# add custom runbook catalogs (catalog.json files with markdown runbook references)
+# use custom_runbook_catalogs (catalog.json files with markdown runbook references)
 # the directory containing each catalog.json will be used as a search path for the markdown files
 #custom_runbook_catalogs: ["/path/to/your/custom/runbooks/catalog.json"]

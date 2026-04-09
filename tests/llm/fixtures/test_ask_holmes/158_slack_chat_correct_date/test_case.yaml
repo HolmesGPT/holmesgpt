@@ -8,8 +8,7 @@ user_prompt:
 
 expected_output:
   - This must mention the date 2025-08-23
-tags:
-  - prometheus
+tags: []
 port_forwards:
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus

@@ -132,7 +132,7 @@ runs:
         
         # Wait for the CRD to be fully established
         echo "Waiting for Installation CRD to be established..."
-        if ! kubectl wait --for=condition=Established --timeout=60s crd/installations.operator.tigera.io; then
+        if ! kubectl wait --for=condition=Established --timeout=120s crd/installations.operator.tigera.io; then
           echo "❌ Installation CRD failed to become established"
           kubectl get crd installations.operator.tigera.io -o yaml
           exit 1
@@ -233,3 +233,83 @@ runs:
         echo "=== CNI configuration ==="
         kubectl get installations.operator.tigera.io default -o yaml | grep -A 10 "status:" || echo "Installation status not available yet"
         echo "=== Cluster is ready for tests with NetworkPolicy support ==="
+
+    - name: Install Helm
+      shell: bash
+      run: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        helm version
+
+    - name: Install kube-prometheus-stack
+      shell: bash
+      run: |
+        set -euo pipefail
+        PROM_START_TIME=$(date +%s)
+        echo "::group::Installing kube-prometheus-stack"
+        echo "Installing kube-prometheus-stack for Prometheus evals..."
+
+        # Add helm repo
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo update
+
+        # Install with minimal config - pin version for reproducibility
+        # Release name 'robusta' creates service 'robusta-kube-prometheus-st-prometheus'
+        # Note: additionalScrapeConfigs for annotation-based pod discovery is complex to
+        # configure inline. Tests needing custom app metrics should use ServiceMonitors.
+        helm install robusta prometheus-community/kube-prometheus-stack \
+          --version 72.6.2 \
+          --namespace default \
+          --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+          --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+          --set prometheus.prometheusSpec.scrapeInterval=15s \
+          --set prometheus.prometheusSpec.resources.requests.memory=256Mi \
+          --set prometheus.prometheusSpec.resources.requests.cpu=100m \
+          --set prometheus.prometheusSpec.resources.limits.memory=512Mi \
+          --set prometheus.prometheusSpec.resources.limits.cpu=500m \
+          --set alertmanager.enabled=false \
+          --set grafana.enabled=false \
+          --set kubeStateMetrics.enabled=true \
+          --set nodeExporter.enabled=true \
+          --wait \
+          --timeout 5m
+
+        echo "Waiting for Prometheus to be ready..."
+        kubectl wait --for=condition=Ready pods -l app.kubernetes.io/name=prometheus -n default --timeout=300s
+
+        # Verify Prometheus is responding
+        echo "Verifying Prometheus API..."
+        kubectl run prom-test --image=curlimages/curl:8.8.0 --restart=Never --rm -i --timeout=60s -- \
+          curl -s "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/status/config" | head -c 200 || true
+
+        echo ""
+        echo "=== Prometheus stack installed ==="
+        kubectl get pods -l "release=robusta" -n default
+        PROM_END_TIME=$(date +%s)
+        PROM_ELAPSED=$((PROM_END_TIME - PROM_START_TIME))
+        echo "::endgroup::"
+        echo "⏱️ kube-prometheus-stack installation took ${PROM_ELAPSED} seconds"
+
+    - name: Install metrics-server
+      shell: bash
+      run: |
+        set -euo pipefail
+        METRICS_START_TIME=$(date +%s)
+        echo "::group::Installing metrics-server"
+        echo "Installing metrics-server for HPA support..."
+
+        # Install metrics-server - pinned version for reproducibility
+        kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+
+        # Patch for KIND (needs insecure TLS since kubelet certs aren't valid)
+        kubectl patch deployment metrics-server -n kube-system \
+          --type='json' \
+          -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+
+        # Wait for metrics-server to be ready
+        echo "Waiting for metrics-server to be available..."
+        kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=120s
+
+        METRICS_END_TIME=$(date +%s)
+        METRICS_ELAPSED=$((METRICS_END_TIME - METRICS_START_TIME))
+        echo "::endgroup::"
+        echo "⏱️ metrics-server installation took ${METRICS_ELAPSED} seconds"

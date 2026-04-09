@@ -6,4 +6,4 @@ toolsets:
         - id: rabbitmq
           username: user
           password: "{{env.RABBITMQ_PASSWORD}}"
-          management_url: http://localhost:15672
+          api_url: http://localhost:15672

@@ -52,19 +52,25 @@ def get_classifier_model_params() -> ClassifierModelParams:
         elif OPENAI_API_KEY:
             client_api_key = OPENAI_API_KEY
             client_base_url = OPENAI_API_BASE
-        else:
+        elif OPENROUTER_API_KEY:
             client_api_key = OPENROUTER_API_KEY
-            client_base_url = OPENROUTER_API_BASE
+            client_base_url = OPENROUTER_API_BASE or "https://openrouter.ai/api/v1"
+        else:
+            raise ValueError(
+                "No API key found (AZURE_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY)"
+            )
         client_api_version = AZURE_API_VERSION
 
-        if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure"):
+        # Strip provider prefixes for API calls
+        if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure/"):
             if len(CLASSIFIER_MODEL.split("/")) != 2:
                 raise ValueError(
                     f"Current classifier model '{CLASSIFIER_MODEL}' does not meet the pattern 'azure/<deployment-name>' when using Azure OpenAI."
                 )
             model_for_api = CLASSIFIER_MODEL.split("/", 1)[1]
-        elif AZURE_API_BASE:
-            model_for_api = CLASSIFIER_MODEL
+        elif CLASSIFIER_MODEL.startswith("openrouter/"):
+            # Strip "openrouter/" prefix - OpenRouter expects "openai/gpt-4.1" not "openrouter/openai/gpt-4.1"
+            model_for_api = CLASSIFIER_MODEL.split("/", 1)[1]
 
     return ClassifierModelParams(
         model=model_for_api,
@@ -229,85 +235,3 @@ Possible choices:
         )
 
 
-def evaluate_sections(
-    sections: dict[str, bool], output: Optional[str], parent_span: Optional[Span]
-):
-    expected_sections = [section for section, expected in sections.items() if expected]
-    expected_sections_str = "\n".join([f"- {section}" for section in expected_sections])
-    if not expected_sections_str:
-        expected_sections_str = "<No section is expected>"
-
-    unexpected_sections = [
-        section for section, expected in sections.items() if not expected
-    ]
-    unexpected_sections_str = "\n".join(
-        [f"- {section}" for section in unexpected_sections]
-    )
-    if not unexpected_sections_str:
-        unexpected_sections_str = "<No element>"
-
-    prompt_prefix = """
-You are evaluating the correctness of an OUTPUT given by a LLM. You must return a score that
-represents the correctness of that OUTPUT.
-
-The LLM output is expected to be split into sections. Typically each section is represented by a markdown title `# <section title>`.
-Some sections are expected and should be populated in the output. Some sections are unexpected and should not be present in the outpout
-(i.e. there is no such title: `# <unexpected section`)
-
-If there are <No element> in EXPECTED SECTIONS assume the OUTPUT has all appropriate EXPECTED SECTIONS.
-If there are <No element> in UNEXPECTED SECTIONS assume the OUTPUT has no UNEXPECTED SECTIONS.
-
-
-# EXPECTED SECTIONS
-
-{{expected}}
-
-
-# UNEXPECTED SECTIONS
-
-{{input}}
-
-
-# OUTPUT
-
-{{output}}
-
-
-Return a choice based on the number of EXPECTED ELEMENTS present in the OUTPUT.
-Possible choices:
-A. One or more of the EXPECTED SECTIONS is missing and one or more of the UNEXPECTED SECTIONS is present
-B. All EXPECTED SECTIONS are present in the OUTPUT and no UNEXPECTED SECTIONS is present in the output
-"""
-
-    classifier = LLMClassifier(
-        name="sections",
-        prompt_template=prompt_prefix,
-        choice_scores={"A": 0, "B": 1},
-        use_cot=True,
-        model=classifier_model,
-    )
-    if parent_span:
-        with parent_span.start_span(
-            name="Sections", type=SpanTypeAttribute.SCORE
-        ) as span:
-            correctness_eval = classifier(
-                input=unexpected_sections_str,
-                output=output,
-                expected=expected_sections_str,
-            )
-
-            span.log(
-                input=prompt_prefix,
-                output=correctness_eval.metadata.get("rationale", ""),
-                expected=expected_sections_str,
-                scores={
-                    "sections": correctness_eval.score,
-                },
-                metadata=correctness_eval.metadata,
-            )
-
-            return correctness_eval
-    else:
-        return classifier(
-            input=unexpected_sections_str, output=output, expected=expected_sections_str
-        )

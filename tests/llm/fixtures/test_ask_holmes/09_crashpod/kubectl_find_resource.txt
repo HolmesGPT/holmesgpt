@@ -1,6 +1,0 @@
-{"toolset_name": "kubernetes/core", "tool_name": "kubectl_find_resource", "match_params": {"kind": "pod", "keyword": "payment-processing-worker"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "url": null, "invocation": "kubectl_find_resource command", "params": {"kind": "pod", "keyword": "payment-processing-worker"}}
-stdout:
-default              payment-processing-worker-747ccfb9db-78qds               0/1     CrashLoopBackOff   1 (8s ago)       12s     10.244.0.196   kind-control-plane   <none>           <none>            app=payment-processing-worker,pod-template-hash=747ccfb9db
-
-stderr:

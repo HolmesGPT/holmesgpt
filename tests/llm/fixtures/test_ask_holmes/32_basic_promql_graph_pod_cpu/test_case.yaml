@@ -1,4 +1,5 @@
-user_prompt: "Show me a graph of the CPU usage for the pod robusta-holmes over the last 30 minutes"
+user_prompt: "Show me a graph of the CPU usage for the prometheus pod over the last 30 minutes"
+
 expected_output:
   - 'The answer should include something similar to << { "type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "<random_value>" } >>. Both tool_name and tool_call_id MUST absolutely be present. tool_call_id can have any value, tool_name must be execute_prometheus_range_query.'
 tags:

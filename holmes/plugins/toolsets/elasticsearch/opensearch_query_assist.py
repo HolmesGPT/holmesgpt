@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict
+from typing import Dict
 
 from holmes.core.tools import (
     StructuredToolResult,
@@ -65,9 +65,6 @@ class OpenSearchQueryAssistToolset(Toolset):
             tags=[ToolsetTag.CORE],
             prerequisites=[ToolsetEnvironmentPrerequisite(env=["OPENSEARCH_URL"])],
         )
-
-    def get_example_config(self) -> Dict[str, Any]:
-        return {"opensearch_url": "http://localhost:9200"}
 
     def _reload_instructions(self):
         template_file_path = os.path.abspath(

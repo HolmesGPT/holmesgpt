@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_find_resource","match_params":{"kind":"namespace","keyword":"my-demoshop"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "return_code": 0, "url": null, "invocation": "kubectl get -A --show-labels -o wide namespace | grep my-demoshop", "params": {"kind": "namespace", "keyword": "my-demoshop"}}
-my-demoshop-namespace            Active   40d   kubernetes.io/metadata.name=my-demoshop-namespace

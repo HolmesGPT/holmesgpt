@@ -15,7 +15,7 @@ if skip_reason:
 
 def test_grafana_toolset_direct_health_check():
     toolset = GrafanaToolset()
-    toolset.config = {"url": "http://localhost:3000/"}
+    toolset.config = {"api_url": "http://localhost:3000/"}
     toolset.check_prerequisites()
 
     assert toolset.error is None
@@ -24,7 +24,7 @@ def test_grafana_toolset_direct_health_check():
 
 def test_grafana_toolset_error_health_check():
     toolset = GrafanaToolset()
-    toolset.config = {"url": "http://localhost:2000/"}
+    toolset.config = {"api_url": "http://localhost:2000/"}
     toolset.check_prerequisites()
 
     assert (
@@ -36,7 +36,7 @@ def test_grafana_toolset_error_health_check():
 
 def test_loki_toolset_direct_health_check():
     toolset = GrafanaLokiToolset()
-    toolset.config = {"url": "http://localhost:3100/"}
+    toolset.config = {"api_url": "http://localhost:3100/"}
     toolset.check_prerequisites()
 
     assert toolset.error is None
@@ -46,7 +46,7 @@ def test_loki_toolset_direct_health_check():
 def test_loki_datasource_toolset_health_check():
     toolset = GrafanaLokiToolset()
     toolset.config = {
-        "url": "http://localhost:3000/",
+        "api_url": "http://localhost:3000/",
         "grafana_datasource_uid": "loki-test-uid",
     }
     toolset.check_prerequisites()
@@ -58,7 +58,7 @@ def test_loki_datasource_toolset_health_check():
 def test_loki_datasource_toolset_error_health_check():
     toolset = GrafanaLokiToolset()
     toolset.config = {
-        "url": "http://localhost:3000/",
+        "api_url": "http://localhost:3000/",
         "grafana_datasource_uid": "wrong-uid",
     }
     toolset.check_prerequisites()

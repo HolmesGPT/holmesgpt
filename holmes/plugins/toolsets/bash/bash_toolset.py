@@ -1,18 +1,24 @@
-import argparse
+"""
+Bash toolset with prefix-based command validation.
+
+This toolset enables bash command execution with dynamic whitelisting.
+Commands are validated against allow/deny lists using prefix matching.
+"""
+
+import base64
 import logging
 import os
-import random
-import re
-import string
+from pathlib import Path
 from typing import Any, Dict, Optional
 
-import sentry_sdk
+display_logger = logging.getLogger("holmes.display.bash_toolset")
 
-from holmes.common.env_vars import (
-    BASH_TOOL_UNSAFE_ALLOW_ALL,
-)
+from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
+
 from holmes.core.tools import (
+    ApprovalRequirement,
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -20,129 +26,93 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
-from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
+from holmes.plugins.prompts import load_and_render_prompt
+from holmes.plugins.toolsets.bash.common.bash import BashResult, execute_bash_command
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    load_cli_bash_tools_approved_prefixes,
+)
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
-from holmes.plugins.toolsets.bash.kubectl.constants import SAFE_NAMESPACE_PATTERN
-from holmes.plugins.toolsets.bash.kubectl.kubectl_run import validate_image_and_commands
-from holmes.plugins.toolsets.bash.parse_command import make_command_safe
-from holmes.plugins.toolsets.utils import get_param_or_raise
+from holmes.plugins.toolsets.bash.validation import (
+    DenyReason,
+    ValidationStatus,
+    get_effective_lists,
+    validate_command,
+)
 
 
-class BaseBashExecutorToolset(Toolset):
-    config: Optional[BashExecutorConfig] = None
+def bash_result_to_structured(
+    result: BashResult, cmd: str, timeout: int, params: dict
+) -> StructuredToolResult:
+    """
+    Convert a BashResult to a StructuredToolResult.
 
-    def get_example_config(self):
-        example_config = BashExecutorConfig()
-        return example_config.model_dump()
+    Args:
+        result: The BashResult from execute_bash_command
+        cmd: The original command (for error messages)
+        timeout: The timeout value (for error messages)
+        params: Parameters to include in the result
+
+    Returns:
+        StructuredToolResult suitable for the tool response
+    """
+    if result.timed_out:
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR,
+            error=f"Error: Command '{cmd}' timed out after {timeout} seconds.",
+            data=f"{cmd}\n{result.stdout}" if result.stdout else None,
+            params=params,
+            invocation=cmd,
+        )
+
+    result_data = f"{cmd}\n{result.stdout}"
+
+    if result.return_code == 0:
+        status = (
+            StructuredToolResultStatus.SUCCESS
+            if result.stdout
+            else StructuredToolResultStatus.NO_DATA
+        )
+        error = None
+    else:
+        status = StructuredToolResultStatus.ERROR
+        error = (
+            f'Error: Command "{cmd}" returned non-zero exit status {result.return_code}'
+        )
+
+    return StructuredToolResult(
+        status=status,
+        error=error,
+        data=result_data,
+        params=params,
+        invocation=cmd,
+        return_code=result.return_code,
+    )
 
 
-class BaseBashTool(Tool):
-    toolset: BaseBashExecutorToolset
+class RunBashCommand(Tool):
+    """
+    Tool for executing bash commands with prefix-based validation.
 
+    Commands are validated against allow/deny lists using the suggested_prefixes
+    parameter. Each command segment (separated by |, &&, etc.) requires its own prefix.
+    """
 
-class KubectlRunImageCommand(BaseBashTool):
-    def __init__(self, toolset: BaseBashExecutorToolset):
+    toolset: "BashExecutorToolset"
+
+    def __init__(self, toolset: "BashExecutorToolset"):
         super().__init__(
-            name="kubectl_run_image",
+            name="bash",
             description=(
-                "Executes `kubectl run <name> --image=<image> ... -- <command>` return the result"
-            ),
-            parameters={
-                "image": ToolParameter(
-                    description="The image to run",
-                    type="string",
-                    required=True,
-                ),
-                "command": ToolParameter(
-                    description="The command to execute on the deployed pod",
-                    type="string",
-                    required=True,
-                ),
-                "namespace": ToolParameter(
-                    description="The namespace in which to deploy the temporary pod",
-                    type="string",
-                    required=False,
-                ),
-                "timeout": ToolParameter(
-                    description=(
-                        "Optional timeout in seconds for the command execution. "
-                        "Defaults to 60s."
-                    ),
-                    type="integer",
-                    required=False,
-                ),
-            },
-            toolset=toolset,
-        )
-
-    def _build_kubectl_command(self, params: dict, pod_name: str) -> str:
-        namespace = params.get("namespace", "default")
-        image = get_param_or_raise(params, "image")
-        command_str = get_param_or_raise(params, "command")
-        return f"kubectl run {pod_name} --image={image} --namespace={namespace} --rm --attach --restart=Never -i -- {command_str}"
-
-    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        timeout = params.get("timeout", 60)
-
-        image = get_param_or_raise(params, "image")
-        command_str = get_param_or_raise(params, "command")
-
-        namespace = params.get("namespace")
-
-        if namespace and not re.match(SAFE_NAMESPACE_PATTERN, namespace):
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR,
-                error=f"Error: The namespace is invalid. Valid namespaces must match the following regexp: {SAFE_NAMESPACE_PATTERN}",
-                params=params,
-            )
-
-        try:
-            validate_image_and_commands(
-                image=image, container_command=command_str, config=self.toolset.config
-            )
-        except ValueError as e:
-            # Report unsafe kubectl run command attempt to Sentry
-            sentry_sdk.capture_event(
-                {
-                    "message": f"Unsafe kubectl run command attempted: {image}",
-                    "level": "warning",
-                    "extra": {
-                        "image": image,
-                        "command": command_str,
-                        "namespace": namespace,
-                        "error": str(e),
-                    },
-                }
-            )
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR,
-                error=str(e),
-                params=params,
-            )
-
-        pod_name = (
-            "holmesgpt-debug-pod-"
-            + "".join(random.choices(string.ascii_letters, k=8)).lower()
-        )
-        full_kubectl_command = self._build_kubectl_command(params, pod_name)
-        return execute_bash_command(
-            cmd=full_kubectl_command, timeout=timeout, params=params
-        )
-
-    def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
-        return self._build_kubectl_command(params, "<pod_name>")
-
-
-class RunBashCommand(BaseBashTool):
-    def __init__(self, toolset: BaseBashExecutorToolset):
-        super().__init__(
-            name="run_bash_command",
-            description=(
-                "Executes a given bash command and returns its standard output, "
-                "standard error, and exit code."
-                "The command is executed via 'bash -c \"<command>\"'."
-                "Only some commands are allowed."
+                "Executes a bash command and returns its output. "
+                "Supports: single commands, pipes (|), &&, ||, ;, &. "
+                "Also supports (requires user approval): for/while/until loops, if/case statements, "
+                "subshells $() and backticks. "
+                "You must provide suggested_prefixes - one prefix per command segment. "
+                "Example: for 'kubectl get pods | grep error', provide "
+                "suggested_prefixes=['kubectl get', 'grep']. "
+                "For scripts with loops/conditionals, provide prefixes for the key operations inside."
             ),
             parameters={
                 "command": ToolParameter(
@@ -150,22 +120,88 @@ class RunBashCommand(BaseBashTool):
                     type="string",
                     required=True,
                 ),
+                "suggested_prefixes": ToolParameter(
+                    description=(
+                        "Array of command prefixes, one per command segment. "
+                        "Include command name and subcommand (e.g., 'kubectl get', 'grep'). "
+                        "Do NOT include resource names, namespaces, or flag values."
+                    ),
+                    type="array",
+                    items=ToolParameter(type="string"),
+                    required=True,
+                ),
                 "timeout": ToolParameter(
                     description=(
                         "Optional timeout in seconds for the command execution. "
-                        "Defaults to 60s."
+                        "Defaults to 30s."
                     ),
                     type="integer",
                     required=False,
                 ),
             },
-            toolset=toolset,
+            toolset=toolset,  # type: ignore[call-arg]
         )
+
+    def _validate_command(
+        self, command_str: str, suggested_prefixes: list, context: ToolInvokeContext
+    ):
+        """Validate command against effective allow/deny lists."""
+        # Refresh CLI-approved prefixes (no-op in server mode due to CLI mode flag)
+        self.toolset._merge_cli_approved_prefixes()
+
+        config = self.toolset.config or BashExecutorConfig()
+        allow_list, deny_list = get_effective_lists(config)
+
+        # Merge session-approved prefixes from conversation history (server flow)
+        if context.session_approved_prefixes:
+            existing = set(allow_list)
+            for prefix in context.session_approved_prefixes:
+                if prefix not in existing:
+                    allow_list.append(prefix)
+
+        return validate_command(command_str, suggested_prefixes, allow_list, deny_list)
+
+    def requires_approval(
+        self, params: Dict[str, Any], context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        """
+        Check if bash command requires approval based on prefix-based validation.
+
+        This method is called BEFORE _invoke() to determine if user approval is needed.
+        It can be called multiple times (e.g., to re-check after a previous approval
+        updated the allow list).
+        """
+        command_str = params.get("command", "")
+        suggested_prefixes = params.get("suggested_prefixes", [])
+
+        if not command_str or not suggested_prefixes:
+            return None  # Let _invoke() handle validation errors
+
+        validation_result = self._validate_command(
+            command_str, suggested_prefixes, context
+        )
+
+        if validation_result.status == ValidationStatus.DENIED:
+            # Denied commands don't need approval - they'll be rejected in _invoke()
+            return None
+
+        if validation_result.status == ValidationStatus.APPROVAL_REQUIRED:
+            prefixes_to_save = validation_result.prefixes_needing_approval
+            return ApprovalRequirement(
+                needs_approval=True,
+                reason=f"Command requires approval. {validation_result.message}",
+                prefixes_to_save=prefixes_to_save,
+            )
+
+        # ALLOWED - no approval needed
+        return None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         command_str = params.get("command")
-        timeout = params.get("timeout", 60)
+        suggested_prefixes = params.get("suggested_prefixes", [])
+        timeout = params.get("timeout", 30)
 
+        # Validate required parameters
         if not command_str:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -180,33 +216,73 @@ class RunBashCommand(BaseBashTool):
                 params=params,
             )
 
-        command_to_execute = command_str
+        if not suggested_prefixes:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'suggested_prefixes' parameter is required. Provide one prefix per command segment.",
+                params=params,
+            )
 
-        # Only run the safety check if user has NOT approved the command
+        if not isinstance(suggested_prefixes, list):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"The 'suggested_prefixes' parameter must be an array, got {type(suggested_prefixes).__name__}.",
+                params=params,
+            )
+
+        # If not user_approved, validate the command
         if not context.user_approved:
-            try:
-                command_to_execute = make_command_safe(command_str, self.toolset.config)
+            validation_result = self._validate_command(
+                command_str, suggested_prefixes, context
+            )
 
-            except (argparse.ArgumentError, ValueError) as e:
-                with sentry_sdk.configure_scope() as scope:
-                    scope.set_extra("command", command_str)
-                    scope.set_extra("error", str(e))
-                    scope.set_extra("unsafe_allow_all", BASH_TOOL_UNSAFE_ALLOW_ALL)
-                    sentry_sdk.capture_exception(e)
+            if validation_result.status == ValidationStatus.DENIED:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=self._build_deny_error_message(validation_result),
+                    params=params,
+                    invocation=command_str,
+                )
 
-                if not BASH_TOOL_UNSAFE_ALLOW_ALL:
-                    logging.info(f"Refusing LLM tool call {command_str}")
+            if validation_result.status == ValidationStatus.APPROVAL_REQUIRED:
+                # This shouldn't happen - requires_approval() should have been called first
+                logging.warning(
+                    f"Unexpected APPROVAL_REQUIRED in _invoke() for command: {command_str}. "
+                    "This indicates requires_approval() was bypassed."
+                )
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error="Command requires approval but was not approved. This may be a bug.",
+                    params=params,
+                    invocation=command_str,
+                )
 
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.APPROVAL_REQUIRED,
-                        error=f"Refusing to execute bash command. {str(e)}",
-                        params=params,
-                        invocation=command_str,
-                    )
+        # Execute command (user_approved or validation passed)
+        display_logger.info(f"Executing bash command: {command_str}")
+        try:
+            result = execute_bash_command(cmd=command_str, timeout=timeout)
+        except FileNotFoundError:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="Error: Bash executable not found. Ensure /bin/bash is available.",
+                params=params,
+                invocation=command_str,
+            )
+        return bash_result_to_structured(result, command_str, timeout, params)
 
-        return execute_bash_command(
-            cmd=command_to_execute, timeout=timeout, params=params
-        )
+    def _build_deny_error_message(self, validation_result) -> str:
+        """Build an appropriate error message based on the deny reason."""
+        if validation_result.deny_reason == DenyReason.HARDCODED_BLOCK:
+            return f"Command blocked: {validation_result.message}"
+
+        elif validation_result.deny_reason == DenyReason.DENY_LIST:
+            return f"Command blocked by configuration: {validation_result.message}"
+
+        elif validation_result.deny_reason == DenyReason.PREFIX_NOT_IN_COMMAND:
+            return f"Invalid prefix: {validation_result.message}"
+
+        else:
+            return validation_result.message or "Command denied."
 
     def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
         command = params.get("command", "N/A")
@@ -214,36 +290,177 @@ class RunBashCommand(BaseBashTool):
         return display_command
 
 
-class BashExecutorToolset(BaseBashExecutorToolset):
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+EXTENSION_TO_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+# File-size sanity check (20 MB), NOT a token budget. LLM providers downscale images
+# before tokenizing (e.g. Claude caps at ~1568px on the longest side), so a 500KB and
+# 20MB PNG with the same dimensions cost the same ~1600 tokens. The spill-to-disk
+# mechanism in tool_context_window_limiter.py handles token-level limits; this just
+# prevents accidentally reading huge binary files off disk.
+MAX_IMAGE_FILE_SIZE = 20 * 1024 * 1024
+
+
+class ReadImageFile(Tool):
+    """Tool for reading an image file from disk and returning it for visual analysis.
+
+    This is used when large tool results with images are spilled to disk.
+    The LLM receives file paths and can use this tool to load the image back.
+    """
+
+    def __init__(self, toolset: "BashExecutorToolset"):
+        super().__init__(
+            name="read_image_file",
+            description=(
+                "Read an image file from disk and return it for visual analysis. "
+                "Use this when a previous tool result was too large and its images "
+                "were saved to disk. The file path is provided in the spill message. "
+                "Supported formats: PNG, JPEG, GIF, WebP."
+            ),
+            parameters={
+                "file_path": ToolParameter(
+                    description="Absolute path to the image file on disk.",
+                    type="string",
+                    required=True,
+                ),
+            },
+            toolset=toolset,  # type: ignore[call-arg]
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        file_path_str = params.get("file_path", "")
+        if not file_path_str:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'file_path' parameter is required.",
+                params=params,
+            )
+
+        file_path = Path(file_path_str)
+
+        if not file_path.is_absolute():
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Path must be absolute: {file_path_str}",
+                params=params,
+            )
+
+        if not file_path.exists():
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"File not found: {file_path_str}",
+                params=params,
+            )
+
+        # Restrict to the tool result storage directory for defense-in-depth
+        storage_root = Path(HOLMES_TOOL_RESULT_STORAGE_PATH).resolve()
+        if not file_path.resolve().is_relative_to(storage_root):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Access denied: path must be inside {HOLMES_TOOL_RESULT_STORAGE_PATH}",
+                params=params,
+            )
+
+        ext = file_path.suffix.lower()
+        if ext not in ALLOWED_IMAGE_EXTENSIONS:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Unsupported image format '{ext}'. Supported: {', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))}",
+                params=params,
+            )
+
+        file_size = file_path.stat().st_size
+        if file_size > MAX_IMAGE_FILE_SIZE:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Image file too large: {file_size / 1024 / 1024:.1f}MB (max {MAX_IMAGE_FILE_SIZE / 1024 / 1024:.0f}MB)",
+                params=params,
+            )
+
+        mime_type = EXTENSION_TO_MIME.get(ext, "image/png")
+        image_data = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=f"Image loaded from {file_path_str} ({file_size} bytes, {mime_type})",
+            images=[{"data": image_data, "mimeType": mime_type}],
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
+        return f"Read image: {params.get('file_path', 'N/A')}"
+
+
+class BashExecutorToolset(Toolset):
+    """
+    Toolset for executing bash commands with prefix-based validation.
+
+    Commands are validated against allow/deny lists. Users can approve
+    commands on-the-fly and build their trusted command set over time.
+    """
+
+    config_classes: ClassVar[list[Type[BashExecutorConfig]]] = [BashExecutorConfig]
+    config: Optional[BashExecutorConfig] = None
+
     def __init__(self):
         super().__init__(
             name="bash",
-            enabled=False,
-            description=(
-                "Toolset for executing arbitrary bash commands on the system where Holmes is running. "
-                "WARNING: This toolset provides powerful capabilities and should be "
-                "enabled and used with extreme caution due to significant security risks. "
-                "Ensure that only trusted users have access to this tool."
-            ),
-            docs_url="",  # TODO: Add relevant documentation URL
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Bash_Logo_Colored.svg/120px-Bash_Logo_Colored.svg.png",  # Example Bash icon
+            enabled=True,
+            description="Execute bash commands validated against prefix-based allow/deny lists, with user approval for unknown commands.",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/bash/",
+            icon_url="https://raw.githubusercontent.com/Templarian/MaterialDesign/master/svg/console.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            tools=[RunBashCommand(self), KubectlRunImageCommand(self)],
+            tools=[RunBashCommand(self), ReadImageFile(self)],
             tags=[ToolsetTag.CORE],
-            is_default=False,
         )
 
         self._reload_llm_instructions()
 
     def _reload_llm_instructions(self):
+        """Reload LLM instructions with effective allow/deny lists."""
         template_file_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "bash_instructions.jinja2")
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+
+        config = self.config or BashExecutorConfig()
+        logging.debug(
+            f"Reloading bash toolset with builtin_allowlist: {config.builtin_allowlist}"
+        )
+        effective_allow, effective_deny = get_effective_lists(config)
+
+        # Create a config-like dict with effective lists for the template
+        effective_config = {
+            "allow": effective_allow,
+            "deny": effective_deny,
+        }
+
+        tool_names = [t.name for t in self.tools]
+        self.llm_instructions = load_and_render_prompt(
+            prompt=f"file://{template_file_path}",
+            context={"tool_names": tool_names, "config": effective_config},
+        )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> tuple[bool, str]:
-        if config:
-            self.config = BashExecutorConfig(**config)
-        else:
-            self.config = BashExecutorConfig()
+        self.config = BashExecutorConfig(**config)
+
+        # Load CLI-approved prefixes and merge with allow list
+        self._merge_cli_approved_prefixes()
+
+        # Reload instructions to include allow list
+        self._reload_llm_instructions()
+
         return True, ""
+
+    def _merge_cli_approved_prefixes(self) -> None:
+        """Merge CLI-approved prefixes from ~/.holmes/bash_approved_prefixes.yaml."""
+        cli_prefixes = load_cli_bash_tools_approved_prefixes()
+        if cli_prefixes and self.config:
+            # Build new list instead of mutating (preserves order, dedupes)
+            merged = list(dict.fromkeys(self.config.allow + cli_prefixes))
+            self.config.allow = merged
+            logging.debug(f"Merged {len(cli_prefixes)} CLI-approved prefixes")

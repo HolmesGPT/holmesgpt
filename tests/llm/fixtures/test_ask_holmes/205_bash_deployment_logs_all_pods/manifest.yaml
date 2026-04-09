@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-processor
+  namespace: app-205
+spec:
+  clusterIP: None
+  selector:
+    app: order-processor
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: order-processor
+  namespace: app-205
+spec:
+  serviceName: order-processor
+  replicas: 100
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: order-processor
+  template:
+    metadata:
+      labels:
+        app: order-processor
+    spec:
+      containers:
+        - name: logger
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              POD_ID=$(hostname)
+              # Pod 79 has a different error message
+              if [ "$POD_ID" = "order-processor-79" ]; then
+                ERROR_MSG="ERROR: Database connection refused from $POD_ID"
+              else
+                ERROR_MSG="ERROR: Connection timeout from $POD_ID"
+              fi
+              # Burst phase: generate 5000 INFO logs quickly
+              i=0
+              while [ $i -lt 5000 ]; do
+                i=$((i+1))
+                echo "INFO: Processing request from $POD_ID"
+              done
+              # End with exactly ONE error log
+              echo "$ERROR_MSG"
+              # Keep container running
+              sleep infinity
+          resources:
+            limits:
+              memory: "32Mi"
+              cpu: "10m"

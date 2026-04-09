@@ -12,9 +12,6 @@ HolmesGPT is an AI-powered troubleshooting agent that connects to observability 
 ```bash
 # Install dependencies with Poetry
 poetry install
-
-# Install pre-commit hooks
-poetry run pre-commit install
 ```
 
 ### Testing
@@ -35,11 +32,12 @@ make test-llm-investigate         # Test AlertManager investigations
 poetry run pytest tests/llm/ -n 6 -vv  # Run all LLM tests in parallel
 
 # Run pre-commit checks (includes ruff, mypy, poetry validation)
+# NOTE: Only run these when the user explicitly asks. They run in CI automatically.
 make check
 poetry run pre-commit run -a
 ```
 
-### Code Quality
+### Code Quality (only run when explicitly asked)
 ```bash
 # Format code with ruff
 poetry run ruff format
@@ -166,121 +164,32 @@ See `prometheus/prometheus.py` PrometheusConfig for a complete example.
 2. **Integration Tests**: Test toolset integrations
 3. **LLM Evaluation Tests** (`tests/llm/`): End-to-end tests using fixtures
 
-**LLM Test Structure**:
-- `tests/llm/fixtures/test_ask_holmes/`: 53+ test scenarios with YAML configs
-- Each test has expected outputs validated by LLM-as-judge
-- Supports Braintrust integration for result tracking
-
-**Running LLM Tests**:
+**Running regular (non-LLM) tests**:
 ```bash
-# Run all LLM tests
-poetry run pytest -m 'llm' --no-cov
+poetry run pytest tests -m "not llm"
+make test-without-llm
+```
 
-# Run specific test - IMPORTANT: Use -k flag, NOT full test path!
-# CORRECT - use -k flag with test name pattern:
-poetry run pytest -m 'llm' -k "09_crashpod" --no-cov
-poetry run pytest tests/llm/test_ask_holmes.py -k "114_checkout_latency" --no-cov
+**Running LLM eval tests**:
+```bash
+# Run specific eval - IMPORTANT: Use -k flag, NOT full test path with brackets
+poetry run pytest -k "09_crashpod" --no-cov
 
-# WRONG - DO NOT specify full test path with brackets:
-# poetry run pytest tests/llm/test_ask_holmes.py::test_ask_holmes[114_checkout_latency_tracing_rebuild-gpt-4o]
-# This syntax fails when environment variables are passed!
+# Run all evals in parallel
+poetry run pytest tests/llm/ -n 6 --no-cov
 
-# Run regression tests (easy marker) - all should pass with ITERATIONS=10
+# Regression evals
 poetry run pytest -m 'llm and easy' --no-cov
-ITERATIONS=10 poetry run pytest -m 'llm and easy' --no-cov
-
-# Run tests in parallel
-poetry run pytest tests/llm/ -n 6
-
-# Test with different models
-# Note: When using Anthropic models, set CLASSIFIER_MODEL to OpenAI (Anthropic not supported as classifier)
-MODEL=anthropic/claude-sonnet-4-20250514 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/test_ask_holmes.py -k "test_name"
-
-# Setting environment variables - IMPORTANT:
-# Environment variables must be set BEFORE the poetry command, NOT as pytest arguments
-# CORRECT:
-EVAL_SETUP_TIMEOUT=600 poetry run pytest -m 'llm' -k "slow_test" --no-cov
-
-# WRONG - this won't work:
-# poetry run pytest EVAL_SETUP_TIMEOUT=600 -m 'llm' -k "slow_test"
 ```
 
-### Evaluation CLI Reference
-
-**Custom Pytest Flags**:
-- `--skip-setup`: Skip before_test commands (useful for iterative testing)
-- `--skip-cleanup`: Skip after_test commands (useful for debugging)
-
-**Environment Variables**:
-- `MODEL`: LLM model(s) to use - supports comma-separated list (e.g., `gpt-4.1` or `gpt-4.1,anthropic/claude-sonnet-4-20250514`)
-- `CLASSIFIER_MODEL`: Model for scoring answers (defaults to MODEL)
-- `RUN_LIVE=true`: Execute real commands (now enabled by default)
-- `ITERATIONS=<number>`: Run each test multiple times
-- `UPLOAD_DATASET=true`: Sync dataset to Braintrust
-- `EXPERIMENT_ID`: Custom experiment name for tracking
-- `BRAINTRUST_API_KEY`: Enable Braintrust integration
-- `ASK_HOLMES_TEST_TYPE`: Controls message building flow in ask_holmes tests
-  - `cli` (default): Uses `build_initial_ask_messages` like the CLI ask() command (skips conversation history tests)
-  - `server`: Uses `build_chat_messages` with ChatRequest for server-style flow
-
-**Common Evaluation Patterns**:
-
-```bash
-# Run tests multiple times for reliability
-ITERATIONS=100 poetry run pytest tests/llm/test_ask_holmes.py -k "flaky_test"
-
-# Model comparison workflow
-EXPERIMENT_ID=gpt41_baseline MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
-EXPERIMENT_ID=claude_opus41_test MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest tests/llm/ -n 6
-
-# Debug with verbose output
-poetry run pytest -vv -s tests/llm/test_ask_holmes.py -k "failing_test" --no-cov
-
-# List tests by marker
-poetry run pytest -m "llm and not network" --collect-only -q
-
-# Test marker combinations
-poetry run pytest -m "llm and easy" --no-cov  # Regression tests
-poetry run pytest -m "llm and not easy" --no-cov  # Non-regression tests
-```
-
-## Tag Management Guidelines
-
-**Before adding new tags**:
-1. Check existing tags in `pyproject.toml` markers section
-2. Ask user permission for new tags  
-3. Use descriptive, hyphenated names (e.g., `grafana-dashboard`, not `grafana_dashboard`)
-
-**Tag naming conventions**:
-- Service-specific: `grafana-dashboard`, `prometheus-metrics`, `loki`
-- Functionality: `question-answer`, `chain-of-causation` 
-- Difficulty: `easy`, `medium`, `hard`
-- Infrastructure: `kubernetes`, `database`, `traces`
-
-**Adding new tags workflow**:
-1. Add tag to `pyproject.toml` markers section with description
-2. Apply tag to relevant test files
-3. Verify tag filtering works: `pytest -m "new-tag" --collect-only`
-
-**Available Test Markers (same as eval tags)**:
-Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask the user before adding a new one.
-
-**Important**: The `regression` marker identifies critical tests that must always pass in CI/CD. The `easy` marker is a legacy marker that contains broader regression tests.
-
-**Test Infrastructure Notes**:
-- All test state tracking uses pytest's `user_properties` to ensure compatibility with pytest-xdist parallel execution
-- Test results are stored in `user_properties` and aggregated in the terminal summary
-- This design ensures tests work correctly when run in parallel with `-n` flag
-- **Important for LLM tests**: Each test must use a dedicated namespace `app-<testid>` (e.g., `app-01`, `app-02`) to prevent conflicts when tests run simultaneously
-- All pod names must be unique across tests (e.g., `giant-narwhal`, `blue-whale`, `sea-turtle`) - never reuse pod names between tests
-- **Resource naming in evals**: Never use names that hint at the problem or expected behavior (e.g., avoid `broken-pod`, `test-project-that-does-not-exist`, `crashloop-app`). Use neutral names that don't give away what the LLM should discover
+For the complete eval CLI reference (flags, env vars, model comparison, debugging), see the `/create-eval` skill which contains full documentation in its reference files.
 
 ## Configuration
 
 **Config File Location**: `~/.holmes/config.yaml`
 
 **Key Configuration Sections**:
-- `model`: LLM model to use (default: gpt-4.1)
+- `model`: LLM model to use (default: gpt-5.4)
 - `api_key`: LLM API key (or use environment variables)
 - `custom_toolsets`: Override or add toolsets
 - `custom_runbooks`: Add investigation runbooks
@@ -288,9 +197,10 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 **Environment Variables**:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`: LLM API keys
-- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`)
+- `OPENROUTER_API_KEY`: Alternative LLM provider via OpenRouter (domain: `api.openrouter.ai`). When using OpenRouter, you must also set `CLASSIFIER_MODEL` to an OpenRouter model (e.g., `CLASSIFIER_MODEL="openrouter/openai/gpt-4.1"`) because the default classifier model is not available via OpenRouter.
 - `MODEL`: Override default model(s) - supports comma-separated list
-- `RUN_LIVE`: Use live tools in tests (strongly recommended)
+- `CLASSIFIER_MODEL`: Override the classifier model used internally. Required when using OpenRouter (e.g., `openrouter/openai/gpt-4.1`)
+- `RUN_LIVE`: Enable live execution of tools in tests (default: true)
 - `BRAINTRUST_API_KEY`: For test result tracking and CI/CD report generation
 - `BRAINTRUST_ORG`: Braintrust organization name (default: "robustadev")
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`: For Elasticsearch/OpenSearch cloud testing
@@ -300,8 +210,16 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 **Code Quality**:
 - Use Ruff for formatting and linting (configured in pyproject.toml)
 - Type hints required (mypy configuration in pyproject.toml)
-- Pre-commit hooks enforce quality checks
+- Pre-commit hooks enforce quality checks in CI
 - **ALWAYS place Python imports at the top of the file**, not inside functions or methods
+- **NEVER run `pre-commit`, `ruff`, or `mypy` unless the user explicitly asks you to**. These tools are triggered by commit hooks which are not installed on all machines, and running them causes widespread formatting/type changes to files unrelated to your task. Only lint/format files you are actively editing, and only if asked.
+
+**Documentation Examples**:
+- **Primary examples should use the latest Anthropic Claude models**:
+  - Recommended: `anthropic/claude-sonnet-4-5-20250929` or `anthropic/claude-opus-4-5-20251101`
+  - Use the latest Claude 4.5 family models (Sonnet or Opus) as the default/primary examples
+- You may include other providers (OpenAI, Gemini, etc.) where it would be useful for users, such as in model listing sections or provider-specific documentation
+- Avoid using deprecated or older model versions like `claude-3.5-sonnet`, `gpt-4-vision-preview`
 
 **Testing Requirements**:
 - All new features require unit tests
@@ -312,15 +230,74 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 
 **Pull Request Process**:
 - PRs require maintainer approval
-- Pre-commit hooks must pass
+- Pre-commit hooks are checked in CI (do NOT run them locally unless asked)
 - LLM evaluation tests run automatically in CI
 - Keep PRs focused and include tests
 - **ALWAYS use `git commit -s`** to sign off commits (required for DCO)
+- **When committing, use `git commit -s --no-verify`** to skip local pre-commit hooks (they are not installed consistently and will cause unrelated changes)
+
+**Git Workflow Guidelines**:
+- ALWAYS create commits, NEVER amend
+- ALWAYS merge, NEVER rebase
+- ALWAYS push, NEVER force push
+- Maintain a history of your work to allow the user to revert back to a previous iteration
+
 
 **File Structure Conventions**:
 - Toolsets: `holmes/plugins/toolsets/{name}.yaml` or `{name}/`
 - Prompts: `holmes/plugins/prompts/{name}.jinja2`
 - Tests: Match source structure under `tests/`
+
+**Adding a New Integration (Toolset)**:
+When adding a new toolset or integration, update all of the following pages to keep them in sync:
+
+1. `README.md` — Data Sources table (add a row with logo, link, status, and description)
+2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
+3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
+4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
+5. Add a logo image to `images/integration_logos/` if one is available
+
+## Debugging CLI / Rich Live Display Issues
+
+When troubleshooting terminal rendering bugs (ghost frames, flickering, misaligned output):
+
+**Capturing terminal output through a PTY:**
+```bash
+# Use `script` to force a PTY and capture raw ANSI escape sequences
+script -qec "poetry run python your_script.py" /dev/null > /tmp/raw_output.txt 2>&1
+```
+Without a PTY, Rich detects non-interactive mode and skips Live rendering entirely.
+
+**Analyzing ANSI escape sequences:**
+```python
+# Key escape codes for Rich Live:
+# \x1b[1A  = cursor up 1 line
+# \x1b[2K  = erase entire line
+# Rich erases previous frame with: (erase + cursor-up) × height, then prints new frame
+
+# Count cursor-ups per frame transition to detect drift:
+import re
+erase_pattern = r"\x1b\[2K(?:\x1b\[1A\x1b\[2K)*"
+for match in re.finditer(erase_pattern, raw_output):
+    ups = match.group(0).count("\x1b[1A")
+```
+
+**Writing unit tests for Live display (no LLM required):**
+```python
+# Render to StringIO with force_terminal=True to get ANSI sequences
+from io import StringIO
+buf = StringIO()
+console = Console(file=buf, force_terminal=True, width=120)
+# ... render frames ...
+raw = buf.getvalue()  # Contains full ANSI escape sequences
+# Parse cursor-up counts vs frame heights to detect ghost frames
+```
+
+**Key patterns:**
+- Ghost frames = cumulative drift where each frame leaves 1+ orphaned lines
+- Verify by counting: cursor-ups per transition should equal rendered lines per frame
+- Known Rich 13.9.4 bug: `Live.refresh()` calls `console.print(Control())` with default `end="\\n"`, adding a trailing newline not counted in `LiveRender._shape`. When the terminal has room below the display, each frame leaks 1 ghost line. When the display is at the bottom (common case), the `\\n` causes scrolling and `height-1` cursor-ups is correct.
+- Workaround: subclass `Live` and override `refresh()` to pass `end=""`. Do NOT patch `position_cursor` — that over-erases when the display is at the terminal bottom (the common case).
 
 ## Security Notes
 
@@ -330,9 +307,9 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 - Use environment variables or config files for API keys
 - RBAC permissions are respected for Kubernetes access
 
-## Eval Notes
+## Eval Tests (LLM Evaluations)
 
-### Creating New Eval Tests
+For creating, running, and debugging LLM eval tests, use the `/create-eval` skill. It contains the complete workflow, test_case.yaml field reference, anti-hallucination patterns, infrastructure setup guides, and CLI reference.
 
 **Test Structure:**
 - Use sequential test numbers: check existing tests for next available number
@@ -347,10 +324,15 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
 **Cloud Service Evals (No Kubernetes Required)**:
 - Evals can test against cloud services (Elasticsearch, external APIs) directly via environment variables
 - Faster setup (<30 seconds vs minutes for K8s infrastructure)
-- `before_test` creates test data in the cloud service, `after_test` cleans up
-- Use `toolsets.yaml` to configure the toolset with env var references: `url: "{{ env.ELASTICSEARCH_URL }}"`
+- `before_test` creates test data in the cloud service; `after_test` cleans up **only if safe** (see reentrancy below)
+- Use `toolsets.yaml` to configure the toolset with env var references: `api_url: "{{ env.ELASTICSEARCH_URL }}"`
 - **CI/CD secrets**: When adding evals for a new integration, you must add the required environment variables to `.github/workflows/eval-regression.yaml` in the "Run tests" step. Tell the user which secrets they need to add to their GitHub repository settings (e.g., `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY`).
 - **HTTP request passthrough**: The root `conftest.py` has a `responses` fixture with `autouse=True` that mocks ALL HTTP requests by default. When adding a new cloud integration, you MUST add the service's URL pattern to the passthrough list in `conftest.py` (search for `rsps.add_passthru`). Use `re.compile()` for pattern matching (e.g., `rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))`).
+- **Cloud Service Eval Reentrancy**: The same eval can run on multiple PRs in parallel in CI. Cloud service evals that create resources with static names (e.g., Confluence spaces, Elasticsearch indices) must be **reentrant**:
+  - `before_test` must be **idempotent**: create-or-reuse resources, never fail if they already exist
+  - `after_test` must **NOT delete shared resources** that another parallel run may be using. Either omit `after_test` entirely, or limit cleanup to resources with a unique run-scoped identifier
+  - Use test-ID-based resource names (e.g., `HLMS233` for space keys) to avoid collisions with other evals, but accept that the same eval may overlap with itself across parallel PR runs
+  - Kubernetes evals don't have this problem because each PR gets its own KIND cluster, so namespaces are already isolated. Cloud service evals share a single account/instance across all PR runs
 
 **User Prompts & Expected Outputs:**
 - **Be specific**: Test exact values like `"The dashboard title is 'Home'"` not generic `"Holmes retrieves dashboard"`
@@ -365,6 +347,16 @@ Check in pyproject.toml and NEVER use a marker/tag that doesn't exist there. Ask
   - **Best**: Check specific values that can only be discovered by querying (e.g., unique IDs, injected error codes, exact counts)
   - **Acceptable**: Use `include_tool_calls: true` to verify the tool was called when output values are too generic to rule out hallucinations
   - **Bad**: Check generic output patterns that an LLM could plausibly guess (e.g., "cluster status is green/yellow/red", "has N nodes")
+- **expected_output is invisible to LLM**: The `expected_output` field is only used by the evaluator - the LLM never sees it. This means:
+  - You can safely put secrets/verification codes in `expected_output` that the LLM must discover
+  - `before_test` can inject a unique verification code into test data, and `expected_output` can check for it
+  - This is a powerful pattern for cloud service tests: create data with a unique code in `before_test`, ask LLM to find it, verify with `expected_output`
+  ```yaml
+  # Example: before_test creates a page with verification code "HOLMES-EVAL-7x9k2m4p"
+  # The LLM must discover this code by querying the service
+  expected_output:
+    - "Must report the verification code: HOLMES-EVAL-7x9k2m4p"
+  ```
 - **`include_tool_calls: true`**: Use when expected output is too generic to be hallucination-proof. Prefer specific answer checking when possible, but verifying tool calls is better than a test that can't rule out hallucinations.
   ```yaml
   # Use when values are generic (cluster health could be guessed)
@@ -516,8 +508,31 @@ toolsets:
   grafana/dashboards:
     enabled: true
     config:  # All toolset-specific config under 'config'
-      url: http://localhost:10177
+      api_url: http://localhost:10177
 ```
+
+**Always run evals before submitting when possible:**
+1. `poetry run pytest -k "test_name" --only-setup --no-cov` — verify setup
+2. `poetry run pytest -k "test_name" --no-cov` — run full test
+3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
+
+## Reading CodeRabbit Review Comments
+
+In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:
+
+1. **Find the PR number** via the GitHub API (unauthenticated, one call):
+   ```bash
+   curl -s "https://api.github.com/repos/HolmesGPT/holmesgpt/pulls?head=HolmesGPT:BRANCH_NAME&state=open" \
+     | python3 -c "import sys,json; [print(f'PR #{p[\"number\"]}') for p in json.load(sys.stdin)]"
+   ```
+2. **Fetch comments with WebFetch** (not rate-limited):
+   Use the `WebFetch` tool on `https://github.com/HolmesGPT/holmesgpt/pull/<NUMBER>` and ask it to extract all CodeRabbit comments, including file/line references, full text, and code suggestions.
+
+**What does NOT work:**
+
+- `gh` CLI — not installed in the sandbox
+- Multiple `curl` calls to `api.github.com` — hits unauthenticated rate limits (60/hour) fast
+- The local git proxy (`127.0.0.1`) — only supports git protocol, not the GitHub REST API
 
 ## Documentation Lookup
 
@@ -528,9 +543,14 @@ When asked about content from the HolmesGPT documentation website (https://holme
 - Toolset documentation: `docs/data-sources/builtin-toolsets/`
 - API reference: `docs/reference/`
 
+## MkDocs Navigation
+
+The docs site uses the `awesome-nav` plugin. Navigation is controlled by `.nav.yml` files in each `docs/` subdirectory, **not** by the `nav:` section in `mkdocs.yml`. When adding a new docs page, you must add it to the `.nav.yml` file in the corresponding directory (e.g., `docs/reference/.nav.yml` for reference pages).
+
 ## MkDocs Formatting Notes
 
 When writing documentation in the `docs/` directory:
+
 - **Lists after headers**: Always add a blank line between a header/bold text and a list, otherwise MkDocs won't render the list properly
   ```markdown
   **Good:**
@@ -542,3 +562,68 @@ When writing documentation in the `docs/` directory:
   - item 1
   - item 2
   ```
+
+- **Headers inside tabs**: Use **bold text** for section headings inside tabs, not markdown headers (`##`, `###`, etc.)
+
+  **Why:** MkDocs Material font sizes make H2 (~25px) and H3 (~20px) visually larger than tab titles (~14px). When a header inside a tab is bigger than the tab title itself, it looks like it belongs outside/above the tabs, breaking the visual hierarchy.
+
+  ```markdown
+  <!-- GOOD: Bold text for sections inside tabs -->
+  === "Tab Name"
+
+      **Create the policy:**
+
+      Instructions here...
+
+      **Create the role:**
+
+      More instructions...
+
+  <!-- BAD: Headers inside tabs look like they're outside -->
+  === "Tab Name"
+
+      ### Create the policy
+
+      Instructions here...
+  ```
+
+- **Avoid excessive headers**: Don't create a header for every small section. Headers should be used sparingly for major sections. For minor sections like test steps or examples, use bold text or combine content into a single code block with comments instead of separate headers.
+
+  ```markdown
+  <!-- BAD: Header for every test step -->
+  ## Testing
+  ### Test 1: Check Status
+  ### Test 2: Check Logs
+  ### Test 3: Health Check
+
+  <!-- GOOD: Single section with combined content -->
+  ## Testing the Connection
+
+  ```bash
+  # Check pod status
+  kubectl get pods -n YOUR_NAMESPACE
+
+  # Check logs
+  kubectl logs -n YOUR_NAMESPACE
+
+  # Health check
+  curl http://localhost:8000/health
+  ```
+  ```
+
+- **Don't describe Holmes's behavior**: In "Common Use Cases" sections, show only the example prompts. Don't explain what Holmes will do or list steps like "Holmes will: 1. Query X, 2. Analyze Y, 3. Return Z". Users will see this when they run it.
+
+- **Skip Capabilities sections**: Don't list what a toolset/integration can do. Users discover capabilities by using Holmes. Feature lists become stale quickly.
+
+- **Skip Security Best Practices sections**: Assume users understand basics like rotating credentials, using least privilege, and deleting local secrets. These sections add little value.
+
+- **Consolidate troubleshooting commands**: Instead of separate headers for each troubleshooting scenario, use a single code block with comments:
+  ```bash
+  # Authentication errors - check if secret is mounted
+  kubectl exec ...
+
+  # Permission denied - verify roles
+  gcloud projects get-iam-policy ...
+  ```
+
+- **Common Use Cases format**: Just example prompts, one per code block, no sub-headers, no explanations.

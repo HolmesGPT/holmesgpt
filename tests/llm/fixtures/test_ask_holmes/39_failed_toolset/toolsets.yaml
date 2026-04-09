@@ -5,6 +5,6 @@ toolsets:
         - id: rabbitmq
           username: user
           password: "incorrect_password"
-          management_url: http://localhost:15672
+          api_url: http://localhost:15672
   kubernetes/core:
     enabled: true

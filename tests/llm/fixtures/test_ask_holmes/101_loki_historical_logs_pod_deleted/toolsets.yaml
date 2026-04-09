@@ -6,5 +6,5 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: http://localhost:3101
+      api_url: http://localhost:3101
       api_key: ""

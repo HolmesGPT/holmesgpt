@@ -1,10 +1,16 @@
 # Configuration and alerts history
 * Use fetch_configuration_changes_metadata to get historical configuration changes in a cluster or for a specific workload.
+* By default, this tool queries the CURRENT cluster and includes external changes (e.g., LaunchDarkly feature flags).
+* Multi-cluster support:
+  - For issues that might span clusters, set all_clusters=true to search across all clusters
+  - To query specific clusters, provide clusters=['cluster-a', 'cluster-b']
+  - Set include_external=false to exclude non-Kubernetes changes
 * If a change seems important to the investigation, Use fetch_finding_by_id with the configuration change ID to get full details of the change.
 * You must ALWAYS call fetch_configuration_changes_metadata when investigating an alert
 * Never respond without calling fetch_configuration_changes_metadata
 * When investigating a resource (pod, deployment, or job), if no relevant information is available from the live cluster at the time of investigation, call the fetch_resource_issues_metadata function to retrieve its historical alert data.
 * You can use fetch_resource_issues_metadata to get issues context for a specific kubernetes resource. Start with a 4 hours window and try to expand to 24 hours windows if nothing comes up.
+* fetch_resource_issues_metadata also supports multi-cluster queries (all_clusters=true or specific clusters list)
 * When investigating an alert, look at historical configuration changes that happen 4 hours before the alert started
 * If you found a change that caused the alert, you MUST write: 'The issue was introduced by ...' with a short description of the change, and the date of it.
 For example:
@@ -25,6 +31,11 @@ For example:
   - **Specific lookup mode**: Get recommendations for a single known workload
     - Use name_pattern with exact workload name, along with namespace and kind
     - Best for focused analysis when you already know which workload to investigate
+* Multi-cluster support:
+  - By default, queries the current cluster only
+  - Set all_clusters=true to get recommendations across ALL clusters in your account
+  - Use clusters=['cluster-a', 'cluster-b'] to query specific clusters
+  - Useful for cross-cluster resource comparison and organization-wide optimization
 * When asked if a resource can be optimized, or if resources are over-utilized, use fetch_resource_recommendation to answer
 * When asked about "GPU workloads" or filtering out GPU-based resources, you can use filters like name_pattern or namespace to exclude them
 * Right-sizing of resources is key to avoiding performance issues and achieving cost savings
@@ -34,6 +45,7 @@ For example:
   - "Show me top KRR recommendations for non-GPU workloads" → Use name_pattern filter or namespace filter
   - "Find workloads in namespace X that can save the most CPU" → Use namespace='X', sort_by='cpu_total'
   - "Get recommendations for deployment nginx in namespace prod" → Use name_pattern='nginx', namespace='prod', kind='Deployment'
+  - "Show me top recommendations across all my clusters" → Use all_clusters=true, limit=10
 
 # Investigating issues
 * If provided an issue id (a.k.a. a finding), use `fetch_finding_by_id` to get more information about that issue

@@ -1,0 +1,1673 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "platform-svc-overview",
+    "title": "Platform Services Overview",
+    "tags": [
+      "platform",
+      "services"
+    ],
+    "timezone": "utc",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "API Gateway Throughput",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "api_gateway_throughput",
+                "timeStep": 300,
+                "valuesCSV": "120,119,120,120,120,120,120,120,120,119,119,120,120,120,119,120,120,120,121,120"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Auth Service Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "auth_service_latency",
+                "timeStep": 300,
+                "valuesCSV": "14,15,15,15,15,15,15,15,15,15,15,15,15,15,15,14,16,15,15,15"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Cache Hit Ratio",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "cache_hit_ratio",
+                "timeStep": 300,
+                "valuesCSV": "95,95,95,95,94,95,95,95,95,95,95,95,96,95,95,95,95,95,95,95"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Database Connection Pool",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "database_connection_pool",
+                "timeStep": 300,
+                "valuesCSV": "20,20,20,21,20,20,20,20,19,20,19,20,20,20,20,20,20,20,21,20"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Email Queue Depth",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 5
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "email_queue_depth",
+                "timeStep": 300,
+                "valuesCSV": "6,5,5,5,5,5,5,5,5,5,5,6,5,4,5,5,5,5,5,5"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "File Storage IOPS",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 5
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "file_storage_iops",
+                "timeStep": 300,
+                "valuesCSV": "300,301,300,299,300,300,300,300,300,300,300,301,299,300,300,300,300,300,300,300"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "iops"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "gRPC Channel Utilization",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 5
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "grpc_channel_utilization",
+                "timeStep": 300,
+                "valuesCSV": "42,41,42,43,41,42,42,42,42,41,42,42,42,43,42,42,42,43,42,42"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "HTTP Error Count",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 5
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "http_error_count",
+                "timeStep": 300,
+                "valuesCSV": "2,2,2,2,2,2,3,3,2,2,2,2,2,1,2,2,1,2,1,2"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Image CDN Bandwidth",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 10
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "image_cdn_bandwidth",
+                "timeStep": 300,
+                "valuesCSV": "85,84,85,85,85,85,86,85,85,86,85,86,85,85,85,85,85,85,85,85"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "Mbits"
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Job Queue Backlog",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 10
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "job_queue_backlog",
+                "timeStep": 300,
+                "valuesCSV": "13,11,12,11,12,12,12,12,12,12,13,12,12,12,12,13,12,12,13,12"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Kafka Partition Lag",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 10
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "kafka_partition_lag",
+                "timeStep": 300,
+                "valuesCSV": "2,2,3,3,3,3,4,4,3,3,2,3,3,2,3,3,4,3,3,4"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Load Balancer Drain Time",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 10
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "load_balancer_drain_time",
+                "timeStep": 300,
+                "valuesCSV": "50,50,50,50,49,49,50,49,49,51,50,49,50,50,50,50,50,50,50,50"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "Memcached Evictions",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 15
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "memcached_evictions",
+                "timeStep": 300,
+                "valuesCSV": "7,8,8,8,8,8,8,8,8,8,8,8,9,8,8,7,9,8,8,8"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          }
+        }
+      },
+      {
+        "id": 14,
+        "title": "Notification Delivery Rate",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 15
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "notification_delivery_rate",
+                "timeStep": 300,
+                "valuesCSV": "99,99,99,99,99,99,99,99,100,99,98,99,99,99,99,99,99,99,99,99"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "Object Store Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 15
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "object_store_latency",
+                "timeStep": 300,
+                "valuesCSV": "22,22,22,22,23,22,21,22,22,22,21,21,22,22,22,22,23,22,21,22"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 16,
+        "title": "Payment Gateway RTT",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 15
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "payment_gateway_rtt",
+                "timeStep": 300,
+                "valuesCSV": "180,180,179,180,180,180,180,179,180,180,179,180,180,180,180,180,180,180,180,180"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 17,
+        "title": "Query Planner Cache",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 20
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "query_planner_cache",
+                "timeStep": 300,
+                "valuesCSV": "88,88,87,88,88,88,88,88,88,88,88,87,89,88,88,89,88,88,88,88"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 18,
+        "title": "Redis Memory Usage",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 20
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "redis_memory_usage",
+                "timeStep": 300,
+                "valuesCSV": "511,512,512,512,512,512,512,512,512,512,511,512,512,512,512,511,512,512,512,512"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes"
+          }
+        }
+      },
+      {
+        "id": 19,
+        "title": "Search Index Lag",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 20
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "search_index_lag",
+                "timeStep": 300,
+                "valuesCSV": "35,35,35,35,35,34,35,34,35,35,35,35,35,35,35,35,35,35,35,35"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 20,
+        "title": "TLS Handshake Time",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 20
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "tls_handshake_time",
+                "timeStep": 300,
+                "valuesCSV": "12,12,12,12,12,12,12,12,11,12,12,12,12,12,13,13,13,12,13,12"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 21,
+        "title": "Upload Pipeline Throughput",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 25
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "upload_pipeline_throughput",
+                "timeStep": 300,
+                "valuesCSV": "45,45,45,45,45,45,45,45,45,44,44,45,46,45,46,45,45,45,46,45"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "Bps"
+          }
+        }
+      },
+      {
+        "id": 22,
+        "title": "Vault Token Renewal",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 25
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "vault_token_renewal",
+                "timeStep": 300,
+                "valuesCSV": "1,1,0,1,1,1,1,2,0,1,1,2,1,2,1,2,1,2,1,2"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 23,
+        "title": "WebSocket Connections",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 25
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "websocket_connections",
+                "timeStep": 300,
+                "valuesCSV": "341,340,340,340,341,340,340,341,340,340,340,340,340,340,340,340,340,340,340,340"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 24,
+        "title": "XML Parser Throughput",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 25
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "xml_parser_throughput",
+                "timeStep": 300,
+                "valuesCSV": "150,150,150,150,150,151,150,149,150,150,150,149,150,151,149,150,150,150,150,150"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          }
+        }
+      },
+      {
+        "id": 25,
+        "title": "YAML Config Reload",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 30
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "yaml_config_reload",
+                "timeStep": 300,
+                "valuesCSV": "4,3,3,3,4,2,3,3,3,3,4,3,2,3,2,3,3,3,4,3"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 26,
+        "title": "ZooKeeper Sync Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 30
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "zookeeper_sync_latency",
+                "timeStep": 300,
+                "valuesCSV": "7,8,8,8,8,9,8,8,8,8,8,8,8,9,7,7,8,8,8,7"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 27,
+        "title": "Audit Log Ingestion",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 30
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "audit_log_ingestion",
+                "timeStep": 300,
+                "valuesCSV": "199,200,200,199,200,200,200,201,200,200,201,200,200,200,200,200,200,200,199,200"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          }
+        }
+      },
+      {
+        "id": 28,
+        "title": "Batch Scheduler Load",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 30
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "batch_scheduler_load",
+                "timeStep": 300,
+                "valuesCSV": "35,35,35,35,35,35,35,35,34,35,35,35,35,35,34,35,36,35,35,35"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 29,
+        "title": "Circuit Breaker Trips",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 35
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "circuit_breaker_trips",
+                "timeStep": 300,
+                "valuesCSV": "1,0,0,0,0,1,1,0,0,0,0,0,0,1,0,1,0,0,0,1"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 30,
+        "title": "DNS Resolution Time",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 35
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "dns_resolution_time",
+                "timeStep": 300,
+                "valuesCSV": "4,4,5,4,4,4,4,4,4,3,4,4,4,4,5,4,5,5,5,3"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 31,
+        "title": "Event Bus Throughput",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 35
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "event_bus_throughput",
+                "timeStep": 300,
+                "valuesCSV": "500,500,500,500,500,500,500,501,500,500,500,500,501,500,500,500,500,500,500,500"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          }
+        }
+      },
+      {
+        "id": 32,
+        "title": "Feature Flag Eval Time",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 35
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "feature_flag_eval_time",
+                "timeStep": 300,
+                "valuesCSV": "2,2,2,2,3,2,2,2,2,2,2,2,2,2,1,2,2,1,1,2"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 33,
+        "title": "GraphQL Resolver Time",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 40
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "graphql_resolver_time",
+                "timeStep": 300,
+                "valuesCSV": "9,10,9,8,9,10,10,10,9,9,8,9,10,9,9,9,10,9,8,9"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 34,
+        "title": "Healthcheck Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 40
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "healthcheck_latency",
+                "timeStep": 300,
+                "valuesCSV": "6,6,6,6,6,6,6,6,7,7,6,6,6,5,6,6,6,6,6,6"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 35,
+        "title": "IAM Token Refresh",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 40
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "iam_token_refresh",
+                "timeStep": 300,
+                "valuesCSV": "25,25,25,25,24,25,26,26,25,24,25,25,25,26,25,25,25,25,25,25"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 36,
+        "title": "JSON Schema Validation",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 40
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "json_schema_validation",
+                "timeStep": 300,
+                "valuesCSV": "3,3,3,3,3,2,3,3,3,4,3,4,3,3,3,4,4,3,2,3"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 37,
+        "title": "Session Replay Processor",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 45
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "session_replay_processor",
+                "timeStep": 300,
+                "valuesCSV": "14,14,15,14,14,14,15,14,14,950,980,940,14,14,15,14,14,14,14,14"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 38,
+        "title": "Kubernetes API Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 45
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "kubernetes_api_latency",
+                "timeStep": 300,
+                "valuesCSV": "18,18,17,18,18,17,18,17,18,19,19,18,18,18,19,18,19,18,18,18"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 39,
+        "title": "Log Shipper Buffer",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 45
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "log_shipper_buffer",
+                "timeStep": 300,
+                "valuesCSV": "22,22,22,22,22,23,22,22,21,23,22,22,22,22,22,22,21,23,22,21"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 40,
+        "title": "Metrics Pipeline Delay",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 45
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "metrics_pipeline_delay",
+                "timeStep": 300,
+                "valuesCSV": "45,45,46,46,44,45,45,45,45,46,46,45,44,45,45,45,44,45,45,45"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 41,
+        "title": "Network Policy Eval",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 50
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "network_policy_eval",
+                "timeStep": 300,
+                "valuesCSV": "1,2,1,1,2,1,1,1,2,2,1,2,1,1,1,1,1,1,1,1"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 42,
+        "title": "OAuth Token Exchange",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 50
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "oauth_token_exchange",
+                "timeStep": 300,
+                "valuesCSV": "30,29,30,30,31,30,31,31,30,30,30,31,30,30,30,30,30,30,29,30"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 43,
+        "title": "PubSub Ack Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 50
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "pubsub_ack_latency",
+                "timeStep": 300,
+                "valuesCSV": "8,7,7,7,8,6,7,7,7,8,7,8,6,7,7,7,7,8,7,7"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 44,
+        "title": "Rate Limiter Utilization",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 50
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "rate_limiter_utilization",
+                "timeStep": 300,
+                "valuesCSV": "15,15,15,15,15,16,14,15,15,15,15,15,15,15,15,16,15,15,14,14"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 45,
+        "title": "S3 Multipart Upload",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 55
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "s3_multipart_upload",
+                "timeStep": 300,
+                "valuesCSV": "120,119,120,120,120,120,120,120,120,120,120,120,120,120,120,121,120,120,121,120"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 46,
+        "title": "Trace Collector Queue",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 55
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "trace_collector_queue",
+                "timeStep": 300,
+                "valuesCSV": "9,8,7,9,8,8,8,9,8,8,8,8,9,8,8,8,9,8,8,8"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 47,
+        "title": "User Preference Sync",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 55
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "user_preference_sync",
+                "timeStep": 300,
+                "valuesCSV": "11,11,11,10,11,11,10,10,12,11,11,11,11,11,11,11,11,10,11,12"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 48,
+        "title": "Video Transcode Queue",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 55
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "video_transcode_queue",
+                "timeStep": 300,
+                "valuesCSV": "2,3,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3,3,4,3"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 49,
+        "title": "Webhook Retry Count",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 60
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "webhook_retry_count",
+                "timeStep": 300,
+                "valuesCSV": "1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1,2,0,1,1"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 50,
+        "title": "Worker Pool Saturation",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 60
+        },
+        "datasource": {
+          "type": "testdata",
+          "uid": "testdata-ds"
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "scenarioId": "predictable_csv_wave",
+            "csvWave": [
+              {
+                "name": "worker_pool_saturation",
+                "timeStep": 300,
+                "valuesCSV": "28,29,28,28,28,28,27,27,28,29,28,28,28,28,28,29,28,28,28,28"
+              }
+            ]
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      }
+    ]
+  },
+  "overwrite": true,
+  "folderId": 0
+}

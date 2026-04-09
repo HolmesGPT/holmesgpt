@@ -1,3 +1,4 @@
+import json
 import logging
 
 from slack_sdk import WebClient
@@ -18,7 +19,7 @@ class SlackDestination(DestinationPlugin):
         color = (
             "#FF0000" if issue.presentation_status == IssueStatus.OPEN else "#00FF00"
         )  # Red for firing, green for resolved
-        if issue.presentation_status:
+        if issue.presentation_status and issue.show_status_in_title:
             title = f"{issue.name} - {issue.presentation_status.value}"
         else:
             title = f"{issue.name}"
@@ -106,12 +107,12 @@ class SlackDestination(DestinationPlugin):
         )
 
     def __send_prompt_for_debugging(self, parent_thread, result: LLMResult) -> None:
-        if not result.prompt:
+        if not result.messages:
             return
 
         text = "*🐞 DEBUG: messages with OpenAI*"
         file_response = self.client.files_upload_v2(
-            content=str(result.prompt) if result.prompt else "", title="ai-prompt"
+            content=json.dumps(result.messages, indent=2), title="ai-prompt"
         )
         if file_response and "file" in file_response:
             permalink = file_response["file"]["permalink"]

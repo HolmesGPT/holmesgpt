@@ -1,8 +1,8 @@
+import json
+import yaml
 import logging
 from datetime import datetime
 from typing import Any, List
-
-import yaml  # type: ignore
 
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
@@ -45,21 +45,34 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         # hiding disabled experimental toolsets from the docs
         if toolset.experimental and not toolset.enabled:
             continue
+
         if not toolset.installation_instructions:
-            instructions = render_default_installation_instructions_for_toolset(toolset)
+            instructions = get_config_schema_for_toolset(toolset)
             toolset.installation_instructions = instructions
         db_toolsets.append(
             ToolsetDBModel(
-                **toolset.model_dump(exclude_none=True),
                 toolset_name=toolset.name,
                 cluster_id=config.cluster_name,
                 account_id=dal.account_id,
                 updated_at=updated_at,
+                icon_url=toolset.icon_url,
+                status=toolset.status.value if toolset.status else None,
+                error=toolset.error,
+                description=toolset.description,
+                docs_url=toolset.docs_url,
+                installation_instructions=toolset.installation_instructions,
             ).model_dump()
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)
     log_toolsets_statuses(tool_executor.toolsets)
 
+
+def get_config_schema_for_toolset(toolset: Toolset) -> str:
+    res = {
+        "example_yaml": render_default_installation_instructions_for_toolset(toolset),
+        "schema": toolset.get_config_schema(),
+    }
+    return json.dumps(res)
 
 def render_default_installation_instructions_for_toolset(toolset: Toolset) -> str:
     env_vars = toolset.get_environment_variables()
@@ -68,7 +81,7 @@ def render_default_installation_instructions_for_toolset(toolset: Toolset) -> st
         "toolset_name": toolset.name,
     }
 
-    example_config = toolset.get_example_config()
+    example_config = toolset.get_config_example()
     if example_config:
         context["example_config"] = yaml.dump(example_config)
 

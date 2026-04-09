@@ -1,0 +1,172 @@
+setup_timeout: 420  # 7 minutes for image pulls + Chromium cold start in renderer
+
+user_prompt: "Look at the 'Fulfillment Service Dashboard' in Grafana. Visually render the dashboard or its panels and describe what you see. What panels exist, what does the Service Health panel say, and what is the deployment ID shown?"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call grafana_render_panel or grafana_render_dashboard tool to visually render the dashboard"
+  - "Must mention the 'Service Health' panel"
+  - "Must report the deployment ID: deploy-8x3m9k"
+  - "Must mention 'Order Processing Latency' or 'Inventory Sync Status' panel"
+
+before_test: |
+  set -e
+  kubectl create namespace app-212 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl apply -f ../../shared/grafana-with-renderer.yaml -n app-212
+
+  # Wait for Grafana pod to be ready (both containers: grafana + renderer)
+  echo "⏳ Waiting for Grafana pod to be ready..."
+  POD_READY=false
+  for i in {1..90}; do
+    if kubectl wait --for=condition=ready pod -l app=grafana -n app-212 --timeout=5s 2>/dev/null; then
+      echo "✅ Grafana pod is ready (both containers)!"
+      POD_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/90: Pod not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Grafana pod failed to become ready after 90 seconds"
+    kubectl get pods -n app-212
+    kubectl describe pod -l app=grafana -n app-212
+    exit 1
+  fi
+
+  # Verify Grafana API is working
+  echo "⏳ Verifying Grafana API..."
+  API_READY=false
+  for i in {1..30}; do
+    if kubectl exec -n app-212 deployment/grafana -c grafana -- wget -q -O- http://localhost:3000/api/health 2>/dev/null | grep -q "ok"; then
+      echo "✅ Grafana API is working!"
+      API_READY=true
+      break
+    else
+      echo "⏳ Attempt $i/30: Grafana API not ready yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$API_READY" = false ]; then
+    echo "❌ Grafana API failed verification"
+    kubectl logs -l app=grafana -n app-212 -c grafana --tail=20
+    exit 1
+  fi
+
+  # Renderer sidecar readiness is ensured by Kubernetes readiness probe (tcpSocket on 8081).
+  # Pod is only Ready when both grafana and renderer containers pass their probes.
+  # Full render pipeline is verified by the smoke test below after dashboard creation.
+
+  # Add TestData datasource
+  echo "⏳ Adding TestData datasource..."
+  DS_CREATED=false
+  for i in {1..10}; do
+    DS_RESULT=$(kubectl exec -n app-212 deployment/grafana -c grafana -- \
+      wget -q -O- --post-data='{"name":"TestData","type":"testdata","uid":"testdata-ds","access":"proxy"}' \
+      --header="Content-Type: application/json" \
+      http://localhost:3000/api/datasources 2>/dev/null || true)
+    if echo "$DS_RESULT" | grep -qE '"id"|"message":"Datasource added"'; then
+      echo "✅ TestData datasource created!"
+      DS_CREATED=true
+      break
+    elif echo "$DS_RESULT" | grep -q "Data source with the same name already exists"; then
+      echo "✅ TestData datasource already exists!"
+      DS_CREATED=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Datasource creation response: $DS_RESULT"
+      sleep 1
+    fi
+  done
+
+  if [ "$DS_CREATED" = false ]; then
+    echo "❌ Failed to create TestData datasource"
+    exit 1
+  fi
+
+  # Create the dashboard
+  echo "⏳ Creating Fulfillment Service Dashboard..."
+  DASHBOARD_CREATED=false
+  for i in {1..10}; do
+    if kubectl exec -n app-212 deployment/grafana -c grafana -- \
+      wget -q -O- --post-data="$(cat custom-dashboard.json)" \
+      --header="Content-Type: application/json" \
+      http://localhost:3000/api/dashboards/db 2>/dev/null | grep -q '"id"'; then
+      echo "✅ Dashboard created successfully!"
+      DASHBOARD_CREATED=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Dashboard creation failed, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$DASHBOARD_CREATED" = false ]; then
+    echo "❌ Failed to create dashboard"
+    exit 1
+  fi
+
+  # Verify dashboard is searchable
+  echo "⏳ Verifying dashboard is searchable..."
+  DASHBOARD_FOUND=false
+  for i in {1..10}; do
+    if kubectl exec -n app-212 deployment/grafana -c grafana -- \
+      wget -q -O- "http://localhost:3000/api/search?query=Fulfillment" 2>/dev/null | grep -q "Fulfillment Service Dashboard"; then
+      echo "✅ Dashboard is searchable!"
+      DASHBOARD_FOUND=true
+      break
+    else
+      echo "⏳ Attempt $i/10: Dashboard not found yet, waiting 1s..."
+      sleep 1
+    fi
+  done
+
+  if [ "$DASHBOARD_FOUND" = false ]; then
+    echo "❌ Dashboard verification failed"
+    exit 1
+  fi
+
+  # Render smoke test to verify the full pipeline works (mandatory)
+  echo "⏳ Testing render pipeline (smoke test)..."
+  RENDER_OK=false
+  for i in {1..15}; do
+    HTTP_CODE=$(kubectl exec -n app-212 deployment/grafana -c grafana -- \
+      wget -q -O /dev/null -S "http://localhost:3000/render/d-solo/fulfill-svc-dash/_?panelId=1&width=400&height=200&from=now-1h&to=now" 2>&1 | grep "HTTP/" | awk '{print $2}' || true)
+    if [ "$HTTP_CODE" = "200" ]; then
+      echo "✅ Render pipeline working - panel rendered successfully!"
+      RENDER_OK=true
+      break
+    else
+      echo "⏳ Attempt $i/15: Render returned HTTP $HTTP_CODE, waiting 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$RENDER_OK" = false ]; then
+    echo "❌ Render pipeline verification failed - renderer cannot render panels"
+    kubectl logs -l app=grafana -n app-212 -c renderer --tail=30
+    echo ""
+    kubectl logs -l app=grafana -n app-212 -c grafana --tail=30
+    exit 1
+  fi
+
+  echo "✅ Test setup completed successfully!"
+
+after_test: |
+  kubectl delete namespace app-212 || true
+
+port_forwards:
+  - namespace: app-212
+    service: grafana
+    local_port: 10212
+    remote_port: 3000
+
+tags:
+  - easy
+  - grafana
+  - images
+  - question-answer
+  - kubernetes

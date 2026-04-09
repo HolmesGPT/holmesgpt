@@ -70,7 +70,7 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
         enabled: true
         config:
           api_key: <your grafana service account token>
-          url: <your grafana url> # e.g. https://acme-corp.grafana.net
+          api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
           grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
@@ -91,7 +91,7 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
           enabled: true
           config:
             api_key: <your grafana API key>
-            url: <your grafana url> # e.g. https://acme-corp.grafana.net
+            api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
             grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
@@ -110,8 +110,8 @@ The toolset can directly connect to a Tempo instance without proxying through a 
       grafana/tempo:
         enabled: true
         config:
-          url: http://tempo.monitoring
-          headers:
+          api_url: http://tempo.monitoring
+          additional_headers:
             X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
     ```
 
@@ -125,8 +125,8 @@ The toolset can directly connect to a Tempo instance without proxying through a 
         grafana/tempo:
           enabled: true
           config:
-            url: http://tempo.monitoring
-            headers:
+            api_url: http://tempo.monitoring
+            additional_headers:
               X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
     ```
 
@@ -141,7 +141,7 @@ toolsets:
   grafana/tempo:
     enabled: true
     config:
-      url: https://tempo.internal
+      api_url: https://tempo.internal
       verify_ssl: false  # Disable SSL verification (default: true)
 ```
 
@@ -154,7 +154,7 @@ toolsets:
   grafana/tempo:
     enabled: true
     config:
-      url: http://tempo.internal:3100  # Internal URL for API calls
+      api_url: http://tempo.internal:3100  # Internal URL for API calls
       external_url: https://tempo.example.com  # URL for links in results
       grafana_datasource_uid: <tempo datasource uid>
 ```
@@ -168,7 +168,7 @@ toolsets:
   grafana/tempo:
     enabled: true
     config:
-      url: https://grafana.example.com
+      api_url: https://grafana.example.com
       grafana_datasource_uid: <tempo datasource uid>
       labels:
         pod: "k8s.pod.name"           # default

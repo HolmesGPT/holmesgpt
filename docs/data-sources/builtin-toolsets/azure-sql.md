@@ -1,5 +1,8 @@
 # Azure SQL Database
 
+!!! tip "Consider Azure MCP instead"
+    Most users should start with the [Azure MCP](azure-mcp.md) integration, which provides broad access to all Azure APIs including Azure SQL. This standalone toolset is only needed if you require the specialized Query Store analysis tools that aren't available through the general MCP server.
+
 By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, health, and operational issues using Azure REST APIs and Query Store data.
 
 !!! warning
@@ -15,7 +18,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
 === "Holmes CLI"
 
-    ### Azure AD Workload Identity
+    **Azure AD Workload Identity**
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
@@ -33,7 +36,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-    ### Service Principal
+    **Service Principal**
 
     ```yaml
     toolsets:
@@ -54,7 +57,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
 === "Robusta Helm Chart"
 
-    ### Azure AD Workload Identity
+    **Azure AD Workload Identity**
 
     ```yaml
     holmes:
@@ -69,7 +72,7 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
               database_name: "your-azure-sql-database-name"
     ```
 
-    ### Service Principal
+    **Service Principal**
 
     ```yaml
     holmes:

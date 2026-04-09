@@ -1,4 +1,6 @@
 # for instructions, see "Medium Credentials for 22_high_latency_dbi_down" in 1Password
+skip: true
+skip_reason: "Test requires aws/rds toolset which no longer exists"
 user_prompt: "Why is there high latency with the customer-orders-for-medium deployment?"
 tags:
   - chain-of-causation

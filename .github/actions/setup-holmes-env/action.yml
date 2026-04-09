@@ -23,7 +23,7 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    - name: Install Python dependencies and Poetry
+    - name: Install Poetry
       shell: bash
       run: |
         python -m pip install --upgrade pip setuptools pyinstaller
@@ -34,8 +34,19 @@ runs:
         # Add Poetry to PATH
         echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-        # Configure Poetry to not create virtualenvs (we use system Python in CI)
-        $HOME/.local/bin/poetry config virtualenvs.create false
+        # Use in-project virtualenv for efficient caching
+        $HOME/.local/bin/poetry config virtualenvs.in-project true
+
+    - name: Cache Python virtualenv
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.working-directory }}/.venv
+        key: venv-${{ inputs.python-version }}-${{ hashFiles(format('{0}/poetry.lock', inputs.working-directory)) }}
+
+    - name: Install uv (provides uvx for MCP stdio servers)
+      shell: bash
+      run: |
+        python -m pip install uv
 
     - name: Install project dependencies
       shell: bash
@@ -43,11 +54,19 @@ runs:
       run: |
         poetry install --no-root --with dev
 
+    - name: Add virtualenv to PATH
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
+
     - name: Install kubectl
       if: inputs.install-kubectl == 'true'
       shell: bash
       run: |
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        # Using hardcoded version to avoid failures when dl.k8s.io/release/stable.txt is unreachable
+        KUBECTL_VERSION="v1.35.0"
+        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
         kubectl version --client

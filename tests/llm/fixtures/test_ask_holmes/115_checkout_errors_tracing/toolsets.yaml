@@ -6,5 +6,5 @@ toolsets:
   grafana/tempo:
     enabled: true
     config:
-      url: http://localhost:3115
+      api_url: http://localhost:3115
       healthcheck: "ready"

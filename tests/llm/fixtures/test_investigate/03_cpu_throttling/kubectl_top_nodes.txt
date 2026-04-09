@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/live-metrics","tool_name":"kubectl_top_nodes","match_params":{}}
-{"schema_version": "robusta:v1.0.0", "status": "error", "error": "Command `kubectl top nodes` failed with return code 1\nOutput:\nerror: Metrics API not available", "return_code": 1, "data": null, "url": null, "invocation": "kubectl top nodes", "params": {}}
-error: Metrics API not available

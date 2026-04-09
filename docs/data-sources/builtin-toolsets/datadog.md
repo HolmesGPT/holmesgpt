@@ -33,30 +33,30 @@ You'll need two keys and your site URL from your Datadog account:
       datadog/logs:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com  # Change for EU/other regions
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com  # Change for EU/other regions
 
       datadog/metrics:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
 
       datadog/traces:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
 
       datadog/general:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
     ```
 
 === "Holmes Helm Chart"
@@ -88,30 +88,30 @@ You'll need two keys and your site URL from your Datadog account:
       datadog/logs:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com  # Change for EU/other regions
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com  # Change for EU/other regions
 
       datadog/metrics:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
 
       datadog/traces:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
 
       datadog/general:
         enabled: true
         config:
-          dd_api_key: "{{ env.DD_API_KEY }}"
-          dd_app_key: "{{ env.DD_APP_KEY }}"
-          site_api_url: https://app.datadoghq.com
+          api_key: "{{ env.DD_API_KEY }}"
+          app_key: "{{ env.DD_APP_KEY }}"
+          api_url: https://app.datadoghq.com
     ```
 
 === "Robusta Helm Chart"
@@ -144,30 +144,30 @@ You'll need two keys and your site URL from your Datadog account:
         datadog/logs:
           enabled: true
           config:
-            dd_api_key: "{{ env.DD_API_KEY }}"
-            dd_app_key: "{{ env.DD_APP_KEY }}"
-            site_api_url: https://app.datadoghq.com  # Change for EU/other regions
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com  # Change for EU/other regions
 
         datadog/metrics:
           enabled: true
           config:
-            dd_api_key: "{{ env.DD_API_KEY }}"
-            dd_app_key: "{{ env.DD_APP_KEY }}"
-            site_api_url: https://app.datadoghq.com
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com
 
         datadog/traces:
           enabled: true
           config:
-            dd_api_key: "{{ env.DD_API_KEY }}"
-            dd_app_key: "{{ env.DD_APP_KEY }}"
-            site_api_url: https://app.datadoghq.com
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com
 
         datadog/general:
           enabled: true
           config:
-            dd_api_key: "{{ env.DD_API_KEY }}"
-            dd_app_key: "{{ env.DD_APP_KEY }}"
-            site_api_url: https://app.datadoghq.com
+            api_key: "{{ env.DD_API_KEY }}"
+            app_key: "{{ env.DD_APP_KEY }}"
+            api_url: https://app.datadoghq.com
     ```
 
 ### 3. Test It Works
@@ -210,10 +210,10 @@ toolsets:
   datadog/logs:
     enabled: true
     config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.com
-      request_timeout: 60  # Timeout in seconds (default: 60)
+      api_key: "{{ env.DD_API_KEY }}"
+      app_key: "{{ env.DD_APP_KEY }}"
+      api_url: https://api.datadoghq.com
+      timeout_seconds: 60  # Timeout in seconds (default: 60)
 
       # Optional: Log search configuration
       indexes: ["*"]  # Log indexes to search (default: ["*"])
@@ -254,10 +254,10 @@ toolsets:
   datadog/metrics:
     enabled: true
     config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.com
-      request_timeout: 60  # Timeout in seconds (default: 60)
+      api_key: "{{ env.DD_API_KEY }}"
+      app_key: "{{ env.DD_APP_KEY }}"
+      api_url: https://api.datadoghq.com
+      timeout_seconds: 60  # Timeout in seconds (default: 60)
 
       # Optional
       default_limit: 1000  # Max data points to retrieve (default: 1000)
@@ -296,10 +296,10 @@ toolsets:
   datadog/traces:
     enabled: true
     config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.com
-      request_timeout: 60  # Timeout in seconds (default: 60)
+      api_key: "{{ env.DD_API_KEY }}"
+      app_key: "{{ env.DD_APP_KEY }}"
+      api_url: https://api.datadoghq.com
+      timeout_seconds: 60  # Timeout in seconds (default: 60)
 ```
 
 **Capabilities**
@@ -333,10 +333,10 @@ toolsets:
   datadog/general:
     enabled: true
     config:
-      dd_api_key: "{{ env.DD_API_KEY }}"
-      dd_app_key: "{{ env.DD_APP_KEY }}"
-      site_api_url: https://api.datadoghq.com
-      request_timeout: 60  # Timeout in seconds (default: 60)
+      api_key: "{{ env.DD_API_KEY }}"
+      app_key: "{{ env.DD_APP_KEY }}"
+      api_url: https://api.datadoghq.com
+      timeout_seconds: 60  # Timeout in seconds (default: 60)
 
       # Optional
       max_response_size: 10485760  # Max response size in bytes (default: 10MB)

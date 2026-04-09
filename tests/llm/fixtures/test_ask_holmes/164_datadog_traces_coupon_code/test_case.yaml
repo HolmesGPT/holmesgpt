@@ -17,8 +17,6 @@ tags:
 before_test: |
   set -e  # Exit immediately if any command fails
   kubectl create namespace app-164 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
-  kubectl apply -f prometheus-config.yaml -n app-164
-  kubectl apply -f ../../shared/prometheus.yaml -n app-164
   kubectl apply -f holmes-all-in-one-fast.yaml -n app-164
   # ./run-holmes-check-curl-jq.sh
   # Validate that promo code URLs are at least 3x slower than regular URLs
@@ -26,8 +24,6 @@ before_test: |
   echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
   kubectl delete job k6-coupon-split -n app-164 --ignore-not-found=true
   kubectl delete pods -n app-164 -l job-name=k6-coupon-split --ignore-not-found=true
-
- 
 
   echo "✅ Test setup completed successfully"
 after_test: |

@@ -1,0 +1,32 @@
+# PrometheusRule CRD for kube-prometheus-stack (release: robusta)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: order-processing-alerts
+  labels:
+    release: robusta
+    app: kube-prometheus-stack
+spec:
+  groups:
+    - name: order-processing
+      rules:
+        - alert: OrderProcessingLatencyHigh
+          expr: histogram_quantile(0.95, sum(rate(order_processing_duration_seconds_bucket[5m])) by (le, service)) > 2
+          for: 5m
+          labels:
+            severity: warning
+            team: payments
+          annotations:
+            summary: "High order processing latency detected"
+            description: "95th percentile order processing time is above 2 seconds for service {{ $labels.service }}"
+            runbook_url: "https://wiki.example.com/runbooks/order-latency"
+
+        - alert: OrderProcessingErrorRate
+          expr: sum(rate(order_processing_errors_total[5m])) / sum(rate(order_processing_requests_total[5m])) > 0.05
+          for: 10m
+          labels:
+            severity: critical
+            team: payments
+          annotations:
+            summary: "High order processing error rate"
+            description: "Error rate is above 5% for order processing"

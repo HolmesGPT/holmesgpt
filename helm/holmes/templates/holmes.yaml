@@ -38,11 +38,32 @@ spec:
       {{- if .Values.priorityClassName }}
       priorityClassName: {{ .Values.priorityClassName }}
       {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.initContainers }}
+      initContainers:
+      {{- toYaml .Values.initContainers | nindent 6 }}
+      {{- end }}
       containers:
       - name: holmes
         image: "{{ .Values.registry }}/{{ .Values.image }}"
-        imagePullPolicy: Always
+        imagePullPolicy: {{ .Values.imagePullPolicy }}
+        # Read-only root filesystem for security hardening.
+        # /tmp is mounted as a writable emptyDir for ephemeral tool result files.
+        # Required for OpenShift restricted SCC and other security-hardened
+        # environments that enforce read-only root filesystems.
+        securityContext:
+          readOnlyRootFilesystem: true
+          {{- with .Values.containerSecurityContext }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
         command: ["python3", "-u", "server.py"]
+        {{- if .Values.args }}
+        args:
+        {{- toYaml .Values.args | nindent 8 }}
+        {{- end }}
         ports:
         - containerPort: 5050
           name: http
@@ -53,7 +74,7 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
-          failureThreshold: 3
+          failureThreshold: 10
         readinessProbe:
           httpGet:
             path: /readyz
@@ -88,6 +109,8 @@ spec:
             exec:
               command: ["bash", "-c", "kill -SIGINT 1"]
         volumeMounts:
+          - name: tmp-volume
+            mountPath: /tmp
           - name: playbooks-config-secret
             mountPath: /etc/robusta/config
           - name: custom-toolsets-configmap
@@ -106,6 +129,9 @@ spec:
       tolerations: {{ toYaml .Values.tolerations | nindent 8 }}
       {{- end }}
       volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 256Mi
         - name: playbooks-config-secret
           secret:
             secretName: robusta-playbooks-config-secret
@@ -133,3 +159,4 @@ spec:
       protocol: TCP
       port: 80
       targetPort: 5050
+      appProtocol: http

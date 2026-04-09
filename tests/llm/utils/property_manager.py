@@ -1,18 +1,27 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from tests.llm.utils.test_case_utils import (  # type: ignore[attr-defined]
     Evaluation,
     HolmesTestCase,
 )
 
+if TYPE_CHECKING:
+    from tests.llm.utils.env_config import EnvConfig
 
-def set_initial_properties(request, test_case: HolmesTestCase, model: str) -> None:
+
+def set_initial_properties(
+    request,
+    test_case: HolmesTestCase,
+    model: str,
+    env_config: Optional["EnvConfig"] = None,
+) -> None:
     """Set initial properties at the beginning of a test so they're available even if test fails early.
 
     Args:
         request: The pytest request object
         test_case: The test case being executed
         model: The model being used for this test run
+        env_config: Optional environment configuration being used for this test run
     """
     expected = test_case.expected_output
     if not isinstance(expected, list):
@@ -52,6 +61,10 @@ def set_initial_properties(request, test_case: HolmesTestCase, model: str) -> No
     request.node.user_properties.append(("clean_test_case_id", test_case.id))
     # Add tags for tag-based performance analysis
     request.node.user_properties.append(("tags", test_case.tags or []))
+
+    # Add env_config tracking
+    config_name = env_config.name if env_config else "default"
+    request.node.user_properties.append(("env_config", config_name))
 
 
 def set_trace_properties(request, eval_span) -> None:
@@ -103,7 +116,7 @@ def update_test_results(
         output: The test output string
         tools_called: List of tools called or a string description
         scores: Dictionary of scores (e.g., correctness). If None and test_case is provided, will calculate
-        result: Optional result object (LLMResult or InvestigationResult) containing cost info
+        result: Optional result object (LLMResult) containing cost info
         test_case: Optional test case for score calculation
         eval_span: Optional Braintrust span for evaluation
         caplog: Optional caplog for evaluation
@@ -113,7 +126,7 @@ def update_test_results(
     """
     # Calculate scores if not provided but test_case is available
     if scores is None and test_case is not None:
-        from tests.llm.utils.classifiers import evaluate_correctness, evaluate_sections
+        from tests.llm.utils.classifiers import evaluate_correctness
 
         scores = {}
 
@@ -190,16 +203,6 @@ def update_test_results(
         )
         scores["correctness"] = correctness_eval.score
 
-        # Evaluate sections if applicable (for investigate tests)
-        if hasattr(test_case, "expected_sections") and test_case.expected_sections:
-            sections = {
-                key: bool(value) for key, value in test_case.expected_sections.items()
-            }
-            sections_eval = evaluate_sections(
-                sections=sections, output=output, parent_span=eval_span
-            )
-            scores["sections"] = sections_eval.score
-
     # Default scores if still None
     if scores is None:
         scores = {}
@@ -232,6 +235,26 @@ def update_test_results(
             request.node.user_properties.append(
                 ("completion_tokens", result.completion_tokens)
             )
+        if hasattr(result, "cached_tokens"):
+            request.node.user_properties.append(
+                ("cached_tokens", result.cached_tokens)
+            )
+        if hasattr(result, "reasoning_tokens"):
+            request.node.user_properties.append(
+                ("reasoning_tokens", result.reasoning_tokens)
+            )
+        if hasattr(result, "max_completion_tokens_per_call"):
+            request.node.user_properties.append(
+                ("max_completion_tokens_per_call", result.max_completion_tokens_per_call)
+            )
+        if hasattr(result, "max_prompt_tokens_per_call"):
+            request.node.user_properties.append(
+                ("max_prompt_tokens_per_call", result.max_prompt_tokens_per_call)
+            )
+        if hasattr(result, "num_compactions"):
+            request.node.user_properties.append(
+                ("num_compactions", result.num_compactions)
+            )
 
     return scores
 
@@ -243,7 +266,6 @@ def handle_test_error(
     test_case=None,
     model: Optional[str] = None,
     result=None,
-    mock_generation_config=None,
 ) -> None:
     """Centralized error handling for LLM tests.
 
@@ -254,7 +276,6 @@ def handle_test_error(
         test_case: The test case being executed
         model: The model being tested
         result: Optional partial result if available
-        mock_generation_config: Mock configuration for logging
     """
     # Import here to avoid circular dependency
     from tests.llm.utils.braintrust import log_to_braintrust
@@ -268,7 +289,6 @@ def handle_test_error(
                 model=model,
                 result=result,
                 error=error,
-                mock_generation_config=mock_generation_config,
             )
         except Exception:
             pass  # Don't fail the test due to logging issues
@@ -296,17 +316,6 @@ def handle_test_error(
         # Mark as failed due to throttling (terminal failure after max retries)
         request.node.user_properties.append(("failed_due_to_throttling", True))
         request.node.user_properties.append(("throttle_reason", str(error)))
-        return  # Don't check for other error types
-
-    # Check if this is a MockDataError (check class name and inheritance)
-    is_mock_error = any("MockData" in cls.__name__ for cls in type(error).__mro__)
-
-    if is_mock_error:
-        # Mark as mock data failure
-        request.node.user_properties.append(("mock_data_failure", True))
-        request.node.user_properties.append(("mock_error_message", str(error)))
-        # Update the actual output to indicate mock data failure
-        update_property(request, "actual", f"Mock data error: {str(error)}")
         return  # Don't check for other error types
 
     # Check if this is a ToolsetPrerequisiteError (toolset infrastructure not available)

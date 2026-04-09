@@ -11,7 +11,6 @@ from typing_extensions import Dict
 
 from holmes.config import Config
 from holmes.core.llm import DefaultLLM
-from holmes.core.models import InvestigateRequest, WorkloadHealthRequest
 from holmes.core.prompt import append_file_to_user_prompt
 from holmes.core.resource_instruction import ResourceInstructions
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
@@ -134,17 +133,19 @@ class HolmesTestCase(BaseModel):
     test_env_vars: Optional[Dict[str, str]] = (
         None  # Environment variables to set during test execution
     )
-    mock_policy: Optional[str] = (
-        "inherit"  # Mock policy: always_mock, never_mock, or inherit
-    )
-    mock_overrides: Optional[Dict[str, str]] = (
-        None  # Per-toolset mock policy overrides: {"toolset_name": "always_mock|never_mock|inherit"}
-    )
     description: Optional[str] = None
-    generate_mocks: Optional[bool] = None
     toolsets: Optional[Dict[str, Any]] = None
     port_forwards: Optional[List[Dict[str, Any]]] = (
         None  # Port forwarding configurations
+    )
+    toolsets_matrix: Optional[List[str]] = (
+        None  # List of toolset config filenames for matrix expansion
+    )
+    toolsets_config_name: Optional[str] = (
+        None  # Derived name of the active toolset config (auto-set during matrix expansion)
+    )
+    toolsets_config_path: Optional[str] = (
+        None  # Full path to the active toolset config file (auto-set during matrix expansion)
     )
 
 
@@ -165,22 +166,6 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
         None  # Store original prompt(s)
     )
     test_type: Optional[str] = None  # The type of test to run
-
-
-class InvestigateTestCase(HolmesTestCase, BaseModel):
-    investigate_request: InvestigateRequest
-    issue_data: Optional[Dict]
-    resource_instructions: Optional[ResourceInstructions]
-    expected_sections: Optional[Dict[str, Union[List[str], bool]]] = None
-    request: Any = None
-
-
-class HealthCheckTestCase(HolmesTestCase, BaseModel):
-    workload_health_request: WorkloadHealthRequest
-    issue_data: Optional[Dict]
-    resource_instructions: Optional[ResourceInstructions]
-    expected_sections: Optional[Dict[str, Union[List[str], bool]]] = None
-    request: Any = None
 
 
 def check_and_skip_test(
@@ -243,16 +228,10 @@ def check_and_skip_test(
         pytest.skip(f"Test skipped due to port conflict: {skip_reason}")
 
 
-class MockHelper:
+class TestCaseLoader:
     def __init__(self, test_cases_folder: Path) -> None:
         super().__init__()
         self._test_cases_folder = test_cases_folder
-
-    def load_workload_health_test_cases(self) -> List[HealthCheckTestCase]:
-        return cast(List[HealthCheckTestCase], self.load_test_cases())
-
-    def load_investigate_test_cases(self) -> List[InvestigateTestCase]:
-        return cast(List[InvestigateTestCase], self.load_test_cases())
 
     def load_ask_holmes_test_cases(self) -> List[AskHolmesTestCase]:
         return cast(List[AskHolmesTestCase], self.load_test_cases())
@@ -264,6 +243,64 @@ class MockHelper:
                 test_case.tags = []
             if "port-forward" not in test_case.tags:
                 test_case.tags.append("port-forward")
+
+    @staticmethod
+    def _derive_toolset_config_name(filename: str) -> str:
+        """Derive a short name from a toolset config filename for use in test IDs.
+
+        Examples:
+            toolsets_builtin.yaml -> builtin
+            toolsets_http_datadog.yaml -> http_datadog
+            toolsets.yaml -> default
+            custom.yaml -> custom
+        """
+        name = filename
+        for ext in (".yaml", ".yml"):
+            if name.endswith(ext):
+                name = name[: -len(ext)]
+                break
+        if name.startswith("toolsets_"):
+            name = name[len("toolsets_") :]
+        elif name == "toolsets":
+            name = "default"
+        return name or "default"
+
+    def _expand_toolsets_matrix(
+        self, test_cases: List[HolmesTestCase]
+    ) -> List[HolmesTestCase]:
+        """Expand test cases that have toolsets_matrix into multiple variants.
+
+        Each entry in toolsets_matrix is a filename (e.g. toolsets_builtin.yaml)
+        that must exist in the test case folder. For each file, a variant of the
+        test case is created with toolsets_config_name and toolsets_config_path set.
+        The variant ID is appended with [config_name].
+        """
+        expanded: List[HolmesTestCase] = []
+        for tc in test_cases:
+            if not tc.toolsets_matrix:
+                expanded.append(tc)
+                continue
+
+            for config_filename in tc.toolsets_matrix:
+                config_path = os.path.join(tc.folder, config_filename)
+                if not os.path.isfile(config_path):
+                    raise FileNotFoundError(
+                        f"Toolsets matrix config file '{config_filename}' not found "
+                        f"in test case folder: {tc.folder}"
+                    )
+
+                name = self._derive_toolset_config_name(config_filename)
+
+                variant = tc.model_copy(deep=True)
+                variant.toolsets_config_name = name
+                variant.toolsets_config_path = config_path
+                variant.id = f"{tc.id}[{name}]"
+                if not variant.base_id:
+                    variant.base_id = tc.id
+
+                expanded.append(variant)
+
+        return expanded
 
     def load_test_cases(self) -> List[HolmesTestCase]:
         test_cases: List[HolmesTestCase] = []
@@ -323,36 +360,17 @@ class MockHelper:
                             config_dict
                         )
 
-                elif self._test_cases_folder.name == "test_investigate":
-                    config_dict["investigate_request"] = load_investigate_request(
-                        test_case_folder
-                    )
-                    config_dict["issue_data"] = load_issue_data(test_case_folder)
-                    config_dict["resource_instructions"] = load_resource_instructions(
-                        test_case_folder
-                    )
-                    config_dict["request"] = TypeAdapter(InvestigateRequest)
-                    test_case = TypeAdapter(InvestigateTestCase).validate_python(
-                        config_dict
-                    )
-                elif self._test_cases_folder.name == "test_workload_health":
-                    config_dict["workload_health_request"] = (
-                        load_workload_health_request(test_case_folder)
-                    )
-                    config_dict["issue_data"] = load_issue_data(test_case_folder)
-                    config_dict["resource_instructions"] = load_resource_instructions(
-                        test_case_folder
-                    )
-                    config_dict["request"] = TypeAdapter(WorkloadHealthRequest)
-                    test_case = TypeAdapter(HealthCheckTestCase).validate_python(
-                        config_dict
-                    )
                 elif self._test_cases_folder.name == "compaction":
                     # Compaction tests only need conversation_history and expected_output
                     config_dict["conversation_history"] = load_conversation_history(
                         test_case_folder
                     )
                     test_case = TypeAdapter(HolmesTestCase).validate_python(config_dict)
+                elif self._test_cases_folder.name == "test_holmes_checks":
+                    # Import CheckTestCase here to avoid circular imports
+                    from tests.llm.test_holmes_checks import CheckTestCase  # type: ignore
+
+                    test_case = TypeAdapter(CheckTestCase).validate_python(config_dict)
                 else:
                     # Skip test cases that don't match any known type
                     logging.debug(
@@ -417,6 +435,10 @@ class MockHelper:
                 continue
         logging.debug(f"Found {len(test_cases)} in {self._test_cases_folder}")
 
+        # Expand toolsets_matrix variants (must happen after all test cases are loaded,
+        # including array prompt expansion, to produce the cross-product)
+        test_cases = self._expand_toolsets_matrix(test_cases)
+
         return test_cases
 
 
@@ -438,32 +460,6 @@ def load_resource_instructions(
             read_file(Path(resource_instructions_mock_path))
         )
     return None
-
-
-def load_investigate_request(test_case_folder: Path) -> InvestigateRequest:
-    investigate_request_path = test_case_folder.joinpath(
-        Path("investigate_request.json")
-    )
-    if investigate_request_path.exists():
-        return TypeAdapter(InvestigateRequest).validate_json(
-            read_file(Path(investigate_request_path))
-        )
-    raise Exception(
-        f"Investigate test case declared in folder {str(test_case_folder)} should have an investigate_request.json file but none is present"
-    )
-
-
-def load_workload_health_request(test_case_folder: Path) -> WorkloadHealthRequest:
-    workload_health_request_path = test_case_folder.joinpath(
-        Path("workload_health_request.json")
-    )
-    if workload_health_request_path.exists():
-        return TypeAdapter(WorkloadHealthRequest).validate_json(
-            read_file(Path(workload_health_request_path))
-        )
-    raise Exception(
-        f"Workload health test case declared in folder {str(test_case_folder)} should have an workload_health_request.json file but none is present"
-    )
 
 
 def _parse_conversation_history_md_files(

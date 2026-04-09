@@ -43,7 +43,11 @@ from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
 from holmes.utils.krr_utils import calculate_krr_savings
 
-SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 3600))
+SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 60))
+
+# Maximum total rows to fetch from KRR scans, regardless of number of clusters
+# This prevents unbounded fetches when querying many clusters
+MAX_KRR_TOTAL_FETCH_ROWS = 2000
 
 ISSUES_TABLE = "Issues"
 GROUPED_ISSUES_TABLE = "GroupedIssues"
@@ -54,12 +58,14 @@ HOLMES_STATUS_TABLE = "HolmesStatus"
 HOLMES_TOOLSET = "HolmesToolsStatus"
 SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
+SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
+HOLMES_RESULTS_TABLE = "HolmesResults"
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
 
 
-logging.info("Patching supabase_request_builder.pre_select")
+logging.getLogger(__name__).debug("Patching supabase_request_builder.pre_select")
 original_pre_select = supabase_request_builder.pre_select
 
 
@@ -79,6 +85,15 @@ supabase_request_builder.pre_select = pre_select_patched
 class FindingType(str, Enum):
     ISSUE = "issue"
     CONFIGURATION_CHANGE = "configuration_change"
+
+
+class RunStatus(str, Enum):
+    PENDING = "pending"
+    PULLED = "pulled"
+    RUNNING = "running"
+    FAILED = "failed"
+    FAILED_NO_RETRY = "failed_no_retry"
+    COMPLETED = "completed"
 
 
 class RobustaToken(BaseModel):
@@ -263,6 +278,7 @@ class SupabaseDal:
         name_pattern: Optional[str] = None,
         kind: Optional[str] = None,
         container: Optional[str] = None,
+        clusters: Optional[List[str]] = None,
     ) -> Optional[List[Dict]]:
         """
         Fetch top N resource recommendations with optional filters and sorting.
@@ -281,6 +297,8 @@ class SupabaseDal:
             name_pattern: Filter by workload name (supports SQL LIKE pattern, e.g., '%app%')
             kind: Filter by Kubernetes resource kind (e.g., Deployment, StatefulSet, DaemonSet, Job)
             container: Filter by container name (exact match)
+            clusters: List of cluster names to query. If None, queries current cluster only.
+                      Use ["*"] to query all clusters in the account.
 
         Returns:
             List of recommendations sorted by the specified metric
@@ -288,26 +306,50 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        scans_meta_response = (
+        # Determine which clusters to query
+        if clusters is None:
+            target_clusters = [self.cluster]
+        elif clusters == ["*"]:
+            target_clusters = None  # Will query all via single request
+        else:
+            target_clusters = clusters
+
+        # Step 1: Fetch scan metadata for all target clusters in one query
+        meta_query = (
             self.client.table(SCANS_META_TABLE)
-            .select("*")
+            .select("cluster_id, scan_id")
             .eq("account_id", self.account_id)
-            .eq("cluster_id", self.cluster)
             .eq("latest", True)
-            .execute()
         )
-        if not len(scans_meta_response.data):
-            logging.warning("No scan metadata found for latest krr scan")
+        if target_clusters is not None:
+            meta_query = meta_query.in_("cluster_id", target_clusters)
+
+        scans_meta_response = meta_query.execute()
+
+        if not scans_meta_response.data:
+            logging.warning("No scan metadata found for KRR")
             return None
 
-        scan_id = scans_meta_response.data[0]["scan_id"]
+        # Build cluster_id -> scan_id mapping
+        cluster_scan_pairs: List[Tuple[str, str]] = [
+            (row["cluster_id"], row["scan_id"]) for row in scans_meta_response.data
+        ]
+
+        if not cluster_scan_pairs:
+            return None
+
+        # Step 2: Fetch results using OR filter for (cluster_id, scan_id) pairs
+        # PostgREST syntax: or=(and(cluster_id.eq.X,scan_id.eq.Y),and(...))
+        or_conditions = ",".join(
+            f"and(cluster_id.eq.{cluster_id},scan_id.eq.{scan_id})"
+            for cluster_id, scan_id in cluster_scan_pairs
+        )
 
         query = (
             self.client.table(SCANS_RESULTS_TABLE)
             .select("*")
             .eq("account_id", self.account_id)
-            .eq("cluster_id", self.cluster)
-            .eq("scan_id", scan_id)
+            .or_(or_conditions)
         )
 
         if namespace:
@@ -319,27 +361,29 @@ class SupabaseDal:
         if container:
             query = query.eq("container", container)
 
-        # For priority sorting, we can use the database's order
+        # For priority sorting, we can use DB ordering and limit
         if sort_by == "priority":
             query = query.order("priority", desc=True).limit(limit)
+            results_response = query.execute()
+            return results_response.data if results_response.data else None
 
-        scans_results_response = query.execute()
+        # For other sort modes, fetch up to limit per cluster then sort in Python
+        # Cap total fetch to prevent unbounded queries with many clusters
+        total_fetch = min(limit * len(cluster_scan_pairs), MAX_KRR_TOTAL_FETCH_ROWS)
+        query = query.limit(total_fetch)
+        results_response = query.execute()
 
-        if not len(scans_results_response.data):
+        if not results_response.data:
             return None
 
-        results = scans_results_response.data
+        all_results = results_response.data
 
-        if len(results) <= 1:
-            return results
-
-        # If sorting by priority, we already ordered and limited in the query
-        if sort_by == "priority":
-            return results
+        if len(all_results) <= 1:
+            return all_results
 
         # Sort by calculated savings (descending)
         results_with_savings = [
-            (result, calculate_krr_savings(result, sort_by)) for result in results
+            (result, calculate_krr_savings(result, sort_by)) for result in all_results
         ]
         results_with_savings.sort(key=lambda x: x[1], reverse=True)
 
@@ -352,57 +396,94 @@ class SupabaseDal:
         limit: int = 100,
         workload: Optional[str] = None,
         ns: Optional[str] = None,
-        cluster: Optional[str] = None,
+        clusters: Optional[List[str]] = None,
+        include_external: bool = True,
         finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
+        """
+        Fetch issues/changes metadata with multi-cluster support.
+
+        Args:
+            start_datetime: Start time boundary in RFC3339 format
+            end_datetime: End time boundary in RFC3339 format
+            limit: Maximum number of results to return
+            workload: Filter by workload name (exact match)
+            ns: Filter by namespace (exact match)
+            clusters: List of cluster names to query. If None, queries current cluster only.
+                      Use ["*"] to query all clusters in the account.
+            include_external: If True, also include external changes (not associated with
+                             any k8s cluster, e.g., LaunchDarkly changes). Default True.
+            finding_type: Type of finding to fetch (CONFIGURATION_CHANGE or ISSUE)
+
+        Returns:
+            List of issues/changes metadata or None if no data found
+        """
         if not self.enabled:
             return []
-        if not cluster:
-            cluster = self.cluster
+
         try:
-            query = (
-                self.client.table(ISSUES_TABLE)
-                .select(
-                    "id",
-                    "title",
-                    "subject_name",
-                    "subject_namespace",
-                    "subject_type",
-                    "description",
-                    "starts_at",
-                    "ends_at",
-                )
-                .eq("account_id", self.account_id)
-                .eq("cluster", cluster)
-                .gte("creation_date", start_datetime)
-                .lte("creation_date", end_datetime)
-                .limit(limit)
+            base_select = (
+                "id",
+                "title",
+                "subject_name",
+                "subject_namespace",
+                "subject_type",
+                "description",
+                "starts_at",
+                "ends_at",
+                "cluster",
             )
 
-            query = query.eq("finding_type", finding_type.value)
+            # Build the list of clusters to query (single query using IN filter)
+            if clusters == ["*"]:
+                # Query all clusters - if include_external, no cluster filter needed
+                # Otherwise exclude "external"
+                query = (
+                    self.client.table(ISSUES_TABLE)
+                    .select(*base_select)
+                    .eq("account_id", self.account_id)
+                    .gte("creation_date", start_datetime)
+                    .lte("creation_date", end_datetime)
+                    .eq("finding_type", finding_type.value)
+                )
+                if not include_external:
+                    query = query.neq("cluster", "external")
+            else:
+                # Build cluster list for IN filter
+                target_clusters = clusters if clusters else [self.cluster]
+                if include_external:
+                    target_clusters = target_clusters + ["external"]
+
+                query = (
+                    self.client.table(ISSUES_TABLE)
+                    .select(*base_select)
+                    .eq("account_id", self.account_id)
+                    .in_("cluster", target_clusters)
+                    .gte("creation_date", start_datetime)
+                    .lte("creation_date", end_datetime)
+                    .eq("finding_type", finding_type.value)
+                )
+
+            # Apply workload/namespace filters (only affect non-external results,
+            # but external rows won't match these anyway as they lack k8s context)
             if workload:
-                query.eq("subject_name", workload)
+                query = query.eq("subject_name", workload)
             if ns:
-                query.eq("subject_namespace", ns)
+                query = query.eq("subject_namespace", ns)
+
+            # Order by starts_at descending and apply limit in DB
+            query = query.order("starts_at", desc=True).limit(limit)
 
             res = query.execute()
+
             if not res.data:
                 return None
+
+            return res.data
 
         except Exception:
             logging.exception("Supabase error while retrieving change data")
             return None
-
-        logging.debug(
-            "Change history metadata for %s-%s workload %s in ns %s: %s",
-            start_datetime,
-            end_datetime,
-            workload,
-            ns,
-            res.data,
-        )
-
-        return res.data
 
     def unzip_evidence_file(self, data):
         try:
@@ -666,56 +747,6 @@ class SupabaseDal:
 
         return self.account_id, session_token
 
-    def get_workload_issues(self, resource: dict, since_hours: float) -> List[str]:
-        if not self.enabled or not resource:
-            return []
-
-        cluster = resource.get("cluster")
-        if not cluster:
-            logging.debug("Missing workload cluster for issues.")
-            return []
-
-        since: str = (datetime.now() - timedelta(hours=since_hours)).isoformat()
-
-        svc_key = f"{resource.get('namespace', '')}/{resource.get('kind', '')}/{resource.get('name', '')}"
-        logging.debug(f"getting issues for workload {svc_key}")
-        try:
-            res = (
-                self.client.table(ISSUES_TABLE)
-                .select("id, creation_date, aggregation_key")
-                .eq("account_id", self.account_id)
-                .eq("cluster", cluster)
-                .eq("service_key", svc_key)
-                .gte("creation_date", since)
-                .order("creation_date")
-                .execute()
-            )
-
-            if not res.data:
-                return []
-
-            issue_dict = dict()
-            for issue in res.data:
-                issue_dict[issue.get("aggregation_key")] = issue.get("id")
-
-            unique_issues: list[str] = list(issue_dict.values())
-
-            res = (
-                self.client.table(EVIDENCE_TABLE)
-                .select("data, enrichment_type")
-                .in_("issue_id", unique_issues)
-                .not_.in_("enrichment_type", ENRICHMENT_BLACKLIST)
-                .execute()
-            )
-
-            relevant_issues = self.extract_relevant_issues(res)
-            truncate_evidences_entities_if_necessary(relevant_issues)
-            return relevant_issues
-
-        except Exception:
-            logging.exception("failed to fetch workload issues data", exc_info=True)
-            return []
-
     def upsert_holmes_status(self, holmes_status_data: dict) -> None:
         if not self.enabled:
             logging.info(
@@ -776,3 +807,141 @@ class SupabaseDal:
             logging.exception(
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
             )
+
+    def has_scheduled_prompt_definitions(self) -> bool:
+        """
+        Check if the account has any scheduled prompt definitions.
+        Returns True if count > 0, False otherwise.
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            res = (
+                self.client.table("ScheduledPromptsDefinitions")
+                .select("id", count="exact")
+                .eq("account_id", self.account_id)
+                .limit(1)
+                .execute()
+            )
+
+            count = res.count if hasattr(res, "count") else 0
+            return count > 0
+        except Exception:
+            logging.exception(
+                "Supabase error while checking scheduled prompt definitions",
+                exc_info=True,
+            )
+            return False
+
+    def claim_scheduled_prompt_run(self, holmes_id: str) -> Optional[Dict]:
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc(
+                "claim_scheduled_prompt_run",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_name": self.cluster,
+                    "_holmes_id": holmes_id,
+                },
+            ).execute()
+
+            if not res.data:
+                return None
+
+            row = res.data[0] if isinstance(res.data, list) else res.data
+            # supabase returns empty row if no data found
+            if not row.get("id"):
+                return None
+
+            return row
+        except Exception:
+            logging.exception(
+                "Supabase error while claiming scheduled prompt run",
+                exc_info=True,
+            )
+            return None
+
+    def update_run_status(
+        self, run_id: str, status: RunStatus, msg: Optional[str] = None
+    ) -> bool:
+        if not self.enabled:
+            logging.info(
+                "Robusta store not initialized. Skipping updating scheduled prompt run status."
+            )
+            return False
+
+        status_str = status.value
+
+        try:
+            update_data = {
+                "status": status_str,
+                "last_heartbeat_at": datetime.now().isoformat(),
+            }
+            if msg is not None:
+                update_data["msg"] = msg
+
+            (
+                self.client.table(SCHEDULED_PROMPTS_RUNS_TABLE)
+                .update(update_data)
+                .eq("id", run_id)
+                .eq("account_id", self.account_id)
+                .execute()
+            )
+
+            logging.debug(f"Updated run {run_id} status to {status}")
+            return True
+        except Exception as e:
+            logging.exception(
+                f"Error updating scheduled prompt run status: {e}", exc_info=True
+            )
+            return False
+
+    def finish_scheduled_prompt_run(
+        self,
+        status: RunStatus,
+        result: Dict,
+        run_id: str,
+        scheduled_prompt_definition_id: Optional[str],
+        version: str,
+        metadata: Optional[dict],
+    ) -> bool:
+        if not self.enabled:
+            logging.info(
+                "Robusta store not initialized. Skipping finishing scheduled prompt run."
+            )
+            return False
+
+        if status not in (
+            RunStatus.COMPLETED,
+            RunStatus.FAILED,
+            RunStatus.FAILED_NO_RETRY,
+        ):
+            logging.error(
+                "finish_scheduled_prompt_run received invalid status %s", status
+            )
+            return False
+
+        try:
+            self.client.rpc(
+                "finish_scheduled_prompt_run",
+                {
+                    "_cluster_name": self.cluster,
+                    "_account_id": self.account_id,
+                    "_status": status.value,
+                    "_result": result,
+                    "_scheduled_prompt_run_id": run_id,
+                    "_scheduled_prompt_definition_id": scheduled_prompt_definition_id,
+                    "_version": version,
+                    "_metadata": metadata,
+                },
+            ).execute()
+            return True
+        except Exception:
+            logging.exception(
+                "Supabase error while finishing scheduled prompt run",
+                exc_info=True,
+            )
+            return False

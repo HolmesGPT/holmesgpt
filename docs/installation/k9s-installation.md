@@ -126,6 +126,11 @@ Integrate HolmesGPT into your [K9s](https://github.com/derailed/k9s){:target="\_
 1. Run K9s and select any Kubernetes resource
 2. Press **Shift + H** for quick analysis or **Shift + Q** for custom questions
 
+## Next Steps
+
+-   **[Recommended Setup](../data-sources/recommended-setup.md)** - Connect metrics, logs, and cloud providers to unlock deeper investigations
+-   **[All Data Sources](../data-sources/index.md)** - Browse the full list of 38+ built-in integrations
+
 ## Need Help?
 
 -   **[Join our Slack](https://cloud-native.slack.com/archives/C0A1SPQM5PZ){:target="\_blank"}** - Get help from the community

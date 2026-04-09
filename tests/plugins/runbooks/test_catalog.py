@@ -9,16 +9,10 @@ from holmes.plugins.runbooks import (
 
 def test_load_runbook_catalog():
     runbooks = load_runbook_catalog()
+    # Catalog can be empty but should load without error
     assert runbooks is not None
-    assert len(runbooks.catalog) > 0
-    for runbook in runbooks.catalog:
-        assert runbook.description is not None
-        assert runbook.link is not None
-        runbook_link = get_runbook_by_path(runbook.link, [DEFAULT_RUNBOOK_SEARCH_PATH])
-        # assert file path exists
-        assert os.path.exists(
-            runbook_link
-        ), f"Runbook link {runbook.link} does not exist at {runbook_link}"
+    # Default catalog is empty, so no builtin runbooks
+    assert len(runbooks.catalog) == 0
 
 
 def test_load_runbook_catalog_with_custom_catalog(tmp_path):
@@ -43,8 +37,8 @@ def test_load_runbook_catalog_with_custom_catalog(tmp_path):
     runbooks = load_runbook_catalog(custom_catalog_paths=[custom_catalog_file])
 
     assert runbooks is not None
-    # Should have both builtin and custom runbooks
-    assert len(runbooks.catalog) > 1
+    # Should have custom runbook (default catalog is empty)
+    assert len(runbooks.catalog) == 1
 
     # Check that custom runbook is in the catalog
     custom_runbook_links = [r.link for r in runbooks.catalog]
@@ -89,9 +83,8 @@ def test_load_runbook_catalog_with_nonexistent_custom_catalog(tmp_path):
     # Should not raise an exception
     runbooks = load_runbook_catalog(custom_catalog_paths=[nonexistent_file])
 
-    # Should still have builtin runbooks
+    # Should return catalog (may be empty since default is empty)
     assert runbooks is not None
-    assert len(runbooks.catalog) > 0
 
 
 def test_load_runbook_catalog_with_invalid_json(tmp_path):
@@ -103,9 +96,8 @@ def test_load_runbook_catalog_with_invalid_json(tmp_path):
     # Should not raise an exception
     runbooks = load_runbook_catalog(custom_catalog_paths=[invalid_catalog_file])
 
-    # Should still have builtin runbooks
+    # Should return catalog (may be empty since default is empty and custom is invalid)
     assert runbooks is not None
-    assert len(runbooks.catalog) > 0
 
 
 def test_load_runbook_catalog_with_empty_custom_catalog(tmp_path):
@@ -118,6 +110,6 @@ def test_load_runbook_catalog_with_empty_custom_catalog(tmp_path):
 
     runbooks = load_runbook_catalog(custom_catalog_paths=[empty_catalog_file])
 
-    # Should still have builtin runbooks
+    # Both default and custom are empty, so catalog should be empty
     assert runbooks is not None
-    assert len(runbooks.catalog) > 0
+    assert len(runbooks.catalog) == 0

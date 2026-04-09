@@ -50,7 +50,7 @@ def get_recent_timestamps():
 def send_log(api_key, namespace, timestamp, level, message, additional_tags=""):
     """Send a single log entry to Datadog."""
     datadog_site = os.environ.get(
-        "DATADOG_SITE", "https://http-intake.logs.datadoghq.eu"
+        "DATADOG_SITE", "https://http-intake.logs.us5.datadoghq.com"
     )
 
     # Construct the log entry
@@ -103,7 +103,7 @@ def send_log(api_key, namespace, timestamp, level, message, additional_tags=""):
 
 def query_logs(api_key, app_key, namespace, from_timestamp, to_timestamp):
     """Query Datadog API for logs."""
-    datadog_api_url = os.environ.get("DATADOG_API_URL", "https://api.datadoghq.eu")
+    datadog_api_url = os.environ.get("DATADOG_API_URL", "https://api.us5.datadoghq.com")
 
     # Prepare the query
     query_payload = {

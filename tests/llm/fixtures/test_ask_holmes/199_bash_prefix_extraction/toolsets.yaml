@@ -1,0 +1,21 @@
+# Bash toolset test - correct prefix extraction
+# Enable bash with exact prefixes needed for this test
+# AI must provide 'kubectl get' and 'grep' as suggested_prefixes
+toolsets:
+  bash:
+    enabled: true
+    config:
+      allow:
+        - "kubectl get"
+        - "grep"
+      deny: []
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  kubernetes/live-metrics:
+    enabled: false
+  kubernetes/kube-prometheus-stack:
+    enabled: false
+  kubernetes/krew-extras:
+    enabled: false

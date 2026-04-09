@@ -7,10 +7,10 @@ import os
 import re
 from typing import Any, Dict, Optional, Tuple
 
-from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
+    ClassVar,
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
@@ -18,6 +18,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    Type,
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.datadog.datadog_api import (
@@ -46,6 +47,8 @@ PERCENTILE_AGGREGATIONS = ["pc75", "pc90", "pc95", "pc98", "pc99"]
 
 class DatadogTracesToolset(Toolset):
     """Toolset for working with Datadog traces/APM data."""
+
+    config_classes: ClassVar[list[Type[DatadogTracesConfig]]] = [DatadogTracesConfig]
 
     dd_config: Optional[DatadogTracesConfig] = None
 
@@ -103,13 +106,13 @@ class DatadogTracesToolset(Toolset):
             }
 
             # Use search endpoint instead
-            search_url = f"{dd_config.site_api_url}/api/v2/spans/events/search"
+            search_url = f"{dd_config.api_url}/api/v2/spans/events/search"
 
             execute_datadog_http_request(
                 url=search_url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=dd_config.request_timeout,
+                timeout=dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -129,14 +132,6 @@ class DatadogTracesToolset(Toolset):
         except Exception as e:
             logging.exception("Failed during Datadog traces healthcheck")
             return False, f"Healthcheck failed with exception: {str(e)}"
-
-    def get_example_config(self) -> Dict[str, Any]:
-        example_config = DatadogTracesConfig(
-            dd_api_key="<your_datadog_api_key>",
-            dd_app_key="<your_datadog_app_key>",
-            site_api_url=AnyUrl("https://api.datadoghq.com"),
-        )
-        return example_config.model_dump(mode="json")
 
 
 class BaseDatadogTracesTool(Tool):
@@ -257,7 +252,7 @@ class GetSpans(BaseDatadogTracesTool):
                 sort = "-timestamp"
 
             # Use POST endpoint for more complex searches
-            url = f"{self.toolset.dd_config.site_api_url}/api/v2/spans/events/search"
+            url = f"{self.toolset.dd_config.api_url}/api/v2/spans/events/search"
             headers = get_headers(self.toolset.dd_config)
 
             payload = {
@@ -285,7 +280,7 @@ class GetSpans(BaseDatadogTracesTool):
                 url=url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -618,7 +613,7 @@ class AggregateSpans(BaseDatadogTracesTool):
             query = params.get("query", "*")
 
             # Build the request payload
-            url = f"{self.toolset.dd_config.site_api_url}/api/v2/spans/analytics/aggregate"
+            url = f"{self.toolset.dd_config.api_url}/api/v2/spans/analytics/aggregate"
             headers = get_headers(self.toolset.dd_config)
 
             # Build payload attributes first
@@ -658,7 +653,7 @@ class AggregateSpans(BaseDatadogTracesTool):
                 url=url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="POST",
             )
 

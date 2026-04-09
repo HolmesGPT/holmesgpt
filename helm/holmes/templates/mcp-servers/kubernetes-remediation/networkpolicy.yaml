@@ -1,0 +1,30 @@
+{{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-k8s-remediation-mcp-network-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}-k8s-remediation-mcp
+      app.kubernetes.io/name: k8s-remediation-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow traffic only from Holmes pods
+  - from:
+    - podSelector:
+        matchLabels:
+          app: holmes
+    ports:
+    - protocol: TCP
+      port: 8000
+{{- end }}

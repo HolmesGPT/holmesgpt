@@ -31,33 +31,52 @@ METRICS_ENABLED = os.environ.get("CORALOGIX_METRICS_ENABLED", "false").lower() =
 SERVICE_NAME = os.environ.get("SERVICE_NAME", "payment-service")
 SERVICE_LABEL = os.environ.get("SERVICE_LABEL", "payment")
 
-# Configure OpenTelemetry resource
+# Coralogix configuration - send directly to Coralogix ingress (no local collector needed)
+CORALOGIX_DOMAIN = os.environ.get("CORALOGIX_DOMAIN", "eu2.coralogix.com")
+CORALOGIX_API_KEY = os.environ.get("CORALOGIX_SEND_API_KEY", "")
+
+# Configure OpenTelemetry resource with Coralogix-specific attributes
 resource = Resource.create(
     {
         "service.name": SERVICE_NAME,
+        "cx.application.name": SERVICE_NAME,
+        "cx.subsystem.name": SERVICE_LABEL,
         "k8s.namespace.name": os.environ.get("K8S_NAMESPACE", "app-173"),
         "k8s.pod.name": os.environ.get("K8S_POD_NAME", "unknown"),
     }
 )
 
-# Send telemetry to local OTLP collector; it will forward to Coralogix.
-K8S_NODE_IP = os.environ.get("K8S_NODE_IP", "192.168.13.204")
-otlp_endpoint = f"http://{K8S_NODE_IP}:4318/v1/"
+# Build Coralogix OTLP endpoint and headers
+otlp_base_url = f"https://ingress.{CORALOGIX_DOMAIN}/v1"
+otlp_headers = {
+    "Authorization": f"Bearer {CORALOGIX_API_KEY}",
+    "CX-Application-Name": SERVICE_NAME,
+    "CX-Subsystem-Name": SERVICE_LABEL,
+}
 
 if TRACES_ENABLED:
-    trace_exporter = OTLPSpanExporter(endpoint=f"{otlp_endpoint}traces")
+    trace_exporter = OTLPSpanExporter(
+        endpoint=f"{otlp_base_url}/traces",
+        headers=otlp_headers,
+    )
     tracer_provider = TracerProvider(resource=resource)
     tracer_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
     set_tracer_provider(tracer_provider)
 
 if LOGS_ENABLED:
-    log_exporter = OTLPLogExporter(endpoint=f"{otlp_endpoint}logs")
+    log_exporter = OTLPLogExporter(
+        endpoint=f"{otlp_base_url}/logs",
+        headers=otlp_headers,
+    )
     logger_provider = LoggerProvider(resource=resource)
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
     set_logger_provider(logger_provider)
 
 if METRICS_ENABLED:
-    metric_exporter = OTLPMetricExporter(endpoint=f"{otlp_endpoint}metrics")
+    metric_exporter = OTLPMetricExporter(
+        endpoint=f"{otlp_base_url}/metrics",
+        headers=otlp_headers,
+    )
     reader = PeriodicExportingMetricReader(metric_exporter)
     meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     set_meter_provider(meter_provider)

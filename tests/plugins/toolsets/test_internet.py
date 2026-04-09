@@ -120,6 +120,8 @@ def test_fetch_webpage(responses):
         body=EXPECTED_TEST_RESULT,
     )
     toolset = InternetToolset()
+    success, error = toolset.prerequisites_callable({})
+    assert success, f"Setup failed: {error}"
     toolset.status = ToolsetStatusEnum.ENABLED
     tool_executor = ToolExecutor(toolsets=[toolset])
     fetch_webpage_tool = tool_executor.get_tool_by_name("fetch_webpage")

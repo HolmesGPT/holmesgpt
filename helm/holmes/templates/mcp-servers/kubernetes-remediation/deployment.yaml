@@ -1,0 +1,182 @@
+{{- if .Values.mcpAddons.kubernetesRemediation.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-k8s-remediation-mcp-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data:
+  KUBECTL_ALLOWED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowedCommands | quote }}
+  KUBECTL_DANGEROUS_FLAGS: {{ .Values.mcpAddons.kubernetesRemediation.config.dangerousFlags | quote }}
+  KUBECTL_TIMEOUT: {{ .Values.mcpAddons.kubernetesRemediation.config.timeout | quote }}
+  LOG_LEVEL: {{ .Values.mcpAddons.kubernetesRemediation.config.logLevel | quote }}
+  {{- if .Values.mcpAddons.kubernetesRemediation.config.allowedImages }}
+  KUBECTL_ALLOWED_IMAGES: {{ .Values.mcpAddons.kubernetesRemediation.config.allowedImages | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-k8s-remediation-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-k8s-remediation-mcp
+      app.kubernetes.io/name: k8s-remediation-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-k8s-remediation-mcp
+        app.kubernetes.io/name: k8s-remediation-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.kubernetesRemediation | toYaml | sha256sum }}
+    spec:
+      {{- if .Values.mcpAddons.kubernetesRemediation.serviceAccount.create }}
+      serviceAccountName: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.name }}
+      {{- end }}
+      {{- if .Values.mcpAddons.kubernetesRemediation.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.kubernetesRemediation.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.kubernetesRemediation.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.kubernetesRemediation.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.kubernetesRemediation.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.kubernetesRemediation.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: k8s-remediation-mcp
+        image: "{{ .Values.mcpAddons.kubernetesRemediation.registry }}/{{ .Values.mcpAddons.kubernetesRemediation.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.kubernetesRemediation.imagePullPolicy | default "IfNotPresent" }}
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: KUBECTL_ALLOWED_COMMANDS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_ALLOWED_COMMANDS
+        - name: KUBECTL_DANGEROUS_FLAGS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_DANGEROUS_FLAGS
+        - name: KUBECTL_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_TIMEOUT
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: LOG_LEVEL
+        {{- if .Values.mcpAddons.kubernetesRemediation.config.allowedImages }}
+        - name: KUBECTL_ALLOWED_IMAGES
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_ALLOWED_IMAGES
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.kubernetesRemediation.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-k8s-remediation-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  selector:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- if .Values.mcpAddons.kubernetesRemediation.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+  {{- with .Values.mcpAddons.kubernetesRemediation.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-k8s-remediation-mcp
+  labels:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole | default "cluster-admin" }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

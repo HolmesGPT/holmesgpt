@@ -1,4 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_name","match_params":{"kind":"deployment","name":"my-server-deployment","namespace":"ask-holmes-namespace-45"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide deployment my-server-deployment -n ask-holmes-namespace-45", "params": {"kind": "deployment", "name": "my-server-deployment", "namespace": "ask-holmes-namespace-45"}}
-NAME                   READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS        IMAGES         SELECTOR        LABELS
-my-server-deployment   1/1     1            1           3m44s   nginx-container   nginx:latest   app=nginx-app   tier=frontend

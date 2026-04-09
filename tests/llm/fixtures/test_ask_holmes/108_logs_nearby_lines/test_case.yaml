@@ -7,7 +7,7 @@ user_prompt: "What is causing connection refused errors in api-service in namesp
 
 tags:
   - logs
-  - medium
+  - hard
   - benchmark
 
 before_test: |

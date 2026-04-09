@@ -6,5 +6,5 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      url: http://localhost:3100
+      api_url: http://localhost:3100
       api_key: ""  # No auth needed for local Loki

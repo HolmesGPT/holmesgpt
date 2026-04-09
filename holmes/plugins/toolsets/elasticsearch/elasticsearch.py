@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict, Field, model_validator
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -17,38 +17,97 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 
-class ElasticsearchConfig(BaseModel):
+class ElasticsearchConfig(ToolsetConfig):
     """Configuration for Elasticsearch/OpenSearch API access.
 
     Example configuration:
     ```yaml
-    url: "https://your-cluster.es.cloud.io"
+    api_url: "https://your-cluster.es.cloud.io"
     api_key: "base64_encoded_api_key"
     ```
 
     Or with basic auth:
     ```yaml
-    url: "https://your-cluster.es.cloud.io"
+    api_url: "https://your-cluster.es.cloud.io"
     username: "elastic"
     password: "your_password"
     ```
+
+    Or with mTLS (mutual TLS / client certificate):
+    ```yaml
+    api_url: "https://your-cluster:9200"
+    client_cert: "/path/to/client.crt"
+    client_key: "/path/to/client.key"
+    ```
     """
 
-    url: str
-    api_key: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    verify_ssl: bool = True
-    timeout: int = 10  # Default timeout in seconds
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "url": "api_url",
+        "timeout": "timeout_seconds",
+        "ca_cert": None,
+    }
+
+    api_url: str = Field(
+        title="API URL",
+        description="Elasticsearch/OpenSearch base URL",
+        examples=["https://your-cluster.es.cloud.io"],
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        title="API Key",
+        description="API key for authentication (preferred over basic auth when available)",
+        examples=["{{ env.ELASTICSEARCH_API_KEY }}"],
+    )
+    username: Optional[str] = Field(
+        default=None,
+        title="Username",
+        description="Username for basic auth authentication (used if api_key is not provided)",
+    )
+    password: Optional[str] = Field(
+        default=None,
+        title="Password",
+        description="Password for basic auth authentication (used if api_key is not provided)",
+    )
+    client_cert: Optional[str] = Field(
+        default=None,
+        title="Client Certificate",
+        description="Path to client certificate file for mTLS authentication (PEM format)",
+        examples=["/path/to/client.crt", "{{ env.ELASTICSEARCH_CLIENT_CERT }}"],
+    )
+    client_key: Optional[str] = Field(
+        default=None,
+        title="Client Key",
+        description="Path to client private key file for mTLS authentication (PEM format)",
+        examples=["/path/to/client.key", "{{ env.ELASTICSEARCH_CLIENT_KEY }}"],
+    )
+    verify_ssl: bool = Field(
+        default=True,
+        title="Verify SSL",
+        description="Whether to verify SSL certificates. For custom CAs, use the global CERTIFICATE env var instead.",
+    )
+    timeout_seconds: int = Field(
+        default=10,
+        title="Timeout Seconds",
+        description="Default request timeout in seconds",
+    )
+
+    @model_validator(mode="after")
+    def validate_mtls_fields(self) -> "ElasticsearchConfig":
+        if self.client_cert and not self.client_key:
+            raise ValueError("client_key is required when client_cert is set")
+        if self.client_key and not self.client_cert:
+            raise ValueError("client_cert is required when client_key is set")
+        return self
 
 
 class ElasticsearchBaseToolset(Toolset):
     """Base class for Elasticsearch toolsets with shared configuration and HTTP logic."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    config_class: ClassVar[Type[ElasticsearchConfig]] = ElasticsearchConfig
+    config_classes: ClassVar[list[Type[ElasticsearchConfig]]] = [ElasticsearchConfig]
 
     def __init__(self, name: str, description: str, tools: list, **kwargs):
         super().__init__(
@@ -66,7 +125,8 @@ class ElasticsearchBaseToolset(Toolset):
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         """Check if the Elasticsearch configuration is valid and the cluster is reachable."""
         try:
-            self.config = ElasticsearchConfig(**config)
+            config_class = self.config_classes[0] if self.config_classes else ElasticsearchConfig
+            self.config = config_class(**config)
             return self._perform_health_check()
         except Exception as e:
             return False, f"Failed to validate Elasticsearch configuration: {str(e)}"
@@ -97,10 +157,20 @@ class ElasticsearchBaseToolset(Toolset):
                     False,
                     f"Elasticsearch API error: {e.response.status_code} - {e.response.text}",
                 )
+        except requests.exceptions.SSLError as e:
+            error_msg = str(e)
+            if "certificate required" in error_msg.lower() or "sslcertverificationerror" in error_msg.lower():
+                return (
+                    False,
+                    f"Elasticsearch SSL/TLS error: {error_msg}. "
+                    "If the server requires mTLS, configure client_cert and client_key. "
+                    "If using a private CA, set the CERTIFICATE env var (base64-encoded CA cert).",
+                )
+            return False, f"Elasticsearch SSL error: {error_msg}"
         except requests.exceptions.ConnectionError:
             return (
                 False,
-                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.url}",
+                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.api_url}",
             )
         except requests.exceptions.Timeout:
             return False, "Elasticsearch health check timed out"
@@ -110,15 +180,6 @@ class ElasticsearchBaseToolset(Toolset):
     @property
     def elasticsearch_config(self) -> ElasticsearchConfig:
         return self.config  # type: ignore
-
-    def get_example_config(self) -> Dict[str, Any]:
-        """Return an example configuration for this toolset."""
-        return {
-            "url": "https://your-cluster.es.cloud.io",
-            "api_key": "{{ env.ELASTICSEARCH_API_KEY }}",
-            "verify_ssl": True,
-            "timeout": 10,
-        }
 
     def _get_headers(self) -> Dict[str, str]:
         """Build request headers with authentication."""
@@ -138,6 +199,19 @@ class ElasticsearchBaseToolset(Toolset):
                 self.elasticsearch_config.password,
             )
         return None
+
+    def _get_client_cert(self) -> Optional[Tuple[str, str]]:
+        """Return client certificate tuple for mTLS if configured."""
+        if self.elasticsearch_config.client_cert and self.elasticsearch_config.client_key:
+            return (
+                self.elasticsearch_config.client_cert,
+                self.elasticsearch_config.client_key,
+            )
+        return None
+
+    def _get_verify(self) -> bool:
+        """Return SSL verification setting."""
+        return self.elasticsearch_config.verify_ssl
 
     def _make_request(
         self,
@@ -164,18 +238,19 @@ class ElasticsearchBaseToolset(Toolset):
             requests.exceptions.ConnectionError: For connection problems
             requests.exceptions.Timeout: For timeout errors
         """
-        url = f"{self.elasticsearch_config.url.rstrip('/')}/{endpoint.lstrip('/')}"
-        timeout = timeout or self.elasticsearch_config.timeout
+        url = f"{self.elasticsearch_config.api_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        timeout = timeout or self.elasticsearch_config.timeout_seconds
 
         response = requests.request(
             method=method,
             url=url,
             headers=self._get_headers(),
             auth=self._get_auth(),
+            cert=self._get_client_cert(),
             params=params,
             json=body,
             timeout=timeout,
-            verify=self.elasticsearch_config.verify_ssl,
+            verify=self._get_verify(),
         )
         response.raise_for_status()
         return response.json()
@@ -393,10 +468,18 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                 ),
                 "source": ToolParameter(
                     description=(
-                        "Fields to include in response. Can be boolean (true/false), "
-                        "string (single field), or array of field names"
+                        "Fields to include/exclude in response. Supported formats:\n"
+                        "• Array: ['field1', 'field2'] - Include only these fields\n"
+                        "• String: 'field1' - Include single field\n"
+                        "• Object: {\"includes\": [\"trace.*\", \"span.*\"], \"excludes\": [\"*.body\", \"*.stack_trace\"]}\n"
+                        "  - Use wildcards (*) for pattern matching\n"
+                        "  - Excludes are useful for filtering large fields (http.request.body, error.stack_trace, http.response.*)\n"
+                        "• Boolean: false - Exclude all source (metadata only)\n\n"
+                        "Examples:\n"
+                        "- Trace query: {\"includes\": [\"trace.*\", \"span.*\", \"service.*\"], \"excludes\": [\"*.request.*\", \"*.response.*\"]}\n"
+                        "- Logs: [\"@timestamp\", \"message\", \"level\", \"service.name\"]"
                     ),
-                    type="string",
+                    type="object",
                     required=False,
                 ),
                 "aggregations": ToolParameter(

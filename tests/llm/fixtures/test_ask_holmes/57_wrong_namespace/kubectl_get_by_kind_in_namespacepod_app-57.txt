@@ -1,3 +1,0 @@
-{"toolset_name":"kubernetes/core","tool_name":"kubectl_get_by_kind_in_namespace","match_params":{"kind":"pod","namespace":"app-57"}}
-{"schema_version": "robusta:v1.0.0", "status": "success", "error": null, "return_code": 0, "data": null, "url": null, "invocation": "kubectl get --show-labels -o wide pod -n app-57", "params": {"kind": "pod", "namespace": "app-57"}}
-No resources found in app-57 namespace.

@@ -1,9 +1,8 @@
 import json
 import logging
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
-from pydantic import AnyUrl
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -12,6 +11,7 @@ from holmes.core.tools import (
     Tool,
     ToolInvokeContext,
     ToolParameter,
+    Toolset,
     ToolsetTag,
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
@@ -28,7 +28,6 @@ from holmes.plugins.toolsets.datadog.datadog_url_utils import generate_datadog_l
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_LOG_LIMIT,
     DEFAULT_TIME_SPAN_SECONDS,
-    Toolset,
 )
 from holmes.plugins.toolsets.utils import (
     process_timestamps_to_int,
@@ -61,6 +60,8 @@ def format_logs(raw_logs: list[dict]) -> str:
 
 class DatadogLogsToolset(Toolset):
     """Toolset for working with Datadog logs data."""
+
+    config_classes: ClassVar[list[Type[DatadogLogsConfig]]] = [DatadogLogsConfig]
 
     dd_config: Optional[DatadogLogsConfig] = None
 
@@ -95,12 +96,12 @@ class DatadogLogsToolset(Toolset):
                 "page": {"limit": 1},
             }
 
-            search_url = f"{self.dd_config.site_api_url}/api/v2/logs/events/search"
+            search_url = f"{self.dd_config.api_url}/api/v2/logs/events/search"
             execute_datadog_http_request(
                 url=search_url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.dd_config.request_timeout,
+                timeout=self.dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -125,7 +126,7 @@ class DatadogLogsToolset(Toolset):
         if not config:
             return (
                 False,
-                "Missing config for dd_api_key, dd_app_key, or site_api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
+                "Missing config for api_key, app_key, or api_url. For details: https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             )
 
         try:
@@ -138,15 +139,6 @@ class DatadogLogsToolset(Toolset):
         except Exception as e:
             logging.exception("Failed to set up Datadog toolset")
             return (False, f"Failed to parse Datadog configuration: {str(e)}")
-
-    def get_example_config(self) -> Dict[str, Any]:
-        """Get example configuration for this toolset."""
-        example_config = DatadogLogsConfig(
-            dd_api_key="<your_datadog_api_key>",
-            dd_app_key="<your_datadog_app_key>",
-            site_api_url=AnyUrl("https://api.datadoghq.com"),
-        )
-        return example_config.model_dump(mode="json")
 
     def _reload_instructions(self):
         """Load Datadog logs specific troubleshooting instructions."""
@@ -229,7 +221,7 @@ class GetLogs(Tool):
             params["limit"] = limit
             sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 
-            url = f"{self.toolset.dd_config.site_api_url}/api/v2/logs/events/search"
+            url = f"{self.toolset.dd_config.api_url}/api/v2/logs/events/search"
             headers = get_headers(self.toolset.dd_config)
 
             storage = self.toolset.dd_config.storage_tiers[-1]
@@ -254,7 +246,7 @@ class GetLogs(Tool):
                 url=url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.toolset.dd_config.request_timeout,
+                timeout=self.toolset.dd_config.timeout_seconds,
                 method="POST",
             )
 

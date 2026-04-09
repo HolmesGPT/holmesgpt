@@ -1,24 +1,11 @@
 import json
+import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
-from holmes.core.investigation_structured_output import InputSectionsDataType
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-
-
-class TruncationMetadata(BaseModel):
-    tool_call_id: str
-    start_index: int
-    end_index: int
-    tool_name: str
-    original_token_count: int
-
-
-class TruncationResult(BaseModel):
-    truncated_messages: list[dict]
-    truncations: list[TruncationMetadata]
 
 
 class ToolCallResult(BaseModel):
@@ -27,48 +14,84 @@ class ToolCallResult(BaseModel):
     description: str
     result: StructuredToolResult
     size: Optional[int] = None
+    toolset_name: Optional[str] = None
 
-    def as_tool_call_message(self):
+    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None, supports_vision: bool = True):
+        text_content = format_tool_result_data(
+            tool_result=self.result,
+            tool_call_id=self.tool_call_id,
+            tool_name=self.tool_name,
+            extra_metadata=extra_metadata,
+        )
+        if self.result.images and supports_vision:
+            text_content += _build_image_embed_hint(
+                tool_call_id=self.tool_call_id,
+                url=self.result.url,
+            )
+            content: List[Dict[str, Any]] = [{"type": "text", "text": text_content}]
+            for img in self.result.images:
+                data_uri = f"data:{img['mimeType']};base64,{img['data']}"
+                content.append({"type": "image_url", "image_url": {"url": data_uri}})
+            return {
+                "tool_call_id": self.tool_call_id,
+                "role": "tool",
+                "name": self.tool_name,
+                "content": content,
+            }
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
             "name": self.tool_name,
-            "content": format_tool_result_data(
-                tool_result=self.result,
-                tool_call_id=self.tool_call_id,
-                tool_name=self.tool_name,
-            ),
+            "content": text_content,
         }
 
-    def as_tool_result_response(self):
+    def to_client_dict(self):
         result_dump = self.result.model_dump()
         result_dump["data"] = self.result.get_stringified_data()
 
-        return {
+        d = {
             "tool_call_id": self.tool_call_id,
             "tool_name": self.tool_name,
+            "name": self.tool_name,  # backwards compat: streaming consumers read "name"
             "description": self.description,
             "role": "tool",
             "result": result_dump,
         }
+        if self.toolset_name:
+            d["toolset_name"] = self.toolset_name
+        return d
 
-    def as_streaming_tool_result_response(self):
-        result_dump = self.result.model_dump()
-        result_dump["data"] = self.result.get_stringified_data()
 
-        return {
-            "tool_call_id": self.tool_call_id,
-            "role": "tool",
-            "description": self.description,
-            "name": self.tool_name,
-            "result": result_dump,
-        }
+def _build_image_embed_hint(tool_call_id: str, url: Optional[str] = None) -> str:
+    """Build a hint for the LLM explaining how to embed this image in its response.
+
+    The LLM can use ![caption](tool-image://<tool_call_id>) syntax in its analysis.
+    The frontend resolves these references against the tool_calls array, rendering
+    the base64 image as a clickable link to the source URL (e.g. Grafana dashboard).
+    """
+    hint = (
+        f"\n\nTo embed this image in your response, use exactly this markdown syntax:\n"
+        f"![<descriptive caption>](tool-image://{tool_call_id})\n"
+        f"The client will render the image inline in your response"
+    )
+    if url:
+        hint += f" with a link to {url}"
+    hint += "."
+    return hint
 
 
 def format_tool_result_data(
-    tool_result: StructuredToolResult, tool_call_id: str, tool_name: str
+    tool_result: StructuredToolResult,
+    tool_call_id: str,
+    tool_name: str,
+    extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
-    tool_call_metadata = {"tool_name": tool_name, "tool_call_id": tool_call_id}
+    tool_call_metadata: Dict[str, Any] = {}
+    if extra_metadata:
+        tool_call_metadata.update(extra_metadata)
+    # Required fields always take precedence
+    tool_call_metadata["tool_name"] = tool_name
+    tool_call_metadata["tool_call_id"] = tool_call_id
     tool_response = f"tool_call_metadata={json.dumps(tool_call_metadata)}"
 
     if tool_result.status == StructuredToolResultStatus.ERROR:
@@ -82,89 +105,6 @@ def format_tool_result_data(
             + tool_response
         )
     return tool_response
-
-
-class InvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    sections: Optional[Dict[str, Union[str, None]]] = None
-    tool_calls: List[ToolCallResult] = []
-    num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
-    instructions: List[str] = []
-    metadata: Optional[Dict[Any, Any]] = None
-
-
-class InvestigateRequest(BaseModel):
-    source: str  # "prometheus" etc
-    title: str
-    description: str
-    subject: dict
-    context: Dict[str, Any]
-    source_instance_id: str = "ApiRequest"
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
-    prompt_template: str = "builtin://generic_investigation.jinja2"
-    sections: Optional[InputSectionsDataType] = None
-    model: Optional[str] = None
-    # TODO in the future
-    # response_handler: ...
-
-
-class ToolCallConversationResult(BaseModel):
-    name: str
-    description: str
-    output: str
-
-
-class ConversationInvestigationResponse(BaseModel):
-    analysis: Optional[str] = None
-    tool_calls: List[ToolCallResult] = []
-
-
-class ConversationInvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    tools: Optional[List[ToolCallConversationResult]] = []
-
-
-class IssueInvestigationResult(BaseModel):
-    """
-    :var result: A dictionary containing the summary of the issue investigation.
-    :var tools: A list of dictionaries where each dictionary contains information
-                about the tool, its name, description and output.
-
-    It is based on the holmes investigation saved to Evidence table.
-    """
-
-    result: str
-    tools: Optional[List[ToolCallConversationResult]] = []
-
-
-class HolmesConversationHistory(BaseModel):
-    ask: str
-    answer: ConversationInvestigationResult
-
-
-# HolmesConversationIssueContext, ConversationType and ConversationRequest classes will be deprecated later
-class HolmesConversationIssueContext(BaseModel):
-    investigation_result: IssueInvestigationResult
-    conversation_history: Optional[List[HolmesConversationHistory]] = []
-    issue_type: str
-    robusta_issue_id: Optional[str] = None
-    source: Optional[str] = None
-
-
-class ConversationType(str, Enum):
-    ISSUE = "issue"
-
-
-class ConversationRequest(BaseModel):
-    user_prompt: str
-    source: Optional[str] = None
-    resource: Optional[dict] = None
-    # ConversationType.ISSUE is default as we gonna deprecate this class and won't add new conversation types
-    conversation_type: Optional[ConversationType] = ConversationType.ISSUE
-    context: HolmesConversationIssueContext
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
 
 
 class PendingToolApproval(BaseModel):
@@ -181,6 +121,58 @@ class ToolApprovalDecision(BaseModel):
 
     tool_call_id: str
     approved: bool
+    save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
+    feedback: Optional[str] = None  # User feedback when denying a tool call
+
+
+class FrontendToolMode(str, Enum):
+    PAUSE = "pause"
+    NOOP = "noop"
+
+
+class FrontendToolDefinition(BaseModel):
+    """A tool defined by the frontend client for the LLM to call.
+
+    mode="pause" (default): Holmes pauses the stream and asks the client to
+    execute the tool, returning results in the next request.
+
+    mode="noop": Holmes returns a canned response immediately and the LLM
+    continues without pausing. The client sees the tool call in SSE events
+    and can execute it as a fire-and-forget side effect.
+    """
+
+    name: str
+    description: str
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="JSON Schema object describing the tool's parameters (OpenAI function calling format)",
+    )
+    mode: FrontendToolMode = Field(
+        default=FrontendToolMode.PAUSE,
+        description="'pause' (default): stream pauses, client executes and returns results. "
+        "'noop': server returns canned response immediately, client executes as side effect.",
+    )
+    noop_response: Optional[str] = Field(
+        default=None,
+        description="Custom canned response for noop-mode tools. "
+        "Defaults to 'The action was performed successfully in the user's browser.'",
+    )
+
+
+class FrontendToolResult(BaseModel):
+    """Result of a frontend-executed tool, sent by the client to resume the stream."""
+
+    tool_call_id: str
+    tool_name: str
+    result: str
+
+
+class PendingFrontendToolCall(BaseModel):
+    """A frontend tool call that the LLM requested, awaiting client execution."""
+
+    tool_call_id: str
+    tool_name: str
+    arguments: Dict[str, Any]
 
 
 class ChatRequestBaseModel(BaseModel):
@@ -191,7 +183,18 @@ class ChatRequestBaseModel(BaseModel):
         False  # Optional boolean for backwards compatibility
     )
     tool_decisions: Optional[List[ToolApprovalDecision]] = None
+    frontend_tools: Optional[List[FrontendToolDefinition]] = Field(
+        default=None,
+        description="Tools defined by the frontend client. When the LLM calls one, Holmes pauses and asks the client to execute it.",
+    )
+    frontend_tool_results: Optional[List[FrontendToolResult]] = Field(
+        default=None,
+        description="Results from frontend-executed tools, sent to resume a paused stream.",
+    )
     additional_system_prompt: Optional[str] = None
+    trace_span: Optional[Any] = (
+        None  # Optional span for tracing and heartbeat callbacks
+    )
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],
@@ -212,30 +215,26 @@ class ChatRequestBaseModel(BaseModel):
         return values
 
 
-class IssueChatRequest(ChatRequestBaseModel):
-    ask: str
-    investigation_result: IssueInvestigationResult
-    issue_type: str
-
-
-class WorkloadHealthRequest(BaseModel):
-    ask: str
-    resource: dict
-    alert_history_since_hours: float = 24
-    alert_history: bool = True
-    stored_instrucitons: bool = True
-    instructions: Optional[List[str]] = []
-    include_tool_calls: bool = False
-    include_tool_call_results: bool = False
-    prompt_template: str = "builtin://kubernetes_workload_ask.jinja2"
-    model: Optional[str] = None
-
-
 class ChatRequest(ChatRequestBaseModel):
     ask: str
+    images: Optional[List[Union[str, Dict[str, Any]]]] = Field(
+        default=None,
+        description=(
+            "List of images to analyze with vision-enabled models. Each item can be:\n"
+            "- A string: URL (https://...) or base64 data URI (data:image/jpeg;base64,...)\n"
+            "- A dict with keys:\n"
+            "  - url (required): URL or base64 data URI\n"
+            "  - detail (optional): 'low', 'high', or 'auto' (OpenAI-specific)\n"
+            "  - format (optional): MIME type like 'image/jpeg' (for providers that need it)"
+        ),
+    )
     response_format: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional JSON schema for structured output. Format: {'type': 'json_schema', 'json_schema': {'name': 'ResultName', 'strict': true, 'schema': {...}}}",
+    )
+    behavior_controls: Optional[Dict[str, bool]] = Field(
+        default=None,
+        description="Override prompt components (e.g., {'todowrite_instructions': false}). Env var ENABLED_PROMPTS takes precedence.",
     )
 
 
@@ -253,45 +252,3 @@ class ChatResponse(BaseModel):
     follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None
-
-
-class WorkloadHealthInvestigationResult(BaseModel):
-    analysis: Optional[str] = None
-    tools: Optional[List[ToolCallConversationResult]] = []
-
-    @model_validator(mode="before")
-    def check_analysis_and_result(cls, values):
-        if "result" in values and "analysis" not in values:
-            values["analysis"] = values["result"]
-            del values["result"]
-        return values
-
-
-class WorkloadHealthChatRequest(ChatRequestBaseModel):
-    ask: str
-    workload_health_result: WorkloadHealthInvestigationResult
-    resource: dict
-
-
-workload_health_structured_output = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "WorkloadHealthResult",
-        "strict": False,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "workload_healthy": {
-                    "type": "boolean",
-                    "description": "is the workload in healthy state or in error state",
-                },
-                "root_cause_summary": {
-                    "type": "string",
-                    "description": "concise short explaination leading to the workload_healthy result, pinpoint reason and root cause for the workload issues if any.",
-                },
-            },
-            "required": ["root_cause_summary", "workload_healthy"],
-            "additionalProperties": False,
-        },
-    },
-}
