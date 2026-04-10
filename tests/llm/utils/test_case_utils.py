@@ -147,6 +147,9 @@ class HolmesTestCase(BaseModel):
     toolsets_config_path: Optional[str] = (
         None  # Full path to the active toolset config file (auto-set during matrix expansion)
     )
+    max_tokens: Optional[int] = (
+        None  # Maximum total tokens allowed; test fails if exceeded
+    )
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):

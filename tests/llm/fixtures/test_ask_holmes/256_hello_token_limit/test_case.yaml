@@ -1,0 +1,10 @@
+user_prompt: "Hello, how are you?"
+expected_output:
+  - "Holmes responds with a greeting or acknowledgement"
+runbooks: {}
+tags:
+  - easy
+  - fast
+  - question-answer
+  - token-limit
+max_tokens: 4000
