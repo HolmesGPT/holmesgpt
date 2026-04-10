@@ -3,6 +3,7 @@ expected_output:
   - "Holmes responds with a greeting or acknowledgement"
 runbooks: {}
 tags:
+  - context_window
   - easy
   - fast
   - question-answer
