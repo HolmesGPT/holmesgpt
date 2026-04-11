@@ -327,11 +327,11 @@ class TestOTelMetrics:
 
     def test_metrics_none_when_not_initialized(self):
         """Metrics should be None when OTel is not initialized."""
-        from holmes.core.otel_tracing import get_metrics
+        from holmes.core.tracing import TracingFactory
         # Before any tracer is created, metrics may or may not be set
         # depending on test ordering. Just verify the function is callable.
-        result = get_metrics()
-        assert result is None or hasattr(result, "llm_input_tokens")
+        result = TracingFactory.get_metrics()
+        assert result is None or hasattr(result, "token_usage")
 
     def test_otel_metrics_instruments_exist(self):
         """OTelMetrics should have all expected metric instruments."""
@@ -342,7 +342,7 @@ class TestOTelMetrics:
         meter = meter_provider.get_meter("test", "0.1.0")
         m = OTelMetrics(meter)
 
-        assert hasattr(m, "llm_input_tokens")
+        assert hasattr(m, "token_usage")
         assert hasattr(m, "investigation_duration")
         assert hasattr(m, "investigation_count")
         assert hasattr(m, "investigation_iterations")
@@ -363,7 +363,7 @@ class TestOTelMetrics:
         m = OTelMetrics(meter)
 
         # These should not raise
-        m.llm_input_tokens.add(100, {"gen_ai_request_model": "test", "gen_ai_token_type": "input"})
+        m.token_usage.add(100, {"gen_ai_request_model": "test", "gen_ai_token_type": "input"})
         m.investigation_count.add(1, {"gen_ai_request_model": "test"})
         m.investigation_duration.record(1.5, {"gen_ai_request_model": "test"})
         m.investigation_iterations.record(3, {"gen_ai_request_model": "test"})
