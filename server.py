@@ -509,11 +509,10 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     follow_up_actions=follow_up_actions,
                     metadata=llm_call.metadata,
                 )
-                # End root investigation span if we created it
-                if chat_request.trace_span is None and trace_span is not None:
-                    trace_span.end()
                 return response
             finally:
+                if trace_span is not None:
+                    trace_span.end()
                 storage.__exit__(None, None, None)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
