@@ -231,7 +231,7 @@ def ask(
     trace: Optional[str] = typer.Option(
         None,
         "--trace",
-        help="Enable tracing to the specified provider (e.g., 'braintrust')",
+        help="Enable tracing to the specified provider ('braintrust' or 'otel'). OTel auto-enables if OTEL_EXPORTER_OTLP_ENDPOINT is set.",
     ),
     system_prompt_additions: Optional[str] = typer.Option(
         None,
