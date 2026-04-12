@@ -36,7 +36,7 @@ from holmes.core.prompt import (
 )
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
-from holmes.core.tools import pretty_print_toolset_status
+from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag, pretty_print_toolset_status
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
@@ -231,7 +231,7 @@ def ask(
     trace: Optional[str] = typer.Option(
         None,
         "--trace",
-        help="Enable tracing to the specified provider (e.g., 'braintrust')",
+        help="Enable tracing to the specified provider ('braintrust' or 'otel'). OTel auto-enables if OTEL_EXPORTER_OTLP_ENDPOINT is set.",
     ),
     system_prompt_additions: Optional[str] = typer.Option(
         None,
@@ -345,11 +345,12 @@ def ask(
             on_event = init_renderer.on_event
             init_renderer.start()
 
-        ai = config.create_console_toolcalling_llm(
-            dal=None,  # type: ignore
-            refresh_toolsets=refresh_toolsets,  # flag to refresh the toolset status
+        ai = config.create_toolcalling_llm(
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH if refresh_toolsets else PrerequisiteCacheMode.ENABLED,
             tracer=tracer,
-            model_name=model,
+            model=model,
             tool_results_dir=tool_results_dir,
             on_event=on_event,
         )
@@ -487,7 +488,12 @@ def alertmanager(
     )
 
     with tool_result_storage() as tool_results_dir:
-        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        ai = config.create_toolcalling_llm(
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            model=model,
+            tool_results_dir=tool_results_dir,
+        )
 
         source = config.create_alertmanager_source()
 
@@ -618,7 +624,12 @@ def jira(
 
     results = []
     with tool_result_storage() as tool_results_dir:
-        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        ai = config.create_toolcalling_llm(
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            model=model,
+            tool_results_dir=tool_results_dir,
+        )
         for i, issue in enumerate(issues):
             console.print(
                 f"[bold yellow]Analyzing Jira ticket {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
@@ -708,7 +719,12 @@ def ticket(
         return
 
     with tool_result_storage() as tool_results_dir:
-        ai = ticket_source.config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        ai = ticket_source.config.create_toolcalling_llm(
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            model=model,
+            tool_results_dir=tool_results_dir,
+        )
 
         # Render ticket-specific additions
         ticket_additions = load_and_render_prompt(
@@ -817,7 +833,12 @@ def github(
         f"[bold yellow]Analyzing {len(issues)} GitHub Issues.[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
     )
     with tool_result_storage() as tool_results_dir:
-        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        ai = config.create_toolcalling_llm(
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            model=model,
+            tool_results_dir=tool_results_dir,
+        )
         for i, issue in enumerate(issues):
             console.print(
                 f"[bold yellow]Analyzing GitHub issue {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
@@ -893,7 +914,12 @@ def pagerduty(
 
     results = []
     with tool_result_storage() as tool_results_dir:
-        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        ai = config.create_toolcalling_llm(
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            model=model,
+            tool_results_dir=tool_results_dir,
+        )
         for i, issue in enumerate(issues):
             console.print(
                 f"[bold yellow]Analyzing PagerDuty incident {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
@@ -967,7 +993,12 @@ def opsgenie(
         f"[bold yellow]Analyzing {len(issues)} OpsGenie alerts.[/bold yellow] [red]Press Ctrl+C to stop.[/red]"
     )
     with tool_result_storage() as tool_results_dir:
-        ai = config.create_console_toolcalling_llm(model_name=model, tool_results_dir=tool_results_dir)
+        ai = config.create_toolcalling_llm(
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            model=model,
+            tool_results_dir=tool_results_dir,
+        )
         for i, issue in enumerate(issues):
             console.print(
                 f"[bold yellow]Analyzing OpsGenie alert {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
