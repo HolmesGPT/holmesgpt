@@ -13,6 +13,7 @@ import json
 import logging
 import threading
 import time
+
 from pathlib import Path
 from typing import List, Optional
 
@@ -55,6 +56,7 @@ from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.log import EndpointFilter
 from holmes.checks.checks_api import init_checks_app
+from holmes.toolsets.toolsets_api import init_toolsets_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.models import FrontendToolMode
 from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool, build_frontend_pause_tool
@@ -171,6 +173,9 @@ def _get_next_refresh_interval(
     return default_interval, 0
 
 
+_refresh_event = threading.Event()
+
+
 def _toolset_status_refresh_loop():
     interval = TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
     if interval <= 0:
@@ -194,7 +199,10 @@ def _toolset_status_refresh_loop():
                     f"Failed MCP server(s) detected, retrying in {sleep_time} seconds"
                 )
 
-            time.sleep(sleep_time)
+            triggered = _refresh_event.wait(timeout=sleep_time)
+            _refresh_event.clear()
+            if triggered:
+                logging.info("Toolset refresh triggered via API call")
             try:
                 changes = config.refresh_server_tool_executor(dal)
                 if changes:
@@ -268,6 +276,7 @@ if LOG_PERFORMANCE:
 
 
 init_checks_app(app, config)
+init_toolsets_app(app, config, _refresh_event)
 
 
 def already_answered(conversation_history: Optional[List[dict]]) -> bool:

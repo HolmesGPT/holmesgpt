@@ -252,3 +252,31 @@ class ChatResponse(BaseModel):
     follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None
+
+
+class HolmesToolsetConfig(BaseModel):
+    """Parsed and validated structure of the toolset YAML config."""
+    toolsets: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    mcp_servers: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+
+class ValidateToolsetRequest(BaseModel):
+    yaml_config: str = Field(
+        description="Raw YAML string containing the toolset configuration, including the 'holmes:' wrapper."
+    )
+
+
+class ValidationStatus(str, Enum):
+    VALID = "valid"
+    INVALID = "invalid"
+
+
+class ValidateToolsetResult(BaseModel):
+    toolset_name: str
+    status: ValidationStatus
+    error: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ValidateToolsetResponse(BaseModel):
+    results: List[ValidateToolsetResult]
