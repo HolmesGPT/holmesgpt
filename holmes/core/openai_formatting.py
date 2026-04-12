@@ -69,6 +69,13 @@ def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
+    # Handle union types (anyOf with multiple non-null branches) first.
+    if hasattr(param_attributes, "any_of") and param_attributes.any_of:
+        branches = [type_to_open_ai_schema(branch, strict_mode) for branch in param_attributes.any_of]
+        if not param_attributes.required:
+            branches.append({"type": "null"})
+        return {"anyOf": branches}
+
     # Normalize schema types: MCP servers may emit nullable lists (e.g., ["string", "null"])
     # per JSON Schema spec, while OpenAI expects a primary type with explicit nullability via anyOf.
     raw_type = param_attributes.type

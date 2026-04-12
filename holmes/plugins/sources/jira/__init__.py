@@ -20,7 +20,7 @@ class JiraSource(SourcePlugin):
         logging.info(f"Fetching issues from {self.url} with JQL='{self.jql_query}'")
         try:
             response = requests.get(
-                f"{self.url}/rest/api/2/search",
+                f"{self.url}/rest/api/3/search",
                 params={"jql": self.jql_query},
                 auth=HTTPBasicAuth(self.username, self.api_key),
                 headers={"Accept": "application/json"},
@@ -84,9 +84,24 @@ class JiraSource(SourcePlugin):
 
     def write_back_result(self, issue_id: str, result_data: LLMResult) -> None:
         # TODO: upload files and show tool usage
-        comment_url = f"{self.url}/rest/api/2/issue/{issue_id}/comment"
+        comment_url = f"{self.url}/rest/api/3/issue/{issue_id}/comment"
+        # Format comment body in Atlassian Document Format (ADF) required by v3 API
         comment_data = {
-            "body": f"Automatic AI Investigation by Robusta:\n\n{result_data.result}\n"
+            "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Automatic AI Investigation by Robusta:\n\n{result_data.result}\n",
+                            }
+                        ],
+                    }
+                ],
+            }
         }
         response = requests.post(
             comment_url,
