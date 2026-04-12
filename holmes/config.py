@@ -357,6 +357,19 @@ class Config(RobustaBaseConfig):
                     and self._cached_executor_key == cache_key
                 ):
                     return self._cached_tool_executor
+                # Build inside the lock to prevent concurrent initialization
+                # for the same cache key
+                toolsets = self.toolset_manager.prepare_toolsets(
+                    dal=dal,
+                    toolset_tag_filter=tags,
+                    enable_all_toolsets_possible=enable_all_toolsets_possible,
+                    prerequisite_cache=prerequisite_cache,
+                    on_event=on_event,
+                )
+                executor = ToolExecutor(toolsets, on_event=on_event)
+                self._cached_tool_executor = executor
+                self._cached_executor_key = cache_key
+                return executor
 
         toolsets = self.toolset_manager.prepare_toolsets(
             dal=dal,
@@ -365,14 +378,7 @@ class Config(RobustaBaseConfig):
             prerequisite_cache=prerequisite_cache,
             on_event=on_event,
         )
-        executor = ToolExecutor(toolsets, on_event=on_event)
-
-        if reuse_executor:
-            with self._executor_lock:
-                self._cached_tool_executor = executor
-                self._cached_executor_key = cache_key
-
-        return executor
+        return ToolExecutor(toolsets, on_event=on_event)
 
     def refresh_tool_executor(
         self,
