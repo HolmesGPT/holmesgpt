@@ -19,7 +19,6 @@ nav:
           - "Slack Bot (3rd party)": installation/slack-installation.md
           - "Backstage (3rd party)": installation/backstage-integration.md
           - "K9s": installation/k9s-installation.md
-          - "HTTP Server (Docker)": installation/docker-compose-installation.md
           - "Helm Chart": installation/kubernetes-installation.md
           - "Python SDK": installation/python-installation.md
     - Walkthrough:
