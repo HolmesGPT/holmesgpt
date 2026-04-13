@@ -8,6 +8,7 @@ Use the HolmesGPT Python SDK to embed AI-powered troubleshooting in your own app
 import os
 from holmes.config import Config
 from holmes.core.prompt import build_initial_ask_messages
+from holmes.core.tools import ToolsetTag
 
 # Create configuration
 config = Config(
@@ -16,7 +17,15 @@ config = Config(
 )
 
 # Create AI instance
-ai = config.create_console_toolcalling_llm()
+ai = config.create_toolcalling_llm(
+    # Only load toolsets tagged CORE or CLI (excludes server-only CLUSTER toolsets)
+    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+    # Auto-enable every toolset that works without explicit config (e.g. kubectl on PATH)
+    enable_all_toolsets_possible=True,
+    # Remaining params use defaults:
+    #   prerequisite_cache=PrerequisiteCacheMode.ENABLED — use cached health-check results
+    #   reuse_executor=False       — create a fresh executor each call (fine for CLI)
+)
 
 # Ask a question
 messages = build_initial_ask_messages(
@@ -34,7 +43,10 @@ print(response.result)
 ## Listing Available Tools
 
 ```python
-ai = config.create_console_toolcalling_llm()
+ai = config.create_toolcalling_llm(
+    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+    enable_all_toolsets_possible=True,
+)
 
 # List loaded toolsets and their status
 for toolset in ai.tool_executor.toolsets:
@@ -68,12 +80,16 @@ Maintain conversation context by reusing the message history returned in each re
 import os
 from holmes.config import Config
 from holmes.core.prompt import build_initial_ask_messages
+from holmes.core.tools import ToolsetTag
 
 config = Config(
     api_key=os.getenv("ANTHROPIC_API_KEY"),
     model="anthropic/claude-sonnet-4-5-20250929",
 )
-ai = config.create_console_toolcalling_llm()
+ai = config.create_toolcalling_llm(
+    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+    enable_all_toolsets_possible=True,
+)
 
 # First question - build initial messages with system prompt
 messages = build_initial_ask_messages(
@@ -227,7 +243,10 @@ config = Config(
     additional_toolsets=[HttpBinToolset()],
 )
 
-ai = config.create_console_toolcalling_llm()
+ai = config.create_toolcalling_llm(
+    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+    enable_all_toolsets_possible=True,
+)
 
 messages = build_initial_ask_messages(
     initial_user_prompt="What is my public IP address?",
@@ -273,8 +292,37 @@ Main configuration class (`holmes.config.Config`).
 |--------|---------|-------------|
 | `Config.load_from_file(config_file, **kwargs)` | `Config` | Load configuration from a YAML file. |
 | `Config.load_from_env()` | `Config` | Load configuration from environment variables. |
-| `create_console_toolcalling_llm()` | `ToolCallingLLM` | Create an AI instance for asking questions and investigating alerts. |
+| `create_toolcalling_llm(...)` | `ToolCallingLLM` | Create an AI instance. See parameters below. |
+| `create_tool_executor(...)` | `ToolExecutor` | Create a tool executor without an LLM. Same toolset parameters as `create_toolcalling_llm`. |
 | `get_runbook_catalog()` | `RunbookCatalog` or `None` | Get the loaded runbook catalog. |
+
+### `create_toolcalling_llm()` / `create_tool_executor()`
+
+Both methods accept the same toolset parameters. `create_toolcalling_llm` additionally accepts `model`, `tracer`, and `tool_results_dir`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `toolset_tag_filter` | `list[ToolsetTag]` | `[CORE]` | Only include toolsets whose tags overlap with this list. Toolsets that don't match are excluded entirely — they won't be loaded, checked, or returned. This filter runs first, before `enable_all_toolsets_possible` decides which of the remaining toolsets to enable. |
+| `enable_all_toolsets_possible` | `bool` | `True` | When `True`, automatically enable every toolset (that passed the tag filter) that can work without explicit configuration. When `False`, only toolsets explicitly enabled in config are loaded. |
+| `prerequisite_cache` | `PrerequisiteCacheMode` | `ENABLED` | Controls prerequisite check caching. `DISABLED` — run full checks eagerly, no disk caching. `ENABLED` — use cached results when available. `FORCE_REFRESH` — re-run all checks and update the cache. |
+| `reuse_executor` | `bool` | `False` | When `True`, the created executor is cached in memory on the `Config` instance. Subsequent calls return the same executor without reloading toolsets. Useful for long-lived server processes. |
+| `model` | `str` | *None* | Model override for this LLM instance. |
+
+**`ToolsetTag` values** (`holmes.core.tools.ToolsetTag`):
+
+- `ToolsetTag.CORE` — Foundational toolsets (Kubernetes, etc.)
+- `ToolsetTag.CLI` — Tools for interactive CLI use (filesystem, local commands)
+- `ToolsetTag.CLUSTER` — Tools for server/cluster deployments (cluster-wide monitoring)
+
+**How `toolset_tag_filter` and `enable_all_toolsets_possible` interact:**
+
+These are independent, sequential steps. First, `toolset_tag_filter` narrows down *which* toolsets are even considered. Then, `enable_all_toolsets_possible` decides which of those remaining toolsets get enabled:
+
+1. Load all toolsets (built-in + config + custom)
+2. Filter by `toolset_tag_filter` → remove toolsets that don't match any tag
+3. `enable_all_toolsets_possible=True` → auto-enable toolsets that don't need explicit config
+4. Check prerequisites on enabled toolsets
+5. Return matching toolsets
 
 ### `ToolCallingLLM`
 
