@@ -399,6 +399,56 @@ def test_consume_messages(kafka_toolset, test_topic, admin_client):
     )
 
 
+def test_consume_messages_exceeds_max_cap(kafka_toolset):
+    """ConsumeMessages should return ERROR when max_messages exceeds the cap."""
+    tool = ConsumeMessages(kafka_toolset)
+    context = create_mock_tool_invoke_context()
+    result = tool.invoke(
+        {
+            "kafka_cluster_name": CLUSTER_NAME,
+            "topics": "test_topic",
+            "max_messages": 2000,  # Exceeds MAX_MESSAGES_CAP (1000)
+        },
+        context,
+    )
+    assert isinstance(result, StructuredToolResult)
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "exceeds maximum allowed value" in result.error
+    assert "1000" in result.error
+
+
+def test_consume_messages_invalid_max_messages(kafka_toolset):
+    """ConsumeMessages should return ERROR for invalid max_messages values."""
+    tool = ConsumeMessages(kafka_toolset)
+    context = create_mock_tool_invoke_context()
+    
+    # Test negative value
+    result = tool.invoke(
+        {
+            "kafka_cluster_name": CLUSTER_NAME,
+            "topics": "test_topic",
+            "max_messages": -5,
+        },
+        context,
+    )
+    assert isinstance(result, StructuredToolResult)
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "must be positive" in result.error
+    
+    # Test zero value
+    result = tool.invoke(
+        {
+            "kafka_cluster_name": CLUSTER_NAME,
+            "topics": "test_topic",
+            "max_messages": 0,
+        },
+        context,
+    )
+    assert isinstance(result, StructuredToolResult)
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "must be positive" in result.error
+
+
 def test_describe_consumer_group_with_offsets(kafka_toolset, test_topic, admin_client):
     """DescribeConsumerGroup with include_offsets should include offset information."""
     # Create a consumer group and commit offsets

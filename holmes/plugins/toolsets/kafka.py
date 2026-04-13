@@ -968,7 +968,7 @@ class ConsumeMessages(BaseKafkaTool):
                     required=True,
                 ),
                 "max_messages": ToolParameter(
-                    description="Maximum number of messages to consume (default: 10)",
+                    description=f"Maximum number of messages to consume (default: 10, max: {MAX_MESSAGES_CAP})",
                     type="integer",
                     required=False,
                 ),
@@ -996,13 +996,11 @@ class ConsumeMessages(BaseKafkaTool):
                     f"max_messages must be positive, got: {max_messages}"
                 )
             
-            # Clamp to maximum to prevent unbounded data consumption
+            # Reject if exceeds maximum to prevent unbounded data consumption
             if max_messages > MAX_MESSAGES_CAP:
-                logging.warning(
-                    f"max_messages {max_messages} exceeds cap of {MAX_MESSAGES_CAP}, "
-                    f"clamping to {MAX_MESSAGES_CAP}"
+                raise ValueError(
+                    f"max_messages {max_messages} exceeds maximum allowed value of {MAX_MESSAGES_CAP}"
                 )
-                max_messages = MAX_MESSAGES_CAP
 
             topics = [t.strip() for t in topics_str.split(",")]
             bootstrap_servers = self.get_bootstrap_servers(kafka_cluster_name)
