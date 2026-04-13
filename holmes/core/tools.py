@@ -159,6 +159,19 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
+class PrerequisiteCacheMode(str, Enum):
+    """Controls how prerequisite check results are cached.
+
+    DISABLED:      Run full prerequisite checks eagerly, no disk caching.
+    ENABLED:       Use cached results if available; fast config-validity checks on startup.
+    FORCE_REFRESH: Re-run all checks now and update the disk cache.
+    """
+
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    FORCE_REFRESH = "force_refresh"
+
+
 class ToolsetStatusEnum(str, Enum):
     ENABLED = "enabled"
     DISABLED = "disabled"
@@ -188,7 +201,7 @@ class ToolParameter(BaseModel):
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
-    enum: Optional[List[str]] = None  # For restricting to specific values
+    enum: Optional[List[Any]] = None  # For restricting to specific values (JSON Schema allows any type)
     # For object types: stores the additionalProperties JSON Schema value.
     # None = not specified, False = no additional properties allowed,
     # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
