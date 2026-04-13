@@ -160,20 +160,20 @@ def test_model_selection_uses_correct_params(
         ("azure-5", AZURE_MODEL_CONFIG),
     ],
 )
-def test_create_console_toolcalling_llm_with_model_from_list(
+def test_create_toolcalling_llm_with_model_from_list(
     monkeypatch, tmp_path, model_name, model_config
 ):
-    """Test that create_console_toolcalling_llm correctly uses model from model list."""
+    """Test that create_toolcalling_llm correctly uses model from model list."""
     with _setup_model_list_file(monkeypatch, tmp_path):
         config = Config()
 
         with patch("holmes.config.DefaultLLM") as mock_default_llm, patch(
-            "holmes.config.Config.create_console_tool_executor"
+            "holmes.config.Config.create_tool_executor"
         ) as mock_tool_executor:
             mock_default_llm.return_value = _get_mock_llm()
             mock_tool_executor.return_value = MagicMock()
 
-            config.create_console_toolcalling_llm(model_name=model_name)
+            config.create_toolcalling_llm(model=model_name)
 
             call_kwargs = mock_default_llm.call_args[1]
             _assert_model_config_matches_call_kwargs(
