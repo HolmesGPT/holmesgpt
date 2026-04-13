@@ -12,6 +12,8 @@ from rich.console import Console
 
 from holmes.checks import CheckRunner, CheckStatus, load_checks_config
 from holmes.config import Config
+from holmes.core.tools import PrerequisiteCacheMode
+from holmes.core.tools import ToolsetTag
 from holmes.core.tracing import SpanType, TracingFactory
 from tests.llm.utils.commands import set_test_env_vars
 from tests.llm.utils.iteration_utils import get_test_cases
@@ -111,8 +113,12 @@ def run_holmes_check(
         console = Console()
 
         # Use real tools and real LLM
-        ai = config.create_console_toolcalling_llm(
-            dal=None, refresh_toolsets=False, tracer=tracer
+        ai = config.create_toolcalling_llm(
+            dal=None,
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+            enable_all_toolsets_possible=True,
+            prerequisite_cache=PrerequisiteCacheMode.ENABLED,
+            tracer=tracer,
         )
 
         # Load checks configuration
