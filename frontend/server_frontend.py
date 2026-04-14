@@ -419,6 +419,10 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             "Set both environment variables to enable authentication."
         )
 
+    # Mount public API v1 router
+    from api_v1 import router as v1_router
+    app.include_router(v1_router)
+
     # ── DynamoDB persistence: restore state on startup ────────────────────────
     _restore_llm_overrides_from_dynamodb(config)
     _restore_toolset_state_from_dynamodb(config)

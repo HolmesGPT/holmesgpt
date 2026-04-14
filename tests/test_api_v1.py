@@ -48,3 +48,16 @@ class TestProjectScopeCheck:
         record = UserRecord(sub="test", email="t@t.com", global_role="super-admin", status="active")
         perms = UserPermissions(user=record, project_roles={})
         assert check_api_key_project_access(perms, "any-project") is True
+
+
+class TestV1RouterPaths:
+    def test_all_v1_paths_registered(self):
+        sys.path.insert(0, "frontend")
+        from api_v1 import router
+        paths = [route.path for route in router.routes]
+        assert "/api/v1/models" in paths
+        assert "/api/v1/investigate" in paths
+        assert "/api/v1/chat" in paths
+        assert "/api/v1/investigations" in paths
+        assert "/api/v1/investigations/similar" in paths
+        assert "/api/v1/investigations/{investigation_id}" in paths
