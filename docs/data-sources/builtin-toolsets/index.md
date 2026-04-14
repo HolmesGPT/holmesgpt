@@ -88,6 +88,14 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 </div>
 
+### CI/CD
+
+<div class="grid cards" markdown>
+
+-   [:simple-jenkins:{ .lg .middle } **Jenkins (MCP)**](jenkins-mcp.md)
+
+</div>
+
 ### Workflow Orchestration
 
 <div class="grid cards" markdown>

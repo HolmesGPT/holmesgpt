@@ -103,7 +103,7 @@ jobs:
       if: matrix.platform != 'windows'
       run: |
         cd dist
-        zip -r holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip holmes
+        zip -r --symlinks holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip holmes
         mv holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip ../
         cd ..
 

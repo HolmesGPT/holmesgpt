@@ -13,7 +13,7 @@ from holmes.core.tool_calling_llm import LLMResult
 runner = CliRunner()
 
 
-@patch("holmes.config.Config.create_console_toolcalling_llm")
+@patch("holmes.config.Config.create_toolcalling_llm")
 def test_checks_cli_monitor_mode(mock_create_toolcalling_llm):
     """Test running a check in monitor mode via CLI with mocked LLM."""
     # Create mock AI
@@ -67,7 +67,7 @@ def test_checks_cli_monitor_mode(mock_create_toolcalling_llm):
         mock_ai.call.assert_called_once()
 
 
-@patch("holmes.config.Config.create_console_toolcalling_llm")
+@patch("holmes.config.Config.create_toolcalling_llm")
 def test_checks_cli_inline_check(mock_create_toolcalling_llm):
     """Test running an inline check via CLI with -c option."""
     # Create mock AI

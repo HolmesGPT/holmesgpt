@@ -10,7 +10,7 @@ We meet once a month on Zoom:
 
 ### Other Resources
 
-- [📋 HolmesGPT Roadmap](https://github.com/orgs/robusta-dev/projects/2)
+- [📋 HolmesGPT Roadmap](https://github.com/orgs/HolmesGPT/projects/1)
 
 ## Get Involved
 

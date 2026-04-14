@@ -1,0 +1,15 @@
+toolsets:
+  alert-routing:
+    type: mcp
+    enabled: true
+    description: "Alert routing and on-call schedule management"
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/255_mcp_anyof_union_flattening/mcp_routing_server.py"]
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

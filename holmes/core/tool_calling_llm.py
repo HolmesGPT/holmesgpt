@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
@@ -43,7 +44,18 @@ from holmes.core.tools_utils.tool_context_window_limiter import (
     spill_oversized_tool_result,
 )
 from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.core.tracing import DummySpan
+from holmes.core.otel_tracing import (
+    ATTR_GEN_AI_REQUEST_MODEL,
+    ATTR_GEN_AI_SYSTEM,
+    ATTR_GEN_AI_USAGE_INPUT_TOKENS,
+    ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+    ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
+    DIM_GEN_AI_REQUEST_MODEL,
+    DIM_GEN_AI_SYSTEM,
+    DIM_GEN_AI_TOKEN_TYPE,
+    DIM_TOOL_NAME,
+)
+from holmes.core.tracing import DummySpan, TracingFactory
 from holmes.core.truncation.input_context_window_limiter import (
     CompactionInsufficientError,
     check_compaction_needed,
@@ -716,7 +728,10 @@ class ToolCallingLLM:
     ) -> ToolCallResult:
         if trace_span is None:
             trace_span = DummySpan()
-        with trace_span.start_span(type="tool") as tool_span:
+        # Extract tool name early for span naming
+        tool_name_for_span = getattr(getattr(tool_to_call, "function", None), "name", "unknown_tool")
+        _tool_start = time.time()
+        with trace_span.start_span(name=f"holmesgpt.tool.{tool_name_for_span}", type="tool") as tool_span:
             # ChatCompletionMessageToolCall is a union of FunctionToolCall (has 'function')
             # and CustomToolCall (has 'custom'). We only support function tool calls.
             if not hasattr(tool_to_call, "function"):
@@ -788,6 +803,21 @@ class ToolCallingLLM:
                 if self.tool_results_dir and self._has_bash_for_file_access()
                 else None,
             )
+
+            # Record OTel tool span attributes
+            tool_span.log(metadata={
+                "holmesgpt.tool.name": tool_call_result.tool_name,
+                "holmesgpt.tool.status": tool_call_result.result.status.value if tool_call_result.result.status else "unknown",
+            })
+
+            # Record OTel tool call metrics
+            otel_metrics = TracingFactory.get_metrics()
+            if otel_metrics:
+                tool_attrs = {DIM_TOOL_NAME: tool_call_result.tool_name}
+                otel_metrics.tool_call_count.add(1, tool_attrs)
+                otel_metrics.tool_call_duration.record(time.time() - _tool_start, tool_attrs)
+                if tool_call_result.result.status == StructuredToolResultStatus.ERROR:
+                    otel_metrics.tool_call_errors.add(1, tool_attrs)
 
             ToolCallingLLM._log_tool_call_result(
                 tool_span,
@@ -958,7 +988,12 @@ class ToolCallingLLM:
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
-            try:
+            # Create a child gen_ai.chat span for each LLM call iteration.
+            # The span is activated in context so httpx calls during completion()
+            # (e.g. LiteLLM HTTP calls) become children of this gen_ai.chat span.
+            with trace_span.start_span(name="gen_ai.chat") as llm_span:
+              try:
+                _llm_call_start = time.time()
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
                     tools=tools,
@@ -984,8 +1019,29 @@ class ToolCallingLLM:
                         logging.info(f"LLM usage response:\n{usage}\n")
                 stats += response_stats
 
-            # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
-            except BadRequestError as e:
+                # Record OTel LLM metrics
+                otel_metrics = TracingFactory.get_metrics()
+                if otel_metrics:
+                    model_attrs = {DIM_GEN_AI_REQUEST_MODEL: self.llm.model, DIM_GEN_AI_SYSTEM: "litellm"}
+                    if response_stats.prompt_tokens > 0:
+                        otel_metrics.token_usage.add(response_stats.prompt_tokens, {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "input"})
+                    if response_stats.completion_tokens > 0:
+                        otel_metrics.token_usage.add(response_stats.completion_tokens, {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "output"})
+                    llm_duration = time.time() - _llm_call_start
+                    otel_metrics.llm_call_duration.record(llm_duration, model_attrs)
+
+                # Log GenAI semantic convention attributes on the LLM child span
+                llm_span.log(metadata={
+                    ATTR_GEN_AI_SYSTEM: "litellm",
+                    ATTR_GEN_AI_REQUEST_MODEL: self.llm.model,
+                    ATTR_GEN_AI_USAGE_INPUT_TOKENS: stats.prompt_tokens,
+                    ATTR_GEN_AI_USAGE_OUTPUT_TOKENS: stats.completion_tokens,
+                    ATTR_GEN_AI_USAGE_TOTAL_TOKENS: stats.total_tokens,
+                    "holmesgpt.iteration": i,
+                })
+
+              # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
+              except BadRequestError as e:
                 if "Unrecognized request arguments supplied: tool_choice, tools" in str(
                     e
                 ):
@@ -998,7 +1054,7 @@ class ToolCallingLLM:
                         exc_info=True,
                     )
                     raise
-            except Exception as e:
+              except Exception as e:
                 logging.error(
                     f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
                     f"{type(e).__name__}: {e}",
