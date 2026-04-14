@@ -57,6 +57,7 @@ class ProjectRole(BaseModel):
 class UserPermissions(BaseModel):
     user: UserRecord
     project_roles: dict[str, ProjectRole] = {}  # project_id -> ProjectRole
+    api_key_project_ids: Optional[list[str]] = None  # None = not an API key; [] = all projects; [ids] = scoped
 
 
 # ── DynamoDB helpers ─────────────────────────────────────────────────────────
@@ -482,3 +483,21 @@ def ensure_user_exists(sub: str, email: str, name: str) -> UserPermissions:
     perms = UserPermissions(user=user, project_roles={})
     _set_cached(sub, perms)
     return perms
+
+
+def check_api_key_project_access(permissions, project_id: str) -> bool:
+    """Check if an API key user has access to the given project.
+
+    Returns True if:
+    - User is super-admin (legacy HOLMES_API_KEY)
+    - API key has empty project_ids (all-project access)
+    - project_id is in the API key's project_ids list
+    """
+    if permissions.user.global_role == "super-admin":
+        return True
+    key_projects = getattr(permissions, "api_key_project_ids", None)
+    if key_projects is None:
+        return True  # Not an API key user — fall through to normal RBAC
+    if not key_projects:
+        return True  # Empty list = all projects
+    return project_id in key_projects

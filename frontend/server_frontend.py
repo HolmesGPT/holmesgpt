@@ -75,28 +75,61 @@ class OktaAuthMiddleware(BaseHTTPMiddleware):
                 logging.error("JWT validation error: %s", e)
                 return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         else:
-            # API key -> check against HOLMES_API_KEY env var
-            api_key = os.environ.get("HOLMES_API_KEY", "")
-            if not api_key or not hmac.compare_digest(token, api_key):
-                return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+            # API key authentication
+            if token.startswith("hgpt_"):
+                # Per-client API key -> DynamoDB lookup
+                from api_keys import ApiKeyStore
 
-            # Synthetic admin user for API key auth
-            from rbac import UserRecord, UserPermissions as UP
-            synthetic_user = {
-                "sub": "api-key",
-                "email": "api@holmesgpt.internal",
-                "name": "API Key",
-                "groups": [],
-            }
-            synthetic_record = UserRecord(
-                sub="api-key",
-                email="api@holmesgpt.internal",
-                name="API Key",
-                global_role="super-admin",
-                status="active",
-            )
-            request.state.user = synthetic_user
-            request.state.permissions = UP(user=synthetic_record, project_roles={})
+                record = ApiKeyStore().lookup(token)
+                if not record:
+                    return JSONResponse({"detail": "Invalid or revoked API key"}, status_code=401)
+
+                # Fire-and-forget last_used update
+                threading.Thread(
+                    target=ApiKeyStore().touch_last_used,
+                    args=(record.key_hash,),
+                    daemon=True,
+                ).start()
+
+                from rbac import UserRecord, UserPermissions as UP
+                synthetic_user = {
+                    "sub": f"apikey-{record.key_prefix}",
+                    "email": f"{record.name}@apikey.holmesgpt.internal",
+                    "name": record.name,
+                    "groups": [],
+                }
+                synthetic_record = UserRecord(
+                    sub=f"apikey-{record.key_prefix}",
+                    email=f"{record.name}@apikey.holmesgpt.internal",
+                    name=record.name,
+                    global_role=None,
+                    status="active",
+                )
+                perms = UP(user=synthetic_record, project_roles={}, api_key_project_ids=record.project_ids)
+                request.state.user = synthetic_user
+                request.state.permissions = perms
+            else:
+                # Legacy shared API key -> check against HOLMES_API_KEY env var
+                api_key = os.environ.get("HOLMES_API_KEY", "")
+                if not api_key or not hmac.compare_digest(token, api_key):
+                    return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+                from rbac import UserRecord, UserPermissions as UP
+                synthetic_user = {
+                    "sub": "api-key",
+                    "email": "api@holmesgpt.internal",
+                    "name": "API Key",
+                    "groups": [],
+                }
+                synthetic_record = UserRecord(
+                    sub="api-key",
+                    email="api@holmesgpt.internal",
+                    name="API Key",
+                    global_role="super-admin",
+                    status="active",
+                )
+                request.state.user = synthetic_user
+                request.state.permissions = UP(user=synthetic_record, project_roles={})
 
         return await call_next(request)
 
