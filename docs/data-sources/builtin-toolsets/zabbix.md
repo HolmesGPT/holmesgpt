@@ -1,6 +1,6 @@
 # Zabbix
 
-Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 2.0 API. Query hosts, problems, triggers, events, and historical metrics to investigate infrastructure issues.
+Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 2.0 API.
 
 ## Prerequisites
 
@@ -44,22 +44,8 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
                 token: "{{ env.ZABBIX_TOKEN }}"
         llm_instructions: |
           Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
-          All requests go to POST https://<your-zabbix>/api_jsonrpc.php with this structure:
+          All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
             {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
-
-          Key methods:
-          - host.get: list hosts
-            {"output": ["hostid","host","name","status"], "monitored_hosts": true, "limit": 50}
-          - problem.get: active problems/alerts
-            {"output": "extend", "recent": true, "sortfield": ["eventid"], "sortorder": "DESC", "limit": 50}
-          - event.get: events in a time range
-            {"output": "extend", "time_from": <unix>, "time_till": <unix>, "sortfield": ["clock","eventid"], "sortorder": "DESC", "limit": 50}
-          - trigger.get: triggers in problem state
-            {"output": "extend", "only_true": true, "monitored": true, "expandDescription": true, "selectHosts": ["host","name"], "limit": 50}
-          - item.get: metrics for a host
-            {"output": ["itemid","name","key_","lastvalue","units"], "hostids": ["<hostid>"], "monitored": true, "limit": 100}
-          - history.get: historical values for an item (history: 0=float,1=char,2=log,3=uint,4=text)
-            {"output": "extend", "history": 0, "itemids": ["<itemid>"], "time_from": <unix>, "time_till": <unix>, "sortfield": "clock", "sortorder": "DESC", "limit": 100}
 
           Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
     ```
@@ -108,22 +94,8 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
                 token: "{{ env.ZABBIX_TOKEN }}"
         llm_instructions: |
           Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
-          All requests go to POST https://<your-zabbix>/api_jsonrpc.php with this structure:
+          All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
             {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
-
-          Key methods:
-          - host.get: list hosts
-            {"output": ["hostid","host","name","status"], "monitored_hosts": true, "limit": 50}
-          - problem.get: active problems/alerts
-            {"output": "extend", "recent": true, "sortfield": ["eventid"], "sortorder": "DESC", "limit": 50}
-          - event.get: events in a time range
-            {"output": "extend", "time_from": <unix>, "time_till": <unix>, "sortfield": ["clock","eventid"], "sortorder": "DESC", "limit": 50}
-          - trigger.get: triggers in problem state
-            {"output": "extend", "only_true": true, "monitored": true, "expandDescription": true, "selectHosts": ["host","name"], "limit": 50}
-          - item.get: metrics for a host
-            {"output": ["itemid","name","key_","lastvalue","units"], "hostids": ["<hostid>"], "monitored": true, "limit": 100}
-          - history.get: historical values for an item (history: 0=float,1=char,2=log,3=uint,4=text)
-            {"output": "extend", "history": 0, "itemids": ["<itemid>"], "time_from": <unix>, "time_till": <unix>, "sortfield": "clock", "sortorder": "DESC", "limit": 100}
 
           Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
     ```
@@ -171,22 +143,8 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
                   token: "{{ env.ZABBIX_TOKEN }}"
           llm_instructions: |
             Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
-            All requests go to POST https://<your-zabbix>/api_jsonrpc.php with this structure:
+            All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
               {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
-
-            Key methods:
-            - host.get: list hosts
-              {"output": ["hostid","host","name","status"], "monitored_hosts": true, "limit": 50}
-            - problem.get: active problems/alerts
-              {"output": "extend", "recent": true, "sortfield": ["eventid"], "sortorder": "DESC", "limit": 50}
-            - event.get: events in a time range
-              {"output": "extend", "time_from": <unix>, "time_till": <unix>, "sortfield": ["clock","eventid"], "sortorder": "DESC", "limit": 50}
-            - trigger.get: triggers in problem state
-              {"output": "extend", "only_true": true, "monitored": true, "expandDescription": true, "selectHosts": ["host","name"], "limit": 50}
-            - item.get: metrics for a host
-              {"output": ["itemid","name","key_","lastvalue","units"], "hostids": ["<hostid>"], "monitored": true, "limit": 100}
-            - history.get: historical values for an item (history: 0=float,1=char,2=log,3=uint,4=text)
-              {"output": "extend", "history": 0, "itemids": ["<itemid>"], "time_from": <unix>, "time_till": <unix>, "sortfield": "clock", "sortorder": "DESC", "limit": 100}
 
             Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
     ```
@@ -235,93 +193,6 @@ holmes ask "Show me the events that occurred in the last 6 hours and identify pa
 holmes ask "Get the memory usage metrics for all production hosts"
 ```
 
-## Zabbix JSON-RPC API Reference
-
-The Zabbix API uses JSON-RPC 2.0 protocol. All requests must include:
-
-- `jsonrpc`: "2.0"
-- `method`: The API method to call (e.g., "host.get", "problem.get")
-- `params`: Object containing method parameters
-- `id`: Request ID (can be any value)
-- `auth`: Authentication token (automatically added by Holmes)
-
-### Common Methods
-
-**host.get** — List monitored hosts
-
-```json
-{
-  "output": ["hostid", "host", "name", "status"],
-  "monitored_hosts": true,
-  "limit": 50
-}
-```
-
-**problem.get** — Get active problems/alerts
-
-```json
-{
-  "output": "extend",
-  "recent": true,
-  "sortfield": ["eventid"],
-  "sortorder": "DESC",
-  "limit": 50
-}
-```
-
-**trigger.get** — Get triggers in problem state
-
-```json
-{
-  "output": "extend",
-  "only_true": true,
-  "monitored": true,
-  "expandDescription": true,
-  "selectHosts": ["host", "name"],
-  "limit": 50
-}
-```
-
-**item.get** — Get metrics for a host
-
-```json
-{
-  "output": ["itemid", "name", "key_", "lastvalue", "units"],
-  "hostids": ["<hostid>"],
-  "monitored": true,
-  "limit": 100
-}
-```
-
-**event.get** — Get events in a time range
-
-```json
-{
-  "output": "extend",
-  "time_from": 1609459200,
-  "time_till": 1609545600,
-  "sortfield": ["clock", "eventid"],
-  "sortorder": "DESC",
-  "limit": 50
-}
-```
-
-**history.get** — Get historical metric values
-
-```json
-{
-  "output": "extend",
-  "history": 0,
-  "itemids": ["<itemid>"],
-  "time_from": 1609459200,
-  "time_till": 1609545600,
-  "sortfield": "clock",
-  "sortorder": "DESC",
-  "limit": 100
-}
-```
-
-For complete API documentation, see the [Zabbix API Reference](https://www.zabbix.com/documentation/current/en/api).
 
 ## Troubleshooting
 
