@@ -152,5 +152,7 @@ COPY ./frontend/projects.py /app/projects.py
 COPY ./frontend/okta_jwt.py /app/okta_jwt.py
 COPY ./frontend/rbac.py /app/rbac.py
 COPY ./frontend/users_api.py /app/users_api.py
+COPY ./frontend/api_keys.py /app/api_keys.py
+COPY ./frontend/api_v1.py /app/api_v1.py
 
 ENTRYPOINT ["python", "server_with_frontend.py"]
