@@ -29,6 +29,7 @@ from holmes.common.env_vars import (
     HOLMES_PORT,
 )
 from holmes.config import Config
+from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -109,7 +110,14 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             "Bad request. Chat message cannot be empty", status_code=400
         )
 
-    ai = config.create_agui_toolcalling_llm(dal=dal, model=chat_request.model)
+    ai = config.create_toolcalling_llm(
+        dal=dal,
+        toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+        enable_all_toolsets_possible=True,
+        prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH,
+        reuse_executor=True,
+        model=chat_request.model,
+    )
     global_instructions = dal.get_global_instructions_for_account()
     messages = build_chat_messages(
         chat_request.ask,

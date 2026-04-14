@@ -13,7 +13,7 @@ from pydantic import FilePath
 from holmes.core.config import config_path_dir
 from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, ToolsetStatus
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
+from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
 from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
@@ -518,6 +518,72 @@ class ToolsetManager:
             check_prerequisites=True,
             enable_all_toolsets=False,
             toolset_tags=self.server_tool_tags,
+            silent=True,
+        )
+
+        changes: List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]] = []
+        for toolset in new_toolsets:
+            old_status = old_status_by_name.get(toolset.name)
+            if old_status is not None and old_status != toolset.status:
+                changes.append((toolset.name, old_status, toolset.status))
+
+        return new_toolsets, changes
+
+    # ── Unified API used by Config.create_tool_executor / refresh_tool_executor ──
+
+    def prepare_toolsets(
+        self,
+        dal: Optional[SupabaseDal] = None,
+        toolset_tag_filter: Optional[List[ToolsetTag]] = None,
+        enable_all_toolsets_possible: bool = True,
+        prerequisite_cache: PrerequisiteCacheMode = PrerequisiteCacheMode.ENABLED,
+        on_event: EventCallback = None,
+    ) -> List[Toolset]:
+        """Load and return toolsets using explicit behavioral controls.
+
+        Maps ``PrerequisiteCacheMode`` to the existing loading strategies:
+        - DISABLED  → ``_list_all_toolsets`` with live checks, no disk cache.
+        - ENABLED   → ``load_toolset_with_status`` with ``refresh_status=False``.
+        - FORCE_REFRESH → ``load_toolset_with_status`` with ``refresh_status=True``.
+        """
+        tags = toolset_tag_filter or [ToolsetTag.CORE]
+
+        if prerequisite_cache == PrerequisiteCacheMode.DISABLED:
+            return self._list_all_toolsets(
+                dal=dal,
+                check_prerequisites=True,
+                enable_all_toolsets=enable_all_toolsets_possible,
+                toolset_tags=tags,
+                on_event=on_event,
+            )
+
+        return self.load_toolset_with_status(
+            dal=dal,
+            refresh_status=(prerequisite_cache == PrerequisiteCacheMode.FORCE_REFRESH),
+            enable_all_toolsets=enable_all_toolsets_possible,
+            toolset_tags=tags,
+            on_event=on_event,
+        )
+
+    def refresh_toolsets_and_get_changes(
+        self,
+        current_toolsets: List[Toolset],
+        dal: Optional[SupabaseDal] = None,
+        toolset_tag_filter: Optional[List[ToolsetTag]] = None,
+        enable_all_toolsets_possible: bool = False,
+    ) -> tuple[List[Toolset], List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]]]:
+        """Refresh toolsets and return (new_toolsets, changes) with explicit controls."""
+        tags = toolset_tag_filter or [ToolsetTag.CORE]
+
+        old_status_by_name: dict[str, ToolsetStatusEnum] = {
+            toolset.name: toolset.status for toolset in current_toolsets
+        }
+
+        new_toolsets = self._list_all_toolsets(
+            dal,
+            check_prerequisites=True,
+            enable_all_toolsets=enable_all_toolsets_possible,
+            toolset_tags=tags,
             silent=True,
         )
 

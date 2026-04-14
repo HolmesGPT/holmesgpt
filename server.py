@@ -48,7 +48,7 @@ from holmes.core.models import (
     FollowUpAction,
 )
 from holmes.core.prompt import PromptComponent
-from holmes.core.tools import ToolsetStatusEnum, ToolsetType
+from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
@@ -148,7 +148,7 @@ def sync_before_server_start():
 
 def _has_failed_mcp_toolsets() -> bool:
     """Check if any MCP toolsets are in FAILED state."""
-    executor = config._server_tool_executor
+    executor = config.cached_tool_executor  # thread-safe property
     if not executor:
         return False
     return any(
@@ -196,7 +196,11 @@ def _toolset_status_refresh_loop():
 
             time.sleep(sleep_time)
             try:
-                changes = config.refresh_server_tool_executor(dal)
+                changes = config.refresh_tool_executor(
+                    dal,
+                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+                    enable_all_toolsets_possible=False,
+                )
                 if changes:
                     for toolset_name, old_status, new_status in changes:
                         logging.info(
@@ -387,7 +391,14 @@ def chat(chat_request: ChatRequest, http_request: Request):
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
         ai = config.create_toolcalling_llm(
-            dal=dal, model=chat_request.model, tracer=server_tracer, tool_results_dir=tool_results_dir
+            dal=dal,
+            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+            enable_all_toolsets_possible=False,
+            prerequisite_cache=PrerequisiteCacheMode.DISABLED,
+            reuse_executor=True,
+            model=chat_request.model,
+            tracer=server_tracer,
+            tool_results_dir=tool_results_dir,
         )
         global_instructions = dal.get_global_instructions_for_account()
         messages = build_chat_messages(
