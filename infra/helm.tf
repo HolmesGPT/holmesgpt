@@ -536,6 +536,7 @@ resource "kubernetes_ingress_v1" "holmes" {
       "alb.ingress.kubernetes.io/healthcheck-path"      = "/healthz"
       "alb.ingress.kubernetes.io/healthcheck-interval-seconds" = "30"
       "alb.ingress.kubernetes.io/load-balancer-attributes" = "idle_timeout.timeout_seconds=300"
+      "alb.ingress.kubernetes.io/wafv2-acl-arn"            = aws_wafv2_web_acl.api_rate_limit.arn
     }
   }
 
