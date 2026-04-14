@@ -33,7 +33,7 @@ STATIC_DIR = Path("/app/static")
 class OktaAuthMiddleware(BaseHTTPMiddleware):
     """Authenticate requests via Okta JWT or API key."""
 
-    EXEMPT_PATHS = ("/healthz", "/readyz", "/login/callback")
+    EXEMPT_PATHS = ("/healthz", "/readyz", "/login/callback", "/docs", "/openapi.json", "/redoc")
     EXEMPT_PREFIXES = ("/assets/", "/favicon", "/api/webhook/")
 
     async def dispatch(self, request: Request, call_next):
@@ -2837,9 +2837,16 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             raise HTTPException(404, str(e))
 
     # Static file serving - must be registered last (catch-all)
+    # Exclude FastAPI built-in docs paths so Swagger UI works
+    _FASTAPI_BUILTIN_PATHS = {"docs", "openapi.json", "redoc"}
+
     @app.get("/{path:path}")
     async def serve_frontend(path: str):
         """Serve React SPA static files with fallback to index.html."""
+        # Let FastAPI handle its built-in docs routes
+        if path in _FASTAPI_BUILTIN_PATHS:
+            raise HTTPException(status_code=404, detail="Not found")
+
         if not STATIC_DIR.exists():
             raise HTTPException(status_code=404, detail="Frontend not built")
 
