@@ -164,74 +164,60 @@ holmes ask "List all monitored hosts in Zabbix"
 ## Common Use Cases
 
 **Check active problems:**
-```bash
-holmes ask "What are the current active problems in Zabbix?"
-```
+
+    holmes ask "What are the current active problems in Zabbix?"
 
 **Investigate a specific host:**
-```bash
-holmes ask "Show me all recent events and problems for the database server host"
-```
+
+    holmes ask "Show me all recent events and problems for the database server host"
 
 **Query historical metrics:**
-```bash
-holmes ask "What was the CPU usage for the web server over the last 24 hours?"
-```
+
+    holmes ask "What was the CPU usage for the web server over the last 24 hours?"
 
 **Find triggered alerts:**
-```bash
-holmes ask "Which triggers are currently in a problem state?"
-```
+
+    holmes ask "Which triggers are currently in a problem state?"
 
 **Analyze event trends:**
-```bash
-holmes ask "Show me the events that occurred in the last 6 hours and identify patterns"
-```
+
+    holmes ask "Show me the events that occurred in the last 6 hours and identify patterns"
 
 **Monitor specific metrics:**
-```bash
-holmes ask "Get the memory usage metrics for all production hosts"
-```
+
+    holmes ask "Get the memory usage metrics for all production hosts"
 
 
 ## Troubleshooting
 
-**Authentication Errors**
+**Common issues and solutions:**
 
-If you receive 401 or 403 errors:
+```bash
+# Authentication Errors (401/403)
+# - Verify your API token is valid and not expired
+# - Check that the token has not been revoked in Zabbix
+# - Ensure the user account associated with the token has appropriate permissions
+# - Verify the token is correctly set in the environment variable or secret
 
-1. Verify your API token is valid and not expired
-2. Check that the token has not been revoked in Zabbix
-3. Ensure the user account associated with the token has appropriate permissions
-4. Verify the token is correctly set in the environment variable or secret
+# Connection Issues
+# - Verify the Zabbix URL is accessible from the Holmes pod/container
+# - Check if SSL certificate verification is causing issues (use verify_ssl: false for self-signed certificates)
+# - Ensure the API endpoint path is correct (/zabbix/api_jsonrpc.php)
+# - Verify network connectivity and firewall rules allow access to the Zabbix server
 
-**Connection Issues**
+# API Errors
+# - Check the error message returned by the API for details
+# - Verify the JSON-RPC request format is correct
+# - Ensure all required parameters are included in the request
+# - Check that the method name is spelled correctly
+# - Verify that the user has permission to access the requested data
 
-If Holmes cannot connect to Zabbix:
-
-1. Verify the Zabbix URL is accessible from the Holmes pod/container
-2. Check if SSL certificate verification is causing issues (use `verify_ssl: false` for self-signed certificates)
-3. Ensure the API endpoint path is correct (`/zabbix/api_jsonrpc.php`)
-4. Verify network connectivity and firewall rules allow access to the Zabbix server
-
-**API Errors**
-
-If you receive API errors from Zabbix:
-
-1. Check the error message returned by the API for details
-2. Verify the JSON-RPC request format is correct
-3. Ensure all required parameters are included in the request
-4. Check that the method name is spelled correctly
-5. Verify that the user has permission to access the requested data
-
-**Token Overflow**
-
-If you receive token overflow errors:
-
-1. Reduce the `limit` parameter in your queries
-2. Use more specific filters to reduce the amount of data returned
-3. Query a shorter time range for historical data
-4. Split large queries into multiple smaller requests
+# Token Overflow Errors
+# - Reduce the limit parameter in your queries
+# - Use more specific filters to reduce the amount of data returned
+# - Query a shorter time range for historical data
+# - Split large queries into multiple smaller requests
+```
 
 ## Additional Resources
 
