@@ -28,7 +28,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-splunk:{ .lg .middle } **Splunk (MCP)**](splunk-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 -   [:material-bug:{ .lg .middle } **Sentry (MCP)**](sentry-mcp.md)
--   ![Zabbix](../../images/integration_logos/zabbix-icon.svg){ .lg .middle } **[Zabbix](zabbix.md)**
+-   [:simple-zabbix:{ .lg .middle } **Zabbix**](zabbix.md)
 
 </div>
 
