@@ -369,7 +369,12 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             "Skipping sentry initialization - not an official release and DEVELOPMENT_MODE not enabled"
         )
 
-app = FastAPI()
+app = FastAPI(
+    title="HolmesGPT API",
+    description="AI-powered infrastructure investigation API",
+    version="1.0.0",
+    swagger_ui_parameters={"persistAuthorization": True},
+)
 
 if LOG_PERFORMANCE:
 

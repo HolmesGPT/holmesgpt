@@ -9,10 +9,23 @@ authenticated by the existing OktaAuthMiddleware (JWT or hgpt_ API key).
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+# Security scheme — makes Swagger show "Authorize" button
+_bearer_scheme = HTTPBearer(
+    description="Paste an Okta JWT or hgpt_ API key",
+    auto_error=False,  # Don't error here — OktaAuthMiddleware handles auth
+)
+
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["Public API v1"],
+    dependencies=[Depends(_bearer_scheme)],
+)
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -149,8 +162,6 @@ def _check_project_scope(request: Request, project_id: Optional[str]) -> None:
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
-
-router = APIRouter(prefix="/api/v1", tags=["Public API v1"])
 
 
 # -- Models ----------------------------------------------------------------
