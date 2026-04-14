@@ -1,6 +1,11 @@
 {{ user_prompt }}
 
 {% if runbooks_enabled %}
+{#
+  Runbook selection block.
+  Context passes up to 3 optional strings: runbook_catalog, custom_instructions, global_instructions.
+  We build a priority-ordered list from whichever are non-empty, so the LLM knows which source to prefer.
+#}
 {%- set sections = [
   {'title': 'Runbook Catalog', 'content': runbook_catalog},
   {'title': 'Subject/Issue Runbooks', 'content': custom_instructions},
