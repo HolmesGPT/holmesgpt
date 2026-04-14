@@ -9,7 +9,7 @@ Environment variables
 ---------------------
 KAFKA_BOOTSTRAP_SERVER
     Comma-separated list of broker addresses, e.g.
-    ``kafkabroker01.cec.lab.emc.com:9093,...``
+    ``broker1.example.com:9093,broker2.example.com:9093,...``
 
 KAFKA_TLS_CA_CERT_FILE
     Path to the CA certificate bundle (PEM).
@@ -23,7 +23,7 @@ KAFKA_TLS_KEY_FILE
 Quick-start helper
 ------------------
 Run ``python tests/plugins/toolsets/test_kafka_mtls.py --extract-certs`` to
-extract the cert files from the robusta-manifest Kubernetes secret YAML into
+extract the cert files from the Kafka credentials Kubernetes secret YAML into
 ``/tmp/kafka-tls/``, then export the env vars and re-run pytest normally.
 """
 
@@ -62,12 +62,12 @@ _SKIP_REASON = (
 if not (_BROKER and _CA and _CERT and _KEY):
     pytestmark = pytest.mark.skip(reason=_SKIP_REASON)
 
-CLUSTER_NAME = "dell-kafka"
+CLUSTER_NAME = "mtls-kafka"
 
 
 @pytest.fixture(scope="module")
 def mtls_toolset():
-    """Create a KafkaToolset configured for mTLS against the Dell Kafka cluster."""
+    """Create a KafkaToolset configured for mTLS against a Kafka cluster."""
     kafka_config = {
         "clusters": [
             {
@@ -179,8 +179,8 @@ def _extract_certs(dest_dir: str | None = None) -> None:
     """
     LOCAL DEVELOPMENT HELPER — not for CI or production use.
 
-    Parse the robusta-manifest kafka-tls-credentials.yaml and write cert files
-    to *dest_dir*.  Prints export commands ready to paste into a shell.
+    Parse the Kafka credentials YAML and write cert files to *dest_dir*.
+    Prints export commands ready to paste into a shell.
 
     If *dest_dir* is not provided a unique secure temporary directory is created
     with ``tempfile.mkdtemp`` so each run uses an isolated, non-predictable path.
@@ -191,12 +191,6 @@ def _extract_certs(dest_dir: str | None = None) -> None:
 
         export ROBUSTA_MANIFEST_SECRET=/path/to/kafka-tls-credentials.yaml
 
-    Hardcoded / assumed values:
-      - broker list: five Dell-internal hosts on port 9093
-        (kafkabroker01-05.cec.lab.emc.com)
-      - secret source: ROBUSTA_SECRET path pointing to
-        ``robusta-manifest/secrets/robusta-agent/kafka-tls-credentials.yaml``
-        relative to the workspace root
     Override KAFKA_BOOTSTRAP_SERVER, KAFKA_TLS_CA_CERT_FILE,
     KAFKA_TLS_CERT_FILE, and KAFKA_TLS_KEY_FILE before running the tests if
     your environment differs.
@@ -231,7 +225,7 @@ def _extract_certs(dest_dir: str | None = None) -> None:
     os.makedirs(dest_dir, mode=0o700, exist_ok=True)
 
     key_map = {
-        "kafka_dellca2018-bundle.crt": "ca.crt",
+        "kafka_ca_bundle.crt": "ca.crt",
         "kafka_certificate.pem": "client.pem",
         "kafka_private_key.pem": "client.key",
     }
@@ -249,17 +243,9 @@ def _extract_certs(dest_dir: str | None = None) -> None:
         written[secret_key] = dest
         print(f"Wrote {dest}")
 
-    brokers = (
-        "kafkabroker01.cec.lab.emc.com:9093,"
-        "kafkabroker02.cec.lab.emc.com:9093,"
-        "kafkabroker03.cec.lab.emc.com:9093,"
-        "kafkabroker04.cec.lab.emc.com:9093,"
-        "kafkabroker05.cec.lab.emc.com:9093"
-    )
-
     print("\n# Paste these exports into your shell before running pytest:\n")
-    print(f'export KAFKA_BOOTSTRAP_SERVER="{brokers}"')
-    print(f'export KAFKA_TLS_CA_CERT_FILE="{written.get("kafka_dellca2018-bundle.crt", "")}"')
+    print('export KAFKA_BOOTSTRAP_SERVER="broker1:9093,broker2:9093,broker3:9093"')
+    print(f'export KAFKA_TLS_CA_CERT_FILE="{written.get("kafka_ca_bundle.crt", "")}"')
     print(f'export KAFKA_TLS_CERT_FILE="{written.get("kafka_certificate.pem", "")}"')
     print(f'export KAFKA_TLS_KEY_FILE="{written.get("kafka_private_key.pem", "")}"')
     print(
