@@ -422,8 +422,9 @@ export const api = {
     return request('/api/integrations');
   },
 
-  getAwsAccounts(): Promise<AwsAccountsResponse> {
-    return request('/api/aws/accounts');
+  getAwsAccounts(projectId?: string | null): Promise<AwsAccountsResponse> {
+    const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+    return request(`/api/aws/accounts${qs}`);
   },
 
   getWebhooks(): Promise<WebhooksResponse> {

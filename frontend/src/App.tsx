@@ -75,8 +75,8 @@ function AppContent() {
       onSelectProject={selectProject}
     >
       <div key={page} className="page-transition h-full">
-        {page === 'chat' && <Chat projectId={selectedProjectId} />}
-        {page === 'investigate' && <Investigate projectId={selectedProjectId} selectedProject={selectedProject} />}
+        {page === 'chat' && <Chat key={selectedProjectId ?? 'global'} projectId={selectedProjectId} />}
+        {page === 'investigate' && <Investigate key={selectedProjectId ?? 'global'} projectId={selectedProjectId} selectedProject={selectedProject} />}
         {page === 'history' && <InvestigationHistory />}
         {page === 'analytics' && <Analytics />}
         {page === 'integrations' && <Integrations />}

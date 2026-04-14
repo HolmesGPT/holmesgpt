@@ -669,8 +669,12 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         return JSONResponse({"ok": True, "name": name})
 
     @app.get("/api/aws/accounts")
-    async def get_aws_accounts():
-        """Return configured AWS accounts for the multi-account MCP setup."""
+    async def get_aws_accounts(project_id: str = ""):
+        """Return configured AWS accounts for the multi-account MCP setup.
+
+        When *project_id* is provided, only accounts that belong to ``aws_api``
+        instances resolved for that project are returned.
+        """
         import json as _json
 
         raw = os.environ.get("AWS_MCP_ACCOUNTS", "[]")
@@ -678,6 +682,36 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             accounts = _json.loads(raw)
         except Exception:
             accounts = []
+
+        # Filter to project-scoped accounts when a project is selected
+        if project_id and accounts:
+            try:
+                from projects import (  # noqa: PLC0415
+                    get_instances_store,
+                    get_store,
+                    resolve_instances_for_project,
+                )
+
+                project = get_store().get(project_id)
+                if project:
+                    all_instances = get_instances_store().list()
+                    resolved = resolve_instances_for_project(project, all_instances)
+                    # Collect allowed account profile names from aws_api instances
+                    allowed_names: set[str] = set()
+                    for inst in resolved:
+                        if inst.type == "aws_api" and inst.aws_accounts:
+                            allowed_names.update(inst.aws_accounts)
+                    if allowed_names:
+                        accounts = [
+                            a for a in accounts if a.get("name") in allowed_names
+                        ]
+            except Exception:
+                logging.warning(
+                    "Failed to filter AWS accounts for project %s",
+                    project_id,
+                    exc_info=True,
+                )
+
         return JSONResponse(
             {
                 "accounts": accounts,
