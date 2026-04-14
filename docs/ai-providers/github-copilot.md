@@ -12,7 +12,7 @@ Configure HolmesGPT to use AI models through your [GitHub Copilot](https://githu
 
 ## Required Headers
 
-GitHub Copilot's API requires IDE-identifying headers on every request. You must configure these headers via the `EXTRA_HEADERS` environment variable or the `extra_headers` field in your model list configuration:
+GitHub Copilot's API requires IDE-identifying headers on every request. You must configure these headers via the `extra_headers` field in your model list configuration or the `EXTRA_HEADERS` environment variable:
 
 ```json
 {
@@ -29,22 +29,38 @@ Without these headers, requests will fail with `"missing Editor-Version header f
 
 === "Holmes CLI"
 
+    **Create `~/.holmes/model_list.yaml`:**
+
+    ```yaml
+    copilot-claude:
+      model: github_copilot/claude-sonnet-4.5
+      extra_headers:
+        Editor-Version: "vscode/1.85.1"
+        Editor-Plugin-Version: "copilot-chat/0.26.7"
+        Copilot-Integration-Id: "vscode-chat"
+        User-Agent: "GithubCopilot/1.155.0"
+    ```
+
+    **Run Holmes:**
+
+    ```bash
+    holmes ask "what pods are failing?" --model="copilot-claude"
+    ```
+
+    On first run, LiteLLM will prompt you to authorize the device via a GitHub URL. After authorization, the token is cached locally.
+
+    **Alternative — environment variable:**
+
     ```bash
     export EXTRA_HEADERS='{"Editor-Version": "vscode/1.85.1", "Editor-Plugin-Version": "copilot-chat/0.26.7", "Copilot-Integration-Id": "vscode-chat", "User-Agent": "GithubCopilot/1.155.0"}'
 
     holmes ask "what pods are failing?" --model="github_copilot/claude-sonnet-4.5"
     ```
 
-    On first run, LiteLLM will prompt you to authorize the device via a GitHub URL. After authorization, the token is cached locally.
-
 === "Holmes Helm Chart"
 
     ```yaml
     # values.yaml
-    additionalEnvVars:
-      - name: EXTRA_HEADERS
-        value: '{"Editor-Version": "vscode/1.85.1", "Editor-Plugin-Version": "copilot-chat/0.26.7", "Copilot-Integration-Id": "vscode-chat", "User-Agent": "GithubCopilot/1.155.0"}'
-
     modelList:
       copilot-claude:
         model: github_copilot/claude-sonnet-4.5
@@ -63,10 +79,6 @@ Without these headers, requests will fail with `"missing Editor-Version header f
     ```yaml
     # values.yaml
     holmes:
-      additionalEnvVars:
-        - name: EXTRA_HEADERS
-          value: '{"Editor-Version": "vscode/1.85.1", "Editor-Plugin-Version": "copilot-chat/0.26.7", "Copilot-Integration-Id": "vscode-chat", "User-Agent": "GithubCopilot/1.155.0"}'
-
       modelList:
         copilot-claude:
           model: github_copilot/claude-sonnet-4.5
