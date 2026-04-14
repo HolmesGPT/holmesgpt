@@ -1,6 +1,6 @@
 # Zabbix
 
-Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 2.0 API.
+Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 2.0 API. Query hosts, problems, events, triggers, services, and historical metrics to investigate infrastructure issues and correlate alerts across your monitoring stack.
 
 ## Prerequisites
 
