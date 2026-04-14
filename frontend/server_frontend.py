@@ -2794,6 +2794,48 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     from users_api import mount_users_api
     mount_users_api(app)
 
+    # ── API Key Management (super-admin only) ─────────────────────────────────
+    from api_keys import ApiKeyStore
+
+    @app.get("/api/api-keys")
+    async def list_api_keys(request: Request):
+        """List all API keys (metadata only, never the raw key)."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
+        keys = ApiKeyStore().list()
+        return JSONResponse([k.model_dump() for k in keys])
+
+    @app.post("/api/api-keys")
+    async def create_api_key(request: Request):
+        """Create a new API key. Returns the full key ONCE."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if not name:
+            raise HTTPException(400, "name is required")
+        project_ids = body.get("project_ids", [])
+        result = ApiKeyStore().create(
+            name=name,
+            project_ids=project_ids,
+            created_by=request.state.user.get("email", "unknown"),
+        )
+        return JSONResponse(result, status_code=201)
+
+    @app.delete("/api/api-keys/{key_prefix:path}")
+    async def revoke_api_key(key_prefix: str, request: Request):
+        """Revoke an API key by its display prefix."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
+        try:
+            ApiKeyStore().revoke(key_prefix)
+            return JSONResponse({"status": "revoked"})
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+
     # Static file serving - must be registered last (catch-all)
     @app.get("/{path:path}")
     async def serve_frontend(path: str):
