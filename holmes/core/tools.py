@@ -778,6 +778,7 @@ class Toolset(BaseModel):
     path: Optional[FilePath] = None
     status: ToolsetStatusEnum = ToolsetStatusEnum.DISABLED
     error: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
 
     def override_with(self, override: "Toolset") -> None:
         """
@@ -1130,6 +1131,7 @@ class ToolsetDBModel(BaseModel):
     description: Optional[str] = None
     docs_url: Optional[str] = None
     installation_instructions: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
     updated_at: str = Field(default_factory=datetime.now().isoformat)
 
 

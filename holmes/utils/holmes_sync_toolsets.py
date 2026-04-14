@@ -55,6 +55,12 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if not toolset.installation_instructions:
             instructions = get_config_schema_for_toolset(toolset)
             toolset.installation_instructions = instructions
+        # Use toolset's own meta if set (e.g., database with subtype),
+        # otherwise fall back to writing the toolset type if available.
+        meta = toolset.meta
+        if meta is None and toolset.type:
+            meta = {"type": toolset.type.value}
+
         db_toolsets.append(
             ToolsetDBModel(
                 toolset_name=toolset.name,
@@ -67,6 +73,7 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
                 description=toolset.description,
                 docs_url=toolset.docs_url,
                 installation_instructions=toolset.installation_instructions,
+                meta=meta,
             ).model_dump()
         )
     dal.sync_toolsets(db_toolsets, config.cluster_name)
