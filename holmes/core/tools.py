@@ -159,6 +159,19 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
+class PrerequisiteCacheMode(str, Enum):
+    """Controls how prerequisite check results are cached.
+
+    DISABLED:      Run full prerequisite checks eagerly, no disk caching.
+    ENABLED:       Use cached results if available; fast config-validity checks on startup.
+    FORCE_REFRESH: Re-run all checks now and update the disk cache.
+    """
+
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    FORCE_REFRESH = "force_refresh"
+
+
 class ToolsetStatusEnum(str, Enum):
     ENABLED = "enabled"
     DISABLED = "disabled"
@@ -188,7 +201,7 @@ class ToolParameter(BaseModel):
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
-    enum: Optional[List[str]] = None  # For restricting to specific values
+    enum: Optional[List[Any]] = None  # For restricting to specific values (JSON Schema allows any type)
     # For object types: stores the additionalProperties JSON Schema value.
     # None = not specified, False = no additional properties allowed,
     # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
@@ -198,6 +211,10 @@ class ToolParameter(BaseModel):
     # These are passed through to the OpenAI-formatted schema so the LLM
     # knows about constraints.
     json_schema_extra: Optional[Dict[str, Any]] = None
+    # For union types with multiple non-null branches (anyOf in JSON Schema).
+    # When set, type_to_open_ai_schema emits {"anyOf": [...]} instead of a
+    # single type.  Each entry is a ToolParameter representing one branch.
+    any_of: Optional[List["ToolParameter"]] = None
 
     def is_strict_compatible(self) -> bool:
         """Check if this parameter (and all nested parameters) can be used in strict mode.
@@ -217,6 +234,11 @@ class ToolParameter(BaseModel):
         # Recursively check array items
         if self.items and not self.items.is_strict_compatible():
             return False
+        # Recursively check anyOf branches
+        if self.any_of:
+            for branch in self.any_of:
+                if not branch.is_strict_compatible():
+                    return False
         return True
 
     @property
@@ -756,6 +778,7 @@ class Toolset(BaseModel):
     path: Optional[FilePath] = None
     status: ToolsetStatusEnum = ToolsetStatusEnum.DISABLED
     error: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
 
     def override_with(self, override: "Toolset") -> None:
         """
@@ -1108,6 +1131,7 @@ class ToolsetDBModel(BaseModel):
     description: Optional[str] = None
     docs_url: Optional[str] = None
     installation_instructions: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
     updated_at: str = Field(default_factory=datetime.now().isoformat)
 
 
