@@ -19,7 +19,7 @@ resource "aws_wafv2_web_acl" "api_rate_limit" {
 
     statement {
       managed_rule_group_statement {
-        name        = "AWSManagedRulesKnownBadInputsRuleGroup"
+        name        = "AWSManagedRulesKnownBadInputsRuleSet"
         vendor_name = "AWS"
       }
     }
