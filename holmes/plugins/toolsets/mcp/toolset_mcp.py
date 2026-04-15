@@ -216,13 +216,17 @@ async def get_initialized_mcp_session(
         async with sse_client(
             url,
             rendered_headers,
-            sse_read_timeout=SSE_READ_TIMEOUT,
+            sse_read_timeout=MCP_TOOL_CALL_TIMEOUT_SEC,
             httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
+            ) as session:
                 _ = await session.initialize()
                 yield session
     else:
@@ -232,14 +236,18 @@ async def get_initialized_mcp_session(
         async with streamablehttp_client(
             url,
             headers=rendered_headers,
-            sse_read_timeout=SSE_READ_TIMEOUT,
+            sse_read_timeout=MCP_TOOL_CALL_TIMEOUT_SEC,
             httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
+            ) as session:
                 _ = await session.initialize()
                 yield session
 
@@ -281,11 +289,7 @@ class RemoteMCPTool(Tool):
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
-            tool_result = await session.call_tool(
-                self.name,
-                params,
-                read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
-            )
+            tool_result = await session.call_tool(self.name, params)
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
 
