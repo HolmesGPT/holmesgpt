@@ -151,9 +151,7 @@ class TestMCPGeneral:
         )
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
-        assert tool.description == "[test_toolset] desc"
-        assert tool.mcp_tool_name == "b"
-        assert tool.name == "test_toolset__b"
+        assert tool.description == "desc"
 
     @pytest.mark.usefixtures("suppress_migration_warnings")
     def test_non_string_enum_values_in_schema_parses_correctly(self) -> None:
@@ -472,52 +470,6 @@ class TestMCPGeneral:
         )
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
-
-    @pytest.mark.usefixtures("suppress_migration_warnings")
-    def test_tool_names_are_prefixed_with_toolset_name(self) -> None:
-        """Test that MCP tool names are prefixed with toolset name to avoid collisions.
-
-        When multiple MCP servers of the same type are installed (e.g., two
-        instances pointing at different regions), tool names would collide.
-        Prefixing with toolset name ensures each tool is uniquely identifiable.
-        """
-        mcp_tool = Tool(
-            name="get_data",
-            inputSchema={
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-            },
-            description="Fetch data",
-            annotations=None,
-        )
-
-        toolset_us = RemoteMCPToolset(
-            name="metrics_us",
-            description="Metrics US region",
-            config={"url": "http://localhost:1234"},
-        )
-        toolset_eu = RemoteMCPToolset(
-            name="metrics_eu",
-            description="Metrics EU region",
-            config={"url": "http://localhost:5678"},
-        )
-
-        tool_us = RemoteMCPTool.create(mcp_tool, toolset_us)
-        tool_eu = RemoteMCPTool.create(mcp_tool, toolset_eu)
-
-        # Tool names should be unique (prefixed with toolset name)
-        assert tool_us.name == "metrics_us__get_data"
-        assert tool_eu.name == "metrics_eu__get_data"
-        assert tool_us.name != tool_eu.name
-
-        # Original MCP tool name is preserved for server calls
-        assert tool_us.mcp_tool_name == "get_data"
-        assert tool_eu.mcp_tool_name == "get_data"
-
-        # Descriptions include toolset name for LLM context
-        assert tool_us.description == "[metrics_us] Fetch data"
-        assert tool_eu.description == "[metrics_eu] Fetch data"
 
     def test_unreachable_server_returns_error(self, suppress_migration_warnings):
         mcp_toolset = RemoteMCPToolset(
@@ -1813,8 +1765,8 @@ class TestStdio:
         assert len(mcp_toolset.tools) > 0
         # Check for expected tools from the Python server
         tool_names = [tool.name for tool in mcp_toolset.tools]
-        assert "everything_stdio__greet" in tool_names
-        assert "everything_stdio__add" in tool_names
+        assert "greet" in tool_names
+        assert "add" in tool_names
 
     def test_everything_stdio_tool_invocation(self, suppress_migration_warnings):
         """Test invoking a tool from everything_stdio MCP server"""
@@ -1837,10 +1789,10 @@ class TestStdio:
         result = toolset.prerequisites_callable(config=yaml_config)
         assert result[0] is True
 
-        # Find the greet tool from the real server (prefixed with toolset name)
+        # Find the greet tool from the real server
         greet_tool = None
         for tool in toolset.tools:
-            if tool.mcp_tool_name == "greet":
+            if tool.name == "greet":
                 greet_tool = tool
                 break
 
@@ -1929,10 +1881,10 @@ class TestStdio:
         result = toolset.prerequisites_callable(config=yaml_config)
         assert result[0] is True, f"Failed to initialize MCP server: {result[1]}"
 
-        # Find the get_test_image tool (prefixed with toolset name)
+        # Find the get_test_image tool
         image_tool = None
         for tool in toolset.tools:
-            if tool.mcp_tool_name == "get_test_image":
+            if tool.name == "get_test_image":
                 image_tool = tool
                 break
         assert image_tool is not None, (
