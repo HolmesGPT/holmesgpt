@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, TextIO, Tuple, Type, Union
 
@@ -15,7 +16,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCP_Tool
 from pydantic import AnyUrl, Field, model_validator
 
-from holmes.common.env_vars import SSE_READ_TIMEOUT
+from holmes.common.env_vars import MCP_TOOL_CALL_TIMEOUT_SEC, SSE_READ_TIMEOUT
 from holmes.core.config import config_path_dir
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -280,7 +281,11 @@ class RemoteMCPTool(Tool):
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
-            tool_result = await session.call_tool(self.name, params)
+            tool_result = await session.call_tool(
+                self.name,
+                params,
+                read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
+            )
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
 
