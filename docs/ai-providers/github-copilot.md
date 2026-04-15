@@ -12,18 +12,9 @@ Configure HolmesGPT to use AI models through your [GitHub Copilot](https://githu
 
 ## Required Headers
 
-GitHub Copilot's API requires IDE-identifying headers on every request. You must configure these headers via the `extra_headers` field in your model list configuration or the `EXTRA_HEADERS` environment variable:
+GitHub Copilot's API requires IDE-identifying headers (`Editor-Version`, `Editor-Plugin-Version`, `Copilot-Integration-Id`, `User-Agent`) on every request. Without them, requests fail with `"missing Editor-Version header for IDE auth"`.
 
-```json
-{
-  "Editor-Version": "vscode/1.85.1",
-  "Editor-Plugin-Version": "copilot-chat/0.26.7",
-  "Copilot-Integration-Id": "vscode-chat",
-  "User-Agent": "GithubCopilot/1.155.0"
-}
-```
-
-Without these headers, requests will fail with `"missing Editor-Version header for IDE auth"`.
+Configure them via the `extra_headers` field in your model list configuration, or the `EXTRA_HEADERS` environment variable — see the examples below.
 
 ## Configuration
 
