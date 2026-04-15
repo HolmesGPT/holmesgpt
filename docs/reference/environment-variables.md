@@ -15,9 +15,9 @@ This page documents all environment variables that can be used to configure Holm
 - `GEMINI_API_KEY` - API key for Google Gemini models
 - `GOOGLE_API_KEY` - Alternative API key for Google services
 
-### Azure OpenAI
-- `AZURE_API_KEY` - API key for Azure OpenAI service
-- `AZURE_API_BASE` - Base URL for Azure OpenAI endpoint
+### Azure AI Foundry
+- `AZURE_API_KEY` - API key for Azure AI Foundry service
+- `AZURE_API_BASE` - Base URL for Azure AI Foundry endpoint
 - `AZURE_API_VERSION` - API version to use (e.g., "2024-02-15-preview")
 
 ### AWS Bedrock

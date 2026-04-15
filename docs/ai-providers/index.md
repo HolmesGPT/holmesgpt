@@ -6,7 +6,7 @@ HolmesGPT supports multiple AI providers, giving you flexibility in choosing the
 
 -   [:simple-anthropic:{ .lg .middle } **Anthropic**](anthropic.md)
 -   [:material-aws:{ .lg .middle } **AWS Bedrock**](aws-bedrock.md)
--   [:material-microsoft-azure:{ .lg .middle } **Azure OpenAI**](azure-openai.md)
+-   [:material-microsoft-azure:{ .lg .middle } **Azure AI Foundry**](azure-ai-foundry.md)
 -   [:simple-googlegemini:{ .lg .middle } **Gemini**](gemini.md)
 -   [:simple-github:{ .lg .middle } **GitHub Models**](github.md)
 -   [:material-google-cloud:{ .lg .middle } **Google Vertex AI**](google-vertex-ai.md)

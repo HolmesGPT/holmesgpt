@@ -65,7 +65,7 @@ def get_classifier_model_params() -> ClassifierModelParams:
         if AZURE_API_BASE and CLASSIFIER_MODEL.startswith("azure/"):
             if len(CLASSIFIER_MODEL.split("/")) != 2:
                 raise ValueError(
-                    f"Current classifier model '{CLASSIFIER_MODEL}' does not meet the pattern 'azure/<deployment-name>' when using Azure OpenAI."
+                    f"Current classifier model '{CLASSIFIER_MODEL}' does not meet the pattern 'azure/<deployment-name>' when using Azure AI Foundry."
                 )
             model_for_api = CLASSIFIER_MODEL.split("/", 1)[1]
         elif CLASSIFIER_MODEL.startswith("openrouter/"):
@@ -188,7 +188,7 @@ Possible choices:
     params = get_classifier_model_params()
     if params.is_azure:
         logger.info(
-            f"Evaluating correctness with Azure OpenAI; base_url={params.api_base}, api_version={params.api_version}, model={params.model}, api_key ending with: {params.api_key[-4:] if params.api_key else None}"
+            f"Evaluating correctness with Azure AI Foundry; base_url={params.api_base}, api_version={params.api_version}, model={params.model}, api_key ending with: {params.api_key[-4:] if params.api_key else None}"
         )
         logger.info(
             "To use OpenAI instead, unset the environment variable AZURE_API_BASE"
@@ -198,7 +198,7 @@ Possible choices:
             f"Evaluating correctness with OpenAI; model={params.model}, api_key ending with: {params.api_key[-4:] if params.api_key else None}"
         )
         logger.info(
-            "To use Azure OpenAI instead, set the environment variables AZURE_API_BASE, AZURE_API_VERSION, and AZURE_API_KEY"
+            "To use Azure AI Foundry instead, set the environment variables AZURE_API_BASE, AZURE_API_VERSION, and AZURE_API_KEY"
         )
 
     classifier = LLMClassifier(

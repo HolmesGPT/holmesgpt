@@ -1,10 +1,10 @@
-# Azure OpenAI
+# Azure AI Foundry
 
-Configure HolmesGPT to use Azure OpenAI Service.
+Configure HolmesGPT to use Azure AI Foundry (formerly Azure OpenAI Service).
 
 ## Setup
 
-Create an [Azure OpenAI resource](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal#create-a-resource){:target="_blank"}.
+Create an [Azure AI Foundry resource](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal#create-a-resource){:target="_blank"}.
 
 ## Configuration
 
@@ -109,13 +109,13 @@ holmes ask "what pods are failing?" --model="azure/<your-deployment-name>" --api
 
 ## Microsoft Entra ID Authentication
 
-Authenticate HolmesGPT to Azure OpenAI or Microsoft Foundry using Microsoft Entra ID (formerly Azure AD) instead of an API key.
+Authenticate HolmesGPT to Azure AI Foundry using Microsoft Entra ID (formerly Azure AD) instead of an API key.
 
 This uses `DefaultAzureCredential` to obtain a bearer token, which is ideal for organizations that enforce identity-based access control and [disable local authentication (API keys)](https://docs.azure.cn/en-us/ai-services/disable-local-auth#how-to-disable-local-authentication){:target="_blank"} on their Azure AI resources.
 
 ### Why Disable Local Auth?
 
-Microsoft Foundry and Azure OpenAI resources support two authentication methods: API keys (local auth) and Microsoft Entra ID. For production environments, Microsoft recommends disabling local authentication so that:
+Azure AI Foundry resources support two authentication methods: API keys (local auth) and Microsoft Entra ID. For production environments, Microsoft recommends disabling local authentication so that:
 
 - All access is governed by Azure RBAC — no static secrets to rotate or leak
 - Every request is tied to an auditable identity
@@ -151,7 +151,7 @@ The identity used by HolmesGPT must be able to perform the action:
 Microsoft.CognitiveServices/accounts/OpenAI/deployments/chat/completions/action
 ```
 
-on the target Azure OpenAI or Microsoft Foundry resource.
+on the target Azure AI Foundry resource.
 
 You can grant this with the **Cognitive Services OpenAI User** or **Azure AI User** built-in role, or a custom role that includes the action above:
 
@@ -195,7 +195,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
     **Prerequisites:**
 
     - AKS cluster with OIDC issuer and workload identity enabled
-    - A managed identity with the **Cognitive Services OpenAI User** role on your Azure OpenAI resource
+    - A managed identity with the **Cognitive Services OpenAI User** role on your Azure AI Foundry resource
     - A federated credential linking the managed identity to the Holmes ServiceAccount
 
     **Set up the identity and federation:**
@@ -312,7 +312,7 @@ az role assignment list \
 
 ## Additional Resources
 
-- [LiteLLM Azure OpenAI docs](https://litellm.vercel.app/docs/providers/azure){:target="_blank"}
+- [LiteLLM Azure docs](https://litellm.vercel.app/docs/providers/azure){:target="_blank"}
 - [Disable local authentication in Azure AI Services](https://docs.azure.cn/en-us/ai-services/disable-local-auth){:target="_blank"}
 - [Cognitive Services OpenAI User role](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/role-based-access-control){:target="_blank"}
 - [AKS Workload Identity overview](https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview){:target="_blank"}

@@ -2,7 +2,7 @@ nav:
 - index.md
 - Anthropic: anthropic.md
 - AWS Bedrock: aws-bedrock.md
-- Azure OpenAI: azure-openai.md
+- Azure AI Foundry: azure-ai-foundry.md
 - Gemini: gemini.md
 - GitHub Models: github.md
 - Google Vertex AI: google-vertex-ai.md

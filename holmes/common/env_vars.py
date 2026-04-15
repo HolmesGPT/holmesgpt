@@ -45,8 +45,8 @@ LOG_PERFORMANCE = os.environ.get("LOG_PERFORMANCE", None)
 
 
 AZURE_AD_TOKEN_AUTH = load_bool("AZURE_AD_TOKEN_AUTH", False)
-# Override the default scope used when acquiring Entra ID tokens for Azure OpenAI/Foundry endpoints
-# Default aligns with Azure Cognitive Services (Azure OpenAI)
+# Override the default scope used when acquiring Entra ID tokens for Azure AI Foundry endpoints
+# Default aligns with Azure Cognitive Services (Azure AI Foundry)
 AZURE_COGNITIVE_SERVICES_SCOPE = os.environ.get(
     "AZURE_COGNITIVE_SERVICES_SCOPE",
     "https://cognitiveservices.azure.com/.default",

@@ -84,7 +84,7 @@ class ModelEntry(BaseModel):
     is_robusta_model: Optional[bool] = None
     custom_args: Optional[Dict[str, Any]] = None
 
-    # LLM configurations used services like Azure OpenAI Service
+    # LLM configurations used services like Azure AI Foundry
     api_base: Optional[str] = None
     api_version: Optional[str] = None
 
@@ -368,7 +368,7 @@ class DefaultLLM(LLM):
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base
             )
-            # validate_environment does not accept api_version, and as a special case for Azure OpenAI Service,
+            # validate_environment does not accept api_version, and as a special case for Azure AI Foundry,
             # when all the other AZURE environments are set expect AZURE_API_VERSION, validate_environment complains
             # the missing of it even after the api_version is set.
             # TODO: There's an open PR in litellm to accept api_version in validate_environment, we can leverage this
