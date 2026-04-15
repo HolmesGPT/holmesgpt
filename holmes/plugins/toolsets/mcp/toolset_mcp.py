@@ -245,10 +245,6 @@ async def get_initialized_mcp_session(
 
 class RemoteMCPTool(Tool):
     toolset: "RemoteMCPToolset" = Field(exclude=True)
-    mcp_tool_name: str = Field(
-        default="",
-        description="Original tool name as registered on the MCP server, used for call_tool invocations",
-    )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
@@ -284,7 +280,7 @@ class RemoteMCPTool(Tool):
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
-            tool_result = await session.call_tool(self.mcp_tool_name, params)
+            tool_result = await session.call_tool(self.name, params)
 
         merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
 
@@ -316,15 +312,9 @@ class RemoteMCPTool(Tool):
         toolset: "RemoteMCPToolset",
     ):
         parameters = cls.parse_input_schema(tool.inputSchema)
-        # Prefix tool name with toolset name to avoid collisions when multiple
-        # MCP servers of the same type expose identically-named tools.
-        prefixed_name = f"{toolset.name}__{tool.name}"
-        description = tool.description or ""
-        description = f"[{toolset.name}] {description}"
         return cls(
-            name=prefixed_name,
-            mcp_tool_name=tool.name,
-            description=description,
+            name=tool.name,
+            description=tool.description or "",
             parameters=parameters,
             toolset=toolset,
         )
