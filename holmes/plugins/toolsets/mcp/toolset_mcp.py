@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, TextIO, Tuple, Type, Union
 
@@ -15,7 +16,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCP_Tool
 from pydantic import AnyUrl, Field, model_validator
 
-from holmes.common.env_vars import SSE_READ_TIMEOUT
+from holmes.common.env_vars import MCP_TOOL_CALL_TIMEOUT_SEC, SSE_READ_TIMEOUT
 from holmes.core.config import config_path_dir
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -215,13 +216,17 @@ async def get_initialized_mcp_session(
         async with sse_client(
             url,
             rendered_headers,
-            sse_read_timeout=SSE_READ_TIMEOUT,
+            sse_read_timeout=MCP_TOOL_CALL_TIMEOUT_SEC,
             httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
+            ) as session:
                 _ = await session.initialize()
                 yield session
     else:
@@ -231,14 +236,18 @@ async def get_initialized_mcp_session(
         async with streamablehttp_client(
             url,
             headers=rendered_headers,
-            sse_read_timeout=SSE_READ_TIMEOUT,
+            sse_read_timeout=MCP_TOOL_CALL_TIMEOUT_SEC,
             httpx_client_factory=httpx_factory,
         ) as (
             read_stream,
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
+            ) as session:
                 _ = await session.initialize()
                 yield session
 
