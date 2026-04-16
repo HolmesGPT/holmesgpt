@@ -84,7 +84,7 @@ class ModelEntry(BaseModel):
     is_robusta_model: Optional[bool] = None
     custom_args: Optional[Dict[str, Any]] = None
 
-    # LLM configurations used services like Azure AI Foundry
+    # LLM configuration fields used by services like Azure AI Foundry
     api_base: Optional[str] = None
     api_version: Optional[str] = None
 
