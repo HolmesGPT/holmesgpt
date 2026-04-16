@@ -2,7 +2,8 @@
 """Filter accounts.yaml to only include profiles whose cross-account roles are assumable.
 
 Reads /etc/aws-raw/accounts.yaml (from ConfigMap), tests each profile's role_arn
-with sts:AssumeRole, writes /etc/aws/accounts.yaml with only working profiles.
+with sts:AssumeRoleWithWebIdentity (the same auth method the MCP server uses),
+writes /etc/aws/accounts.yaml with only working profiles.
 """
 
 import logging
@@ -15,14 +16,16 @@ log = logging.getLogger("filter-accounts")
 
 RAW_PATH = "/etc/aws-raw/accounts.yaml"
 FILTERED_PATH = "/etc/aws/accounts.yaml"
+TOKEN_PATH = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
 
 
-def test_profile(sts_client, profile_name: str, role_arn: str) -> bool:
-    """Test if we can assume the given cross-account role."""
+def test_profile(sts_client, profile_name: str, role_arn: str, web_identity_token: str) -> bool:
+    """Test if we can assume the given cross-account role via Web Identity."""
     try:
-        sts_client.assume_role(
+        sts_client.assume_role_with_web_identity(
             RoleArn=role_arn,
             RoleSessionName=f"init-probe-{profile_name}"[:64],
+            WebIdentityToken=web_identity_token,
             DurationSeconds=900,  # minimum
         )
         return True
@@ -42,6 +45,9 @@ def main():
             yaml.dump(config, f)
         return
 
+    with open(TOKEN_PATH) as f:
+        token = f.read().strip()
+
     log.info("Testing %d profiles...", len(profiles))
     sts = boto3.client("sts", region_name=config.get("region", "us-east-1"))
 
@@ -49,7 +55,7 @@ def main():
     failed = []
     for name, cfg in profiles.items():
         role_arn = cfg.get("role_arn", "")
-        if test_profile(sts, name, role_arn):
+        if test_profile(sts, name, role_arn, token):
             log.info("  OK: %s", name)
             working[name] = cfg
         else:
