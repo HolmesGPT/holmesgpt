@@ -29,7 +29,7 @@ data:
   {{- end }}
   {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
   filter-accounts.py: |
-{{ .Files.Get "templates/mcp-servers/aws/filter-accounts.py" | indent 4 }}
+{{ .Files.Get "files/mcp-servers/aws/filter-accounts.py" | indent 4 }}
   {{- end }}
 ---
 {{- if .Values.mcpAddons.aws.serviceAccount.create }}
