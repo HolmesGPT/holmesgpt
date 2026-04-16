@@ -138,6 +138,136 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::607378507561:role/HolmesReadOnly"
     region     = "us-east-1"
   }
+  # ── C-Store Essentials ──────────────────────────────────────────────────
+  ce-cstore-essentials-prod = {
+    account_id = "386397235394"
+    role_arn   = "arn:aws:iam::386397235394:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  ce-cstore-essentials-staging = {
+    account_id = "179669678732"
+    role_arn   = "arn:aws:iam::179669678732:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  ce-koupon-prod = {
+    account_id = "185077157484"
+    role_arn   = "arn:aws:iam::185077157484:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  ce-skupos-legacy-prod = {
+    account_id = "025524405457"
+    role_arn   = "arn:aws:iam::025524405457:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── CI POS ──────────────────────────────────────────────────────────────
+  pdi-cipos-prod = {
+    account_id = "271593336501"
+    role_arn   = "arn:aws:iam::271593336501:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-cipos-stage = {
+    account_id = "436020120639"
+    role_arn   = "arn:aws:iam::436020120639:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Transpac / Comdata / Data Services ──────────────────────────────────
+  pdi-transpac-prod = {
+    account_id = "903333983563"
+    role_arn   = "arn:aws:iam::903333983563:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-comdata-petroleader-prod = {
+    account_id = "711387130277"
+    role_arn   = "arn:aws:iam::711387130277:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-data-services-prod = {
+    account_id = "090790636866"
+    role_arn   = "arn:aws:iam::090790636866:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── ERP ─────────────────────────────────────────────────────────────────
+  pdi-erp-prod = {
+    account_id = "077614951579"
+    role_arn   = "arn:aws:iam::077614951579:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-erp-stage = {
+    account_id = "929611976443"
+    role_arn   = "arn:aws:iam::929611976443:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── LMP Elevate ─────────────────────────────────────────────────────────
+  pdi-lmp-elevate-prod = {
+    account_id = "510376924091"
+    role_arn   = "arn:aws:iam::510376924091:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-lmp-elevate-staging = {
+    account_id = "008048648984"
+    role_arn   = "arn:aws:iam::008048648984:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── MCS Payments ────────────────────────────────────────────────────────
+  pdi-mcs-payments-prod = {
+    account_id = "179616421945"
+    role_arn   = "arn:aws:iam::179616421945:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-mcs-payments-staging = {
+    account_id = "856536366562"
+    role_arn   = "arn:aws:iam::856536366562:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Operations ──────────────────────────────────────────────────────────
+  pdi-operations-prod = {
+    account_id = "211125545481"
+    role_arn   = "arn:aws:iam::211125545481:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-operations-stage = {
+    account_id = "211125652818"
+    role_arn   = "arn:aws:iam::211125652818:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Platform ────────────────────────────────────────────────────────────
+  pdi-platform-prod = {
+    account_id = "921714353219"
+    role_arn   = "arn:aws:iam::921714353219:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-platform-stage = {
+    account_id = "019652197448"
+    role_arn   = "arn:aws:iam::019652197448:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── POS (additional stage account) ──────────────────────────────────────
+  pdi-pos-stage-2 = {
+    account_id = "974458387942"
+    role_arn   = "arn:aws:iam::974458387942:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── RM Loyalty ──────────────────────────────────────────────────────────
+  pdi-rm-loyalty-prod = {
+    account_id = "651006557025"
+    role_arn   = "arn:aws:iam::651006557025:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-rm-loyalty-staging = {
+    account_id = "506628524632"
+    role_arn   = "arn:aws:iam::506628524632:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-rm-loyalty-pci-prod = {
+    account_id = "473106049869"
+    role_arn   = "arn:aws:iam::473106049869:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-rm-loyalty-pci-staging = {
+    account_id = "582802577213"
+    role_arn   = "arn:aws:iam::582802577213:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
