@@ -27,6 +27,10 @@ data:
         {{- end }}
       {{- end }}
   {{- end }}
+  {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
+  filter-accounts.py: |
+{{ .Files.Get "templates/mcp-servers/aws/filter-accounts.py" | indent 4 }}
+  {{- end }}
 ---
 {{- if .Values.mcpAddons.aws.serviceAccount.create }}
 apiVersion: v1
@@ -90,12 +94,48 @@ spec:
       {{- end }}
       {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
       volumes:
-      - name: aws-accounts
+      - name: aws-accounts-raw
         configMap:
           name: {{ .Release.Name }}-aws-mcp-config
           items:
           - key: accounts.yaml
             path: accounts.yaml
+          - key: filter-accounts.py
+            path: filter-accounts.py
+      - name: aws-accounts
+        emptyDir: {}
+      {{- end }}
+      {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
+      initContainers:
+      - name: filter-accounts
+        image: "{{ .Values.mcpAddons.aws.registry }}/{{ .Values.mcpAddons.aws.multiAccount.image }}"
+        command: ["python3", "/etc/aws-raw/filter-accounts.py"]
+        env:
+        - name: AWS_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-aws-mcp-config
+              key: AWS_REGION
+        - name: AWS_DEFAULT_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-aws-mcp-config
+              key: AWS_REGION
+        - name: AWS_STS_REGIONAL_ENDPOINTS
+          value: "regional"
+        volumeMounts:
+        - name: aws-accounts-raw
+          mountPath: /etc/aws-raw
+          readOnly: true
+        - name: aws-accounts
+          mountPath: /etc/aws
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
       {{- end }}
       containers:
       - name: aws-mcp
