@@ -104,6 +104,91 @@ See the [walkthrough documentation](https://holmesgpt.dev/walkthrough/) for usag
 - [Investigating Prometheus alerts](https://holmesgpt.dev/walkthrough/investigating-prometheus-alerts/)
 - [CI/CD troubleshooting](https://holmesgpt.dev/walkthrough/cicd-troubleshooting/)
 
+## AWS Account Onboarding Status
+
+**Summary:** 39 of 54 accounts configured | 16 fully working | 23 pending CloudOps OIDC setup | 15 not yet added
+
+> Last updated: 2026-04-17
+
+### Production Accounts (26)
+
+| Account ID | Project | Profile Name | In HolmesGPT | OIDC + Trust | Status |
+|---|---|---|---|---|---|
+| 342706430250 | Logistics Cloud | logistics-prod | Yes | Yes | Working |
+| 386397235394 | C-Store Essentials | ce-cstore-essentials-prod | Yes | Yes | Working |
+| 185077157484 | C-Store Essentials | ce-koupon-prod | Yes | Pending | Pending CloudOps |
+| 025524405457 | C-Store Essentials | ce-skupos-legacy-prod | Yes | Pending | Pending CloudOps |
+| 903333983563 | Transpac | pdi-transpac-prod | Yes | Pending | Pending CloudOps |
+| 271593336501 | CI POS | pdi-cipos-prod | Yes | Pending | Pending CloudOps |
+| 711387130277 | Comdata PetroLeader | pdi-comdata-petroleader-prod | Yes | Pending | Pending CloudOps |
+| 090790636866 | Data Services | pdi-data-services-prod | Yes | Pending | Pending CloudOps |
+| 077614951579 | ERP | pdi-erp-prod | Yes | Pending | Pending CloudOps |
+| 510376924091 | LMP Elevate | pdi-lmp-elevate-prod | Yes | Pending | Pending CloudOps |
+| 179616421945 | MCS Payments | pdi-mcs-payments-prod | Yes | Pending | Pending CloudOps |
+| 211125545481 | Operations | pdi-operations-prod | Yes | Pending | Pending CloudOps |
+| 921714353219 | Platform | pdi-platform-prod | Yes | Pending | Pending CloudOps |
+| 100161908138 | POS Legacy | pdi-pos-legacy-prod | Yes | Yes | Working |
+| 803964703583 | POS | pdi-pos-prod | Yes | Yes | Working |
+| 473106049869 | RM Loyalty | pdi-rm-loyalty-pci-prod | Yes | Pending | Pending CloudOps |
+| 651006557025 | RM Loyalty | pdi-rm-loyalty-prod | Yes | Pending | Pending CloudOps |
+| 198386896451 | EP Payments | — | **No** | No | Not added |
+| 640131422250 | ERP (Skupos RI) | — | **No** | No | Not added |
+| 483271369038 | Cybera | — | **No** | No | Not added |
+| 498623468443 | Fuel Pricing | — | **No** | No | Not added |
+| 208790448711 | Platform (MyPDI) | — | **No** | No | Not added |
+| 632676638207 | Security Services | — | **No** | No | Not added |
+| 516716174645 | Telapoint | — | **No** | No | Not added |
+| 374902171948 | Webcat | — | **No** | No | Not added |
+| 155849958646 | FP SaaS | — | **No** | No | SUSPENDED |
+
+### Staging Accounts (18)
+
+| Account ID | Project | Profile Name | In HolmesGPT | OIDC + Trust | Status |
+|---|---|---|---|---|---|
+| 267230788984 | GasBuddy | gasbuddy-staging | Yes | Yes | Working |
+| 179669678732 | C-Store Essentials | ce-cstore-essentials-staging | Yes | Pending | Pending CloudOps |
+| 436020120639 | CI POS | pdi-cipos-stage | Yes | Pending | Pending CloudOps |
+| 929611976443 | ERP | pdi-erp-stage | Yes | Pending | Pending CloudOps |
+| 008048648984 | LMP Elevate | pdi-lmp-elevate-staging | Yes | Pending | Pending CloudOps |
+| 178396448338 | Logistics Cloud | logistics-stage | Yes | Yes | Working |
+| 856536366562 | MCS Payments | pdi-mcs-payments-staging | Yes | Pending | Pending CloudOps |
+| 211125652818 | Operations | pdi-operations-stage | Yes | Pending | Pending CloudOps |
+| 019652197448 | Platform | pdi-platform-stage | Yes | Pending | Pending CloudOps |
+| 974458387942 | POS | pdi-pos-stage-2 | Yes | Pending | Pending CloudOps |
+| 582802577213 | RM Loyalty | pdi-rm-loyalty-pci-staging | Yes | Pending | Pending CloudOps |
+| 506628524632 | RM Loyalty | pdi-rm-loyalty-staging | Yes | Pending | Pending CloudOps |
+| 003480668535 | EP Payments | — | **No** | No | Not added |
+| 566348778577 | ERP (Skupos RI) | — | **No** | No | Not added |
+| 923510870796 | Cybera | — | **No** | No | Not added |
+| 445971787817 | Data Services | — | **No** | No | Not added |
+| 118187397259 | Fuel Pricing | — | **No** | No | Not added |
+| 559384369847 | FP SaaS | — | **No** | No | SUSPENDED |
+
+### Other Environments (already in HolmesGPT, not in prod/stage list above)
+
+| Account ID | Profile Name | Project | Status |
+|---|---|---|---|
+| 229743609213 | logistics-ci | Logistics Cloud | Working |
+| 690917928966 | logistics-dev | Logistics Cloud | Working |
+| 087983023125 | logistics-sandbox | Logistics Cloud | Working |
+| 689863073433 | pdi-pos-dev | POS | Working |
+| 415641701024 | pdi-pos-stage | POS | Working |
+| 294818304262 | pdi-pos-legacy-uat | POS Legacy | Working |
+| 226168396949 | pdi-pos-legacy-demo | POS Legacy | Working |
+| 896521799855 | gasbuddy | GasBuddy | Working |
+| 773223718586 | gasbuddy-marketing | GasBuddy | Working |
+| 607378507561 | gb-bp-client | GasBuddy | Working |
+
+### Onboarding Checklist (per account)
+
+Each account needs these 3 items (see **Docs > AWS Account** tab for scripts):
+
+1. **OIDC Provider** — Register `oidc.eks.us-east-1.amazonaws.com/id/067D7295FD86C99EE25FE9F026B73ABE` in the target account
+2. **IAM Role** — `HolmesReadOnly` with trust policy allowing both `sts:AssumeRole` and `sts:AssumeRoleWithWebIdentity`
+3. **Permissions Policy** — `HolmesReadOnly-triage` attached to the role (scoped read-only: EC2, ECS, EKS, Lambda, S3, RDS, DynamoDB, CloudWatch, CloudTrail, etc.)
+
+Reference account: `386397235394` (ce-c-store-essentials-production) — fully configured.
+
 ## 🔐 Data Privacy
 
 By design, HolmesGPT has **read-only access** and respects RBAC permissions. It is safe to run in production environments.
