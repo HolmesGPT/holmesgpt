@@ -22,8 +22,24 @@ if [[ ! "$HOLMES_MCP_ROLE_ARN" =~ ^arn:aws:iam:: ]]; then
   exit 1
 fi
 
+# ── Prompt for the EKS OIDC Provider URL ────────────────────────────────────
+if [ -z "\${EKS_OIDC_PROVIDER_URL:-}" ]; then
+  echo "Enter the EKS OIDC Provider URL from the platform account"
+  echo "(e.g. oidc.eks.us-east-1.amazonaws.com/id/067D7295FD86C99EE25FE9F026B73ABE):"
+  read -r EKS_OIDC_PROVIDER_URL
+fi
+
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo "Setting up HolmesGPT role in account: $ACCOUNT_ID"
+
+# ── Register the platform EKS OIDC provider in this account ────────────────
+echo "Registering EKS OIDC provider..."
+aws iam create-open-id-connect-provider \\
+  --url "https://$EKS_OIDC_PROVIDER_URL" \\
+  --client-id-list "sts.amazonaws.com" \\
+  --thumbprint-list "06b25927c42a721631c1efd9431e648fa62e1e39" \\
+  --tags Key=Application,Value=holmesgpt 2>/dev/null \\
+  || echo "OIDC provider already exists (OK)"
 
 # ── Trust policy — allows the HolmesGPT platform role to assume this role ───
 TRUST_POLICY=$(cat <<EOF
@@ -35,6 +51,20 @@ TRUST_POLICY=$(cat <<EOF
       "Effect": "Allow",
       "Principal": { "AWS": "$HOLMES_MCP_ROLE_ARN" },
       "Action": "sts:AssumeRole"
+    },
+    {
+      "Sid": "AllowHolmesMCPWebIdentity",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::$ACCOUNT_ID:oidc-provider/$EKS_OIDC_PROVIDER_URL"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "$EKS_OIDC_PROVIDER_URL:aud": "sts.amazonaws.com",
+          "$EKS_OIDC_PROVIDER_URL:sub": "system:serviceaccount:holmesgpt:aws-api-mcp-sa"
+        }
+      }
     }
   ]
 }
@@ -131,6 +161,24 @@ POLICY_DOC=$(cat <<'POLICYEOF'
       "Effect": "Allow",
       "Action": ["tag:GetResources", "tag:GetTagKeys", "tag:GetTagValues"],
       "Resource": "*"
+    },
+    {
+      "Sid": "DynamoDBRead",
+      "Effect": "Allow",
+      "Action": ["dynamodb:DescribeTable", "dynamodb:DescribeContinuousBackups", "dynamodb:DescribeTimeToLive", "dynamodb:DescribeGlobalTable", "dynamodb:ListTables", "dynamodb:ListTagsOfResource", "dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:DescribeStream", "dynamodb:ListStreams"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ElastiCacheRead",
+      "Effect": "Allow",
+      "Action": ["elasticache:Describe*", "elasticache:List*"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DAXRead",
+      "Effect": "Allow",
+      "Action": ["dax:DescribeClusters", "dax:DescribeDefaultParameters", "dax:DescribeEvents", "dax:DescribeParameterGroups", "dax:DescribeParameters", "dax:DescribeSubnetGroups", "dax:ListTags"],
+      "Resource": "*"
     }
   ]
 }
@@ -185,8 +233,23 @@ if ($HolmesMcpRoleArn -notmatch "^arn:aws:iam::") {
     exit 1
 }
 
+# ── Prompt for the EKS OIDC Provider URL ────────────────────────────────────
+if (-not $env:EKS_OIDC_PROVIDER_URL) {
+    $EksOidcProviderUrl = Read-Host "Enter the EKS OIDC Provider URL from the platform account\`n(e.g. oidc.eks.us-east-1.amazonaws.com/id/067D7295FD86C99EE25FE9F026B73ABE)"
+} else {
+    $EksOidcProviderUrl = $env:EKS_OIDC_PROVIDER_URL
+}
+
 $AccountId = (aws sts get-caller-identity --query Account --output text)
 Write-Host "Setting up HolmesGPT role in account: $AccountId"
+
+# ── Register the platform EKS OIDC provider in this account ────────────────
+Write-Host "Registering EKS OIDC provider..."
+try {
+    aws iam create-open-id-connect-provider --url "https://$EksOidcProviderUrl" --client-id-list "sts.amazonaws.com" --thumbprint-list "06b25927c42a721631c1efd9431e648fa62e1e39" --tags Key=Application,Value=holmesgpt | Out-Null
+} catch {
+    Write-Host "OIDC provider already exists (OK)"
+}
 
 # ── Trust policy — allows the HolmesGPT platform role to assume this role ───
 $TrustPolicy = @"
@@ -198,6 +261,20 @@ $TrustPolicy = @"
       "Effect": "Allow",
       "Principal": { "AWS": "$HolmesMcpRoleArn" },
       "Action": "sts:AssumeRole"
+    },
+    {
+      "Sid": "AllowHolmesMCPWebIdentity",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::$AccountId:oidc-provider/$EksOidcProviderUrl"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "$EksOidcProviderUrl`:aud": "sts.amazonaws.com",
+          "$EksOidcProviderUrl`:sub": "system:serviceaccount:holmesgpt:aws-api-mcp-sa"
+        }
+      }
     }
   ]
 }
@@ -227,7 +304,10 @@ $PolicyDoc = @'
     {"Sid":"XRayRead","Effect":"Allow","Action":["xray:BatchGetTraces","xray:GetGroups","xray:GetSamplingRules","xray:GetServiceGraph","xray:GetTraceSummaries"],"Resource":"*"},
     {"Sid":"Route53Read","Effect":"Allow","Action":["route53:GetHostedZone","route53:GetHealthCheck","route53:ListHostedZones","route53:ListResourceRecordSets","route53:ListHealthChecks","route53:ListTagsForResource"],"Resource":"*"},
     {"Sid":"IAMRead","Effect":"Allow","Action":["iam:GetRole","iam:GetRolePolicy","iam:GetPolicy","iam:GetPolicyVersion","iam:ListAttachedRolePolicies","iam:ListRolePolicies","iam:ListRoles","iam:ListPolicies"],"Resource":"*"},
-    {"Sid":"TaggingRead","Effect":"Allow","Action":["tag:GetResources","tag:GetTagKeys","tag:GetTagValues"],"Resource":"*"}
+    {"Sid":"TaggingRead","Effect":"Allow","Action":["tag:GetResources","tag:GetTagKeys","tag:GetTagValues"],"Resource":"*"},
+    {"Sid":"DynamoDBRead","Effect":"Allow","Action":["dynamodb:DescribeTable","dynamodb:DescribeContinuousBackups","dynamodb:DescribeTimeToLive","dynamodb:DescribeGlobalTable","dynamodb:ListTables","dynamodb:ListTagsOfResource","dynamodb:GetItem","dynamodb:BatchGetItem","dynamodb:Query","dynamodb:Scan","dynamodb:DescribeStream","dynamodb:ListStreams"],"Resource":"*"},
+    {"Sid":"ElastiCacheRead","Effect":"Allow","Action":["elasticache:Describe*","elasticache:List*"],"Resource":"*"},
+    {"Sid":"DAXRead","Effect":"Allow","Action":["dax:DescribeClusters","dax:DescribeDefaultParameters","dax:DescribeEvents","dax:DescribeParameterGroups","dax:DescribeParameters","dax:DescribeSubnetGroups","dax:ListTags"],"Resource":"*"}
   ]
 }
 '@
@@ -329,9 +409,13 @@ export default function Docs() {
   const [activeTab, setActiveTab] = useState<DocTab>('setup')
   const [copied, setCopied] = useState<string | null>(null)
   const [irsaRole, setIrsaRole] = useState<string>('')
+  const [oidcUrl, setOidcUrl] = useState<string>('')
 
   useEffect(() => {
-    api.getAwsAccounts().then((data) => setIrsaRole(data.irsa_role || '')).catch(() => {})
+    api.getAwsAccounts().then((data) => {
+      setIrsaRole(data.irsa_role || '')
+      setOidcUrl(data.eks_oidc_url || '')
+    }).catch(() => {})
   }, [])
 
   function copyText(text: string, key: string) {
@@ -554,16 +638,34 @@ export default function Docs() {
                       {copied === 'irsa' ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
-                  <p className="text-xs text-blue-600">The script will ask for this value. Copy it before running.</p>
+                  {oidcUrl && (
+                    <div className="mt-3">
+                      <p className="text-xs font-medium text-blue-700 uppercase tracking-wider">EKS OIDC Provider URL</p>
+                      <div className="flex items-center gap-2 bg-white border border-blue-200 rounded-lg px-4 py-2.5 font-mono text-sm text-gray-700 mt-1">
+                        <span className="flex-1 truncate select-all">{oidcUrl}</span>
+                        <button
+                          onClick={() => copyText(oidcUrl, 'oidc')}
+                          className={`flex-shrink-0 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                            copied === 'oidc'
+                              ? 'bg-pdi-grass/10 text-pdi-grass border border-pdi-grass/20'
+                              : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {copied === 'oidc' ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-blue-600">The script will ask for both values. Copy them before running.</p>
                 </div>
               )}
 
               <StepList
                 steps={[
                   <>Ensure the <strong>AWS CLI</strong> is installed and configured for the target account (<code className="bg-gray-100 px-1 py-0.5 rounded text-xs">aws configure</code>).</>,
-                  <>Copy the <strong>IRSA Role ARN</strong> shown above — the script will prompt for it.</>,
+                  <>Copy the <strong>IRSA Role ARN</strong> and <strong>EKS OIDC Provider URL</strong> shown above — the script will prompt for both.</>,
                   <>Download the setup script for your operating system using the buttons below.</>,
-                  <>Run the script — it will create a role named <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">HolmesReadOnly</code> with scoped read-only permissions and print its ARN.</>,
+                  <>Run the script — it will register the EKS OIDC provider, create a role named <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">HolmesReadOnly</code> with scoped read-only permissions and web identity trust, and print its ARN.</>,
                   <>Copy the <strong>Role ARN</strong> printed by the script.</>,
                   <>In HolmesGPT, go to <strong>Integrations</strong> → add an AWS integration → paste the Role ARN.</>,
                 ]}
