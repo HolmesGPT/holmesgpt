@@ -293,8 +293,8 @@ $TrustPolicy = @"
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "$EksOidcProviderUrl`:aud": "sts.amazonaws.com",
-          "$EksOidcProviderUrl`:sub": "system:serviceaccount:holmesgpt:aws-api-mcp-sa"
+          "$EksOidcProviderUrl${'`'}:aud": "sts.amazonaws.com",
+          "$EksOidcProviderUrl${'`'}:sub": "system:serviceaccount:holmesgpt:aws-api-mcp-sa"
         }
       }
     }
