@@ -3,6 +3,28 @@ import { api } from '../lib/api'
 
 type DocTab = 'setup' | 'aws' | 'pagerduty' | 'ado' | 'salesforce'
 
+const PERMISSIONS_POLICY = JSON.stringify({
+  Version: '2012-10-17',
+  Statement: [
+    { Sid: 'EC2Read', Effect: 'Allow', Action: ['ec2:Describe*', 'ec2:GetConsoleOutput', 'ec2:GetConsoleScreenshot', 'autoscaling:Describe*', 'elasticloadbalancing:Describe*'], Resource: '*' },
+    { Sid: 'ECSRead', Effect: 'Allow', Action: ['ecs:Describe*', 'ecs:List*'], Resource: '*' },
+    { Sid: 'EKSRead', Effect: 'Allow', Action: ['eks:Describe*', 'eks:List*', 'eks:AccessKubernetesApi'], Resource: '*' },
+    { Sid: 'LambdaRead', Effect: 'Allow', Action: ['lambda:GetFunction', 'lambda:GetFunctionConfiguration', 'lambda:GetFunctionEventInvokeConfig', 'lambda:GetPolicy', 'lambda:ListFunctions', 'lambda:ListAliases', 'lambda:ListEventSourceMappings', 'lambda:ListVersionsByFunction'], Resource: '*' },
+    { Sid: 'S3Read', Effect: 'Allow', Action: ['s3:GetBucketLocation', 's3:GetBucketVersioning', 's3:GetBucketTagging', 's3:GetBucketPolicy', 's3:GetBucketAcl', 's3:GetBucketLogging', 's3:GetBucketNotification', 's3:GetEncryptionConfiguration', 's3:GetLifecycleConfiguration', 's3:ListAllMyBuckets', 's3:ListBucket'], Resource: '*' },
+    { Sid: 'RDSRead', Effect: 'Allow', Action: ['rds:Describe*', 'rds:ListTagsForResource'], Resource: '*' },
+    { Sid: 'DynamoDBRead', Effect: 'Allow', Action: ['dynamodb:DescribeTable', 'dynamodb:DescribeContinuousBackups', 'dynamodb:DescribeTimeToLive', 'dynamodb:DescribeGlobalTable', 'dynamodb:ListTables', 'dynamodb:ListTagsOfResource', 'dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:Scan', 'dynamodb:DescribeStream', 'dynamodb:ListStreams'], Resource: '*' },
+    { Sid: 'ElastiCacheRead', Effect: 'Allow', Action: ['elasticache:Describe*', 'elasticache:List*'], Resource: '*' },
+    { Sid: 'DAXRead', Effect: 'Allow', Action: ['dax:DescribeClusters', 'dax:DescribeDefaultParameters', 'dax:DescribeEvents', 'dax:DescribeParameterGroups', 'dax:DescribeParameters', 'dax:DescribeSubnetGroups', 'dax:ListTags'], Resource: '*' },
+    { Sid: 'CloudWatchRead', Effect: 'Allow', Action: ['cloudwatch:DescribeAlarms', 'cloudwatch:DescribeAlarmHistory', 'cloudwatch:DescribeAnomalyDetectors', 'cloudwatch:GetDashboard', 'cloudwatch:GetMetricData', 'cloudwatch:GetMetricStatistics', 'cloudwatch:GetMetricWidgetImage', 'cloudwatch:ListDashboards', 'cloudwatch:ListMetrics', 'cloudwatch:ListTagsForResource'], Resource: '*' },
+    { Sid: 'CloudWatchLogsRead', Effect: 'Allow', Action: ['logs:DescribeLogGroups', 'logs:DescribeLogStreams', 'logs:DescribeMetricFilters', 'logs:DescribeSubscriptionFilters', 'logs:FilterLogEvents', 'logs:GetLogEvents', 'logs:GetLogGroupFields', 'logs:GetLogRecord', 'logs:GetQueryResults', 'logs:ListTagsLogGroup', 'logs:StartQuery', 'logs:StopQuery'], Resource: '*' },
+    { Sid: 'CloudTrailRead', Effect: 'Allow', Action: ['cloudtrail:DescribeTrails', 'cloudtrail:GetEventSelectors', 'cloudtrail:GetTrailStatus', 'cloudtrail:ListTrails', 'cloudtrail:LookupEvents'], Resource: '*' },
+    { Sid: 'XRayRead', Effect: 'Allow', Action: ['xray:BatchGetTraces', 'xray:GetGroups', 'xray:GetSamplingRules', 'xray:GetServiceGraph', 'xray:GetTraceSummaries'], Resource: '*' },
+    { Sid: 'Route53Read', Effect: 'Allow', Action: ['route53:GetHostedZone', 'route53:GetHealthCheck', 'route53:ListHostedZones', 'route53:ListResourceRecordSets', 'route53:ListHealthChecks', 'route53:ListTagsForResource'], Resource: '*' },
+    { Sid: 'IAMRead', Effect: 'Allow', Action: ['iam:GetRole', 'iam:GetRolePolicy', 'iam:GetPolicy', 'iam:GetPolicyVersion', 'iam:ListAttachedRolePolicies', 'iam:ListRolePolicies', 'iam:ListRoles', 'iam:ListPolicies'], Resource: '*' },
+    { Sid: 'TaggingRead', Effect: 'Allow', Action: ['tag:GetResources', 'tag:GetTagKeys', 'tag:GetTagValues'], Resource: '*' },
+  ],
+}, null, 2)
+
 const SH_SCRIPT = `#!/bin/bash
 # HolmesGPT AWS Account Connection Script
 # Creates a scoped read-only IAM role that HolmesGPT can assume from the platform account.
@@ -695,6 +717,64 @@ export default function Docs() {
                   </button>
                 </div>
               </div>
+
+              {/* Reference policy downloads */}
+              {(irsaRole || oidcUrl) && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Reference Policy Documents</p>
+                  <p className="text-xs text-gray-500 mb-3">
+                    If you prefer to set up the IAM resources manually (or need to share with your CloudOps team), download the JSON documents below.
+                    Replace <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">{'<TARGET_ACCOUNT_ID>'}</code> with the target AWS account ID.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => {
+                        const trustPolicy = JSON.stringify({
+                          Version: '2012-10-17',
+                          Statement: [
+                            {
+                              Sid: 'AllowHolmesMCPAssumeRole',
+                              Effect: 'Allow',
+                              Principal: { AWS: irsaRole || '<HOLMES_MCP_ROLE_ARN>' },
+                              Action: 'sts:AssumeRole',
+                            },
+                            {
+                              Sid: 'AllowHolmesMCPWebIdentity',
+                              Effect: 'Allow',
+                              Principal: {
+                                Federated: `arn:aws:iam::<TARGET_ACCOUNT_ID>:oidc-provider/${oidcUrl || '<EKS_OIDC_PROVIDER_URL>'}`,
+                              },
+                              Action: 'sts:AssumeRoleWithWebIdentity',
+                              Condition: {
+                                StringEquals: {
+                                  [`${oidcUrl || '<EKS_OIDC_PROVIDER_URL>'}:aud`]: 'sts.amazonaws.com',
+                                  [`${oidcUrl || '<EKS_OIDC_PROVIDER_URL>'}:sub`]: 'system:serviceaccount:holmesgpt:aws-api-mcp-sa',
+                                },
+                              },
+                            },
+                          ],
+                        }, null, 2)
+                        downloadScript('trust-policy.json', trustPolicy)
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      Trust Policy (.json)
+                    </button>
+                    <button
+                      onClick={() => downloadScript('permissions-policy.json', PERMISSIONS_POLICY)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      Permissions Policy (.json)
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Script preview */}
               <div>
