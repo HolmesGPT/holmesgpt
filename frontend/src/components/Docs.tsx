@@ -729,26 +729,29 @@ export default function Docs() {
                   <div className="flex flex-wrap gap-3">
                     <button
                       onClick={() => {
+                        const placeholder = '<' + 'TARGET_ACCOUNT_ID' + '>'
+                        const oidcFallback = '<' + 'EKS_OIDC_PROVIDER_URL' + '>'
+                        const oidc = oidcUrl || oidcFallback
                         const trustPolicy = JSON.stringify({
                           Version: '2012-10-17',
                           Statement: [
                             {
                               Sid: 'AllowHolmesMCPAssumeRole',
                               Effect: 'Allow',
-                              Principal: { AWS: irsaRole || '<HOLMES_MCP_ROLE_ARN>' },
+                              Principal: { AWS: irsaRole || ('<' + 'HOLMES_MCP_ROLE_ARN' + '>') },
                               Action: 'sts:AssumeRole',
                             },
                             {
                               Sid: 'AllowHolmesMCPWebIdentity',
                               Effect: 'Allow',
                               Principal: {
-                                Federated: `arn:aws:iam::<TARGET_ACCOUNT_ID>:oidc-provider/${oidcUrl || '<EKS_OIDC_PROVIDER_URL>'}`,
+                                Federated: `arn:aws:iam::${placeholder}:oidc-provider/${oidc}`,
                               },
                               Action: 'sts:AssumeRoleWithWebIdentity',
                               Condition: {
                                 StringEquals: {
-                                  [`${oidcUrl || '<EKS_OIDC_PROVIDER_URL>'}:aud`]: 'sts.amazonaws.com',
-                                  [`${oidcUrl || '<EKS_OIDC_PROVIDER_URL>'}:sub`]: 'system:serviceaccount:holmesgpt:aws-api-mcp-sa',
+                                  [`${oidc}:aud`]: 'sts.amazonaws.com',
+                                  [`${oidc}:sub`]: 'system:serviceaccount:holmesgpt:aws-api-mcp-sa',
                                 },
                               },
                             },
