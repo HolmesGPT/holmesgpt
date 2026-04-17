@@ -324,6 +324,10 @@ resource "helm_release" "holmes" {
           value = var.aws_mcp_enabled ? module.aws_mcp_irsa[0].iam_role_arn : ""
         },
         {
+          name  = "EKS_OIDC_PROVIDER_URL"
+          value = module.eks.oidc_provider
+        },
+        {
           name  = "HOLMES_DYNAMODB_TABLE"
           value = aws_dynamodb_table.holmes_config.name
         }

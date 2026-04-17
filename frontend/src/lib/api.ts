@@ -141,6 +141,7 @@ export interface AwsAccount {
 export interface AwsAccountsResponse {
   accounts: AwsAccount[];
   irsa_role: string;
+  eks_oidc_url: string;
 }
 
 export interface WebhookInfo {

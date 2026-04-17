@@ -753,6 +753,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             {
                 "accounts": accounts,
                 "irsa_role": os.environ.get("AWS_MCP_IRSA_ROLE", ""),
+                "eks_oidc_url": os.environ.get("EKS_OIDC_PROVIDER_URL", ""),
             }
         )
 
