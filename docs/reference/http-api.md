@@ -60,7 +60,7 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | frontend_tools          | No       |         | array     | Tools defined by the frontend client (see [Frontend Tools](#frontend-tools)). Requires `stream: true`. |
 | frontend_tool_results   | No       |         | array     | Results from frontend-executed tools, sent to resume a paused stream (see [Frontend Tools](#frontend-tools)). |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
-| behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode--prompt-controls)) |
+| behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode-prompt-controls)) |
 
 #### Fast Mode & Prompt Controls
 

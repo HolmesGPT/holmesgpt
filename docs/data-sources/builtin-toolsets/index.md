@@ -28,6 +28,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-splunk:{ .lg .middle } **Splunk (MCP)**](splunk-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 -   [:material-bug:{ .lg .middle } **Sentry (MCP)**](sentry-mcp.md)
+-   <img src="../../images/integration_logos/zabbix-icon.png" alt="Zabbix" style="height: 32px; vertical-align: middle;"> **[Zabbix](zabbix.md)**
 
 </div>
 
@@ -40,7 +41,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-mysql:{ .lg .middle } **MySQL**](database-mysql.md)
 -   [:simple-postgresql:{ .lg .middle } **PostgreSQL**](database-postgresql.md)
 -   [:simple-sqlite:{ .lg .middle } **SQLite**](database-sqlite.md)
--   [:simple-microsoftsqlserver:{ .lg .middle } **SQL Server**](database-sqlserver.md)
+-   [:material-database:{ .lg .middle } **SQL Server**](database-sqlserver.md)
 -   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB**](mongodb.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
@@ -84,6 +85,14 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubernetes Remediation (MCP)**](kubernetes-remediation-mcp.md)
+
+</div>
+
+### CI/CD
+
+<div class="grid cards" markdown>
+
+-   [:simple-jenkins:{ .lg .middle } **Jenkins (MCP)**](jenkins-mcp.md)
 
 </div>
 
