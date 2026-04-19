@@ -142,15 +142,28 @@ class GrafanaTempoAPI:
             bool: True if endpoint returns 200 status code, False otherwise
         """
         url = f"{self.base_url}/api/echo"
+        retries = self.config.max_retries
 
-        try:
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            max_tries=retries,
+            giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+            and getattr(e, "response", None) is not None
+            and e.response.status_code < 500,
+        )
+        def _echo() -> requests.Response:
             response = requests.get(
                 url,
                 headers=self.headers,
                 timeout=self.config.timeout_seconds,
                 verify=self.config.verify_ssl,
             )
+            response.raise_for_status()
+            return response
 
+        try:
+            response = _echo()
             # Just check status code, don't try to parse JSON
             return response.status_code == 200
 

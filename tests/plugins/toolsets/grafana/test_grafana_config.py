@@ -1,5 +1,7 @@
 """Tests for configurable timeout and retries in GrafanaConfig and subclasses."""
 
+from unittest.mock import patch
+
 import pytest
 import requests
 import responses
@@ -55,7 +57,8 @@ class TestGrafanaConfigTimeoutRetries:
 class TestTempoConfigurableTimeoutRetries:
     """Tests for timeout/retries propagation through GrafanaTempoAPI."""
 
-    def test_custom_retry_count_changes_behavior(self):
+    @patch("time.sleep", return_value=None)
+    def test_custom_retry_count_changes_behavior(self, mock_sleep):
         config = GrafanaTempoConfig(
             api_url="http://localhost:3000",
             grafana_datasource_uid="tempo-uid",
@@ -75,7 +78,8 @@ class TestTempoConfigurableTimeoutRetries:
 
             assert len(rsps.calls) == 5
 
-    def test_default_retry_count_is_three(self):
+    @patch("time.sleep", return_value=None)
+    def test_default_retry_count_is_three(self, mock_sleep):
         config = GrafanaTempoConfig(
             api_url="http://localhost:3000",
             grafana_datasource_uid="tempo-uid",
@@ -143,7 +147,8 @@ class TestTempoConfigurableTimeoutRetries:
 class TestLokiConfigurableTimeoutRetries:
     """Tests for timeout/retries propagation through execute_loki_query."""
 
-    def test_loki_custom_retry_count_changes_behavior(self):
+    @patch("time.sleep", return_value=None)
+    def test_loki_custom_retry_count_changes_behavior(self, mock_sleep):
         with responses.RequestsMock() as rsps:
             rsps.add(
                 responses.GET,
@@ -165,7 +170,8 @@ class TestLokiConfigurableTimeoutRetries:
 
             assert len(rsps.calls) == 5
 
-    def test_loki_default_retry_count_is_three(self):
+    @patch("time.sleep", return_value=None)
+    def test_loki_default_retry_count_is_three(self, mock_sleep):
         with responses.RequestsMock() as rsps:
             rsps.add(
                 responses.GET,
