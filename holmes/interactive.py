@@ -235,7 +235,7 @@ class InitProgressRenderer:
         return display
 
     def on_event(self, event: StatusEvent) -> None:
-        """Callback passed as on_event to create_console_toolcalling_llm."""
+        """Callback passed as on_event to create_toolcalling_llm."""
         with self._lock:
             if event.kind == StatusEventKind.TOOLSET_CHECKING:
                 self._in_flight[event.name] = time.time()
@@ -268,7 +268,7 @@ class InitProgressRenderer:
                     self._live.update(self._build_display())
 
     def start(self) -> None:
-        """Start the live display. Call before create_console_toolcalling_llm."""
+        """Start the live display. Call before create_toolcalling_llm."""
         self._start_time = time.time()
         self._live = _make_live(
             self._build_display(),

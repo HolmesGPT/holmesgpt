@@ -1,0 +1,16 @@
+# Verifies that the initial context window usage is small.
+# A trivial greeting with no toolsets should consume very few tokens —
+# just the system prompt, the user message, and a short LLM reply.
+# If this exceeds 4000 tokens it means the base prompt or framework
+# overhead has grown unexpectedly and needs investigation.
+user_prompt: "Hello, how are you?"
+expected_output:
+  - "Holmes responds with a greeting or acknowledgement"
+runbooks: {}
+tags:
+  - context_window
+  - easy
+  - fast
+  - question-answer
+  - token-limit
+max_tokens: 4000

@@ -50,3 +50,4 @@ nav:
   - Splunk (MCP): splunk-mcp.md
   - SQL Server: database-sqlserver.md
   - SQLite: database-sqlite.md
+  - Zabbix: zabbix.md

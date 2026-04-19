@@ -341,7 +341,7 @@ kubectl get svc holmes-api
 kubectl exec -it deployment/holmes-operator -- curl http://holmes-api:80/health
 ```
 
-See the main [CLAUDE.md](../../CLAUDE.md) for full contribution guidelines.
+See the main [CLAUDE.md](https://github.com/HolmesGPT/holmesgpt/blob/master/CLAUDE.md) for full contribution guidelines.
 
 ## Additional Resources
 
