@@ -12,7 +12,7 @@ HolmesGPT supports multiple AI providers, giving you flexibility in choosing the
 -   [:material-google-cloud:{ .lg .middle } **Google Vertex AI**](google-vertex-ai.md)
 -   [:simple-ollama:{ .lg .middle } **Ollama**](ollama.md)
 -   [:fontawesome-brands-openai:{ .lg .middle } **OpenAI**](openai.md)
--   [:material-api:{ .lg .middle } **OpenAI-Compatible**](openai-compatible.md)
+-   [:material-api:{ .lg .middle } **OpenAI-Compatible** (LiteLLM Proxy, etc.)](openai-compatible.md)
 -   [:material-earth:{ .lg .middle } **OpenRouter**](openrouter.md)
 -   [:material-robot:{ .lg .middle } **Robusta AI**](robusta-ai.md)
 -   [:material-layers-triple:{ .lg .middle } **Using Multiple Providers**](using-multiple-providers.md)

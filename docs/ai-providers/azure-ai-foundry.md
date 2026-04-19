@@ -4,16 +4,36 @@ Configure HolmesGPT to use Azure AI Foundry (formerly Azure OpenAI Service).
 
 ## Setup
 
-Create an [Azure AI Foundry resource](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal#create-a-resource){:target="_blank"}.
+Create an [Azure AI Foundry resource](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal#create-a-resource){:target="_blank"} and deploy a model.
+
+## Model Types
+
+Azure AI Foundry supports two model families, each using a different endpoint and configuration:
+
+- **Anthropic models (recommended)** — e.g. Claude Opus 4.7. The model name uses the `anthropic/<model>` prefix and the endpoint uses the `/anthropic` path on an `ai.azure.com` domain. No `api_version` is required.
+- **Azure OpenAI-style deployments** — e.g. GPT-5.4. The model name uses the `azure/<your-deployment-name>` prefix (the deployment name you created in Azure, not the underlying model ID) and the endpoint uses the `cognitiveservices.azure.com` domain. A matching `api_version` is required.
+
+The examples below lead with the Anthropic option and include a GPT deployment alongside for reference.
 
 ## Configuration
 
 === "Holmes CLI"
 
+    **Anthropic models (recommended):**
+
     ```bash
-    export AZURE_API_VERSION="2024-02-15-preview"
-    export AZURE_API_BASE="https://your-resource.openai.azure.com"
     export AZURE_API_KEY="your-azure-api-key"
+    export AZURE_API_BASE="https://XXXX.services.ai.azure.com/anthropic"
+
+    holmes ask "what pods are failing?" --model="anthropic/claude-opus-4-7"
+    ```
+
+    **Azure OpenAI deployments:**
+
+    ```bash
+    export AZURE_API_KEY="your-azure-api-key"
+    export AZURE_API_BASE="https://YYYY.cognitiveservices.azure.com/"
+    export AZURE_API_VERSION="2025-04-01-preview"
 
     holmes ask "what pods are failing?" --model="azure/<your-deployment-name>"
     ```
@@ -39,23 +59,23 @@ Create an [Azure AI Foundry resource](https://learn.microsoft.com/en-us/azure/ai
 
     # Configure at least one model using modelList
     modelList:
-      azure-gpt-41:
+      # Anthropic model on Azure AI Foundry (recommended)
+      azure-opus-4-7:
         api_key: "{{ env.AZURE_API_KEY }}"
-        model: azure/gpt-4.1
-        api_base: https://your-resource.openai.azure.com/
-        api_version: "2025-01-01-preview"
-        temperature: 0
-
-      azure-gpt-5:
-        api_key: "{{ env.AZURE_API_KEY }}"
-        model: azure/gpt-5
-        api_base: https://your-resource.openai.azure.com/
-        api_version: "2025-01-01-preview"
+        model: anthropic/claude-opus-4-7
+        api_base: https://XXXX.services.ai.azure.com/anthropic
         temperature: 1
+
+      # Azure OpenAI-style deployment (e.g. GPT-5.4)
+      azure-gpt-5-4:
+        api_key: "{{ env.AZURE_API_KEY }}"
+        model: azure/my-gpt-5.4-deployment
+        api_base: https://YYYY.cognitiveservices.azure.com/
+        api_version: "2025-04-01-preview"
 
     # Optional: Set default model (use modelList key name)
     config:
-      model: "azure-gpt-41"  # This refers to the key name in modelList above
+      model: "azure-opus-4-7"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -80,23 +100,23 @@ Create an [Azure AI Foundry resource](https://learn.microsoft.com/en-us/azure/ai
 
       # Configure at least one model using modelList
       modelList:
-        azure-gpt-41:
+        # Anthropic model on Azure AI Foundry (recommended)
+        azure-opus-4-7:
           api_key: "{{ env.AZURE_API_KEY }}"
-          model: azure/gpt-4.1
-          api_base: https://your-resource.openai.azure.com/
-          api_version: "2025-01-01-preview"
-          temperature: 0
-
-        azure-gpt-5:
-          api_key: "{{ env.AZURE_API_KEY }}"
-          model: azure/gpt-5
-          api_base: https://your-resource.openai.azure.com/
-          api_version: "2025-01-01-preview"
+          model: anthropic/claude-opus-4-7
+          api_base: https://XXXX.services.ai.azure.com/anthropic
           temperature: 1
+
+        # Azure OpenAI-style deployment (e.g. GPT-5.4)
+        azure-gpt-5-4:
+          api_key: "{{ env.AZURE_API_KEY }}"
+          model: azure/my-gpt-5.4-deployment
+          api_base: https://YYYY.cognitiveservices.azure.com/
+          api_version: "2025-04-01-preview"
 
       # Optional: Set default model (use modelList key name)
       config:
-        model: "azure-gpt-41"  # This refers to the key name in modelList above
+        model: "azure-opus-4-7"  # This refers to the key name in modelList above
     ```
 
 ## Using CLI Parameters
@@ -104,7 +124,7 @@ Create an [Azure AI Foundry resource](https://learn.microsoft.com/en-us/azure/ai
 You can also pass the API key directly as a command-line parameter:
 
 ```bash
-holmes ask "what pods are failing?" --model="azure/<your-deployment-name>" --api-key="your-api-key"
+holmes ask "what pods are failing?" --model="anthropic/claude-opus-4-7" --api-key="your-api-key"
 ```
 
 ## Microsoft Entra ID Authentication
@@ -170,13 +190,14 @@ When running HolmesGPT on your machine, `DefaultAzureCredential` tries credentia
 az login
 
 export AZURE_AD_TOKEN_AUTH=true
-export AZURE_API_VERSION="2024-02-15-preview"
-export AZURE_API_BASE="https://your-resource.openai.azure.com"
+export AZURE_API_BASE="https://XXXX.services.ai.azure.com/anthropic"
 
-holmes ask "what pods are failing?" --model="azure/<your-deployment-name>"
+holmes ask "what pods are failing?" --model="anthropic/claude-opus-4-7"
 ```
 
 No `AZURE_API_KEY` is needed.
+
+For an Azure OpenAI-style deployment, use the matching `cognitiveservices.azure.com` endpoint, set `AZURE_API_VERSION`, and pass `--model="azure/<your-deployment-name>"` instead.
 
 For service-principal auth locally, set these environment variables instead:
 
@@ -245,14 +266,20 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
       azure.workload.identity/use: "true"
 
     modelList:
-      azure-gpt-41:
-        model: azure/gpt-4.1
-        api_base: https://your-resource.openai.azure.com/
-        api_version: "2025-01-01-preview"
-        temperature: 0
+      # Anthropic model on Azure AI Foundry (recommended)
+      azure-opus-4-7:
+        model: anthropic/claude-opus-4-7
+        api_base: https://XXXX.services.ai.azure.com/anthropic
+        temperature: 1
+
+      # Azure OpenAI-style deployment (e.g. GPT-5.4)
+      azure-gpt-5-4:
+        model: azure/my-gpt-5.4-deployment
+        api_base: https://YYYY.cognitiveservices.azure.com/
+        api_version: "2025-04-01-preview"
 
     config:
-      model: "azure-gpt-41"
+      model: "azure-opus-4-7"
     ```
 
     Note that `api_key` is omitted from the `modelList` entries — authentication is handled entirely by the workload identity token.
@@ -280,14 +307,20 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
         azure.workload.identity/use: "true"
 
       modelList:
-        azure-gpt-41:
-          model: azure/gpt-4.1
-          api_base: https://your-resource.openai.azure.com/
-          api_version: "2025-01-01-preview"
-          temperature: 0
+        # Anthropic model on Azure AI Foundry (recommended)
+        azure-opus-4-7:
+          model: anthropic/claude-opus-4-7
+          api_base: https://XXXX.services.ai.azure.com/anthropic
+          temperature: 1
+
+        # Azure OpenAI-style deployment (e.g. GPT-5.4)
+        azure-gpt-5-4:
+          model: azure/my-gpt-5.4-deployment
+          api_base: https://YYYY.cognitiveservices.azure.com/
+          api_version: "2025-04-01-preview"
 
       config:
-        model: "azure-gpt-41"
+        model: "azure-opus-4-7"
     ```
 
 ### Troubleshooting
