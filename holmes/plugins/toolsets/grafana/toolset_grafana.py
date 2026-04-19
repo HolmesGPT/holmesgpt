@@ -68,7 +68,9 @@ def _build_grafana_dashboard_url(
 
 
 class GrafanaToolset(BaseGrafanaToolset):
-    config_classes: ClassVar[list[Type[GrafanaDashboardConfig]]] = [GrafanaDashboardConfig]
+    config_classes: ClassVar[list[Type[GrafanaDashboardConfig]]] = [
+        GrafanaDashboardConfig
+    ]
 
     def __init__(self):
         super().__init__(
@@ -97,7 +99,9 @@ class GrafanaToolset(BaseGrafanaToolset):
 
         # After health check passes, conditionally add render tools
         if self.grafana_config.enable_rendering:
-            logger.info(f"Rendering enabled, probing for image renderer at {get_base_url(self.grafana_config)}...")
+            logger.info(
+                f"Rendering enabled, probing for image renderer at {get_base_url(self.grafana_config)}..."
+            )
             self._try_add_render_tools()
             tool_names = [t.name for t in self.tools]
             logger.info(f"Grafana toolset tools after renderer probe: {tool_names}")
@@ -132,7 +136,9 @@ class GrafanaToolset(BaseGrafanaToolset):
                 )
                 renderer_detected = True
             else:
-                logger.debug(f"Renderer version API returned {resp.status_code}, trying fallback probe")
+                logger.debug(
+                    f"Renderer version API returned {resp.status_code}, trying fallback probe"
+                )
         except Exception as e:
             logger.debug(f"Failed to check renderer version API: {e}")
 
@@ -198,7 +204,7 @@ class BaseGrafanaTool(Tool, ABC):
         endpoint: str,
         params: dict,
         query_params: Optional[Dict] = None,
-        timeout: int = 30,
+        timeout: Optional[int] = None,
     ) -> StructuredToolResult:
         """Make a GET request to Grafana API and return structured result.
 
@@ -206,17 +212,20 @@ class BaseGrafanaTool(Tool, ABC):
             endpoint: API endpoint path (e.g., "/api/search")
             params: Original parameters passed to the tool
             query_params: Optional query parameters for the request
+            timeout: Request timeout in seconds (defaults to config.timeout_seconds)
 
         Returns:
             StructuredToolResult with the API response data
         """
-        base_url = get_base_url(self._toolset.grafana_config)
+        config = self._toolset.grafana_config
+        timeout = timeout if timeout is not None else config.timeout_seconds
+        base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"
         url = urljoin(base_url, endpoint)
         headers = build_headers(
-            api_key=self._toolset.grafana_config.api_key,
-            additional_headers=self._toolset.grafana_config.additional_headers,
+            api_key=config.api_key,
+            additional_headers=config.additional_headers,
         )
 
         response = requests.get(
@@ -224,7 +233,7 @@ class BaseGrafanaTool(Tool, ABC):
             headers=headers,
             params=query_params,
             timeout=timeout,
-            verify=self._toolset.grafana_config.verify_ssl,
+            verify=config.verify_ssl,
         )
         response.raise_for_status()
         data = response.json()

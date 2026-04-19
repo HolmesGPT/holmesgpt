@@ -27,13 +27,6 @@ def parse_loki_response(results: List[Dict]) -> List[Dict]:
     return parsed_logs
 
 
-@backoff.on_exception(
-    backoff.expo,  # Exponential backoff
-    requests.exceptions.RequestException,  # Retry on request exceptions
-    max_tries=5,  # Maximum retries
-    giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
-    and e.response.status_code < 500,
-)
 def execute_loki_query(
     base_url: str,
     api_key: Optional[str],
@@ -43,18 +36,32 @@ def execute_loki_query(
     end: Union[int, str],
     limit: int,
     verify_ssl: bool = True,
+    timeout: int = 30,
+    max_retries: int = 3,
 ) -> List[Dict]:
     params = {"query": query, "limit": limit, "start": start, "end": end}
-    try:
+
+    @backoff.on_exception(
+        backoff.expo,
+        requests.exceptions.RequestException,
+        max_tries=max_retries,
+        giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+        and e.response.status_code < 500,
+    )
+    def _make_request():
         url = f"{base_url}/loki/api/v1/query_range"
         response = requests.get(
             url,
             headers=build_headers(api_key=api_key, additional_headers=headers),
             params=params,  # type: ignore
             verify=verify_ssl,
+            timeout=timeout,
         )
         response.raise_for_status()
+        return response
 
+    try:
+        response = _make_request()
         result = response.json()
         if "data" in result and "result" in result["data"]:
             return parse_loki_response(result["data"]["result"])
@@ -77,6 +84,8 @@ def query_loki_logs_by_label(
     namespace_search_key: str = "namespace",
     limit: int = 200,
     verify_ssl: bool = True,
+    timeout: int = 30,
+    max_retries: int = 3,
 ) -> List[Dict]:
     query = f'{{{namespace_search_key}="{namespace}", {label}="{label_value}"}}'
     if filter:
@@ -90,4 +99,6 @@ def query_loki_logs_by_label(
         end=end,
         limit=limit,
         verify_ssl=verify_ssl,
+        timeout=timeout,
+        max_retries=max_retries,
     )
