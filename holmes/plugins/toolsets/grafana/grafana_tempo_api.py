@@ -152,7 +152,7 @@ class GrafanaTempoAPI:
             and getattr(e, "response", None) is not None
             and e.response.status_code < 500,
         )
-        def _echo() -> requests.Response:
+        def _do_request() -> requests.Response:
             response = requests.get(
                 url,
                 headers=self.headers,
@@ -163,7 +163,7 @@ class GrafanaTempoAPI:
             return response
 
         try:
-            response = _echo()
+            response = _do_request()
             # Just check status code, don't try to parse JSON
             return response.status_code == 200
 
