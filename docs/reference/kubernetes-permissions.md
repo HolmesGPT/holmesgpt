@@ -58,10 +58,10 @@ createServiceAccount: false
 customServiceAccountName: "your-existing-service-account"
 ```
 
-For more information, see [Adding Permissions for Additional Resources](../data-sources/permissions.md).
+For more information, see [Adding Permissions for Additional Resources](../data-sources/builtin-toolsets/kubernetes.md#adding-permissions-for-additional-resources-in-cluster-deployments).
 
 ## Related Documentation
 
 - [Kubernetes Installation Guide](../installation/kubernetes-installation.md) - Step-by-step Helm installation
 - [Helm Configuration](helm-configuration.md) - Complete Helm chart configuration reference
-- [Adding Permissions for Additional Resources](../data-sources/permissions.md) - How to extend permissions for custom resources
+- [Adding Permissions for Additional Resources](../data-sources/builtin-toolsets/kubernetes.md#adding-permissions-for-additional-resources-in-cluster-deployments) - How to extend permissions for custom resources

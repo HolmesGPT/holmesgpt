@@ -25,6 +25,12 @@
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opentelemetry.svg"
     },
     {
+      "id": "databases",
+      "name": "Databases",
+      "description": "Connect databases for query and performance analysis",
+      "iconUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cellipse cx='12' cy='6' rx='8' ry='3'/%3E%3Cpath d='M4 6v6c0 1.657 3.582 3 8 3s8-1.343 8-3V6'/%3E%3Cpath d='M4 12v6c0 1.657 3.582 3 8 3s8-1.343 8-3v-6'/%3E%3C/svg%3E"
+    },
+    {
       "id": "source-control-cicd",
       "name": "Source Control & CI/CD",
       "description": "Connect source control and CI/CD tools",
@@ -37,12 +43,6 @@
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/jira.svg"
     },
     {
-      "id": "databases",
-      "name": "Databases",
-      "description": "Connect databases for query and performance analysis",
-      "iconUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cellipse cx='12' cy='6' rx='8' ry='3'/%3E%3Cpath d='M4 6v6c0 1.657 3.582 3 8 3s8-1.343 8-3V6'/%3E%3Cpath d='M4 12v6c0 1.657 3.582 3 8 3s8-1.343 8-3v-6'/%3E%3C/svg%3E"
-    },
-    {
       "id": "other",
       "name": "Other",
       "description": "Additional integrations and tools",
@@ -53,7 +53,7 @@
     {
       "id": "aws-mcp",
       "name": "AWS",
-      "description": "CloudTrail, EC2, RDS, EKS, Load Balancers, Cost Explorer",
+      "description": "Query data from any AWS service",
       "categories": ["cloud-providers"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/amazonaws.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/aws/?tab=robusta-helm-chart",
@@ -65,7 +65,7 @@
     {
       "id": "azure-mcp",
       "name": "Azure",
-      "description": "Any Azure Service",
+      "description": "Query data from any Azure service",
       "categories": ["cloud-providers"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/microsoftazure.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/azure-mcp/?tab=robusta-helm-chart",
@@ -77,7 +77,7 @@
     {
       "id": "gcp-mcp",
       "name": "GCP",
-      "description": "GKE, networking, IAM, Cloud Logging, Monitoring, Storage",
+      "description": "Query data from any GCP service",
       "categories": ["cloud-providers"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/googlecloud.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/gcp/?tab=robusta-helm-chart",
@@ -89,7 +89,7 @@
     {
       "id": "mariadb-mcp",
       "name": "MariaDB",
-      "description": "Performance analysis, deadlock investigation, query optimization",
+      "description": "Query MariaDB performance data, deadlocks, and slow queries",
       "categories": ["databases"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/mariadb.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/mariadb-mcp/?tab=robusta-helm-chart",
@@ -101,7 +101,7 @@
     {
       "id": "mongodb-atlas",
       "name": "MongoDB Atlas",
-      "description": "Cluster monitoring, performance analysis, query diagnostics",
+      "description": "Query MongoDB Atlas alerts, events, logs, and slow queries",
       "categories": ["databases"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/mongodb.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/mongodb-atlas/?tab=robusta-helm-chart",
@@ -111,7 +111,7 @@
     {
       "id": "azure-sql",
       "name": "Azure SQL",
-      "description": "Database monitoring, performance analysis, query diagnostics",
+      "description": "Query Azure SQL performance metrics, connections, and query stats",
       "categories": ["databases"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/microsoftazure.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/azure-sql/?tab=robusta-helm-chart",
@@ -119,9 +119,69 @@
       "backendToolsetNames": ["azure_sql", "Azure/Sql", "azure/sql"]
     },
     {
+      "id": "mysql",
+      "name": "MySQL",
+      "description": "Run read-only SQL queries against MySQL",
+      "categories": ["databases"],
+      "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/mysql.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-mysql/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "backendToolsetNames": ["mysql"]
+    },
+    {
+      "id": "postgresql",
+      "name": "PostgreSQL",
+      "description": "Run read-only SQL queries against PostgreSQL",
+      "categories": ["databases"],
+      "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/postgresql.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-postgresql/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "backendToolsetNames": ["postgresql"]
+    },
+    {
+      "id": "mssql",
+      "name": "SQL Server",
+      "description": "Run read-only SQL queries against SQL Server",
+      "categories": ["databases"],
+      "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/microsoftsqlserver.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-sqlserver/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "backendToolsetNames": ["mssql"]
+    },
+    {
+      "id": "sqlite",
+      "name": "SQLite",
+      "description": "Run read-only SQL queries against SQLite",
+      "categories": ["databases"],
+      "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/sqlite.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-sqlite/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "backendToolsetNames": ["sqlite"]
+    },
+    {
+      "id": "clickhouse",
+      "name": "ClickHouse",
+      "description": "Run read-only SQL queries against ClickHouse",
+      "categories": ["databases"],
+      "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/clickhouse.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-clickhouse/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "backendToolsetNames": ["clickhouse"]
+    },
+    {
+      "id": "database/sql",
+      "name": "SQL Database",
+      "description": "Run read-only SQL queries against any SQLAlchemy-compatible database",
+      "categories": ["databases"],
+      "iconUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cellipse cx='12' cy='6' rx='8' ry='3'/%3E%3Cpath d='M4 6v6c0 1.657 3.582 3 8 3s8-1.343 8-3V6'/%3E%3Cpath d='M4 12v6c0 1.657 3.582 3 8 3s8-1.343 8-3v-6'/%3E%3C/svg%3E",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/database-connectors",
+      "configType": "native",
+      "backendToolsetNames": ["database/sql"]
+    },
+    {
       "id": "github-mcp",
       "name": "GitHub",
-      "description": "Repositories, PRs, issues, Actions workflows",
+      "description": "Query GitHub repositories, pull requests, issues, and Actions workflows",
       "categories": ["source-control-cicd"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/github.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/?tab=robusta-helm-chart",
@@ -133,7 +193,7 @@
     {
       "id": "argocd/core",
       "name": "ArgoCD",
-      "description": "GitOps continuous delivery for Kubernetes",
+      "description": "Query ArgoCD application sync status and deployment health",
       "categories": ["source-control-cicd"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/argo.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/?tab=robusta-helm-chart",
@@ -143,7 +203,7 @@
     {
       "id": "splunk-mcp",
       "name": "Splunk",
-      "description": "Search, indexes, security events, application logs",
+      "description": "Search and query Splunk logs and events",
       "categories": ["logs"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/splunk.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/splunk-mcp/?tab=robusta-helm-chart",
@@ -153,7 +213,7 @@
     {
       "id": "datadog/logs",
       "name": "Datadog Logs",
-      "description": "Log management and analytics",
+      "description": "Search and query Datadog logs",
       "categories": ["logs"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/datadog.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
@@ -163,7 +223,7 @@
     {
       "id": "grafana/loki",
       "name": "Grafana Loki",
-      "description": "Log aggregation system",
+      "description": "Search and query Grafana Loki logs",
       "categories": ["logs"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/grafana.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/grafanaloki/?tab=robusta-helm-chart",
@@ -173,17 +233,17 @@
     {
       "id": "opensearch/logs",
       "name": "OpenSearch Logs",
-      "description": "Search and log analytics",
+      "description": "Search and query OpenSearch logs",
       "categories": ["logs"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opensearch.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["opensearch/logs", "elasticsearch/data", "opensearch/query_assist"]
+      "backendToolsetNames": ["opensearch/logs", "opensearch/query_assist"]
     },
     {
       "id": "elasticsearch/data",
       "name": "Elasticsearch",
-      "description": "Search and analytics engine",
+      "description": "Search and query Elasticsearch data",
       "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/elasticsearch.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
@@ -193,7 +253,7 @@
     {
       "id": "prometheus/metrics",
       "name": "Prometheus",
-      "description": "Metrics and alerting",
+      "description": "Query Prometheus metrics and alerting rules",
       "categories": ["metrics"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/prometheus.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/?tab=robusta-helm-chart",
@@ -203,7 +263,7 @@
     {
       "id": "datadog/metrics",
       "name": "Datadog Metrics",
-      "description": "Infrastructure and application metrics",
+      "description": "Query Datadog metrics",
       "categories": ["metrics"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/datadog.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
@@ -213,17 +273,17 @@
     {
       "id": "opensearch/metrics",
       "name": "OpenSearch Metrics",
-      "description": "Metrics analytics",
+      "description": "Query OpenSearch metrics",
       "categories": ["metrics"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opensearch.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["opensearch/metrics", "elasticsearch/data"]
+      "backendToolsetNames": ["opensearch/metrics"]
     },
     {
       "id": "grafana/tempo",
       "name": "Grafana Tempo",
-      "description": "Distributed tracing backend",
+      "description": "Search and query Grafana Tempo traces",
       "categories": ["traces"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/grafana.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/grafanatempo/?tab=robusta-helm-chart",
@@ -233,7 +293,7 @@
     {
       "id": "datadog/traces",
       "name": "Datadog APM",
-      "description": "Application performance monitoring and tracing",
+      "description": "Query Datadog APM traces",
       "categories": ["traces"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/datadog.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
@@ -243,17 +303,17 @@
     {
       "id": "opensearch/traces",
       "name": "OpenSearch Traces",
-      "description": "Trace analytics",
+      "description": "Query OpenSearch traces",
       "categories": ["traces"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/opensearch.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["opensearch/traces", "elasticsearch/data"]
+      "backendToolsetNames": ["opensearch/traces"]
     },
     {
       "id": "newrelic",
       "name": "New Relic",
-      "description": "Full-stack observability platform",
+      "description": "Query New Relic logs, metrics, and traces",
       "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/newrelic.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/?tab=robusta-helm-chart",
@@ -263,7 +323,7 @@
     {
       "id": "coralogix",
       "name": "Coralogix",
-      "description": "Full-stack observability platform",
+      "description": "Query Coralogix logs, metrics, and traces",
       "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/coralogix.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/coralogix-logs/?tab=robusta-helm-chart",
@@ -273,7 +333,7 @@
     {
       "id": "dynatrace-mcp",
       "name": "Dynatrace",
-      "description": "Full-stack observability, logs, metrics, traces",
+      "description": "Query Dynatrace logs, metrics, and traces",
       "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/dynatrace.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/remote-mcp-servers/?tab=robusta-helm-chart",
@@ -283,7 +343,7 @@
     {
       "id": "servicenow/tables",
       "name": "ServiceNow",
-      "description": "IT service management and ticketing",
+      "description": "Query ServiceNow incidents, change requests, and CMDB records",
       "categories": ["itsm-knowledgebase"],
       "iconUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cpath d='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'/%3E%3C/svg%3E",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/servicenow/?tab=robusta-helm-chart",
@@ -293,7 +353,7 @@
     {
       "id": "confluence",
       "name": "Confluence",
-      "description": "Team collaboration and documentation",
+      "description": "Search Confluence pages and knowledge base content",
       "categories": ["itsm-knowledgebase"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/confluence.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/?tab=robusta-helm-chart",
@@ -303,7 +363,7 @@
     {
       "id": "notion",
       "name": "Notion",
-      "description": "Team workspace and documentation",
+      "description": "Search Notion pages and knowledge base content",
       "categories": ["itsm-knowledgebase"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/notion.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/notion/?tab=robusta-helm-chart",
@@ -313,7 +373,7 @@
     {
       "id": "slab",
       "name": "Slab",
-      "description": "Knowledge base and documentation",
+      "description": "Search Slab knowledge base articles",
       "categories": ["itsm-knowledgebase"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/bookstack.svg",
       "docsUrl": "https://holmesgpt.dev/data-sources/builtin-toolsets/slab/?tab=robusta-helm-chart",
@@ -323,7 +383,7 @@
     {
       "id": "confluence-mcp",
       "name": "Confluence (MCP)",
-      "description": "CQL search, page retrieval, comments, optional write operations",
+      "description": "Search and query Confluence pages via CQL with optional write support",
       "categories": ["itsm-knowledgebase"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/confluence.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/confluence-mcp/?tab=robusta-helm-chart",
@@ -335,7 +395,7 @@
     {
       "id": "sentry-mcp",
       "name": "Sentry",
-      "description": "Error tracking, issue searching, stack trace retrieval, crash investigation",
+      "description": "Query Sentry issues, stack traces, and error data",
       "categories": ["other"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/sentry.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/sentry-mcp/?tab=robusta-helm-chart",
@@ -347,7 +407,7 @@
     {
       "id": "prefect-mcp",
       "name": "Prefect",
-      "description": "Workflow orchestration, flow run inspection, log retrieval, worker health checks",
+      "description": "Query Prefect flow runs, logs, and worker status",
       "categories": ["other"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/prefect.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/prefect-mcp/?tab=robusta-helm-chart",
@@ -359,7 +419,7 @@
     {
       "id": "kubernetes-remediation-mcp",
       "name": "Kubernetes Remediation",
-      "description": "Safe kubectl command execution with security controls and RBAC enforcement",
+      "description": "Execute safe kubectl commands with RBAC enforcement",
       "categories": ["other"],
       "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/kubernetes.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/kubernetes-remediation-mcp/?tab=robusta-helm-chart",

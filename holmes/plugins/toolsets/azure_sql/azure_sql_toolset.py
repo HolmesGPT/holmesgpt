@@ -56,7 +56,7 @@ class AzureSQLToolset(BaseAzureSQLToolset):
             name="azure/sql",
             description="Analyzes Azure SQL Database performance, health, and operational issues using Azure REST APIs and Query Store data",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            docs_url="https://kagi.com/proxy/png-clipart-microsoft-sql-server-microsoft-azure-sql-database-microsoft-text-logo-thumbnail.png?c=4Sg1bvcUGOrhnDzXgoBBa0G0j27ykgskX4a8cLrZp_quzqlpVGVG02OqQtezTxy7lB6ydmTKgbVAn_F7BxofxK6LKKUZSpjJ1huIAsXPVaXyakO4sWXFiX0Wz_8WjkA0AIlO_oFfW31AKaj5RcvGcr3siy0n5kW-GcqdpeBWsmm_huxUT6RycULFCDFBwuUzHvVl5TW3cYqlMxT8ecPZfg%3D%3D",
+            docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/azure-sql/?tab=robusta-helm-chart",
             icon_url="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Azure_SQL_Database_logo.svg/1200px-Azure_SQL_Database_logo.svg.png",
             tags=[ToolsetTag.CORE],
             tools=[
