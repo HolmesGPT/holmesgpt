@@ -370,9 +370,7 @@ def test_per_instance_fast_model_overrides_default():
         LLMSummarizeTransformer.set_default_fast_model("gpt-4o-mini")
 
         # Mock DefaultLLM to capture which model is used
-        with mock_patch(
-            "holmes.core.transformers.llm_summarize.DefaultLLM"
-        ) as mock_llm:
+        with mock_patch("holmes.core.transformers.llm_summarize.DefaultLLM") as mock_llm:
             instance = LLMSummarizeTransformer(fast_model="claude-haiku")
             # Should use per-instance fast_model, not the class default
             mock_llm.assert_called_once_with("claude-haiku", None)
@@ -496,41 +494,10 @@ def test_custom_runbook_catalogs_empty_list(tmp_path):
 @pytest.mark.parametrize(
     "name, config, expected_type",
     [
-        (
-            "my-mcp",
-            {
-                "type": "mcp",
-                "url": "http://example.com:8000/sse",
-                "description": "MCP server",
-            },
-            ToolsetType.MCP,
-        ),
-        (
-            "my-http",
-            {
-                "type": "http",
-                "config": {
-                    "endpoints": [{"hosts": ["httpbin.org"], "auth": {"type": "none"}}]
-                },
-            },
-            ToolsetType.HTTP,
-        ),
-        (
-            "my-db",
-            {
-                "type": "database",
-                "config": {"connection_url": "postgresql://localhost/test"},
-            },
-            ToolsetType.DATABASE,
-        ),
-        (
-            "my-mongo",
-            {
-                "type": "mongodb",
-                "config": {"connection_url": "mongodb://localhost/test"},
-            },
-            ToolsetType.MONGODB,
-        ),
+        ("my-mcp", {"type": "mcp", "url": "http://example.com:8000/sse", "description": "MCP server"}, ToolsetType.MCP),
+        ("my-http", {"type": "http", "config": {"endpoints": [{"hosts": ["httpbin.org"], "auth": {"type": "none"}}]}}, ToolsetType.HTTP),
+        ("my-db", {"type": "database", "config": {"connection_url": "postgresql://localhost/test"}}, ToolsetType.DATABASE),
+        ("my-mongo", {"type": "mongodb", "config": {"connection_url": "mongodb://localhost/test"}}, ToolsetType.MONGODB),
     ],
 )
 def test_custom_toolset_has_type_set(name, config, expected_type):
@@ -543,9 +510,7 @@ def test_custom_toolset_has_type_set(name, config, expected_type):
 
 
 @patch("holmes.core.toolset_manager.ToolsetManager._list_all_toolsets")
-def test_load_toolset_with_status_null_type_in_cache(
-    mock_list_all_toolsets, toolset_manager
-):
+def test_load_toolset_with_status_null_type_in_cache(mock_list_all_toolsets, toolset_manager):
     """Loading cached status with type=null must not crash — should fall back to a default."""
     toolset = MagicMock(spec=Toolset)
     toolset.name = "test-mcp"
@@ -576,9 +541,7 @@ def test_load_toolset_with_status_null_type_in_cache(
         toolset_manager.toolset_status_location = cache_path
         # This must NOT raise ValueError: None is not a valid ToolsetType
         result = toolset_manager.load_toolset_with_status()
-        assert (
-            result[0].type is not None
-        ), "type should fall back to a default, not remain None"
+        assert result[0].type is not None, "type should fall back to a default, not remain None"
 
 
 def test_custom_runbook_catalogs_none(tmp_path):

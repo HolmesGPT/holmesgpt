@@ -5,7 +5,6 @@ import re
 from abc import ABC
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
-import pymongo
 from pydantic import ConfigDict, Field
 
 from holmes.core.tools import (
@@ -21,6 +20,8 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
+
+import pymongo
 
 logger = logging.getLogger(__name__)
 
