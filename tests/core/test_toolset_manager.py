@@ -14,6 +14,7 @@ from holmes.core.tools import (
     YAMLToolset,
 )
 from holmes.core.toolset_manager import ToolsetManager
+from holmes.plugins.toolsets import load_toolsets_from_config
 
 
 @pytest.fixture
@@ -502,8 +503,6 @@ def test_custom_runbook_catalogs_empty_list(tmp_path):
 )
 def test_custom_toolset_has_type_set(name, config, expected_type):
     """Custom toolsets must have their type field set after loading."""
-    from holmes.plugins.toolsets import load_toolsets_from_config
-
     toolsets = load_toolsets_from_config({name: config}, strict_check=False)
     assert len(toolsets) == 1
     assert toolsets[0].type == expected_type
@@ -511,13 +510,13 @@ def test_custom_toolset_has_type_set(name, config, expected_type):
 
 @patch("holmes.core.toolset_manager.ToolsetManager._list_all_toolsets")
 def test_load_toolset_with_status_null_type_in_cache(mock_list_all_toolsets, toolset_manager):
-    """Loading cached status with type=null must not crash — should fall back to a default."""
+    """Loading cached status with type=null must preserve the toolset's resolved type."""
     toolset = MagicMock(spec=Toolset)
     toolset.name = "test-mcp"
     toolset.tags = [ToolsetTag.CORE]
     toolset.enabled = True
     toolset.status = ToolsetStatusEnum.ENABLED
-    toolset.type = None
+    toolset.type = ToolsetType.MCP
     toolset.path = None
     toolset.error = None
     mock_list_all_toolsets.return_value = [toolset]
@@ -539,9 +538,9 @@ def test_load_toolset_with_status_null_type_in_cache(mock_list_all_toolsets, too
             json.dump(cache_data, f)
 
         toolset_manager.toolset_status_location = cache_path
-        # This must NOT raise ValueError: None is not a valid ToolsetType
+        # This must NOT raise ValueError and must preserve the resolved type
         result = toolset_manager.load_toolset_with_status()
-        assert result[0].type is not None, "type should fall back to a default, not remain None"
+        assert result[0].type == ToolsetType.MCP
 
 
 def test_custom_runbook_catalogs_none(tmp_path):
