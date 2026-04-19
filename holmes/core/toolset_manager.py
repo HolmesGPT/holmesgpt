@@ -384,9 +384,6 @@ class ToolsetManager:
                 toolset.status = ToolsetStatusEnum(cached_status["status"])
                 toolset.error = cached_status.get("error", None)
                 toolset.enabled = cached_status.get("enabled", True)
-                toolset.type = ToolsetType(
-                    cached_status.get("type", ToolsetType.BUILTIN.value)
-                )
                 toolset.path = cached_status.get("path", None)
             # check prerequisites for only enabled toolset when the toolset is loaded from cache. When the toolset is
             # not loaded from cache, the prerequisites are checked in the refresh_toolset_status method.

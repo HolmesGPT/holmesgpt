@@ -28,35 +28,26 @@ You'll need two keys and your site URL from your Datadog account:
 
     Add to your config file:
     ```yaml
+    # anchors: is ignored by Holmes — use it to define reusable YAML blocks
+    anchors:
+      dd_config: &dd_config
+        api_key: "{{ env.DD_API_KEY }}"
+        app_key: "{{ env.DD_APP_KEY }}"
+        api_url: https://app.datadoghq.com  # Change for EU/other regions
+
     toolsets:
-      # Enable all Datadog toolsets
-      datadog/logs:
-        enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com  # Change for EU/other regions
-
-      datadog/metrics:
-        enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com
-
-      datadog/traces:
-        enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com
-
       datadog/general:
         enabled: true
-        config:
-          api_key: "{{ env.DD_API_KEY }}"
-          app_key: "{{ env.DD_APP_KEY }}"
-          api_url: https://app.datadoghq.com
+        config: *dd_config
+      datadog/logs:
+        enabled: true
+        config: *dd_config
+      datadog/metrics:
+        enabled: true
+        config: *dd_config
+      datadog/traces:
+        enabled: true
+        config: *dd_config
     ```
 
 === "Holmes Helm Chart"

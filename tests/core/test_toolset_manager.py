@@ -14,6 +14,7 @@ from holmes.core.tools import (
     YAMLToolset,
 )
 from holmes.core.toolset_manager import ToolsetManager
+from holmes.plugins.toolsets import load_toolsets_from_config
 
 
 @pytest.fixture
@@ -489,6 +490,57 @@ def test_custom_runbook_catalogs_empty_list(tmp_path):
         args, _ = mock_load.call_args
         additional_search_paths = args[1]
         assert additional_search_paths is None or additional_search_paths == []
+
+
+@pytest.mark.parametrize(
+    "name, config, expected_type",
+    [
+        ("my-mcp", {"type": "mcp", "url": "http://example.com:8000/sse", "description": "MCP server"}, ToolsetType.MCP),
+        ("my-http", {"type": "http", "config": {"endpoints": [{"hosts": ["httpbin.org"], "auth": {"type": "none"}}]}}, ToolsetType.HTTP),
+        ("my-db", {"type": "database", "config": {"connection_url": "postgresql://localhost/test"}}, ToolsetType.DATABASE),
+        ("my-mongo", {"type": "mongodb", "config": {"connection_url": "mongodb://localhost/test"}}, ToolsetType.MONGODB),
+    ],
+)
+def test_custom_toolset_has_type_set(name, config, expected_type):
+    """Custom toolsets must have their type field set after loading."""
+    toolsets = load_toolsets_from_config({name: config}, strict_check=False)
+    assert len(toolsets) == 1
+    assert toolsets[0].type == expected_type
+
+
+@patch("holmes.core.toolset_manager.ToolsetManager._list_all_toolsets")
+def test_load_toolset_with_status_null_type_in_cache(mock_list_all_toolsets, toolset_manager):
+    """Loading cached status with type=null must preserve the toolset's resolved type."""
+    toolset = MagicMock(spec=Toolset)
+    toolset.name = "test-mcp"
+    toolset.tags = [ToolsetTag.CORE]
+    toolset.enabled = True
+    toolset.status = ToolsetStatusEnum.ENABLED
+    toolset.type = ToolsetType.MCP
+    toolset.path = None
+    toolset.error = None
+    mock_list_all_toolsets.return_value = [toolset]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache_path = os.path.join(tmpdir, "toolsets_status.json")
+        # Simulate the corrupted cache: type is explicitly null
+        cache_data = [
+            {
+                "name": "test-mcp",
+                "status": "enabled",
+                "enabled": True,
+                "type": None,
+                "path": None,
+                "error": None,
+            }
+        ]
+        with open(cache_path, "w") as f:
+            json.dump(cache_data, f)
+
+        toolset_manager.toolset_status_location = cache_path
+        # This must NOT raise ValueError and must preserve the resolved type
+        result = toolset_manager.load_toolset_with_status()
+        assert result[0].type == ToolsetType.MCP
 
 
 def test_custom_runbook_catalogs_none(tmp_path):
