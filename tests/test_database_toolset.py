@@ -10,10 +10,13 @@ sqlalchemy = pytest.importorskip("sqlalchemy")
 
 from holmes.plugins.toolsets.database.database import (  # noqa: E402
     DatabaseConfig,
+    DatabaseSubtype,
     DatabaseToolset,
     _READONLY_PATTERN,
     _WRITE_ANYWHERE_PATTERN,
     _WRITE_PATTERN,
+    _detect_subtype,
+    _lookup_driver_info,
     _normalise_url,
     _serialize_value,
 )
@@ -276,3 +279,124 @@ class TestToolOneLiners:
         result = desc_tool.get_parameterized_one_liner({"table_name": "orders"})
         assert "Database" in result
         assert "orders" in result
+
+
+class TestDetectSubtype:
+    def test_postgresql(self):
+        assert _detect_subtype("postgresql://user:pass@host/db") == DatabaseSubtype.POSTGRESQL
+
+    def test_postgres_short(self):
+        assert _detect_subtype("postgres://user:pass@host/db") == DatabaseSubtype.POSTGRESQL
+
+    def test_mysql(self):
+        assert _detect_subtype("mysql://user:pass@host/db") == DatabaseSubtype.MYSQL
+
+    def test_mysql_pymysql(self):
+        assert _detect_subtype("mysql+pymysql://user:pass@host/db") == DatabaseSubtype.MYSQL
+
+    def test_mysql_mysqldb(self):
+        assert _detect_subtype("mysql+mysqldb://user:pass@host/db") == DatabaseSubtype.MYSQL
+
+    def test_mariadb(self):
+        assert _detect_subtype("mariadb://user:pass@host/db") == DatabaseSubtype.MARIADB
+
+    def test_mssql(self):
+        assert _detect_subtype("mssql://user:pass@host/db") == DatabaseSubtype.MSSQL
+
+    def test_mssql_pymssql(self):
+        assert _detect_subtype("mssql+pymssql://user:pass@host/db") == DatabaseSubtype.MSSQL
+
+    def test_sqlite(self):
+        assert _detect_subtype("sqlite:///path/to/db") == DatabaseSubtype.SQLITE
+
+    def test_clickhouse(self):
+        assert _detect_subtype("clickhouse://user:pass@host/db") == DatabaseSubtype.CLICKHOUSE
+
+    def test_unknown_cockroachdb(self):
+        assert _detect_subtype("cockroachdb://user:pass@host/db") == DatabaseSubtype.UNKNOWN
+
+    def test_unknown_oracle(self):
+        assert _detect_subtype("oracle://user:pass@host/db") == DatabaseSubtype.UNKNOWN
+
+
+class TestLookupDriverInfo:
+    def test_known_scheme(self):
+        info = _lookup_driver_info("postgresql")
+        assert info is not None
+        assert info.subtype == DatabaseSubtype.POSTGRESQL
+        assert info.driver == "postgresql+pg8000"
+
+    def test_compound_scheme_contains_match(self):
+        info = _lookup_driver_info("mysql+mysqldb")
+        assert info is not None
+        assert info.subtype == DatabaseSubtype.MYSQL
+        assert info.driver == "mysql+pymysql"
+
+    def test_unknown_scheme_returns_none(self):
+        assert _lookup_driver_info("oracle") is None
+
+    def test_sqlite_no_driver_override(self):
+        info = _lookup_driver_info("sqlite")
+        assert info is not None
+        assert info.subtype == DatabaseSubtype.SQLITE
+        assert info.driver is None
+
+    def test_clickhouse_no_driver_override(self):
+        info = _lookup_driver_info("clickhouse")
+        assert info is not None
+        assert info.subtype == DatabaseSubtype.CLICKHOUSE
+        assert info.driver is None
+
+
+class TestDatabaseToolsetSubtype:
+    def test_default_subtype_is_unknown(self):
+        toolset = DatabaseToolset()
+        assert toolset._subtype == DatabaseSubtype.UNKNOWN
+
+    def test_explicit_subtype_mysql(self):
+        toolset = DatabaseToolset(subtype="mysql")
+        assert toolset._subtype == DatabaseSubtype.MYSQL
+
+    def test_explicit_subtype_postgresql(self):
+        toolset = DatabaseToolset(subtype="postgresql")
+        assert toolset._subtype == DatabaseSubtype.POSTGRESQL
+
+    def test_invalid_subtype_falls_back_to_unknown(self):
+        toolset = DatabaseToolset(subtype="invalid_db")
+        assert toolset._subtype == DatabaseSubtype.UNKNOWN
+
+    def test_subtype_detected_from_url_in_prerequisites(self):
+        toolset = DatabaseToolset()
+        assert toolset._subtype == DatabaseSubtype.UNKNOWN
+        # Simulate prerequisites_callable with a MySQL URL — will fail connection
+        # but should still detect subtype before the health check
+        toolset.prerequisites_callable(
+            {"connection_url": "mysql+pymysql://user:pass@nonexistent:3306/db"}
+        )
+        assert toolset._subtype == DatabaseSubtype.MYSQL
+
+    def test_explicit_subtype_not_overridden_by_url(self):
+        toolset = DatabaseToolset(subtype="postgresql")
+        # Even with a MySQL URL, explicit subtype should be preserved
+        toolset.prerequisites_callable(
+            {"connection_url": "mysql+pymysql://user:pass@nonexistent:3306/db"}
+        )
+        assert toolset._subtype == DatabaseSubtype.POSTGRESQL
+
+
+class TestDatabaseToolsetMeta:
+    def test_default_meta(self):
+        toolset = DatabaseToolset()
+        assert toolset.meta == {"type": "database", "subtype": "unknown"}
+
+    def test_meta_with_explicit_subtype(self):
+        toolset = DatabaseToolset(subtype="postgresql")
+        assert toolset.meta == {"type": "database", "subtype": "postgresql"}
+
+    def test_meta_updated_after_prerequisites(self):
+        toolset = DatabaseToolset()
+        assert toolset.meta == {"type": "database", "subtype": "unknown"}
+        toolset.prerequisites_callable(
+            {"connection_url": "sqlite:///path/to/db"}
+        )
+        assert toolset.meta == {"type": "database", "subtype": "sqlite"}

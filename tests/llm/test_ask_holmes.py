@@ -159,6 +159,14 @@ def test_ask_holmes(
         int(scores.get("correctness", 0)) == 1
     ), f"Test {test_case.id} failed (score: {scores.get('correctness', 0)})\nActual: {output}\nExpected: {expected_output}"
 
+    # Check token limit if configured
+    if test_case.max_tokens is not None:
+        actual_tokens = result.total_tokens
+        assert actual_tokens <= test_case.max_tokens, (
+            f"Test {test_case.id} exceeded token limit: "
+            f"used {actual_tokens} tokens, max allowed is {test_case.max_tokens}"
+        )
+
 
 # TODO: can this call real ask_holmes so more of the logic is captured
 def ask_holmes(

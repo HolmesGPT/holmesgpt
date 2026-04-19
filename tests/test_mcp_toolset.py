@@ -65,6 +65,26 @@ class TestToolParameter:
         param = ToolParameter()
         assert param.type == "string"
 
+    def test_enum_accepts_list_of_strings(self) -> None:
+        """Test that ToolParameter.enum accepts a list of strings."""
+        param = ToolParameter(type="string", enum=["buy", "sell"])
+        assert param.enum == ["buy", "sell"]
+
+    def test_enum_accepts_non_string_values(self) -> None:
+        """Test that ToolParameter.enum accepts non-string values like integers and booleans.
+
+        JSON Schema allows enum values of any type, not just strings.
+        Honeycomb MCP uses integer enum values which previously caused a
+        ValidationError: 'Input should be a valid string'.
+        """
+        param = ToolParameter(type="integer", enum=[1, 2, 3])
+        assert param.enum == [1, 2, 3]
+
+    def test_enum_accepts_mixed_types(self) -> None:
+        """Test that ToolParameter.enum accepts mixed types (e.g. strings and None)."""
+        param = ToolParameter(type="string", enum=["asc", "desc", None])
+        assert param.enum == ["asc", "desc", None]
+
 
 def npx_not_available() -> tuple[bool, str]:
     """
@@ -132,6 +152,53 @@ class TestMCPGeneral:
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
         assert tool.description == "desc"
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_non_string_enum_values_in_schema_parses_correctly(self) -> None:
+        """Test that MCP tools with non-string enum values (e.g. integers) parse correctly.
+
+        Honeycomb MCP defines integer enum values in tool schemas, which previously
+        caused: 'Failed to load mcp server honeycomb: 21 validation errors for
+        ToolParameter enum.0 Input should be a valid string'.
+        """
+        mcp_tool = Tool(
+            name="get_query_results",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of results to return",
+                        "enum": [10, 100, 1000],
+                    },
+                    "order": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                    },
+                },
+                "required": ["limit"],
+            },
+            description="Get query results",
+            annotations=None,
+        )
+
+        expected_schema = {
+            "limit": ToolParameter(
+                type="integer",
+                required=True,
+                description="Number of results to return",
+                enum=[10, 100, 1000],
+            ),
+            "order": ToolParameter(type="string", required=False, enum=["asc", "desc"]),
+        }
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+        assert tool.parameters == expected_schema
 
     @pytest.mark.usefixtures("suppress_migration_warnings")
     def test_nullable_type_schema_parses_correctly(self) -> None:

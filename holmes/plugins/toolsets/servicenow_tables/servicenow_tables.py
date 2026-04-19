@@ -71,6 +71,12 @@ class ServiceNowTablesConfig(ToolsetConfig):
         title="Password",
         description="Password for basic auth authentication (used if api_key is not provided)",
     )
+    api_version: str = Field(
+        default="v2",
+        title="API Version",
+        description="ServiceNow Table API version. Use 'v2' (default) or leave empty for the unversioned API path (api/now/table/...).",
+        examples=["v2", ""],
+    )
     health_check_table: str = Field(
         default="sys_user",
         title="Health check table",
@@ -139,7 +145,7 @@ class ServiceNowTablesToolset(Toolset):
         try:
             # Query sys_db_object table with minimal data
             _, _ = self._make_api_request(
-                endpoint=f"api/now/v2/table/{table_name}",
+                endpoint=f"{self._table_api_base}/{table_name}",
                 query_params={"sysparm_limit": 1},
                 timeout=10,
             )
@@ -174,6 +180,11 @@ class ServiceNowTablesToolset(Toolset):
     @property
     def servicenow_config(self) -> ServiceNowTablesConfig:
         return cast(ServiceNowTablesConfig, self.config)
+
+    @property
+    def _table_api_base(self) -> str:
+        version = self.servicenow_config.api_version
+        return f"api/now/{version}/table" if version else "api/now/table"
 
     def _make_api_request(
         self,
@@ -403,7 +414,7 @@ class GetRecords(BaseServiceNowTool):
         if params.get("sysparm_view"):
             query_params["sysparm_view"] = params["sysparm_view"]
 
-        endpoint = f"/api/now/v2/table/{table_name}"
+        endpoint = f"/{self._toolset._table_api_base}/{table_name}"
 
         # Get data and headers from the API request
         data, headers = self._toolset._make_api_request(
@@ -508,7 +519,7 @@ class GetRecord(BaseServiceNowTool):
         if params.get("sysparm_view"):
             query_params["sysparm_view"] = params["sysparm_view"]
 
-        endpoint = f"/api/now/v2/table/{table_name}/{sys_id}"
+        endpoint = f"/{self._toolset._table_api_base}/{table_name}/{sys_id}"
         return self._make_servicenow_request(endpoint, params, context, query_params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
