@@ -5,6 +5,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, cast
 from urllib.parse import urlencode, urljoin
 
+import backoff
 import requests  # type: ignore
 from pydantic import Field
 
@@ -126,7 +127,7 @@ class GrafanaToolset(BaseGrafanaToolset):
             resp = requests.get(
                 f"{base_url}/api/rendering/version",
                 headers=headers,
-                timeout=10,
+                timeout=config.timeout_seconds,
                 verify=config.verify_ssl,
             )
             if resp.status_code == 200:
@@ -149,7 +150,7 @@ class GrafanaToolset(BaseGrafanaToolset):
                 resp = requests.get(
                     f"{base_url}/render/d-solo/nonexistent/_?panelId=1&width=100&height=100",
                     headers=headers,
-                    timeout=10,
+                    timeout=config.timeout_seconds,
                     verify=config.verify_ssl,
                 )
                 # If renderer is configured, we get a 200 (rendered image) or
@@ -219,6 +220,7 @@ class BaseGrafanaTool(Tool, ABC):
         """
         config = self._toolset.grafana_config
         timeout = timeout if timeout is not None else config.timeout_seconds
+        retries = config.max_retries
         base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"
@@ -228,14 +230,26 @@ class BaseGrafanaTool(Tool, ABC):
             additional_headers=config.additional_headers,
         )
 
-        response = requests.get(
-            url,
-            headers=headers,
-            params=query_params,
-            timeout=timeout,
-            verify=config.verify_ssl,
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            max_tries=retries,
+            giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+            and getattr(e, "response", None) is not None
+            and e.response.status_code < 500,
         )
-        response.raise_for_status()
+        def _do_request() -> requests.Response:
+            response = requests.get(
+                url,
+                headers=headers,
+                params=query_params,
+                timeout=timeout,
+                verify=config.verify_ssl,
+            )
+            response.raise_for_status()
+            return response
+
+        response = _do_request()
         data = response.json()
 
         return StructuredToolResult(
@@ -536,14 +550,14 @@ class BaseGrafanaRenderTool(Tool, ABC):
         self,
         render_path: str,
         query_params: Dict[str, Any],
-        timeout: int = 60,
+        timeout: Optional[int] = None,
     ) -> bytes:
         """Make a GET request to Grafana render API and return PNG bytes.
 
         Args:
             render_path: Render URL path (e.g. "render/d-solo/uid/slug")
             query_params: Query parameters for the render request
-            timeout: Request timeout in seconds (rendering can be slow)
+            timeout: Request timeout in seconds. Defaults to config.timeout_seconds.
 
         Returns:
             PNG image bytes
@@ -552,6 +566,8 @@ class BaseGrafanaRenderTool(Tool, ABC):
             requests.HTTPError: If the request fails
         """
         config = self._toolset.grafana_config
+        if timeout is None:
+            timeout = config.timeout_seconds
         base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"

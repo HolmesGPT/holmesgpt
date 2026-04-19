@@ -3,6 +3,8 @@
 import pytest
 import requests
 import responses
+from pydantic import ValidationError
+from responses import matchers
 
 from holmes.plugins.toolsets.grafana.common import GrafanaConfig, GrafanaTempoConfig
 from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI
@@ -36,6 +38,18 @@ class TestGrafanaConfigTimeoutRetries:
         config = GrafanaDashboardConfig(api_url="https://example.com", max_retries=7)
         assert config.timeout_seconds == 30
         assert config.max_retries == 7
+
+    def test_invalid_timeout_rejected(self):
+        with pytest.raises(ValidationError):
+            GrafanaConfig(api_url="https://example.com", timeout_seconds=0)
+        with pytest.raises(ValidationError):
+            GrafanaConfig(api_url="https://example.com", timeout_seconds=-1)
+
+    def test_invalid_max_retries_rejected(self):
+        with pytest.raises(ValidationError):
+            GrafanaConfig(api_url="https://example.com", max_retries=0)
+        with pytest.raises(ValidationError):
+            GrafanaConfig(api_url="https://example.com", max_retries=-1)
 
 
 class TestTempoConfigurableTimeoutRetries:
@@ -95,6 +109,7 @@ class TestTempoConfigurableTimeoutRetries:
                 responses.GET,
                 "https://example.com/api/datasources/proxy/uid/uid/api/search",
                 json={"traces": [{"traceID": "abc123"}]},
+                match=[matchers.request_kwargs_matcher({"timeout": 90})],
             )
 
             result = api.search_traces_by_query(q="{}")
@@ -116,6 +131,7 @@ class TestTempoConfigurableTimeoutRetries:
                 responses.GET,
                 "https://example.com/api/datasources/proxy/uid/uid/api/echo",
                 status=200,
+                match=[matchers.request_kwargs_matcher({"timeout": 120})],
             )
 
             result = api.query_echo_endpoint()
@@ -180,6 +196,7 @@ class TestLokiConfigurableTimeoutRetries:
                         "result": [{"stream": {}, "values": [["1234", "log line"]]}]
                     }
                 },
+                match=[matchers.request_kwargs_matcher({"timeout": 90})],
             )
 
             result = execute_loki_query(

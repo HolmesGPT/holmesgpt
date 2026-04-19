@@ -53,11 +53,13 @@ class GrafanaConfig(ToolsetConfig):
     )
     timeout_seconds: int = Field(
         default=30,
+        gt=0,
         title="Timeout Seconds",
         description="Request timeout in seconds for Grafana API calls",
     )
     max_retries: int = Field(
         default=3,
+        ge=1,
         title="Max Retries",
         description="Maximum number of retry attempts for failed Grafana API requests",
     )
