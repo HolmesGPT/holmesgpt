@@ -681,14 +681,17 @@ class LLMModelRegistry:
         return self._default_robusta_model
 
     def _init_models(self):
-        # Load models from the user-local config (~/.holmes/model_list.yaml)
-        # first, then overlay with the server/env-var path so that server-side
-        # entries take precedence.
+        # Precedence for the model list file:
+        # 1. MODEL_LIST_FILE_LOCATION (env var, or its server default when the
+        #    file exists -- covers Helm deployments mounting /etc/holmes/...)
+        # 2. ~/.holmes/model_list.yaml (CLI default)
         from holmes.core.config import config_path_dir
 
-        user_model_list = os.path.join(config_path_dir, "model_list.yaml")
-        self._llms = self._parse_models_file(user_model_list)
-        self._llms.update(self._parse_models_file(MODEL_LIST_FILE_LOCATION))
+        if os.path.exists(MODEL_LIST_FILE_LOCATION):
+            path = MODEL_LIST_FILE_LOCATION
+        else:
+            path = os.path.join(config_path_dir, "model_list.yaml")
+        self._llms = self._parse_models_file(path)
 
         if self._should_load_robusta_ai():
             self.configure_robusta_ai_model()
