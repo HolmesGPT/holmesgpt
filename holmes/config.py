@@ -105,6 +105,10 @@ class Config(RobustaBaseConfig):
     # if True, we will try to load the Robusta AI model, in cli we aren't trying to load it.
     should_try_robusta_ai: bool = False
 
+    # Ignored by Holmes - exists solely to allow YAML anchors/aliases in config files.
+    # Define reusable blocks here and reference them elsewhere with YAML aliases (*).
+    anchors: Optional[Any] = None
+
     toolsets: Optional[dict[str, dict[str, Any]]] = None
     mcp_servers: Optional[dict[str, dict[str, Any]]] = None
     additional_toolsets: Optional[List[Toolset]] = None
