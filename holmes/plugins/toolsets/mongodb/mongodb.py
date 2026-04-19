@@ -5,6 +5,7 @@ import re
 from abc import ABC
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
+import pymongo
 from pydantic import ConfigDict, Field
 
 from holmes.core.tools import (
@@ -16,11 +17,10 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    ToolsetType,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
-
-import pymongo
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,9 @@ def _parse_json_param(value: str, param_name: str) -> Any:
     try:
         return json.loads(value)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON for '{param_name}': {e}. Received: {value[:200]}")
+        raise ValueError(
+            f"Invalid JSON for '{param_name}': {e}. Received: {value[:200]}"
+        )
 
 
 def _serialize_value(val: Any) -> Any:
@@ -69,7 +71,6 @@ class MongoDBConfig(ToolsetConfig):
       llm_instructions: "This is the orders database for our e-commerce platform"
     ```
     """
-
 
     connection_url: str = Field(
         title="Connection URL",
@@ -148,12 +149,15 @@ class MongoDBToolset(Toolset):
         enabled = kwargs.pop("enabled", False)
         kwargs.pop("type", None)
 
-        description = kwargs.pop("description", None) or f"Query {name} MongoDB database"
+        description = (
+            kwargs.pop("description", None) or f"Query {name} MongoDB database"
+        )
 
         super().__init__(
             name=name,
             enabled=enabled,
             description=description,
+            type=ToolsetType.MONGODB,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/mongodb/",
             icon_url="https://www.mongodb.com/favicon.ico",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
@@ -195,7 +199,9 @@ class MongoDBToolset(Toolset):
             self._client.admin.command("ping")
             # Resolve default database name
             if not self.mongodb_config.default_database:
-                db_name = pymongo.uri_parser.parse_uri(self.mongodb_config.connection_url).get("database")
+                db_name = pymongo.uri_parser.parse_uri(
+                    self.mongodb_config.connection_url
+                ).get("database")
                 if db_name:
                     self.mongodb_config.default_database = db_name
             return True, "Connected to MongoDB"
@@ -221,7 +227,9 @@ class MongoDBToolset(Toolset):
     def mongodb_config(self) -> MongoDBConfig:
         return self.config  # type: ignore
 
-    def _get_database(self, database: Optional[str] = None) -> pymongo.database.Database:
+    def _get_database(
+        self, database: Optional[str] = None
+    ) -> pymongo.database.Database:
         db_name = database or self.mongodb_config.default_database
         if not db_name:
             raise ValueError(
@@ -327,11 +335,13 @@ class MongoDBToolset(Toolset):
         # Get indexes
         indexes = []
         for idx_name, idx_info in coll.index_information().items():
-            indexes.append({
-                "name": idx_name,
-                "keys": idx_info.get("key", []),
-                "unique": idx_info.get("unique", False),
-            })
+            indexes.append(
+                {
+                    "name": idx_name,
+                    "keys": idx_info.get("key", []),
+                    "unique": idx_info.get("unique", False),
+                }
+            )
 
         # Get estimated document count
         estimated_count = coll.estimated_document_count()
@@ -370,8 +380,13 @@ class MongoDBToolset(Toolset):
 
         # Default sections that are most useful for performance diagnostics
         default_sections = [
-            "connections", "opcounters", "mem", "locks",
-            "globalLock", "network", "wiredTiger",
+            "connections",
+            "opcounters",
+            "mem",
+            "locks",
+            "globalLock",
+            "network",
+            "wiredTiger",
         ]
         requested = sections or default_sections
         for section in requested:
@@ -416,12 +431,16 @@ class MongoDBToolset(Toolset):
         result = self._client.admin.command("listDatabases")  # type: ignore
         databases = []
         for db_info in result.get("databases", []):
-            databases.append({
-                "name": db_info.get("name"),
-                "sizeOnDisk": db_info.get("sizeOnDisk"),
-                "sizeOnDisk_mb": round(db_info.get("sizeOnDisk", 0) / (1024 * 1024), 2),
-                "empty": db_info.get("empty", False),
-            })
+            databases.append(
+                {
+                    "name": db_info.get("name"),
+                    "sizeOnDisk": db_info.get("sizeOnDisk"),
+                    "sizeOnDisk_mb": round(
+                        db_info.get("sizeOnDisk", 0) / (1024 * 1024), 2
+                    ),
+                    "empty": db_info.get("empty", False),
+                }
+            )
         return {
             "databases": databases,
             "totalSize_mb": round(result.get("totalSize", 0) / (1024 * 1024), 2),
@@ -517,7 +536,11 @@ class MongoDBQuery(BaseMongoDBTool):
                 limit=params.get("limit"),
                 database=params.get("database"),
             )
-            status = StructuredToolResultStatus.SUCCESS if data.get("documents") else StructuredToolResultStatus.NO_DATA
+            status = (
+                StructuredToolResultStatus.SUCCESS
+                if data.get("documents")
+                else StructuredToolResultStatus.NO_DATA
+            )
             return StructuredToolResult(
                 status=status,
                 data=data,
@@ -588,7 +611,11 @@ class MongoDBAggregate(BaseMongoDBTool):
                 pipeline=pipeline,
                 database=params.get("database"),
             )
-            status = StructuredToolResultStatus.SUCCESS if data.get("documents") else StructuredToolResultStatus.NO_DATA
+            status = (
+                StructuredToolResultStatus.SUCCESS
+                if data.get("documents")
+                else StructuredToolResultStatus.NO_DATA
+            )
             return StructuredToolResult(
                 status=status,
                 data=data,
@@ -635,7 +662,11 @@ class MongoDBListCollections(BaseMongoDBTool):
             data = self._toolset.list_collections(
                 database=params.get("database"),
             )
-            status = StructuredToolResultStatus.SUCCESS if data.get("collections") else StructuredToolResultStatus.NO_DATA
+            status = (
+                StructuredToolResultStatus.SUCCESS
+                if data.get("collections")
+                else StructuredToolResultStatus.NO_DATA
+            )
             return StructuredToolResult(
                 status=status,
                 data=data,
@@ -699,7 +730,9 @@ class MongoDBCollectionSchema(BaseMongoDBTool):
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         collection = params.get("collection", "unknown")
-        return f"{toolset_name_for_one_liner(self._toolset.name)}: Schema of {collection}"
+        return (
+            f"{toolset_name_for_one_liner(self._toolset.name)}: Schema of {collection}"
+        )
 
 
 class MongoDBListDatabases(BaseMongoDBTool):
@@ -716,7 +749,11 @@ class MongoDBListDatabases(BaseMongoDBTool):
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
             data = self._toolset.get_list_databases()
-            status = StructuredToolResultStatus.SUCCESS if data.get("databases") else StructuredToolResultStatus.NO_DATA
+            status = (
+                StructuredToolResultStatus.SUCCESS
+                if data.get("databases")
+                else StructuredToolResultStatus.NO_DATA
+            )
             return StructuredToolResult(
                 status=status,
                 data=data,
@@ -819,7 +856,11 @@ class MongoDBCurrentOp(BaseMongoDBTool):
                 min_duration_ms=params.get("min_duration_ms"),
                 active_only=params.get("active_only", True),
             )
-            status = StructuredToolResultStatus.SUCCESS if data.get("operations") else StructuredToolResultStatus.NO_DATA
+            status = (
+                StructuredToolResultStatus.SUCCESS
+                if data.get("operations")
+                else StructuredToolResultStatus.NO_DATA
+            )
             return StructuredToolResult(
                 status=status,
                 data=data,
