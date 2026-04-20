@@ -2,7 +2,6 @@ import fnmatch
 import json
 import logging
 import os
-import re
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type
 from urllib.parse import urlparse
 
@@ -18,6 +17,7 @@ from holmes.core.tools import (
     ToolInvokeContext,
     ToolParameter,
     Toolset,
+    ToolsetType,
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.utils.header_rendering import render_header_templates
@@ -129,6 +129,7 @@ class HttpToolset(Toolset):
         super().__init__(
             name=name,
             description=description,
+            type=ToolsetType.HTTP,
             icon_url="https://cdn-icons-png.flaticon.com/512/2165/2165004.png",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/http/",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
@@ -157,10 +158,20 @@ class HttpToolset(Toolset):
                     "No endpoints configured. Add at least one endpoint with hosts and auth.",
                 )
 
-            if self._http_config.client_cert_path and not os.path.isfile(self._http_config.client_cert_path):
-                return False, f"Client certificate file not found: {self._http_config.client_cert_path}"
-            if self._http_config.client_key_path and not os.path.isfile(self._http_config.client_key_path):
-                return False, f"Client key file not found: {self._http_config.client_key_path}"
+            if self._http_config.client_cert_path and not os.path.isfile(
+                self._http_config.client_cert_path
+            ):
+                return (
+                    False,
+                    f"Client certificate file not found: {self._http_config.client_cert_path}",
+                )
+            if self._http_config.client_key_path and not os.path.isfile(
+                self._http_config.client_key_path
+            ):
+                return (
+                    False,
+                    f"Client key file not found: {self._http_config.client_key_path}",
+                )
 
             for i, endpoint in enumerate(self._http_config.endpoints):
                 if not endpoint.hosts:
@@ -168,7 +179,10 @@ class HttpToolset(Toolset):
 
                 for method in endpoint.get_methods():
                     if method not in ALL_METHODS:
-                        return False, f"Endpoint {i} has invalid method: {method}. Allowed: {ALL_METHODS}"
+                        return (
+                            False,
+                            f"Endpoint {i} has invalid method: {method}. Allowed: {ALL_METHODS}",
+                        )
 
             # Perform health checks
             for i, endpoint in enumerate(self._http_config.endpoints):
@@ -189,9 +203,15 @@ class HttpToolset(Toolset):
             if self.name == "http":
                 tool_description = f"Make HTTP requests to whitelisted API endpoints ({endpoints_summary})"
             else:
-                tool_description = f"Make HTTP requests to {self.name} API ({endpoints_summary})"
+                tool_description = (
+                    f"Make HTTP requests to {self.name} API ({endpoints_summary})"
+                )
 
-            self.tools = [HttpRequest(self, tool_name=tool_name, tool_description=tool_description)]
+            self.tools = [
+                HttpRequest(
+                    self, tool_name=tool_name, tool_description=tool_description
+                )
+            ]
 
             self._load_llm_instructions_from_file(
                 os.path.dirname(__file__), "instructions.jinja2"
@@ -378,12 +398,20 @@ class HttpToolset(Toolset):
         if not self._http_config or not self._http_config.client_cert_path:
             return None
         if self._http_config.client_key_path:
-            return (self._http_config.client_cert_path, self._http_config.client_key_path)
+            return (
+                self._http_config.client_cert_path,
+                self._http_config.client_key_path,
+            )
         return self._http_config.client_cert_path
 
 
 class HttpRequest(Tool, JsonFilterMixin):
-    def __init__(self, toolset: HttpToolset, tool_name: str = "http_request", tool_description: Optional[str] = None):
+    def __init__(
+        self,
+        toolset: HttpToolset,
+        tool_name: str = "http_request",
+        tool_description: Optional[str] = None,
+    ):
         if not tool_description:
             if toolset.name == "http":
                 tool_description = "Make HTTP requests to whitelisted API endpoints"
