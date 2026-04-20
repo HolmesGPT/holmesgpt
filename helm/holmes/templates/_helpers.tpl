@@ -62,7 +62,7 @@ Usage: {{- include "holmes.commonLabels" . | nindent 4 }}
 {{- if has $key $reserved }}
 {{- fail (printf "commonLabels: key %q is reserved and cannot be overridden" $key) }}
 {{- end }}
+{{ $key | toYaml }}: {{ $val | toString | toYaml }}
 {{- end }}
-{{- toYaml . }}
 {{- end }}
 {{- end }}
