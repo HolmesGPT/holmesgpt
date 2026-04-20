@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 data:
   TRANSPORT: "sse"
   CONFLUENCE_URL: {{ required "mcpAddons.confluenceMcp.config.url is required" .Values.mcpAddons.confluenceMcp.config.url | quote }}
@@ -32,6 +33,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -47,6 +49,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ .Values.mcpAddons.confluenceMcp | toYaml | sha256sum }}
     spec:
@@ -128,6 +131,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   selector:
     app: {{ .Release.Name }}-confluence-mcp

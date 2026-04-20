@@ -12,6 +12,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 type: Opaque
 data:
   username: {{ .Values.mcpAddons.mariadb.config.username | b64enc }}
@@ -29,6 +30,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -44,6 +46,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ .Values.mcpAddons.mariadb | toYaml | sha256sum }}
         {{- if .Values.mcpAddons.mariadb.annotations }}
@@ -137,6 +140,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:

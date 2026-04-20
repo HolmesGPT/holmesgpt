@@ -42,3 +42,13 @@ true
 false
 {{- end -}}
 {{- end -}}
+
+{{/*
+Common labels to apply to all objects created by this chart.
+Usage: {{- include "holmes.commonLabels" . | nindent 4 }}
+*/}}
+{{- define "holmes.commonLabels" -}}
+{{- with .Values.commonLabels }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}

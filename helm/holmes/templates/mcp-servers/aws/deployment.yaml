@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 data:
   AWS_REGION: {{ .Values.mcpAddons.aws.config.region | quote }}
   READ_OPERATIONS_ONLY: {{ .Values.mcpAddons.aws.config.readOnlyMode | quote }}
@@ -40,6 +41,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) }}
   annotations:
     {{- toYaml .Values.mcpAddons.aws.serviceAccount.annotations | nindent 4 }}
@@ -57,6 +59,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -72,6 +75,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ .Values.mcpAddons.aws | toYaml | sha256sum }}
     spec:
@@ -165,6 +169,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   selector:
     app: {{ .Release.Name }}-aws-mcp

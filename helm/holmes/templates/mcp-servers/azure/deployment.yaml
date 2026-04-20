@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 data:
   AZURE_TENANT_ID: {{ .Values.mcpAddons.azure.config.tenantId | quote }}
   AZURE_SUBSCRIPTION_ID: {{ .Values.mcpAddons.azure.config.subscriptionId | quote }}
@@ -29,6 +30,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
     {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
     azure.workload.identity/use: "true"
     {{- end }}
@@ -49,6 +51,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -64,6 +67,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
         {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
         azure.workload.identity/use: "true"
         {{- end }}
@@ -185,6 +189,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:

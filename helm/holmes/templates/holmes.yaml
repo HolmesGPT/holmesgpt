@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   {{- if (not .Values.autoscaling.enabled) }}
   replicas: {{ .Values.replicas }}
@@ -17,6 +18,7 @@ spec:
     metadata:
       labels:
         app: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
@@ -151,6 +153,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   selector:
     app: holmes

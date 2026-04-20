@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 data:
   KUBECTL_ALLOWED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowedCommands | quote }}
   KUBECTL_DANGEROUS_FLAGS: {{ .Values.mcpAddons.kubernetesRemediation.config.dangerousFlags | quote }}
@@ -31,6 +32,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -46,6 +48,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ .Values.mcpAddons.kubernetesRemediation | toYaml | sha256sum }}
     spec:
@@ -132,6 +135,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 spec:
   selector:
     app: {{ .Release.Name }}-k8s-remediation-mcp
@@ -155,6 +159,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- with .Values.mcpAddons.kubernetesRemediation.serviceAccount.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -170,6 +175,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
