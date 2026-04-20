@@ -9,6 +9,8 @@ RUN npm ci --no-audit
 COPY frontend/ ./
 ARG VITE_OKTA_ISSUER
 ARG VITE_OKTA_CLIENT_ID
+ENV VITE_OKTA_ISSUER=${VITE_OKTA_ISSUER}
+ENV VITE_OKTA_CLIENT_ID=${VITE_OKTA_CLIENT_ID}
 RUN npm run build
 
 # Stage 2: Build Holmes (reuse the existing Dockerfile logic)
