@@ -38,7 +38,12 @@ from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
 from holmes.plugins.toolsets.prometheus.utils import parse_duration_to_seconds
-from holmes.plugins.toolsets.service_discovery import PrometheusDiscovery
+from holmes.plugins.toolsets.service_discovery import (
+    PrometheusDiscovery,
+    build_service_url,
+    is_running_in_cluster,
+    resolve_kubernetes_service,
+)
 from holmes.plugins.toolsets.utils import (
     get_param_or_raise,
     process_timestamps_to_rfc3339,
@@ -100,6 +105,21 @@ class PrometheusConfig(ToolsetConfig):
             "http://prometheus.monitoring.svc:9090",
         ],
     )
+
+    kubernetes_service: Optional[str] = Field(
+        default=None,
+        title="Kubernetes Service",
+        description=(
+            "Kubernetes service to use as Prometheus in 'namespace/service_name' format. "
+            "When set, HolmesGPT resolves this service and connects to it directly "
+            "(via cluster DNS in-cluster or via the K8s API proxy when running locally). "
+            "Takes precedence over auto-detection but not over prometheus_url."
+        ),
+        examples=["monitoring/prometheus-server", "observability/thanos-query"],
+    )
+
+    # Whether this config uses K8s API proxy URLs (set during discovery, not by users)
+    _uses_kube_proxy: bool = False
 
     discover_metrics_from_last_hours: int = Field(
         default=DEFAULT_METADATA_TIME_WINDOW_HRS,
@@ -436,6 +456,18 @@ def do_request(
             verify=verify,
         )
 
+    # When using K8s API proxy, use the kubernetes client's authenticated session
+    if getattr(config, "_uses_kube_proxy", False):
+        return _do_kube_proxy_request(
+            method=method,
+            url=url,
+            headers=headers,
+            params=params,
+            data=data,
+            timeout=timeout,
+            verify=verify,
+        )
+
     # Non-AMP, Non-Azure: plain HTTP
     return requests.request(
         method=method,
@@ -445,6 +477,77 @@ def do_request(
         data=data,
         timeout=timeout,
         verify=verify,
+    )
+
+
+def _get_kube_proxy_session() -> requests.Session:
+    """
+    Build a requests.Session pre-configured with kubeconfig authentication.
+
+    Extracts auth (bearer token, client certs, CA bundle) from the active
+    kubeconfig and applies it to a session so that requests through the
+    K8s API proxy are properly authenticated.
+    """
+    from kubernetes import client as k8s_client  # type: ignore
+
+    api_client = k8s_client.ApiClient()
+    cfg = api_client.configuration
+
+    session = requests.Session()
+
+    # Bearer token auth
+    if cfg.api_key and cfg.api_key.get("authorization"):
+        session.headers["Authorization"] = cfg.api_key["authorization"]
+    elif cfg.api_key and cfg.api_key.get("BearerToken"):
+        session.headers["Authorization"] = f"Bearer {cfg.api_key['BearerToken']}"
+
+    # Client certificate auth
+    if cfg.cert_file and cfg.key_file:
+        session.cert = (cfg.cert_file, cfg.key_file)
+
+    # CA bundle for verifying the API server's TLS certificate
+    if cfg.ssl_ca_cert:
+        session.verify = cfg.ssl_ca_cert
+
+    return session
+
+
+# Module-level cached session (created on first use)
+_kube_proxy_session: Optional[requests.Session] = None
+
+
+def _do_kube_proxy_request(
+    method: str,
+    url: str,
+    headers: Optional[Dict] = None,
+    params: Optional[Dict] = None,
+    data: Optional[Dict] = None,
+    timeout: int = 60,
+    verify: Optional[bool] = None,
+) -> requests.Response:
+    """
+    Route a request through the Kubernetes API server proxy, with kubeconfig auth.
+    """
+    global _kube_proxy_session  # noqa: PLW0603
+    if _kube_proxy_session is None:
+        _kube_proxy_session = _get_kube_proxy_session()
+
+    # Merge per-request headers on top of session headers
+    merged_headers = dict(_kube_proxy_session.headers)
+    if headers:
+        merged_headers.update(headers)
+
+    # If verify is explicitly provided, use it; otherwise use the session default
+    req_verify = verify if verify is not None else _kube_proxy_session.verify
+
+    return _kube_proxy_session.request(
+        method=method,
+        url=url,
+        headers=merged_headers,
+        params=params,
+        data=data,
+        timeout=timeout,
+        verify=req_verify,
     )
 
 
@@ -1846,25 +1949,46 @@ class PrometheusToolset(Toolset):
         self.tools = [t for t in self.tools if t.name not in incompatible]
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
+        # Path 1: Explicit config provided by the user
         try:
             if config:
                 config_cls = self.determine_prometheus_class(config)
                 self.config = config_cls(**config)  # type: ignore
                 if isinstance(self.config, AzurePrometheusConfig):
                     self._disable_azure_incompatible_tools()
+
+                # If kubernetes_service is set but prometheus_url is not, resolve it
+                if not self.config.prometheus_url and self.config.kubernetes_service:
+                    url, uses_proxy = self._resolve_kubernetes_service(
+                        self.config.kubernetes_service
+                    )
+                    if not url:
+                        return (
+                            False,
+                            f"Failed to resolve kubernetes_service '{self.config.kubernetes_service}'. "
+                            "Check that the namespace/service exists and is accessible.",
+                        )
+                    self.config.prometheus_url = url
+                    self.config._uses_kube_proxy = uses_proxy
+
                 self._reload_llm_instructions()
                 return self._is_healthy()
         except Exception:
             logging.exception("Failed to create prometheus config")
             return False, "Failed to create prometheus config"
+
+        # Path 2: No explicit config — try env var, then auto-detect
         try:
             prometheus_url = os.environ.get("PROMETHEUS_URL")
+            uses_kube_proxy = False
+
             if not prometheus_url:
-                prometheus_url = self.auto_detect_prometheus_url()
+                prometheus_url, uses_kube_proxy = self._auto_detect_prometheus()
                 if not prometheus_url:
                     return (
                         False,
-                        "Unable to auto-detect prometheus. Define prometheus_url in the configuration for tool prometheus/metrics",
+                        "Unable to auto-detect prometheus. Define prometheus_url or "
+                        "kubernetes_service in the configuration for tool prometheus/metrics",
                     )
 
             self.config = PrometheusConfig(
@@ -1873,6 +1997,7 @@ class PrometheusToolset(Toolset):
                     os.environ.get("PROMETHEUS_AUTH_HEADER")
                 ),
             )
+            self.config._uses_kube_proxy = uses_kube_proxy
             logging.info(f"Prometheus auto discovered at url {prometheus_url}")
             self._reload_llm_instructions()
             return self._is_healthy()
@@ -1880,12 +2005,39 @@ class PrometheusToolset(Toolset):
             logging.exception("Failed to set up prometheus")
             return False, str(e)
 
-    def auto_detect_prometheus_url(self) -> Optional[str]:
+    def _resolve_kubernetes_service(
+        self, kubernetes_service: str
+    ) -> Tuple[Optional[str], bool]:
+        """
+        Resolve a 'namespace/service_name' to a reachable URL.
+
+        Returns (url, uses_kube_proxy) tuple. uses_kube_proxy is True when the
+        URL routes through the K8s API server proxy (i.e. running locally).
+        """
+        service = resolve_kubernetes_service(kubernetes_service)
+        if service is None:
+            return None, False
+        url = build_service_url(service)
+        uses_proxy = not is_running_in_cluster()
+        logging.info(
+            f"Resolved kubernetes_service '{kubernetes_service}' to {url} "
+            f"(kube_proxy={'yes' if uses_proxy else 'no'})"
+        )
+        return url, uses_proxy
+
+    def _auto_detect_prometheus(self) -> Tuple[Optional[str], bool]:
+        """
+        Auto-detect Prometheus or VictoriaMetrics in the cluster.
+
+        Returns (url, uses_kube_proxy) tuple.
+        """
         url: Optional[str] = PrometheusDiscovery.find_prometheus_url()
         if not url:
             url = PrometheusDiscovery.find_vm_url()
-
-        return url
+        if url is None:
+            return None, False
+        uses_proxy = not is_running_in_cluster()
+        return url, uses_proxy
 
     def _is_healthy(self) -> Tuple[bool, str]:
         if (
