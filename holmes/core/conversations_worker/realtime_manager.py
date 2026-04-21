@@ -6,9 +6,9 @@ Realtime subscription that notifies the worker when new pending conversations
 appear.  Two subscription modes are supported (selected via the
 ``CONVERSATION_WORKER_USE_REALTIME_BROADCAST`` env var):
 
- 1. **Postgres Changes** (default) — subscribes to INSERT/UPDATE on the
+ 1. **Postgres Changes** — subscribes to INSERT/UPDATE on the
     Conversations table filtered by ``account_id``.
- 2. **Broadcast** — subscribes to a per-account-per-cluster Broadcast channel
+ 2. **Broadcast** (default) — subscribes to a per-account-per-cluster Broadcast channel
     ``holmes:submit:{account_id}:{cluster_id}``.  The initiator (Frontend /
     Relay) must send a broadcast after creating the conversation.
 
