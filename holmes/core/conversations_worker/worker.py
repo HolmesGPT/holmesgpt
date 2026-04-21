@@ -162,11 +162,17 @@ class ConversationWorker:
         # from submit() on a shut-down pool.
         with self._dispatch_lock:
             if self._executor:
-                # shutdown(wait=False): prevent new tasks from being accepted
-                # but don't block on in-flight conversations — the process is
-                # shutting down and those worker threads are daemons that will
-                # be torn down with the interpreter. Blocking here would delay
-                # server shutdown unboundedly on long-running LLM streams.
+                # shutdown(wait=False): prevent new tasks from being accepted,
+                # but don't block on in-flight conversations. NOTE: the
+                # executor's worker threads are NOT daemons — Python's atexit
+                # hook calls shutdown(wait=True) on every live executor, so
+                # long-running LLM streams in _process_conversation can still
+                # delay process exit unboundedly. Two mitigations, neither
+                # implemented here today:
+                #   - cooperative cancellation inside _process_conversation
+                #     (cancel token / interruptible LiteLLM stream) so tasks
+                #     abort when self._running flips to False
+                #   - a process-level hard timeout enforced by the caller
                 self._executor.shutdown(wait=False)
         if self._claim_thread:
             # Bounded join: the claim loop wakes up once per notify or poll

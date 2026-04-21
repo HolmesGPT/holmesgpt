@@ -282,7 +282,9 @@ class RealtimeManager:
             ws_url = "ws://" + store_url[len("http://"):]
         else:
             ws_url = store_url
-        ws_url = f"{ws_url}/realtime/v1/websocket"
+        # AsyncRealtimeClient.__init__ appends "/websocket" itself, so pass
+        # the base realtime endpoint to avoid .../websocket/websocket.
+        ws_url = f"{ws_url}/realtime/v1"
 
         apikey = self.dal.api_key
         session = self.dal.client.auth.get_session()  # type: ignore[attr-defined]

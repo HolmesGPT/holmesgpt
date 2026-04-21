@@ -59,6 +59,7 @@ class SupabaseFixture:
     _broadcast_loop: Any = field(default=None, repr=False)
     _broadcast_thread: Any = field(default=None, repr=False)
     _broadcast_ch: Any = field(default=None, repr=False)
+    _broadcast_setup_error: Optional[BaseException] = field(default=None, repr=False)
 
     # ---- conversation helpers ----
 
@@ -133,7 +134,8 @@ class SupabaseFixture:
                     ws_url = "ws://" + store_url[len("http://"):]
                 else:
                     ws_url = store_url
-                ws_url = f"{ws_url}/realtime/v1/websocket"
+                # AsyncRealtimeClient appends "/websocket" itself.
+                ws_url = f"{ws_url}/realtime/v1"
 
                 topic = broadcast_submit_topic(self.account_id, self.cluster_id)
                 rt = AsyncRealtimeClient(
@@ -158,12 +160,22 @@ class SupabaseFixture:
                 while True:
                     await asyncio.sleep(1)
 
-            loop.run_until_complete(_setup())
+            try:
+                loop.run_until_complete(_setup())
+            except BaseException as e:
+                # Capture so the main thread can re-raise; setting ready
+                # unblocks the caller immediately instead of timing out.
+                self._broadcast_setup_error = e
+                ready.set()
 
         t = threading.Thread(target=_run_loop, daemon=True)
         t.start()
         self._broadcast_thread = t
         ready.wait(timeout=10)
+        if not ready.is_set() or self._broadcast_ch is None:
+            raise RuntimeError(
+                f"broadcast channel setup failed: {self._broadcast_setup_error!r}"
+            )
 
     def broadcast_submit(self, conversation_id: str) -> None:
         """Send a Broadcast message on the Holmes submit channel.
@@ -199,6 +211,10 @@ class SupabaseFixture:
         ).data
 
     def get_events(self, conversation_id: str) -> List[Dict[str, Any]]:
+        # Direct table read (not the get_conversation_events RPC used in
+        # production) because compaction assertions need the per-row
+        # ``compacted`` flag, which the RPC's flattened result set hides.
+        # Works under RLS for the logged-in test user.
         return (
             self.client.table("ConversationEvents")
             .select("*")
@@ -299,7 +315,7 @@ def supabase_fx() -> SupabaseFixture:
     client.auth.set_session(res.session.access_token, res.session.refresh_token)
     client.postgrest.auth(res.session.access_token)
 
-    use_broadcast_str = os.environ.get("CONVERSATION_WORKER_USE_REALTIME_BROADCAST", "false")
+    use_broadcast_str = os.environ.get("CONVERSATION_WORKER_USE_REALTIME_BROADCAST", "true")
     use_broadcast = use_broadcast_str.lower() in ("true", "1", "yes")
     use_pgchanges = not use_broadcast
 
