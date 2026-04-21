@@ -27,6 +27,7 @@ import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 import realtime._async.client as rt_client
+from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
 from websockets.asyncio.client import connect as ws_connect
 
@@ -221,6 +222,23 @@ class RealtimeManager:
             next_refresh_at = asyncio.get_running_loop().time() + refresh_interval
             while not self._stop_event.is_set():
                 now = asyncio.get_running_loop().time()
+
+                # Detect channel closure (e.g. token expiry → server sends
+                # phx_close). The library's auto-reconnect is unreliable
+                # after a channel close, so we do a full teardown/reconnect.
+                if await self._channel_needs_reconnect():
+                    logging.warning(
+                        "Channel no longer joined (state=%s), reconnecting",
+                        self._channel.state if self._channel else "None",
+                    )
+                    self._connected = False
+                    self.on_new_pending()
+                    await self._full_reconnect()
+                    next_refresh_at = (
+                        asyncio.get_running_loop().time() + refresh_interval
+                    )
+                    continue
+
                 if now >= next_refresh_at:
                     await self._maybe_refresh_auth()
                     next_refresh_at = (
@@ -251,6 +269,33 @@ class RealtimeManager:
                     "on_new_pending callback failed during shutdown",
                     exc_info=True,
                 )
+
+    async def _channel_needs_reconnect(self) -> bool:
+        """True when the subscription channel has left the JOINED state.
+
+        Supabase closes the channel on JWT expiry ("Token has expired").
+        The library's built-in auto-reconnect is unreliable after a channel
+        close — the _listen task can crash with ``ValueError('Set of
+        Tasks/Futures is empty.')``.  We detect this early and do our own
+        full reconnect.
+        """
+        if self._channel is None:
+            return True
+        return self._channel.state != ChannelStates.JOINED
+
+    async def _full_reconnect(self) -> None:
+        """Tear down the current client and re-establish from scratch."""
+        try:
+            if self._client:
+                await self._client.close()
+        except Exception:
+            logging.debug("Error closing client during reconnect", exc_info=True)
+        self._client = None
+        self._channel = None
+        try:
+            await self._connect_and_subscribe()
+        except Exception:
+            logging.exception("Failed to reconnect", exc_info=True)
 
     async def _maybe_refresh_auth(self) -> None:
         """Re-push the Supabase JWT to the realtime client if it rotated."""
