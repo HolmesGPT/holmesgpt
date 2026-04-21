@@ -26,6 +26,7 @@ from holmes.core.tools import (
     ToolInvokeContext,
     ToolParameter,
     Toolset,
+    ToolsetType,
 )
 from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -305,7 +306,8 @@ class RemoteMCPTool(Tool):
 
         return StructuredToolResult(
             status=(
-                StructuredToolResultStatus.ERROR if is_error
+                StructuredToolResultStatus.ERROR
+                if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
             data=merged_text,
@@ -388,7 +390,10 @@ class RemoteMCPTool(Tool):
                                             if req not in reqs:
                                                 reqs.append(req)
                                     elif k == "type":
-                                        if "type" not in merged or merged["type"] == "null":
+                                        if (
+                                            "type" not in merged
+                                            or merged["type"] == "null"
+                                        ):
                                             merged["type"] = v
                                     else:
                                         merged[k] = v
@@ -445,7 +450,9 @@ class RemoteMCPTool(Tool):
         any_of_params = None
         if "anyOf" in schema and isinstance(schema["anyOf"], list):
             branches = schema["anyOf"]
-            non_null = [b for b in branches if isinstance(b, dict) and b.get("type") != "null"]
+            non_null = [
+                b for b in branches if isinstance(b, dict) and b.get("type") != "null"
+            ]
             if len(non_null) > 1:
                 # True union — parse each branch as a ToolParameter
                 has_null = any(
@@ -461,8 +468,10 @@ class RemoteMCPTool(Tool):
                     type="anyOf",
                     required=required if not has_null else False,
                     any_of=any_of_params,
-                    json_schema_extra={k: v for k, v in schema.items()
-                                       if k in {"default"}} or None,
+                    json_schema_extra={
+                        k: v for k, v in schema.items() if k in {"default"}
+                    }
+                    or None,
                 )
 
         param_type = schema.get("type", "string")
@@ -505,13 +514,20 @@ class RemoteMCPTool(Tool):
         # OpenAI-formatted schema so the LLM sees constraints like array
         # length limits, numeric ranges, and string patterns.
         _PASSTHROUGH_KEYWORDS = {
-            "minItems", "maxItems",
-            "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
-            "minLength", "maxLength",
+            "minItems",
+            "maxItems",
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "minLength",
+            "maxLength",
             "pattern",
             "default",
         }
-        json_schema_extra = {k: v for k, v in schema.items() if k in _PASSTHROUGH_KEYWORDS}
+        json_schema_extra = {
+            k: v for k, v in schema.items() if k in _PASSTHROUGH_KEYWORDS
+        }
 
         return ToolParameter(
             description=schema.get("description"),
@@ -587,6 +603,7 @@ class RemoteMCPToolset(Toolset):
         return final_headers if final_headers else None
 
     def model_post_init(self, __context: Any) -> None:
+        self.type = ToolsetType.MCP
         self.prerequisites = [
             CallablePrerequisite(callable=self.prerequisites_callable)
         ]
