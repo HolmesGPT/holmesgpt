@@ -129,7 +129,7 @@ RUN_LIVE=true MODEL=gpt-4.1 poetry run pytest -m 'llm and easy'
 # Note: CLASSIFIER_MODEL must be set to OpenAI or Azure as Anthropic models are not currently supported for classification
 RUN_LIVE=true MODEL=anthropic/claude-opus-4-1-20250805 CLASSIFIER_MODEL=gpt-4.1 poetry run pytest -m 'llm and easy'
 
-# Test with Azure OpenAI
+# Test with Azure AI Foundry
 # Set required Azure environment variables for your deployment
 export AZURE_API_KEY=your-azure-api-key
 export AZURE_API_BASE=https://your-deployment.openai.azure.com/

@@ -13,6 +13,7 @@ nav:
   - Confluence (MCP): confluence-mcp.md
   - Connectivity Check: connectivity-check.md
   - Coralogix: coralogix-logs.md
+  - Crossplane: crossplane.md
   - DataDog: datadog.md
   - Docker: docker.md
   - Elasticsearch / OpenSearch: elasticsearch.md
