@@ -133,7 +133,6 @@ class RealtimeManager:
         dal: "SupabaseDal",
         holmes_id: str,
         on_new_pending: Callable[[], None],
-        *,
         use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
     ) -> None:
         self.dal = dal
