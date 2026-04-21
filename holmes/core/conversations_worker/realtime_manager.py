@@ -181,11 +181,23 @@ class RealtimeManager:
         self._stop_event.set()
         if self._loop and self._loop.is_running():
             try:
-                # Wake the async sleep so _run() exits promptly instead of
-                # blocking for up to the refresh interval.
+                # Close the realtime client first and *wait* for it to finish —
+                # otherwise the fire-and-forget coro races with _run()'s exit
+                # and asyncio.run() will cancel _shutdown_async() mid-close,
+                # leaking the WebSocket.
+                future = asyncio.run_coroutine_threadsafe(
+                    self._shutdown_async(), self._loop
+                )
+                try:
+                    future.result(timeout=5)
+                except Exception:
+                    logging.exception(
+                        "Error waiting for realtime shutdown", exc_info=True
+                    )
+                # Then wake the async sleep so _run() exits promptly instead
+                # of blocking for up to the refresh interval.
                 if self._async_stop is not None:
                     self._loop.call_soon_threadsafe(self._async_stop.set)
-                asyncio.run_coroutine_threadsafe(self._shutdown_async(), self._loop)
             except Exception:
                 logging.exception("Error scheduling shutdown coro", exc_info=True)
         if self._thread:
@@ -286,19 +298,34 @@ class RealtimeManager:
             token=apikey,
             auto_reconnect=True,
         )
-        await self._client.connect()
-        if user_jwt:
-            try:
-                await self._client.set_auth(user_jwt)
-                self._last_auth_jwt = user_jwt
-            except Exception:
-                logging.exception("Failed to set_auth on realtime client", exc_info=True)
+        try:
+            await self._client.connect()
+            if user_jwt:
+                try:
+                    await self._client.set_auth(user_jwt)
+                    self._last_auth_jwt = user_jwt
+                except Exception:
+                    logging.exception(
+                        "Failed to set_auth on realtime client", exc_info=True
+                    )
 
-        # Subscribe using the configured mode.
-        if self._use_broadcast:
-            await self._subscribe_via_broadcast()
-        else:
-            await self._subscribe_via_pgchanges()
+            # Subscribe using the configured mode.
+            if self._use_broadcast:
+                await self._subscribe_via_broadcast()
+            else:
+                await self._subscribe_via_pgchanges()
+        except Exception:
+            # Close any partially-open client/socket so we don't leak it when
+            # the loop unwinds past this failure.
+            try:
+                await self._client.close()
+            except Exception:
+                logging.exception(
+                    "Error closing realtime client after failed connect",
+                    exc_info=True,
+                )
+            self._client = None
+            raise
 
     async def _subscribe_via_pgchanges(self) -> None:
         """Option 1: Postgres Changes on the Conversations table.
