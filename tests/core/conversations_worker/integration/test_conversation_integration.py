@@ -387,6 +387,49 @@ class TestStress:
             f"have been observed in queued state"
         )
 
+    def test_max_concurrent_never_exceeded(self, supabase_fx: SupabaseFixture):
+        """Hard invariant: the number of conversations in 'running' state
+        must never exceed CONVERSATION_WORKER_MAX_CONCURRENT at any point.
+
+        Creates MAX_CONCURRENT + OVERFLOW conversations and polls the DB
+        rapidly, recording the peak running count.
+        """
+        num = self._num()
+        conv_ids = []
+        for i in range(1, num + 1):
+            conv = supabase_fx.create_conversation(
+                ask=f"What is {i * 13} + {i}? Answer with just the number.",
+                title=f"integ: max-concurrent-{i}",
+            )
+            conv_ids.append(conv["conversation_id"])
+
+        peak_running = 0
+        peak_snapshot = {}
+        start = time.time()
+        while time.time() - start < 300:
+            statuses = {}
+            for cid in conv_ids:
+                conv = supabase_fx.get_conversation(cid)
+                statuses[cid] = conv["status"]
+
+            running_count = sum(1 for s in statuses.values() if s == "running")
+            if running_count > peak_running:
+                peak_running = running_count
+                peak_snapshot = dict(statuses)
+
+            all_terminal = all(
+                s in ("completed", "failed") for s in statuses.values()
+            )
+            if all_terminal:
+                break
+            time.sleep(0.1)
+
+        assert peak_running <= CONVERSATION_WORKER_MAX_CONCURRENT, (
+            f"Concurrency limit violated: observed {peak_running} running "
+            f"simultaneously (limit={CONVERSATION_WORKER_MAX_CONCURRENT}). "
+            f"Snapshot: {peak_snapshot}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 7. Status lifecycle
