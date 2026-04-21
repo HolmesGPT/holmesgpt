@@ -63,6 +63,7 @@ def spill_oversized_tool_result(
             f"Image too large to display inline ({messages_token} tokens, "
             f"max {max_tokens_allowed}). Try a smaller image or use a different approach."
         )
+        tool_call_result.result.spill_reason = "oversized_image"
         return messages_token
 
     size_info = f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
@@ -114,6 +115,12 @@ def spill_oversized_tool_result(
         preview_budget = int(max(0, max_chars - len(boilerplate)))
         preview = filesystem_data[:preview_budget]
         tool_call_result.result.data = f"{boilerplate}{preview}"
+        # Preserve original data + LLM boundary so interactive /show can
+        # reconstruct the full output with a marker at the real cut point.
+        tool_call_result.result.original_stringified_data = filesystem_data
+        tool_call_result.result.llm_preview_boundary_chars = preview_budget
+        tool_call_result.result.spilled_file_path = str(file_path)
+        tool_call_result.result.spill_reason = "filesystem_spill"
         # Clear images from the result since they're now on disk
         tool_call_result.result.images = None
         logging.info(
@@ -121,6 +128,12 @@ def spill_oversized_tool_result(
             + (f" with {len(image_paths)} image(s)" if image_paths else "")
         )
     else:
+        # Preserve original stringified data so interactive /show can still
+        # display what existed before the drop, even though nothing reached the LLM.
+        dropped_data, _ = tool_call_result.result.stringify_data(compact=False)
+        tool_call_result.result.original_stringified_data = dropped_data
+        tool_call_result.result.llm_preview_boundary_chars = 0
+        tool_call_result.result.spill_reason = "dropped_no_storage"
         tool_call_result.result.status = StructuredToolResultStatus.ERROR
         tool_call_result.result.data = None
         tool_call_result.result.images = None

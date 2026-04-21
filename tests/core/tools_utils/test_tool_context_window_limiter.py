@@ -314,3 +314,101 @@ class TestPreventOverlyBigToolResponse:
         assert "Saved to:" in tcr.result.data
         assert "Images saved to disk" not in tcr.result.data
         assert "read_image_file" not in tcr.result.data
+
+    def test_spill_preserves_original_and_boundary(self, mock_llm, tmp_path):
+        """Filesystem-spill path records original data, LLM boundary, and file path."""
+        original = "big output " * 500
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=original,
+        )
+        tcr = ToolCallResult(
+            tool_call_id="call-preserve-1",
+            tool_name="text_tool",
+            description="desc",
+            result=result,
+        )
+
+        # Use a large enough per-tool budget that the preview_budget is nonzero
+        # once the boilerplate overhead is subtracted (preview_budget =
+        # max(0, max_tokens_allowed * 2 - len(boilerplate))).
+        mock_llm.get_max_token_count_for_single_tool.return_value = 1000
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=5000,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        spill_oversized_tool_result(tcr, mock_llm, tool_results_dir=tmp_path)
+
+        # Original stringified (non-compact) data preserved verbatim.
+        assert tcr.result.original_stringified_data == original
+        # Boundary is a positive char index into the original, matching the
+        # preview slice that actually reached the LLM.
+        boundary = tcr.result.llm_preview_boundary_chars
+        assert isinstance(boundary, int) and boundary > 0
+        assert boundary <= len(original)
+        # The preview the LLM saw is the prefix of original up to `boundary`.
+        assert original[:boundary] in tcr.result.data
+        # Spilled file path recorded and exists on disk.
+        assert tcr.result.spilled_file_path is not None
+        assert Path(tcr.result.spilled_file_path).exists()
+        assert tcr.result.spill_reason == "filesystem_spill"
+
+    def test_dropped_path_sets_original_and_zero_boundary(
+        self, mock_llm, success_tool_call_result
+    ):
+        """No filesystem storage: record original + boundary=0 before dropping data."""
+        original = success_tool_call_result.result.data
+        mock_llm.get_max_token_count_for_single_tool.return_value = 100
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=5000,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        # No tool_results_dir -> fallback drop path.
+        spill_oversized_tool_result(success_tool_call_result, mock_llm)
+
+        assert success_tool_call_result.result.data is None
+        assert success_tool_call_result.result.original_stringified_data == original
+        assert success_tool_call_result.result.llm_preview_boundary_chars == 0
+        assert success_tool_call_result.result.spill_reason == "dropped_no_storage"
+
+    def test_oversized_image_sets_spill_reason(self, mock_llm):
+        """read_image_file oversized guard records spill_reason."""
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="fake image bytes",
+        )
+        tcr = ToolCallResult(
+            tool_call_id="call-img-2",
+            tool_name="read_image_file",
+            description="desc",
+            result=result,
+        )
+        mock_llm.get_max_token_count_for_single_tool.return_value = 100
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=5000,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        spill_oversized_tool_result(tcr, mock_llm)
+
+        assert tcr.result.status == StructuredToolResultStatus.ERROR
+        assert tcr.result.spill_reason == "oversized_image"
+        # Image guard intentionally does not preserve the original blob.
+        assert tcr.result.original_stringified_data is None

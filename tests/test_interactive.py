@@ -1853,3 +1853,94 @@ class TestSampleQuestionsMenu(unittest.TestCase):
             console = Console(file=StringIO(), force_terminal=True, width=120)
             result = _show_sample_questions_menu(console)
             self.assertIsNone(result)
+
+
+class TestBuildShowOutput(unittest.TestCase):
+    """Tests for the /show modal output construction — marker at real LLM boundary."""
+
+    def _result(self, **kwargs):
+        from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
+        defaults = dict(status=StructuredToolResultStatus.SUCCESS, data="hello world")
+        defaults.update(kwargs)
+        return StructuredToolResult(**defaults)
+
+    def test_no_spill_no_marker(self):
+        """Non-spilled results render plain data with no marker."""
+        from holmes.interactive import _build_show_output
+        out = _build_show_output(self._result(data="plain output"))
+        self.assertEqual(out, "plain output")
+        self.assertNotIn("--- content below", out)
+        self.assertNotIn("--- NOTHING", out)
+
+    def test_strips_ansi_when_no_spill(self):
+        """ANSI codes stripped when rendering plain data."""
+        from holmes.interactive import _build_show_output
+        out = _build_show_output(self._result(data="\x1b[31mred\x1b[0m"))
+        self.assertEqual(out, "red")
+
+    def test_filesystem_spill_marker_at_boundary(self):
+        """Marker is inserted at the exact char boundary reported by spill."""
+        from holmes.interactive import _build_show_output
+        full = "A" * 40 + "B" * 60
+        boundary = 40
+        result = self._result(
+            data="llm-facing preview (boilerplate + slice)",
+            original_stringified_data=full,
+            llm_preview_boundary_chars=boundary,
+            spilled_file_path="/tmp/holmes/tool-xyz.json",
+            spill_reason="filesystem_spill",
+        )
+        out = _build_show_output(result)
+
+        marker = "--- content below this line was NOT sent to the LLM"
+        self.assertIn(marker, out)
+        self.assertEqual(out.count(marker), 1)
+        # Marker appears exactly at the boundary — prefix unchanged, suffix intact.
+        idx = out.index(marker)
+        prefix = out[:idx].rstrip("\n")
+        self.assertEqual(prefix, full[:boundary])
+        suffix = out[idx:].split("---\n", 1)[1]
+        self.assertEqual(suffix, full[boundary:])
+        self.assertIn("/tmp/holmes/tool-xyz.json", out)
+
+    def test_filesystem_spill_without_path(self):
+        """Marker omits the 'saved to' clause when no spilled path is recorded."""
+        from holmes.interactive import _build_show_output
+        result = self._result(
+            data="preview",
+            original_stringified_data="original-content",
+            llm_preview_boundary_chars=4,
+            spill_reason="filesystem_spill",
+        )
+        out = _build_show_output(result)
+        self.assertIn("--- content below this line was NOT sent to the LLM ---", out)
+        self.assertNotIn("saved to", out)
+
+    def test_filesystem_spill_clamps_out_of_range_boundary(self):
+        """Boundary beyond len(full) is clamped to end; below 0 clamped to 0."""
+        from holmes.interactive import _build_show_output
+        full = "short"
+        result = self._result(
+            data="preview",
+            original_stringified_data=full,
+            llm_preview_boundary_chars=9999,
+            spill_reason="filesystem_spill",
+        )
+        out = _build_show_output(result)
+        # Full content still present; marker at end.
+        self.assertIn(full, out)
+        self.assertTrue(out.rstrip("\n").endswith("---"))
+
+    def test_dropped_no_storage_label_at_top(self):
+        """dropped_no_storage shows a 'NOTHING sent' label above the full content."""
+        from holmes.interactive import _build_show_output
+        full = "the original content that got dropped"
+        result = self._result(
+            data=None,
+            original_stringified_data=full,
+            llm_preview_boundary_chars=0,
+            spill_reason="dropped_no_storage",
+        )
+        out = _build_show_output(result)
+        self.assertTrue(out.startswith("--- NOTHING below this line was sent to the LLM"))
+        self.assertIn(full, out)

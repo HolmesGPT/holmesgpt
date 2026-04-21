@@ -46,7 +46,15 @@ class ToolCallResult(BaseModel):
         }
 
     def to_client_dict(self):
-        result_dump = self.result.model_dump()
+        # Exclude heavy interactive-only fields from API payloads: the original
+        # pre-spill blob would double payload size on oversized tool results.
+        result_dump = self.result.model_dump(
+            exclude={
+                "original_stringified_data",
+                "llm_preview_boundary_chars",
+                "spill_reason",
+            }
+        )
         result_dump["data"] = self.result.get_stringified_data()
 
         d = {

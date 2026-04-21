@@ -106,6 +106,14 @@ class StructuredToolResult(BaseModel):
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
 
+    # Populated by spill_oversized_tool_result when the result was truncated
+    # for the LLM. Used by interactive /show to reconstruct the original
+    # output with a marker at the exact LLM boundary.
+    original_stringified_data: Optional[str] = None
+    llm_preview_boundary_chars: Optional[int] = None
+    spilled_file_path: Optional[str] = None
+    spill_reason: Optional[str] = None
+
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
 
