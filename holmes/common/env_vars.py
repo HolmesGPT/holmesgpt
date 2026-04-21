@@ -208,5 +208,5 @@ CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
 # When False (default), Holmes subscribes to Postgres Changes on the
 # Conversations table instead (no initiator action needed beyond the RPC).
 CONVERSATION_WORKER_USE_REALTIME_BROADCAST = load_bool(
-    "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", False
+    "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", True
 )

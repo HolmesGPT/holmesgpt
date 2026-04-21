@@ -1,5 +1,5 @@
 """
-Integration tests for the M2 Conversation Worker.
+Integration tests for the Conversation Worker.
 
 Requires a running Holmes server with ENABLE_CONVERSATION_WORKER=true and:
     ROBUSTA_UI_TOKEN   - base64 JSON with Supabase credentials

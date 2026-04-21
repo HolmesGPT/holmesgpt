@@ -53,7 +53,7 @@ _REALTIME_CONNECTED_POLL_SECONDS = 120
 
 class ConversationWorker:
     """
-    M2 Conversation Worker.
+    Conversation Worker.
 
     Active participant that picks up pending Conversation rows from Supabase,
     runs them through the existing /api/chat pipeline (via chat_function),

@@ -1,4 +1,4 @@
-"""Unit tests for the M2 ConversationEventPublisher."""
+"""Unit tests for the ConversationEventPublisher."""
 from typing import Any, List, Optional
 
 import pytest

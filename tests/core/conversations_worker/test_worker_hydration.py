@@ -1,4 +1,4 @@
-"""Unit tests for the M2 ConversationWorker task hydration logic.
+"""Unit tests for the ConversationWorker task hydration logic.
 
 ``_hydrate_task_from_events`` consumes the flat chronological event list
 returned by the ``get_conversation_events`` RPC: ``[{event, data, ts}, ...]``.

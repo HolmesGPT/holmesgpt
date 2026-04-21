@@ -182,7 +182,7 @@ markers = [
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
-    "conversation_worker: M2 conversation worker integration tests (requires running Holmes + Supabase)",
+    "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "token-limit: Tests that enforce a maximum token usage budget"
 ]
 
