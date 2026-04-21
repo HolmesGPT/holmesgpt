@@ -4,7 +4,7 @@ Realtime manager for the ConversationWorker.
 Runs an asyncio event loop in a background daemon thread. Manages a Supabase
 Realtime subscription that notifies the worker when new pending conversations
 appear.  Two subscription modes are supported (selected via the
-``CONVERSATION_WORKER_USE_PGCHANGES`` env var):
+``CONVERSATION_WORKER_USE_REALTIME_BROADCAST`` env var):
 
  1. **Postgres Changes** (default) — subscribes to INSERT/UPDATE on the
     Conversations table filtered by ``account_id``.
