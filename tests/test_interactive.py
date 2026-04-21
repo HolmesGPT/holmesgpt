@@ -1883,25 +1883,57 @@ class TestBuildShowOutput(unittest.TestCase):
         from holmes.interactive import _build_show_output
         full = "A" * 40 + "B" * 60
         boundary = 40
+        with tempfile.NamedTemporaryFile(
+            prefix="holmes-tool-", suffix=".json", delete=False
+        ) as f:
+            spilled_path = f.name
+        try:
+            result = self._result(
+                data="llm-facing preview (boilerplate + slice)",
+                original_stringified_data=full,
+                llm_preview_boundary_chars=boundary,
+                spilled_file_path=spilled_path,
+                spill_reason="filesystem_spill",
+            )
+            out = _build_show_output(result)
+
+            marker = "--- content below this line was NOT sent to the LLM"
+            self.assertIn(marker, out)
+            self.assertEqual(out.count(marker), 1)
+            # Marker appears exactly at the boundary — prefix unchanged, suffix intact.
+            idx = out.index(marker)
+            prefix = out[:idx].rstrip("\n")
+            self.assertEqual(prefix, full[:boundary])
+            suffix = out[idx:].split("---\n", 1)[1]
+            self.assertEqual(suffix, full[boundary:])
+            self.assertIn(spilled_path, out)
+        finally:
+            os.unlink(spilled_path)
+
+    def test_filesystem_spill_ansi_boundary_maps_to_stripped_index(self):
+        """Boundary recorded in raw (ANSI-containing) data must be mapped
+        to the ANSI-stripped index before slicing, so the marker lines up
+        with the visible content the LLM actually saw."""
+        from holmes.interactive import _build_show_output
+        visible_prefix = "VISIBLE_PREFIX"
+        visible_suffix = "SUFFIX_HIDDEN_FROM_LLM"
+        ansi = "\x1b[31m"  # 5 chars of escape before visible_prefix
+        raw = ansi + visible_prefix + visible_suffix
+        # LLM saw ansi + visible_prefix (spill cut there in the raw stream).
+        raw_boundary = len(ansi) + len(visible_prefix)
         result = self._result(
-            data="llm-facing preview (boilerplate + slice)",
-            original_stringified_data=full,
-            llm_preview_boundary_chars=boundary,
-            spilled_file_path="/tmp/holmes/tool-xyz.json",
+            data="preview",
+            original_stringified_data=raw,
+            llm_preview_boundary_chars=raw_boundary,
             spill_reason="filesystem_spill",
         )
         out = _build_show_output(result)
 
         marker = "--- content below this line was NOT sent to the LLM"
-        self.assertIn(marker, out)
-        self.assertEqual(out.count(marker), 1)
-        # Marker appears exactly at the boundary — prefix unchanged, suffix intact.
         idx = out.index(marker)
-        prefix = out[:idx].rstrip("\n")
-        self.assertEqual(prefix, full[:boundary])
-        suffix = out[idx:].split("---\n", 1)[1]
-        self.assertEqual(suffix, full[boundary:])
-        self.assertIn("/tmp/holmes/tool-xyz.json", out)
+        # The marker must land exactly after visible_prefix in the stripped text.
+        self.assertEqual(out[:idx].rstrip("\n"), visible_prefix)
+        self.assertIn(visible_suffix, out[idx:])
 
     def test_filesystem_spill_without_path(self):
         """Marker omits the 'saved to' clause when no spilled path is recorded."""

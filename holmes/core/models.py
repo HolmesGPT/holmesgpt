@@ -46,12 +46,15 @@ class ToolCallResult(BaseModel):
         }
 
     def to_client_dict(self):
-        # Exclude heavy interactive-only fields from API payloads: the original
-        # pre-spill blob would double payload size on oversized tool results.
+        # Exclude interactive-only spill metadata from API payloads: the
+        # original pre-spill blob would double payload size on oversized tool
+        # results, and the spilled file path is a server-local filesystem
+        # location that should not leak to clients.
         result_dump = self.result.model_dump(
             exclude={
                 "original_stringified_data",
                 "llm_preview_boundary_chars",
+                "spilled_file_path",
                 "spill_reason",
             }
         )

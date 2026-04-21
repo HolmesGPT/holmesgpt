@@ -272,6 +272,7 @@ def test_to_client_dict():
         exclude={
             "original_stringified_data",
             "llm_preview_boundary_chars",
+            "spilled_file_path",
             "spill_reason",
         }
     )

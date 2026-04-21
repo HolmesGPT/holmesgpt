@@ -1431,7 +1431,8 @@ def _build_show_output(result: StructuredToolResult) -> str:
     if result.original_stringified_data is None:
         return strip_ansi_codes(result.get_stringified_data())
 
-    full = strip_ansi_codes(result.original_stringified_data)
+    raw_full = result.original_stringified_data
+    full = strip_ansi_codes(raw_full)
     if result.spill_reason == "dropped_no_storage":
         label = (
             "--- NOTHING below this line was sent to the LLM "
@@ -1439,7 +1440,14 @@ def _build_show_output(result: StructuredToolResult) -> str:
         )
         return label + full
 
-    boundary = result.llm_preview_boundary_chars or 0
+    # The spill boundary is recorded against the *raw* stringified data (which
+    # may contain ANSI escapes), but we display the ANSI-stripped text. Map the
+    # raw index onto the stripped index so the marker lands at the visible
+    # character the LLM actually saw, not offset by whatever escape sequences
+    # happened to live before the boundary.
+    raw_boundary = result.llm_preview_boundary_chars or 0
+    raw_boundary = max(0, min(raw_boundary, len(raw_full)))
+    boundary = len(strip_ansi_codes(raw_full[:raw_boundary]))
     boundary = max(0, min(boundary, len(full)))
     spilled = result.spilled_file_path
     marker = (
