@@ -568,6 +568,7 @@ class BaseGrafanaRenderTool(Tool, ABC):
         config = self._toolset.grafana_config
         if timeout is None:
             timeout = config.timeout_seconds
+        retries = config.max_retries
         base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"
@@ -579,14 +580,26 @@ class BaseGrafanaRenderTool(Tool, ABC):
         # Render API returns PNG, not JSON
         headers["Accept"] = "image/png"
 
-        response = requests.get(
-            url,
-            headers=headers,
-            params=query_params,
-            timeout=timeout,
-            verify=config.verify_ssl,
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            max_tries=retries,
+            giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+            and getattr(e, "response", None) is not None
+            and e.response.status_code < 500,
         )
-        response.raise_for_status()
+        def _do_render_request() -> requests.Response:
+            response = requests.get(
+                url,
+                headers=headers,
+                params=query_params,
+                timeout=timeout,
+                verify=config.verify_ssl,
+            )
+            response.raise_for_status()
+            return response
+
+        response = _do_render_request()
         return response.content
 
     def _render_to_result(
