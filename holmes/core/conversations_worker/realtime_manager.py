@@ -284,7 +284,14 @@ class RealtimeManager:
         return self._channel.state != ChannelStates.JOINED
 
     async def _full_reconnect(self) -> None:
-        """Tear down the current client and re-establish from scratch."""
+        """Tear down the current client and re-establish from scratch.
+
+        Forces a fresh ``sign_in()`` first — ``get_session()`` has not
+        proven reliable at auto-refreshing when the only active consumer
+        is the realtime WebSocket (no postgrest queries to trigger the
+        Supabase client's internal refresh path).  The DAL uses the same
+        re-sign-in pattern on PGRST301 / JWT-expired errors.
+        """
         try:
             if self._client:
                 await self._client.close()
@@ -292,6 +299,16 @@ class RealtimeManager:
             logging.debug("Error closing client during reconnect", exc_info=True)
         self._client = None
         self._channel = None
+        self._last_auth_jwt = None
+        try:
+            # Run the blocking sign_in in a thread so we don't stall the
+            # asyncio loop.
+            await asyncio.to_thread(self.dal.sign_in)
+        except Exception:
+            logging.exception(
+                "Failed to re-sign-in to Supabase before reconnect",
+                exc_info=True,
+            )
         try:
             await self._connect_and_subscribe()
         except Exception:
