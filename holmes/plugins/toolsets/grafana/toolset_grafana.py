@@ -157,7 +157,7 @@ class GrafanaToolset(BaseGrafanaToolset):
                 resp = requests.get(
                     f"{base_url}/render/d-solo/nonexistent/_?panelId=1&width=100&height=100",
                     headers=headers,
-                    timeout=config.timeout_seconds,
+                    timeout=10,
                     verify=config.verify_ssl,
                 )
                 # If renderer is configured, we get a 200 (rendered image) or
