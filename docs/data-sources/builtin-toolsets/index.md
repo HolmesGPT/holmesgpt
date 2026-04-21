@@ -111,6 +111,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-apachekafka:{ .lg .middle } **Kafka**](kafka.md)
 -   [:simple-rabbitmq:{ .lg .middle } **RabbitMQ**](rabbitmq.md)
 -   [:material-console:{ .lg .middle } **Bash**](bash.md)
+-   [:material-source-pull:{ .lg .middle } **Coding Agent**](coding-agent.md)
 -   [:material-network:{ .lg .middle } **Connectivity Check**](connectivity-check.md)
 -   [:material-web:{ .lg .middle } **Internet**](internet.md)
 

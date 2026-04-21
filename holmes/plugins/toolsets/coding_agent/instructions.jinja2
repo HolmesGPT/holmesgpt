@@ -1,0 +1,25 @@
+## Coding Agent Toolset
+
+You have access to a tool that can delegate code changes to an autonomous coding agent.
+
+### When to Use
+
+Use `delegate_to_coding_agent` when:
+- You have identified a specific code fix after investigating an issue
+- The user asks you to fix something in a repository
+- You have enough context to describe what needs to change
+
+### How to Use
+
+1. First, complete your investigation to understand the problem
+2. Formulate a clear, detailed task description that includes:
+   - What the problem is (from your investigation)
+   - Which files are likely involved
+   - What the fix should look like
+3. Call the tool with the task, repository URL, base branch, and PR title
+
+### Tips
+
+- Be as specific as possible in the task description — the coding agent works better with detailed instructions
+- Include relevant error messages, log snippets, or metric values from your investigation
+- The coding agent will create a draft PR that requires human review before merging
