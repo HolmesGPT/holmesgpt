@@ -134,7 +134,7 @@ class GrafanaToolset(BaseGrafanaToolset):
             resp = requests.get(
                 f"{base_url}/api/rendering/version",
                 headers=headers,
-                timeout=config.timeout_seconds,
+                timeout=10,
                 verify=config.verify_ssl,
             )
             if resp.status_code == 200:
