@@ -38,7 +38,8 @@ class TestGrafanaConfigTimeoutRetries:
 
     def test_dashboard_config_inherits_timeout_and_retries(self):
         config = GrafanaDashboardConfig(api_url="https://example.com", max_retries=7)
-        assert config.timeout_seconds == 30
+        # Dashboard config overrides timeout_seconds default to 60s since rendering can be slow.
+        assert config.timeout_seconds == 60
         assert config.max_retries == 7
 
     def test_invalid_timeout_rejected(self):

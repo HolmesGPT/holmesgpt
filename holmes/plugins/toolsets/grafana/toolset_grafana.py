@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 class GrafanaDashboardConfig(GrafanaConfig):
     """Configuration specific to Grafana Dashboard toolset."""
 
+    timeout_seconds: int = Field(
+        default=60,
+        gt=0,
+        title="Timeout Seconds",
+        description="Request timeout in seconds for Grafana API calls. "
+        "Defaults to 60s because dashboard rendering can be slow.",
+    )
     enable_rendering: bool = Field(
         default=False,
         title="Enable Rendering",
@@ -557,7 +564,8 @@ class BaseGrafanaRenderTool(Tool, ABC):
         Args:
             render_path: Render URL path (e.g. "render/d-solo/uid/slug")
             query_params: Query parameters for the render request
-            timeout: Request timeout in seconds. Defaults to config.timeout_seconds.
+            timeout: Request timeout in seconds. Defaults to config.timeout_seconds
+                (60s by default on GrafanaDashboardConfig — rendering can be slow).
 
         Returns:
             PNG image bytes
