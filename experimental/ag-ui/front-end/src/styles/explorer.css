@@ -15,25 +15,18 @@
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-default);
   transition: background var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
-.explorer-title {
-  width: 100%;
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 0;
-  text-align: left;
-  font: inherit;
-  color: inherit;
+.explorer-title-text {
+  flex: 1;
+  min-width: 0;
 }
 
-.explorer-title:hover {
-  background: var(--bg-surface);
-  border-radius: var(--radius-sm);
-}
-
-.explorer-title h4 {
+.explorer-title-text h4 {
   margin: 0 0 0.2rem 0;
   color: var(--text-secondary);
   font-size: 0.9rem;
@@ -43,10 +36,34 @@
   gap: 0.5rem;
 }
 
-.explorer-title p {
+.explorer-title-text p {
   margin: 0;
   color: var(--text-faint);
   font-size: 0.8rem;
+}
+
+.explorer-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.65rem;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.explorer-toggle-btn:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.explorer-toggle-btn .series-count {
+  white-space: nowrap;
 }
 
 .toggle-icon {

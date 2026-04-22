@@ -1,6 +1,15 @@
 /* ============================================================
    SIDEBAR — Left Navigation Panel
    ============================================================ */
+
+/* ── Sidebar Tokens ── */
+:root {
+  --nav-item-color: #555555;
+  --nav-item-active-bg: #1A1A1A;
+  --nav-item-active-border: #6366F1;
+  --nav-item-active-color: #E5E5E5;
+  --nav-item-disabled-color: #555555;
+}
 .left-sidebar {
   width: var(--sidebar-width);
   background: var(--glass-bg-heavy);
@@ -67,6 +76,11 @@
   color: var(--text-primary);
 }
 
+.sidebar-collapse-btn:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: 2px;
+}
+
 .sidebar-collapse-btn svg {
   width: 14px;
   height: 14px;
@@ -96,7 +110,7 @@
   border: none;
   border-left: 2px solid transparent;
   border-radius: 0;
-  color: #555555;
+  color: var(--nav-item-color);
   font-size: 0.9rem;
   font-weight: 500;
   font-family: var(--font-primary);
@@ -116,23 +130,28 @@
   transform: scale(0.98);
 }
 
+.nav-item:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: -2px;
+}
+
 .nav-item.active {
-  background-color: #1A1A1A;
-  border-left: 2px solid #6366F1;
-  color: #E5E5E5;
+  background-color: var(--nav-item-active-bg);
+  border-left: 2px solid var(--nav-item-active-border);
+  color: var(--nav-item-active-color);
   font-weight: 500;
 }
 
 /* ── Disabled / Coming Soon ── */
 .nav-item.disabled {
-  color: #555555;
+  color: var(--nav-item-disabled-color);
   cursor: default;
   pointer-events: none;
 }
 
 .nav-item.disabled:hover {
   background: transparent;
-  color: #555555;
+  color: var(--nav-item-disabled-color);
   transform: none;
 }
 
@@ -147,7 +166,7 @@
 .nav-icon svg {
   width: 18px;
   height: 18px;
-  stroke: currentColor;
+  stroke: currentcolor;
   fill: none;
   stroke-width: 2;
   stroke-linecap: round;
@@ -172,7 +191,7 @@
 .nav-status-dot.checking {
   background: var(--status-checking);
   box-shadow: 0 0 6px var(--status-checking-glow);
-  animation: statusPulse 1.5s infinite;
+  animation: status-pulse 1.5s infinite;
 }
 
 .nav-status-dot.disconnected {
@@ -184,7 +203,7 @@
   box-shadow: 0 0 6px var(--status-error-glow);
 }
 
-@keyframes statusPulse {
+@keyframes status-pulse {
 
   0%,
   100% {
@@ -234,7 +253,7 @@
 }
 
 .github-logo {
-  fill: currentColor;
+  fill: currentcolor;
   width: 12px;
   height: 12px;
   transition: transform var(--transition-fast);

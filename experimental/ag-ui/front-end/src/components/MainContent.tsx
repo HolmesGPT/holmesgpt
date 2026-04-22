@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import GraphVisualization from './GraphVisualization';
 import LogsVisualization from './LogsVisualization';
 type ObservabilityPage = 'metrics' | 'logs' | 'traces';
@@ -74,6 +74,10 @@ const MainContent: React.FC<MainContentProps> = ({
   const [showExplorer, setShowExplorer] = useState(false);
   const [showIndicesExplorer, setShowIndicesExplorer] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+
+  // Ref for query textarea (used by example chip flash effect)
+  const queryInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Helper function to create OpenSearch auth headers
   const getOpensearchHeaders = React.useCallback(() => {
@@ -787,6 +791,21 @@ const MainContent: React.FC<MainContentProps> = ({
     }));
   };
 
+  // Shared handler for example-chip clicks
+  const handleExampleChipClick = useCallback((value: string) => {
+    setQuery(value);
+    if (flashTimerRef.current) {
+      clearTimeout(flashTimerRef.current);
+    }
+    if (queryInputRef.current) {
+      queryInputRef.current.classList.add('flash');
+      flashTimerRef.current = setTimeout(() => {
+        queryInputRef.current?.classList.remove('flash');
+        flashTimerRef.current = null;
+      }, 500);
+    }
+  }, []);
+
   // Track processed trigger queries to prevent infinite loops
   const processedTriggerQuery = React.useRef<string | null>(null);
 
@@ -911,6 +930,7 @@ const MainContent: React.FC<MainContentProps> = ({
               className="retry-connection-btn"
               onClick={() => checkPrometheusConnection(true)}
               title="Retry connection"
+              aria-label="Retry connection"
             >
               ↺
             </button>
@@ -937,6 +957,7 @@ const MainContent: React.FC<MainContentProps> = ({
               className="retry-connection-btn"
               onClick={() => checkOpensearchConnection(true)}
               title="Retry connection"
+              aria-label="Retry connection"
             >
               ↺
             </button>
@@ -949,15 +970,18 @@ const MainContent: React.FC<MainContentProps> = ({
       {selectedPage === 'metrics' && prometheusStatus === 'connected' && (
         <div className="prometheus-explorer">
           <div className="explorer-header">
-            <button type="button" className="explorer-title" onClick={() => setShowExplorer(!showExplorer)} aria-expanded={showExplorer}>
+            <div className="explorer-title-text">
               <h4>
                 Prometheus Series Explorer
                 {availableMetrics.length > 0 && (
                   <span className="series-count-pill">({availableMetrics.length})</span>
                 )}
-                <span className="toggle-icon">{showExplorer ? '▼' : '▶'}</span>
               </h4>
               <p>Browse series, labels, and values to build your query</p>
+            </div>
+            <button type="button" className="explorer-toggle-btn" onClick={() => setShowExplorer(!showExplorer)} aria-expanded={showExplorer} aria-label={showExplorer ? 'Collapse series explorer' : 'Expand series explorer'}>
+              <span className="toggle-icon">{showExplorer ? '▼' : '▶'}</span>
+              <span className="series-count">{availableMetrics.length} series</span>
             </button>
           </div>
 
@@ -1057,15 +1081,18 @@ const MainContent: React.FC<MainContentProps> = ({
       {selectedPage === 'logs' && opensearchStatus === 'connected' && (
         <div className="prometheus-explorer">
           <div className="explorer-header">
-            <button type="button" className="explorer-title" onClick={() => setShowIndicesExplorer(!showIndicesExplorer)} aria-expanded={showIndicesExplorer}>
+            <div className="explorer-title-text">
               <h4>
                 OpenSearch Indices Explorer
                 {availableIndices.length > 0 && (
                   <span className="series-count-pill">({availableIndices.length})</span>
                 )}
-                <span className="toggle-icon">{showIndicesExplorer ? '▼' : '▶'}</span>
               </h4>
               <p>Browse available indices to build your PPL query</p>
+            </div>
+            <button type="button" className="explorer-toggle-btn" onClick={() => setShowIndicesExplorer(!showIndicesExplorer)} aria-expanded={showIndicesExplorer} aria-label={showIndicesExplorer ? 'Collapse indices explorer' : 'Expand indices explorer'}>
+              <span className="toggle-icon">{showIndicesExplorer ? '▼' : '▶'}</span>
+              <span className="series-count">{availableIndices.length} indices</span>
             </button>
           </div>
 
@@ -1130,6 +1157,7 @@ const MainContent: React.FC<MainContentProps> = ({
                 </div>
               </div>
               <textarea
+                ref={queryInputRef}
                 id="query-input"
                 className="query-input"
                 value={query}
@@ -1174,15 +1202,15 @@ const MainContent: React.FC<MainContentProps> = ({
             <div className="example-chips">
               {selectedPage === 'metrics' && (
                 <>
-                  <button className="example-chip" onClick={() => { setQuery('up'); const el = document.getElementById('query-input'); if(el) el.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 500); }}>up<span className="chip-arrow">→</span></button>
-                  <button className="example-chip" onClick={() => { setQuery('rate(http_requests_total[5m])'); const el = document.getElementById('query-input'); if(el) el.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 500); }}>rate(http_requests_total[5m])<span className="chip-arrow">→</span></button>
-                  <button className="example-chip" onClick={() => { setQuery('process_cpu_seconds_total'); const el = document.getElementById('query-input'); if(el) el.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 500); }}>process_cpu_seconds_total<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('up')}>up<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('rate(http_requests_total[5m])')}>rate(http_requests_total[5m])<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('process_cpu_seconds_total')}>process_cpu_seconds_total<span className="chip-arrow">→</span></button>
                 </>
               )}
               {selectedPage === 'logs' && (
                 <>
-                  <button className="example-chip" onClick={() => { setQuery('source=logs-* | head 10'); const el = document.getElementById('query-input'); if(el) el.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 500); }}>source=logs-* | head 10<span className="chip-arrow">→</span></button>
-                  <button className="example-chip" onClick={() => { setQuery('source=logs-* | where severity="ERROR"'); const el = document.getElementById('query-input'); if(el) el.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 500); }}>source=logs-* | where severity="ERROR"<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('source=logs-* | head 10')}>source=logs-* | head 10<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('source=logs-* | where severity="ERROR"')}>source=logs-* | where severity="ERROR"<span className="chip-arrow">→</span></button>
                 </>
               )}
             </div>
