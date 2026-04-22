@@ -144,7 +144,7 @@
   padding: 0.4rem 0.5rem;
   border-right: 1px solid var(--border-muted);
   vertical-align: top;
-  word-wrap: break-word;
+  overflow-wrap: break-word;
   overflow: hidden;
   line-height: 1.4;
   color: var(--text-secondary);

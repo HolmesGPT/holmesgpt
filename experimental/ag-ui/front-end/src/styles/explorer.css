@@ -14,15 +14,18 @@
   padding: 0.75rem 1.25rem;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-default);
-  cursor: pointer;
   transition: background var(--transition-fast);
 }
 
-.explorer-header:hover {
-  background: var(--bg-surface);
+.explorer-title {
+  width: 100%;
+  cursor: pointer;
 }
 
-.explorer-title { width: 100%; }
+.explorer-title:hover {
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+}
 
 .explorer-title h4 {
   margin: 0 0 0.2rem 0;

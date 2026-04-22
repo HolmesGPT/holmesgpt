@@ -274,7 +274,7 @@
   .run-button {
     width: 100%;
     border-radius: 0 0 4px 4px;
-    border-left: 1px solid var(--accent-purple);
+    border-left: 1px solid var(--border-default);
     border-top: none;
     height: 40px;
   }

@@ -1,6 +1,7 @@
 /* ============================================================
    App.css — Import Hub
-   All component styles are now in src/styles/
+   Most component styles moved to src/styles/; some component-scoped
+   styles remain (e.g., GraphVisualization.css, ChatAssistant.css).
    ============================================================ */
 @import './styles/sidebar.css';
 @import './styles/layout.css';

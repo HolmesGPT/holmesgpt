@@ -32,7 +32,7 @@
 .empty-state p {
   margin: 0;
   font-size: 13px;
-  color: #555555;
+  color: var(--text-muted);
 }
 
 .empty-state .empty-subtitle {
@@ -102,7 +102,7 @@
   padding: 1.5rem;
 }
 
-.graph-container {
+.result-content .graph-container {
   background: var(--bg-inset);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);

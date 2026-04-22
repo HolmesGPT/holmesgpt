@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="ExampleOps — AI-powered observability platform by HolmesGPT. Query metrics, logs, and traces with natural language." />
     <meta name="theme-color" content="#0D1117" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+    <!-- Self-hosted fonts — preload the two most-used weights -->
+    <link rel="preload" href="%PUBLIC_URL%/fonts/inter/inter-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="%PUBLIC_URL%/fonts/fira-code/fira-code-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="%PUBLIC_URL%/fonts/fonts.css" />
     <title>ExampleOps ✨ — AI Observability Platform</title>
   </head>
   <body>

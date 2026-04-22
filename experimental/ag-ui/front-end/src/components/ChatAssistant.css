@@ -218,7 +218,7 @@
   max-width: 85%;
   padding: 0.7rem 0.9rem;
   border-radius: var(--radius-lg);
-  word-wrap: break-word;
+  overflow-wrap: break-word;
   position: relative;
 }
 

@@ -1,6 +1,7 @@
 /* ============================================================
    DESIGN TOKENS — ExampleOps Design System
    ============================================================ */
+
 :root {
   /* ── Background Colors ── */
   --bg-primary: #0D1117;
@@ -142,6 +143,19 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent-purple);
   outline-offset: 2px;
+}
+
+/* ── Accessibility ── */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ── Utility Animations ── */

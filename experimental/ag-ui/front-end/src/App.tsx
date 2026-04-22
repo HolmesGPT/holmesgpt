@@ -137,13 +137,19 @@ const App: React.FC = () => {
     <div className="app">
       <div className={`left-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
-          <h2>{sidebarCollapsed ? '' : 'ExampleOps'}</h2>
+          <h2>
+            {sidebarCollapsed
+              ? <span className="visually-hidden">ExampleOps</span>
+              : 'ExampleOps'}
+          </h2>
           <button
             className="sidebar-collapse-btn"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!sidebarCollapsed}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points={sidebarCollapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6"} />
             </svg>
           </button>

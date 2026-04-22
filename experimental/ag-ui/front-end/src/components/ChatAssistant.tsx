@@ -1011,7 +1011,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
             disabled={isLoading || isThinking}
           />
           {inputValue.length === 0 && (
-            <span className="input-hint">⌘↵</span>
+            <span className="input-hint">↵</span>
           )}
           {inputValue.length > 0 && (
             <span className="char-count">{inputValue.length}</span>
