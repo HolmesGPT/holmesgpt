@@ -949,7 +949,7 @@ const MainContent: React.FC<MainContentProps> = ({
       {selectedPage === 'metrics' && prometheusStatus === 'connected' && (
         <div className="prometheus-explorer">
           <div className="explorer-header">
-            <div className="explorer-title" onClick={() => setShowExplorer(!showExplorer)}>
+            <button type="button" className="explorer-title" onClick={() => setShowExplorer(!showExplorer)} aria-expanded={showExplorer}>
               <h4>
                 Prometheus Series Explorer
                 {availableMetrics.length > 0 && (
@@ -958,7 +958,7 @@ const MainContent: React.FC<MainContentProps> = ({
                 <span className="toggle-icon">{showExplorer ? '▼' : '▶'}</span>
               </h4>
               <p>Browse series, labels, and values to build your query</p>
-            </div>
+            </button>
           </div>
 
           {showExplorer && (
@@ -1057,7 +1057,7 @@ const MainContent: React.FC<MainContentProps> = ({
       {selectedPage === 'logs' && opensearchStatus === 'connected' && (
         <div className="prometheus-explorer">
           <div className="explorer-header">
-            <div className="explorer-title" onClick={() => setShowIndicesExplorer(!showIndicesExplorer)}>
+            <button type="button" className="explorer-title" onClick={() => setShowIndicesExplorer(!showIndicesExplorer)} aria-expanded={showIndicesExplorer}>
               <h4>
                 OpenSearch Indices Explorer
                 {availableIndices.length > 0 && (
@@ -1066,7 +1066,7 @@ const MainContent: React.FC<MainContentProps> = ({
                 <span className="toggle-icon">{showIndicesExplorer ? '▼' : '▶'}</span>
               </h4>
               <p>Browse available indices to build your PPL query</p>
-            </div>
+            </button>
           </div>
 
           {showIndicesExplorer && (

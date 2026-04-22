@@ -15,7 +15,7 @@
   justify-content: center;
   min-height: 240px;
   text-align: center;
-  animation: fadeIn 0.5s ease;
+  animation: fade-in 0.5s ease;
 }
 
 /* Hide any icon/container elements */
@@ -54,7 +54,7 @@
   box-shadow: var(--shadow-md);
   overflow: hidden;
   transition: all var(--transition-base);
-  animation: fadeIn 0.4s ease;
+  animation: fade-in 0.4s ease;
 }
 
 .result-item:hover {

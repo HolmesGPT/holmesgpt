@@ -205,7 +205,7 @@
 /* ── Message Wrapper (no avatars) ── */
 .message-wrapper {
   display: flex;
-  animation: fadeIn 0.3s ease;
+  animation: fade-in 0.3s ease;
 }
 
 .message-wrapper.user { flex-direction: row-reverse; }
@@ -338,7 +338,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  animation: fadeIn 0.3s ease;
+  animation: fade-in 0.3s ease;
 }
 
 .thinking-text { font-size: 0.8rem; font-style: italic; }

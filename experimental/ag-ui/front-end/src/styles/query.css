@@ -83,7 +83,7 @@
 .editor-action-btn svg {
   width: 14px;
   height: 14px;
-  stroke: currentColor;
+  stroke: currentcolor;
   fill: none;
   stroke-width: 2;
   stroke-linecap: round;
@@ -124,10 +124,10 @@
 
 /* Flash effect when chip populates editor */
 .query-input.flash {
-  animation: editorFlash 0.5s ease;
+  animation: editor-flash 0.5s ease;
 }
 
-@keyframes editorFlash {
+@keyframes editor-flash {
   0% { background: rgba(139, 92, 246, 0.12); }
   100% { background: transparent; }
 }

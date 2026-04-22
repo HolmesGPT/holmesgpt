@@ -20,6 +20,12 @@
 .explorer-title {
   width: 100%;
   cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
 }
 
 .explorer-title:hover {

@@ -185,8 +185,17 @@
 }
 
 @keyframes statusPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.7); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
 }
 
 /* ── Nav separator ── */
@@ -247,6 +256,7 @@
     transform: translateX(-100%);
     transition: transform var(--transition-slow);
   }
+
   .left-sidebar.mobile-open {
     transform: translateX(0);
   }
