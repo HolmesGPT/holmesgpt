@@ -1,0 +1,284 @@
+/* ============================================================
+   QUERY — Code-Editor Style Query Input
+   ============================================================ */
+.query-section {
+  background: transparent;
+  border-bottom: 1px solid var(--border-muted);
+  padding: 1.5rem var(--space-3xl);
+  width: 100%;
+}
+
+/* ── Editor + Run Button Row ── */
+.query-editor-row {
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── Editor Container ── */
+.query-editor-container {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  overflow: hidden;
+  transition: border-color var(--transition-base);
+}
+
+.query-editor-container:focus-within {
+  border-color: var(--accent-purple);
+}
+
+/* ── Editor Top Bar ── */
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* Fix #6: plain muted text label, no badge */
+.editor-lang-label {
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #555555;
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.editor-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-size: 0.8rem;
+}
+
+.editor-action-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.editor-action-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Textarea ── */
+.query-input-wrapper {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.query-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  min-height: 72px;
+  outline: none;
+  display: block;
+  box-sizing: border-box;
+}
+
+.query-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* Thin styled scrollbar */
+.query-input::-webkit-scrollbar { width: 4px; }
+.query-input::-webkit-scrollbar-track { background: transparent; }
+.query-input::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 2px; }
+
+/* Flash effect when chip populates editor */
+.query-input.flash {
+  animation: editorFlash 0.5s ease;
+}
+
+@keyframes editorFlash {
+  0% { background: rgba(139, 92, 246, 0.12); }
+  100% { background: transparent; }
+}
+
+/* ── Run Button — flush right of editor ── */
+.run-button {
+  width: 72px;
+  flex-shrink: 0;
+  background: #1A1A2E;
+  color: #E5E5E5;
+  border: 1px solid var(--border-default);
+  border-left: 1px solid var(--border-default);
+  border-radius: 0 4px 4px 0;
+  font-weight: 500;
+  font-size: 13px;
+  font-family: var(--font-primary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.run-button:hover:not(:disabled) {
+  background: #252547;
+  color: white;
+}
+
+.run-button:active:not(:disabled) {
+  background: #161630;
+}
+
+.run-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.run-button .btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── Clear Button Row ── */
+.query-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.5rem 0 0 0;
+}
+
+.clear-button {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  border: 1px solid var(--border-default);
+  padding: 0.4rem 0.85rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: var(--font-primary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.clear-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+/* Legacy compat — hide old elements */
+.query-label-row { display: none; }
+.query-hint-inline { display: none; }
+.query-hint { display: none; }
+.query-input-container { width: 100%; }
+.execute-button { display: none; } /* replaced by .run-button */
+
+/* ── Example Query Chips ── */
+.example-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 1.25rem;
+  max-width: 440px;
+}
+
+.example-chips-title {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+/* Fix #12: uniform 1px border all sides, no purple left accent */
+.example-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #2A2A2A;
+  color: var(--text-secondary);
+  padding: 0.5rem 0.85rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+  width: 100%;
+}
+
+.example-chip:hover {
+  border-color: #6366F1;
+}
+
+.example-chip:hover .chip-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.chip-arrow {
+  margin-left: auto;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all var(--transition-base);
+  color: var(--accent-purple-light);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .query-editor-row {
+    flex-direction: column;
+  }
+  .query-editor-container {
+    border-radius: 4px 4px 0 0;
+    border-right: 1px solid var(--border-default);
+  }
+  .run-button {
+    width: 100%;
+    border-radius: 0 0 4px 4px;
+    border-left: 1px solid var(--accent-purple);
+    border-top: none;
+    height: 40px;
+  }
+  .editor-toolbar {
+    flex-wrap: wrap;
+  }
+}
