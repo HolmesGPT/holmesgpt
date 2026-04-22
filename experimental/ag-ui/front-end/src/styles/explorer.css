@@ -1,0 +1,210 @@
+/* ============================================================
+   EXPLORER — Prometheus Series & OpenSearch Indices
+   ============================================================ */
+.prometheus-explorer {
+  margin: 0.75rem var(--space-3xl);
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.explorer-header {
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.explorer-header:hover {
+  background: var(--bg-surface);
+}
+
+.explorer-title { width: 100%; }
+
+.explorer-title h4 {
+  margin: 0 0 0.2rem 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.explorer-title p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.toggle-icon {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  transition: transform var(--transition-fast);
+  margin-left: auto;
+}
+
+.series-count-pill {
+  background: var(--accent-purple-dim);
+  color: var(--accent-purple-light);
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-pill);
+}
+
+.explorer-boxes {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px;
+  background: var(--border-default);
+}
+
+.explorer-box {
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  max-height: 280px;
+}
+
+.box-header {
+  padding: 0.6rem 1rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.box-header h5 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.box-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.4rem;
+}
+
+.explorer-item {
+  padding: 0.4rem 0.65rem;
+  margin: 0.15rem 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  word-break: break-all;
+}
+
+.explorer-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.explorer-item.selected {
+  background: var(--accent-purple-dim);
+  border-color: var(--accent-purple);
+  color: var(--accent-purple-light);
+}
+
+.explorer-item.selected:hover {
+  background: rgba(139, 92, 246, 0.25);
+}
+
+.empty-box {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--text-faint);
+  font-style: italic;
+  font-size: 0.8rem;
+}
+
+/* ── OpenSearch single-box ── */
+.opensearch-single-box { grid-column: 1 / -1; }
+.explorer-boxes:has(.opensearch-single-box),
+.explorer-boxes.single-box { grid-template-columns: 1fr; }
+
+.query-helper-text {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  font-style: italic;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+/* ── Indices Discovery (compact) ── */
+.indices-discovery-section {
+  margin: 0.5rem var(--space-3xl);
+  padding: 0.6rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 52px;
+}
+
+.indices-discovery-header { flex: 1; min-width: 0; }
+.indices-discovery-header h4 { margin: 0 0 0.15rem 0; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; }
+.indices-discovery-header p { margin: 0; color: var(--text-faint); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.show-indices-btn {
+  background: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-indigo) 100%);
+  color: white;
+  border: none;
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: var(--font-primary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 150px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.show-indices-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
+.show-indices-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.dropdown-arrow { font-size: 0.7rem; transition: transform var(--transition-fast); }
+.dropdown-arrow.up { transform: rotate(180deg); }
+
+.indices-count { color: var(--accent-purple-light); font-weight: 600; margin-left: 0.5rem; }
+.indices-count-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .explorer-boxes { grid-template-columns: 1fr; gap: 0; }
+  .explorer-box { min-height: 140px; max-height: 180px; }
+  .prometheus-explorer { margin-left: var(--space-xl); margin-right: var(--space-xl); }
+}
+
+@media (max-width: 768px) {
+  .indices-discovery-section { flex-direction: column; align-items: flex-start; gap: 0.5rem; margin-left: var(--space-xl); margin-right: var(--space-xl); }
+  .show-indices-btn { align-self: stretch; }
+}

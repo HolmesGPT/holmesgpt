@@ -1,0 +1,89 @@
+/* ============================================================
+   MODAL — Graph/Visualization Maximized View
+   ============================================================ */
+.graph-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.graph-modal {
+  width: 92vw;
+  height: 88vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.graph-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.75rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.graph-modal-title h3 {
+  margin: 0 0 0.25rem 0;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.graph-modal-query code {
+  background: var(--bg-inset);
+  color: var(--accent-blue);
+  border: 1px solid var(--border-default);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.graph-modal-content {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+}
+
+.close-modal-button {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  transition: all var(--transition-base);
+}
+
+.close-modal-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+/* ── Brand/Tooltip (kept for compat) ── */
+.brand-title { position: relative; cursor: help; }
+.brand-credit { opacity: 0.5; font-size: 0.75rem; }
+.brand-tooltip { display: none; }
+
+/* ── Service Icons ── */
+.service-icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
