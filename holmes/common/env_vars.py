@@ -45,8 +45,8 @@ LOG_PERFORMANCE = os.environ.get("LOG_PERFORMANCE", None)
 
 
 AZURE_AD_TOKEN_AUTH = load_bool("AZURE_AD_TOKEN_AUTH", False)
-# Override the default scope used when acquiring Entra ID tokens for Azure OpenAI/Foundry endpoints
-# Default aligns with Azure Cognitive Services (Azure OpenAI)
+# Override the default scope used when acquiring Entra ID tokens for Azure AI Foundry endpoints
+# Default aligns with Azure Cognitive Services (Azure AI Foundry)
 AZURE_COGNITIVE_SERVICES_SCOPE = os.environ.get(
     "AZURE_COGNITIVE_SERVICES_SCOPE",
     "https://cognitiveservices.azure.com/.default",
@@ -130,6 +130,10 @@ RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION = load_bool(
 )
 
 SSE_READ_TIMEOUT = float(os.environ.get("SSE_READ_TIMEOUT", "120"))
+
+MCP_TOOL_CALL_TIMEOUT_SEC = float(
+    os.environ.get("MCP_TOOL_CALL_TIMEOUT_SEC", SSE_READ_TIMEOUT)
+)
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
 

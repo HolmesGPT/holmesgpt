@@ -1698,3 +1698,103 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Tests for _has_bash_for_file_access
+# ---------------------------------------------------------------------------
+
+class TestHasBashForFileAccess:
+    """Tests for ToolCallingLLM._has_bash_for_file_access.
+
+    Covers the three possible states of toolset.config:
+      - None  (no user override; toolset uses builtin defaults)
+      - dict  (user override loaded from config.yaml but not yet lazily initialized)
+      - model object (BashExecutorConfig; fully initialized after prerequisites_callable)
+    """
+
+    def _make_ai(self, toolsets, mock_llm):
+        executor = MagicMock(spec=ToolExecutor)
+        executor.enabled_toolsets = toolsets
+        return ToolCallingLLM(
+            tool_executor=executor,
+            max_steps=5,
+            llm=mock_llm,
+            tool_results_dir=None,
+        )
+
+    def _bash_toolset(self, config):
+        ts = MagicMock()
+        ts.name = "bash"
+        ts.config = config
+        return ts
+
+    def _other_toolset(self):
+        ts = MagicMock()
+        ts.name = "kubernetes"
+        ts.config = None
+        return ts
+
+    def test_no_bash_toolset_returns_false(self, mock_llm):
+        """Returns False when the bash toolset is not present."""
+        ai = self._make_ai([self._other_toolset()], mock_llm)
+        assert ai._has_bash_for_file_access() is False
+
+    def test_empty_toolset_list_returns_false(self, mock_llm):
+        """Returns False when there are no enabled toolsets at all."""
+        ai = self._make_ai([], mock_llm)
+        assert ai._has_bash_for_file_access() is False
+
+    def test_config_none_returns_true(self, mock_llm):
+        """config=None means the toolset uses defaults (builtin_allowlist='core'),
+        which permits file access."""
+        ai = self._make_ai([self._bash_toolset(None)], mock_llm)
+        assert ai._has_bash_for_file_access() is True
+
+    def test_config_dict_empty_returns_true(self, mock_llm):
+        """An empty dict defaults to builtin_allowlist='core', so file access is allowed."""
+        ai = self._make_ai([self._bash_toolset({})], mock_llm)
+        assert ai._has_bash_for_file_access() is True
+
+    def test_config_dict_core_returns_true(self, mock_llm):
+        """builtin_allowlist='core' explicitly set in dict → file access allowed."""
+        ai = self._make_ai([self._bash_toolset({"builtin_allowlist": "core"})], mock_llm)
+        assert ai._has_bash_for_file_access() is True
+
+    def test_config_dict_extended_returns_true(self, mock_llm):
+        """builtin_allowlist='extended' set in dict → file access allowed."""
+        ai = self._make_ai([self._bash_toolset({"builtin_allowlist": "extended"})], mock_llm)
+        assert ai._has_bash_for_file_access() is True
+
+    def test_config_dict_none_allowlist_returns_false(self, mock_llm):
+        """builtin_allowlist='none' set in dict → no builtin commands, file access denied."""
+        ai = self._make_ai([self._bash_toolset({"builtin_allowlist": "none"})], mock_llm)
+        assert ai._has_bash_for_file_access() is False
+
+    def test_config_model_core_returns_true(self, mock_llm):
+        """Fully-initialized BashExecutorConfig with builtin_allowlist='core'."""
+        from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
+        cfg = BashExecutorConfig(builtin_allowlist="core")
+        ai = self._make_ai([self._bash_toolset(cfg)], mock_llm)
+        assert ai._has_bash_for_file_access() is True
+
+    def test_config_model_extended_returns_true(self, mock_llm):
+        """Fully-initialized BashExecutorConfig with builtin_allowlist='extended'."""
+        from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
+        cfg = BashExecutorConfig(builtin_allowlist="extended")
+        ai = self._make_ai([self._bash_toolset(cfg)], mock_llm)
+        assert ai._has_bash_for_file_access() is True
+
+    def test_config_model_none_allowlist_returns_false(self, mock_llm):
+        """Fully-initialized BashExecutorConfig with builtin_allowlist='none'."""
+        from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
+        cfg = BashExecutorConfig(builtin_allowlist="none")
+        ai = self._make_ai([self._bash_toolset(cfg)], mock_llm)
+        assert ai._has_bash_for_file_access() is False
+
+    def test_config_model_default_returns_true(self, mock_llm):
+        """BashExecutorConfig with no explicit allowlist uses default 'core'."""
+        from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
+        cfg = BashExecutorConfig()
+        ai = self._make_ai([self._bash_toolset(cfg)], mock_llm)
+        assert ai._has_bash_for_file_access() is True

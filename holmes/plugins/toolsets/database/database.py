@@ -2,6 +2,8 @@ import logging
 import os
 import re
 from abc import ABC
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 from urllib.parse import urlparse
 
@@ -16,6 +18,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    ToolsetType,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -43,17 +46,46 @@ _WRITE_ANYWHERE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Map of common URL scheme prefixes to SQLAlchemy drivers that are pure-Python
-# and bundled with holmesgpt (no C extensions needed).
-_DRIVER_MAP: Dict[str, str] = {
-    "postgresql": "postgresql+pg8000",
-    "postgres": "postgresql+pg8000",
-    "mysql": "mysql+pymysql",
-    "mysql+mysqldb": "mysql+pymysql",
-    "mariadb": "mysql+pymysql",
-    "sqlite": "sqlite",
-    "mssql": "mssql+pymssql",
+
+class DatabaseSubtype(str, Enum):
+    MYSQL = "mysql"
+    POSTGRESQL = "postgresql"
+    MSSQL = "mssql"
+    SQLITE = "sqlite"
+    CLICKHOUSE = "clickhouse"
+    MARIADB = "mariadb"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class DatabaseDriverInfo:
+    """Holds the database subtype and the preferred SQLAlchemy driver override."""
+
+    subtype: DatabaseSubtype
+    driver: Optional[str]  # SQLAlchemy driver string, None = use URL as-is
+
+
+# Unified mapping from URL scheme keywords to driver info.
+# Detection uses "contains" matching: if the URL scheme contains the key,
+# the corresponding driver info is used. Keys are ordered longest-first
+# to avoid partial matches (e.g., "mssql" before "sql").
+_DATABASE_DRIVERS: Dict[str, DatabaseDriverInfo] = {
+    "postgresql": DatabaseDriverInfo(DatabaseSubtype.POSTGRESQL, "postgresql+pg8000"),
+    "postgres": DatabaseDriverInfo(DatabaseSubtype.POSTGRESQL, "postgresql+pg8000"),
+    "mysql": DatabaseDriverInfo(DatabaseSubtype.MYSQL, "mysql+pymysql"),
+    "mariadb": DatabaseDriverInfo(DatabaseSubtype.MARIADB, "mysql+pymysql"),
+    "sqlite": DatabaseDriverInfo(DatabaseSubtype.SQLITE, None),
+    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pymssql"),
+    "clickhouse": DatabaseDriverInfo(DatabaseSubtype.CLICKHOUSE, None),
 }
+
+
+def _lookup_driver_info(scheme: str) -> Optional[DatabaseDriverInfo]:
+    """Find the DatabaseDriverInfo for a URL scheme using contains matching."""
+    for key, info in _DATABASE_DRIVERS.items():
+        if key in scheme:
+            return info
+    return None
 
 
 def _normalise_url(raw_url: str) -> str:
@@ -61,15 +93,18 @@ def _normalise_url(raw_url: str) -> str:
     parsed = urlparse(raw_url)
     scheme = parsed.scheme  # e.g. "postgresql", "mysql+pymysql", "postgres"
 
-    for prefix, replacement in _DRIVER_MAP.items():
-        if scheme == prefix or scheme.startswith(prefix + "+"):
-            # Only replace if the user hasn't already picked the right driver
-            if scheme != replacement:
-                return raw_url.replace(scheme, replacement, 1)
-            return raw_url
+    info = _lookup_driver_info(scheme)
+    if info and info.driver and scheme != info.driver:
+        return raw_url.replace(scheme, info.driver, 1)
 
-    # Unknown scheme – return as-is and let SQLAlchemy handle it
     return raw_url
+
+
+def _detect_subtype(connection_url: str) -> DatabaseSubtype:
+    """Detect the database subtype from a connection URL scheme."""
+    parsed = urlparse(connection_url)
+    info = _lookup_driver_info(parsed.scheme)
+    return info.subtype if info else DatabaseSubtype.UNKNOWN
 
 
 class DatabaseConfig(ToolsetConfig):
@@ -149,6 +184,7 @@ class DatabaseToolset(Toolset):
         llm_instructions = kwargs.pop("llm_instructions", None)
         enabled = kwargs.pop("enabled", False)
         kwargs.pop("type", None)
+        subtype_str = kwargs.pop("subtype", None)
 
         description = kwargs.pop("description", None)
         if not description:
@@ -161,6 +197,7 @@ class DatabaseToolset(Toolset):
             name=name,
             enabled=enabled,
             description=description,
+            type=ToolsetType.DATABASE,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/database/",
             icon_url="https://www.postgresql.org/favicon.ico",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
@@ -178,6 +215,19 @@ class DatabaseToolset(Toolset):
             os.path.dirname(__file__), "instructions.jinja2"
         )
 
+        # Resolve subtype: explicit config > auto-detect later from connection URL
+        self._subtype: DatabaseSubtype = DatabaseSubtype.UNKNOWN
+        if subtype_str:
+            try:
+                self._subtype = DatabaseSubtype(subtype_str)
+            except ValueError:
+                logger.warning(
+                    f"Unknown database subtype '{subtype_str}', using UNKNOWN"
+                )
+
+        # Set initial meta — updated with detected subtype in prerequisites_callable
+        self.meta = {"type": "database", "subtype": self._subtype.value}
+
         self._user_llm_instructions = llm_instructions
         self._dialect: Optional[str] = None
         if self._user_llm_instructions:
@@ -187,10 +237,13 @@ class DatabaseToolset(Toolset):
                 + self._user_llm_instructions
             )
 
-
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
             self.config = DatabaseConfig(**config)
+            # Auto-detect subtype from connection URL if not explicitly set
+            if self._subtype == DatabaseSubtype.UNKNOWN:
+                self._subtype = _detect_subtype(self.database_config.connection_url)
+            self.meta = {"type": "database", "subtype": self._subtype.value}
             return self._perform_health_check()
         except Exception as e:
             return False, f"Failed to validate database configuration: {e}"
@@ -238,9 +291,7 @@ class DatabaseToolset(Toolset):
                 connect_args["TrustServerCertificate"] = "yes"
 
         return sqlalchemy.create_engine(
-            url,
-            pool_pre_ping=True,
-            connect_args=connect_args
+            url, pool_pre_ping=True, connect_args=connect_args
         )
 
     @property
@@ -274,7 +325,9 @@ class DatabaseToolset(Toolset):
                     f"Received: {sql[:80]}"
                 )
 
-        effective_limit = min(limit or self.database_config.max_rows, self.database_config.max_rows)
+        effective_limit = min(
+            limit or self.database_config.max_rows, self.database_config.max_rows
+        )
         url = _normalise_url(self.database_config.connection_url)
         engine = self._create_engine(url)
         try:
@@ -310,7 +363,9 @@ class DatabaseToolset(Toolset):
                         "rows": [],
                         "row_count": 0,
                         "truncated": False,
-                        "rows_affected": result.rowcount if result.rowcount >= 0 else None,
+                        "rows_affected": result.rowcount
+                        if result.rowcount >= 0
+                        else None,
                     }
         finally:
             engine.dispose()

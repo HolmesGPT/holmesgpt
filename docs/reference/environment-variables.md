@@ -15,9 +15,9 @@ This page documents all environment variables that can be used to configure Holm
 - `GEMINI_API_KEY` - API key for Google Gemini models
 - `GOOGLE_API_KEY` - Alternative API key for Google services
 
-### Azure OpenAI
-- `AZURE_API_KEY` - API key for Azure OpenAI service
-- `AZURE_API_BASE` - Base URL for Azure OpenAI endpoint
+### Azure AI Foundry
+- `AZURE_API_KEY` - API key for Azure AI Foundry service
+- `AZURE_API_BASE` - Base URL for Azure AI Foundry endpoint
 - `AZURE_API_VERSION` - API version to use (e.g., "2024-02-15-preview")
 
 ### AWS Bedrock
@@ -207,6 +207,20 @@ See [HTTP Header Propagation](../data-sources/header-propagation.md) for details
 
 ### Slab
 - `SLAB_API_KEY` - API key for Slab integration
+
+## Remote MCP Servers
+
+### MCP_TOOL_CALL_TIMEOUT_SEC
+**Default:** `120` (falls back to `SSE_READ_TIMEOUT`)
+
+Per-request timeout, in seconds, for MCP tool calls. Forwarded to the MCP SDK's `ClientSession.call_tool(read_timeout_seconds=...)`, which enforces it via `anyio.fail_after` around the response-stream receive. Without a bound here, streamable-http tool calls can hang indefinitely if the MCP server dies mid-response (the httpx/anyio stream EOF does not reliably wake pending response futures).
+
+On expiry the SDK raises `McpError(code=REQUEST_TIMEOUT)`, which Holmes surfaces as a `StructuredToolResultStatus.ERROR` result with the message `Timed out while waiting for response to ClientRequest. Waited N seconds.`
+
+**Example:**
+```bash
+export MCP_TOOL_CALL_TIMEOUT_SEC=60
+```
 
 ## Testing and Development
 

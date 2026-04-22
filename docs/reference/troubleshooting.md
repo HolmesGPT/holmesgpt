@@ -18,26 +18,7 @@ HolmesGPT can't access logs, metrics, or traces from your observability stack.
 - Verify toolset configuration connects to Prometheus/Grafana/logs
 - Test connectivity: `kubectl exec -it <holmes-pod> -- curl http://prometheus:9090/api/v1/query?query=up`
 
-## 3. RBAC Permissions
-
-Service account lacks Kubernetes API permissions.
-
-**Error Example:**
-```
-pods is forbidden: User "system:serviceaccount:default:holmesgpt" cannot get resource "pods"
-```
-
-**Solution:**
-```yaml
-rbac:
-  create: true
-rbacRules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "events", "nodes"]
-    verbs: ["get", "list", "watch"]
-```
-
-## 4. Unclear Prompts
+## 3. Unclear Prompts
 
 Vague questions produce poor results.
 
