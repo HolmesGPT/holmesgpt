@@ -60,6 +60,11 @@ SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
 SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
 HOLMES_RESULTS_TABLE = "HolmesResults"
+SERVICES_TABLE = "Services"
+
+# Cap on rows returned from Services queries to prevent token overflow
+# when querying many clusters/namespaces
+MAX_SERVICES_FETCH_ROWS = 500
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
@@ -388,6 +393,171 @@ class SupabaseDal:
         results_with_savings.sort(key=lambda x: x[1], reverse=True)
 
         return [result for result, _ in results_with_savings[:limit]]
+
+    def _resolve_service_clusters(
+        self, clusters: Optional[List[str]]
+    ) -> Optional[List[str]]:
+        """Translate tool-level cluster scope into a list of clusters to filter by.
+
+        Returns None to indicate "do not filter by cluster" (i.e., all clusters).
+        """
+        if clusters is None:
+            return [self.cluster]
+        if clusters == ["*"]:
+            return None  # no filter => all clusters
+        return clusters
+
+    def get_services_metadata(
+        self,
+        clusters: Optional[List[str]] = None,
+        namespace: Optional[str] = None,
+        name_pattern: Optional[str] = None,
+        service_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> Optional[List[Dict]]:
+        """
+        Fetch lightweight service identity rows from the Services table.
+
+        Returns ONLY identity / config-oriented fields (name, namespace, type,
+        cluster, service_key, classification, update_time). Runtime state
+        fields like ready_pods/total_pods/healthy/is_helm_release are
+        intentionally excluded because they can be stale - callers should
+        fetch live cluster state from Kubernetes directly when runtime status
+        matters.
+
+        Always excludes rows marked deleted=true.
+
+        Args:
+            clusters: List of cluster names. None => current cluster only.
+                      ["*"] => all clusters in the account.
+            namespace: Filter by Kubernetes namespace (exact match).
+            name_pattern: Filter by service name. Supports SQL LIKE, e.g. "%operator%".
+            service_type: Filter by Kubernetes kind, e.g. "Deployment", "StatefulSet".
+            limit: Max rows to return (capped at MAX_SERVICES_FETCH_ROWS).
+
+        Returns:
+            List of service identity rows, or None if no data / error.
+        """
+        if not self.enabled:
+            return []
+
+        try:
+            target_clusters = self._resolve_service_clusters(clusters)
+
+            query = (
+                self.client.table(SERVICES_TABLE)
+                .select(
+                    "name",
+                    "type",
+                    "namespace",
+                    "cluster",
+                    "classification",
+                    "service_key",
+                    "update_time",
+                )
+                .eq("account_id", self.account_id)
+                .eq("deleted", False)
+            )
+
+            if target_clusters is not None:
+                query = query.in_("cluster", target_clusters)
+            if namespace:
+                query = query.eq("namespace", namespace)
+            if name_pattern:
+                query = query.like("name", name_pattern)
+            if service_type:
+                query = query.eq("type", service_type)
+
+            query = query.limit(min(limit, MAX_SERVICES_FETCH_ROWS))
+
+            res = query.execute()
+            if not res.data:
+                return None
+            return res.data
+
+        except Exception:
+            logging.exception("Supabase error while retrieving services metadata")
+            return None
+
+    def get_service_configs(
+        self,
+        clusters: Optional[List[str]] = None,
+        service_key: Optional[str] = None,
+        namespace: Optional[str] = None,
+        name: Optional[str] = None,
+        service_type: Optional[str] = None,
+    ) -> Optional[List[Dict]]:
+        """
+        Fetch config-only service rows (the `config` JSON with labels,
+        containers, env vars, resource requests/limits, ports, volumes) for a
+        specific workload. Runtime state (ready_pods/total_pods/healthy/
+        is_helm_release) is intentionally excluded - that data can be stale
+        and callers should consult live Kubernetes state when runtime status
+        matters.
+
+        Either `service_key` OR (`namespace` + `name` + `service_type`) must be
+        provided. Returns one row per cluster where the service exists.
+        Always excludes rows marked deleted=true.
+
+        Args:
+            clusters: List of cluster names. None => current cluster only.
+                      ["*"] => all clusters in the account.
+            service_key: "{namespace}/{type}/{name}" - matches the upstream
+                         ServiceInfo.get_service_key() format.
+            namespace, name, service_type: Alternative to service_key; all three
+                         must be provided together.
+
+        Returns:
+            List of service rows with config, or None if no data / error.
+        """
+        if not self.enabled:
+            return []
+
+        if not service_key and not (namespace and name and service_type):
+            logging.warning(
+                "get_service_configs requires service_key or (namespace, name, type)"
+            )
+            return None
+
+        try:
+            target_clusters = self._resolve_service_clusters(clusters)
+
+            query = (
+                self.client.table(SERVICES_TABLE)
+                .select(
+                    "name",
+                    "type",
+                    "namespace",
+                    "cluster",
+                    "classification",
+                    "service_key",
+                    "config",
+                    "update_time",
+                )
+                .eq("account_id", self.account_id)
+                .eq("deleted", False)
+            )
+
+            if target_clusters is not None:
+                query = query.in_("cluster", target_clusters)
+
+            if service_key:
+                query = query.eq("service_key", service_key)
+            else:
+                query = (
+                    query.eq("namespace", namespace)
+                    .eq("name", name)
+                    .eq("type", service_type)
+                )
+
+            res = query.execute()
+            if not res.data:
+                return None
+            return res.data
+
+        except Exception:
+            logging.exception("Supabase error while retrieving service configs")
+            return None
 
     def get_issues_metadata(
         self,

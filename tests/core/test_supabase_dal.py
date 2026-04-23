@@ -481,3 +481,214 @@ class TestGetResourceRecommendation:
         assert results[0]["namespace"] == "production"
         assert results[0]["kind"] == "Deployment"
         assert results[0]["container"] == "main"
+
+
+class TestServicesMethods:
+    """Test cases for SupabaseDal.get_services_metadata and get_service_configs."""
+
+    @pytest.fixture
+    def mock_dal(self):
+        with patch("holmes.core.supabase_dal.create_client"):
+            dal = SupabaseDal(cluster="test-cluster")
+            dal.enabled = True
+            dal.account_id = "test-account"
+            dal.client = Mock()
+            return dal
+
+    def _setup_services_chain(self, mock_dal, rows):
+        """Build a flexible mock chain for Services table queries."""
+        execute_result = Mock()
+        execute_result.data = rows
+
+        chain = Mock()
+        chain.eq.return_value = chain
+        chain.in_.return_value = chain
+        chain.like.return_value = chain
+        chain.limit.return_value = chain
+        chain.execute.return_value = execute_result
+
+        table = Mock()
+        table.select.return_value = chain
+
+        def table_side_effect(table_name):
+            if table_name == "Services":
+                return table
+            return Mock()
+
+        mock_dal.client.table.side_effect = table_side_effect
+        return chain
+
+    # --- get_services_metadata ---
+
+    def test_metadata_default_current_cluster(self, mock_dal):
+        rows = [
+            {
+                "name": "api",
+                "type": "Deployment",
+                "namespace": "prod",
+                "cluster": "test-cluster",
+                "service_key": "prod/Deployment/api",
+            }
+        ]
+        chain = self._setup_services_chain(mock_dal, rows)
+
+        result = mock_dal.get_services_metadata()
+
+        assert result == rows
+        chain.in_.assert_any_call("cluster", ["test-cluster"])
+        chain.eq.assert_any_call("deleted", False)
+
+    def test_metadata_select_excludes_runtime_fields(self, mock_dal):
+        """Runtime fields (healthy/pods/helm) must not be in the SELECT list.
+
+        The Services table in Robusta stores runtime state that can be stale;
+        the tool contract is config-only.
+        """
+        self._setup_services_chain(mock_dal, [])
+        mock_dal.get_services_metadata()
+
+        services_table = mock_dal.client.table("Services")
+        select_calls = services_table.select.call_args_list
+        assert len(select_calls) >= 1
+        selected_fields = set(select_calls[0].args)
+        assert "config" not in selected_fields  # metadata is lightweight
+        forbidden = {"healthy", "ready_pods", "total_pods", "is_helm_release"}
+        assert forbidden.isdisjoint(selected_fields), (
+            f"runtime fields leaked into metadata SELECT: "
+            f"{forbidden & selected_fields}"
+        )
+
+    def test_config_select_excludes_runtime_fields(self, mock_dal):
+        """get_service_configs must not select runtime fields either."""
+        self._setup_services_chain(mock_dal, [])
+        mock_dal.get_service_configs(service_key="prod/Deployment/api")
+
+        services_table = mock_dal.client.table("Services")
+        select_calls = services_table.select.call_args_list
+        assert len(select_calls) >= 1
+        selected_fields = set(select_calls[0].args)
+        assert "config" in selected_fields  # config IS the payload here
+        forbidden = {"healthy", "ready_pods", "total_pods", "is_helm_release"}
+        assert forbidden.isdisjoint(selected_fields), (
+            f"runtime fields leaked into config SELECT: "
+            f"{forbidden & selected_fields}"
+        )
+
+    def test_metadata_all_clusters(self, mock_dal):
+        rows = [
+            {"name": "api", "type": "Deployment", "cluster": "a"},
+            {"name": "api", "type": "Deployment", "cluster": "b"},
+        ]
+        chain = self._setup_services_chain(mock_dal, rows)
+
+        result = mock_dal.get_services_metadata(clusters=["*"])
+
+        assert result == rows
+        for call in chain.in_.call_args_list:
+            assert call.args[0] != "cluster"
+
+    def test_metadata_specific_clusters(self, mock_dal):
+        rows = [{"name": "api", "cluster": "a"}]
+        chain = self._setup_services_chain(mock_dal, rows)
+
+        result = mock_dal.get_services_metadata(clusters=["a", "b"])
+
+        assert result == rows
+        chain.in_.assert_any_call("cluster", ["a", "b"])
+
+    def test_metadata_filters(self, mock_dal):
+        rows = [{"name": "operator"}]
+        chain = self._setup_services_chain(mock_dal, rows)
+
+        mock_dal.get_services_metadata(
+            namespace="kube-system",
+            name_pattern="%operator%",
+            service_type="Deployment",
+        )
+
+        chain.eq.assert_any_call("namespace", "kube-system")
+        chain.like.assert_any_call("name", "%operator%")
+        chain.eq.assert_any_call("type", "Deployment")
+        # deleted=false filter is always applied
+        chain.eq.assert_any_call("deleted", False)
+        # runtime fields must never be used as filters
+        for call in chain.eq.call_args_list:
+            assert call.args[0] not in (
+                "healthy",
+                "is_helm_release",
+                "ready_pods",
+                "total_pods",
+            )
+
+    def test_metadata_limit_capped(self, mock_dal):
+        chain = self._setup_services_chain(mock_dal, [])
+        mock_dal.get_services_metadata(limit=10_000)
+        chain.limit.assert_called_once_with(500)
+
+    def test_metadata_no_data(self, mock_dal):
+        self._setup_services_chain(mock_dal, [])
+        assert mock_dal.get_services_metadata() is None
+
+    def test_metadata_dal_disabled(self, mock_dal):
+        mock_dal.enabled = False
+        assert mock_dal.get_services_metadata() == []
+
+    # --- get_service_configs ---
+
+    def test_config_requires_key_or_tuple(self, mock_dal):
+        self._setup_services_chain(mock_dal, [])
+        assert mock_dal.get_service_configs() is None
+        assert mock_dal.get_service_configs(namespace="prod", name="api") is None
+
+    def test_config_by_service_key(self, mock_dal):
+        rows = [
+            {
+                "cluster": "test-cluster",
+                "service_key": "prod/Deployment/api",
+                "config": {"containers": [{"name": "main", "image": "api:v1"}]},
+            }
+        ]
+        chain = self._setup_services_chain(mock_dal, rows)
+
+        result = mock_dal.get_service_configs(service_key="prod/Deployment/api")
+
+        assert result == rows
+        chain.eq.assert_any_call("service_key", "prod/Deployment/api")
+
+    def test_config_by_name_tuple(self, mock_dal):
+        rows = [{"cluster": "test-cluster", "config": {}}]
+        chain = self._setup_services_chain(mock_dal, rows)
+
+        mock_dal.get_service_configs(
+            namespace="prod", name="api", service_type="Deployment"
+        )
+
+        chain.eq.assert_any_call("namespace", "prod")
+        chain.eq.assert_any_call("name", "api")
+        chain.eq.assert_any_call("type", "Deployment")
+
+    def test_config_multi_cluster(self, mock_dal):
+        rows = [
+            {"cluster": "a", "config": {"containers": [{"image": "api:v1"}]}},
+            {"cluster": "b", "config": {"containers": [{"image": "api:v2"}]}},
+        ]
+        chain = self._setup_services_chain(mock_dal, rows)
+
+        result = mock_dal.get_service_configs(
+            service_key="prod/Deployment/api", clusters=["a", "b"]
+        )
+
+        assert result is not None
+        assert len(result) == 2
+        chain.in_.assert_any_call("cluster", ["a", "b"])
+
+    def test_config_no_data(self, mock_dal):
+        self._setup_services_chain(mock_dal, [])
+        result = mock_dal.get_service_configs(service_key="prod/Deployment/missing")
+        assert result is None
+
+    def test_config_dal_disabled(self, mock_dal):
+        mock_dal.enabled = False
+        assert (
+            mock_dal.get_service_configs(service_key="prod/Deployment/api") == []
+        )
