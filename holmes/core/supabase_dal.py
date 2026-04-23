@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -1018,6 +1019,8 @@ class SupabaseDal:
             # or status guards fail — propagate these so the worker can exit
             # cleanly rather than retrying a stale transition.
             if "mismatch" in str(e).lower():
+                # Inline import: top-level import creates a circular chain
+                # via conversations_worker.__init__ → worker → config → supabase_dal.
                 from holmes.core.conversations_worker.models import (
                     ConversationReassignedError,
                 )
@@ -1057,8 +1060,6 @@ class SupabaseDal:
         # caller's fallback when this returns [] is to mark the conversation
         # failed for lack of a user question, so a transient hiccup here
         # would cause a spurious permanent failure.
-        import time as _time
-
         last_err: Optional[Exception] = None
         for attempt in range(3):
             try:
@@ -1075,7 +1076,7 @@ class SupabaseDal:
             except Exception as e:
                 last_err = e
                 if attempt < 2:
-                    _time.sleep(0.5 * (2 ** attempt))  # 0.5s, 1s
+                    time.sleep(0.5 * (2 ** attempt))  # 0.5s, 1s
         logging.exception(
             "Supabase error while fetching conversation events (after retries)",
             exc_info=last_err,

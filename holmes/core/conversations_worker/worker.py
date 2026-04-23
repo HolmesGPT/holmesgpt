@@ -220,6 +220,32 @@ class ConversationWorker:
         for conv in claimed:
             task = self._build_task_from_conversation_row(conv)
             if task is None:
+                cid = conv.get("conversation_id")
+                seq = conv.get("request_sequence")
+                if cid and seq is not None:
+                    try:
+                        self._post_error_event(
+                            ConversationTask(
+                                conversation_id=cid,
+                                account_id=conv.get("account_id", ""),
+                                cluster_id=conv.get("cluster_id", ""),
+                                origin=conv.get("origin", ""),
+                                request_sequence=int(seq),
+                            ),
+                            "Failed to parse conversation row",
+                        )
+                        self.dal.update_conversation_status(
+                            conversation_id=cid,
+                            request_sequence=int(seq),
+                            assignee=self.holmes_id,
+                            status="failed",
+                        )
+                    except Exception:
+                        logging.exception(
+                            "Failed to mark unparseable conversation %s as failed",
+                            cid,
+                            exc_info=True,
+                        )
                 continue
             with self._queued_lock:
                 self._queued_tasks.append(task)

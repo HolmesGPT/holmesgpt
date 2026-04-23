@@ -281,8 +281,15 @@ class RealtimeManager:
                             reconnect_attempts,
                             backoff,
                         )
+                        try:
+                            await asyncio.wait_for(
+                                self._async_stop.wait(), timeout=backoff
+                            )
+                            break  # stop() was called
+                        except asyncio.TimeoutError:
+                            pass
                         next_refresh_at = (
-                            asyncio.get_running_loop().time() + backoff
+                            asyncio.get_running_loop().time() + refresh_interval
                         )
                     continue
 
