@@ -6,6 +6,7 @@ nav:
   - Holmes Operator: operator
   - AI Providers: ai-providers
   - Data Sources: data-sources
+  - PDI Deployment: pdi
   - Benchmarks: development/evaluations
   - Development: development
   - Reference: reference

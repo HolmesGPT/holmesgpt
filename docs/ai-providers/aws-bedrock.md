@@ -36,7 +36,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
     export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
     export OVERRIDE_MAX_CONTENT_SIZE="1000000"
 
-    holmes ask "what pods are failing?" --model="bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0"
+    holmes ask "what pods are failing?" --model="bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
     ```
 
 === "Holmes Helm Chart"
@@ -66,21 +66,21 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
     # Configure at least one model using modelList
     modelList:
-      bedrock-claude-sonnet-4:
+      bedrock-claude-sonnet-4-5:
         aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
         aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
         aws_region_name: eu-south-2
-        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+        model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
         temperature: 1
         thinking:
           budget_tokens: 10000
           type: enabled
 
-      bedrock-claude-sonnet-4-1M-context:
+      bedrock-claude-sonnet-4-5-1M-context:
         aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
         aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
         aws_region_name: eu-south-2
-        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+        model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
         temperature: 1
         thinking:
           budget_tokens: 10000
@@ -92,7 +92,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
     # Optional: Set default model (use modelList key name)
     config:
-      model: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
+      model: "bedrock-claude-sonnet-4-5"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -123,21 +123,21 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
       # Configure at least one model using modelList
       modelList:
-        bedrock-claude-sonnet-4:
+        bedrock-claude-sonnet-4-5:
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
           aws_region_name: eu-south-2
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+          model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
           temperature: 1
           thinking:
             budget_tokens: 10000
             type: enabled
 
-        bedrock-claude-sonnet-4-1M-context:
+        bedrock-claude-sonnet-4-5-1M-context:
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
           aws_region_name: eu-south-2
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+          model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
           temperature: 1
           thinking:
             budget_tokens: 10000
@@ -149,12 +149,12 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
       # Optional: Set default model (use modelList key name)
       config:
-        model: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
+        model: "bedrock-claude-sonnet-4-5"  # This refers to the key name in modelList above
     ```
 
 ### Using Claude Sonnet with 1M Context Window
 
-The `bedrock-claude-sonnet-4-1M-context` example above demonstrates how to enable the extended 1 million token context window for Claude Sonnet. This requires two configuration parameters:
+The `bedrock-claude-sonnet-4-5-1M-context` example above demonstrates how to enable the extended 1 million token context window for Claude Sonnet. This requires two configuration parameters:
 
 **1. Beta Feature Header:**
 ```yaml
@@ -193,9 +193,9 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
     # Configure at least one model using modelList (no credentials needed)
     modelList:
-      bedrock-claude-sonnet-4:
+      bedrock-claude-sonnet-4-5:
         aws_region_name: eu-west-3
-        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+        model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
         temperature: 1
         thinking:
           budget_tokens: 10000
@@ -203,7 +203,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
     # Optional: Set default model (use modelList key name)
     config:
-      model: "bedrock-claude-sonnet-4"
+      model: "bedrock-claude-sonnet-4-5"
     ```
 
 === "Robusta Helm Chart"
@@ -218,9 +218,9 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
       # Configure at least one model using modelList (no credentials needed)
       modelList:
-        bedrock-claude-sonnet-4:
+        bedrock-claude-sonnet-4-5:
           aws_region_name: eu-west-3
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+          model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
           temperature: 1
           thinking:
             budget_tokens: 10000
@@ -228,7 +228,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
       # Optional: Set default model (use modelList key name)
       config:
-        model: "bedrock-claude-sonnet-4"
+        model: "bedrock-claude-sonnet-4-5"
     ```
 
 **Note:** With IRSA, you do not need `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY`. The AWS SDK picks up the injected token automatically.
@@ -245,10 +245,10 @@ export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
 Or use `api_key` in the `modelList` config:
 ```yaml
 modelList:
-  bedrock-claude-sonnet-4:
+  bedrock-claude-sonnet-4-5:
     api_key: "{{ env.AWS_BEARER_TOKEN_BEDROCK }}"
     aws_region_name: us-east-1
-    model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+    model: bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
 
 ### Finding Your AWS Credentials
@@ -270,7 +270,7 @@ aws bedrock list-foundation-models --region=us-east-1 | grep modelId
 **Important**: Different models are available in different regions. For example, Claude Opus is only available in us-west-2.
 
 ### Model Name Examples
-Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `anthropic.claude-opus-4-1-20250805-v1:0` or `anthropic.claude-sonnet-4-20250514-v1:0`
+Be sure to replace `<your-bedrock-model>` with a model you have access to, such as `anthropic.claude-opus-4-5-20251101-v1:0` or `anthropic.claude-sonnet-4-5-20250929-v1:0`
 
 ## Setting Extra Headers
 You can enable various beta features in AWS Bedrock by setting custom headers.
@@ -291,11 +291,11 @@ Or, for Helm:
       ...
       modelList:
         ...
-        bedrock-claude-sonnet-4-1M-context:
+        bedrock-claude-sonnet-4-5-1M-context:
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
           aws_region_name: eu-south-2
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+          model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
           temperature: 1
           thinking:
             budget_tokens: 10000

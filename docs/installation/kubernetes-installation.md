@@ -67,7 +67,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
         modelList:
           claude-sonnet:
             api_key: "{{ env.ANTHROPIC_API_KEY }}"
-            model: anthropic/claude-sonnet-4-20250514
+            model: anthropic/claude-sonnet-4-5-20250929
             temperature: 0
         ```
 
@@ -119,7 +119,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
             temperature: 0
           claude-sonnet:
             api_key: "{{ env.ANTHROPIC_API_KEY }}"
-            model: anthropic/claude-sonnet-4-20250514
+            model: anthropic/claude-sonnet-4-5-20250929
             temperature: 0
           gpt-5:
             api_key: "{{ env.OPENAI_API_KEY }}"
@@ -156,7 +156,7 @@ curl -X POST http://localhost:8080/api/chat \
   -d '{"ask": "list pods in namespace default?", "model": "claude-sonnet"}'
 ```
 
-> **Note**: Responses may take some time when HolmesGPT needs to gather large amounts of data to answer your question. Streaming APIs are coming soon to stream results.
+> **Note**: Responses may take some time when HolmesGPT needs to gather large amounts of data to answer your question. The HTTP API supports streaming via Server-Sent Events (SSE) by setting `"stream": true` in the request body.
 
 For complete API documentation, see the [HTTP API Reference](../reference/http-api.md).
 

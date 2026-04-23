@@ -82,13 +82,13 @@ Browse the full list of available models at [github.com/marketplace/models](http
               key: github-api-key
 
       modelList:
-        gpt-4o:
+        gpt-4-1:
           api_key: "{{ env.GITHUB_API_KEY }}"
-          model: github/gpt-4o
+          model: github/gpt-4.1
           temperature: 0
 
       config:
-        model: "gpt-4o"
+        model: "gpt-4-1"
     ```
 
 ## Additional Resources

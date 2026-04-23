@@ -1,0 +1,8 @@
+nav:
+  - "Overview": index.md
+  - "Using HolmesGPT": using-holmes.md
+  - "Projects & Integrations": projects.md
+  - "Users, Roles & API Keys": users-and-auth.md
+  - "Infrastructure & IaC": infrastructure.md
+  - "AWS Cross-Account Setup": aws-accounts.md
+  - "CI/CD & Deployment": ci-cd.md

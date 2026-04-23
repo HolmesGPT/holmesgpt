@@ -22,15 +22,15 @@ HolmesGPT supports multiple AI providers, giving you flexibility in choosing the
 ## Quick Start
 
 !!! tip "Recommended for New Users"
-    **OpenAI models** provide a good balance of accuracy and speed.
+    **Anthropic Claude models** give the best results by far. We recommend Sonnet 4.5 (`anthropic/claude-sonnet-4-5-20250929`).
 
-    **Anthropic models** often give better results at the expense of speed.
+    **OpenAI models** are a good alternative with fast responses.
 
-    To get started with an OpenAI model:
+    To get started with Anthropic:
 
-    1. Get an [OpenAI API key](https://platform.openai.com/api-keys){:target="_blank"}
-    2. Set `export OPENAI_API_KEY="your-api-key"`
-    3. Run `holmes ask "what pods are failing?"` (OpenAI is the default provider)
+    1. Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how-can-i-access-the-anthropic-api){:target="_blank"}
+    2. Set `export ANTHROPIC_API_KEY="your-api-key"`
+    3. Run `holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5-20250929"`
 
 Choose your provider above to see detailed configuration instructions.
 

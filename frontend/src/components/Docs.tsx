@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 
-type DocTab = 'setup' | 'aws' | 'pagerduty' | 'ado' | 'salesforce'
+type DocTab = 'setup' | 'aws' | 'pagerduty' | 'ado' | 'salesforce' | 'environments' | 'users' | 'using'
 
 const PERMISSIONS_POLICY = JSON.stringify({
   Version: '2012-10-17',
@@ -381,6 +381,9 @@ const tabs: { id: DocTab; label: string }[] = [
   { id: 'pagerduty', label: 'PagerDuty' },
   { id: 'ado', label: 'Azure DevOps' },
   { id: 'salesforce', label: 'Salesforce' },
+  { id: 'environments', label: 'Environments' },
+  { id: 'users', label: 'Users & Roles' },
+  { id: 'using', label: 'Using Holmes' },
 ]
 
 interface StepListProps {
@@ -528,6 +531,46 @@ export default function Docs() {
                 </p>
               </div>
 
+              {/* Diagram: Project Scoping Flow */}
+              <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">How Project Scoping Works</p>
+                {/* Flow: All Instances → Tag Filter → Result */}
+                <div className="flex items-center gap-2 mb-5 flex-wrap">
+                  <div className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-center text-gray-700">All Instances</div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-pdi-sky/40 bg-pdi-sky/5 px-3 py-2 text-xs font-medium text-center text-pdi-sky">Tag Filter (AND / OR)</div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-pdi-grass/40 bg-pdi-grass/5 px-3 py-2 text-xs font-medium text-center text-pdi-grass">Matched + Global Instances</div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-3 py-2 text-xs font-medium text-center text-pdi-indigo">Project Scope</div>
+                </div>
+                {/* Concrete example */}
+                <p className="text-xs font-semibold text-gray-600 mb-2">Example: Project &quot;Logistics Cloud&quot; with filter <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">lob=logistics</code></p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-5 h-5 rounded-full bg-pdi-grass/10 text-pdi-grass text-xs font-bold flex items-center justify-center flex-shrink-0">&#10003;</span>
+                    <span className="font-medium text-gray-700">&quot;Logistics AWS Prod&quot;</span>
+                    <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-500">lob=logistics</code>
+                    <span className="text-gray-400">&mdash; tag matches filter</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-5 h-5 rounded-full bg-red-100 text-red-500 text-xs font-bold flex items-center justify-center flex-shrink-0">&#10007;</span>
+                    <span className="font-medium text-gray-700">&quot;Retail Grafana&quot;</span>
+                    <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-500">lob=retail</code>
+                    <span className="text-gray-400">&mdash; filtered out</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-5 h-5 rounded-full bg-pdi-grass/10 text-pdi-grass text-xs font-bold flex items-center justify-center flex-shrink-0">&#10003;</span>
+                    <span className="font-medium text-gray-700">&quot;Central Prometheus&quot;</span>
+                    <span className="italic text-gray-400">no tags = global</span>
+                    <span className="text-gray-400">&mdash; always included</span>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-lg border border-pdi-indigo/20 bg-pdi-indigo/5 px-3 py-2">
+                  <p className="text-xs text-pdi-indigo"><strong>Result:</strong> Project &quot;Logistics Cloud&quot; sees <strong>Logistics AWS Prod</strong> + <strong>Central Prometheus</strong></p>
+                </div>
+              </div>
+
               {/* Section: Tools & Integrations */}
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-900 border-b border-gray-100 pb-2">Step 1 — Enable Tools &amp; Integrations</h3>
@@ -641,6 +684,36 @@ export default function Docs() {
                   This script creates a read-only IAM role in your AWS account that HolmesGPT uses to investigate issues.
                   No write permissions are granted — HolmesGPT can only read resource configurations and metrics.
                 </p>
+              </div>
+
+              {/* Diagram: Cross-Account AWS Access */}
+              <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Cross-Account Trust Chain</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="rounded-lg border border-pdi-sky/40 bg-pdi-sky/5 px-3 py-2 text-xs font-medium text-center text-pdi-sky">
+                    <div className="font-semibold">Holmes Pod</div>
+                    <div className="text-[10px] text-pdi-sky/70 mt-0.5">EKS Cluster</div>
+                  </div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-3 py-2 text-xs font-medium text-center text-pdi-indigo">
+                    <div className="font-semibold">IRSA Role</div>
+                    <div className="text-[10px] text-pdi-indigo/70 mt-0.5">holmesgpt-*-aws-mcp</div>
+                  </div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-center text-amber-700">
+                    <div className="font-semibold">sts:AssumeRole</div>
+                  </div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-pdi-grass/40 bg-pdi-grass/5 px-3 py-2 text-xs font-medium text-center text-pdi-grass">
+                    <div className="font-semibold">HolmesReadOnly</div>
+                    <div className="text-[10px] text-pdi-grass/70 mt-0.5">Target Account</div>
+                  </div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-center text-gray-700">
+                    <div className="font-semibold">Read-only APIs</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">EC2, RDS, CloudWatch, ...</div>
+                  </div>
+                </div>
               </div>
 
               {/* IRSA Role ARN display */}
@@ -942,6 +1015,444 @@ export default function Docs() {
                   <pre className="bg-white border border-blue-200 rounded px-3 py-2 text-xs text-gray-700 overflow-x-auto">{`kubectl patch secret holmes-api-keys -n holmesgpt \\\n  --type=merge -p '{"stringData":{"SALESFORCE_WEBHOOK_TOKEN":"<token>"}}'`}</pre>
                 </div>
                 <p className="text-xs text-blue-600">Authentication is enforced when <code className="bg-blue-100 px-1 py-0.5 rounded">SALESFORCE_WEBHOOK_TOKEN</code> is set and Development Mode is off. To bypass authentication during testing, enable <strong>Development Mode</strong> in <strong>Settings → Webhooks</strong>.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Environments Tab */}
+          {activeTab === 'environments' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 mb-1">PDI Environments</h2>
+                <p className="text-sm text-gray-500">
+                  HolmesGPT runs in two environments with identical configurations. Both connect to the same set of AWS accounts.
+                </p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-700 border-b">Environment</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-700 border-b">URL</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-700 border-b">AWS Account</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-700 border-b">EKS Cluster</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b">
+                      <td className="px-4 py-2.5"><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400"></span> Dev</span></td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">holmesgpt.dev.platform.pditechnologies.com</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">717423812395</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">holmesgpt-dev</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2.5"><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-pdi-grass"></span> Prod</span></td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">holmesgpt.shared.platform.pditechnologies.com</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">827852520868</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">holmesgpt-prod</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">Architecture</p>
+                {/* Diagram: Full Architecture Flow */}
+                <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">System Architecture</p>
+                  {/* Top row: Users → ALB → Holmes Pod */}
+                  <div className="flex items-center gap-2 mb-4 flex-wrap">
+                    <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-3 py-2 text-xs font-medium text-center text-pdi-indigo">
+                      <div className="font-semibold">Users</div>
+                      <div className="text-[10px] text-pdi-indigo/70 mt-0.5">Okta SSO</div>
+                    </div>
+                    <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-center text-amber-700">
+                      <div className="font-semibold">ALB + WAF</div>
+                    </div>
+                    <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-sky/40 bg-pdi-sky/5 px-3 py-2 text-xs font-medium text-center text-pdi-sky">
+                      <div className="font-semibold">Holmes Pod</div>
+                      <div className="text-[10px] text-pdi-sky/70 mt-0.5">EKS Cluster</div>
+                    </div>
+                  </div>
+                  {/* Branch lines from Holmes Pod */}
+                  <div className="ml-4 border-l-2 border-pdi-sky/30 pl-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-pdi-sky/50 text-xs">&mdash;</span>
+                      <div className="rounded-lg border border-pdi-grass/40 bg-pdi-grass/5 px-3 py-1.5 text-xs font-medium text-pdi-grass">AI Model</div>
+                      <span className="text-gray-400 text-xs">Claude Sonnet 4.6 via AI Gateway</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pdi-sky/50 text-xs">&mdash;</span>
+                      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">AWS MCP Server</div>
+                      <span className="text-gray-400 text-xs">&rarr; 39 AWS Accounts (HolmesReadOnly)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pdi-sky/50 text-xs">&mdash;</span>
+                      <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-3 py-1.5 text-xs font-medium text-pdi-indigo">MCP Servers</div>
+                      <span className="text-gray-400 text-xs">ADO, Atlassian, Salesforce</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pdi-sky/50 text-xs">&mdash;</span>
+                      <div className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">Built-in Tools</div>
+                      <span className="text-gray-400 text-xs">Grafana, Datadog, PagerDuty, K8s</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pdi-sky/50 text-xs">&mdash;</span>
+                      <div className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">DynamoDB</div>
+                      <span className="text-gray-400 text-xs">Projects, Users, History</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pdi-sky/50 text-xs">&mdash;</span>
+                      <div className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">Secrets Manager</div>
+                      <span className="text-gray-400 text-xs">Credentials</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Diagram: CI/CD Deployment Flow */}
+              <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">CI/CD Pipeline</p>
+                {/* Top: git push → GitHub Actions */}
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <div className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-center text-gray-700">
+                    <div className="font-semibold">git push</div>
+                  </div>
+                  <span className="text-gray-400 text-sm font-bold">&rarr;</span>
+                  <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-3 py-2 text-xs font-medium text-center text-pdi-indigo">
+                    <div className="font-semibold">GitHub Actions</div>
+                  </div>
+                </div>
+                {/* Branches from GitHub Actions */}
+                <div className="ml-4 border-l-2 border-pdi-indigo/30 pl-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-pdi-indigo/50 text-xs">&mdash;</span>
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">Lint</div>
+                    <span className="text-gray-400 text-xs">ruff, mypy, ESLint, Checkov, Trivy</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-pdi-indigo/50 text-xs">&mdash;</span>
+                    <div className="rounded-lg border border-pdi-sky/40 bg-pdi-sky/5 px-3 py-1.5 text-xs font-medium text-pdi-sky">Build</div>
+                    <span className="text-gray-400 text-xs">Docker &rarr; ECR</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-pdi-indigo/50 text-xs mt-1.5">&mdash;</span>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="rounded-lg border border-pdi-grass/40 bg-pdi-grass/5 px-3 py-1.5 text-xs font-medium text-pdi-grass">Deploy</div>
+                      <div className="ml-3 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <code className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] text-gray-600 font-mono">master</code>
+                          <span className="text-gray-400 text-xs">&rarr;</span>
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-700"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>Dev (holmesgpt-dev)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <code className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] text-gray-600 font-mono">release/**</code>
+                          <span className="text-gray-400 text-xs">&rarr;</span>
+                          <span className="inline-flex items-center gap-1 text-xs text-pdi-grass"><span className="w-1.5 h-1.5 rounded-full bg-pdi-grass"></span>Prod (holmesgpt-prod)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <p className="text-sm font-semibold text-blue-900 mb-1">Deployment</p>
+                <p className="text-sm text-blue-800">
+                  Push to <code className="bg-blue-100 px-1 py-0.5 rounded text-xs">master</code> deploys to Dev.
+                  Push to <code className="bg-blue-100 px-1 py-0.5 rounded text-xs">release/**</code> deploys to Prod.
+                  Infrastructure is managed with OpenTofu in <code className="bg-blue-100 px-1 py-0.5 rounded text-xs">infra/</code>.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Users & Roles Tab */}
+          {activeTab === 'users' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 mb-1">Users, Roles &amp; API Keys</h2>
+                <p className="text-sm text-gray-500">
+                  HolmesGPT uses Okta SSO for authentication and a role-based access model for authorization.
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">Authentication Methods</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-800">Okta SSO</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Browser login via Okta OIDC (PKCE). Users must be in the HolmesGPT-Users Okta group.</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-800">API Keys</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed"><code className="bg-gray-100 px-1 py-0.5 rounded">hgpt_</code> prefixed keys for programmatic access. Scoped to specific projects.</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-800">Legacy API Key</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed"><code className="bg-gray-100 px-1 py-0.5 rounded">HOLMES_API_KEY</code> env var. Full super-admin access. For backwards compatibility.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Diagram: Auth Flow */}
+              <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Authentication Flows</p>
+                {/* Browser Login Path */}
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-pdi-sky mb-2">Browser Login (Okta PKCE)</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-indigo">User</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-sky/40 bg-pdi-sky/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-sky">Okta (PKCE)</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-700">JWT</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700">Middleware</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-grass/40 bg-pdi-grass/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-grass">Validate + JWKS</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700">Load User</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-indigo">Check Roles</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-grass/40 bg-pdi-grass/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-grass">Allow / Deny</div>
+                  </div>
+                </div>
+                {/* Divider */}
+                <div className="border-t border-gray-200 my-3"></div>
+                {/* API Key Path */}
+                <div>
+                  <p className="text-xs font-semibold text-amber-700 mb-2">API Key</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-indigo">Client</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-700">Bearer hgpt_...</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700">Middleware</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-sky/40 bg-pdi-sky/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-sky">SHA-256 Hash</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700">DynamoDB Lookup</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-indigo/40 bg-pdi-indigo/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-indigo">Check Scope</div>
+                    <span className="text-gray-400 text-xs font-bold">&rarr;</span>
+                    <div className="rounded-lg border border-pdi-grass/40 bg-pdi-grass/5 px-2.5 py-1.5 text-[11px] font-medium text-pdi-grass">Allow / Deny</div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">Roles</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-4 py-2.5 font-medium text-gray-700 border-b">Role</th>
+                        <th className="text-left px-4 py-2.5 font-medium text-gray-700 border-b">Scope</th>
+                        <th className="text-left px-4 py-2.5 font-medium text-gray-700 border-b">Permissions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b">
+                        <td className="px-4 py-2.5 font-medium text-gray-900">Super Admin</td>
+                        <td className="px-4 py-2.5 text-gray-600">Global</td>
+                        <td className="px-4 py-2.5 text-gray-600">Manage all projects, users, API keys, integrations, and settings</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-4 py-2.5 font-medium text-gray-900">Project Admin</td>
+                        <td className="px-4 py-2.5 text-gray-600">Per-project</td>
+                        <td className="px-4 py-2.5 text-gray-600">Manage instances and assign users within their project</td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2.5 font-medium text-gray-900">Read Only</td>
+                        <td className="px-4 py-2.5 text-gray-600">Per-project</td>
+                        <td className="px-4 py-2.5 text-gray-600">Ask questions and view investigation history</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">User Lifecycle</p>
+                <StepList
+                  steps={[
+                    <>Admin adds the user's email to the <strong>HolmesGPT-Users</strong> Okta group.</>,
+                    <>(Optional) Super-admin invites the user in <strong>Users</strong> page before they log in.</>,
+                    <>User logs in via Okta &mdash; a user record is auto-created in HolmesGPT.</>,
+                    <>Super-admin assigns project roles in the <strong>Users</strong> page.</>,
+                  ]}
+                />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">API Keys</p>
+                <p className="text-sm text-gray-600 mb-3">
+                  API keys are managed via the REST API. Super-admins can create, list, and revoke keys.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 mb-1">Create a key</p>
+                    <pre className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-xs text-gray-700 overflow-x-auto">{`curl -X POST https://<holmes-url>/api/api-keys \\
+  -H "Authorization: Bearer <your-jwt-or-api-key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "ci-pipeline", "project_ids": ["<project-id>"]}'`}</pre>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 mb-1">List keys</p>
+                    <pre className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-xs text-gray-700 overflow-x-auto">{`curl https://<holmes-url>/api/api-keys \\
+  -H "Authorization: Bearer <your-jwt-or-api-key>"`}</pre>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 mb-1">Use a key</p>
+                    <pre className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-xs text-gray-700 overflow-x-auto">{`Authorization: Bearer hgpt_your_key_here`}</pre>
+                  </div>
+                  <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                    <p className="text-xs text-amber-800">
+                      The raw key is shown <strong>only once</strong> when created. Store it securely. Pass an empty <code className="bg-amber-100 px-1 py-0.5 rounded">project_ids</code> list to grant access to all projects.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">API Reference</p>
+                <p className="text-sm text-gray-600 mb-3">
+                  Full API documentation is available via Swagger UI. These endpoints are accessible without authentication.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <a
+                    href="/docs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-white hover:border-pdi-sky transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-pdi-sky flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                    </svg>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-800">Swagger UI</p>
+                      <p className="text-xs text-gray-500">/docs</p>
+                    </div>
+                  </a>
+                  <a
+                    href="/redoc"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-white hover:border-pdi-sky transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-pdi-sky flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-800">ReDoc</p>
+                      <p className="text-xs text-gray-500">/redoc</p>
+                    </div>
+                  </a>
+                  <a
+                    href="/openapi.json"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-white hover:border-pdi-sky transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-pdi-sky flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-800">OpenAPI JSON</p>
+                      <p className="text-xs text-gray-500">/openapi.json</p>
+                    </div>
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'using' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 mb-1">Using HolmesGPT</h2>
+                <p className="text-sm text-gray-500">
+                  HolmesGPT investigates infrastructure issues by calling tools connected to your AWS accounts, monitoring platforms, and incident management systems.
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">Getting Started</p>
+                <StepList
+                  steps={[
+                    <>Log in with your PDI Okta account.</>,
+                    <>Select a <strong>project</strong> from the sidebar dropdown &mdash; this scopes which AWS accounts and tools Holmes can use.</>,
+                    <>Go to <strong>Chat</strong> and ask a question about your infrastructure.</>,
+                  ]}
+                />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">Example Prompts</p>
+                <div className="space-y-3">
+                  {[
+                    { category: 'AWS Infrastructure', prompts: [
+                      'What EC2 instances are running and what\'s their health?',
+                      'Are there any RDS instances with high CPU or storage issues?',
+                      'Show me recent CloudWatch alarms that fired in the last 2 hours',
+                    ]},
+                    { category: 'Monitoring & Logs', prompts: [
+                      'Check Grafana for any dashboards showing errors in the last hour',
+                      'What does Datadog show for error rates on the payment service?',
+                      'Find recent log entries containing OutOfMemory errors',
+                    ]},
+                    { category: 'Incidents', prompts: [
+                      'What PagerDuty incidents are open right now?',
+                      'Find recent Azure DevOps work items related to deployment failures',
+                      'Are there any open Salesforce cases about API timeouts?',
+                    ]},
+                    { category: 'Cross-System Investigation', prompts: [
+                      'We\'re seeing slow responses on the checkout API. Check CloudWatch metrics, application logs, and recent deployments.',
+                      'A customer reported intermittent 500 errors. Investigate across all available data sources.',
+                    ]},
+                  ].map((group) => (
+                    <div key={group.category}>
+                      <p className="text-xs font-semibold text-gray-700 mb-1.5">{group.category}</p>
+                      <div className="space-y-1.5">
+                        {group.prompts.map((prompt, i) => (
+                          <div key={i} className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                            <svg className="w-3.5 h-3.5 text-pdi-sky mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                            </svg>
+                            <p className="text-xs text-gray-700">{prompt}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-3">Tips</p>
+                <div className="space-y-2">
+                  {[
+                    { tip: 'Be specific', detail: '"CPU usage on prod EC2 instances" works better than "check servers"' },
+                    { tip: 'Mention time ranges', detail: '"in the last 2 hours" or "since yesterday" helps Holmes focus the search' },
+                    { tip: 'Use follow-up actions', detail: 'Click the Logs, Graphs, or Related Issues buttons to dig deeper without re-typing' },
+                    { tip: 'Holmes is read-only', detail: 'It can investigate and analyze but will never modify your infrastructure' },
+                  ].map((item) => (
+                    <div key={item.tip} className="flex items-start gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                      <svg className="w-4 h-4 text-pdi-grass mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      <div>
+                        <p className="text-xs font-semibold text-gray-800">{item.tip}</p>
+                        <p className="text-xs text-gray-500">{item.detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
