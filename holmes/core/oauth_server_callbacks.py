@@ -66,20 +66,21 @@ def process_oauth_callback(
         toolsets, request.toolset_name, token_manager, request.client_id,
     )
 
-    # Persist DCR client_id from frontend onto the oauth config so store_token
-    # includes it in the encrypted payload (needed for token refresh)
-    if client_id and not oauth.client_id:
-        oauth.client_id = client_id
+    # Use DCR client_id from frontend for this exchange without mutating the
+    # shared oauth config (other users may have different DCR client_ids)
+    effective_client_id = client_id or oauth.client_id
 
-    logger.info("OAuth exchange: token_url=%s client_id=%s", oauth.token_url, client_id)
+    logger.info("OAuth exchange: token_url=%s client_id=%s", oauth.token_url, effective_client_id)
     token_data = exchange_code_for_tokens(
         token_url=oauth.token_url,
         code=request.code,
         redirect_uri=request.redirect_uri,
-        client_id=client_id,
+        client_id=effective_client_id,
         code_verifier=request.code_verifier,
         client_secret=request.client_secret,
     )
+    # Include client_id in token_data so store_token persists it for refresh
+    token_data["client_id"] = effective_client_id
 
     request_context = {"user_id": request.user_id} if request.user_id else None
     mgr.store_token(oauth, token_data, request_context=request_context)
