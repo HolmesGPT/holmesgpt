@@ -271,12 +271,10 @@ class ConversationWorker:
                     )
                     if not ok:
                         logging.warning(
-                            "Failed to transition conversation %s to running — requeuing",
+                            "Failed to transition conversation %s to running — skipping",
                             task.conversation_id,
                         )
-                        with self._queued_lock:
-                            self._queued_tasks.appendleft(task)
-                        break
+                        continue
                 except ConversationReassignedError:
                     logging.warning(
                         "Conversation %s was reassigned while queued — skipping",
