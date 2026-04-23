@@ -1,0 +1,196 @@
+# Test that Holmes can detect Kyverno policy violations and report them with specific messages
+user_prompt: "Check the app-257 namespace for Kyverno policy violations. Which resources are violating which policies, and what are the exact violation messages?"
+
+expected_output:
+  - "Must identify at least one policy violation in namespace app-257"
+  - "Must mention the policy name 'require-team-label'"
+  - "Must mention the violating resource named 'unlabeled-api'"
+  - "Must report the verification code HOLMES-EVAL-KYVERNO-001 from the violation message"
+
+tags:
+  - question-answer
+  - kubernetes
+
+include_tool_calls: true
+
+before_test: |
+  set -e
+
+  NAMESPACE="app-257"
+  POLICY_NAME="require-team-label-257"
+
+  echo "Creating namespace $NAMESPACE..."
+  kubectl create namespace $NAMESPACE || true
+
+  # Install Kyverno if not already installed
+  if ! kubectl get namespace kyverno >/dev/null 2>&1; then
+    echo "Installing Kyverno (latest)..."
+    kubectl create -f https://github.com/kyverno/kyverno/releases/latest/download/install.yaml
+  else
+    echo "Kyverno already installed"
+  fi
+
+  echo ""
+  echo "Waiting for Kyverno admission controller to be ready..."
+  KYVERNO_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=available deployment/kyverno-admission-controller -n kyverno --timeout=5s 2>/dev/null; then
+      echo "Kyverno admission controller is ready"
+      KYVERNO_READY=true
+      break
+    fi
+    # Also check older single-controller deployment name
+    if kubectl wait --for=condition=available deployment/kyverno -n kyverno --timeout=5s 2>/dev/null; then
+      echo "Kyverno controller is ready (legacy deployment)"
+      KYVERNO_READY=true
+      break
+    fi
+    echo "Attempt $i/60: Waiting for Kyverno..."
+    sleep 2
+  done
+
+  if [ "$KYVERNO_READY" = false ]; then
+    echo "Kyverno failed to become ready after 120 seconds"
+    kubectl get pods -n kyverno
+    exit 1
+  fi
+
+  echo ""
+  echo "Creating ClusterPolicy '$POLICY_NAME' (Audit mode) requiring 'team' label..."
+  cat <<EOF | kubectl apply -f -
+  apiVersion: kyverno.io/v1
+  kind: ClusterPolicy
+  metadata:
+    name: $POLICY_NAME
+  spec:
+    validationFailureAction: Audit
+    background: true
+    rules:
+      - name: require-team-label
+        match:
+          any:
+            - resources:
+                kinds:
+                  - Pod
+                namespaces:
+                  - $NAMESPACE
+        validate:
+          message: "HOLMES-EVAL-KYVERNO-001: The label 'team' is required on all pods in this namespace"
+          pattern:
+            metadata:
+              labels:
+                team: "?*"
+  EOF
+
+  echo ""
+  echo "Waiting for ClusterPolicy to be ready and webhook to propagate..."
+  for i in {1..30}; do
+    READY=$(kubectl get clusterpolicy $POLICY_NAME -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
+    if [ "$READY" = "true" ]; then
+      echo "ClusterPolicy is ready"
+      break
+    fi
+    echo "Attempt $i/30: Waiting for ClusterPolicy to become ready..."
+    sleep 2
+  done
+  # Extra buffer for webhook configuration to propagate
+  sleep 5
+
+  echo ""
+  echo "Deploying pod 'unlabeled-api' without the required team label..."
+  cat <<EOF | kubectl apply -f -
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: unlabeled-api
+    namespace: $NAMESPACE
+    labels:
+      app: unlabeled-api
+  spec:
+    containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+  EOF
+
+  echo ""
+  echo "Verifying pod started..."
+  POD_READY=false
+  for i in {1..30}; do
+    if kubectl wait --for=condition=ready pod/unlabeled-api -n $NAMESPACE --timeout=5s 2>/dev/null; then
+      echo "Pod is running"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "Pod failed to become ready - checking status"
+    kubectl describe pod unlabeled-api -n $NAMESPACE || true
+    exit 1
+  fi
+
+  echo ""
+  echo "Waiting for Kyverno to create PolicyReport with violations..."
+  REPORT_FOUND=false
+  for i in {1..60}; do
+    FAIL_COUNT=$(kubectl get policyreport -n $NAMESPACE -o jsonpath='{range .items[*]}{.summary.fail}{"\n"}{end}' 2>/dev/null \
+      | awk '{s+=$1} END {print s+0}')
+    if [ "$FAIL_COUNT" -gt 0 ] 2>/dev/null; then
+      echo "PolicyReport found with $FAIL_COUNT violation(s)"
+      REPORT_FOUND=true
+      break
+    fi
+    # If no report yet, delete and recreate the pod to force a fresh admission evaluation
+    if [ "$i" = "20" ]; then
+      echo "No PolicyReport yet - recreating pod to force fresh admission evaluation..."
+      kubectl delete pod unlabeled-api -n $NAMESPACE --ignore-not-found
+      sleep 2
+      cat <<EOF | kubectl apply -f -
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: unlabeled-api
+    namespace: $NAMESPACE
+    labels:
+      app: unlabeled-api
+  spec:
+    containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+  EOF
+    fi
+    echo "Attempt $i/60: Waiting for PolicyReport... (current fail count: ${FAIL_COUNT:-0})"
+    sleep 2
+  done
+
+  if [ "$REPORT_FOUND" = false ]; then
+    echo "No PolicyReport with failures found after 120 seconds"
+    echo ""
+    echo "=== PolicyReports in namespace ==="
+    kubectl get policyreport -n $NAMESPACE -o yaml || true
+    echo ""
+    echo "=== Kyverno admission controller logs ==="
+    kubectl logs -n kyverno -l app.kubernetes.io/component=admission-controller --tail=30 2>/dev/null \
+      || kubectl logs -n kyverno -l app=kyverno --tail=30 2>/dev/null \
+      || echo "No logs found"
+    exit 1
+  fi
+
+  echo ""
+  echo "=== PolicyReport summary ==="
+  kubectl get policyreport -n $NAMESPACE
+  echo ""
+  echo "Test setup completed successfully"
+
+after_test: |
+  kubectl delete clusterpolicy require-team-label-257 || true
+  kubectl delete namespace app-257 || true

@@ -1,0 +1,5 @@
+toolsets:
+  kyverno/core:
+    enabled: true
+  kubernetes/core:
+    enabled: true
