@@ -22,15 +22,15 @@ from holmes.plugins.runbooks import (
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
-class RunbookFetcher(Tool):
-    toolset: "RunbookToolset"
+class SkillsFetcher(Tool):
+    toolset: "SkillsToolset"
     available_runbooks: List[str] = []
     additional_search_paths: Optional[List[str]] = None
     _dal: Optional[SupabaseDal] = None
 
     def __init__(
         self,
-        toolset: "RunbookToolset",
+        toolset: "SkillsToolset",
         additional_search_paths: Optional[List[str]] = None,
         dal: Optional[SupabaseDal] = None,
         custom_catalog_paths: Optional[List[Union[str, Path]]] = None,
@@ -225,13 +225,13 @@ class RunbookFetcher(Tool):
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Runbook {path}"
 
 
-class RunbookToolset(Toolset):
+class SkillsToolset(Toolset):
     def __init__(
         self,
         dal: Optional[SupabaseDal],
         additional_search_paths: Optional[List[str]] = None,
     ):
-        # Store additional search paths in config for RunbookFetcher to access
+        # Store additional search paths in config for SkillsFetcher to access
         config = {}
         if additional_search_paths:
             config["additional_search_paths"] = additional_search_paths
@@ -246,11 +246,11 @@ class RunbookToolset(Toolset):
             ]
 
         super().__init__(
-            name="runbook",
-            description="Fetch runbooks",
+            name="skills",
+            description="Fetch skills",
             icon_url="https://platform.robusta.dev/demos/runbook.svg",
             tools=[
-                RunbookFetcher(
+                SkillsFetcher(
                     self,
                     additional_search_paths,
                     dal,

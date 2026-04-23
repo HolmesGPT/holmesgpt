@@ -11,7 +11,7 @@ skip_reason: setup needs fixing, the database has other issues right now that th
 tags:
   - hard
   - database
-runbooks:
+skills:
   catalog:
     - id: postgres-performance
       name: PostgreSQL Performance Investigation

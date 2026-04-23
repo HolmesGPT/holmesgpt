@@ -1,6 +1,6 @@
 user_prompt: "Use the custom-crd runbook and check why custom CRD whale-watcher resources are not being reconciled by the operator in namespace app-96"
 tags:
-  - runbooks
+  - skills
   - medium
   - benchmark
 
@@ -11,7 +11,7 @@ expected_output: |
   - Uses available tools to investigate the issue
   - Does not force-fit an inappropriate runbook
 
-runbooks:
+skills:
   catalog:
     - description: "Service Connectivity Issues"
       link: "service_troubleshooting.md"

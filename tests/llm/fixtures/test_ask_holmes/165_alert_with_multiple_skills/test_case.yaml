@@ -12,5 +12,5 @@ evaluation:
   correctness: 1
 tags:
   - kubernetes
-  - runbooks
+  - skills
 test_type: cluster

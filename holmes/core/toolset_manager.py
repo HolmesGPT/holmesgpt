@@ -26,6 +26,7 @@ DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status
 # Mapping of deprecated toolset names to their new names
 DEPRECATED_TOOLSET_NAMES: dict[str, str] = {
     "coralogix/logs": "coralogix",
+    "runbook": "skills",
 }
 
 

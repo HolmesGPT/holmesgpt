@@ -1,7 +1,7 @@
 user_prompt: "Debug memory issues for my Python application orca in namespace app-95"
 
 tags:
-  - runbooks
+  - skills
   - toolset-limitation
 
 expected_output: |
@@ -18,7 +18,7 @@ expected_output: |
   - Use generators instead of storing all images in memory
   - Consider increasing memory limit if legitimate usage requires it
 
-runbooks:
+skills:
   catalog:
     - description: "Python Application Memory Troubleshooting"
       link: "python_memory_troubleshooting.md"

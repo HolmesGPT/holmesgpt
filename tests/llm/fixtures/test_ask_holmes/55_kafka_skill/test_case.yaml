@@ -2,7 +2,7 @@ user_prompt: "What's wrong with the `finance` kafka topic?"
 tags:
   - logs
   - kafka
-  - runbooks
+  - skills
   - medium # gpt-4o does not get to the root cause which is slower consumer due to email processing.
 
 skip: true

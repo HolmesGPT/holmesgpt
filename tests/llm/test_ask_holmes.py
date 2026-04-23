@@ -211,17 +211,17 @@ def ask_holmes(
             if test_case.conversation_history:
                 pytest.skip("CLI mode does not support conversation history tests")
             else:
-                if test_case.runbooks is None:
+                if test_case.skills is None:
                     runbooks = load_runbook_catalog()
-                elif test_case.runbooks == {}:
+                elif test_case.skills == {}:
                     runbooks = None
                 else:
                     try:
-                        runbooks = RunbookCatalog(**test_case.runbooks)
+                        runbooks = RunbookCatalog(**test_case.skills)
                     except Exception as e:
                         raise ValueError(
-                            f"Failed to convert runbooks dict to RunbookCatalog: {e}. "
-                            f"Expected format: {{'catalog': [...]}}, got: {test_case.runbooks}"
+                            f"Failed to convert skills dict to RunbookCatalog: {e}. "
+                            f"Expected format: {{'catalog': [...]}}, got: {test_case.skills}"
                         ) from e
                 messages = build_initial_ask_messages(
                     initial_user_prompt=test_case.user_prompt,

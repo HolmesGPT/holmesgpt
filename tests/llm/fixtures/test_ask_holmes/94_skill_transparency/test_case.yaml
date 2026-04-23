@@ -1,6 +1,6 @@
 user_prompt: "Database connection timeouts are occurring for blue-whale app in namespace app-94"
 tags:
-  - runbooks
+  - skills
   - medium
   - transparency
 
@@ -10,7 +10,7 @@ expected_output: |
   - Shows both successful steps (✅) and failed steps (❌)
   - Provides specific explanations for failures
 
-runbooks:
+skills:
   catalog:
     - description: "Database Connection Troubleshooting"
       link: "database_troubleshooting.md"

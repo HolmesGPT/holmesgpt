@@ -1,7 +1,7 @@
 user_prompt: "My signup service is failing and users can't register. What should I check to debug this issue?"
 tags:
   - kubernetes
-  - runbooks
+  - skills
   - medium
 
 # simulates loading runbooks and global instructions from a cluster environment

@@ -206,13 +206,13 @@ class ToolCallingLLM:
             tracer=self.tracer,
         )
         # Preserve transient state so resumed turns keep access to
-        # runbook-unlocked (restricted) tools.
+        # skill-unlocked (restricted) tools.
         clone._runbook_in_use = self._runbook_in_use
         return clone
 
     def reset_interaction_state(self) -> None:
         """
-        For interactive loop, reset runbooks in use
+        For interactive loop, reset skills in use
         """
         self._runbook_in_use = False
 
@@ -642,14 +642,14 @@ class ToolCallingLLM:
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
-            # Track runbook usage - if fetch_runbook is called successfully,
+            # Track skill usage - if fetch_runbook is called successfully,
             # restricted tools become available for the rest of the current request
             if (
                 tool_name == "fetch_runbook"
                 and tool_response.status == StructuredToolResultStatus.SUCCESS
             ):
                 self._runbook_in_use = True
-                logging.debug("Runbook fetched - restricted tools now available")
+                logging.debug("Skill fetched - restricted tools now available")
 
         except Exception as e:
             logging.error(
@@ -1249,12 +1249,12 @@ class ToolCallingLLM:
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
 
-                # Re-fetch tools if runbook was just activated (enables restricted tools)
+                # Re-fetch tools if skill was just activated (enables restricted tools)
                 if self._runbook_in_use and tools is not None:
                     new_tools = self._get_tools()
                     if len(new_tools) != len(tools):
                         logging.info(
-                            f"Runbook activated - refreshing tools list ({len(tools)} -> {len(new_tools)} tools)"
+                            f"Skill activated - refreshing tools list ({len(tools)} -> {len(new_tools)} tools)"
                         )
                         tools = new_tools
 
