@@ -13,6 +13,7 @@ from starlette.requests import Request
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS,
     CONVERSATION_WORKER_MAX_CONCURRENT,
+    CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
     CONVERSATION_WORKER_REALTIME_ENABLED,
 )
@@ -45,10 +46,6 @@ ChatFunction = Callable[
     [ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]
 ]
 
-# When Realtime is connected we still poll periodically as a safety net —
-# Supabase Realtime has at-most-once delivery and notifications can be
-# missed.  This caps the maximum latency for a missed notification.
-_REALTIME_CONNECTED_POLL_SECONDS = 120
 
 
 class ConversationWorker:
@@ -196,7 +193,7 @@ class ConversationWorker:
 
         while self._running:
             if self._realtime_connected():
-                timeout = _REALTIME_CONNECTED_POLL_SECONDS
+                timeout = CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME
             else:
                 timeout = CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME
 

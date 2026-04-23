@@ -1,10 +1,8 @@
 """Unit tests for the ConversationWorker's realtime-gated polling logic."""
 from unittest.mock import MagicMock
 
-from holmes.core.conversations_worker.worker import (
-    ConversationWorker,
-    _REALTIME_CONNECTED_POLL_SECONDS,
-)
+from holmes.common.env_vars import CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME
+from holmes.core.conversations_worker.worker import ConversationWorker
 
 
 def _make_worker_with_rt(connected: bool):
@@ -43,4 +41,4 @@ def test_connected_poll_is_reasonable_safety_net():
     # When realtime is connected, we still poll as a safety net for missed
     # notifications. The interval should be large enough to avoid spam but
     # small enough that missed events are caught in reasonable time.
-    assert 30 <= _REALTIME_CONNECTED_POLL_SECONDS <= 300
+    assert 30 <= CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME <= 600

@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover — optional dependency
 
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS,
+    CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
 )
 from holmes.core.supabase_dal import CONVERSATIONS_TABLE
@@ -217,7 +218,7 @@ class RealtimeManager:
         self._async_stop = asyncio.Event()
         self._started.set()
         reconnect_attempts = 0
-        max_backoff = 120
+        max_backoff = CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS
         try:
             # Initial connect uses the same backoff as mid-run reconnects
             # so transient startup failures (e.g. Supabase 503) are retried
