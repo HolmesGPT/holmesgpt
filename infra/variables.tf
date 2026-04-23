@@ -105,7 +105,7 @@ variable "anthropic_api_key" {
 variable "holmes_model" {
   description = "LLM model to use"
   type        = string
-  default     = "anthropic/claude-sonnet-4-5-20250929"
+  default     = "anthropic/claude-sonnet-4-6"
 }
 
 # Holmes
