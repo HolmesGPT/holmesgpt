@@ -235,7 +235,7 @@ class OAuthTokenManager:
         if user_id:
             return user_id
         if isinstance(self._store, DalTokenStore):
-            raise ValueError("user_id is required in server mode but was not provided")
+            return None
         return DEFAULT_CLI_USER
 
     def shutdown(self) -> None:
