@@ -62,6 +62,11 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         meta = toolset.meta
         if meta is None and toolset.type:
             meta = {"type": toolset.type.value}
+        if isinstance(toolset, RemoteMCPToolset):
+            oauth_config = toolset.get_oauth_config()
+            if oauth_config:
+                meta = meta or {}
+                meta["oauth_config"] = oauth_config
 
         db_toolsets.append(
             ToolsetDBModel(
