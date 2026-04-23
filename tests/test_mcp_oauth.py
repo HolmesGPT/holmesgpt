@@ -52,6 +52,15 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_token_manager_store():
+    """Prevent mock stores from leaking across tests via the singleton token manager."""
+    mgr = _get_token_manager()
+    saved = mgr._store
+    yield
+    mgr._store = saved
+
+
 class TestMCPOAuthConfig:
     def test_oauth_config_parsing(self):
         config = MCPConfig(
