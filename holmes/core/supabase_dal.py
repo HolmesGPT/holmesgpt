@@ -1021,6 +1021,14 @@ class SupabaseDal:
             logging.exception("Error upserting OAuth token for provider %s", provider_name)
             return False
 
+    def delete_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> None:
+        """Delete an OAuth token (e.g. after a 401 proves it's revoked)."""
+        self.client.table(OAUTH_TOKENS_TABLE).delete().eq(
+            "account_id", self.account_id
+        ).eq("provider_name", provider_name).eq("user_id", user_id).eq(
+            "signing_key_hash", signing_key_hash
+        ).execute()
+
     def get_all_oauth_tokens_for_cluster(self, signing_key_hash: str) -> list[Dict]:
         """Get all OAuth tokens owned by this cluster that match the signing key.
 

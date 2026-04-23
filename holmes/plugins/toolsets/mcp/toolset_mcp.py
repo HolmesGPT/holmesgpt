@@ -293,19 +293,17 @@ class RemoteMCPTool(Tool):
         disk_key = str(self.toolset._mcp_config.url) if isinstance(self.toolset._mcp_config, MCPConfig) else None
 
         # Try to get a token from cache → refresh → DB → disk
-        token = _get_token_manager().get_access_token(oauth_config, context.request_context, disk_key=disk_key)
+        mgr = _get_token_manager()
+        token = mgr.get_access_token(oauth_config, context.request_context, disk_key=disk_key)
         if token:
             logger.info("OAuth MCP %s: token available via manager", self.toolset.name)
             return None
 
         # No token found anywhere — need to authenticate
         user_id = _get_user_id(context.request_context)
+        is_cli = user_id == "cli_user"
 
-        # Detect CLI vs frontend mode: if request_context exists, the request came
-        # through the API server (frontend). CLI calls have request_context=None.
-        is_frontend = context.request_context is not None
-
-        if not is_frontend:
+        if is_cli:
             # CLI mode: run browser OAuth flow synchronously
             logger.info("OAuth MCP %s: CLI mode, running browser OAuth flow", self.toolset.name)
             oauth_endpoints = OAuthEndpoints(

@@ -227,12 +227,15 @@ class OAuthToolConnector:
 
     @staticmethod
     def _evict_expired_token(user_id: str, toolset: Any) -> None:
-        """Remove an expired token from the cache so the user is prompted to re-auth."""
+        """Remove an expired/revoked token from cache and persistent store."""
         try:
             from holmes.core.oauth_utils import _get_token_manager
             mgr = _get_token_manager()
             oauth_config = toolset._mcp_config.oauth
             cache_key = mgr._get_cache_key(oauth_config, {"user_id": user_id})
-            mgr.cache.evict(cache_key)
+            mgr._cache.evict(cache_key)
+            if mgr._store:
+                provider_name = oauth_config.authorization_url or "unknown"
+                mgr._store.delete_token(provider_name, user_id=user_id)
         except Exception:
             logger.debug("Failed to evict expired token for user %s", user_id, exc_info=True)

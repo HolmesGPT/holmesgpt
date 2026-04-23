@@ -177,7 +177,7 @@ def _investigate_issue(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    return ai.call(messages)
+    return ai.call(messages, request_context={"user_id": "cli_user"})
 
 
 # TODO: add streaming output
@@ -400,7 +400,7 @@ def ask(
             f'holmes ask "{prompt}"', span_type=SpanType.TASK
         ) as trace_span:
             trace_span.log(input=prompt, metadata={"type": "user_question"})
-            response = ai.call(messages, trace_span=trace_span)
+            response = ai.call(messages, trace_span=trace_span, request_context={"user_id": "cli_user"})
             trace_span.log(
                 output=response.result,
             )
@@ -760,7 +760,7 @@ def ticket(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": ticket_user_prompt},
         ]
-        result = ai.call(messages)
+        result = ai.call(messages, request_context={"user_id": "cli_user"})
 
         console.print(Rule())
         console.print(

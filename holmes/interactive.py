@@ -2618,6 +2618,7 @@ def run_interactive_loop(
                                 cancel_event=_cancel_event,
                                 tool_number_offset=_tool_number_offset,
                                 iteration_offset=_iteration_offset,
+                                request_context={"user_id": "cli_user"},
                             )
                             tool_decisions = None
                             last_event = None

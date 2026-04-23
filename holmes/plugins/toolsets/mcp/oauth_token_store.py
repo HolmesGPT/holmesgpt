@@ -171,6 +171,10 @@ class TokenStore(ABC):
         """Store a token. Returns True on success."""
 
     @abstractmethod
+    def delete_token(self, provider_name: str, user_id: Optional[str] = None) -> bool:
+        """Delete a token by provider and user. Returns True if deleted."""
+
+    @abstractmethod
     def get_all_for_preload(self) -> List[Dict[str, Any]]:
         """Get all tokens for preloading into cache at startup.
 
@@ -270,6 +274,19 @@ class DalTokenStore(TokenStore):
             return True
         except Exception:
             logger.warning("Failed to store token to DB", exc_info=True)
+            return False
+
+    def delete_token(self, provider_name: str, user_id: Optional[str] = None) -> bool:
+        if not user_id:
+            return False
+        signing_key_hash = self._get_signing_key_hash()
+        if not signing_key_hash:
+            return False
+        try:
+            self._dal.delete_oauth_token(provider_name, user_id, signing_key_hash)
+            return True
+        except Exception:
+            logger.warning("Failed to delete token from DB (provider=%s)", provider_name, exc_info=True)
             return False
 
     def get_all_for_preload(self) -> List[Dict[str, Any]]:
@@ -383,6 +400,19 @@ class DiskTokenStore(TokenStore):
                 json.dump(data, f, indent=2)
         return True
 
+    def delete_token(self, provider_name: str, user_id: Optional[str] = None) -> bool:
+        if not self._enabled:
+            return False
+        with self._lock:
+            data = self._load()
+            if provider_name not in data:
+                return False
+            del data[provider_name]
+            fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+        return True
+
     def get_all_for_preload(self) -> List[Dict[str, Any]]:
         if not self._enabled:
             return []
@@ -394,7 +424,7 @@ class DiskTokenStore(TokenStore):
             if token_data.get("expires_at", float("inf")) > now and token_data.get("access_token"):
                 results.append({
                     "provider_name": key,
-                    "user_id": None,
+                    "user_id": "cli_user",
                     "token_data": token_data,
                     "token_expiry": None,
                 })
