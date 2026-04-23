@@ -1,5 +1,6 @@
 import concurrent.futures
 import json
+from json import tool
 import logging
 import re
 import threading
@@ -309,16 +310,15 @@ class ToolCallingLLM:
                 user_id = (request_context or {}).get("user_id")
                 if oauth_code and user_id:
                     oauth_success = _try_process_oauth_decision(tool_call.id, oauth_code, request_context)
-                    if oauth_success:
-                        # Token stored — load real tools for this user
-                        toolset = self.tool_executor._tool_to_toolset.get(tool_call.function.name)
+                    toolset = self.tool_executor._tool_to_toolset.get(tool_call.function.name) if oauth_success else None
+                    if oauth_success and toolset:
                         self.tool_executor.oauth_connector.load_tools_for_user(user_id, toolset, request_context)
                     else:
                         tool_result = ToolCallResult(
                             tool_call_id=tool_call.id,
                             tool_name=tool_call.function.name,
                             description="",
-                            result="OAuth authentication failed. Please try again.", # type: ignore
+                            result="OAuth authentication failed. Please try again.",  # type: ignore
                         )
 
                 if not tool_result:

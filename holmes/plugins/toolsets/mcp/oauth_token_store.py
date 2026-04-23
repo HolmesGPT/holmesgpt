@@ -378,9 +378,9 @@ class DiskTokenStore(TokenStore):
         with self._lock:
             data = self._load()
             data[provider_name] = token_data
-            with open(self._path, "w") as f:
+            fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
                 json.dump(data, f, indent=2)
-            os.chmod(self._path, 0o600)
         return True
 
     def get_all_for_preload(self) -> List[Dict[str, Any]]:
