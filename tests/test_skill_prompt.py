@@ -6,9 +6,11 @@ from holmes.core.prompt import generate_user_prompt
 from holmes.utils.global_instructions import generate_runbooks_args
 
 
-class DummyRunbookCatalog:
+class DummySkillCatalog:
+    skills = [True]  # non-empty so getattr check passes
+
     def to_prompt_string(self):
-        return "RUNBOOK CATALOG PROMPT"
+        return "SKILL CATALOG PROMPT"
 
 
 class DummyInstructions:
@@ -22,7 +24,7 @@ class DummyInstructions:
         # Only user_prompt
         ("Prompt", None, None, None, None, ["Prompt"]),
         # Only runbook_catalog
-        ("", DummyRunbookCatalog(), None, None, None, ["RUNBOOK CATALOG PROMPT"]),
+        ("", DummySkillCatalog(), None, None, None, ["SKILL CATALOG PROMPT"]),
         # Only issue_instructions
         (
             "",
@@ -65,7 +67,7 @@ class DummyInstructions:
         # All together
         (
             "Prompt",
-            DummyRunbookCatalog(),
+            DummySkillCatalog(),
             ["issue step"],
             SimpleNamespace(
                 instructions=["resource step"],
@@ -74,7 +76,7 @@ class DummyInstructions:
             DummyInstructions(["global step"]),
             [
                 "Prompt",
-                "RUNBOOK CATALOG PROMPT",
+                "SKILL CATALOG PROMPT",
                 "* issue step",
                 "* resource step",
                 "* fetch information from this URL: http://doc",
@@ -83,7 +85,7 @@ class DummyInstructions:
         ),
     ],
 )
-def test_generate_user_prompt_with_runbooks(
+def test_generate_user_prompt_with_skills(
     user_prompt,
     runbook_catalog,
     issue_instructions,

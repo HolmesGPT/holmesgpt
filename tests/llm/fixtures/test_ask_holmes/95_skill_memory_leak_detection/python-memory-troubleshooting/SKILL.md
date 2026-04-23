@@ -1,3 +1,7 @@
+---
+name: python-memory-troubleshooting
+description: "Python Application Memory Troubleshooting"
+---
 # Python Application Memory Troubleshooting
 
 ## Overview

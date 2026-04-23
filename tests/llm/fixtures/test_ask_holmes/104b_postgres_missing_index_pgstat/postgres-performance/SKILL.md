@@ -1,3 +1,7 @@
+---
+name: postgres-performance
+description: "Guide for investigating slow PostgreSQL queries"
+---
 # PostgreSQL Performance Investigation
 
 ## How to investigate slow PostgreSQL queries

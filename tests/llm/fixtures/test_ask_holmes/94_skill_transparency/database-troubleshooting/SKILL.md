@@ -1,3 +1,7 @@
+---
+name: database-troubleshooting
+description: "Database Connection Troubleshooting"
+---
 # Database Connection Troubleshooting
 
 ## Overview

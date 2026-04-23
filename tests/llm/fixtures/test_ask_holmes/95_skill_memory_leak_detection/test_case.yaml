@@ -18,13 +18,6 @@ expected_output: |
   - Use generators instead of storing all images in memory
   - Consider increasing memory limit if legitimate usage requires it
 
-skills:
-  catalog:
-    - description: "Python Application Memory Troubleshooting"
-      link: "python_memory_troubleshooting.md"
-      update_date: "2025-07-01"
-      id: "python_memory_troubleshooting"
-
 before_test: |
   kubectl create namespace app-95 || true
   kubectl apply -f manifest.yaml -n app-95

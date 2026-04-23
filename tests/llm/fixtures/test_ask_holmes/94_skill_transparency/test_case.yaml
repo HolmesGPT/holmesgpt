@@ -10,13 +10,6 @@ expected_output: |
   - Shows both successful steps (✅) and failed steps (❌)
   - Provides specific explanations for failures
 
-skills:
-  catalog:
-    - description: "Database Connection Troubleshooting"
-      link: "database_troubleshooting.md"
-      update_date: "2025-07-01"
-      id: "database_troubleshooting"
-
 before_test: |
   kubectl create namespace app-94 || true
   kubectl apply -f manifest.yaml -n app-94

@@ -11,11 +11,4 @@ expected_output: |
     If it does so, it MUST communicate clearly to the user that it is investigating a different namespace
     Hoever, if it just says that the Application Gateway could not be found in app-101 or that app-101 namespace does not exist, that is also acceptable
 
-skills:
-  catalog:
-    - description: "Troubleshooting Application Gateway Problems"
-      link: "application_gateway_troubleshooting.md"
-      update_date: "2025-07-01"
-      id: "application_gateway_troubleshooting"
-
 include_tool_calls: true

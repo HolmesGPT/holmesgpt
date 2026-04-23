@@ -105,6 +105,7 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.

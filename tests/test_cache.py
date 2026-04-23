@@ -76,7 +76,7 @@ def test_cached_output(model: str, request):
             test_dal = load_test_dal(
                 Path(temp_dir.name), initialize_base=False
             )
-            runbooks = config.get_runbook_catalog()
+            runbooks = config.get_skill_catalog()
 
             asks = [
                 "how many pods are running?",

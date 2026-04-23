@@ -366,7 +366,7 @@ def ask(
                 include_file,
                 show_tool_output,
                 tracer,
-                config.get_runbook_catalog(),
+                config.get_skill_catalog(),
                 system_prompt_additions,
                 json_output_file=json_output_file,
                 bash_always_deny=bash_always_deny,
@@ -387,7 +387,7 @@ def ask(
             prompt,  # type: ignore
             include_file,
             ai.tool_executor,
-            config.get_runbook_catalog(),
+            config.get_skill_catalog(),
             system_prompt_additions,
             prompt_component_overrides=prompt_component_overrides,
         )

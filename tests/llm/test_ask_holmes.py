@@ -17,7 +17,7 @@ from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
-from holmes.plugins.runbooks import RunbookCatalog, load_runbook_catalog
+from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
@@ -212,16 +212,19 @@ def ask_holmes(
                 pytest.skip("CLI mode does not support conversation history tests")
             else:
                 if test_case.skills is None:
-                    runbooks = load_runbook_catalog()
+                    # Load skills from the test fixture directory
+                    runbooks = load_skill_catalog(
+                        custom_skill_paths=[test_case.folder]
+                    )
                 elif test_case.skills == {}:
                     runbooks = None
                 else:
                     try:
-                        runbooks = RunbookCatalog(**test_case.skills)
+                        runbooks = SkillCatalog(**test_case.skills)
                     except Exception as e:
                         raise ValueError(
-                            f"Failed to convert skills dict to RunbookCatalog: {e}. "
-                            f"Expected format: {{'catalog': [...]}}, got: {test_case.skills}"
+                            f"Failed to convert skills dict to SkillCatalog: {e}. "
+                            f"Expected format: {{'skills': [...]}}, got: {test_case.skills}"
                         ) from e
                 messages = build_initial_ask_messages(
                     initial_user_prompt=test_case.user_prompt,
@@ -242,7 +245,7 @@ def ask_holmes(
             dal = load_test_dal(
                 Path(test_case.folder), initialize_base=False
             )
-            runbooks = load_runbook_catalog(dal)
+            runbooks = load_skill_catalog(dal=dal)
             global_instructions = dal.get_global_instructions_for_account()
 
             messages = build_chat_messages(

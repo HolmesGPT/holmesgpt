@@ -349,7 +349,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             f"streaming={chat_request.stream}"
         )
 
-        runbooks = config.get_runbook_catalog()
+        runbooks = config.get_skill_catalog()
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:

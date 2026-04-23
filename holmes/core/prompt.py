@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from holmes.plugins.prompts import load_and_render_prompt
-from holmes.plugins.runbooks import RunbookCatalog
+from holmes.plugins.skills.skill_loader import SkillCatalog
 from holmes.utils.global_instructions import Instructions, generate_runbooks_args
 from holmes.version import get_version
 
@@ -177,7 +177,7 @@ def generate_user_prompt(
 
 def build_system_prompt(
     toolsets: List[Any],
-    runbooks: Optional[RunbookCatalog],
+    runbooks: Optional[SkillCatalog],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
     ask_user_enabled: bool,
@@ -205,7 +205,7 @@ def build_system_prompt(
             PromptComponent.GENERAL_INSTRUCTIONS
         ),
         "style_guide_enabled": is_enabled(PromptComponent.STYLE_GUIDE),
-        "runbooks_enabled": bool(runbooks and getattr(runbooks, "catalog", True))
+        "runbooks_enabled": bool(runbooks and getattr(runbooks, "skills", True))
         and is_enabled(PromptComponent.TIME_RUNBOOKS),
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
@@ -225,7 +225,7 @@ UserPromptContent = Union[str, List[Dict[str, Any]]]
 
 def build_user_prompt(
     user_prompt: str,
-    runbooks: Optional[RunbookCatalog],
+    runbooks: Optional[SkillCatalog],
     global_instructions: Optional[Instructions],
     file_paths: Optional[List[Path]],
     include_todowrite_reminder: bool,
@@ -262,7 +262,7 @@ def build_user_prompt(
 def build_prompts(
     toolsets: List[Any],
     user_prompt: str,
-    runbooks: Optional[RunbookCatalog],
+    runbooks: Optional[SkillCatalog],
     global_instructions: Optional[Instructions],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
@@ -300,7 +300,7 @@ def build_initial_ask_messages(
     initial_user_prompt: str,
     file_paths: Optional[List[Path]],
     tool_executor: Any,  # ToolExecutor type
-    runbooks: Optional[RunbookCatalog] = None,
+    runbooks: Optional[SkillCatalog] = None,
     system_prompt_additions: Optional[str] = None,
     global_instructions: Optional[Instructions] = None,
     cluster_name: Optional[str] = None,

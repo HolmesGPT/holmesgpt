@@ -1,3 +1,7 @@
+---
+name: application-gateway-troubleshooting
+description: "Troubleshooting Application Gateway Problems"
+---
 # Application Gateway Troubleshooting
 
 ## Overview

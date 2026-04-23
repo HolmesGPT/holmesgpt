@@ -23,11 +23,13 @@ from holmes.core.prompt import (
 from holmes.utils.global_instructions import generate_runbooks_args
 
 
-class DummyRunbookCatalog:
-    """Mock runbook catalog for testing."""
+class DummySkillCatalog:
+    """Mock skill catalog for testing."""
+
+    skills = [True]  # non-empty so getattr check passes
 
     def to_prompt_string(self):
-        return "RUNBOOK CATALOG PROMPT"
+        return "SKILL CATALOG PROMPT"
 
 
 class DummyInstructions:
@@ -152,7 +154,7 @@ def validate_user_prompt(
 
     if expected_runbooks:
         assert (
-            "RUNBOOK CATALOG PROMPT" in user_content
+            "SKILL CATALOG PROMPT" in user_content
         ), "Runbook catalog not found when expected"
 
     if expected_global_instructions:
@@ -182,8 +184,8 @@ class TestBuildInitialAskMessages:
         [
             ("What's wrong with my pod?", None, None),
             ("Analyze this file", ["test.txt"], None),
-            ("What should I check?", None, DummyRunbookCatalog()),
-            ("Complex case", ["file.txt"], DummyRunbookCatalog()),
+            ("What should I check?", None, DummySkillCatalog()),
+            ("Complex case", ["file.txt"], DummySkillCatalog()),
         ],
     )
     def test_ask_command_user_prompt(
@@ -254,11 +256,11 @@ class TestServerFlows:
         [
             ("Show me the logs", None, None, None),
             ("What's happening?", DummyInstructions(["Always check CPU"]), None, None),
-            ("Help me debug", None, DummyRunbookCatalog(), None),
+            ("Help me debug", None, DummySkillCatalog(), None),
             (
                 "Complex chat",
                 DummyInstructions(["Global rule"]),
-                DummyRunbookCatalog(),
+                DummySkillCatalog(),
                 None,
             ),
             (
@@ -274,7 +276,7 @@ class TestServerFlows:
             (
                 "Another question",
                 DummyInstructions(["Check logs"]),
-                DummyRunbookCatalog(),
+                DummySkillCatalog(),
                 [
                     {"role": "system", "content": "System prompt"},
                     {"role": "user", "content": "First question"},
@@ -321,12 +323,12 @@ class TestUserPromptComponents:
         "user_prompt,runbook_catalog,global_instructions,issue_instructions,resource_instructions",
         [
             ("My question", None, None, None, None),
-            ("Help me", DummyRunbookCatalog(), None, None, None),
+            ("Help me", DummySkillCatalog(), None, None, None),
             ("Question", None, DummyInstructions(["Global rule 1"]), None, None),
             ("Investigate", None, None, ["Step 1"], None),
             (
                 "Complex",
-                DummyRunbookCatalog(),
+                DummySkillCatalog(),
                 DummyInstructions(["Global"]),
                 ["Issue step"],
                 SimpleNamespace(instructions=["Resource step"], documents=[]),

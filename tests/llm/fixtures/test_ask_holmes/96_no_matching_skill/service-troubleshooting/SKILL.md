@@ -1,3 +1,7 @@
+---
+name: service-troubleshooting
+description: "Service Connectivity Issues"
+---
 # Service Connectivity Issues
 
 ## Overview

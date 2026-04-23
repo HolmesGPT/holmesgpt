@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from holmes.plugins.runbooks import RunbookCatalog
+from holmes.plugins.skills.skill_loader import SkillCatalog
 
 if TYPE_CHECKING:
     from holmes.core.resource_instruction import ResourceInstructions
@@ -36,7 +36,7 @@ def _format_resource_instructions(
 
 
 def generate_runbooks_args(
-    runbook_catalog: Optional[RunbookCatalog],
+    runbook_catalog: Optional[SkillCatalog],
     global_instructions: Optional[Instructions] = None,
     issue_instructions: Optional[List[str]] = None,
     resource_instructions: Optional["ResourceInstructions"] = None,  # type: ignore

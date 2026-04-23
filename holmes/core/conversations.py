@@ -6,7 +6,7 @@ from holmes.core.prompt import (
     build_prompts,
 )
 from holmes.core.tool_calling_llm import ToolCallingLLM
-from holmes.plugins.runbooks import RunbookCatalog
+from holmes.plugins.skills.skill_loader import SkillCatalog
 from holmes.utils.global_instructions import (
     Instructions,
 )
@@ -50,7 +50,7 @@ def build_chat_messages(
     config: Config,
     global_instructions: Optional[Instructions] = None,
     additional_system_prompt: Optional[str] = None,
-    runbooks: Optional[RunbookCatalog] = None,
+    runbooks: Optional[SkillCatalog] = None,
     images: Optional[List[Union[str, Dict[str, Any]]]] = None,
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
 ) -> List[dict]:
