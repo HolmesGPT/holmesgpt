@@ -53,7 +53,6 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if toolset.experimental and not toolset.enabled:
             continue
 
-        meta = get_config_meta_for_toolset(toolset)
         if not toolset.installation_instructions:
             instructions = get_config_schema_for_toolset(toolset)
             toolset.installation_instructions = instructions
