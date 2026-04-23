@@ -180,6 +180,8 @@ def mock_tool_executor():
     te = MagicMock(spec=ToolExecutor)
     te.get_all_tools_openai_format.return_value = [SIMPLE_TOOL_OPENAI]
     te.ensure_toolset_initialized.return_value = None
+    te.oauth_connector = MagicMock()
+    te.oauth_connector.get_toolset.return_value = None
     mock_toolset = MagicMock()
     mock_toolset.name = "kubectl"
     te.toolsets = [mock_toolset]

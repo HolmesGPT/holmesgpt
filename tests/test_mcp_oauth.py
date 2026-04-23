@@ -1722,7 +1722,7 @@ class TestBackgroundSweep:
 
         with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=mock_response):
             with patch.object(manager._store, "store_token") as mock_store:
-                manager._sweep_expiring_tokens()
+                manager._refresh_expiring_tokens()
 
         # Token should be refreshed in cache
         assert manager._cache.get_valid_access_token(cache_key) == "new-access"
@@ -1746,7 +1746,7 @@ class TestBackgroundSweep:
         mock_store.get_token.return_value = {"access_token": "store-access", "expires_in": 7200}
         manager._store = mock_store
 
-        manager._sweep_expiring_tokens()
+        manager._refresh_expiring_tokens()
 
         assert manager._cache.get_valid_access_token(cache_key) == "store-access"
         mock_store.get_token.assert_called_once_with("http://idp2/auth", user_id="user2")
@@ -1765,7 +1765,7 @@ class TestBackgroundSweep:
         )
 
         with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post") as mock_post:
-            manager._sweep_expiring_tokens()
+            manager._refresh_expiring_tokens()
 
         # No refresh should have been attempted
         mock_post.assert_not_called()
@@ -1793,7 +1793,7 @@ class TestBackgroundSweep:
         manager._store = mock_store
 
         with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=mock_response):
-            manager._sweep_expiring_tokens()
+            manager._refresh_expiring_tokens()
 
         assert manager._cache.get_valid_access_token(cache_key) == "store-fallback"
         manager.shutdown()
@@ -1891,7 +1891,7 @@ class TestBackgroundSweep:
         manager._cache._cache[cache_key].expires_at = time.monotonic() + 100
 
         # No DAL, no refresh token
-        manager._sweep_expiring_tokens()
+        manager._refresh_expiring_tokens()
 
         # Token unchanged
         assert manager._cache.get_valid_access_token(cache_key) == "old-access"
