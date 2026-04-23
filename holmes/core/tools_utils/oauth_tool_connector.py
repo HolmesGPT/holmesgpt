@@ -147,11 +147,14 @@ class OAuthToolConnector:
     # ── Tool resolution ────────────────────────────────────────────────
 
     def resolve_tools(self, user_id: Optional[str]) -> Optional[Dict[str, List[Tool]]]:
-        """Return per-user OAuth tools if available, or None."""
-        if not user_id:
-            return None
+        """Return per-user OAuth tools if available, or None.
+
+        In CLI mode (DiskTokenStore), user_id is None — tools are stored under __no_user__.
+        In server mode (DalTokenStore), user_id is required.
+        """
+        key = user_id or "__no_user__"
         with self._lock:
-            user_tools = self._user_tools.get(user_id)
+            user_tools = self._user_tools.get(key)
             return dict(user_tools) if user_tools else None
 
     def apply_user_tools(
@@ -188,11 +191,13 @@ class OAuthToolConnector:
         return filtered
 
     def find_tool(self, name: str, user_id: Optional[str]) -> Optional[Tool]:
-        """Look up a tool in the per-user OAuth tools store."""
-        if not user_id:
-            return None
+        """Look up a tool in the per-user OAuth tools store.
+
+        In CLI mode (DiskTokenStore), user_id is None — searches under __no_user__.
+        """
+        key = user_id or "__no_user__"
         with self._lock:
-            for toolset_tools in self._user_tools.get(user_id, {}).values():
+            for toolset_tools in self._user_tools.get(key, {}).values():
                 for tool in toolset_tools:
                     if tool.name == name:
                         return tool
@@ -200,9 +205,8 @@ class OAuthToolConnector:
 
     def get_toolset(self, tool_name: str, user_id: Optional[str]) -> Optional[Any]:
         """Return the toolset for a per-user OAuth tool, or None."""
-        if not user_id:
-            return None
-        return self._user_tool_to_toolset.get(user_id, {}).get(tool_name)
+        key = user_id or "__no_user__"
+        return self._user_tool_to_toolset.get(key, {}).get(tool_name)
 
 
     # ── Error handling helpers ─────────────────────────────────────────

@@ -74,9 +74,8 @@ def eager_load_oauth_tools(executor: Any) -> None:
         if not ts._mcp_config.oauth.authorization_url:
             continue
         for user_id in token_mgr.get_cached_user_ids(ts._mcp_config.oauth):
-            effective_id = "cli_user" if user_id == "__no_user__" else user_id
-            request_ctx = {"user_id": effective_id}
-            executor.oauth_connector.load_tools_for_user(effective_id, ts, request_ctx)
+            request_ctx = {"user_id": user_id} if user_id != "__no_user__" else None
+            executor.oauth_connector.load_tools_for_user(user_id, ts, request_ctx)
 
 
 # exchange_code_for_tokens is re-exported from oauth_config (imported above)

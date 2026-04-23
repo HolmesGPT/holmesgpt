@@ -424,7 +424,7 @@ class DiskTokenStore(TokenStore):
             if token_data.get("expires_at", float("inf")) > now and token_data.get("access_token"):
                 results.append({
                     "provider_name": key,
-                    "user_id": "cli_user",
+                    "user_id": None,
                     "token_data": token_data,
                     "token_expiry": None,
                 })

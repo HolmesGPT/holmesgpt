@@ -301,8 +301,9 @@ class RemoteMCPTool(Tool):
 
         # No token found anywhere — need to authenticate
         user_id = _get_user_id(context.request_context)
-        is_cli = user_id == "cli_user"
 
+        # CLI mode: no request_context means the call came from the CLI, not the API server
+        is_cli = context.request_context is None
         if is_cli:
             # CLI mode: run browser OAuth flow synchronously
             logger.info("OAuth MCP %s: CLI mode, running browser OAuth flow", self.toolset.name)
