@@ -926,6 +926,7 @@ class Toolset(BaseModel):
                         text=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
+                        timeout=60,
                     )
                     if (
                         prereq.expected_output
@@ -935,7 +936,24 @@ class Toolset(BaseModel):
                         self.error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
                 except subprocess.CalledProcessError as e:
                     self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"`{prereq.command}` returned {e.returncode}"
+                    output_info = (
+                        f"\nStdout: {e.stdout}\nStderr: {e.stderr}"
+                        if e.stdout or e.stderr
+                        else ""
+                    )
+                    self.error = (
+                        f"`{prereq.command}` returned {e.returncode}{output_info}"
+                    )
+                except subprocess.TimeoutExpired as e:
+                    self.status = ToolsetStatusEnum.FAILED
+                    output_info = (
+                        f"\nPartial stdout: {e.stdout}\nPartial stderr: {e.stderr}"
+                        if e.stdout or e.stderr
+                        else ""
+                    )
+                    self.error = (
+                        f"`{prereq.command}` timed out after 60 seconds{output_info}"
+                    )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
                 for env_var in prereq.env:
