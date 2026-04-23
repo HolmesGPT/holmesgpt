@@ -394,27 +394,21 @@ class ConversationWorker:
                 )
 
     def _process_conversation(self, task: ConversationTask) -> None:
-        # Presence was already joined during claim (queued state) and updated
-        # to running by _dispatch_queued. No join needed here.
-
-        # Load events and extract the user ask + conversation history
         events = self.dal.get_conversation_events(task.conversation_id)
         self._hydrate_task_from_events(task, events)
 
+        data = task.user_message_data
+        ask = data.get("ask")
+
         # A follow-up may carry only tool_decisions / frontend_tool_results
-        # (no new user question). In that case Holmes resumes the prior
-        # assistant turn — we reuse the previous ask as a placeholder for
-        # ChatRequest (which requires `ask: str`), but no new user message
-        # is appended to the history (see _run_chat_and_publish).
+        # (no new user question). Holmes resumes the prior assistant turn.
         resume_only = bool(
-            not task.ask and (task.tool_decisions or task.frontend_tool_results)
+            not ask and (data.get("tool_decisions") or data.get("frontend_tool_results"))
         )
         if resume_only:
-            # Pull the last user text from the reconstructed history for the
-            # ChatRequest field; not used to build a new prompt.
-            task.ask = self._extract_last_user_ask(task.conversation_history) or "Continue"
+            ask = self._extract_last_user_ask(task.conversation_history) or "Continue"
 
-        if not task.ask:
+        if not ask:
             logging.warning(
                 "Conversation %s has no user question, marking as failed",
                 task.conversation_id,
@@ -430,99 +424,61 @@ class ConversationWorker:
             batch_interval_seconds=CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS,
         )
 
+        # If tool_decisions are present, auto-enable tool approval.
+        enable_tool_approval = bool(data.get("enable_tool_approval"))
+        if data.get("tool_decisions"):
+            enable_tool_approval = True
+
         chat_request = ChatRequest(
-            ask=task.ask,
-            images=task.images,
-            model=task.model,
+            ask=ask,
+            images=data.get("images"),
+            model=data.get("model"),
             conversation_history=task.conversation_history,
             stream=True,
-            additional_system_prompt=task.additional_system_prompt,
-            enable_tool_approval=task.enable_tool_approval,
-            tool_decisions=task.tool_decisions,  # type: ignore[arg-type]
-            frontend_tools=task.frontend_tools,  # type: ignore[arg-type]
-            frontend_tool_results=task.frontend_tool_results,  # type: ignore[arg-type]
-            response_format=task.response_format,
-            behavior_controls=task.behavior_controls,
+            additional_system_prompt=data.get("additional_system_prompt"),
+            enable_tool_approval=enable_tool_approval,
+            tool_decisions=data.get("tool_decisions"),  # type: ignore[arg-type]
+            frontend_tools=data.get("frontend_tools"),  # type: ignore[arg-type]
+            frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
+            response_format=data.get("response_format"),
+            behavior_controls=data.get("behavior_controls"),
         )
-        # Flag used later to skip build_chat_messages for pure resumes
-        chat_request_is_resume_only = resume_only
 
-        # Call the chat function to get a StreamingResponse — we need the raw
-        # StreamMessage generator not the SSE-wrapped one, so we need a different
-        # path. The cleanest way is to build the LLM call directly.
         self._run_chat_and_publish(
-            task, chat_request, publisher, resume_only=chat_request_is_resume_only
+            task, chat_request, publisher, resume_only=resume_only
         )
 
     def _hydrate_task_from_events(
         self, task: ConversationTask, events: List[Dict[str, Any]]
     ) -> None:
-        """
-        Extract the latest user ask + model/additional_system_prompt/etc.
-        Also reconstruct conversation_history from the previous terminal event.
+        """Populate ``user_message_data`` and ``conversation_history`` from events.
 
-        ``events`` is the flat chronological event list returned by
-        ``get_conversation_events`` RPC: ``[{event, data, ts}, ...]`` sorted by
-        ``(seq, ord)``. Turn boundaries are detected by the ``user_message``
-        event itself. Algorithm:
-         1. Find the index of the LATEST ``user_message`` event — that's the
-            current turn's request.
-         2. Among events with index < that, find the latest terminal event
-            (``ai_answer_end`` or ``approval_required``). Its ``messages``
-            array is the conversation history the LLM should resume from.
-         3. Extract the current turn's ask / tool_decisions / etc. from the
-            latest ``user_message``'s data.
+        ``events`` is the flat chronological list returned by
+        ``get_conversation_events``: ``[{event, data, ts}, ...]``.
+
+        1. The LATEST ``user_message`` event's ``data`` dict becomes
+           ``task.user_message_data`` — passed straight to ChatRequest.
+        2. The latest terminal event (``ai_answer_end`` / ``approval_required``)
+           before that user_message provides the ``messages`` array used as
+           ``conversation_history``.
         """
-        current_user_msg: Optional[Dict[str, Any]] = None
         current_user_idx: int = -1
-        last_terminal_messages: Optional[list] = None
-        last_terminal_idx: int = -1
 
         for idx, ev in enumerate(events):
             if ev.get("event") == EVENT_USER_MESSAGE:
                 current_user_idx = idx
-                current_user_msg = ev
+
+        if current_user_idx >= 0:
+            task.user_message_data = events[current_user_idx].get("data") or {}
 
         upper = current_user_idx if current_user_idx >= 0 else len(events)
-        for idx in range(upper):
+        for idx in range(upper - 1, -1, -1):
             ev = events[idx]
             if ev.get("event") in ("ai_answer_end", "approval_required"):
                 messages = (ev.get("data") or {}).get("messages")
                 if messages:
-                    last_terminal_idx = idx
-                    last_terminal_messages = messages
-
-        if current_user_msg is not None:
-            data = current_user_msg.get("data") or {}
-            if data.get("ask"):
-                task.ask = data["ask"]
-            if data.get("images"):
-                task.images = data["images"]
-            if data.get("model"):
-                task.model = data["model"]
-            if data.get("additional_system_prompt"):
-                task.additional_system_prompt = data["additional_system_prompt"]
-            if data.get("tool_decisions"):
-                task.tool_decisions = data["tool_decisions"]
-                task.enable_tool_approval = True
-            if data.get("frontend_tools"):
-                task.frontend_tools = data["frontend_tools"]
-            if data.get("frontend_tool_results"):
-                task.frontend_tool_results = data["frontend_tool_results"]
-            if data.get("response_format"):
-                task.response_format = data["response_format"]
-            if data.get("behavior_controls"):
-                task.behavior_controls = data["behavior_controls"]
-            if "enable_tool_approval" in data:
-                task.enable_tool_approval = bool(data["enable_tool_approval"])
-
-        if last_terminal_messages is not None:
-            task.conversation_history = last_terminal_messages
-            logging.debug(
-                "Reconstructed conversation history from event index=%d for conv %s",
-                last_terminal_idx,
-                task.conversation_id,
-            )
+                    task.conversation_history = messages
+                    break
 
     @staticmethod
     def _extract_last_user_ask(history: Optional[list]) -> Optional[str]:

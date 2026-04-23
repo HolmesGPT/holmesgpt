@@ -16,32 +16,32 @@ def _make_worker():
     return ConversationWorker.__new__(ConversationWorker)
 
 
-def test_hydrate_first_turn_ask_only():
-    worker = _make_worker()
-    task = ConversationTask(
+def _task(**kwargs):
+    defaults = dict(
         conversation_id="c1",
         account_id="a1",
         cluster_id="cl1",
         origin="chat",
         request_sequence=1,
     )
+    defaults.update(kwargs)
+    return ConversationTask(**defaults)
+
+
+def test_hydrate_first_turn_ask_only():
+    worker = _make_worker()
+    task = _task()
     events = [
         {"event": "user_message", "data": {"ask": "hello"}, "ts": "2026-04-13T00:00:00Z"}
     ]
     worker._hydrate_task_from_events(task, events)
-    assert task.ask == "hello"
+    assert task.user_message_data["ask"] == "hello"
     assert task.conversation_history is None
 
 
 def test_hydrate_followup_reconstructs_history():
     worker = _make_worker()
-    task = ConversationTask(
-        conversation_id="c1",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=2,
-    )
+    task = _task(request_sequence=2)
     prev_messages = [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hello"},
@@ -57,19 +57,13 @@ def test_hydrate_followup_reconstructs_history():
         {"event": "user_message", "data": {"ask": "how are you?"}, "ts": "3"},
     ]
     worker._hydrate_task_from_events(task, events)
-    assert task.ask == "how are you?"
+    assert task.user_message_data["ask"] == "how are you?"
     assert task.conversation_history == prev_messages
 
 
 def test_hydrate_picks_approval_required_history():
     worker = _make_worker()
-    task = ConversationTask(
-        conversation_id="c1",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=2,
-    )
+    task = _task(request_sequence=2)
     prev_messages = [
         {"role": "system", "content": "s"},
         {"role": "user", "content": "q"},
@@ -93,23 +87,16 @@ def test_hydrate_picks_approval_required_history():
         },
     ]
     worker._hydrate_task_from_events(task, events)
-    assert task.ask == "continue"
+    assert task.user_message_data["ask"] == "continue"
     assert task.conversation_history == prev_messages
-    assert task.tool_decisions is not None
-    assert task.enable_tool_approval is True
+    assert task.user_message_data.get("tool_decisions") is not None
 
 
 def test_hydrate_ignores_terminal_events_after_current_user_message():
     """A terminal event whose index is AFTER the latest user_message must not
     be picked as the history (that would be circular)."""
     worker = _make_worker()
-    task = ConversationTask(
-        conversation_id="c1",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=2,
-    )
+    task = _task(request_sequence=2)
     history_turn_1 = [{"role": "system", "content": "s"}, {"role": "user", "content": "q1"}]
     stale_history_turn_2 = [{"role": "system", "content": "should_not_be_used"}]
     events = [
@@ -120,7 +107,6 @@ def test_hydrate_ignores_terminal_events_after_current_user_message():
             "ts": "2",
         },
         {"event": "user_message", "data": {"ask": "q2"}, "ts": "3"},
-        # Stale terminal AFTER the latest user_message (e.g. from a prior attempt)
         {
             "event": "ai_answer_end",
             "data": {"content": "stale", "messages": stale_history_turn_2},
@@ -128,7 +114,7 @@ def test_hydrate_ignores_terminal_events_after_current_user_message():
         },
     ]
     worker._hydrate_task_from_events(task, events)
-    assert task.ask == "q2"
+    assert task.user_message_data["ask"] == "q2"
     assert task.conversation_history == history_turn_1
 
 
@@ -159,15 +145,9 @@ def test_extract_last_user_ask():
     assert ConversationWorker._extract_last_user_ask([]) is None
 
 
-def test_hydrate_extracts_model_override():
+def test_hydrate_extracts_all_user_message_fields():
     worker = _make_worker()
-    task = ConversationTask(
-        conversation_id="c1",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=1,
-    )
+    task = _task()
     events = [
         {
             "event": "user_message",
@@ -175,11 +155,17 @@ def test_hydrate_extracts_model_override():
                 "ask": "hi",
                 "model": "Robusta/Sonnet 4.5",
                 "additional_system_prompt": "be concise",
+                "response_format": {"type": "json_schema"},
+                "behavior_controls": {"fast_mode": True},
+                "frontend_tools": [{"name": "create_dashboard"}],
             },
             "ts": "1",
         }
     ]
     worker._hydrate_task_from_events(task, events)
-    assert task.ask == "hi"
-    assert task.model == "Robusta/Sonnet 4.5"
-    assert task.additional_system_prompt == "be concise"
+    assert task.user_message_data["ask"] == "hi"
+    assert task.user_message_data["model"] == "Robusta/Sonnet 4.5"
+    assert task.user_message_data["additional_system_prompt"] == "be concise"
+    assert task.user_message_data["response_format"] == {"type": "json_schema"}
+    assert task.user_message_data["behavior_controls"] == {"fast_mode": True}
+    assert task.user_message_data["frontend_tools"] == [{"name": "create_dashboard"}]
