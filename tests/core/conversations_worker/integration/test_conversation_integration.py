@@ -250,32 +250,8 @@ class TestStopConversation:
 # ---------------------------------------------------------------------------
 class TestErrorEvents:
 
-    def test_failed_conversation_has_error_event(self, supabase_fx: SupabaseFixture):
-        """When a conversation fails, an error event must appear in ConversationEvents."""
-        # Create a conversation, stop it, then post a followup — which should
-        # fail to find a user question (the followup has no ask, no tool_decisions)
-        # and produce an error event before marking as failed.
-        #
-        # Actually, the simplest way to produce a guaranteed failure is to
-        # create a conversation without an ask in the initial event.
-        # But post_new_conversation requires the initial_events to have content.
-        #
-        # Instead, we verify the error events from the stop test — if Holmes
-        # had already started processing, stopping causes MISMATCH which is a
-        # clean exit (no error event). But we can verify the general flow
-        # by checking that any failed conversation has error events.
-        #
-        # Let's use the stress test pattern: if the LLM fails, we get an error
-        # event. We can verify this by checking existing failed conversations,
-        # or by creating a conversation that we know will have issues.
-        #
-        # For a reliable test: create a conversation and immediately check
-        # that the error event schema is correct when we DO get failures.
-        #
-        # Most reliable approach: check that _post_error_event produces the
-        # right schema — but that's a unit test. For integration, let's verify
-        # a completed conversation does NOT have error events, confirming the
-        # error path is separate.
+    def test_successful_conversation_has_no_error_event(self, supabase_fx: SupabaseFixture):
+        """A completed conversation must not contain error events."""
         conv = supabase_fx.create_conversation(
             ask="What is 1+1?",
             title="integ: no-error-on-success",
