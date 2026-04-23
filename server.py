@@ -286,7 +286,7 @@ def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
         bool(request.code_verifier), request.redirect_uri,
     )
     try:
-        executor = config.create_tool_executor(dal=dal, reuse_executor=True)
+        executor = config.create_tool_executor(dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED)
         return process_oauth_callback(request, executor.toolsets, _get_token_manager(), executor=executor)
     except OAuthConfigLookupError as e:
         logging.error("OAuth config error for '%s': %s", request.toolset_name, e.detail)
