@@ -70,6 +70,20 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
 
 === "Robusta Helm Chart with Platform"
 
+    **Before configuring Holmes, set up the Atlassian side:**
+
+    1. Go to [https://admin.atlassian.com/](https://admin.atlassian.com/) and select your organization
+    2. Navigate to **Rovo** → **Rovo MCP Server**
+    3. Click **Add domain** and enter your Robusta platform URL, matching your region:
+
+        | Region | URL |
+        |--------|-----|
+        | US (default) | `https://platform.robusta.dev/**` |
+        | EU | `https://eu.platform.robusta.dev/**` |
+        | AP | `https://ap.platform.robusta.dev/**` |
+
+    **Update your values and helm install or upgrade:**
+
     ```yaml
     holmes:
       mcp_servers:
