@@ -228,9 +228,20 @@ class ToolCallingLLM:
         for toolset in self.tool_executor.enabled_toolsets:
             if toolset.name == "bash":
                 config = toolset.config
-                if config:
-                    return config.builtin_allowlist != "none"
-                return False
+                # No config means the toolset uses its defaults (builtin_allowlist="core")
+                if config is None:
+                    return True
+                # Config may still be a raw dict when the toolset was overridden via
+                # config.yaml but has not yet been lazily initialized (i.e.
+                # prerequisites_callable has not run yet and converted the dict into a
+                # BashExecutorConfig model object).
+                # "none" means an empty builtin allowlist (user-managed only).
+                # Both "core" and "extended" include file-reading commands, so file
+                # access is allowed for those values.
+                if isinstance(config, dict):
+                    return config.get("builtin_allowlist", "core") != "none"
+                # Fully-initialized: config is a BashExecutorConfig (or similar model)
+                return getattr(config, "builtin_allowlist", "core") != "none"
         return False
 
     def _execute_tool_decisions(
