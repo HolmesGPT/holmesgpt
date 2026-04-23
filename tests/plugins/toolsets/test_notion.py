@@ -8,7 +8,7 @@ from holmes.plugins.toolsets.internet.notion import FetchNotion, NotionToolset
 notion_config = {
     "additional_headers": {
         "Authorization": "Bearer fake_token",
-        "Notion-Version": "2022-06-28",
+        # Notion-Version header is automatically added by the toolset
     },
 }
 

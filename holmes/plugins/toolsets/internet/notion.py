@@ -17,6 +17,10 @@ from holmes.plugins.toolsets.internet.internet import (
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
+# Notion API version - required header for all Notion API requests
+# See: https://developers.notion.com/reference/versioning
+NOTION_API_VERSION = "2022-06-28"
+
 
 class FetchNotion(Tool):
     toolset: "InternetBaseToolset"
@@ -49,8 +53,12 @@ class FetchNotion(Tool):
 
         # Get headers from the toolset configuration
         additional_headers = (
-            self.toolset.additional_headers if self.toolset.additional_headers else {}
+            self.toolset.additional_headers.copy()
+            if self.toolset.additional_headers
+            else {}
         )
+        # Add required Notion API version header
+        additional_headers["Notion-Version"] = NOTION_API_VERSION
         url = self.convert_notion_url(url)
         content, _ = scrape(url, additional_headers)
 
@@ -62,9 +70,19 @@ class FetchNotion(Tool):
                 params=params,
             )
 
+        try:
+            parsed_content = self.parse_notion_content(content)
+        except json.JSONDecodeError:
+            # Content is not valid JSON - likely an error message from the API
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=content,
+                params=params,
+            )
+
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
-            data=self.parse_notion_content(content),
+            data=parsed_content,
             params=params,
         )
 
