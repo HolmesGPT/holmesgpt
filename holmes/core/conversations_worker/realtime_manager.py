@@ -216,6 +216,8 @@ class RealtimeManager:
         self._loop = asyncio.get_running_loop()
         self._async_stop = asyncio.Event()
         self._started.set()
+        reconnect_attempts = 0
+        max_backoff = 120
         try:
             await self._connect_and_subscribe()
             refresh_interval = CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS
@@ -232,11 +234,30 @@ class RealtimeManager:
                         self._channel.state if self._channel else "None",
                     )
                     self._connected = False
-                    self.on_new_pending()
-                    await self._full_reconnect()
-                    next_refresh_at = (
-                        asyncio.get_running_loop().time() + refresh_interval
-                    )
+                    try:
+                        self.on_new_pending()
+                    except Exception:
+                        logging.debug(
+                            "on_new_pending failed during reconnect",
+                            exc_info=True,
+                        )
+                    success = await self._full_reconnect()
+                    if success:
+                        reconnect_attempts = 0
+                        next_refresh_at = (
+                            asyncio.get_running_loop().time() + refresh_interval
+                        )
+                    else:
+                        reconnect_attempts += 1
+                        backoff = min(max_backoff, 2 ** reconnect_attempts)
+                        logging.warning(
+                            "Reconnect failed (attempt %d), backing off %ds",
+                            reconnect_attempts,
+                            backoff,
+                        )
+                        next_refresh_at = (
+                            asyncio.get_running_loop().time() + backoff
+                        )
                     continue
 
                 if now >= next_refresh_at:
@@ -263,6 +284,12 @@ class RealtimeManager:
         finally:
             self._connected = False
             try:
+                await self._shutdown_async()
+            except Exception:
+                logging.debug(
+                    "Error closing client during _run exit", exc_info=True
+                )
+            try:
                 self.on_new_pending()
             except Exception:
                 logging.debug(
@@ -283,7 +310,7 @@ class RealtimeManager:
             return True
         return self._channel.state != ChannelStates.JOINED
 
-    async def _full_reconnect(self) -> None:
+    async def _full_reconnect(self) -> bool:
         """Tear down the current client and re-establish from scratch.
 
         Forces a fresh ``sign_in()`` first — ``get_session()`` has not
@@ -291,6 +318,8 @@ class RealtimeManager:
         is the realtime WebSocket (no postgrest queries to trigger the
         Supabase client's internal refresh path).  The DAL uses the same
         re-sign-in pattern on PGRST301 / JWT-expired errors.
+
+        Returns True on success, False on failure.
         """
         try:
             if self._client:
@@ -301,18 +330,19 @@ class RealtimeManager:
         self._channel = None
         self._last_auth_jwt = None
         try:
-            # Run the blocking sign_in in a thread so we don't stall the
-            # asyncio loop.
             await asyncio.to_thread(self.dal.sign_in)
         except Exception:
             logging.exception(
                 "Failed to re-sign-in to Supabase before reconnect",
                 exc_info=True,
             )
+            return False
         try:
             await self._connect_and_subscribe()
+            return True
         except Exception:
             logging.exception("Failed to reconnect", exc_info=True)
+            return False
 
     async def _maybe_refresh_auth(self) -> None:
         """Re-push the Supabase JWT to the realtime client if it rotated."""
@@ -449,6 +479,7 @@ class RealtimeManager:
                 s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")
             ):
                 self._connected = False
+                subscribed.set()
                 try:
                     self.on_new_pending()
                 except Exception:
@@ -516,6 +547,7 @@ class RealtimeManager:
                 s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")
             ):
                 self._connected = False
+                subscribed.set()
                 try:
                     self.on_new_pending()
                 except Exception:
