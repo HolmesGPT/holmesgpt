@@ -92,13 +92,15 @@ def test_hydrate_picks_approval_required_history():
     assert task.user_message_data.get("tool_decisions") is not None
 
 
-def test_hydrate_ignores_terminal_events_after_current_user_message():
-    """A terminal event whose index is AFTER the latest user_message must not
-    be picked as the history (that would be circular)."""
+def test_hydrate_detects_already_answered_user_message():
+    """A terminal event AFTER the latest user_message means that user_message
+    has already been processed. Hydration must leave user_message_data empty
+    so _process_conversation fails cleanly instead of re-running the stale
+    question."""
     worker = _make_worker()
     task = _task(request_sequence=2)
     history_turn_1 = [{"role": "system", "content": "s"}, {"role": "user", "content": "q1"}]
-    stale_history_turn_2 = [{"role": "system", "content": "should_not_be_used"}]
+    stale_history_turn_2 = [{"role": "system", "content": "stale"}]
     events = [
         {"event": "user_message", "data": {"ask": "q1"}, "ts": "1"},
         {
@@ -109,13 +111,15 @@ def test_hydrate_ignores_terminal_events_after_current_user_message():
         {"event": "user_message", "data": {"ask": "q2"}, "ts": "3"},
         {
             "event": "ai_answer_end",
-            "data": {"content": "stale", "messages": stale_history_turn_2},
+            "data": {"content": "a2", "messages": stale_history_turn_2},
             "ts": "4",
         },
     ]
     worker._hydrate_task_from_events(task, events)
-    assert task.user_message_data["ask"] == "q2"
-    assert task.conversation_history == history_turn_1
+    # q2 was already answered → user_message_data stays empty
+    assert task.user_message_data == {}
+    # History from the turn-2 answer is still available, but that's moot
+    # because the worker will fail the conversation for lack of a question.
 
 
 def test_extract_last_user_ask():

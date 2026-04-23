@@ -458,23 +458,34 @@ class ConversationWorker:
 
         1. The LATEST ``user_message`` event's ``data`` dict becomes
            ``task.user_message_data`` — passed straight to ChatRequest.
+           Exception: if a terminal event (``ai_answer_end`` /
+           ``approval_required``) appears AFTER the latest user_message,
+           that user_message has already been processed. ``user_message_data``
+           is left empty so ``_process_conversation`` fails cleanly instead
+           of silently re-running the stale question.
         2. The latest terminal event (``ai_answer_end`` / ``approval_required``)
            before that user_message provides the ``messages`` array used as
            ``conversation_history``.
         """
         current_user_idx: int = -1
+        terminal_events = ("ai_answer_end", "approval_required")
 
         for idx, ev in enumerate(events):
             if ev.get("event") == EVENT_USER_MESSAGE:
                 current_user_idx = idx
 
         if current_user_idx >= 0:
-            task.user_message_data = events[current_user_idx].get("data") or {}
+            already_answered = any(
+                ev.get("event") in terminal_events
+                for ev in events[current_user_idx + 1:]
+            )
+            if not already_answered:
+                task.user_message_data = events[current_user_idx].get("data") or {}
 
         upper = current_user_idx if current_user_idx >= 0 else len(events)
         for idx in range(upper - 1, -1, -1):
             ev = events[idx]
-            if ev.get("event") in ("ai_answer_end", "approval_required"):
+            if ev.get("event") in terminal_events:
                 messages = (ev.get("data") or {}).get("messages")
                 if messages:
                     task.conversation_history = messages
