@@ -7,10 +7,12 @@ import pytest
 import yaml
 
 from holmes.core.tools import (
+    CallablePrerequisite,
     Toolset,
     ToolsetStatusEnum,
     ToolsetTag,
     ToolsetType,
+    ToolsetYamlFromConfig,
     YAMLToolset,
 )
 from holmes.core.toolset_manager import ToolsetManager
@@ -560,3 +562,158 @@ def test_custom_runbook_catalogs_none(tmp_path):
         args, _ = mock_load.call_args
         additional_search_paths = args[1]
         assert additional_search_paths is None
+
+
+# ---- Tests for Toolset.override_with ----------------------------------------
+
+
+def _builtin_like_toolset(name: str = "builtin") -> YAMLToolset:
+    return YAMLToolset(
+        name=name,
+        description="builtin",
+        tags=[ToolsetTag.CORE],
+        tools=[],
+    )
+
+
+def test_override_with_copies_set_fields():
+    target = _builtin_like_toolset()
+    override = ToolsetYamlFromConfig(
+        name="builtin",
+        enabled=True,
+        config={"foo": "bar"},
+    )
+
+    target.override_with(override)
+
+    assert target.enabled is True
+    assert target.config == {"foo": "bar"}
+
+
+def test_override_with_does_not_override_name():
+    target = _builtin_like_toolset(name="builtin")
+    override = ToolsetYamlFromConfig(name="different", enabled=True)
+
+    target.override_with(override)
+
+    assert target.name == "builtin"
+
+
+def test_override_with_enabled_false_propagates():
+    """enabled=False must propagate — False must not be filtered as 'empty'."""
+    target = _builtin_like_toolset()
+    target.enabled = True
+    override = ToolsetYamlFromConfig(name="builtin", enabled=False)
+
+    target.override_with(override)
+
+    assert target.enabled is False
+
+
+def test_override_with_does_not_touch_unset_fields():
+    """Fields not explicitly set on the override must leave the target's
+    existing value alone."""
+    target = _builtin_like_toolset()
+    target.enabled = True
+    target.description = "original description"
+    target.config = {"kept": "value"}
+
+    # Only 'enabled' is explicitly set on the override
+    override = ToolsetYamlFromConfig(name="builtin", enabled=False)
+
+    target.override_with(override)
+
+    assert target.enabled is False
+    assert target.description == "original description"
+    assert target.config == {"kept": "value"}
+
+
+def test_override_with_skips_empty_values():
+    target = _builtin_like_toolset()
+    target.description = "keep me"
+    override = ToolsetYamlFromConfig(
+        name="builtin",
+        description="",  # empty — should be ignored
+        config={},  # empty — should be ignored
+    )
+
+    target.override_with(override)
+
+    assert target.description == "keep me"
+    assert target.config is None
+
+
+def test_override_with_preserves_env_var_resolution_from_yaml_file(
+    tmp_path, monkeypatch
+):
+    """Regression: env-var substitution done by replace_env_vars_values
+    must survive override_with. Previously the model_dump path round-tripped
+    through benedict's serializer and reintroduced the original {{ env.X }}
+    template strings."""
+    monkeypatch.setenv("TEST_RESOLVED_VALUE", "RESOLVED_XX")
+
+    yaml_file = tmp_path / "custom.yaml"
+    yaml_file.write_text(
+        "toolsets:\n"
+        "  builtin:\n"
+        "    enabled: true\n"
+        "    config:\n"
+        '      secret: "{{ env.TEST_RESOLVED_VALUE }}"\n'
+        "      nested:\n"
+        '        deep: "{{ env.TEST_RESOLVED_VALUE }}"\n'
+    )
+
+    manager = ToolsetManager(custom_toolsets=[yaml_file])
+    custom = manager.load_custom_toolsets(["builtin"])
+    assert len(custom) == 1
+    override = custom[0]
+
+    target = _builtin_like_toolset()
+    target.override_with(override)
+
+    assert target.config["secret"] == "RESOLVED_XX"
+    assert target.config["nested"]["deep"] == "RESOLVED_XX"
+
+
+def test_override_with_handles_toolset_with_callable_prerequisites():
+    """Regression: override_with must not fail when the override carries
+    CallablePrerequisite entries whose bound methods reference a toolset
+    containing an unpicklable threading.Lock (e.g. MCP toolsets)."""
+    target = _builtin_like_toolset()
+
+    override = _builtin_like_toolset()
+    override.config = {"k": "v"}
+    override.prerequisites = [
+        CallablePrerequisite(callable=override.check_prerequisites)
+    ]
+    # Mark as explicitly set so override_with picks them up
+    override.__pydantic_fields_set__.update({"config", "prerequisites"})
+
+    target.override_with(override)  # must not raise
+
+    assert target.config == {"k": "v"}
+    assert len(target.prerequisites) == 1
+
+
+def test_override_with_full_flow_through_toolset_manager(tmp_path, monkeypatch):
+    """End-to-end: a builtin toolset overridden from a custom YAML file that
+    uses {{ env.X }} must end up with resolved values after the full
+    ToolsetManager load."""
+    monkeypatch.setenv("TEST_END_TO_END", "E2E_XX")
+
+    yaml_file = tmp_path / "custom.yaml"
+    yaml_file.write_text(
+        "toolsets:\n"
+        "  builtin:\n"
+        "    enabled: true\n"
+        "    config:\n"
+        '      secret: "{{ env.TEST_END_TO_END }}"\n'
+    )
+
+    manager = ToolsetManager(custom_toolsets=[yaml_file])
+    with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:
+        mock_load.return_value = [_builtin_like_toolset()]
+        toolsets = manager._list_all_toolsets(check_prerequisites=False)
+
+    assert len(toolsets) == 1
+    assert toolsets[0].config["secret"] == "E2E_XX"

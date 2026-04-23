@@ -785,12 +785,16 @@ class Toolset(BaseModel):
         Overrides the current attributes with values from the Toolset loaded from custom config
         if they are not None.
         """
-        for field, value in override.model_dump(
-            exclude_unset=True,
-            exclude=("name"),  # type: ignore
-        ).items():
-            if field in self.__class__.model_fields and value not in (None, [], {}, ""):
-                setattr(self, field, value)
+        # Read values via getattr (not model_dump) so custom types like benedict
+        # don't round-trip through a serializer that loses in-place mutations
+        # such as env-var substitution.
+        for field in override.model_fields_set:
+            if field == "name" or field not in self.__class__.model_fields:
+                continue
+            value = getattr(override, field)
+            if value in (None, [], {}, ""):
+                continue
+            setattr(self, field, value)
 
     @model_validator(mode="before")
     def preprocess_tools(cls, values):
