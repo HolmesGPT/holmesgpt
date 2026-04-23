@@ -190,7 +190,7 @@ class ToolCallingLLM:
         self.llm = llm
         self.tool_results_dir = tool_results_dir
 
-        self._runbook_in_use: bool = False
+        self._skill_in_use: bool = False
 
     def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
         """Return a shallow copy with a different ToolExecutor.
@@ -207,14 +207,14 @@ class ToolCallingLLM:
         )
         # Preserve transient state so resumed turns keep access to
         # skill-unlocked (restricted) tools.
-        clone._runbook_in_use = self._runbook_in_use
+        clone._skill_in_use = self._skill_in_use
         return clone
 
     def reset_interaction_state(self) -> None:
         """
         For interactive loop, reset skills in use
         """
-        self._runbook_in_use = False
+        self._skill_in_use = False
 
     def _supports_vision(self) -> bool:
         """Check if vision/multimodal input is enabled.
@@ -433,7 +433,7 @@ class ToolCallingLLM:
 
     def _should_include_restricted_tools(self) -> bool:
         """Check if restricted tools should be included in the tools list."""
-        return self._runbook_in_use
+        return self._skill_in_use
 
     def _get_tools(self) -> list:
         """Get tools list, filtering restricted tools based on authorization."""
@@ -642,13 +642,13 @@ class ToolCallingLLM:
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
-            # Track skill usage - if fetch_runbook is called successfully,
+            # Track skill usage - if fetch_skill is called successfully,
             # restricted tools become available for the rest of the current request
             if (
-                tool_name == "fetch_runbook"
+                tool_name == "fetch_skill"
                 and tool_response.status == StructuredToolResultStatus.SUCCESS
             ):
-                self._runbook_in_use = True
+                self._skill_in_use = True
                 logging.debug("Skill fetched - restricted tools now available")
 
         except Exception as e:
@@ -1250,7 +1250,7 @@ class ToolCallingLLM:
                 tool_number_offset += len(tools_to_call)
 
                 # Re-fetch tools if skill was just activated (enables restricted tools)
-                if self._runbook_in_use and tools is not None:
+                if self._skill_in_use and tools is not None:
                     new_tools = self._get_tools()
                     if len(new_tools) != len(tools):
                         logging.info(

@@ -349,7 +349,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             f"streaming={chat_request.stream}"
         )
 
-        runbooks = config.get_skill_catalog()
+        skills = config.get_skill_catalog()
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -408,7 +408,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             config=config,
             global_instructions=global_instructions,
             additional_system_prompt=chat_request.additional_system_prompt,
-            runbooks=runbooks,
+            skills=skills,
             images=chat_request.images,
             prompt_component_overrides=prompt_component_overrides,
         )

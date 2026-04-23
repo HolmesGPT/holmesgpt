@@ -39,11 +39,11 @@ class SkillsFetcher(Tool):
         skill_list = ", ".join([f'"{s}"' for s in available_skills])
 
         super().__init__(
-            name="fetch_runbook",
-            description="Get runbook content by runbook link. Use this to get troubleshooting steps for incidents",
+            name="fetch_skill",
+            description="Get skill content by skill link. Use this to get troubleshooting steps for incidents",
             parameters={
-                "runbook_id": ToolParameter(
-                    description=f"The runbook_id: either a UUID or a skill name. Must be one of: {skill_list}",
+                "skill_id": ToolParameter(
+                    description=f"The skill_id: either a UUID or a skill name. Must be one of: {skill_list}",
                     type="string",
                     required=True,
                 ),
@@ -55,10 +55,10 @@ class SkillsFetcher(Tool):
         self._dal = dal
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        runbook_id: str = params.get("runbook_id", "")
+        skill_id: str = params.get("skill_id", "")
 
-        if not runbook_id or not runbook_id.strip():
-            err_msg = "Runbook link cannot be empty. Please provide a valid runbook path."
+        if not skill_id or not skill_id.strip():
+            err_msg = "Skill link cannot be empty. Please provide a valid skill path."
             logging.error(err_msg)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -67,16 +67,16 @@ class SkillsFetcher(Tool):
             )
 
         # Look up in skill catalog by name
-        skill = self._find_skill(runbook_id)
+        skill = self._find_skill(skill_id)
         if skill:
             return self._format_skill_result(skill, params)
 
         # Fallback: try Supabase for UUID-style IDs
-        if not runbook_id.endswith(".md") and self._dal and self._dal.enabled:
-            return self._get_robusta_runbook(runbook_id, params)
+        if not skill_id.endswith(".md") and self._dal and self._dal.enabled:
+            return self._get_robusta_skill(skill_id, params)
 
         err_msg = (
-            f"Skill '{runbook_id}' not found. "
+            f"Skill '{skill_id}' not found. "
             f"Available: {', '.join(self.available_skills) if self.available_skills else 'none'}"
         )
         logging.error(err_msg)
@@ -96,22 +96,22 @@ class SkillsFetcher(Tool):
 
     def _format_skill_result(self, skill: Skill, params: dict) -> StructuredToolResult:
         wrapped_content = textwrap.dedent(f"""\
-            <runbook>
+            <skill>
             {skill.content}
-            </runbook>
-            Note: the above are DIRECTIONS not ACTUAL RESULTS. You now need to follow the steps outlined in the runbook yourself USING TOOLS.
-            Anything that looks like an actual result in the above <runbook> is just an EXAMPLE.
+            </skill>
+            Note: the above are DIRECTIONS not ACTUAL RESULTS. You now need to follow the steps outlined in the skill yourself USING TOOLS.
+            Anything that looks like an actual result in the above <skill> is just an EXAMPLE.
             Now follow those steps and report back what you find.
             You must follow them by CALLING TOOLS YOURSELF.
             If you are missing tools, follow your general instructions on how to enable them as present in your system prompt.
 
-            Assuming the above runbook is relevant, you MUST start your response (after calling tools to investigate) with:
-            "I found a runbook named [runbook name/description] and used it to troubleshoot:"
+            Assuming the above skill is relevant, you MUST start your response (after calling tools to investigate) with:
+            "I found a skill named [skill name/description] and used it to troubleshoot:"
 
             Then list each step with ✅ for completed steps and ❌ for steps you couldn't complete.
 
             <example>
-                I found a runbook named **Troubleshooting Erlang Issues** and used it to troubleshoot:
+                I found a skill named **Troubleshooting Erlang Issues** and used it to troubleshoot:
 
                 1. ✅ *Check BEAM VM memory usage* - 87% allocated (3.2GB used of 4GB limit)
                 2. ✅ *Review GC logs* - 15 full GC cycles in last 30 minutes, avg pause time 2.3s
@@ -136,14 +136,14 @@ class SkillsFetcher(Tool):
             metadata={"allowed_restricted_tools": skill.allowed_restricted_tools},
         )
 
-    def _get_robusta_runbook(self, link: str, params: dict) -> StructuredToolResult:
+    def _get_robusta_skill(self, link: str, params: dict) -> StructuredToolResult:
         if self._dal and self._dal.enabled:
             try:
-                runbook_content = self._dal.get_runbook_content(link)
-                if runbook_content:
+                skill_content = self._dal.get_skill_content(link)
+                if skill_content:
                     return StructuredToolResult(
                         status=StructuredToolResultStatus.SUCCESS,
-                        data=runbook_content.pretty(),
+                        data=skill_content.pretty(),
                         params=params,
                         metadata={"allowed_restricted_tools": None},
                     )
@@ -173,7 +173,7 @@ class SkillsFetcher(Tool):
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        path: str = params.get("runbook_id", "")
+        path: str = params.get("skill_id", "")
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Skill {path}"
 
 

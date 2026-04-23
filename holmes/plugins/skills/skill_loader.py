@@ -50,10 +50,10 @@ class SkillCatalog(BaseModel):
 
         parts: List[str] = [""]
         if local:
-            parts.append("Here are local runbooks:")
+            parts.append("Here are local skills:")
             parts.extend(f"* {s.to_prompt_string()}" for s in local)
         if remote:
-            parts.append("\nHere are Robusta runbooks:")
+            parts.append("\nHere are Robusta skills:")
             parts.extend(f"* {s.to_prompt_string()}" for s in remote)
         return "\n".join(parts)
 
@@ -135,10 +135,10 @@ def scan_skill_directory(
 
 
 def map_robusta_instruction_to_skill(
-    instr: "RobustaRunbookInstruction",
+    instr: "RobustaSkillInstruction",
 ) -> Skill:
-    """Convert a Supabase RobustaRunbookInstruction into a Skill."""
-    from holmes.plugins.runbooks import RobustaRunbookInstruction  # noqa: F811
+    """Convert a Supabase RobustaSkillInstruction into a Skill."""
+    from holmes.plugins.runbooks import RobustaSkillInstruction  # noqa: F811
 
     description = instr.title
     if instr.symptom:
@@ -199,7 +199,7 @@ def load_skill_catalog(
     # 3. Load remote skills from Supabase (overrides all)
     if dal:
         try:
-            supabase_entries = dal.get_runbook_catalog()
+            supabase_entries = dal.get_skill_catalog()
             if supabase_entries:
                 for entry in supabase_entries:
                     skill = map_robusta_instruction_to_skill(entry)

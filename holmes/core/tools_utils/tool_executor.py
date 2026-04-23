@@ -117,7 +117,7 @@ class ToolExecutor:
 
         Args:
             include_restricted: If False, filter out tools marked as restricted.
-                               Set to True when runbook is in use or restricted
+                               Set to True when skill is in use or restricted
                                tools are explicitly enabled.
         """
         tools = []

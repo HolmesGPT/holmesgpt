@@ -213,14 +213,14 @@ def ask_holmes(
             else:
                 if test_case.skills is None:
                     # Load skills from the test fixture directory
-                    runbooks = load_skill_catalog(
+                    skills = load_skill_catalog(
                         custom_skill_paths=[test_case.folder]
                     )
                 elif test_case.skills == {}:
-                    runbooks = None
+                    skills = None
                 else:
                     try:
-                        runbooks = SkillCatalog(**test_case.skills)
+                        skills = SkillCatalog(**test_case.skills)
                     except Exception as e:
                         raise ValueError(
                             f"Failed to convert skills dict to SkillCatalog: {e}. "
@@ -230,7 +230,7 @@ def ask_holmes(
                     initial_user_prompt=test_case.user_prompt,
                     file_paths=None,
                     tool_executor=ai.tool_executor,
-                    runbooks=runbooks,
+                    skills=skills,
                     system_prompt_additions=additional_system_prompt,
                 )
         else:
@@ -245,7 +245,7 @@ def ask_holmes(
             dal = load_test_dal(
                 Path(test_case.folder), initialize_base=False
             )
-            runbooks = load_skill_catalog(dal=dal)
+            skills = load_skill_catalog(dal=dal)
             global_instructions = dal.get_global_instructions_for_account()
 
             messages = build_chat_messages(
@@ -254,7 +254,7 @@ def ask_holmes(
                 ai=ai,
                 config=config,
                 global_instructions=global_instructions,
-                runbooks=runbooks,
+                skills=skills,
                 additional_system_prompt=additional_system_prompt,
             )
 

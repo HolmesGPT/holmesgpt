@@ -162,7 +162,7 @@ def _investigate_issue(
     investigation_additions = f"Provide a terse analysis of the following {issue.source_type} alert/issue and why it is firing."
     system_prompt = build_system_prompt(
         toolsets=ai.tool_executor.toolsets,
-        runbooks=None,
+        skills=None,
         system_prompt_additions=investigation_additions,
         cluster_name=config.cluster_name,
         ask_user_enabled=False,
@@ -737,7 +737,7 @@ def ticket(
 
         system_prompt = build_system_prompt(
             toolsets=ai.tool_executor.toolsets,
-            runbooks=None,
+            skills=None,
             system_prompt_additions=ticket_additions,
             cluster_name=ticket_source.config.cluster_name,
             ask_user_enabled=False,

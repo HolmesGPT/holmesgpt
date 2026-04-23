@@ -16,7 +16,7 @@ TEST_SKILLS_PATH = os.path.join(
 def test_SkillsFetcher_not_found():
     skills_fetch_tool = SkillsFetcher(SkillsToolset())
     result = skills_fetch_tool._invoke(
-        {"runbook_id": "nonexistent-skill"},
+        {"skill_id": "nonexistent-skill"},
         context=create_mock_tool_invoke_context(),
     )
     assert result.status == StructuredToolResultStatus.ERROR
@@ -36,7 +36,7 @@ def test_SkillsFetcher_with_skill_catalog():
     )
     skills_fetch_tool = SkillsFetcher(SkillsToolset(), skill_catalog=catalog)
     result = skills_fetch_tool._invoke(
-        {"runbook_id": "test-skill"},
+        {"skill_id": "test-skill"},
         context=create_mock_tool_invoke_context(),
     )
 
@@ -50,7 +50,7 @@ def test_SkillsFetcher_with_skill_catalog():
 def test_SkillsFetcher_empty_id():
     skills_fetch_tool = SkillsFetcher(SkillsToolset())
     result = skills_fetch_tool._invoke(
-        {"runbook_id": ""},
+        {"skill_id": ""},
         context=create_mock_tool_invoke_context(),
     )
     assert result.status == StructuredToolResultStatus.ERROR
@@ -69,6 +69,6 @@ def test_SkillsFetcher_one_liner():
     )
     skills_fetch_tool = SkillsFetcher(SkillsToolset(), skill_catalog=catalog)
     assert (
-        skills_fetch_tool.get_parameterized_one_liner({"runbook_id": "test-skill"})
+        skills_fetch_tool.get_parameterized_one_liner({"skill_id": "test-skill"})
         == "Skills: Fetch Skill test-skill"
     )

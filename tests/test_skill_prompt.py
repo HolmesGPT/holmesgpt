@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from holmes.core.prompt import generate_user_prompt
-from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.utils.global_instructions import generate_skills_args
 
 
 class DummySkillCatalog:
@@ -19,11 +19,11 @@ class DummyInstructions:
 
 
 @pytest.mark.parametrize(
-    "user_prompt,runbook_catalog,issue_instructions,resource_instructions,global_instructions,expected_substrings",
+    "user_prompt,skill_catalog,issue_instructions,resource_instructions,global_instructions,expected_substrings",
     [
         # Only user_prompt
         ("Prompt", None, None, None, None, ["Prompt"]),
-        # Only runbook_catalog
+        # Only skill_catalog
         ("", DummySkillCatalog(), None, None, None, ["SKILL CATALOG PROMPT"]),
         # Only issue_instructions
         (
@@ -87,14 +87,14 @@ class DummyInstructions:
 )
 def test_generate_user_prompt_with_skills(
     user_prompt,
-    runbook_catalog,
+    skill_catalog,
     issue_instructions,
     resource_instructions,
     global_instructions,
     expected_substrings,
 ):
-    ctx = generate_runbooks_args(
-        runbook_catalog=runbook_catalog,
+    ctx = generate_skills_args(
+        skill_catalog=skill_catalog,
         issue_instructions=issue_instructions,
         resource_instructions=resource_instructions,
         global_instructions=global_instructions,
