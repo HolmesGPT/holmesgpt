@@ -86,15 +86,6 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
     log_toolsets_statuses(tool_executor.toolsets)
 
 
-def get_config_meta_for_toolset(toolset: Toolset) -> dict | None:
-    if not isinstance(toolset, RemoteMCPToolset):
-        return None
-    oauth_config = toolset.get_oauth_config()
-    if not oauth_config:
-        return None
-    return {"oauth_config": oauth_config}
-
-
 def get_config_schema_for_toolset(toolset: Toolset) -> str:
     res: dict = {
         "example_yaml": render_default_installation_instructions_for_toolset(toolset),
