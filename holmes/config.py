@@ -444,7 +444,10 @@ class Config(RobustaBaseConfig):
 
         if changes:
             with self._executor_lock:
-                self._cached_tool_executor = ToolExecutor(new_toolsets)
+                executor = ToolExecutor(new_toolsets)
+                preload_oauth_tokens()
+                eager_load_oauth_tools(executor)
+                self._cached_tool_executor = executor
                 self._cached_executor_key = cache_key
 
         return [(name, old.value, new.value) for name, old, new in changes]
