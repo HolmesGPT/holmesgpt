@@ -268,9 +268,6 @@ class ToolInvokeContext(BaseModel):
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""
-        kwargs.setdefault("exclude", set())
-        if isinstance(kwargs["exclude"], set):
-            kwargs["exclude"].add("tool_executor")
         data = super().model_dump(**kwargs)
         if data.get("request_context"):
             data["request_context"] = {

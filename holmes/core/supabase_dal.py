@@ -949,8 +949,8 @@ class SupabaseDal:
 
     # --- OAuth Token Storage ---
 
-    def get_oauth_token(self, provider_name: str, user_id: str) -> Optional[Dict]:
-        """Get the OAuth token for a provider in this account, scoped to a user.
+    def get_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> Optional[Dict]:
+        """Get the OAuth token for a provider in this account, scoped to a user and signing key.
 
         When user_id is None, returns None — in server mode every token is stored
         with a real user_id, so there are no unscoped tokens to find.
@@ -967,8 +967,22 @@ class SupabaseDal:
                 .eq("provider_name", provider_name)
                 .eq("user_id", user_id)
             )
-            res = query.order("updated_at", desc=True).limit(1).execute()
-            return res.data[0] if res.data else None
+            res = query.order("updated_at", desc=True).execute()
+            if not res.data:
+                return None
+            matched = None
+            # this logic could be simplified if we queried by signing_key_hash but it is deliberate to notify users on signing_key mismatches
+            for row in res.data:
+                stored_hash = row.get("signing_key_hash")
+                if stored_hash == signing_key_hash:
+                    matched = row
+                else:
+                    if signing_key_hash:
+                        logging.warning(
+                            "DB token signing_key_hash mismatch (stored=%s, current=%s)",
+                            stored_hash[:12], signing_key_hash[:12],
+                        )
+            return matched
         except Exception:
             logging.exception("Error fetching OAuth token for provider %s", provider_name)
             return None

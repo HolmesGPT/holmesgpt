@@ -199,6 +199,9 @@ class DalTokenStore(TokenStore):
             return None
 
         signing_key_hash = self._get_signing_key_hash()
+        if not signing_key_hash:
+            return None
+
         providers_to_try: List[str] = []
         if provider_name:
             providers_to_try.append(provider_name)
@@ -208,17 +211,8 @@ class DalTokenStore(TokenStore):
             providers_to_try.append("unknown")
 
         for provider in providers_to_try:
-            db_record = self._dal.get_oauth_token(provider, user_id=user_id)
+            db_record = self._dal.get_oauth_token(provider, user_id=user_id, signing_key_hash=signing_key_hash)
             if not db_record:
-                continue
-
-            stored_hash = db_record.get("signing_key_hash", "")
-            if not signing_key_hash or stored_hash != signing_key_hash:
-                if signing_key_hash:
-                    logger.warning(
-                        "DB token signing_key_hash mismatch (stored=%s, current=%s)",
-                        stored_hash[:12], signing_key_hash[:12],
-                    )
                 continue
 
             token_data = self._decrypt_token(db_record["encrypted_token"])

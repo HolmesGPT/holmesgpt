@@ -49,14 +49,14 @@ class OAuthTokenManager:
         self._cache = OAuthTokenCache()
         self._store: Optional[TokenStore] = None
 
-        # Background sweep thread
+        # Background refresh thread
         self._shutdown_event = threading.Event()
-        self._sweep_thread = threading.Thread(
-            target=self._background_sweep_loop,
-            name="oauth-token-sweep",
+        self._refresh_thread = threading.Thread(
+            target=self._background_refresh_loop,
+            name="oauth-token-refresh",
             daemon=True,
         )
-        self._sweep_thread.start()
+        self._refresh_thread.start()
 
     # ── Configuration ──────────────────────────────────────────────────
 
@@ -225,9 +225,9 @@ class OAuthTokenManager:
         )
 
     def shutdown(self) -> None:
-        """Stop the background sweep thread."""
+        """Stop the background refresh thread."""
         self._shutdown_event.set()
-        self._sweep_thread.join(timeout=5)
+        self._refresh_thread.join(timeout=5)
 
     # ── Cache / key helpers ────────────────────────────────────────────
 
@@ -252,7 +252,7 @@ class OAuthTokenManager:
 
     # ── Background sweep ────────────────────────────────────────────────
 
-    def _background_sweep_loop(self) -> None:
+    def _background_refresh_loop(self) -> None:
         """Daemon thread: periodically preload from store and refresh expiring tokens."""
         while not self._shutdown_event.is_set():
             self._shutdown_event.wait(timeout=OAUTH_CREDENTIAL_INTERVAL_SECONDS)
@@ -260,25 +260,25 @@ class OAuthTokenManager:
                 break
             try:
                 self.preload_from_store()
-                self._sweep_expiring_tokens()
+                self._refresh_expiring_tokens()
             except Exception:
-                logger.warning("OAuthTokenManager: sweep failed", exc_info=True)
+                logger.warning("OAuthTokenManager: refresh failed", exc_info=True)
 
-    def _sweep_expiring_tokens(self) -> None:
+    def _refresh_expiring_tokens(self) -> None:
         """Check all cached tokens and refresh those expiring soon."""
         expiring = self._cache.get_expiring_entries(OAUTH_REFRESH_AHEAD_SECONDS)
         if not expiring:
             return
 
-        logger.debug("OAuthTokenManager: sweep found %d tokens expiring within %ds", len(expiring), OAUTH_REFRESH_AHEAD_SECONDS)
+        logger.debug("OAuthTokenManager: found %d tokens expiring within %ds", len(expiring), OAUTH_REFRESH_AHEAD_SECONDS)
 
         for cache_key, entry in expiring:
             try:
-                self._sweep_single_token(cache_key, entry)
+                self._refresh_single_token(cache_key, entry)
             except Exception:
-                logger.warning("OAuthTokenManager: sweep failed for cache_key=%s", cache_key, exc_info=True)
+                logger.warning("OAuthTokenManager: refresh failed for cache_key=%s", cache_key, exc_info=True)
 
-    def _sweep_single_token(self, cache_key: str, entry: Any) -> None:
+    def _refresh_single_token(self, cache_key: str, entry: Any) -> None:
         """Refresh a single expiring token and push to persistent store."""
         refresh_token = entry.refresh_token
         if refresh_token and entry.token_url:
