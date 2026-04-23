@@ -231,14 +231,19 @@ class OAuthToolConnector:
 
     @staticmethod
     def _evict_expired_token(user_id: str, toolset: Any) -> None:
-        """Remove an expired/revoked token from cache and persistent store."""
+        """Remove an expired/revoked token from cache and disk (CLI only).
+
+        Only deletes from DiskTokenStore — DalTokenStore is shared across
+        clusters, so another cluster may have already refreshed the token.
+        """
         try:
             from holmes.core.oauth_utils import _get_token_manager
+            from holmes.plugins.toolsets.mcp.oauth_token_store import DiskTokenStore
             mgr = _get_token_manager()
             oauth_config = toolset._mcp_config.oauth
             cache_key = mgr._get_cache_key(oauth_config, {"user_id": user_id})
             mgr._cache.evict(cache_key)
-            if mgr._store:
+            if isinstance(mgr._store, DiskTokenStore):
                 provider_name = oauth_config.authorization_url or "unknown"
                 mgr._store.delete_token(provider_name, user_id=user_id)
         except Exception:
