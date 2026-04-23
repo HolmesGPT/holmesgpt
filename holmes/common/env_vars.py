@@ -8,6 +8,9 @@ from typing import Optional
 RECOMMENDED_OPENAI_MODEL = "gpt-4.1"
 RECOMMENDED_ANTHROPIC_MODEL = "anthropic/claude-opus-4-1-20250805"
 
+# Default user_id for CLI mode (no authenticated user)
+DEFAULT_CLI_USER = "__no_user__"
+
 # Default model for HolmesGPT
 DEFAULT_MODEL = RECOMMENDED_OPENAI_MODEL
 FALLBACK_CONTEXT_WINDOW_SIZE = (

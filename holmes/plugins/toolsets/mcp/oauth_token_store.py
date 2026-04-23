@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from holmes.common.env_vars import DEFAULT_CLI_USER
 from holmes.core.config import config_path_dir
 
 logger = logging.getLogger(__name__)
@@ -424,7 +425,7 @@ class DiskTokenStore(TokenStore):
             if token_data.get("expires_at", float("inf")) > now and token_data.get("access_token"):
                 results.append({
                     "provider_name": key,
-                    "user_id": None,
+                    "user_id": DEFAULT_CLI_USER,
                     "token_data": token_data,
                     "token_expiry": None,
                 })

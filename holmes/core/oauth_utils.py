@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
+from holmes.common.env_vars import DEFAULT_CLI_USER
 from mcp.client.auth.oauth2 import PKCEParameters
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
@@ -74,7 +75,7 @@ def eager_load_oauth_tools(executor: Any) -> None:
         if not ts._mcp_config.oauth.authorization_url:
             continue
         for user_id in token_mgr.get_cached_user_ids(ts._mcp_config.oauth):
-            request_ctx = {"user_id": user_id} if user_id != "__no_user__" else None
+            request_ctx = {"user_id": user_id} if user_id != DEFAULT_CLI_USER else None
             executor.oauth_connector.load_tools_for_user(user_id, ts, request_ctx)
 
 

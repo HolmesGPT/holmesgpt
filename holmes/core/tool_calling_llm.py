@@ -35,6 +35,7 @@ from holmes.core.models import (
     ToolCallResult,
 )
 from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
+from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
     StructuredToolResult,
@@ -693,9 +694,10 @@ class ToolCallingLLM:
 
             # Store OAuth tools discovered by a _connect placeholder
             if tool_response.oauth_tools:
+                effective_user = _get_token_manager().require_user_id(request_context)
                 toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
                 if toolset_name:
-                    self.tool_executor.oauth_connector.store_user_tools(user_id or "__no_user__", toolset_name, tool_response.oauth_tools)
+                    self.tool_executor.oauth_connector.store_user_tools(effective_user, toolset_name, tool_response.oauth_tools)
 
             # Track runbook usage - if fetch_runbook is called successfully,
             # restricted tools become available for the rest of the current request

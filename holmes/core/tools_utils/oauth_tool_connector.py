@@ -17,7 +17,9 @@ from holmes.core.oauth_config import (
     _get_exchange_manager,
     parse_oauth_decision,
 )
+from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.tools import Tool
+from holmes.plugins.toolsets.mcp.oauth_token_store import DiskTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ class OAuthToolConnector:
             raise OAuthTokenExchangeError(0, "OAuth code exchange failed")
 
         # Load real tools now that we have a token
-        user_id = (request_context or {}).get("user_id", "__no_user__")
+        user_id = _get_token_manager().require_user_id(request_context)
         if toolset:
             tools = self.load_tools_for_user(user_id, toolset, request_context)
             return (toolset.name, tools)
@@ -147,12 +149,8 @@ class OAuthToolConnector:
     # ── Tool resolution ────────────────────────────────────────────────
 
     def resolve_tools(self, user_id: Optional[str]) -> Optional[Dict[str, List[Tool]]]:
-        """Return per-user OAuth tools if available, or None.
-
-        In CLI mode (DiskTokenStore), user_id is None — tools are stored under __no_user__.
-        In server mode (DalTokenStore), user_id is required.
-        """
-        key = user_id or "__no_user__"
+        """Return per-user OAuth tools if available, or None."""
+        key = user_id or _get_token_manager().require_user_id(None)
         with self._lock:
             user_tools = self._user_tools.get(key)
             return dict(user_tools) if user_tools else None
@@ -191,11 +189,8 @@ class OAuthToolConnector:
         return filtered
 
     def find_tool(self, name: str, user_id: Optional[str]) -> Optional[Tool]:
-        """Look up a tool in the per-user OAuth tools store.
-
-        In CLI mode (DiskTokenStore), user_id is None — searches under __no_user__.
-        """
-        key = user_id or "__no_user__"
+        """Look up a tool in the per-user OAuth tools store."""
+        key = user_id or _get_token_manager().require_user_id(None)
         with self._lock:
             for toolset_tools in self._user_tools.get(key, {}).values():
                 for tool in toolset_tools:
@@ -205,7 +200,7 @@ class OAuthToolConnector:
 
     def get_toolset(self, tool_name: str, user_id: Optional[str]) -> Optional[Any]:
         """Return the toolset for a per-user OAuth tool, or None."""
-        key = user_id or "__no_user__"
+        key = user_id or _get_token_manager().require_user_id(None)
         return self._user_tool_to_toolset.get(key, {}).get(tool_name)
 
 
@@ -237,8 +232,6 @@ class OAuthToolConnector:
         clusters, so another cluster may have already refreshed the token.
         """
         try:
-            from holmes.core.oauth_utils import _get_token_manager
-            from holmes.plugins.toolsets.mcp.oauth_token_store import DiskTokenStore
             mgr = _get_token_manager()
             oauth_config = toolset._mcp_config.oauth
             cache_key = mgr._get_cache_key(oauth_config, {"user_id": user_id})

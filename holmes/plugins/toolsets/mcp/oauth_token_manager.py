@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
+from holmes.common.env_vars import DEFAULT_CLI_USER
 from holmes.plugins.toolsets.mcp.oauth_token_store import (
     DalTokenStore,
     DiskTokenStore,
@@ -88,7 +89,7 @@ class OAuthTokenManager:
         loaded = 0
         for entry in preloaded:
             provider_name = entry.get("provider_name", "")
-            user_id = entry.get("user_id") or "__no_user__"
+            user_id = entry.get("user_id")
             token_data = entry.get("token_data", {})
 
             if not token_data.get("access_token"):
@@ -116,7 +117,7 @@ class OAuthTokenManager:
                 token_url=token_data.get("token_url"),
                 client_id=token_data.get("client_id"),
                 authorization_url=provider_name,
-                user_id=user_id if user_id != "__no_user__" else None,
+                user_id=user_id if user_id != DEFAULT_CLI_USER else None,
             )
             loaded += 1
 
@@ -223,6 +224,19 @@ class OAuthTokenManager:
             "OAuthTokenManager: token stored (cache_key=%s, expires_in=%s, has_refresh=%s)",
             cache_key, expires_in, "refresh_token" in token_data,
         )
+
+    def require_user_id(self, request_context: Optional[Dict[str, Any]]) -> str:
+        """Return a user_id, using DEFAULT_CLI_USER in CLI mode or raising in server mode.
+
+        CLI mode (DiskTokenStore / no store): returns DEFAULT_CLI_USER.
+        Server mode (DalTokenStore): raises ValueError if user_id is missing.
+        """
+        user_id = _get_user_id(request_context)
+        if user_id:
+            return user_id
+        if isinstance(self._store, DalTokenStore):
+            raise ValueError("user_id is required in server mode but was not provided")
+        return DEFAULT_CLI_USER
 
     def shutdown(self) -> None:
         """Stop the background refresh thread."""
@@ -386,7 +400,7 @@ class OAuthTokenManager:
     # ── Key helpers ────────────────────────────────────────────────────
 
     def _get_cache_key(self, oauth_config: Any, request_context: Optional[Dict[str, Any]]) -> str:
-        user_id = _get_user_id(request_context) or "__no_user__"
+        user_id = _get_user_id(request_context) or DEFAULT_CLI_USER
         return self._build_cache_key(user_id, oauth_config.authorization_url)
 
     @staticmethod
@@ -409,3 +423,5 @@ def _get_user_id(request_context: Optional[Dict[str, Any]]) -> Optional[str]:
     if request_context:
         return request_context.get("user_id")
     return None
+
+
