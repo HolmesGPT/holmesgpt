@@ -31,9 +31,10 @@ class ConversationTask(BaseModel):
     model: Optional[str] = None
     additional_system_prompt: Optional[str] = None
     tool_decisions: Optional[List[Dict[str, Any]]] = None
+    frontend_tools: Optional[List[Dict[str, Any]]] = None
     frontend_tool_results: Optional[List[Dict[str, Any]]] = None
-    bash_enabled: Optional[bool] = None
-    fast_mode: Optional[bool] = None
+    response_format: Optional[Dict[str, Any]] = None
+    behavior_controls: Optional[Dict[str, bool]] = None
     enable_tool_approval: bool = False
 
 

@@ -430,7 +430,6 @@ class ConversationWorker:
             batch_interval_seconds=CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS,
         )
 
-        # Build ChatRequest
         chat_request = ChatRequest(
             ask=task.ask,
             images=task.images,
@@ -440,7 +439,10 @@ class ConversationWorker:
             additional_system_prompt=task.additional_system_prompt,
             enable_tool_approval=task.enable_tool_approval,
             tool_decisions=task.tool_decisions,  # type: ignore[arg-type]
+            frontend_tools=task.frontend_tools,  # type: ignore[arg-type]
             frontend_tool_results=task.frontend_tool_results,  # type: ignore[arg-type]
+            response_format=task.response_format,
+            behavior_controls=task.behavior_controls,
         )
         # Flag used later to skip build_chat_messages for pure resumes
         chat_request_is_resume_only = resume_only
@@ -503,12 +505,14 @@ class ConversationWorker:
             if data.get("tool_decisions"):
                 task.tool_decisions = data["tool_decisions"]
                 task.enable_tool_approval = True
+            if data.get("frontend_tools"):
+                task.frontend_tools = data["frontend_tools"]
             if data.get("frontend_tool_results"):
                 task.frontend_tool_results = data["frontend_tool_results"]
-            if "bash_enabled" in data:
-                task.bash_enabled = data["bash_enabled"]
-            if "fast_mode" in data:
-                task.fast_mode = data["fast_mode"]
+            if data.get("response_format"):
+                task.response_format = data["response_format"]
+            if data.get("behavior_controls"):
+                task.behavior_controls = data["behavior_controls"]
             if "enable_tool_approval" in data:
                 task.enable_tool_approval = bool(data["enable_tool_approval"])
 
@@ -564,14 +568,9 @@ class ConversationWorker:
         runbooks = self.config.get_runbook_catalog()
 
         prompt_component_overrides = None
-        behavior_controls = {}
-        if task.bash_enabled is not None:
-            behavior_controls["bash_enabled"] = task.bash_enabled
-        if task.fast_mode is not None:
-            behavior_controls["fast_mode"] = task.fast_mode
-        if behavior_controls:
+        if chat_request.behavior_controls:
             prompt_component_overrides = {}
-            for k, v in behavior_controls.items():
+            for k, v in chat_request.behavior_controls.items():
                 try:
                     prompt_component_overrides[PromptComponent(k.lower())] = v
                 except ValueError:
