@@ -219,7 +219,32 @@ class RealtimeManager:
         reconnect_attempts = 0
         max_backoff = 120
         try:
-            await self._connect_and_subscribe()
+            # Initial connect uses the same backoff as mid-run reconnects
+            # so transient startup failures (e.g. Supabase 503) are retried
+            # instead of killing the thread.
+            while not self._stop_event.is_set():
+                success = await self._full_reconnect()
+                if success:
+                    reconnect_attempts = 0
+                    break
+                reconnect_attempts += 1
+                backoff = min(max_backoff, 2 ** reconnect_attempts)
+                logging.warning(
+                    "Initial connect failed (attempt %d), retrying in %ds",
+                    reconnect_attempts,
+                    backoff,
+                )
+                try:
+                    await asyncio.wait_for(
+                        self._async_stop.wait(), timeout=backoff
+                    )
+                    return  # _async_stop set → stop() was called
+                except asyncio.TimeoutError:
+                    pass
+
+            if self._stop_event.is_set():
+                return
+
             refresh_interval = CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS
             next_refresh_at = asyncio.get_running_loop().time() + refresh_interval
             while not self._stop_event.is_set():
