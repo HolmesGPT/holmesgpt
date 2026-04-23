@@ -1,0 +1,17 @@
+# Native Teams toolset for channel operations via delegated Graph API.
+#
+# Auth: delegated access token passed as Bearer. Token must carry the
+# delegated scopes:
+#   User.Read, Team.ReadBasic.All, Channel.Create, ChannelMessage.Send
+# (Channel.Create usually requires admin consent.)
+toolsets:
+  teams:
+    enabled: true
+    config:
+      auth_token: "{{ env.TEAMS_AUTH_TOKEN }}"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

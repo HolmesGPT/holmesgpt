@@ -1,0 +1,83 @@
+# Test: Microsoft Teams (native toolset) - Holmes creates a channel + writes updates
+# Verifies the end-to-end channel-creation flow via the native Teams toolset.
+# Holmes is asked to list the teams it has access to, pick one, create a new
+# standard channel with a unique display name, and post two progressive
+# investigation updates into it containing a verification code.
+#
+# Scopes required on the auth token (delegated):
+#   User.Read, Team.ReadBasic.All, Channel.Create, ChannelMessage.Send
+# Note: Channel.Create usually requires admin consent in enterprise tenants.
+#
+# Requirements (env vars):
+#   TEAMS_AUTH_TOKEN - Pre-minted delegated Microsoft Graph access token with
+#                      the scopes above. Mint via scripts/get_teams_token.py
+#                      (now requests the expanded scope set) or any MSAL/Graph
+#                      client. ~1h TTL; refresh before runs.
+#
+# Reentrancy: each run creates a NEW channel with a Holmes-chosen unique
+# suffix, so parallel runs never collide on the same resource. Channels
+# persist in the target team across runs — plan on manual cleanup every so
+# often, or have a team owner periodically delete holmes-eval-258-* channels.
+# after_test is intentionally omitted to avoid racing parallel runs.
+
+user_prompt: |
+  There's a recurring reliability concern with the 'checkout-api' service and
+  the SRE team wants a dedicated Microsoft Teams channel to track ongoing
+  investigation. Please do the following:
+
+  1. Call teams_list_teams to enumerate the Microsoft Teams you belong to,
+     and pick any one of them as the target team for the new channel.
+  2. Create a new standard channel in that team. The channel display name
+     must start with 'holmes-eval-258-' and end with a unique suffix you
+     choose (any random string works). A short description is fine.
+  3. Post an initial message to the new channel:
+     "Tracking ongoing checkout-api reliability. Reference: HLMS258-V3R1FY"
+  4. Post a follow-up status update in the same channel:
+     "Status: investigation in progress; updates will follow."
+  5. Report: the team name you picked, the channel display name and id you
+     created, and confirmation that both messages were posted.
+
+expected_output:
+  - "Must have called teams_list_teams to enumerate joined teams"
+  - "Must have called teams_create_channel with a display_name starting with 'holmes-eval-258-' and membership_type 'standard' (or omitted)"
+  - "Must have called teams_send_channel_message TWICE — once with the initial message containing 'HLMS258-V3R1FY', once with the follow-up status update"
+  - "Must report the team name, the channel display name (starting with 'holmes-eval-258-'), and the channel id"
+
+include_tool_calls: true
+
+tags:
+  - integration
+  - fast
+  - hard
+  - question-answer
+
+before_test: |
+  set -e
+
+  [ -n "${TEAMS_AUTH_TOKEN:-}" ] || { echo "Missing env var: TEAMS_AUTH_TOKEN (delegated Graph access token)"; exit 1; }
+
+  # Verify token works and has at least read access
+  HTTP=$(curl -sS -o /tmp/teams_eval_258_me.json -w "%{http_code}" \
+    https://graph.microsoft.com/v1.0/me \
+    -H "Authorization: Bearer ${TEAMS_AUTH_TOKEN}")
+
+  if [ "${HTTP}" != "200" ]; then
+    echo "Graph /me returned HTTP ${HTTP}: $(cat /tmp/teams_eval_258_me.json 2>/dev/null)"
+    echo "Check that TEAMS_AUTH_TOKEN is a valid, non-expired Graph delegated access token"
+    echo "with scopes: User.Read, Team.ReadBasic.All, Channel.Create, ChannelMessage.Send"
+    rm -f /tmp/teams_eval_258_me.json
+    exit 1
+  fi
+  rm -f /tmp/teams_eval_258_me.json
+
+  # Sanity-check: at least one joined team exists, otherwise the test can't pick one
+  TEAMS_COUNT=$(curl -sS https://graph.microsoft.com/v1.0/me/joinedTeams \
+    -H "Authorization: Bearer ${TEAMS_AUTH_TOKEN}" \
+    | python3 -c 'import sys,json; print(len(json.load(sys.stdin).get("value", [])))')
+  if [ "${TEAMS_COUNT}" -lt 1 ]; then
+    echo "Authenticated user has 0 joined teams — channel creation test cannot run."
+    exit 1
+  fi
+  echo "Setup complete (${TEAMS_COUNT} joined team(s) available)"
+
+# No after_test — channels persist; manually clean stale holmes-eval-258-* channels periodically.

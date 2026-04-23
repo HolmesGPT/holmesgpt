@@ -13,12 +13,35 @@ from holmes.config import Config
 from holmes.core.llm import DefaultLLM
 from holmes.core.prompt import append_file_to_user_prompt
 from holmes.core.resource_instruction import ResourceInstructions
+from holmes.utils.env import get_env_replacement
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
 from tests.llm.utils.test_env_vars import (
     CLASSIFIER_MODEL,
     MODEL,
     MODEL_LIST_FILE_LOCATION,
 )
+
+
+def _render_env(value: Any) -> Any:
+    """Recursively substitute {{ env.VAR }} placeholders in strings or lists of strings.
+
+    Used to keep tenant-specific values (emails, IDs) out of test fixtures.
+    Returns the value unchanged when it contains no placeholder. Tolerant of
+    missing env vars at collection time: leaves unsubstituted placeholders
+    in place so unrelated tests can still be collected; tests that rely on
+    the missing values will fail clearly at run time.
+    """
+    if isinstance(value, str):
+        if "{{" not in value:
+            return value
+        try:
+            return get_env_replacement(value) or value
+        except ValueError as e:
+            logging.debug("Env var substitution skipped: %s", e)
+            return value
+    if isinstance(value, list):
+        return [_render_env(v) for v in value]
+    return value
 
 
 class SetupFailureError(Exception):
@@ -331,6 +354,14 @@ class TestCaseLoader:
                     extra_prompt = load_include_files(
                         test_case_folder, config_dict.get("include_files", None)
                     )
+
+                    # Render {{ env.VAR }} placeholders so tenant-specific values
+                    # (e.g. test user emails) can live in env vars instead of git.
+                    config_dict["user_prompt"] = _render_env(config_dict["user_prompt"])
+                    if config_dict.get("expected_output") is not None:
+                        config_dict["expected_output"] = _render_env(
+                            config_dict["expected_output"]
+                        )
 
                     original_user_prompt = config_dict["user_prompt"]
 

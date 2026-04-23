@@ -1,0 +1,12 @@
+# Same toolset config as 257 — native Teams toolset, delegated Graph token.
+toolsets:
+  teams:
+    enabled: true
+    config:
+      auth_token: "{{ env.TEAMS_AUTH_TOKEN }}"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

@@ -1206,6 +1206,8 @@ jobs:
           CONFLUENCE_SA_API_KEY: ${{ secrets.CONFLUENCE_SA_API_KEY }}
           CONFLUENCE_USER: ${{ secrets.CONFLUENCE_USER }}
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
+          TEAMS_AUTH_TOKEN: ${{ secrets.TEAMS_AUTH_TOKEN }}
+          TEAMS_TEST_MEMBER: ${{ secrets.TEAMS_TEST_MEMBER }}
           CORALOGIX_API_KEY: ${{ secrets.CORALOGIX_API_KEY }}
           CORALOGIX_SEND_API_KEY: ${{ secrets.CORALOGIX_SEND_API_KEY }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}

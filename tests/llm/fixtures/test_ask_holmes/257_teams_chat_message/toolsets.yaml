@@ -1,0 +1,19 @@
+# Native Teams toolset for Microsoft Teams chat operations via delegated Graph API.
+#
+# Auth: delegated access token passed as Bearer, minted externally (by az CLI,
+# MSAL, an Entra app registration, or any other means that produces a token
+# with the required scopes). The toolset does not mint tokens itself.
+#
+# Required delegated scopes on the token:
+#   User.Read, User.ReadBasic.All, Chat.ReadWrite, ChatMessage.Send
+toolsets:
+  teams:
+    enabled: true
+    config:
+      auth_token: "{{ env.TEAMS_AUTH_TOKEN }}"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

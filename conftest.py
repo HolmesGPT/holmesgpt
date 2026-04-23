@@ -287,6 +287,10 @@ def responses():
         rsps.add_passthru(re.compile(r"https://.*\.atlassian\.net"))
         rsps.add_passthru("https://api.atlassian.com")  # Atlassian Cloud API gateway
 
+        # Allow Microsoft Graph API calls (for Teams MCP integration)
+        rsps.add_passthru("https://graph.microsoft.com")
+        rsps.add_passthru("https://login.microsoftonline.com")
+
         # Allow
         rsps.add_passthru("https://google.com")
         rsps.add_passthru("https://burgergooglenetworkspam.co.uk")

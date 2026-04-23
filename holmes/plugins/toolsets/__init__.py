@@ -58,6 +58,7 @@ from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
+from holmes.plugins.toolsets.teams.teams import TeamsToolset
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -116,6 +117,7 @@ def load_python_toolsets(
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        TeamsToolset(),
         DatabaseToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),

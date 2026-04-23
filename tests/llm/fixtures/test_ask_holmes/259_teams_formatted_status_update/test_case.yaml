@@ -1,0 +1,70 @@
+# Test: Microsoft Teams formatting — Holmes chooses the layout
+# Companion to 257 (chat creation + basic update). Identical infrastructure,
+# but the user_prompt dumps raw incident facts in a conversational ask and
+# deliberately says NOTHING about HTML, adaptive cards, bullets, or any
+# other formatting treatment. Lets us visually verify that the richer
+# send-message API (content_type, attachments, importance) leads Holmes
+# to produce a structured message rather than a wall of text.
+#
+# Pass criteria at eval level are the same as other Teams evals: Holmes
+# makes the right tool calls with the right verification code. Visual
+# quality of the formatting is a human check in Teams after the run.
+#
+# Requirements (env vars) — same as 257:
+#   TEAMS_AUTH_TOKEN   - Delegated Graph access token with scopes:
+#                        User.Read, User.ReadBasic.All,
+#                        Chat.ReadWrite, ChatMessage.Send
+#   TEAMS_TEST_MEMBER  - Comma-separated UPNs to include in the chat
+#                        (natan@robusta.dev,arik@robusta.dev in demo).
+#
+# Reentrancy: each run creates a new chat with a Holmes-chosen suffix.
+
+user_prompt: |
+  I've been investigating a Victoria Metrics outage and I want to send a
+  status update over to the team. Please create a Microsoft Teams group
+  chat with {{ env.TEAMS_TEST_MEMBER }} (chat topic should start with
+  'holmes-eval-259-' and end with a unique suffix you choose), and post a
+  status update that covers everything we know so far:
+
+  - PagerDuty incident #169
+  - Status: acknowledged, urgency: high, assignee: Natan Yellin
+  - The vmsingle pod vmsingle-vmks-victoria-metrics-k8s-stack-6c77885985-q6wjj is in CrashLoopBackOff
+  - It's been through 7,331 restarts already
+  - Its PVC (vmsingle-vmks-victoria-metrics-k8s-stack) is 20Gi and completely full — 0 bytes free
+  - The crash log shows: FATAL: cannot create directory: mkdir /victoria-metrics-data/tmp/searchResults: no space left on device
+  - Storage currently holds ~14.7GB of data across 26 billion rows in 269 parts
+  - Downstream impact: vmagent can't write metrics to vmsingle, monitoring pipeline is down
+  - Investigation is still in progress
+
+  Include the reference HLMS259-V3R1FY somewhere in the message so we can
+  find it later. When the update is posted, report back the chat topic
+  and id.
+
+expected_output:
+  - "Must have called teams_search_users (once per responder) to resolve each of {{ env.TEAMS_TEST_MEMBER }} to a user id"
+  - "Must have called teams_create_chat with chat_type 'group', both resolved user ids, and a topic starting with 'holmes-eval-259-'"
+  - "Must have called teams_send_chat_message to post a message containing 'HLMS259-V3R1FY'"
+  - "Must report the chat topic (starting with 'holmes-eval-259-') and the chat ID"
+
+include_tool_calls: true
+
+tags:
+  - integration
+  - fast
+  - hard
+  - question-answer
+
+before_test: |
+  set -e
+  [ -n "${TEAMS_AUTH_TOKEN:-}" ] || { echo "Missing env var: TEAMS_AUTH_TOKEN"; exit 1; }
+
+  HTTP=$(curl -sS -o /tmp/teams_eval_259_me.json -w "%{http_code}" \
+    https://graph.microsoft.com/v1.0/me \
+    -H "Authorization: Bearer ${TEAMS_AUTH_TOKEN}")
+  if [ "${HTTP}" != "200" ]; then
+    echo "Graph /me returned HTTP ${HTTP}: $(cat /tmp/teams_eval_259_me.json 2>/dev/null)"
+    rm -f /tmp/teams_eval_259_me.json
+    exit 1
+  fi
+  rm -f /tmp/teams_eval_259_me.json
+  echo "Setup complete"
