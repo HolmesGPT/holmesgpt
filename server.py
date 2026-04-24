@@ -41,6 +41,7 @@ from holmes.common.env_vars import (
     SENTRY_DSN,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+    TRACE_TOKEN_USAGE,
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.conversations import (
@@ -508,6 +509,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span=trace_span,
                 ),
                 [f.model_dump() for f in follow_up_actions],
+                model=chat_request.model or config.model,
             )
             return StreamingResponse(
                 _stream_with_trace_cleanup(storage, stream, req_info, trace_span),
@@ -542,7 +544,15 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     if hasattr(llm_call, "num_llm_calls") and llm_call.num_llm_calls:
                         otel_metrics.investigation_iterations.record(llm_call.num_llm_calls, inv_attrs)
 
-                logging.info(f"Completed {req_info}")
+                if TRACE_TOKEN_USAGE:
+                    logging.info(
+                        f"Completed {req_info} | model={chat_request.model or config.model}, "
+                        f"input={llm_call.prompt_tokens}, output={llm_call.completion_tokens}, "
+                        f"cached={llm_call.cached_tokens}, total={llm_call.total_tokens}, "
+                        f"cost=${llm_call.total_cost:.4f}"
+                    )
+                else:
+                    logging.info(f"Completed {req_info}")
                 response = ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
