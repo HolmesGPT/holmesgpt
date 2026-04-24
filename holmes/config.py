@@ -18,7 +18,6 @@ from pydantic import (
     SecretStr,
 )
 
-from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
 from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
 from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetTag
@@ -41,9 +40,12 @@ if TYPE_CHECKING:
     from holmes.plugins.sources.prometheus.plugin import AlertManagerSource
 
 from holmes.core.config import config_path_dir
+from holmes.core.oauth_utils import eager_load_oauth_tools, preload_oauth_tokens, set_oauth_dal
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.pydantic_utils import RobustaBaseConfig, load_model_from_file
+
+
 
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
 
@@ -257,23 +259,27 @@ class Config(RobustaBaseConfig):
         return result
 
     @staticmethod
+    def get_robusta_global_config_value(key: str) -> Optional[str]:
+        """Read a value from Robusta's global_config. Returns None in CLI mode or on error."""
+        from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
+
+        if not os.path.exists(ROBUSTA_CONFIG_PATH):
+            return None
+        try:
+            with open(ROBUSTA_CONFIG_PATH) as f:
+                yaml_content = yaml.safe_load(f)
+                config = RobustaConfig(**yaml_content)
+                return config.global_config.get(key)
+        except Exception:
+            logging.warning("Failed to load '%s' from Robusta config", key, exc_info=True)
+            return None
+
+    @staticmethod
     def __get_cluster_name() -> Optional[str]:
-        config_file_path = ROBUSTA_CONFIG_PATH
         env_cluster_name = os.environ.get("CLUSTER_NAME")
         if env_cluster_name:
             return env_cluster_name
-
-        if not os.path.exists(config_file_path):
-            logging.info(f"No robusta config in {config_file_path}")
-            return None
-
-        logging.info(f"loading config {config_file_path}")
-        with open(config_file_path) as file:
-            yaml_content = yaml.safe_load(file)
-            config = RobustaConfig(**yaml_content)
-            return config.global_config.get("cluster_name")
-
-        return None
+        return Config.get_robusta_global_config_value("cluster_name")
 
     def get_runbook_catalog(self) -> Optional[RunbookCatalog]:
         runbook_catalog = load_runbook_catalog(
@@ -354,6 +360,9 @@ class Config(RobustaBaseConfig):
         tags = toolset_tag_filter or [ToolsetTag.CORE]
         cache_key = self._executor_cache_key(tags, enable_all_toolsets_possible)
 
+        # Make DAL available for OAuth cross-cluster token storage
+        set_oauth_dal(dal)
+
         if reuse_executor:
             with self._executor_lock:
                 if (
@@ -373,6 +382,9 @@ class Config(RobustaBaseConfig):
                 executor = ToolExecutor(toolsets, on_event=on_event)
                 self._cached_tool_executor = executor
                 self._cached_executor_key = cache_key
+
+                preload_oauth_tokens()
+                eager_load_oauth_tools(executor)
                 return executor
 
         toolsets = self.toolset_manager.prepare_toolsets(
@@ -382,7 +394,10 @@ class Config(RobustaBaseConfig):
             prerequisite_cache=prerequisite_cache,
             on_event=on_event,
         )
-        return ToolExecutor(toolsets, on_event=on_event)
+        preload_oauth_tokens()
+        executor = ToolExecutor(toolsets, on_event=on_event)
+        eager_load_oauth_tools(executor)
+        return executor
 
     def refresh_tool_executor(
         self,
@@ -429,7 +444,10 @@ class Config(RobustaBaseConfig):
 
         if changes:
             with self._executor_lock:
-                self._cached_tool_executor = ToolExecutor(new_toolsets)
+                executor = ToolExecutor(new_toolsets)
+                preload_oauth_tokens()
+                eager_load_oauth_tools(executor)
+                self._cached_tool_executor = executor
                 self._cached_executor_key = cache_key
 
         return [(name, old.value, new.value) for name, old, new in changes]

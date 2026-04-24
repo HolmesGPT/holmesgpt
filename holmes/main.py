@@ -38,6 +38,7 @@ from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag, pretty_print_toolset_status
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
+from holmes.core.oauth_utils import enable_disk_token_store
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
 from holmes.plugins.destinations import DestinationType
@@ -293,6 +294,9 @@ def ask(
         slack_token=slack_token,
         slack_channel=slack_channel,
     )
+
+    # Enable disk-based OAuth token storage for CLI mode
+    enable_disk_token_store()
 
     # Create tracer if trace option is provided
     tracer = TracingFactory.create_tracer(trace, project="HolmesGPT-CLI")

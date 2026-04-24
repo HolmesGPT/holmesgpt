@@ -8,6 +8,9 @@ from typing import Optional
 RECOMMENDED_OPENAI_MODEL = "gpt-4.1"
 RECOMMENDED_ANTHROPIC_MODEL = "anthropic/claude-opus-4-1-20250805"
 
+# Default user_id for CLI mode (no authenticated user)
+DEFAULT_CLI_USER = "__no_user__"
+
 # Default model for HolmesGPT
 DEFAULT_MODEL = RECOMMENDED_OPENAI_MODEL
 FALLBACK_CONTEXT_WINDOW_SIZE = (
@@ -96,6 +99,7 @@ MAX_OUTPUT_TOKEN_RESERVATION = int(
 BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
 
 LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
+TRACE_TOKEN_USAGE = load_bool("TRACE_TOKEN_USAGE", False)
 
 
 MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
@@ -136,6 +140,16 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
 )
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
+
+# Extra message fields to strip before sending messages to the provider API.
+# Comma-separated. Set this if a provider rejects a field with an error like:
+#   "messages.N.<field>: Extra inputs are not permitted"
+# Example: LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields,reasoning_content"
+LLM_EXTRA_STRIP_MESSAGE_FIELDS = frozenset(
+    f.strip()
+    for f in os.environ.get("LLM_EXTRA_STRIP_MESSAGE_FIELDS", "").split(",")
+    if f.strip()
+)
 
 ENABLE_CONNECTION_KEEPALIVE = load_bool("ENABLE_CONNECTION_KEEPALIVE", False)
 KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))

@@ -105,6 +105,8 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
+    oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.

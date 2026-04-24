@@ -8,6 +8,7 @@ from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetDBModel, ToolsetTag
 from holmes.plugins.prompts import load_and_render_prompt
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 
 
 def log_toolsets_statuses(toolsets: List[Toolset]):
@@ -60,6 +61,11 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         meta = toolset.meta
         if meta is None and toolset.type:
             meta = {"type": toolset.type.value}
+        if isinstance(toolset, RemoteMCPToolset):
+            oauth_config = toolset.get_oauth_config()
+            if oauth_config:
+                meta = meta or {}
+                meta["oauth_config"] = oauth_config
 
         db_toolsets.append(
             ToolsetDBModel(
@@ -81,7 +87,7 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
 
 
 def get_config_schema_for_toolset(toolset: Toolset) -> str:
-    res = {
+    res: dict = {
         "example_yaml": render_default_installation_instructions_for_toolset(toolset),
         "schema": toolset.get_config_schema(),
     }

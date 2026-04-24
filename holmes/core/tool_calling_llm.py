@@ -1,5 +1,6 @@
 import concurrent.futures
 import json
+from json import tool
 import logging
 import re
 import threading
@@ -26,7 +27,6 @@ from holmes.common.env_vars import (
 )
 from holmes.core.llm import LLM
 from holmes.core.llm_usage import RequestStats
-
 from holmes.core.models import (
     FrontendToolResult,
     PendingFrontendToolCall,
@@ -34,6 +34,8 @@ from holmes.core.models import (
     ToolApprovalDecision,
     ToolCallResult,
 )
+from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
+from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
     StructuredToolResult,
@@ -69,6 +71,7 @@ from holmes.utils.stream import (
     build_stream_event_token_count,
 )
 from holmes.utils.tags import parse_messages_tags
+
 
 class LLMInterruptedError(Exception):
     """Raised when the user interrupts an in-progress LLM call (e.g. via Escape key)."""
@@ -151,6 +154,16 @@ def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
             f"Found {len(prefixes)} session-approved bash prefixes from conversation: {list(prefixes)}"
         )
     return list(prefixes)
+
+
+def _try_process_oauth_decision(tool_call_id, oauth_code, request_context) -> bool:
+    """Exchange an OAuth authorization code for tokens. Returns True on success."""
+    try:
+        _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        return True
+    except Exception as e:
+        logging.error(f"Failed to process OAuth decision: {e}", exc_info=True)
+        return False
 
 
 # Callback type: receives a pending approval, returns (approved, optional_feedback)
@@ -282,7 +295,7 @@ class ToolCallingLLM:
                         )
 
         if not pending_tool_calls:
-            error_message = f"Received {len(tool_decisions)} tool decisions but no pending approvals found"
+            error_message = f"Received {len(tool_decisions)} tool decisions but no pending approvals found in conversation history"
             logging.error(error_message)
             raise Exception(error_message)
         # Extract existing session prefixes from conversation history
@@ -290,22 +303,43 @@ class ToolCallingLLM:
 
         for tool_call_with_decision in pending_tool_calls:
             tool_call = tool_call_with_decision.tool_call
-            decision = tool_call_with_decision.decision
+            tool_decision = tool_call_with_decision.decision
             tool_result: Optional[ToolCallResult] = None
-            if decision and decision.approved:
-                tool_result = self._invoke_llm_tool_call(
-                    tool_to_call=tool_call,
-                    previous_tool_calls=[],
-                    trace_span=trace_span,
-                    tool_number=None,
-                    user_approved=True,
-                    session_approved_prefixes=session_prefixes,
-                    request_context=request_context,
-                    enable_tool_approval=True,  # always True when processing decisions
-                )
+            if tool_decision and tool_decision.approved:
+                # Process OAuth auth code exchange if this decision carries one
+                oauth_code = parse_oauth_decision(tool_decision.decision)
+                user_id = (request_context or {}).get("user_id")
+                if oauth_code and user_id:
+                    oauth_success = _try_process_oauth_decision(tool_call.id, oauth_code, request_context)
+                    toolset = self.tool_executor._tool_to_toolset.get(tool_call.function.name) if oauth_success else None
+                    if oauth_success and toolset:
+                        self.tool_executor.oauth_connector.load_tools_for_user(user_id, toolset, request_context)
+                    else:
+                        tool_result = ToolCallResult(
+                            tool_call_id=tool_call.id,
+                            tool_name=tool_call.function.name,
+                            description="",
+                            result="OAuth authentication failed. Please try again.",  # type: ignore
+                        )
+
+                if not tool_result:
+                    tool_result = self._invoke_llm_tool_call(
+                        tool_to_call=tool_call,
+                        previous_tool_calls=[],
+                        trace_span=trace_span,
+                        tool_number=None,
+                        user_approved=True,
+                        session_approved_prefixes=session_prefixes,
+                        request_context=request_context,
+                        enable_tool_approval=True,  # always True when processing decisions
+                    )
             else:
                 # Tool was rejected or no decision found, add rejection message
-                feedback_text = f" User feedback: {decision.feedback}" if decision and decision.feedback else ""
+                feedback_text = (
+                    f" User feedback: {tool_decision.feedback}"
+                    if tool_decision and tool_decision.feedback
+                    else ""
+                )
                 tool_result = ToolCallResult(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.function.name,
@@ -325,12 +359,12 @@ class ToolCallingLLM:
 
             # If user chose "Yes, and don't ask again", include prefixes in metadata
             extra_metadata = None
-            if decision and decision.approved and decision.save_prefixes:
+            if tool_decision and tool_decision.approved and tool_decision.save_prefixes:
                 logging.info(
-                    f"Saving bash session prefixes for future commands: {decision.save_prefixes}"
+                    f"Saving bash session prefixes for future commands: {tool_decision.save_prefixes}"
                 )
                 extra_metadata = {
-                    "bash_session_approved_prefixes": decision.save_prefixes
+                    "bash_session_approved_prefixes": tool_decision.save_prefixes
                 }
 
             tool_call_message = tool_result.to_llm_message(
@@ -436,9 +470,15 @@ class ToolCallingLLM:
         return self._runbook_in_use
 
     def _get_tools(self) -> list:
-        """Get tools list, filtering restricted tools based on authorization."""
+        """Get tools list, filtering restricted tools based on authorization.
+
+        If a user_id is available (from request_context), per-user OAuth tools
+        replace _connect placeholders for authenticated users.
+        """
+        user_id = (self._request_context or {}).get("user_id") if hasattr(self, "_request_context") else None
         return self.tool_executor.get_all_tools_openai_format(
             include_restricted=self._should_include_restricted_tools(),
+            user_id=user_id,
         )
 
     @sentry_sdk.trace
@@ -507,7 +547,10 @@ class ToolCallingLLM:
                         display_logger.info(
                             f"[bold {AI_COLOR}]AI:[/bold {AI_COLOR}] {content}"
                         )
-                elif event.event in (StreamEvents.ANSWER_END, StreamEvents.APPROVAL_REQUIRED):
+                elif event.event in (
+                    StreamEvents.ANSWER_END,
+                    StreamEvents.APPROVAL_REQUIRED,
+                ):
                     terminal_data = event.data
                     terminal_event = event.event
                     break
@@ -577,25 +620,31 @@ class ToolCallingLLM:
             # the prefix to disk, making this tool no longer need approval.
             if self._is_tool_call_already_approved(approval.tool_name, approval.params):
                 logging.debug(f"Approval no longer needed for {approval.tool_name}")
-                decisions.append(ToolApprovalDecision(
-                    tool_call_id=approval.tool_call_id,
-                    approved=True,
-                ))
+                decisions.append(
+                    ToolApprovalDecision(
+                        tool_call_id=approval.tool_call_id,
+                        approved=True,
+                    )
+                )
                 continue
 
             if not approval_callback:
-                decisions.append(ToolApprovalDecision(
-                    tool_call_id=approval.tool_call_id,
-                    approved=False,
-                ))
+                decisions.append(
+                    ToolApprovalDecision(
+                        tool_call_id=approval.tool_call_id,
+                        approved=False,
+                    )
+                )
                 continue
 
             approved, feedback = approval_callback(approval)
-            decisions.append(ToolApprovalDecision(
-                tool_call_id=approval.tool_call_id,
-                approved=approved,
-                feedback=feedback if not approved else None,
-            ))
+            decisions.append(
+                ToolApprovalDecision(
+                    tool_call_id=approval.tool_call_id,
+                    approved=approved,
+                    feedback=feedback if not approved else None,
+                )
+            )
 
         return decisions
 
@@ -618,7 +667,8 @@ class ToolCallingLLM:
                 params=tool_params,
             )
 
-        tool = self.tool_executor.get_tool_by_name(tool_name)
+        user_id = (request_context or {}).get("user_id")
+        tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
         if not tool:
             logging.warning(
                 f"Skipping tool execution for {tool_name}: args: {tool_params}"
@@ -641,6 +691,13 @@ class ToolCallingLLM:
                 request_context=request_context,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
+
+            # Store OAuth tools discovered by a _connect placeholder
+            if tool_response.oauth_tools:
+                effective_user = _get_token_manager().require_user_id(request_context)
+                toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
+                if toolset_name:
+                    self.tool_executor.oauth_connector.store_user_tools(effective_user, toolset_name, tool_response.oauth_tools)
 
             # Track runbook usage - if fetch_runbook is called successfully,
             # restricted tools become available for the rest of the current request
@@ -673,9 +730,11 @@ class ToolCallingLLM:
         tool_span.set_attributes(name=tool_call_result.tool_name)
         status = tool_call_result.result.status
 
+        is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
         if (
             status == StructuredToolResultStatus.APPROVAL_REQUIRED
             and not approval_possible
+            and not is_oauth
         ):
             status = StructuredToolResultStatus.ERROR
 
@@ -693,7 +752,13 @@ class ToolCallingLLM:
         if images:
             output = {
                 "data": tool_call_result.result.data,
-                "images": [{"mimeType": img.get("mimeType", ""), "data_length": len(img.get("data", ""))} for img in images],
+                "images": [
+                    {
+                        "mimeType": img.get("mimeType", ""),
+                        "data_length": len(img.get("data", "")),
+                    }
+                    for img in images
+                ],
             }
         else:
             output = tool_call_result.result.data
@@ -746,7 +811,9 @@ class ToolCallingLLM:
                         params=None,
                     ),
                 )
-                ToolCallingLLM._log_tool_call_result(tool_span, tool_call_result, enable_tool_approval)
+                ToolCallingLLM._log_tool_call_result(
+                    tool_span, tool_call_result, enable_tool_approval
+                )
                 return tool_call_result
 
             tool_name = tool_to_call.function.name
@@ -780,8 +847,9 @@ class ToolCallingLLM:
                     request_context=request_context,
                 )
 
-            tool = self.tool_executor.get_tool_by_name(tool_name)
-            toolset_name = self.tool_executor.get_toolset_name(tool_name)
+            user_id = (request_context or {}).get("user_id")
+            tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
+            toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
             tool_call_result = ToolCallResult(
                 tool_call_id=tool_id,
                 tool_name=tool_name,
@@ -793,7 +861,11 @@ class ToolCallingLLM:
             )
 
             # Save image count before spill_oversized_tool_result clears them
-            image_count = len(tool_call_result.result.images) if tool_call_result.result.images else 0
+            image_count = (
+                len(tool_call_result.result.images)
+                if tool_call_result.result.images
+                else 0
+            )
 
             # See docs/reference/context-management.md for how this fits with compaction
             original_token_count = spill_oversized_tool_result(
@@ -899,6 +971,7 @@ class ToolCallingLLM:
         if trace_span is None:
             trace_span = DummySpan()
 
+        self._request_context = request_context
         all_tool_calls: list[dict] = []
 
         # Process tool decisions if provided (approval resume)
@@ -1012,7 +1085,9 @@ class ToolCallingLLM:
                         f"Tokens: {response_stats.prompt_tokens} prompt + {response_stats.completion_tokens} completion = {response_stats.total_tokens} total"
                     )
                 elif response_stats.total_cost > 0:
-                    cost_logger.debug(f"LLM iteration cost: ${response_stats.total_cost:.6f} | Token usage not available")
+                    cost_logger.debug(
+                        f"LLM iteration cost: ${response_stats.total_cost:.6f} | Token usage not available"
+                    )
                 if LOG_LLM_USAGE_RESPONSE:
                     usage = getattr(full_response, "usage", None)
                     if usage:
@@ -1073,7 +1148,9 @@ class ToolCallingLLM:
                 )
             )
 
-            yield self._emit_token_count(messages, tools, full_response, limit_result, metadata, stats)
+            yield self._emit_token_count(
+                messages, tools, full_response, limit_result, metadata, stats
+            )
 
             tools_to_call = getattr(response_message, "tool_calls", None)
             if not tools_to_call:
@@ -1145,7 +1222,9 @@ class ToolCallingLLM:
                         tool_call_result.result.status
                         == StructuredToolResultStatus.APPROVAL_REQUIRED
                     ):
-                        if enable_tool_approval:
+                        # OAuth approvals are always sent to frontend (user must authenticate)
+                        is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
+                        if enable_tool_approval or is_oauth:
                             pending_approvals.append(
                                 PendingToolApproval(
                                     tool_call_id=tool_call_result.tool_call_id,
@@ -1169,7 +1248,11 @@ class ToolCallingLLM:
 
                             tool_calls.append(tool_result_dict)
                             all_tool_calls.append(tool_result_dict)
-                            messages.append(tool_call_result.to_llm_message(supports_vision=self._supports_vision()))
+                            messages.append(
+                                tool_call_result.to_llm_message(
+                                    supports_vision=self._supports_vision()
+                                )
+                            )
 
                             yield StreamMessage(
                                 event=StreamEvents.TOOL_RESULT,
@@ -1207,7 +1290,9 @@ class ToolCallingLLM:
                         )
 
                 # Emit updated token counts after tool results
-                yield self._emit_token_count(messages, tools, full_response, limit_result, metadata, stats)
+                yield self._emit_token_count(
+                    messages, tools, full_response, limit_result, metadata, stats
+                )
 
                 # Mark any pending frontend tool calls in assistant messages
                 if pending_frontend_calls:
@@ -1249,12 +1334,14 @@ class ToolCallingLLM:
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
 
-                # Re-fetch tools if runbook was just activated (enables restricted tools)
-                if self._runbook_in_use and tools is not None:
+                # Re-fetch tools if the tool list changed (runbook activation, OAuth tool discovery, etc.)
+                if tools is not None:
                     new_tools = self._get_tools()
-                    if len(new_tools) != len(tools):
-                        logging.info(
-                            f"Runbook activated - refreshing tools list ({len(tools)} -> {len(new_tools)} tools)"
+                    old_names = {t["function"]["name"] for t in tools}
+                    new_names = {t["function"]["name"] for t in new_tools}
+                    if old_names != new_names:
+                        logging.warning(
+                            f"Tool list changed - refreshing ({len(tools)} -> {len(new_tools)} tools)"
                         )
                         tools = new_tools
 

@@ -60,6 +60,7 @@ SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
 SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
 HOLMES_RESULTS_TABLE = "HolmesResults"
+OAUTH_TOKENS_TABLE = "OAuthTokens"
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
@@ -945,3 +946,110 @@ class SupabaseDal:
                 exc_info=True,
             )
             return False
+
+    # --- OAuth Token Storage ---
+
+    def get_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> Optional[Dict]:
+        """Get the OAuth token for a provider in this account, scoped to a user and signing key.
+
+        When user_id is None, returns None — in server mode every token is stored
+        with a real user_id, so there are no unscoped tokens to find.
+        """
+        if not self.enabled:
+            return None
+        if not user_id:
+            return None
+        try:
+            query = (
+                self.client.table(OAUTH_TOKENS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("provider_name", provider_name)
+                .eq("user_id", user_id)
+            )
+            res = query.order("updated_at", desc=True).execute()
+            if not res.data:
+                return None
+            matched = None
+            # this logic could be simplified if we queried by signing_key_hash but it is deliberate to notify users on signing_key mismatches
+            for row in res.data:
+                stored_hash = row.get("signing_key_hash")
+                if stored_hash == signing_key_hash:
+                    matched = row
+                else:
+                    if signing_key_hash:
+                        logging.warning(
+                            "DB token signing_key_hash mismatch (stored=%s, current=%s)",
+                            stored_hash[:12], signing_key_hash[:12],
+                        )
+            return matched
+        except Exception:
+            logging.exception("Error fetching OAuth token for provider %s", provider_name)
+            return None
+
+    def upsert_oauth_token(
+        self,
+        provider_name: str,
+        encrypted_token: str,
+        signing_key_hash: str,
+        token_expiry: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Store or update an OAuth token for a provider in this account, scoped to a user."""
+        if not self.enabled:
+            return False
+        if not user_id:
+            logging.warning("Cannot upsert OAuth token without user_id (provider=%s)", provider_name)
+            return False
+        try:
+            row = {
+                "account_id": self.account_id,
+                "origin_cluster_id": self.cluster or "unknown",
+                "provider_name": provider_name,
+                "encrypted_token": encrypted_token,
+                "signing_key_hash": signing_key_hash,
+                "token_expiry": token_expiry,
+                "updated_at": "now()",
+                "user_id": user_id,
+            }
+            self.client.table(OAUTH_TOKENS_TABLE).upsert(
+                row,
+                on_conflict="account_id,provider_name,signing_key_hash,user_id",
+            ).execute()
+            return True
+        except Exception:
+            logging.exception("Error upserting OAuth token for provider %s", provider_name)
+            return False
+
+    def delete_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> None:
+        """Delete an OAuth token (e.g. after a 401 proves it's revoked)."""
+        self.client.table(OAUTH_TOKENS_TABLE).delete().eq(
+            "account_id", self.account_id
+        ).eq("provider_name", provider_name).eq("user_id", user_id).eq(
+            "signing_key_hash", signing_key_hash
+        ).execute()
+
+    def get_all_oauth_tokens_for_cluster(self, signing_key_hash: str) -> list[Dict]:
+        """Get all OAuth tokens owned by this cluster that match the signing key.
+
+        Preloads tokens into the in-memory cache at startup so the background
+        sweep thread can keep them alive (refresh before expiry). Without this,
+        tokens only enter the cache on first user request and may expire in the
+        DB if no requests arrive within the token lifetime.
+        """
+        if not self.enabled:
+            return []
+        try:
+            res = (
+                self.client.table(OAUTH_TOKENS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("origin_cluster_id", self.cluster or "unknown")
+                .eq("signing_key_hash", signing_key_hash)
+                .execute()
+            )
+            return res.data or []
+        except Exception:
+            logging.exception("Error fetching OAuth tokens for cluster preload")
+            return []
+
