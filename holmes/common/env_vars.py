@@ -140,6 +140,16 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
 
+# Extra message fields to strip before sending messages to the provider API.
+# Comma-separated. Set this if a provider rejects a field with an error like:
+#   "messages.N.<field>: Extra inputs are not permitted"
+# Example: LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields,reasoning_content"
+LLM_EXTRA_STRIP_MESSAGE_FIELDS = frozenset(
+    f.strip()
+    for f in os.environ.get("LLM_EXTRA_STRIP_MESSAGE_FIELDS", "").split(",")
+    if f.strip()
+)
+
 ENABLE_CONNECTION_KEEPALIVE = load_bool("ENABLE_CONNECTION_KEEPALIVE", False)
 KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))
 KEEPALIVE_INTVL = int(os.environ.get("KEEPALIVE_INTVL", 2))
