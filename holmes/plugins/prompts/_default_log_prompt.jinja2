@@ -1,8 +1,7 @@
 * Use the tool `fetch_pod_logs` to access an application's logs
-* Prior to fetching logs, ensure the pod exists using kubectl tools
-* If you find no logs, double check that the namespace and pod names are exact. Use kubectl tools to find the right resource names and pod name.
-* If you are not given the pod's namespace, look for existing pods using kubectl tools and infer the namespace that way
-* If you are not given the pod's exact name, or only have an application name or a deployment name, look for related pods using kubectl commands. Ask the user if you can't infer the pod logs.
+* Prior to fetching logs, verify the target resource exists using available tools
+* If you find no logs, double-check that resource names are exact. Use available tools to find correct names.
+* If you only have an application or deployment name, look for related resources to find the right log source
 * Do fetch application logs yourself and DO not ask users to do so
 * If you have an issue id or finding id, use `fetch_finding_by_id` as it contains time information about the issue (`starts_at`, `updated_at` and `ends_at`).
 ** Then, use `start_time=-300` (5 minutes before `end_time`) and `end_time=<issue start_at time>`  when calling `fetch_pod_logs`.

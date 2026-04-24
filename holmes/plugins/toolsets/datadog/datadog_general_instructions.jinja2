@@ -22,15 +22,15 @@ This toolset provides access to critical Datadog resources that can help identif
 
 ### When Historical Data is Important
 
-**Kubernetes limitations that Datadog can address:**
-- Kubernetes events expire after 1 hour by default
-- Deleted pods/deployments leave no trace in the cluster
-- Previous configuration values are not retained
-- Past node issues may be resolved without evidence
+**Ephemeral infrastructure limitations that Datadog can address:**
+- Kubernetes events expire after 1 hour by default; deleted pods/deployments leave no cluster trace
+- EC2 instances, Lambda invocations, and containers may be terminated with no local evidence
+- Auto-scaled resources come and go without retaining previous configuration
+- Past infrastructure issues may self-heal without leaving evidence
 
 **Datadog preserves this context when you need it:**
 - Events from before an incident started
-- Monitor triggers on now-deleted resources
+- Monitor triggers on now-deleted or replaced resources
 - Past incidents and their resolutions
 - Deployment and configuration change history
 
@@ -76,11 +76,11 @@ This toolset provides access to critical Datadog resources that can help identif
 
 ### Common Investigation Patterns
 
-**For Kubernetes Pod/Deployment Issues:**
-1. **When pods are missing/deleted**: Query Datadog for historical data about those pods
+**For Container/Orchestration Issues (Kubernetes, ECS, etc.):**
+1. **When resources are missing/deleted**: Query Datadog for historical data about those resources
 2. **For recurring issues**: Check monitor history for patterns
 3. **For deployment problems**: Look for deployment events around issue time
-4. **When Kubernetes events expired**: Use Datadog events for the same timeframe
+4. **When platform events expired or are unavailable**: Use Datadog events for the same timeframe
 
 **For Application Issues:**
 1. **Adjust time range based on issue**: Current for live issues, historical for past problems

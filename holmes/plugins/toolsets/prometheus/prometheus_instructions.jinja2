@@ -13,7 +13,7 @@ You are using Coralogix Prometheus.
 * When you need to discover metrics, use `get_metric_names` with filters - it's the fastest method
 * Combine multiple patterns with regex OR (|) to reduce API calls:
   - `{__name__=~"node_cpu.*|node_memory.*|node_disk.*"}` - get all node resource metrics in one call
-  - `{__name__=~"container.*|pod.*|kube.*"}` - get all Kubernetes-related metrics
+  - `{__name__=~"container.*|pod.*|kube.*"}` - get all container/Kubernetes-related metrics (if applicable)
   - `{namespace=~"example1|example2|example3"}` - metrics from multiple namespaces
 * Use `get_metric_metadata` after discovering names to get types/descriptions if needed
 * Use `get_label_values` to discover pods, namespaces, jobs: e.g., get_label_values(label="pod")
@@ -52,7 +52,7 @@ You are using Coralogix Prometheus.
 * Timestamps MUST be in string date format. For example: '2025-03-15 10:10:08.610862+00:00'
 * Post processing will parse your response, re-run the query from the tool output and create a chart visible to the user
 * When unsure about available metrics, use `get_metric_names` with appropriate filters (combine multiple patterns with | for efficiency). Then use `get_metric_metadata` if you need descriptions/types
-* Check that any node, service, pod, container, app, namespace, etc. mentioned in the query exist in the kubernetes cluster before making a query. Use any appropriate kubectl tool(s) for this
+* When querying specific resources (nodes, services, pods, containers, apps, namespaces, etc.), verify they exist using available tools before making a query
 * The toolcall will return no data to you. That is expected. You MUST however ensure that the query is successful.
 
 ## Handling High-Cardinality Metrics
