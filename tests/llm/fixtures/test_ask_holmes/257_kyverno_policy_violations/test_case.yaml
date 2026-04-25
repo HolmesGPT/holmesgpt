@@ -22,10 +22,11 @@ before_test: |
   echo "Creating namespace $NAMESPACE..."
   kubectl create namespace $NAMESPACE || true
 
-  # Install Kyverno if not already installed
-  if ! kubectl get namespace kyverno >/dev/null 2>&1; then
-    echo "Installing Kyverno (latest)..."
-    kubectl create -f https://github.com/kyverno/kyverno/releases/latest/download/install.yaml
+  # Install Kyverno if not already installed (idempotent; pinned version)
+  KYVERNO_VERSION="v1.17.1"
+  if ! kubectl get crd clusterpolicies.kyverno.io >/dev/null 2>&1; then
+    echo "Installing Kyverno ${KYVERNO_VERSION}..."
+    kubectl apply --server-side -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
   else
     echo "Kyverno already installed"
   fi
@@ -50,7 +51,7 @@ before_test: |
   done
 
   if [ "$KYVERNO_READY" = false ]; then
-    echo "Kyverno failed to become ready after 120 seconds"
+    echo "Kyverno failed to become ready after ~7 minutes"
     kubectl get pods -n kyverno
     exit 1
   fi
