@@ -16,6 +16,12 @@ from holmes.core.llm_usage import RequestStats
 from holmes.plugins.prompts import load_and_render_prompt
 
 
+COMPACTION_CONTINUATION_MARKER = (
+    "The conversation history has been compacted to preserve available space "
+    "in the context window. Continue."
+)
+
+
 class CompactionResult(BaseModel):
     """Result of conversation history compaction."""
 
@@ -35,12 +41,24 @@ def strip_system_prompt(
 
 
 def find_last_user_prompt(conversation_history: list[dict]) -> Optional[dict]:
+    """
+    Return the last real user prompt in the conversation history.
+
+    The compaction continuation marker is appended with role=user (so that
+    providers requiring all system messages at the beginning of the
+    conversation accept the request). To avoid losing the original user
+    question on a second compaction, this helper skips messages whose
+    content matches the continuation marker.
+    """
     if not conversation_history:
         return None
     last_user_prompt: Optional[dict] = None
     for message in conversation_history:
-        if message.get("role") == "user":
-            last_user_prompt = message
+        if message.get("role") != "user":
+            continue
+        if message.get("content") == COMPACTION_CONTINUATION_MARKER:
+            continue
+        last_user_prompt = message
     return last_user_prompt
 
 
@@ -165,7 +183,7 @@ def compact_conversation_history(
     compacted_conversation_history.append(
         {
             "role": "user",
-            "content": "The conversation history has been compacted to preserve available space in the context window. Continue.",
+            "content": COMPACTION_CONTINUATION_MARKER,
         }
     )
     return CompactionResult(

@@ -6,9 +6,11 @@ import pytest
 
 from holmes.core.llm import DefaultLLM
 from holmes.core.truncation.compaction import (
+    COMPACTION_CONTINUATION_MARKER,
     _count_image_tokens_in_messages,
     _strip_images_for_compaction,
     compact_conversation_history,
+    find_last_user_prompt,
 )
 
 CONVERSATION_HISTORY_FILE_PATH = (
@@ -53,7 +55,7 @@ def test_conversation_history_compaction_system_prompt_untouched():
 
         assert compacted_history[2]["role"] == "assistant"
 
-        assert compacted_history[3]["role"] == "system"
+        assert compacted_history[3]["role"] == "user"
         assert "compacted" in compacted_history[3]["content"].lower()
 
 
@@ -76,7 +78,7 @@ def test_conversation_history_compaction():
 
         assert compacted_history[1]["role"] == "assistant"
 
-        assert compacted_history[2]["role"] == "system"
+        assert compacted_history[2]["role"] == "user"
         assert "compacted" in compacted_history[2]["content"].lower()
 
         original_tokens = llm.count_tokens(conversation_history)
@@ -215,3 +217,46 @@ def test_count_image_tokens_with_images():
             return Usage()
 
     assert _count_image_tokens_in_messages(messages, FakeLLM()) == 1600  # type: ignore
+
+
+def test_find_last_user_prompt_returns_last_real_user_message():
+    """find_last_user_prompt returns the last user message in a normal history."""
+    history = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "first question"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "follow up"},
+    ]
+    assert find_last_user_prompt(history) == {"role": "user", "content": "follow up"}
+
+
+def test_find_last_user_prompt_skips_compaction_continuation_marker():
+    """
+    Regression guard: after compaction, the continuation marker is appended
+    with role=user. find_last_user_prompt must skip it so that a subsequent
+    compaction still recovers the real user question instead of the marker.
+    """
+    history_after_first_compaction = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "Why is pod X crashing?"},
+        {"role": "assistant", "content": "summary of investigation so far"},
+        {"role": "user", "content": COMPACTION_CONTINUATION_MARKER},
+    ]
+    assert find_last_user_prompt(history_after_first_compaction) == {
+        "role": "user",
+        "content": "Why is pod X crashing?",
+    }
+
+
+def test_find_last_user_prompt_returns_none_when_only_marker_present():
+    """If the only user message is the continuation marker, return None."""
+    history = [
+        {"role": "system", "content": "sys"},
+        {"role": "assistant", "content": "summary"},
+        {"role": "user", "content": COMPACTION_CONTINUATION_MARKER},
+    ]
+    assert find_last_user_prompt(history) is None
+
+
+def test_find_last_user_prompt_empty_history():
+    assert find_last_user_prompt([]) is None
