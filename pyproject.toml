@@ -182,6 +182,7 @@ markers = [
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
+    "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
     "token-limit: Tests that enforce a maximum token usage budget"
 ]
 

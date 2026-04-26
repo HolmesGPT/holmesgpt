@@ -346,6 +346,10 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
 
 The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically append it.
 
+## OAuth Authentication
+
+For MCP servers that require OAuth authentication (e.g. Atlassian, Notion), see the dedicated [OAuth MCP Servers](oauth-mcp-servers.md) page.
+
 ## Advanced Configuration
 
 **Dynamic Headers with Request Context**

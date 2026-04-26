@@ -13,11 +13,15 @@ import json
 import logging
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 import colorlog
 import litellm
+from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
+from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
+from holmes.core.oauth_utils import _get_token_manager
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -37,6 +41,7 @@ from holmes.common.env_vars import (
     SENTRY_DSN,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+    TRACE_TOKEN_USAGE,
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.conversations import (
@@ -46,6 +51,8 @@ from holmes.core.models import (
     ChatRequest,
     ChatResponse,
     FollowUpAction,
+    OAuthCallbackRequest,
+    OAuthCallbackResponse,
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
@@ -60,8 +67,6 @@ from holmes.core.models import FrontendToolMode
 from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool, build_frontend_pause_tool
 from holmes.core.tracing import TracingFactory
 from holmes.utils.stream import stream_chat_formatter
-
-# removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
@@ -274,6 +279,27 @@ if LOG_PERFORMANCE:
 init_checks_app(app, config)
 
 
+@app.post("/api/oauth/callback")
+def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
+    logging.info(
+        "OAuth callback: toolset=%s client_id=%s client_secret_present=%s code_present=%s code_verifier_present=%s redirect_uri=%s",
+        request.toolset_name, request.client_id, bool(request.client_secret), bool(request.code),
+        bool(request.code_verifier), request.redirect_uri,
+    )
+    try:
+        executor = config.create_tool_executor(dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED)
+        return process_oauth_callback(request, executor.toolsets, _get_token_manager(), executor=executor)
+    except OAuthConfigLookupError as e:
+        logging.error("OAuth config error for '%s': %s", request.toolset_name, e.detail)
+        raise HTTPException(status_code=400, detail=e.detail)
+    except OAuthTokenExchangeError as e:
+        logging.error("OAuth token exchange failed for '%s': %s", request.toolset_name, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logging.error(f"OAuth callback failed for '{request.toolset_name}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def already_answered(conversation_history: Optional[List[dict]]) -> bool:
     if conversation_history is None:
         return False
@@ -387,9 +413,13 @@ def chat(chat_request: ChatRequest, http_request: Request):
             ]
 
         request_context = extract_passthrough_headers(http_request)
+        if chat_request.user_id:
+            request_context.setdefault("headers", {})
+            request_context["user_id"] = chat_request.user_id
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
+
         ai = config.create_toolcalling_llm(
             dal=dal,
             toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
@@ -400,6 +430,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             tracer=server_tracer,
             tool_results_dir=tool_results_dir,
         )
+
         global_instructions = dal.get_global_instructions_for_account()
         messages = build_chat_messages(
             chat_request.ask,
@@ -478,6 +509,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span=trace_span,
                 ),
                 [f.model_dump() for f in follow_up_actions],
+                model=chat_request.model or config.model,
             )
             return StreamingResponse(
                 _stream_with_trace_cleanup(storage, stream, req_info, trace_span),
@@ -512,7 +544,15 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     if hasattr(llm_call, "num_llm_calls") and llm_call.num_llm_calls:
                         otel_metrics.investigation_iterations.record(llm_call.num_llm_calls, inv_attrs)
 
-                logging.info(f"Completed {req_info}")
+                if TRACE_TOKEN_USAGE:
+                    logging.info(
+                        f"Completed {req_info} | model={chat_request.model or config.model}, "
+                        f"input={llm_call.prompt_tokens}, output={llm_call.completion_tokens}, "
+                        f"cached={llm_call.cached_tokens}, total={llm_call.total_tokens}, "
+                        f"cost=${llm_call.total_cost:.4f}"
+                    )
+                else:
+                    logging.info(f"Completed {req_info}")
                 response = ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,

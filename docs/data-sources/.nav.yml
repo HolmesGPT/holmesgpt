@@ -6,4 +6,5 @@ nav:
   - Database Connectors: database-connectors.md
   - Custom Toolsets: custom-toolsets.md
   - MCP Servers: remote-mcp-servers.md
+  - OAuth MCP Servers (Alpha): oauth-mcp-servers.md
   - HTTP Header Propagation: header-propagation.md
