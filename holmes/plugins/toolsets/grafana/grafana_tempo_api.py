@@ -63,8 +63,8 @@ class GrafanaTempoAPI:
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
         path_params: Optional[Dict[str, str]] = None,
-        timeout: int = 30,
-        retries: int = 3,
+        timeout: Optional[int] = None,
+        retries: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Make HTTP request to Tempo API with retry logic.
 
@@ -72,8 +72,8 @@ class GrafanaTempoAPI:
             endpoint: API endpoint path (e.g., "/api/echo")
             params: Query parameters
             path_params: Parameters to substitute in the endpoint path
-            timeout: Request timeout in seconds
-            retries: Number of retry attempts
+            timeout: Request timeout in seconds (defaults to config.timeout_seconds)
+            retries: Number of retry attempts (defaults to config.max_retries)
 
         Returns:
             JSON response from the API
@@ -81,6 +81,9 @@ class GrafanaTempoAPI:
         Raises:
             Exception: If the request fails after all retries
         """
+        timeout = timeout if timeout is not None else self.config.timeout_seconds
+        retries = retries if retries is not None else self.config.max_retries
+
         # Format endpoint with path parameters
         if path_params:
             for key, value in path_params.items():
@@ -139,15 +142,28 @@ class GrafanaTempoAPI:
             bool: True if endpoint returns 200 status code, False otherwise
         """
         url = f"{self.base_url}/api/echo"
+        retries = self.config.max_retries
 
-        try:
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            max_tries=retries,
+            giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+            and getattr(e, "response", None) is not None
+            and e.response.status_code < 500,
+        )
+        def _do_request() -> requests.Response:
             response = requests.get(
                 url,
                 headers=self.headers,
-                timeout=30,
+                timeout=self.config.timeout_seconds,
                 verify=self.config.verify_ssl,
             )
+            response.raise_for_status()
+            return response
 
+        try:
+            response = _do_request()
             # Just check status code, don't try to parse JSON
             return response.status_code == 200
 
