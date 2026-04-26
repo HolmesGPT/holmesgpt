@@ -27,13 +27,6 @@ def parse_loki_response(results: List[Dict]) -> List[Dict]:
     return parsed_logs
 
 
-@backoff.on_exception(
-    backoff.expo,  # Exponential backoff
-    requests.exceptions.RequestException,  # Retry on request exceptions
-    max_tries=5,  # Maximum retries
-    giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
-    and e.response.status_code < 500,
-)
 def execute_loki_query(
     base_url: str,
     api_key: Optional[str],
@@ -43,18 +36,35 @@ def execute_loki_query(
     end: Union[int, str],
     limit: int,
     verify_ssl: bool = True,
+    timeout: Optional[int] = None,
+    max_retries: Optional[int] = None,
 ) -> List[Dict]:
     params = {"query": query, "limit": limit, "start": start, "end": end}
-    try:
+    effective_timeout = timeout if timeout is not None else 30
+    effective_max_retries = max_retries if max_retries is not None else 3
+
+    @backoff.on_exception(
+        backoff.expo,
+        requests.exceptions.RequestException,
+        max_tries=effective_max_retries,
+        giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+        and getattr(e, "response", None) is not None
+        and e.response.status_code < 500,
+    )
+    def _make_request():
         url = f"{base_url}/loki/api/v1/query_range"
         response = requests.get(
             url,
             headers=build_headers(api_key=api_key, additional_headers=headers),
             params=params,  # type: ignore
             verify=verify_ssl,
+            timeout=effective_timeout,
         )
         response.raise_for_status()
+        return response
 
+    try:
+        response = _make_request()
         result = response.json()
         if "data" in result and "result" in result["data"]:
             return parse_loki_response(result["data"]["result"])
@@ -62,32 +72,3 @@ def execute_loki_query(
 
     except requests.exceptions.RequestException as e:
         raise Exception(f"Failed to query Loki logs: {str(e)}")
-
-
-def query_loki_logs_by_label(
-    base_url: str,
-    api_key: Optional[str],
-    headers: Optional[Dict[str, str]],
-    namespace: str,
-    label_value: str,
-    filter: Optional[str],
-    start: Union[int, str],
-    end: Union[int, str],
-    label: str,
-    namespace_search_key: str = "namespace",
-    limit: int = 200,
-    verify_ssl: bool = True,
-) -> List[Dict]:
-    query = f'{{{namespace_search_key}="{namespace}", {label}="{label_value}"}}'
-    if filter:
-        query += f' |= "{filter}"'
-    return execute_loki_query(
-        base_url=base_url,
-        api_key=api_key,
-        headers=headers,
-        query=query,
-        start=start,
-        end=end,
-        limit=limit,
-        verify_ssl=verify_ssl,
-    )
