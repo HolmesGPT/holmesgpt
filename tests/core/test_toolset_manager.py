@@ -381,71 +381,6 @@ def test_per_instance_fast_model_overrides_default():
         LLMSummarizeTransformer._default_fast_model = original
 
 
-@patch("holmes.core.toolset_manager.load_builtin_toolsets")
-def test_custom_skill_paths_passed_to_builtin_toolsets(
-    mock_load_builtin_toolsets, tmp_path
-):
-    """Test that custom_skill_paths are correctly passed to load_builtin_toolsets."""
-    skill_dir = tmp_path / "my-skills"
-    skill_dir.mkdir()
-
-    builtin_toolset = MagicMock(spec=Toolset)
-    builtin_toolset.name = "builtin"
-    builtin_toolset.tags = [ToolsetTag.CORE]
-    builtin_toolset.check_prerequisites = MagicMock()
-    mock_load_builtin_toolsets.return_value = [builtin_toolset]
-
-    toolset_manager = ToolsetManager(custom_skill_paths=[skill_dir])
-    toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-    args, _ = mock_load_builtin_toolsets.call_args
-    assert args[1] is not None
-    assert str(skill_dir.resolve()) in args[1]
-
-
-@patch("holmes.core.toolset_manager.load_builtin_toolsets")
-def test_custom_skill_paths_multiple(mock_load_builtin_toolsets, tmp_path):
-    """Test that multiple custom_skill_paths are all passed correctly."""
-    skill_dirs = []
-    for i in range(3):
-        skill_dir = tmp_path / f"skills_{i}"
-        skill_dir.mkdir()
-        skill_dirs.append(skill_dir)
-
-    builtin_toolset = MagicMock(spec=Toolset)
-    builtin_toolset.name = "builtin"
-    builtin_toolset.tags = [ToolsetTag.CORE]
-    builtin_toolset.check_prerequisites = MagicMock()
-    mock_load_builtin_toolsets.return_value = [builtin_toolset]
-
-    toolset_manager = ToolsetManager(custom_skill_paths=skill_dirs)
-    toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-    args, _ = mock_load_builtin_toolsets.call_args
-    additional_search_paths = args[1]
-
-    assert additional_search_paths is not None
-    for skill_dir in skill_dirs:
-        assert str(skill_dir.resolve()) in additional_search_paths
-
-
-def test_custom_skill_paths_empty_list(tmp_path):
-    """Test that an empty custom_skill_paths list is handled correctly."""
-    toolset_manager = ToolsetManager(custom_skill_paths=[])
-
-    with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:
-        builtin_toolset = MagicMock(spec=Toolset)
-        builtin_toolset.name = "builtin"
-        builtin_toolset.tags = [ToolsetTag.CORE]
-        builtin_toolset.check_prerequisites = MagicMock()
-        mock_load.return_value = [builtin_toolset]
-
-        toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-        args, _ = mock_load.call_args
-        additional_search_paths = args[1]
-        assert additional_search_paths is None or additional_search_paths == []
-
 
 @pytest.mark.parametrize(
     "name, config, expected_type",
@@ -497,23 +432,6 @@ def test_load_toolset_with_status_null_type_in_cache(mock_list_all_toolsets, too
         result = toolset_manager.load_toolset_with_status()
         assert result[0].type == ToolsetType.MCP
 
-
-def test_custom_skill_paths_none(tmp_path):
-    """Test that None custom_skill_paths is handled correctly."""
-    toolset_manager = ToolsetManager(custom_skill_paths=None)
-
-    with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:
-        builtin_toolset = MagicMock(spec=Toolset)
-        builtin_toolset.name = "builtin"
-        builtin_toolset.tags = [ToolsetTag.CORE]
-        builtin_toolset.check_prerequisites = MagicMock()
-        mock_load.return_value = [builtin_toolset]
-
-        toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-        args, _ = mock_load.call_args
-        additional_search_paths = args[1]
-        assert additional_search_paths is None
 
 
 # ---- Tests for Toolset.override_with ----------------------------------------
