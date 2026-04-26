@@ -15,6 +15,7 @@ from holmes.core.tools import (
 from holmes.plugins.skills.skill_loader import (
     Skill,
     SkillCatalog,
+    SkillSource,
     load_skill_catalog,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
@@ -66,13 +67,16 @@ class SkillsFetcher(Tool):
                 params=params,
             )
 
-        # Look up in skill catalog by name
+        # Look up in skill catalog by name — remote skills have empty content
+        # (catalog only stores metadata), so fetch full content from Supabase
         skill = self._find_skill(skill_id)
-        if skill:
+        if skill and skill.source == SkillSource.REMOTE:
+            return self._get_robusta_skill(skill_id, params)
+        elif skill:
             return self._format_skill_result(skill, params)
 
-        # Fallback: try Supabase for UUID-style IDs
-        if not skill_id.endswith(".md") and self._dal and self._dal.enabled:
+        # Fallback: try Supabase for UUID-style IDs not in catalog
+        if self._dal and self._dal.enabled:
             return self._get_robusta_skill(skill_id, params)
 
         err_msg = (
@@ -141,12 +145,15 @@ class SkillsFetcher(Tool):
             try:
                 skill_content = self._dal.get_skill_content(link)
                 if skill_content:
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.SUCCESS,
-                        data=skill_content.pretty(),
-                        params=params,
-                        metadata={"allowed_restricted_tools": None},
+                    # Wrap remote skill content with same format as local skills
+                    skill = Skill(
+                        name=skill_content.id,
+                        description=skill_content.title,
+                        content=skill_content.instruction or skill_content.pretty(),
+                        source=SkillSource.REMOTE,
+                        allowed_restricted_tools=None,
                     )
+                    return self._format_skill_result(skill, params)
                 else:
                     err_msg = f"Skill with UUID '{link}' not found in remote storage."
                     logging.error(err_msg)

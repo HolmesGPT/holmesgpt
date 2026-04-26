@@ -56,6 +56,7 @@ class TestSupabaseDal(SupabaseDal):
         return None
 
     def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
+        # Fixture files keep the "runbook_" prefix to match existing test data
         file_path = self._get_fixture_file_path("runbook_catalog")
         if file_path.exists():
             try:

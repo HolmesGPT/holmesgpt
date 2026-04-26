@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git log *)",
+      "Bash(find /Users/avirobusta/git/holmesgpt -name \"*.py\" -exec grep -l \"MCP_RETRY_BACKOFF\" {} \\\\;)",
+      "Bash(grep -E \"\\\\.md$\")",
+      "WebFetch(domain:devblogs.microsoft.com)"
+    ]
+  }
+}

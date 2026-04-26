@@ -4,7 +4,7 @@ tags:
   - skills
   - medium
 
-# simulates loading runbooks and global instructions from a cluster environment
+# simulates loading skills and global instructions from a cluster environment
 test_type: cluster
 
 before_test: |

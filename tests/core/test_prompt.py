@@ -26,7 +26,7 @@ from holmes.utils.global_instructions import generate_skills_args
 class DummySkillCatalog:
     """Mock skill catalog for testing."""
 
-    skills = [True]  # non-empty so getattr check passes
+    skills = (True,)  # non-empty so getattr check passes
 
     def to_prompt_string(self):
         return "SKILL CATALOG PROMPT"
