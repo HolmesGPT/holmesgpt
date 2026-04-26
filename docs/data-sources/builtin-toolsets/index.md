@@ -16,6 +16,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 <div class="grid cards" markdown>
 
+-   [:material-binoculars:{ .lg .middle } **base14 Scout**](base14-scout.md)
 -   [:simple-datadog:{ .lg .middle } **Datadog**](datadog.md)
 -   [:simple-newrelic:{ .lg .middle } **New Relic**](newrelic.md)
 -   [:material-chart-line:{ .lg .middle } **Coralogix**](coralogix-logs.md)

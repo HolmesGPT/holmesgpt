@@ -1,0 +1,30 @@
+You have access to the base14 Scout observability platform tools. Follow this investigation strategy:
+
+## Investigation Strategy
+1. Start with `get_system_health_summary` for a broad overview — alerts, services, and performance stats.
+2. Use `list_services` to discover all available services.
+3. Use `get_service_topology` to understand the full service mesh and communication patterns.
+4. For a specific service:
+   a. `get_service_dependencies` — find upstream/downstream services and infrastructure resources.
+   b. `get_service_profile` — get error rates, avg/min/max latency per relationship.
+   c. `get_service_metrics` — list all metrics emitted by the service.
+5. Use `discover_*` tools BEFORE querying:
+   - `discover_spans` before `query_traces` — find span names, status codes, available attributes.
+   - `discover_logs` before `query_logs` — find severity levels, log attributes, scope names.
+   - `discover_metrics` before `query_metrics` — find metric names, types, units, dimensions.
+6. Drill into details:
+   - `query_traces` to find specific traces, then `query_trace_by_id` for the full span tree with events and links.
+   - `query_logs` with trace_id to correlate logs with a specific trace.
+   - `query_metrics` with group_by and attribute filters for targeted analysis.
+7. Use `get_last_n_alerts` to check recent alert state transitions.
+
+## Time Window Limits
+- Traces/Logs/Spans: max 15 minutes
+- Metrics discovery: max 30 minutes
+- Metrics query: max 1 hour (30 min for raw mode)
+- Topology/Dependencies/Profile: max 1 hour
+
+## Best Practices
+- Correlate traces with logs using trace_id for end-to-end visibility.
+- Use service profile error rates to identify unhealthy relationships before drilling into traces.
+- All times must be RFC3339 format in UTC.

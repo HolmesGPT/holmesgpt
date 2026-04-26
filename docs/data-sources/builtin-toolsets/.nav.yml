@@ -6,6 +6,7 @@ nav:
   - Azure (MCP): azure-mcp.md
   - Azure Kubernetes Service: aks.md
   - Azure SQL Database: azure-sql.md
+  - base14 Scout: base14-scout.md
   - Bash: bash.md
   - Cilium: cilium.md
   - ClickHouse: database-clickhouse.md

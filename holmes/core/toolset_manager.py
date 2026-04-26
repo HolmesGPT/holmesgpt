@@ -15,6 +15,7 @@ from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
 
@@ -390,6 +391,7 @@ class ToolsetManager:
             if toolset.enabled and (
                 toolset.status == ToolsetStatusEnum.ENABLED
                 or toolset.type == ToolsetType.MCP
+                or isinstance(toolset, RemoteMCPToolset)
             ):
                 # MCP servers need to reload their tools even if previously failed, so rerun prerequisites
                 enabled_toolsets_from_cache.append(toolset)
@@ -401,7 +403,7 @@ class ToolsetManager:
             lazy_toolsets: List[Toolset] = []
             eager_toolsets: List[Toolset] = []
             for toolset in enabled_toolsets_from_cache:
-                if toolset.type == ToolsetType.MCP:
+                if toolset.type == ToolsetType.MCP or isinstance(toolset, RemoteMCPToolset):
                     # MCP servers must be eagerly initialized to load tool definitions
                     eager_toolsets.append(toolset)
                 else:
