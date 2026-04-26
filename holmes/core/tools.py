@@ -105,7 +105,6 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
-    metadata: Optional[Dict[str, Any]] = None
     # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
     oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
 

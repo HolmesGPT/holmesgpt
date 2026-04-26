@@ -29,7 +29,6 @@ class Skill(BaseModel):
     content: str
     source: SkillSource
     source_path: Optional[str] = None
-    allowed_restricted_tools: Optional[Union[bool, List[str]]] = None
 
     def to_prompt_string(self) -> str:
         return f"{self.name} | description: {self.description}"
@@ -70,7 +69,6 @@ def parse_skill_file(path: Path, source: SkillSource = SkillSource.USER) -> Skil
         ---
         name: my-skill  (optional, defaults to parent directory name)
         description: What this skill does  (required)
-        allowed_restricted_tools: true  (optional)
         ---
         Markdown content here...
     """
@@ -102,7 +100,6 @@ def parse_skill_file(path: Path, source: SkillSource = SkillSource.USER) -> Skil
         content=content,
         source=source,
         source_path=str(path),
-        allowed_restricted_tools=frontmatter.get("allowed_restricted_tools"),
     )
 
 
@@ -138,7 +135,7 @@ def map_robusta_instruction_to_skill(
     instr: "RobustaSkillInstruction",
 ) -> Skill:
     """Convert a Supabase RobustaSkillInstruction into a Skill."""
-    from holmes.plugins.runbooks import RobustaSkillInstruction  # noqa: F811
+    from holmes.plugins.skills import RobustaSkillInstruction  # noqa: F811
 
     description = instr.title
     if instr.symptom:
@@ -150,7 +147,6 @@ def map_robusta_instruction_to_skill(
         content=instr.instruction or "",
         source=SkillSource.REMOTE,
         source_path=instr.id,
-        allowed_restricted_tools=None,
     )
 
 

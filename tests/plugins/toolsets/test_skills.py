@@ -44,7 +44,6 @@ def test_SkillsFetcher_with_skill_catalog():
     assert result.error is None
     assert result.data is not None
     assert "Do something" in result.data
-    assert result.metadata is not None
 
 
 def test_SkillsFetcher_empty_id():

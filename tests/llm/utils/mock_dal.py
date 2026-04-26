@@ -9,7 +9,7 @@ from pydantic import TypeAdapter
 
 from holmes.core.resource_instruction import ResourceInstructions
 from holmes.core.supabase_dal import FindingType, SupabaseDal
-from holmes.plugins.runbooks import RobustaSkillInstruction
+from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.global_instructions import Instructions
 from tests.llm.utils.test_case_utils import read_file
 

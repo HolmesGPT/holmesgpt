@@ -1,8 +1,6 @@
 import logging
 import textwrap
-from typing import ClassVar, List, Optional, Type
-
-from pydantic import Field
+from typing import List, Optional
 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
@@ -21,17 +19,6 @@ from holmes.plugins.skills.skill_loader import (
     load_skill_catalog,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
-from holmes.utils.pydantic_utils import ToolsetConfig
-
-
-class SkillsConfig(ToolsetConfig):
-    """Configuration for the skills toolset."""
-
-    local_skills_path: Optional[List[str]] = Field(
-        default=None,
-        title="Local Skills Path",
-        description="List of local directory paths containing SKILL.md files",
-    )
 
 
 class SkillsFetcher(Tool):
@@ -150,7 +137,6 @@ class SkillsFetcher(Tool):
             status=StructuredToolResultStatus.SUCCESS,
             data=wrapped_content,
             params=params,
-            metadata={"allowed_restricted_tools": skill.allowed_restricted_tools},
         )
 
     def _get_robusta_skill(self, link: str, params: dict) -> StructuredToolResult:
@@ -164,7 +150,6 @@ class SkillsFetcher(Tool):
                         description=skill_content.title,
                         content=skill_content.instruction or skill_content.pretty(),
                         source=SkillSource.REMOTE,
-                        allowed_restricted_tools=None,
                     )
                     return self._format_skill_result(skill, params)
                 else:
@@ -198,39 +183,26 @@ class SkillsFetcher(Tool):
 
 
 class SkillsToolset(Toolset):
-    config_classes: ClassVar[List[Type[SkillsConfig]]] = [SkillsConfig]
-
     def __init__(
         self,
         dal: Optional[SupabaseDal] = None,
         additional_search_paths: Optional[List[str]] = None,
     ):
-        # Merge config-based paths with any additional search paths (e.g., from tests)
-        all_skill_paths = list(additional_search_paths) if additional_search_paths else []
+        skill_catalog = load_skill_catalog(
+            dal=dal,
+            custom_skill_paths=additional_search_paths,
+        )
 
         super().__init__(
             name="skills",
             description="Fetch skills",
             icon_url="https://platform.robusta.dev/demos/runbook.svg",
-            tools=[],  # Tools added after super().__init__ so config is available
+            tools=[
+                SkillsFetcher(self, skill_catalog=skill_catalog, dal=dal),
+            ],
             docs_url="https://holmesgpt.dev/data-sources/",
             tags=[
                 ToolsetTag.CORE,
             ],
             enabled=True,
         )
-
-        # Read local_skills_path from toolset config (set by user in config.yaml)
-        if self.config and isinstance(self.config, dict):
-            config_paths = self.config.get("local_skills_path")
-            if config_paths:
-                all_skill_paths.extend(config_paths)
-
-        skill_catalog = load_skill_catalog(
-            dal=dal,
-            custom_skill_paths=all_skill_paths or None,
-        )
-
-        self.tools = [
-            SkillsFetcher(self, skill_catalog=skill_catalog, dal=dal),
-        ]
