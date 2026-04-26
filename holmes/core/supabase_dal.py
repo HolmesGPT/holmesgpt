@@ -604,6 +604,7 @@ class SupabaseDal:
                 .select("*")
                 .eq("account_id", self.account_id)
                 .eq("subject_type", "RunbookCatalog")
+                .eq("enabled", True)
                 .execute()
             )
             if not res.data:
@@ -614,15 +615,19 @@ class SupabaseDal:
                 id = row.get("runbook_id")
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
+                clusters = row.get("clusters")
                 if not symptom:
-                    logging.warning("Skipping runbook with empty symptom: %s", id)
+                    logging.warning("Skipping skill with empty symptom: %s", id)
+                    continue
+                # Filter by cluster: null means all clusters, otherwise check membership
+                if clusters is not None and self.cluster not in clusters:
                     continue
                 instructions.append(
                     RobustaSkillInstruction(id=id, symptom=symptom, title=title)
                 )
             return instructions
         except Exception:
-            logging.exception("Failed to fetch RunbookCatalog", exc_info=True)
+            logging.exception("Failed to fetch skill catalog", exc_info=True)
             return None
 
     def get_skill_content(
