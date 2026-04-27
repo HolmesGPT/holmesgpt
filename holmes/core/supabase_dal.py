@@ -1025,8 +1025,6 @@ class SupabaseDal:
             # or status guards fail — propagate these so the worker can exit
             # cleanly rather than retrying a stale transition.
             if "mismatch" in str(e).lower():
-                # Inline import: top-level import creates a circular chain
-                # via conversations_worker.__init__ → worker → config → supabase_dal.
                 from holmes.core.conversations_worker.models import (
                     ConversationReassignedError,
                 )
