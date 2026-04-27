@@ -21,7 +21,8 @@ tags:
 setup_timeout: 120
 
 before_test: |
-  set -e
+  # Note: this fixture uses GNU date (-d 'N minutes ago'); CI runs on Linux.
+  set -euo pipefail
   : "${VICTORIALOGS_URL:?VICTORIALOGS_URL must be set}"
 
   curl -sf "${VICTORIALOGS_URL}/health" >/dev/null

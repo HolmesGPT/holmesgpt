@@ -6,7 +6,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 from urllib.parse import quote
 
 import requests  # type: ignore[import-untyped]
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 from requests.auth import HTTPBasicAuth
 
 from holmes.core.tools import (
@@ -102,6 +102,18 @@ class VictoriaLogsConfig(ToolsetConfig):
         ),
     )
 
+    @model_validator(mode="after")
+    def validate_auth(self) -> "VictoriaLogsConfig":
+        if self.bearer_token and (self.username or self.password):
+            raise ValueError(
+                "authentication method must be either bearer_token or basic auth, not both"
+            )
+        if self.username and not self.password:
+            raise ValueError("password is required when username is set")
+        if self.password and not self.username:
+            raise ValueError("username is required when password is set")
+        return self
+
 
 def _build_explore_url(
     config: VictoriaLogsConfig,
@@ -109,7 +121,7 @@ def _build_explore_url(
     start: Optional[str],
     end: Optional[str],
 ) -> Optional[str]:
-    """Build a clickable VMUI link for a query."""
+    """Build a clickable VMUI link. VMUI uses hash-based routing."""
     try:
         base_url = (config.external_url or config.api_url).rstrip("/")
         encoded_query = quote(query, safe="")
@@ -118,7 +130,7 @@ def _build_explore_url(
             params.append(f"start={quote(start, safe='')}")
         if end:
             params.append(f"end={quote(end, safe='')}")
-        return f"{base_url}/select/vmui/?{'&'.join(params)}"
+        return f"{base_url}/select/vmui/#/?{'&'.join(params)}"
     except Exception:
         return None
 

@@ -139,7 +139,7 @@ markers = [
     "metrics: Tests involving metrics processing",
     "context_window: Tests involving context window handling",
     "network: Tests requiring network connectivity",
-    "runbooks: Tests involving runbook functionality",
+    "skills: Tests involving skill functionality",
     "chain-of-causation: Tests involving chain-of-causation analysis",
     "slackbot: Tests involving Slack bot functionality",
     "numerical: Tests involving numerical calculations or data",

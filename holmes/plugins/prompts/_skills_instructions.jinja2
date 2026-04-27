@@ -1,0 +1,9 @@
+{% if skills_enabled -%}
+# Skill Usage:
+If a skill in the catalog clearly matches the issue being investigated, fetch it using the `fetch_skill` tool before diving into other tools.
+Only fetch skills that are relevant to the specific issue — do not fetch skills speculatively or "just in case".
+If no skill matches, skip this step and investigate directly with available tools.
+
+After fetching a skill, read the content returned in the tool's data field and follow its steps.
+Skill content takes priority over general investigation steps.
+{%- endif %}

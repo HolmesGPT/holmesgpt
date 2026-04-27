@@ -92,13 +92,3 @@ Which services produced the most errors in the last hour?
 ```text
 List the streams in namespace "payments" between 10:00 and 11:00 UTC
 ```
-
-## Capabilities
-
-| Tool Name | Description |
-|-----------|-------------|
-| victorialogs_query | Run a LogsQL query and return matching log entries |
-| victorialogs_streams | List log streams (label sets) matching a query |
-| victorialogs_field_names | Discover available log fields in a time range |
-| victorialogs_field_values | List unique values of a field with hit counts |
-| victorialogs_hits | Time-bucketed log counts for a query |

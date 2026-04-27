@@ -1,7 +1,7 @@
 user_prompt: "detect why the k8s pod client under namespace test-ns cannot resolve dns"
 tags:
   - network
-  - runbooks
+  - skills
 #  - medium
 expected_output: mention that a network policy named `default-deny-egress` is or may be the root cause of DNS issues
 before_test: |

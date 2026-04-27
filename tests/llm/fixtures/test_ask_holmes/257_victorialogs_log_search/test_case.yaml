@@ -22,7 +22,8 @@ tags:
 setup_timeout: 120
 
 before_test: |
-  set -e
+  # Note: this fixture uses GNU date (-d 'N minute(s) ago'); CI runs on Linux.
+  set -euo pipefail
   : "${VICTORIALOGS_URL:?VICTORIALOGS_URL must be set}"
 
   # Verify the server is reachable (ignore body, just check status).
@@ -59,7 +60,8 @@ before_test: |
     --data-urlencode 'query={service="payment-api-257",namespace="app-257"} level:ERROR' \
     -d "start=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
     -d "end=$(date -u -d '1 minute' +%Y-%m-%dT%H:%M:%SZ)" \
-    -d 'limit=10' | wc -l)
+    -d 'limit=10' \
+    | wc -l)
 
   if [ "$COUNT" -lt "3" ]; then
     echo "❌ Expected at least 3 ERROR rows but got $COUNT"

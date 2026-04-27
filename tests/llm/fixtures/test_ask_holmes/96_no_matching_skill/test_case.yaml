@@ -1,0 +1,21 @@
+user_prompt: "Use the custom-crd runbook and check why custom CRD whale-watcher resources are not being reconciled by the operator in namespace app-96"
+tags:
+  - skills
+  - medium
+  - benchmark
+
+expected_output: |
+  - Does not find a matching runbook for custom CRD issues
+  - No runbooks are used
+  - Proceeds with investigation without runbook guidance
+  - Uses available tools to investigate the issue
+  - Does not force-fit an inappropriate runbook
+
+before_test: |
+  kubectl create namespace app-96 || true
+  kubectl apply -f manifest.yaml
+  sleep 30  # Let the operator start and CRD be created
+
+after_test: |
+  kubectl delete -f manifest.yaml
+  kubectl delete namespace app-96 --force --grace-period=0

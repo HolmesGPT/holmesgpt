@@ -52,4 +52,5 @@ nav:
   - SQL Server: database-sqlserver.md
   - SQLite: database-sqlite.md
   - VictoriaLogs: victorialogs.md
+  - VictoriaMetrics: victoriametrics.md
   - Zabbix: zabbix.md

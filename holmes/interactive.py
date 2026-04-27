@@ -2258,7 +2258,7 @@ def run_interactive_loop(
     include_files: Optional[List[Path]],
     show_tool_output: bool,
     tracer=None,
-    runbooks=None,
+    skills=None,
     system_prompt_additions: Optional[str] = None,
     check_version: bool = True,
     feedback_callback: Optional[FeedbackCallback] = None,
@@ -2554,7 +2554,7 @@ def run_interactive_loop(
                     user_input,
                     include_files,
                     ai.tool_executor,
-                    runbooks,
+                    skills,
                     system_prompt_additions,
                     prompt_component_overrides=prompt_component_overrides,
                 )

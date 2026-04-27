@@ -37,7 +37,7 @@ from holmes.core.resource_instruction import (
 from holmes.core.truncation.dal_truncation_utils import (
     truncate_evidences_entities_if_necessary,
 )
-from holmes.plugins.runbooks import RobustaRunbookInstruction
+from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
@@ -594,7 +594,7 @@ class SupabaseDal:
 
         return issue_data
 
-    def get_runbook_catalog(self) -> Optional[List[RobustaRunbookInstruction]]:
+    def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
         if not self.enabled:
             return None
 
@@ -604,6 +604,7 @@ class SupabaseDal:
                 .select("*")
                 .eq("account_id", self.account_id)
                 .eq("subject_type", "RunbookCatalog")
+                .eq("enabled", True)
                 .execute()
             )
             if not res.data:
@@ -614,20 +615,24 @@ class SupabaseDal:
                 id = row.get("runbook_id")
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
+                clusters = row.get("clusters")
                 if not symptom:
-                    logging.warning("Skipping runbook with empty symptom: %s", id)
+                    logging.warning("Skipping skill with empty symptom: %s", id)
+                    continue
+                # Filter by cluster: null means all clusters, otherwise check membership
+                if clusters is not None and self.cluster not in clusters:
                     continue
                 instructions.append(
-                    RobustaRunbookInstruction(id=id, symptom=symptom, title=title)
+                    RobustaSkillInstruction(id=id, symptom=symptom, title=title)
                 )
             return instructions
         except Exception:
-            logging.exception("Failed to fetch RunbookCatalog", exc_info=True)
+            logging.exception("Failed to fetch skill catalog", exc_info=True)
             return None
 
-    def get_runbook_content(
-        self, runbook_id: str
-    ) -> Optional[RobustaRunbookInstruction]:
+    def get_skill_content(
+        self, skill_id: str
+    ) -> Optional[RobustaSkillInstruction]:
         if not self.enabled:
             return None
 
@@ -636,7 +641,7 @@ class SupabaseDal:
             .select("*")
             .eq("account_id", self.account_id)
             .eq("subject_type", "RunbookCatalog")
-            .eq("runbook_id", runbook_id)
+            .eq("runbook_id", skill_id)
             .execute()
         )
         if not res.data or len(res.data) != 1:
@@ -659,11 +664,11 @@ class SupabaseDal:
         else:
             # in case the format is unexpected, convert to string
             logging.error(
-                f"Unexpected runbook instruction format for runbook_id={runbook_id}: {raw_instruction}"
+                f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
             )
             instruction = str(raw_instruction)
 
-        return RobustaRunbookInstruction(
+        return RobustaSkillInstruction(
             id=id, symptom=symptom, instruction=instruction, title=title
         )
 

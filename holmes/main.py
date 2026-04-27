@@ -163,7 +163,7 @@ def _investigate_issue(
     investigation_additions = f"Provide a terse analysis of the following {issue.source_type} alert/issue and why it is firing."
     system_prompt = build_system_prompt(
         toolsets=ai.tool_executor.toolsets,
-        runbooks=None,
+        skills=None,
         system_prompt_additions=investigation_additions,
         cluster_name=config.cluster_name,
         ask_user_enabled=False,
@@ -370,7 +370,7 @@ def ask(
                 include_file,
                 show_tool_output,
                 tracer,
-                config.get_runbook_catalog(),
+                config.get_skill_catalog(),
                 system_prompt_additions,
                 json_output_file=json_output_file,
                 bash_always_deny=bash_always_deny,
@@ -391,7 +391,7 @@ def ask(
             prompt,  # type: ignore
             include_file,
             ai.tool_executor,
-            config.get_runbook_catalog(),
+            config.get_skill_catalog(),
             system_prompt_additions,
             prompt_component_overrides=prompt_component_overrides,
         )
@@ -741,7 +741,7 @@ def ticket(
 
         system_prompt = build_system_prompt(
             toolsets=ai.tool_executor.toolsets,
-            runbooks=None,
+            skills=None,
             system_prompt_additions=ticket_additions,
             cluster_name=ticket_source.config.cluster_name,
             ask_user_enabled=False,

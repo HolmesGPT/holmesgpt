@@ -17,5 +17,5 @@ toolsets:
     enabled: false
   kubernetes/kube-lineage-extras:
     enabled: false
-  runbook:
+  skills:
     enabled: false

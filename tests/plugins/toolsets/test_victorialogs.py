@@ -55,6 +55,23 @@ class TestVictoriaLogsConfig:
         )
         assert config.headers == {"AccountID": "0", "ProjectID": "0"}
 
+    def test_bearer_and_basic_auth_rejected(self):
+        with pytest.raises(ValueError, match="not both"):
+            VictoriaLogsConfig(
+                api_url=API_URL,
+                bearer_token="abc",
+                username="user",
+                password="pass",
+            )
+
+    def test_username_without_password_rejected(self):
+        with pytest.raises(ValueError, match="password is required"):
+            VictoriaLogsConfig(api_url=API_URL, username="user")
+
+    def test_password_without_username_rejected(self):
+        with pytest.raises(ValueError, match="username is required"):
+            VictoriaLogsConfig(api_url=API_URL, password="pass")
+
 
 class TestVictoriaLogsToolsetInit:
     def test_toolset_has_expected_tools(self, toolset):
@@ -391,7 +408,7 @@ class TestExploreUrl:
                 MagicMock(),
             )
             assert r.url is not None
-            assert "/select/vmui/" in r.url
+            assert "/select/vmui/#/?" in r.url
             assert "query=level%3Aerror" in r.url
 
 
