@@ -295,7 +295,7 @@ class Tool(ABC, BaseModel):
     transformers: Optional[List[Transformer]] = None
     restricted: bool = Field(
         default=False,
-        description="If True, tool requires runbook authorization or restricted_tools=true to use",
+        description="If True, tool requires skill authorization or restricted_tools=true to use",
     )
 
     # Private attribute to store initialized transformer instances for performance
@@ -760,7 +760,7 @@ class Toolset(BaseModel):
 
     restricted_tools: List[str] = Field(
         default_factory=list,
-        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
+        description="Tool names/patterns that require skill authorization (use '*' for all tools)",
     )
     approval_required_tools: List[str] = Field(
         default_factory=list,

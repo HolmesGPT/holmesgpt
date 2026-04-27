@@ -178,7 +178,7 @@ class FetchWebpage(Tool):
     def __init__(self, toolset: "InternetToolset"):
         super().__init__(
             name="fetch_webpage",
-            description="Fetch a webpage. Use this to fetch runbooks if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
+            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
             parameters={
                 "url": ToolParameter(
                     description="The URL to fetch",

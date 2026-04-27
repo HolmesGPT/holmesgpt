@@ -973,14 +973,14 @@ class TestRendererEndToEnd(unittest.TestCase):
 
         # Tool 2: start + complete with empty output (error)
         renderer.handle_event(
-            self._make_event(StreamEvents.START_TOOL, {"tool_name": "Fetch Runbook"}),
+            self._make_event(StreamEvents.START_TOOL, {"tool_name": "fetch_skill"}),
             all_tool_calls, history,
         )
         renderer.handle_event(
             self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "Fetch Runbook",
-                "description": "Fetch Runbook cluster-problems.md",
-                "toolset_name": "runbook",
+                "tool_name": "fetch_skill",
+                "description": "Fetch Skill cluster-problems.md",
+                "toolset_name": "skills",
                 "result": {"data": "", "elapsed_seconds": 0.0},
             }),
             all_tool_calls, history,
@@ -1000,7 +1000,7 @@ class TestRendererEndToEnd(unittest.TestCase):
 
         # Verify tools summary is printed
         assert "kubectl get pods --all-namespaces" in output, f"Tool description not in output:\n{output}"
-        assert "Fetch Runbook cluster-problems.md" in output, f"Error tool not in output:\n{output}"
+        assert "Fetch Skill cluster-problems.md" in output, f"Error tool not in output:\n{output}"
         assert "(error)" in output, f"Error marker not in output:\n{output}"
 
         # Verify AI message content is printed

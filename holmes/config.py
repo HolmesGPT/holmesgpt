@@ -24,9 +24,9 @@ from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetTag
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
-from holmes.plugins.runbooks import (
-    RunbookCatalog,
-    load_runbook_catalog,
+from holmes.plugins.skills.skill_loader import (
+    SkillCatalog,
+    load_skill_catalog,
 )
 
 # Source plugin imports moved to their respective create methods to speed up startup
@@ -96,7 +96,7 @@ class Config(RobustaBaseConfig):
     opsgenie_team_integration_key: Optional[SecretStr] = None
     opsgenie_query: Optional[str] = None
 
-    custom_runbook_catalogs: List[Union[str, FilePath]] = []
+    custom_skill_paths: List[Union[str, FilePath]] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -147,7 +147,7 @@ class Config(RobustaBaseConfig):
                 mcp_servers=self.mcp_servers,
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
-                custom_runbook_catalogs=self.custom_runbook_catalogs,
+                custom_skill_paths=self.custom_skill_paths,
                 config_file_path=self._config_file_path,
                 additional_toolsets=self.additional_toolsets,
             )
@@ -281,11 +281,10 @@ class Config(RobustaBaseConfig):
             return env_cluster_name
         return Config.get_robusta_global_config_value("cluster_name")
 
-    def get_runbook_catalog(self) -> Optional[RunbookCatalog]:
-        runbook_catalog = load_runbook_catalog(
-            dal=self.dal, custom_catalog_paths=self.custom_runbook_catalogs
+    def get_skill_catalog(self) -> Optional[SkillCatalog]:
+        return load_skill_catalog(
+            dal=self.dal, custom_skill_paths=self.custom_skill_paths,
         )
-        return runbook_catalog
 
     # ── Unified factory methods ──
 

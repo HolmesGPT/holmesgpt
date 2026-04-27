@@ -203,7 +203,7 @@ class ToolCallingLLM:
         self.llm = llm
         self.tool_results_dir = tool_results_dir
 
-        self._runbook_in_use: bool = False
+        self._skill_in_use: bool = False
 
     def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
         """Return a shallow copy with a different ToolExecutor.
@@ -219,15 +219,15 @@ class ToolCallingLLM:
             tracer=self.tracer,
         )
         # Preserve transient state so resumed turns keep access to
-        # runbook-unlocked (restricted) tools.
-        clone._runbook_in_use = self._runbook_in_use
+        # skill-unlocked (restricted) tools.
+        clone._skill_in_use = self._skill_in_use
         return clone
 
     def reset_interaction_state(self) -> None:
         """
-        For interactive loop, reset runbooks in use
+        For interactive loop, reset skills in use
         """
-        self._runbook_in_use = False
+        self._skill_in_use = False
 
     def _supports_vision(self) -> bool:
         """Check if vision/multimodal input is enabled.
@@ -467,7 +467,7 @@ class ToolCallingLLM:
 
     def _should_include_restricted_tools(self) -> bool:
         """Check if restricted tools should be included in the tools list."""
-        return self._runbook_in_use
+        return self._skill_in_use
 
     def _get_tools(self) -> list:
         """Get tools list, filtering restricted tools based on authorization.
@@ -699,14 +699,14 @@ class ToolCallingLLM:
                 if toolset_name:
                     self.tool_executor.oauth_connector.store_user_tools(effective_user, toolset_name, tool_response.oauth_tools)
 
-            # Track runbook usage - if fetch_runbook is called successfully,
+            # Track skill usage - if fetch_skill is called successfully,
             # restricted tools become available for the rest of the current request
             if (
-                tool_name == "fetch_runbook"
+                tool_name == "fetch_skill"
                 and tool_response.status == StructuredToolResultStatus.SUCCESS
             ):
-                self._runbook_in_use = True
-                logging.debug("Runbook fetched - restricted tools now available")
+                self._skill_in_use = True
+                logging.debug("Skill fetched - restricted tools now available")
 
         except Exception as e:
             logging.error(
@@ -1334,7 +1334,7 @@ class ToolCallingLLM:
                 # Update the tool number offset for the next iteration
                 tool_number_offset += len(tools_to_call)
 
-                # Re-fetch tools if the tool list changed (runbook activation, OAuth tool discovery, etc.)
+                # Re-fetch tools if the tool list changed (skill activation, OAuth tool discovery, etc.)
                 if tools is not None:
                     new_tools = self._get_tools()
                     old_names = {t["function"]["name"] for t in tools}
