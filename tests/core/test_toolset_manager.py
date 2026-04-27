@@ -275,6 +275,11 @@ def test_load_custom_toolsets_valid(tmp_path, toolset_manager):
 
 
 def test_load_custom_toolsets_missing_field_invalid(tmp_path, toolset_manager):
+    """Toolsets whose YAML fails Pydantic validation (e.g. missing required
+    `description`) now produce a visible FAILED placeholder in the list instead
+    of silently disappearing. The placeholder carries the Pydantic error in its
+    `error` attribute so the frontend can surface "Toolset X: <why>".
+    """
     custom_file = tmp_path / "custom_toolset.yaml"
     data = {"toolsets": {"dummy_tool": {"enabled": True, "config": {"key": "value"}}}}
     custom_file.write_text(yaml.dump(data))
@@ -283,7 +288,14 @@ def test_load_custom_toolsets_missing_field_invalid(tmp_path, toolset_manager):
     result = toolset_manager.load_custom_toolsets(builtin_toolsets_names=[])
 
     assert isinstance(result, list)
-    assert len(result) == 0
+    assert len(result) == 1
+    placeholder = result[0]
+    assert placeholder.name == "dummy_tool"
+    assert placeholder.status == ToolsetStatusEnum.FAILED
+    assert placeholder.error is not None
+    # The raised Pydantic error should mention the missing field (`description`)
+    # so the user knows what to fix.
+    assert "description" in placeholder.error
 
 
 def test_load_custom_toolsets_invalid_yaml(tmp_path, toolset_manager):

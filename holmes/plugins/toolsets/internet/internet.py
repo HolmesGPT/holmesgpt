@@ -267,7 +267,7 @@ class InternetBaseToolset(Toolset):
         try:
             self.internet_config = InternetBaseToolsetConfig(**(config or {}))
         except Exception as e:
-            return False, f"Failed to parse config: {e}"
+            return False, f"Invalid {self.name} configuration: {e}"
         return True, ""
 
 

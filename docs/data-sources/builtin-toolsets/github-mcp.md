@@ -484,7 +484,12 @@ By default, the GitHub MCP server enables 4 toolsets that provide comprehensive 
 
 ### Customizing Toolsets
 
-To use a different set of toolsets, override `config.toolsets`:
+HolmesGPT exposes two config knobs that control which tools the MCP server makes available:
+
+- **`config.toolsets`** — comma-separated list of toolset *groups*. Every tool in each selected group becomes available.
+- **`config.tools`** — comma-separated list of individual tool names. When set, this is a **hard allowlist** and takes precedence over `toolsets` (Holmes only gets exactly these tools regardless of what toolsets are configured). Leave empty to expose every tool from the selected toolsets.
+
+**Example — restrict by toolset group:**
 
 ```yaml
 mcpAddons:
@@ -497,7 +502,7 @@ mcpAddons:
       toolsets: "pull_requests,actions"
 ```
 
-For fine-grained control, you can also specify individual tools with `config.tools`:
+**Example — restrict to specific tools (bypasses `toolsets`):**
 
 ```yaml
 mcpAddons:
@@ -506,8 +511,7 @@ mcpAddons:
     auth:
       secretName: "github-mcp-token"
     config:
-      toolsets: ""  # Disable toolsets
-      # Only enable specific tools
+      # `tools` is a hard allowlist — `toolsets` is ignored when this is set.
       tools: "get_file_contents,list_commits,list_workflow_runs,get_job_logs"
 ```
 

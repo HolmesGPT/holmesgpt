@@ -200,9 +200,26 @@ It operates in read-only mode by default to ensure safety while investigating pr
 
 === "Holmes Helm Chart"
 
-    Add the following minimal configuration to your `values.yaml` file:
+    First, create a Kubernetes secret with your database password:
+
+    ```bash
+    kubectl create secret generic mariadb-mcp-credentials \
+      --from-literal=password=your-mariadb-password \
+      -n holmes
+    ```
+
+    --8<-- "snippets/secret_namespace_note.md"
+
+    Then add to your `values.yaml`:
 
     ```yaml
+    additionalEnvVars:
+      - name: MARIADB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: mariadb-mcp-credentials
+            key: password
+
     mcpAddons:
       mariadb:
         enabled: true
@@ -212,7 +229,7 @@ It operates in read-only mode by default to ensure safety while investigating pr
           host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
           database: "production_db"                    # Database name
           username: "holmes_readonly"                  # Database username
-          password: "secure_password"                  # Database password
+          password: "{{ env.MARIADB_PASSWORD }}"
     ```
 
     For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).
@@ -225,7 +242,17 @@ It operates in read-only mode by default to ensure safety while investigating pr
 
 === "Robusta Helm Chart"
 
-    Add the following minimal configuration to your `generated_values.yaml`:
+    First, create a Kubernetes secret with your database password:
+
+    ```bash
+    kubectl create secret generic mariadb-mcp-credentials \
+      --from-literal=password=your-mariadb-password \
+      -n default
+    ```
+
+    --8<-- "snippets/secret_namespace_note.md"
+
+    Then add to your `generated_values.yaml`:
 
     ```yaml
     globalConfig:
@@ -233,6 +260,12 @@ It operates in read-only mode by default to ensure safety while investigating pr
 
     # Add the Holmes MCP addon configuration
     holmes:
+      additionalEnvVars:
+        - name: MARIADB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-mcp-credentials
+              key: password
       mcpAddons:
         mariadb:
           enabled: true
@@ -242,7 +275,7 @@ It operates in read-only mode by default to ensure safety while investigating pr
             host: "mariadb.database.svc.cluster.local"  # Your MariaDB host
             database: "production_db"                    # Database name
             username: "holmes_readonly"                  # Database username
-            password: "secure_password"                  # Database password
+            password: "{{ env.MARIADB_PASSWORD }}"
     ```
 
     For additional configuration options (resources, network policy, node selectors, SSL, etc.), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L113).

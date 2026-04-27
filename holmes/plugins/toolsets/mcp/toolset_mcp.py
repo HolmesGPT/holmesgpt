@@ -115,6 +115,9 @@ class MCPMode(str, Enum):
 
 
 class MCPConfig(ToolsetConfig):
+    _name: ClassVar[Optional[str]] = "HTTP/SSE"
+    _description: ClassVar[Optional[str]] = "Connect via HTTP using SSE or Streamable HTTP transport"
+
     mode: MCPMode = Field(
         default=MCPMode.SSE,
         title="Mode",
@@ -165,6 +168,9 @@ class MCPConfig(ToolsetConfig):
 
 
 class StdioMCPConfig(ToolsetConfig):
+    _name: ClassVar[Optional[str]] = "Stdio"
+    _description: ClassVar[Optional[str]] = "Run MCP server as a local subprocess using stdio transport"
+
     mode: MCPMode = Field(
         default=MCPMode.STDIO,
         title="Mode",
