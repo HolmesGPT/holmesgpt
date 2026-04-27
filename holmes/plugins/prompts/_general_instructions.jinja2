@@ -42,6 +42,26 @@
 * do not give an answer like "The pod is pending" as that doesn't state why the pod is pending and how to fix it.
 * do not give an answer like "Pod's node affinity/selector doesn't match any available nodes" because that doesn't include data on WHICH label doesn't match
 * if investigating an issue on many pods, there is no need to check more than 3 individual pods in the same deployment. pick up to a representative 3 from each deployment if relevant
+* if you find hardcoded secrets or API keys in the HolmesGPT deployment itself (deployments with the label app=holmes), note this as a finding and advise the user to store sensitive values in a Kubernetes Secret and reference them via `valueFrom.secretKeyRef` in their Helm values. This pattern works for both LLM provider keys and toolset secrets (toolset configs support `{{ env.VAR_NAME }}` syntax to read env vars at runtime). For example, if OPENAI_API_KEY is set as a plaintext value, the user should:
+  1. Create a Kubernetes Secret: `kubectl create secret generic holmes-secrets --from-literal=openai-api-key=<KEY> -n <NAMESPACE>`
+  2. Update their Helm values to reference it:
+     ```
+     additionalEnvVars:
+     - name: OPENAI_API_KEY
+       valueFrom:
+         secretKeyRef:
+           name: holmes-secrets
+           key: openai-api-key
+     ```
+  3. For toolset secrets (e.g. Elasticsearch, Kafka), use the same pattern and reference the env var in the toolset config:
+     ```
+     toolsets:
+       elasticsearch/logs:
+         enabled: true
+         config:
+           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+     ```
+  See the HolmesGPT Helm configuration docs for more details: https://holmesgpt.dev/reference/helm-configuration/
 * if the user says something isn't working, ALWAYS:
 ** use kubectl_describe on the owner workload + individual pods and look for any transient issues they might have been referring to
 ** look for misconfigured ingresses/services etc

@@ -20,6 +20,9 @@ spec:
       annotations:
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
+        {{- if .Values.sentryDSN }}
+        checksum/secret-sentry-dsn: {{ .Values.sentryDSN | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -88,8 +91,13 @@ spec:
             value: {{ .Values.logLevel }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
+          {{- if .Values.sentryDSN }}
           - name: SENTRY_DSN
-            value: {{ .Values.sentryDSN }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Release.Name }}-holmes-secret
+                key: sentry-dsn
+          {{- end }}
           {{ if .Values.certificate -}}
           - name: CERTIFICATE
             value: {{ .Values.certificate }}
