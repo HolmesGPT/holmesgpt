@@ -153,7 +153,7 @@ class KubectlRunToolset(Toolset):
             enabled=False,  # Disabled by default
             description="Run temporary debug pods using kubectl run. Must be explicitly enabled.",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/kubectl-run/",
-            icon_url="https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.svg",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[KubectlRunImageCommand(self)],
             llm_instructions="""The tool `kubectl_run_image` will run an image:

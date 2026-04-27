@@ -21,6 +21,7 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.utils.header_rendering import render_header_templates
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ class EndpointConfig(BaseModel):
         return [m.upper() for m in self.methods]
 
 
-class HttpToolsetConfig(BaseModel):
+class HttpToolsetConfig(ToolsetConfig):
     endpoints: List[EndpointConfig] = Field(default_factory=list)
     verify_ssl: bool = True
     timeout_seconds: int = 30
@@ -232,7 +233,7 @@ class HttpToolset(Toolset):
             )
 
         except Exception as e:
-            return False, f"Failed to validate HTTP configuration: {str(e)}"
+            return False, f"Invalid HTTP configuration: {e}"
 
     def _build_curl_command(self, endpoint: EndpointConfig, url: str) -> str:
         parts = ["curl", "-v"]

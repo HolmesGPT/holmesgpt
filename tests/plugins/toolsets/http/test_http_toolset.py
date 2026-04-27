@@ -314,7 +314,7 @@ class TestHttpToolsetPrerequisites:
             {"endpoints": [{"hosts": ["example.com"], "auth": {"type": "basic"}}]}
         )
         assert success is False
-        assert "Failed to validate" in message
+        assert "Invalid HTTP configuration" in message
 
     def test_invalid_method(self):
         toolset = HttpToolset()
