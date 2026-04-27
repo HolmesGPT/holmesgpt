@@ -145,9 +145,12 @@ class SkillsFetcher(Tool):
                 skill_content = self._dal.get_skill_content(link)
                 if skill_content:
                     # Wrap remote skill content with same format as local skills
+                    description = skill_content.title
+                    if skill_content.symptom:
+                        description = f"{skill_content.title} — {skill_content.symptom}"
                     skill = Skill(
                         name=skill_content.id,
-                        description=skill_content.title,
+                        description=description,
                         content=skill_content.instruction or skill_content.pretty(),
                         source=SkillSource.REMOTE,
                     )

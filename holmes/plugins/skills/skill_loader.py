@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, List, Optional, Union
 import yaml
 from pydantic import BaseModel
 
+from holmes.plugins.skills import RobustaSkillInstruction
+
 if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
 
@@ -132,11 +134,9 @@ def scan_skill_directory(
 
 
 def map_robusta_instruction_to_skill(
-    instr: "RobustaSkillInstruction",
+    instr: RobustaSkillInstruction,
 ) -> Skill:
     """Convert a Supabase RobustaSkillInstruction into a Skill."""
-    from holmes.plugins.skills import RobustaSkillInstruction  # noqa: F811
-
     description = instr.title
     if instr.symptom:
         description = f"{instr.title} — {instr.symptom}"
