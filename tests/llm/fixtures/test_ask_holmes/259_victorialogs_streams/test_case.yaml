@@ -5,11 +5,11 @@
 # Requirements:
 # - VICTORIALOGS_URL: URL to a VictoriaLogs server (e.g., http://localhost:9428)
 
-user_prompt: "Which services have logs in the 'app-258' namespace in VictoriaLogs in the last 5 minutes? List them by name."
+user_prompt: "Which services have logs in the 'app-259' namespace in VictoriaLogs in the last 5 minutes? List them by name."
 
 expected_output:
   - "Must call victorialogs_streams or victorialogs_field_values to discover the services"
-  - "Must list these three services: checkout-258, inventory-258, and shipping-258"
+  - "Must list these three services: checkout-259, inventory-259, and shipping-259"
 
 include_tool_calls: true
 
@@ -33,20 +33,20 @@ before_test: |
     "${VICTORIALOGS_URL}/insert/jsonline?_stream_fields=service,namespace&_msg_field=message&_time_field=time" \
     -H "Content-Type: application/stream+json" \
     --data-binary @- <<EOF
-  {"time":"$NOW","service":"checkout-258","namespace":"app-258","message":"Cart updated"}
-  {"time":"$NOW","service":"checkout-258","namespace":"app-258","message":"Order placed"}
-  {"time":"$NOW","service":"inventory-258","namespace":"app-258","message":"Stock decremented"}
-  {"time":"$NOW","service":"inventory-258","namespace":"app-258","message":"Low stock warning"}
-  {"time":"$NOW","service":"shipping-258","namespace":"app-258","message":"Label printed"}
-  {"time":"$NOW","service":"shipping-258","namespace":"app-258","message":"Tracking number issued"}
+  {"time":"$NOW","service":"checkout-259","namespace":"app-259","message":"Cart updated"}
+  {"time":"$NOW","service":"checkout-259","namespace":"app-259","message":"Order placed"}
+  {"time":"$NOW","service":"inventory-259","namespace":"app-259","message":"Stock decremented"}
+  {"time":"$NOW","service":"inventory-259","namespace":"app-259","message":"Low stock warning"}
+  {"time":"$NOW","service":"shipping-259","namespace":"app-259","message":"Label printed"}
+  {"time":"$NOW","service":"shipping-259","namespace":"app-259","message":"Tracking number issued"}
   EOF
 
   sleep 3
 
   # Verify each service stream is queryable.
-  for svc in checkout-258 inventory-258 shipping-258; do
+  for svc in checkout-259 inventory-259 shipping-259; do
     LINES=$(curl -sf -X POST "${VICTORIALOGS_URL}/select/logsql/query" \
-      --data-urlencode "query={namespace=\"app-258\",service=\"${svc}\"}" \
+      --data-urlencode "query={namespace=\"app-259\",service=\"${svc}\"}" \
       -d "start=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
       -d 'limit=10' | wc -l)
     if [ "$LINES" -lt 1 ]; then
@@ -54,7 +54,7 @@ before_test: |
       exit 1
     fi
   done
-  echo "✅ All three services have queryable streams in app-258"
+  echo "✅ All three services have queryable streams in app-259"
 
 after_test: |
   echo "No cleanup needed (logs auto-expire by retention)."
