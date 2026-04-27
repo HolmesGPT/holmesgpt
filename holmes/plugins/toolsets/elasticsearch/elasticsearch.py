@@ -115,7 +115,7 @@ class ElasticsearchBaseToolset(Toolset):
             enabled=False,
             description=description,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/",
-            icon_url="https://www.elastic.co/favicon.ico",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/elasticsearch.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=tools,
             tags=[ToolsetTag.CORE],

@@ -12,29 +12,115 @@ You can find your `domain` and `team_slug` from the URL you use to access Coralo
 
 ## Configuration
 
-Configure both the Coralogix DataPrime toolset (for logs/traces) and the Prometheus metrics toolset (for metrics) using the same API key:
+Configure both the Coralogix DataPrime toolset (for logs/traces) and the Prometheus metrics toolset (for metrics) using the same API key. The `team_slug` field is optional — it's only used to generate clickable permalink URLs that open query results in the Coralogix UI.
 
-```yaml-toolset-config
-toolsets:
-  coralogix:
-    enabled: true
-    config:
-      api_key: "<your Coralogix API key>"
-      domain: "eu2.coralogix.com"
-      # Optional: enables clickable UI permalink URLs in tool output
-      team_slug: "your-company-name"
+=== "Holmes CLI"
 
-  prometheus/metrics:
-    enabled: true
-    config:
-      additional_headers:
-        Authorization: "Bearer <your Coralogix API key>"
-      prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
+    ```yaml
+    toolsets:
+      coralogix:
+        enabled: true
+        config:
+          api_key: "<your Coralogix API key>"
+          domain: "eu2.coralogix.com"
+          # Optional: enables clickable UI permalink URLs in tool output
+          team_slug: "your-company-name"
 
-```
+      prometheus/metrics:
+        enabled: true
+        subtype: coralogix
+        config:
+          additional_headers:
+            Authorization: "Bearer <your Coralogix API key>"
+          prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
+    ```
 
-**Note**: Both toolsets use the same API key. The `team_slug` field is optional - it's only used to generate clickable permalink URLs that open query results in the Coralogix UI (e.g., `https://{team_slug}.{domain}/#/query-new/...`).
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    First, create a Kubernetes secret with your Coralogix API key:
+
+    ```bash
+    kubectl create secret generic coralogix-api-key \
+      --from-literal=api-key=your-coralogix-api-key \
+      -n holmes
+    ```
+
+    --8<-- "snippets/secret_namespace_note.md"
+
+    Then add to your Holmes Helm values:
+
+    ```yaml
+    additionalEnvVars:
+      - name: CORALOGIX_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: coralogix-api-key
+            key: api-key
+
+    toolsets:
+      coralogix:
+        enabled: true
+        config:
+          api_key: "{{ env.CORALOGIX_API_KEY }}"
+          domain: "eu2.coralogix.com"
+          # Optional: enables clickable UI permalink URLs in tool output
+          team_slug: "your-company-name"
+
+      prometheus/metrics:
+        enabled: true
+        subtype: coralogix
+        config:
+          additional_headers:
+            Authorization: "Bearer {{ env.CORALOGIX_API_KEY }}"
+          prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
+    ```
+
+=== "Robusta Helm Chart"
+
+    First, create a Kubernetes secret with your Coralogix API key:
+
+    ```bash
+    kubectl create secret generic coralogix-api-key \
+      --from-literal=api-key=your-coralogix-api-key \
+      -n default
+    ```
+
+    --8<-- "snippets/secret_namespace_note.md"
+
+    Then add to your Robusta Helm values:
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: CORALOGIX_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: coralogix-api-key
+              key: api-key
+      toolsets:
+        coralogix:
+          enabled: true
+          config:
+            api_key: "{{ env.CORALOGIX_API_KEY }}"
+            domain: "eu2.coralogix.com"
+            team_slug: "your-company-name"
+
+        prometheus/metrics:
+          enabled: true
+          subtype: coralogix
+          config:
+            additional_headers:
+              Authorization: "Bearer {{ env.CORALOGIX_API_KEY }}"
+            prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"
+    ```
+
+    --8<-- "snippets/helm_upgrade_command.md"
+
+**Note**: Both toolsets use the same API key. Helm-tab users only need to create one Kubernetes secret — the env var feeds both the `coralogix` toolset's `api_key` field and the Prometheus toolset's `Authorization` header.
 
 ## Recommended: Customize Coralogix Instructions
 

@@ -5,6 +5,7 @@ from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, cast
 from urllib.parse import urlencode, urljoin
 
+import backoff
 import requests  # type: ignore
 from pydantic import Field
 
@@ -30,6 +31,13 @@ logger = logging.getLogger(__name__)
 class GrafanaDashboardConfig(GrafanaConfig):
     """Configuration specific to Grafana Dashboard toolset."""
 
+    timeout_seconds: int = Field(
+        default=60,
+        gt=0,
+        title="Timeout Seconds",
+        description="Request timeout in seconds for Grafana API calls. "
+        "Defaults to 60s because dashboard rendering can be slow.",
+    )
     enable_rendering: bool = Field(
         default=False,
         title="Enable Rendering",
@@ -68,13 +76,15 @@ def _build_grafana_dashboard_url(
 
 
 class GrafanaToolset(BaseGrafanaToolset):
-    config_classes: ClassVar[list[Type[GrafanaDashboardConfig]]] = [GrafanaDashboardConfig]
+    config_classes: ClassVar[list[Type[GrafanaDashboardConfig]]] = [
+        GrafanaDashboardConfig
+    ]
 
     def __init__(self):
         super().__init__(
             name="grafana/dashboards",
             description="Provides tools for interacting with Grafana dashboards, including visual rendering of panels and dashboards",
-            icon_url="https://w7.pngwing.com/pngs/434/923/png-transparent-grafana-hd-logo-thumbnail.png",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/grafanadashboards/",
             tools=[
                 SearchDashboards(self),
@@ -97,7 +107,9 @@ class GrafanaToolset(BaseGrafanaToolset):
 
         # After health check passes, conditionally add render tools
         if self.grafana_config.enable_rendering:
-            logger.info(f"Rendering enabled, probing for image renderer at {get_base_url(self.grafana_config)}...")
+            logger.info(
+                f"Rendering enabled, probing for image renderer at {get_base_url(self.grafana_config)}..."
+            )
             self._try_add_render_tools()
             tool_names = [t.name for t in self.tools]
             logger.info(f"Grafana toolset tools after renderer probe: {tool_names}")
@@ -132,7 +144,9 @@ class GrafanaToolset(BaseGrafanaToolset):
                 )
                 renderer_detected = True
             else:
-                logger.debug(f"Renderer version API returned {resp.status_code}, trying fallback probe")
+                logger.debug(
+                    f"Renderer version API returned {resp.status_code}, trying fallback probe"
+                )
         except Exception as e:
             logger.debug(f"Failed to check renderer version API: {e}")
 
@@ -198,7 +212,7 @@ class BaseGrafanaTool(Tool, ABC):
         endpoint: str,
         params: dict,
         query_params: Optional[Dict] = None,
-        timeout: int = 30,
+        timeout: Optional[int] = None,
     ) -> StructuredToolResult:
         """Make a GET request to Grafana API and return structured result.
 
@@ -206,27 +220,43 @@ class BaseGrafanaTool(Tool, ABC):
             endpoint: API endpoint path (e.g., "/api/search")
             params: Original parameters passed to the tool
             query_params: Optional query parameters for the request
+            timeout: Request timeout in seconds (defaults to config.timeout_seconds)
 
         Returns:
             StructuredToolResult with the API response data
         """
-        base_url = get_base_url(self._toolset.grafana_config)
+        config = self._toolset.grafana_config
+        timeout = timeout if timeout is not None else config.timeout_seconds
+        retries = config.max_retries
+        base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"
         url = urljoin(base_url, endpoint)
         headers = build_headers(
-            api_key=self._toolset.grafana_config.api_key,
-            additional_headers=self._toolset.grafana_config.additional_headers,
+            api_key=config.api_key,
+            additional_headers=config.additional_headers,
         )
 
-        response = requests.get(
-            url,
-            headers=headers,
-            params=query_params,
-            timeout=timeout,
-            verify=self._toolset.grafana_config.verify_ssl,
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            max_tries=retries,
+            giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+            and getattr(e, "response", None) is not None
+            and e.response.status_code < 500,
         )
-        response.raise_for_status()
+        def _do_request() -> requests.Response:
+            response = requests.get(
+                url,
+                headers=headers,
+                params=query_params,
+                timeout=timeout,
+                verify=config.verify_ssl,
+            )
+            response.raise_for_status()
+            return response
+
+        response = _do_request()
         data = response.json()
 
         return StructuredToolResult(
@@ -527,14 +557,15 @@ class BaseGrafanaRenderTool(Tool, ABC):
         self,
         render_path: str,
         query_params: Dict[str, Any],
-        timeout: int = 60,
+        timeout: Optional[int] = None,
     ) -> bytes:
         """Make a GET request to Grafana render API and return PNG bytes.
 
         Args:
             render_path: Render URL path (e.g. "render/d-solo/uid/slug")
             query_params: Query parameters for the render request
-            timeout: Request timeout in seconds (rendering can be slow)
+            timeout: Request timeout in seconds. Defaults to config.timeout_seconds
+                (60s by default on GrafanaDashboardConfig — rendering can be slow).
 
         Returns:
             PNG image bytes
@@ -543,6 +574,9 @@ class BaseGrafanaRenderTool(Tool, ABC):
             requests.HTTPError: If the request fails
         """
         config = self._toolset.grafana_config
+        if timeout is None:
+            timeout = config.timeout_seconds
+        retries = config.max_retries
         base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"
@@ -554,14 +588,26 @@ class BaseGrafanaRenderTool(Tool, ABC):
         # Render API returns PNG, not JSON
         headers["Accept"] = "image/png"
 
-        response = requests.get(
-            url,
-            headers=headers,
-            params=query_params,
-            timeout=timeout,
-            verify=config.verify_ssl,
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            max_tries=retries,
+            giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+            and getattr(e, "response", None) is not None
+            and e.response.status_code < 500,
         )
-        response.raise_for_status()
+        def _do_render_request() -> requests.Response:
+            response = requests.get(
+                url,
+                headers=headers,
+                params=query_params,
+                timeout=timeout,
+                verify=config.verify_ssl,
+            )
+            response.raise_for_status()
+            return response
+
+        response = _do_render_request()
         return response.content
 
     def _render_to_result(

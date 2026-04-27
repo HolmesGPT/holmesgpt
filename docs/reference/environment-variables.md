@@ -161,6 +161,21 @@ Controls the logging verbosity of HolmesGPT.
 export HOLMES_LOG_LEVEL="DEBUG"
 ```
 
+### TRACE_TOKEN_USAGE
+When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed `/api/chat` request at `INFO` level. Useful for debugging token consumption and cost issues.
+
+**Default:** `false`
+
+**Example:**
+```bash
+export TRACE_TOKEN_USAGE="true"
+```
+
+**Sample output:**
+```
+Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
+```
+
 ### HOLMES_CACHE_DIR
 Directory for caching HolmesGPT data and temporary files.
 

@@ -26,6 +26,7 @@ DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status
 # Mapping of deprecated toolset names to their new names
 DEPRECATED_TOOLSET_NAMES: dict[str, str] = {
     "coralogix/logs": "coralogix",
+    "runbook": "skills",
 }
 
 
@@ -58,14 +59,14 @@ class ToolsetManager:
         custom_toolsets: Optional[List[FilePath]] = None,
         custom_toolsets_from_cli: Optional[List[FilePath]] = None,
         toolset_status_location: Optional[FilePath] = None,
-        custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
+        custom_skill_paths: Optional[List[Union[str, FilePath]]] = None,
         config_file_path: Optional[Path] = None,
         additional_toolsets: Optional[List[Toolset]] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
         self.additional_toolsets = additional_toolsets or []
-        self.custom_runbook_catalogs = custom_runbook_catalogs
+        self.custom_skill_paths = custom_skill_paths
         if mcp_servers is not None:
             for _, mcp_server in mcp_servers.items():
                 mcp_server["type"] = ToolsetType.MCP.value
@@ -117,12 +118,12 @@ class ToolsetManager:
         3. custom toolset from config can override both built-in and add new custom toolsets # for backward compatibility
         """
         # Load built-in toolsets
-        # Extract search paths from custom catalog files
+        # Extract search paths from custom skill paths
         additional_search_paths = None
-        if self.custom_runbook_catalogs:
+        if self.custom_skill_paths:
             additional_search_paths = [
-                os.path.dirname(os.path.abspath(str(catalog_path)))
-                for catalog_path in self.custom_runbook_catalogs
+                str(Path(p).resolve()) if Path(p).is_dir() else os.path.dirname(os.path.abspath(str(p)))
+                for p in self.custom_skill_paths
             ]
 
         builtin_toolsets = load_builtin_toolsets(dal, additional_search_paths)

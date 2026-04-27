@@ -38,6 +38,7 @@ from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag, pretty_print_toolset_status
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
+from holmes.core.oauth_utils import enable_disk_token_store
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
 from holmes.plugins.destinations import DestinationType
@@ -162,7 +163,7 @@ def _investigate_issue(
     investigation_additions = f"Provide a terse analysis of the following {issue.source_type} alert/issue and why it is firing."
     system_prompt = build_system_prompt(
         toolsets=ai.tool_executor.toolsets,
-        runbooks=None,
+        skills=None,
         system_prompt_additions=investigation_additions,
         cluster_name=config.cluster_name,
         ask_user_enabled=False,
@@ -294,6 +295,9 @@ def ask(
         slack_channel=slack_channel,
     )
 
+    # Enable disk-based OAuth token storage for CLI mode
+    enable_disk_token_store()
+
     # Create tracer if trace option is provided
     tracer = TracingFactory.create_tracer(trace, project="HolmesGPT-CLI")
     tracer.start_experiment()
@@ -366,7 +370,7 @@ def ask(
                 include_file,
                 show_tool_output,
                 tracer,
-                config.get_runbook_catalog(),
+                config.get_skill_catalog(),
                 system_prompt_additions,
                 json_output_file=json_output_file,
                 bash_always_deny=bash_always_deny,
@@ -387,7 +391,7 @@ def ask(
             prompt,  # type: ignore
             include_file,
             ai.tool_executor,
-            config.get_runbook_catalog(),
+            config.get_skill_catalog(),
             system_prompt_additions,
             prompt_component_overrides=prompt_component_overrides,
         )
@@ -737,7 +741,7 @@ def ticket(
 
         system_prompt = build_system_prompt(
             toolsets=ai.tool_executor.toolsets,
-            runbooks=None,
+            skills=None,
             system_prompt_additions=ticket_additions,
             cluster_name=ticket_source.config.cluster_name,
             ask_user_enabled=False,

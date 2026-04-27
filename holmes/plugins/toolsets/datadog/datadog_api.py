@@ -108,17 +108,29 @@ class DatadogBaseConfig(ToolsetConfig):
     api_key: str = Field(
         title="API Key",
         description="Datadog API key for authentication",
-        examples=["<your_datadog_api_key>"],
+        examples=["{{ env.DATADOG_API_KEY }}"],
+        json_schema_extra={"format": "password"},
     )
     app_key: str = Field(
         title="Application Key",
         description="Datadog application key for authentication",
-        examples=["<your_datadog_app_key>"],
+        examples=["{{ env.DATADOG_APP_KEY }}"],
+        json_schema_extra={"format": "password"},
     )
     api_url: AnyUrl = Field(
         title="API URL",
-        description="Datadog site API base URL",
-        examples=["https://api.datadoghq.com", "https://api.datadoghq.eu"],
+        description=(
+            "Datadog site API base URL. Pick the URL matching your Datadog region — "
+            "see https://docs.datadoghq.com/getting_started/site/ for the full list."
+        ),
+        examples=[
+            "https://api.datadoghq.com",
+            "https://api.datadoghq.eu",
+            "https://api.us3.datadoghq.com",
+            "https://api.us5.datadoghq.com",
+            "https://api.ap1.datadoghq.com",
+            "https://api.ddog-gov.com",
+        ],
     )
     timeout_seconds: int = Field(
         default=60,

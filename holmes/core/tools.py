@@ -105,6 +105,8 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
+    oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
@@ -293,7 +295,7 @@ class Tool(ABC, BaseModel):
     transformers: Optional[List[Transformer]] = None
     restricted: bool = Field(
         default=False,
-        description="If True, tool requires runbook authorization or restricted_tools=true to use",
+        description="If True, tool requires skill authorization or restricted_tools=true to use",
     )
 
     # Private attribute to store initialized transformer instances for performance
@@ -758,7 +760,7 @@ class Toolset(BaseModel):
 
     restricted_tools: List[str] = Field(
         default_factory=list,
-        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
+        description="Tool names/patterns that require skill authorization (use '*' for all tools)",
     )
     approval_required_tools: List[str] = Field(
         default_factory=list,
@@ -779,6 +781,12 @@ class Toolset(BaseModel):
     status: ToolsetStatusEnum = ToolsetStatusEnum.DISABLED
     error: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
+
+    # Optional top-level YAML disambiguator for multi-variant toolsets
+    # (e.g. Database: `subtype: mysql`; Prometheus: `subtype: victoriametrics`).
+    # The value is toolset-specific; consult the toolset's documentation for
+    # accepted values. Toolsets that don't support variants ignore this field.
+    subtype: Optional[str] = None
 
     def override_with(self, override: "Toolset") -> None:
         """
@@ -939,7 +947,11 @@ class Toolset(BaseModel):
                         self.error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
                 except subprocess.CalledProcessError as e:
                     self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"`{prereq.command}` returned {e.returncode}"
+                    stderr = (e.stderr or "").strip()
+                    detail = f": {stderr}" if stderr else ""
+                    self.error = (
+                        f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
+                    )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
                 for env_var in prereq.env:
@@ -1055,16 +1067,15 @@ class Toolset(BaseModel):
         return None
 
     def get_config_schema(self) -> Optional[Dict[str, Any]]:
-        """Returns JSON Schema for the toolset's configuration.
+        """Returns the per-variant JSON Schema map for the toolset's configuration.
 
-        Returns a dict of { config_class_name: model_json_schema } (if any), otherwise returns None.
+        Returns `{ config_class_name: <schema entry> }` if `config_classes` is
+        set, otherwise None. Each entry's shape and the rules for hiding /
+        requiring fields are documented on `ToolsetConfig.build_schema_entry`.
         """
-        if self.config_classes:
-            return {
-                config_cls.__name__: config_cls.model_json_schema()
-                for config_cls in self.config_classes
-            }
-        return None
+        if not self.config_classes:
+            return None
+        return {cls.__name__: cls.build_schema_entry() for cls in self.config_classes}
 
     def _load_llm_instructions(self, jinja_template: str):
         tool_names = [t.name for t in self.tools]

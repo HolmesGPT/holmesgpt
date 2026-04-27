@@ -37,8 +37,11 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
     ```bash
     kubectl create secret generic kafka-credentials \
       --from-literal=username=kafka-plaintext-user \
-      --from-literal=password=<your-password>
+      --from-literal=password=<your-password> \
+      -n holmes
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then reference them in your Helm values:
 
@@ -77,8 +80,11 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
     ```bash
     kubectl create secret generic kafka-credentials \
       --from-literal=username=kafka-plaintext-user \
-      --from-literal=password=<your-password>
+      --from-literal=password=<your-password> \
+      -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -158,8 +164,11 @@ Use this approach when certificates are mounted into the Holmes pod as Kubernete
     kubectl create secret generic kafka-tls-certs \
       --from-file=ca.crt=/path/to/ca.crt \
       --from-file=client.pem=/path/to/client.pem \
-      --from-file=client.key=/path/to/client.key
+      --from-file=client.key=/path/to/client.key \
+      -n holmes
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then mount the secret and reference the paths in your Helm values:
 
@@ -238,8 +247,11 @@ Use this approach when certificates are mounted into the Holmes pod as Kubernete
     kubectl create secret generic kafka-tls-certs \
       --from-file=ca.crt=/path/to/ca.crt \
       --from-file=client.pem=/path/to/client.pem \
-      --from-file=client.key=/path/to/client.key
+      --from-file=client.key=/path/to/client.key \
+      -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -340,8 +352,11 @@ Use this approach when certificates are passed as environment variables (e.g., f
     kubectl create secret generic kafka-tls-certs \
       --from-literal=ca.crt.b64="$(base64 < /path/to/ca.crt | tr -d '\n')" \
       --from-literal=client.pem.b64="$(base64 < /path/to/client.pem | tr -d '\n')" \
-      --from-literal=client.key.b64="$(base64 < /path/to/client.key | tr -d '\n')"
+      --from-literal=client.key.b64="$(base64 < /path/to/client.key | tr -d '\n')" \
+      -n holmes
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then expose them as environment variables in your Helm values:
 
@@ -386,8 +401,11 @@ Use this approach when certificates are passed as environment variables (e.g., f
     kubectl create secret generic kafka-tls-certs \
       --from-literal=ca.crt.b64="$(base64 < /path/to/ca.crt | tr -d '\n')" \
       --from-literal=client.pem.b64="$(base64 < /path/to/client.pem | tr -d '\n')" \
-      --from-literal=client.key.b64="$(base64 < /path/to/client.key | tr -d '\n')"
+      --from-literal=client.key.b64="$(base64 < /path/to/client.key | tr -d '\n')" \
+      -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
