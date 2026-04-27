@@ -11,12 +11,6 @@ skip_reason: setup needs fixing, the database has other issues right now that th
 tags:
   - hard
   - database
-runbooks:
-  catalog:
-    - id: postgres-performance
-      name: PostgreSQL Performance Investigation
-      description: Guide for investigating slow PostgreSQL queries
-      path: postgres_performance.md
 
 description: |
   This eval simulates a common database performance issue - missing index on a frequently queried column.

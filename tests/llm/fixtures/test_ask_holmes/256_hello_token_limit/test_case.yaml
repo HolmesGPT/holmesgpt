@@ -6,7 +6,7 @@
 user_prompt: "Hello, how are you?"
 expected_output:
   - "Holmes responds with a greeting or acknowledgement"
-runbooks: {}
+skills: {}
 tags:
   - context_window
   - easy

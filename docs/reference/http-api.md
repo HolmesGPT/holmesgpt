@@ -121,7 +121,7 @@ The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.
 | `system_prompt_additions` | System   | Custom additions from configuration          |
 | `files`                   | User     | Attached file contents                       |
 | `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
-| `time_runbooks`           | User     | Runbook content and custom instructions      |
+| `time_skills`             | User     | Skill content and custom instructions        |
 
 #### Structured Output with `response_format`
 

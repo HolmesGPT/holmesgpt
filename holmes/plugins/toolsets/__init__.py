@@ -54,7 +54,7 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
-from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
+from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
@@ -113,7 +113,7 @@ def load_python_toolsets(
         KubectlRunToolset(),
         ConfluenceToolset(),
         MongoDBAtlasToolset(),
-        RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
+        SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
         DatabaseToolset(),
