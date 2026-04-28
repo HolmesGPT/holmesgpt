@@ -318,4 +318,4 @@ class TestDatadogMetricsToolset:
         success, error_msg = self.toolset.prerequisites_callable(config)
 
         assert success is False
-        assert "Failed to parse Datadog configuration" in error_msg
+        assert "Invalid Datadog Metrics configuration" in error_msg

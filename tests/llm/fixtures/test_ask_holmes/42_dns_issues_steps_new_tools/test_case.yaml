@@ -1,7 +1,7 @@
 user_prompt: "detect why the k8s pod client under namespace test-ns-42e cannot resolve dns"
 tags:
   - network
-  - runbooks
+  - skills
 #  - easy
 expected_output: |
   Issue is due to a network policy named default-deny-egress

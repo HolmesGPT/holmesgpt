@@ -199,7 +199,7 @@ class DatabaseToolset(Toolset):
             description=description,
             type=ToolsetType.DATABASE,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/database/",
-            icon_url="https://www.postgresql.org/favicon.ico",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/postgresql.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],
             tags=[ToolsetTag.CORE],
@@ -215,15 +215,22 @@ class DatabaseToolset(Toolset):
             os.path.dirname(__file__), "instructions.jinja2"
         )
 
-        # Resolve subtype: explicit config > auto-detect later from connection URL
+        # Resolve subtype: explicit config > auto-detect later from connection URL.
+        # Unknown subtypes are user typos with no legitimate interpretation —
+        # raise so they surface as a visible failed toolset in the UI rather
+        # than silently falling back to UNKNOWN (which would then auto-detect
+        # from the URL, making the typo completely invisible).
         self._subtype: DatabaseSubtype = DatabaseSubtype.UNKNOWN
         if subtype_str:
             try:
                 self._subtype = DatabaseSubtype(subtype_str)
-            except ValueError:
-                logger.warning(
-                    f"Unknown database subtype '{subtype_str}', using UNKNOWN"
-                )
+            except ValueError as exc:
+                valid = ", ".join(s.value for s in DatabaseSubtype)
+                raise ValueError(
+                    f"Unknown database subtype '{subtype_str}'. "
+                    f"Valid values: {valid}. "
+                    "Omit `subtype` to auto-detect from the connection URL."
+                ) from exc
 
         # Set initial meta — updated with detected subtype in prerequisites_callable
         self.meta = {"type": "database", "subtype": self._subtype.value}
@@ -246,7 +253,7 @@ class DatabaseToolset(Toolset):
             self.meta = {"type": "database", "subtype": self._subtype.value}
             return self._perform_health_check()
         except Exception as e:
-            return False, f"Failed to validate database configuration: {e}"
+            return False, f"Invalid database configuration: {e}"
 
     def _perform_health_check(self) -> Tuple[bool, str]:
         try:

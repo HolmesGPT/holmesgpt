@@ -21,6 +21,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-chart-line:{ .lg .middle } **Coralogix**](coralogix-logs.md)
 -   [:material-robot:{ .lg .middle } **Robusta**](robusta.md)
 -   [:simple-prometheus:{ .lg .middle } **Prometheus**](prometheus.md)
+-   [:simple-victoriametrics:{ .lg .middle } **VictoriaMetrics**](victoriametrics.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana (MCP)**](grafana-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Loki**](grafanaloki.md)
@@ -28,6 +29,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-splunk:{ .lg .middle } **Splunk (MCP)**](splunk-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 -   [:material-bug:{ .lg .middle } **Sentry (MCP)**](sentry-mcp.md)
+-   [:simple-victoriametrics:{ .lg .middle } **VictoriaLogs**](victorialogs.md)
 -   <img src="../../images/integration_logos/zabbix-icon.png" alt="Zabbix" style="height: 32px; vertical-align: middle;"> **[Zabbix](zabbix.md)**
 
 </div>

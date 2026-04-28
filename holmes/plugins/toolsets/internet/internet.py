@@ -178,7 +178,7 @@ class FetchWebpage(Tool):
     def __init__(self, toolset: "InternetToolset"):
         super().__init__(
             name="fetch_webpage",
-            description="Fetch a webpage. Use this to fetch runbooks if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
+            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
             parameters={
                 "url": ToolParameter(
                     description="The URL to fetch",
@@ -267,7 +267,7 @@ class InternetBaseToolset(Toolset):
         try:
             self.internet_config = InternetBaseToolsetConfig(**(config or {}))
         except Exception as e:
-            return False, f"Failed to parse config: {e}"
+            return False, f"Invalid {self.name} configuration: {e}"
         return True, ""
 
 

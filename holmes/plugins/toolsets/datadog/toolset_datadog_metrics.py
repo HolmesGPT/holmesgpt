@@ -716,7 +716,7 @@ class DatadogMetricsToolset(Toolset):
             name="datadog/metrics",
             description="Toolset for fetching metrics and metadata from Datadog, including historical data for pods no longer in the cluster",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
-            icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[
                 ListActiveMetrics(toolset=self),
@@ -744,16 +744,16 @@ class DatadogMetricsToolset(Toolset):
             )
 
             if data.get("valid", False):
-                logging.info("Datadog metrics healthcheck completed successfully")
+                logging.info("Datadog metrics health check completed successfully")
                 return True, ""
             else:
                 error_msg = "Datadog API key validation failed"
-                logging.error(f"Datadog metrics healthcheck failed: {error_msg}")
-                return False, f"Datadog metrics healthcheck failed: {error_msg}"
+                logging.error(f"Datadog Metrics health check failed: {error_msg}")
+                return False, f"Datadog Metrics health check failed: {error_msg}"
 
         except Exception as e:
-            logging.exception("Failed during Datadog metrics healthcheck")
-            return False, f"Healthcheck failed with exception: {str(e)}"
+            logging.exception("Failed during Datadog metrics health check")
+            return False, f"Datadog Metrics health check failed: {e}"
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         if not config:
@@ -770,8 +770,8 @@ class DatadogMetricsToolset(Toolset):
             return success, error_msg
 
         except Exception as e:
-            logging.exception("Failed to set up Datadog metrics toolset")
-            return (False, f"Failed to parse Datadog configuration: {str(e)}")
+            logging.exception("Failed to set up Datadog Metrics toolset")
+            return (False, f"Invalid Datadog Metrics configuration: {e}")
 
     def _reload_instructions(self):
         """Load Datadog metrics specific troubleshooting instructions."""

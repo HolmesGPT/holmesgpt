@@ -32,7 +32,7 @@ def mock_config():
     """Create a mock Config."""
     config = MagicMock()
     config.get_models_list = MagicMock(return_value=["gpt-4.1", "gpt-4o"])
-    config.get_runbook_catalog = MagicMock(return_value={})
+    config.get_skill_catalog = MagicMock(return_value={})
     config.create_toolcalling_llm = MagicMock()
     return config
 
@@ -202,7 +202,7 @@ class TestScheduledPromptsExecutor:
         # Create config that returns limited model list
         config = MagicMock()
         config.get_models_list = MagicMock(return_value=["gpt-4.1"])
-        config.get_runbook_catalog = MagicMock(return_value={})
+        config.get_skill_catalog = MagicMock(return_value={})
 
         executor = ScheduledPromptsExecutor(
             dal=mock_dal, config=config, chat_function=mock_chat_function

@@ -84,7 +84,7 @@ class GrafanaToolset(BaseGrafanaToolset):
         super().__init__(
             name="grafana/dashboards",
             description="Provides tools for interacting with Grafana dashboards, including visual rendering of panels and dashboards",
-            icon_url="https://w7.pngwing.com/pngs/434/923/png-transparent-grafana-hd-logo-thumbnail.png",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/grafanadashboards/",
             tools=[
                 SearchDashboards(self),

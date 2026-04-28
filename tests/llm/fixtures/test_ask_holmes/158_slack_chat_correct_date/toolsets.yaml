@@ -23,7 +23,7 @@ toolsets:
     enabled: false
   kubernetes/kube-prometheus-stack:
     enabled: false
-  runbook:
+  skills:
     enabled: false
   kubernetes/krew-extras:
     enabled: false

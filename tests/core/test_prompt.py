@@ -20,14 +20,16 @@ from holmes.core.prompt import (
     get_tasks_management_system_reminder,
     is_component_enabled,
 )
-from holmes.utils.global_instructions import generate_runbooks_args
+from holmes.utils.global_instructions import generate_skills_args
 
 
-class DummyRunbookCatalog:
-    """Mock runbook catalog for testing."""
+class DummySkillCatalog:
+    """Mock skill catalog for testing."""
+
+    skills = (True,)  # non-empty so getattr check passes
 
     def to_prompt_string(self):
-        return "RUNBOOK CATALOG PROMPT"
+        return "SKILL CATALOG PROMPT"
 
 
 class DummyInstructions:
@@ -52,7 +54,7 @@ def mock_config(tmp_path):
     """Create a mock config for testing."""
     config = Mock(spec=Config)
     config.cluster_name = "test-cluster"
-    config.get_runbook_catalog = Mock(return_value=None)
+    config.get_skill_catalog = Mock(return_value=None)
     return config
 
 
@@ -139,7 +141,7 @@ def assert_user_prompt_contains_timestamp(user_prompt: str):
 def validate_user_prompt(
     user_content: str,
     original_prompt: str,
-    expected_runbooks: bool = False,
+    expected_skills: bool = False,
     expected_global_instructions: Optional[list] = None,
     expected_issue_instructions: Optional[list] = None,
     expected_resource_instructions: Optional[list] = None,
@@ -150,10 +152,10 @@ def validate_user_prompt(
     ), f"Original prompt '{original_prompt}' not found in user content"
     assert_user_prompt_contains_timestamp(user_content)
 
-    if expected_runbooks:
+    if expected_skills:
         assert (
-            "RUNBOOK CATALOG PROMPT" in user_content
-        ), "Runbook catalog not found when expected"
+            "SKILL CATALOG PROMPT" in user_content
+        ), "Skill catalog not found when expected"
 
     if expected_global_instructions:
         for instruction in expected_global_instructions:
@@ -178,12 +180,12 @@ class TestBuildInitialAskMessages:
     """Test user prompt validation for build_initial_ask_messages flows."""
 
     @pytest.mark.parametrize(
-        "user_prompt,file_paths,runbooks",
+        "user_prompt,file_paths,skills",
         [
             ("What's wrong with my pod?", None, None),
             ("Analyze this file", ["test.txt"], None),
-            ("What should I check?", None, DummyRunbookCatalog()),
-            ("Complex case", ["file.txt"], DummyRunbookCatalog()),
+            ("What should I check?", None, DummySkillCatalog()),
+            ("Complex case", ["file.txt"], DummySkillCatalog()),
         ],
     )
     def test_ask_command_user_prompt(
@@ -192,7 +194,7 @@ class TestBuildInitialAskMessages:
         tmp_path,
         user_prompt,
         file_paths,
-        runbooks,
+        skills,
     ):
         """Test user prompt in ask command flow with various configurations."""
         test_files = create_test_files(file_paths, tmp_path)
@@ -201,7 +203,7 @@ class TestBuildInitialAskMessages:
             user_prompt,
             test_files,
             mock_tool_executor,
-            runbooks,
+            skills,
             None,
         )
 
@@ -213,7 +215,7 @@ class TestBuildInitialAskMessages:
         validate_user_prompt(
             user_content,
             user_prompt,
-            expected_runbooks=runbooks is not None,
+            expected_skills=skills is not None,
         )
 
         assert get_tasks_management_system_reminder() in user_content
@@ -250,15 +252,15 @@ class TestServerFlows:
     """Test user prompt validation for flows from server.py."""
 
     @pytest.mark.parametrize(
-        "user_ask,global_instructions,runbooks,conversation_history",
+        "user_ask,global_instructions,skills,conversation_history",
         [
             ("Show me the logs", None, None, None),
             ("What's happening?", DummyInstructions(["Always check CPU"]), None, None),
-            ("Help me debug", None, DummyRunbookCatalog(), None),
+            ("Help me debug", None, DummySkillCatalog(), None),
             (
                 "Complex chat",
                 DummyInstructions(["Global rule"]),
-                DummyRunbookCatalog(),
+                DummySkillCatalog(),
                 None,
             ),
             (
@@ -274,7 +276,7 @@ class TestServerFlows:
             (
                 "Another question",
                 DummyInstructions(["Check logs"]),
-                DummyRunbookCatalog(),
+                DummySkillCatalog(),
                 [
                     {"role": "system", "content": "System prompt"},
                     {"role": "user", "content": "First question"},
@@ -289,7 +291,7 @@ class TestServerFlows:
         mock_config,
         user_ask,
         global_instructions,
-        runbooks,
+        skills,
         conversation_history,
     ):
         """Test user prompt in /api/chat flow with various configurations."""
@@ -300,7 +302,7 @@ class TestServerFlows:
             config=mock_config,
             global_instructions=global_instructions,
             additional_system_prompt=None,
-            runbooks=runbooks,
+            skills=skills,
         )
 
         user_content = get_user_message_from_messages(
@@ -310,7 +312,7 @@ class TestServerFlows:
         validate_user_prompt(
             user_content,
             user_ask,
-            expected_runbooks=runbooks is not None,
+            expected_skills=skills is not None,
             expected_global_instructions=extract_instructions(global_instructions),
         )
 
@@ -318,15 +320,15 @@ class TestUserPromptComponents:
     """Test that user prompts include all expected components via generate_user_prompt."""
 
     @pytest.mark.parametrize(
-        "user_prompt,runbook_catalog,global_instructions,issue_instructions,resource_instructions",
+        "user_prompt,skill_catalog,global_instructions,issue_instructions,resource_instructions",
         [
             ("My question", None, None, None, None),
-            ("Help me", DummyRunbookCatalog(), None, None, None),
+            ("Help me", DummySkillCatalog(), None, None, None),
             ("Question", None, DummyInstructions(["Global rule 1"]), None, None),
             ("Investigate", None, None, ["Step 1"], None),
             (
                 "Complex",
-                DummyRunbookCatalog(),
+                DummySkillCatalog(),
                 DummyInstructions(["Global"]),
                 ["Issue step"],
                 SimpleNamespace(instructions=["Resource step"], documents=[]),
@@ -336,14 +338,14 @@ class TestUserPromptComponents:
     def test_generate_user_prompt_components(
         self,
         user_prompt,
-        runbook_catalog,
+        skill_catalog,
         global_instructions,
         issue_instructions,
         resource_instructions,
     ):
         """Test generate_user_prompt includes all components conditionally."""
-        ctx = generate_runbooks_args(
-            runbook_catalog=runbook_catalog,
+        ctx = generate_skills_args(
+            skill_catalog=skill_catalog,
             global_instructions=global_instructions,
             issue_instructions=issue_instructions,
             resource_instructions=resource_instructions,
@@ -358,7 +360,7 @@ class TestUserPromptComponents:
         validate_user_prompt(
             final_prompt,
             user_prompt,
-            expected_runbooks=runbook_catalog is not None,
+            expected_skills=skill_catalog is not None,
             expected_global_instructions=extract_instructions(global_instructions),
             expected_issue_instructions=issue_instructions,
             expected_resource_instructions=expected_resource_instructions,
