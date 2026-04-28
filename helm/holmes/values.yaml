@@ -28,6 +28,9 @@ revisionHistoryLimit: 10
 createServiceAccount: true
 customServiceAccountName: ""
 
+
+k8sRBAC: false
+
 customClusterRoleRules: []
 
 # CRD permissions for common Kubernetes operators and tools

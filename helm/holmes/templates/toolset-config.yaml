@@ -6,7 +6,12 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   custom_toolset.yaml: |-
-    toolsets: {{ toYaml .Values.toolsets | nindent 6 }}
+    {{- $toolsets := .Values.toolsets }}
+    {{- if .Values.k8sRBAC }}
+    {{- $rbacOverrides := dict "kubernetes/core" (dict "enabled" false) "kubernetes/logs" (dict "enabled" false) "bash" (dict "enabled" false) }}
+    {{- $toolsets = mergeOverwrite $toolsets $rbacOverrides }}
+    {{- end }}
+    toolsets: {{ toYaml $toolsets | nindent 6 }}
     {{- $mcpServers := .Values.mcp_servers }}
     {{- if .Values.mcpAddons.aws.enabled }}
     {{- $awsMcpServers := dict "aws_api" (dict
