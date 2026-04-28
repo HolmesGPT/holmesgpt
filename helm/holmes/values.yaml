@@ -594,8 +594,8 @@ mcpAddons:
   kubernetes:
     enabled: false
 
-    image: "kubernetes-mcp-server:v0.0.60"
-    registry: "ghcr.io/containers"
+    image: "kubernetes-mcp-server:0.0.60-oauth"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
     serviceAccount:
