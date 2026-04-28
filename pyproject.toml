@@ -171,6 +171,7 @@ markers = [
     "grafana: Tests involving Grafana dashboard interactions",
     "images: Tests involving multimodal image content (vision, rendering, MCP ImageContent)",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
+    "victorialogs: Tests for VictoriaLogs toolset functionality",
     "integration: Integration tests requiring external services (e.g., running server, real APIs)",
     "confluence: Tests for Confluence page fetching toolset",
     # REGRESSION TEST SELECTION CRITERIA:
