@@ -190,7 +190,8 @@ class ScheduledPromptsExecutor:
         # Create heartbeat span
         heartbeat_span = ScheduledPromptsHeartbeatSpan(sp=sp, dal=self.dal)
 
-        # Create chat request with heartbeat span
+        # Fast mode: a trailing TodoWrite "mark complete" call buries the report in an
+        # intermediate AI_MESSAGE, leaving only a stub in ChatResponse.analysis.
         chat_request = ChatRequest(
             ask=self._extract_prompt_text(sp.prompt),
             model=sp.model_name,
@@ -198,6 +199,10 @@ class ScheduledPromptsExecutor:
             stream=False,
             additional_system_prompt=additional_system_prompt,
             trace_span=heartbeat_span,
+            behavior_controls={
+                "todowrite_instructions": False,
+                "todowrite_reminder": False,
+            },
         )
 
         empty_request = Request(scope={"type": "http", "headers": []})
