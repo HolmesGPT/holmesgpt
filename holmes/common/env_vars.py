@@ -172,7 +172,7 @@ SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
 )
 # Disables TodoWrite for scheduled prompts so the report ends up in ChatResponse.analysis
 # rather than being buried in conversation_history behind a trailing TodoWrite call.
-ENABLE_SCHEDULED_PROMPT_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPT_FAST_MODE", True)
+ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",

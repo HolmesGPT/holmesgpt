@@ -12,7 +12,7 @@ from starlette.requests import Request
 
 from holmes import get_version
 from holmes.common.env_vars import (
-    ENABLE_SCHEDULED_PROMPT_FAST_MODE,
+    ENABLE_SCHEDULED_PROMPTS_FAST_MODE,
     ROBUSTA_UI_DOMAIN,
     SCHEDULED_PROMPTS_ACTIVE_POLL_INTERVAL_SECONDS,
     SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS,
@@ -193,7 +193,7 @@ class ScheduledPromptsExecutor:
 
         behavior_controls = (
             {"todowrite_instructions": False, "todowrite_reminder": False}
-            if ENABLE_SCHEDULED_PROMPT_FAST_MODE
+            if ENABLE_SCHEDULED_PROMPTS_FAST_MODE
             else None
         )
         chat_request = ChatRequest(
