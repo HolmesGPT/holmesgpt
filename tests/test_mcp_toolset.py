@@ -1267,13 +1267,15 @@ class TestStreamableHttp:
             ],
         )
         assert result.status == StructuredToolResultStatus.SUCCESS
-        assert "[binary resource" in result.data
-        assert "image/png" in result.data
+        assert result.data == (
+            f"[binary resource uri=file:///logo.png mimeType=image/png "
+            f"base64_size={len(encoded)}]"
+        )
 
     def test_invoke_async_surfaces_resource_link(
         self, monkeypatch, suppress_migration_warnings
     ):
-        """ResourceLink (returned for files >= 1MB) must surface URI."""
+        """ResourceLink (returned for files >= 1MB) must surface URI in the wrapper format."""
         result = self._run_invoke_with_content(
             monkeypatch,
             [
@@ -1289,8 +1291,10 @@ class TestStreamableHttp:
             ],
         )
         assert result.status == StructuredToolResultStatus.SUCCESS
-        assert "too large to display" in result.data
-        assert "https://example.com/raw/big.bin" in result.data
+        assert result.data == (
+            "File big.bin is too large to display "
+            "[resource_link big.bin: https://example.com/raw/big.bin]"
+        )
 
 
 class TestSSE:
