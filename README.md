@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/holmesgpt-holmesgpt-badge.png)](https://mseep.ai/app/holmesgpt-holmesgpt)
+
 <div align="center">
   <h1 align="center">HolmesGPT — The CNCF SRE Agent</h1>
 
