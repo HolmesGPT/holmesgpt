@@ -558,7 +558,7 @@ class ConversationWorker:
             trace_type=os.environ.get("HOLMES_TRACE_BACKEND")
         )
 
-        runbooks = self.config.get_runbook_catalog()
+        skills = self.config.get_skill_catalog()
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -597,7 +597,7 @@ class ConversationWorker:
                     config=self.config,
                     global_instructions=global_instructions,
                     additional_system_prompt=chat_request.additional_system_prompt,
-                    runbooks=runbooks,
+                    skills=skills,
                     images=chat_request.images,
                     prompt_component_overrides=prompt_component_overrides,
                 )
