@@ -104,6 +104,14 @@ def render_default_installation_instructions_for_toolset(toolset: Toolset) -> st
     if example_config:
         context["example_config"] = yaml.dump(example_config)
 
+    # Emit top-level `subtype:` in the example YAML for multi-variant toolsets
+    # (e.g. Prometheus, Database) so users who copy the example verbatim land
+    # on the correct variant. The ToolsetConfig subclass declares `_subtype`.
+    if toolset.config_classes:
+        subtype = getattr(toolset.config_classes[0], "_subtype", None)
+        if subtype:
+            context["subtype"] = subtype
+
     installation_instructions = load_and_render_prompt(
         "file://holmes/utils/default_toolset_installation_guide.jinja2", context
     )

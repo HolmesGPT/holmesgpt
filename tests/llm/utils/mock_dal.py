@@ -9,7 +9,7 @@ from pydantic import TypeAdapter
 
 from holmes.core.resource_instruction import ResourceInstructions
 from holmes.core.supabase_dal import FindingType, SupabaseDal
-from holmes.plugins.runbooks import RobustaRunbookInstruction
+from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.global_instructions import Instructions
 from tests.llm.utils.test_case_utils import read_file
 
@@ -55,30 +55,31 @@ class TestSupabaseDal(SupabaseDal):
             return self._resource_instructions
         return None
 
-    def get_runbook_catalog(self) -> Optional[List[RobustaRunbookInstruction]]:
+    def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
+        # Fixture files keep the "runbook_" prefix to match existing test data
         file_path = self._get_fixture_file_path("runbook_catalog")
         if file_path.exists():
             try:
                 with open(file_path, "r") as f:
                     data = json.load(f)
                     if isinstance(data, list):
-                        return [RobustaRunbookInstruction(**item) for item in data]
+                        return [RobustaSkillInstruction(**item) for item in data]
                     return None
             except Exception as e:
-                logging.warning(f"Failed to read runbook catalog fixture file: {e}")
+                logging.warning(f"Failed to read skill catalog fixture file: {e}")
         return None
 
-    def get_runbook_content(
-        self, runbook_id: str
-    ) -> Optional[RobustaRunbookInstruction]:
-        file_path = self._get_fixture_file_path(f"runbook_content_{runbook_id}")
+    def get_skill_content(
+        self, skill_id: str
+    ) -> Optional[RobustaSkillInstruction]:
+        file_path = self._get_fixture_file_path(f"runbook_content_{skill_id}")
         if file_path.exists():
             try:
                 with open(file_path, "r") as f:
                     data = json.load(f)
-                    return RobustaRunbookInstruction(**data)
+                    return RobustaSkillInstruction(**data)
             except Exception as e:
-                logging.warning(f"Failed to read runbook content fixture file: {e}")
+                logging.warning(f"Failed to read skill content fixture file: {e}")
         return None
 
     def _get_fixture_file_path(self, entity_type: str) -> Path:

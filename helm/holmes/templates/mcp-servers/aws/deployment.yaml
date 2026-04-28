@@ -88,8 +88,9 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.aws.affinity | nindent 8 }}
       {{- end }}
-      {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
+      {{- if or (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles) .Values.mcpAddons.aws.extraVolumes }}
       volumes:
+      {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
       - name: aws-accounts
         configMap:
           name: {{ .Release.Name }}-aws-mcp-config
@@ -103,6 +104,14 @@ spec:
               path: token
               expirationSeconds: 86400
               audience: sts.amazonaws.com
+      {{- end }}
+      {{- if .Values.mcpAddons.aws.extraVolumes }}
+      {{- toYaml .Values.mcpAddons.aws.extraVolumes | nindent 6 }}
+      {{- end }}
+      {{- end }}
+      {{- if .Values.mcpAddons.aws.extraInitContainers }}
+      initContainers:
+      {{- toYaml .Values.mcpAddons.aws.extraInitContainers | nindent 6 }}
       {{- end }}
       containers:
       - name: aws-mcp
@@ -132,14 +141,22 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-aws-mcp-config
               key: READ_OPERATIONS_ONLY
-        {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
+        {{- if .Values.mcpAddons.aws.additionalEnvVars }}
+        {{- toYaml .Values.mcpAddons.aws.additionalEnvVars | nindent 8 }}
+        {{- end }}
+        {{- if or (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles) .Values.mcpAddons.aws.extraVolumeMounts }}
         volumeMounts:
+        {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
         - name: aws-accounts
           mountPath: /etc/aws
           readOnly: true
         - name: eks-token
           mountPath: /var/run/secrets/eks.amazonaws.com/serviceaccount
           readOnly: true
+        {{- end }}
+        {{- if .Values.mcpAddons.aws.extraVolumeMounts }}
+        {{- toYaml .Values.mcpAddons.aws.extraVolumeMounts | nindent 8 }}
+        {{- end }}
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.aws.resources | nindent 10 }}

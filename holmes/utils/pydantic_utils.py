@@ -52,6 +52,25 @@ class ToolsetConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {}
+    _name: ClassVar[Optional[str]] = None
+    _description: ClassVar[Optional[str]] = None
+    _icon_url: ClassVar[Optional[str]] = None
+    _docs_anchor: ClassVar[Optional[str]] = None
+    _hidden_fields: ClassVar[List[str]] = []
+    # Fields that should appear as required in the exported JSON schema
+    # even though they're declared Optional at the Pydantic level. Use this
+    # when a field MUST be filled in via the frontend form, but the backend
+    # needs to accept it missing (e.g. because an env var, managed identity,
+    # or runtime fallback populates it later). The UI marks the field as
+    # required; Pydantic stays permissive so CLI / Helm configs with
+    # alternative credential sources keep working.
+    _ui_required_fields: ClassVar[List[str]] = []
+    _recommended: ClassVar[bool] = False
+    # Stable identifier for this variant, used to populate meta.subtype on the
+    # synced HolmesToolsStatus row so the frontend can distinguish catalog
+    # cards that share a backend toolset name (e.g. Prometheus vs VictoriaMetrics,
+    # both backed by prometheus/metrics).
+    _subtype: ClassVar[Optional[str]] = None
 
     @classmethod
     def has_required_fields(cls) -> bool:
@@ -62,6 +81,62 @@ class ToolsetConfig(BaseModel):
             if default is PydanticUndefined and default_factory is None:
                 return True
         return False
+
+    @classmethod
+    def build_schema_entry(cls) -> Dict[str, Any]:
+        """Build the UI-facing schema entry for this config class.
+
+        Honors `_hidden_fields` (stripped from the schema's `properties` and
+        `required`) and `_ui_required_fields` (added to `required` even when
+        the field is Optional at the Pydantic level), and packs in the
+        display metadata: `_name`, `_description`, `_icon_url`,
+        `_docs_anchor`, `_recommended`, `_subtype`.
+
+        `Toolset.get_config_schema` calls this for each entry in
+        `config_classes` to build the per-toolset map sent to the frontend.
+        Lives here (next to the ClassVars it consumes) so that subclasses
+        can extend the contract — adding a new ClassVar means updating one
+        method on this class, not hunting through `Toolset` for the reader.
+        """
+        raw_schema = cls.model_json_schema()
+
+        hidden = list(cls._hidden_fields or [])
+        if hidden:
+            props = raw_schema.get("properties", {})
+            for name in hidden:
+                props.pop(name, None)
+            if "required" in raw_schema:
+                raw_schema["required"] = [
+                    r for r in raw_schema["required"] if r not in hidden
+                ]
+
+        # Don't re-mark fields that were just hidden as required.
+        ui_required = [
+            f for f in (cls._ui_required_fields or []) if f not in hidden
+        ]
+        if ui_required:
+            existing = list(raw_schema.get("required", []))
+            # Preserve declaration order: keep existing entries first, then
+            # append any ui_required fields that aren't already required.
+            seen = set(existing)
+            for name in ui_required:
+                if name not in seen:
+                    existing.append(name)
+                    seen.add(name)
+            raw_schema["required"] = existing
+
+        return {
+            "schema": raw_schema,
+            "name": cls._name or cls.__name__,
+            "description": cls._description,
+            "icon_url": cls._icon_url,
+            "docs_anchor": cls._docs_anchor,
+            "recommended": bool(cls._recommended),
+            # Stable slug the frontend emits as the top-level `subtype:` YAML
+            # field so the backend can pick this exact variant. None for
+            # toolsets that don't use variants.
+            "subtype": cls._subtype,
+        }
 
     @model_validator(mode="before")
     @classmethod
@@ -154,9 +229,14 @@ def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
 
     model_cls: Type[BaseModel] = model if isinstance(model, type) else model.__class__
 
+    # Honor _hidden_fields (set on ToolsetConfig subclasses) so hidden fields
+    # are excluded from the generated YAML example in the same way they are
+    # excluded from the schema returned to the frontend.
+    hidden_fields = set(getattr(model_cls, "_hidden_fields", []) or [])
+
     out: Dict[str, Any] = {}
     for field_name, field_info in model_cls.model_fields.items():
-        if field_info.exclude:
+        if field_info.exclude or field_name in hidden_fields:
             continue
 
         example_value: Any = None

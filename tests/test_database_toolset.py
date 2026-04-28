@@ -361,9 +361,18 @@ class TestDatabaseToolsetSubtype:
         toolset = DatabaseToolset(subtype="postgresql")
         assert toolset._subtype == DatabaseSubtype.POSTGRESQL
 
-    def test_invalid_subtype_falls_back_to_unknown(self):
-        toolset = DatabaseToolset(subtype="invalid_db")
-        assert toolset._subtype == DatabaseSubtype.UNKNOWN
+    def test_invalid_subtype_raises_value_error(self):
+        # An unknown subtype is a user typo with no legitimate interpretation —
+        # raise so it surfaces as a visible failed toolset in the UI instead of
+        # silently falling back to UNKNOWN (which would then be auto-detected
+        # from the URL, making the typo completely invisible).
+        with pytest.raises(ValueError) as exc_info:
+            DatabaseToolset(subtype="invalid_db")
+        message = str(exc_info.value)
+        assert "invalid_db" in message
+        # The error should list the valid enum values so the user can fix it
+        assert "mysql" in message
+        assert "postgresql" in message
 
     def test_subtype_detected_from_url_in_prerequisites(self):
         toolset = DatabaseToolset()

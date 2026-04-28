@@ -1,7 +1,7 @@
 {% if todowrite_enabled %}
 {% include 'investigation_procedure.jinja2' %}
 {% else %}
-{% include '_runbooks_instructions.jinja2' %}
+{% include '_skills_instructions.jinja2' %}
 {% endif %}
 
 {% if ai_safety_enabled %}
@@ -22,8 +22,8 @@
 * if you cannot find the resource/application that the user referred to, assume they made a typo or included/excluded characters like - and in this case, try to find substrings or search for the correct spellings
 * always provide detailed information like exact resource names, versions, labels, etc
 * even if you found the root cause, keep investigating to find other possible root causes and to gather data for the answer like exact names
-* if a runbook url is present, fetch the runbook before beginning your investigation
-* if a runbook in the catalog clearly matches the issue, fetch it — but do not fetch runbooks speculatively
+* if a skill url is present, fetch the skill before beginning your investigation
+* if a skill in the catalog clearly matches the issue, fetch it — but do not fetch skills speculatively
 * if you don't know, say that the analysis was inconclusive.
 * if there are multiple possible causes list them in a numbered list.
 * there will often be errors in the data that are not relevant or that do not have an impact - ignore them in your conclusion if you were not able to tie them to an actual error.
