@@ -4,6 +4,14 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
+from tenacity import (
+    RetryError,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from holmes.core.conversations_worker.models import ConversationReassignedError
 from holmes.utils.stream import StreamEvents, StreamMessage
 
@@ -37,6 +45,10 @@ _COMPACT_ON_FLUSH_EVENTS = {
 }
 
 
+class _TransientPostError(Exception):
+    """Raised internally to drive tenacity retries when the DAL post fails."""
+
+
 class ConversationEventPublisher:
     """
     Consumes StreamMessage events from call_stream() and batches them
@@ -60,7 +72,11 @@ class ConversationEventPublisher:
         self._pending_events: List[Dict[str, Any]] = []
         self._last_flush_time: float = time.monotonic()
         self._last_retry_time: float = 0.0
+        # State lock: guards _pending_events, _pending_compact, and _last_*_time.
         self._lock = threading.Lock()
+        # Flush lock: serializes calls to _flush() so the consumer thread and the
+        # background flusher can never overlap a network post.
+        self._flush_lock = threading.Lock()
 
         self._last_terminal_event: Optional[StreamEvents] = None
 
@@ -68,6 +84,19 @@ class ConversationEventPublisher:
         # DAL returns None. Ensures the compact intent is preserved across
         # retries and the final drain.
         self._pending_compact: bool = False
+
+        # Background flusher: ensures pending events are pushed to Supabase even
+        # if the consumer thread is blocked on a slow LLM/tool call. Without it,
+        # a burst of fast tool calls followed by a long agent step would leave
+        # events buffered for the entire step, making the conversation appear
+        # stuck.
+        self._stop_event = threading.Event()
+        self._flusher_thread = threading.Thread(
+            target=self._flusher_loop,
+            daemon=True,
+            name=f"event-flusher-{conversation_id[:8]}",
+        )
+        self._flusher_thread.start()
 
     def consume(
         self,
@@ -91,19 +120,27 @@ class ConversationEventPublisher:
                     # full conversation history snapshot in their messages
                     # array, so all prior events are superseded → compact.
                     if message.event in _COMPACT_ON_FLUSH_EVENTS:
-                        self._pending_compact = True
+                        with self._lock:
+                            self._pending_compact = True
                     self._flush()
-                elif (
-                    time.monotonic() - self._last_flush_time
-                    >= self.batch_interval_seconds
-                    and time.monotonic() - self._last_retry_time
-                    >= self.batch_interval_seconds
-                ):
-                    self._flush()
+                else:
+                    with self._lock:
+                        due = (
+                            time.monotonic() - self._last_flush_time
+                            >= self.batch_interval_seconds
+                            and time.monotonic() - self._last_retry_time
+                            >= self.batch_interval_seconds
+                        )
+                    if due:
+                        self._flush()
         except ConversationReassignedError:
             reassigned = True
             raise
         finally:
+            # Stop the background flusher before the final drain so we don't race
+            # with it on the closing flush.
+            self._stop_event.set()
+            self._flusher_thread.join(timeout=max(self.batch_interval_seconds * 2, 2.0))
             # Final drain of any remaining events — skip if the conversation
             # was reassigned, since our assignee/sequence are stale and writing
             # would either fail or race with the new owner.
@@ -125,6 +162,25 @@ class ConversationEventPublisher:
 
         return self._last_terminal_event
 
+    def _flusher_loop(self) -> None:
+        """Periodically flush pending events even when the consumer is idle."""
+        # Floor the wait at 50ms so a zero/negative batch_interval (used in tests)
+        # doesn't spin the background thread tight.
+        wait_seconds = max(self.batch_interval_seconds, 0.05)
+        while not self._stop_event.wait(wait_seconds):
+            try:
+                self._flush()
+            except ConversationReassignedError:
+                # Once reassigned, further flushes are pointless (and the
+                # consumer thread will see the same error). Stop the loop.
+                return
+            except Exception:
+                logging.exception(
+                    "Background flusher error for conversation %s",
+                    self.conversation_id,
+                    exc_info=True,
+                )
+
     def _append_event(self, message: StreamMessage) -> None:
         with self._lock:
             self._pending_events.append(
@@ -135,58 +191,103 @@ class ConversationEventPublisher:
                 }
             )
 
-    def _flush(self) -> None:
-        with self._lock:
-            if not self._pending_events:
-                return
-            # Snapshot but don't clear yet — only clear after a successful post.
-            events_to_flush = list(self._pending_events)
-            compact = self._pending_compact
+    def _post_with_retry(
+        self, events_to_flush: List[Dict[str, Any]], compact: bool
+    ) -> Optional[int]:
+        """Post events to the DAL with bounded retry on transient errors.
+
+        Mismatch errors (assignee / request_sequence / status) are NOT retried —
+        they are surfaced to the caller as ConversationReassignedError.
+        """
+
+        @retry(
+            retry=retry_if_exception_type(_TransientPostError),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=4.0),
+            reraise=True,
+        )
+        def _attempt() -> Optional[int]:
+            try:
+                return self.dal.post_conversation_events(
+                    conversation_id=self.conversation_id,
+                    assignee=self.assignee,
+                    request_sequence=self.request_sequence,
+                    events=events_to_flush,
+                    compact=compact,
+                )
+            except ConversationReassignedError:
+                raise
+            except Exception as e:
+                # The RPCs prefix mismatch errors (status / assignee / request_sequence)
+                # with "MISMATCH " — promote those to ConversationReassignedError so
+                # the worker can exit the processing loop cleanly.
+                if "mismatch" in str(e).lower():
+                    raise ConversationReassignedError(str(e)) from e
+                # Anything else is treated as transient (network hiccup, 5xx,
+                # supabase proxy DNS, etc.) and retried.
+                raise _TransientPostError(str(e)) from e
 
         try:
-            seq = self.dal.post_conversation_events(
-                conversation_id=self.conversation_id,
-                assignee=self.assignee,
-                request_sequence=self.request_sequence,
-                events=events_to_flush,
-                compact=compact,
-            )
-        except ConversationReassignedError:
-            raise
-        except Exception as e:
-            # The RPCs prefix mismatch errors (status / assignee / request_sequence)
-            # with "MISMATCH " — promote those to ConversationReassignedError so
-            # the worker can exit the processing loop cleanly.
-            if "mismatch" in str(e).lower():
-                raise ConversationReassignedError(str(e)) from e
-            raise
-
-        if seq is None:
-            # DAL returned None (disabled or unexpected empty response).
-            # Keep events and compact flag in memory so the next flush retries.
-            # Update _last_retry_time to throttle retries independently of
-            # normal flush timing.
-            self._last_retry_time = time.monotonic()
+            return _attempt()
+        except _TransientPostError as e:
             logging.warning(
-                "post_conversation_events returned None for conversation %s — "
-                "events retained for retry (%d events, compact=%s)",
+                "post_conversation_events failed after retries for conversation %s: %s",
                 self.conversation_id,
+                e,
+            )
+            return None
+
+    def _flush(self) -> None:
+        # Serialize concurrent flushes between the consumer thread and the
+        # background flusher. The state lock alone is not enough because we
+        # must release it around the network call.
+        with self._flush_lock:
+            with self._lock:
+                if not self._pending_events:
+                    return
+                # Snapshot but don't clear yet — only clear after a successful post.
+                events_to_flush = list(self._pending_events)
+                compact = self._pending_compact
+
+            try:
+                seq = self._post_with_retry(events_to_flush, compact)
+            except RetryError as e:
+                # Defensive: tenacity should reraise the original due to reraise=True,
+                # but if a wrapped RetryError leaks out, treat as transient.
+                logging.warning(
+                    "Unexpected RetryError flushing conversation %s: %s",
+                    self.conversation_id,
+                    e,
+                )
+                seq = None
+
+            if seq is None:
+                # All retries exhausted (or the DAL is disabled). Keep events and
+                # compact flag in memory so the next flush retries. Update
+                # _last_retry_time to throttle retries independently of normal
+                # flush timing.
+                with self._lock:
+                    self._last_retry_time = time.monotonic()
+                logging.warning(
+                    "post_conversation_events returned None for conversation %s — "
+                    "events retained for retry (%d events, compact=%s)",
+                    self.conversation_id,
+                    len(events_to_flush),
+                    compact,
+                )
+                return
+
+            # Success — remove the flushed events and clear the compact flag.
+            # New events may have been appended while the RPC was in flight,
+            # so we remove only the count we just posted.
+            with self._lock:
+                del self._pending_events[: len(events_to_flush)]
+                self._pending_compact = False
+                self._last_flush_time = time.monotonic()
+            logging.debug(
+                "Posted %d events to conversation %s (seq=%s, compact=%s)",
                 len(events_to_flush),
+                self.conversation_id,
+                seq,
                 compact,
             )
-            return
-
-        # Success — remove the flushed events and clear the compact flag.
-        # New events may have been appended while the RPC was in flight,
-        # so we remove only the count we just posted.
-        with self._lock:
-            del self._pending_events[: len(events_to_flush)]
-            self._pending_compact = False
-        self._last_flush_time = time.monotonic()
-        logging.debug(
-            "Posted %d events to conversation %s (seq=%s, compact=%s)",
-            len(events_to_flush),
-            self.conversation_id,
-            seq,
-            compact,
-        )

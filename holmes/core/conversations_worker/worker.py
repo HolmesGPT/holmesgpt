@@ -22,8 +22,8 @@ from holmes.core.conversations_worker.event_publisher import (
     ConversationEventPublisher,
 )
 from holmes.core.conversations_worker.models import (
-    EVENT_USER_MESSAGE,
     ConversationReassignedError,
+    ConversationStatus,
     ConversationTask,
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeManager
@@ -468,6 +468,7 @@ class ConversationWorker:
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
             behavior_controls=data.get("behavior_controls"),
+            user_id=data.get("user_id"),
         )
 
         self._run_chat_and_publish(
@@ -497,7 +498,7 @@ class ConversationWorker:
         terminal_events = ("ai_answer_end", "approval_required")
 
         for idx, ev in enumerate(events):
-            if ev.get("event") == EVENT_USER_MESSAGE:
+            if ev.get("event") == "user_message":
                 current_user_idx = idx
 
         if current_user_idx >= 0:
@@ -612,6 +613,13 @@ class ConversationWorker:
                 }
             )
 
+            # Build request_context with user_id so per-user OAuth tools resolve
+            # correctly inside call_stream (matches the regular /api/chat flow
+            # in server.py).
+            request_context: Optional[Dict[str, Any]] = None
+            if chat_request.user_id:
+                request_context = {"user_id": chat_request.user_id}
+
             try:
                 stream = ai.call_stream(
                     msgs=messages,
@@ -619,6 +627,7 @@ class ConversationWorker:
                     tool_decisions=chat_request.tool_decisions,
                     frontend_tool_results=chat_request.frontend_tool_results,
                     response_format=chat_request.response_format,
+                    request_context=request_context,
                     trace_span=trace_span,
                 )
 
@@ -660,11 +669,11 @@ class ConversationWorker:
         string status we pass to ``update_conversation_status`` (or a sentinel
         for non-completion states)."""
         if terminal == StreamEvents.ANSWER_END:
-            return "completed"
+            return ConversationStatus.COMPLETED.value
         if terminal == StreamEvents.ERROR:
-            return "failed"
+            return ConversationStatus.FAILED.value
         if terminal == StreamEvents.APPROVAL_REQUIRED:
             # Approval pauses the LLM but the current request_sequence is
             # done — the follow-up (with tool_decisions) will re-pend it.
-            return "completed"
+            return ConversationStatus.COMPLETED.value
         return "unknown"
