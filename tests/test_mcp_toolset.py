@@ -1,4 +1,5 @@
 import asyncio
+import base64 as _b64
 import copy
 import logging
 import shutil
@@ -1229,8 +1230,6 @@ class TestStreamableHttp:
         self, monkeypatch, suppress_migration_warnings
     ):
         """BlobResourceContents with a text-like mimeType must be base64-decoded."""
-        import base64 as _b64
-
         file_body = '{"hello": "world"}'
         encoded = _b64.b64encode(file_body.encode("utf-8")).decode("ascii")
         result = self._run_invoke_with_content(
@@ -1253,8 +1252,6 @@ class TestStreamableHttp:
         self, monkeypatch, suppress_migration_warnings
     ):
         """Binary BlobResourceContents must not be decoded to text — emit a placeholder."""
-        import base64 as _b64
-
         encoded = _b64.b64encode(b"\x89PNG\r\n\x1a\n").decode("ascii")
         result = self._run_invoke_with_content(
             monkeypatch,
