@@ -21,6 +21,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-chart-line:{ .lg .middle } **Coralogix**](coralogix-logs.md)
 -   [:material-robot:{ .lg .middle } **Robusta**](robusta.md)
 -   [:simple-prometheus:{ .lg .middle } **Prometheus**](prometheus.md)
+-   [:simple-victoriametrics:{ .lg .middle } **VictoriaMetrics**](victoriametrics.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana (MCP)**](grafana-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Loki**](grafanaloki.md)
@@ -28,6 +29,8 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-splunk:{ .lg .middle } **Splunk (MCP)**](splunk-mcp.md)
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 -   [:material-bug:{ .lg .middle } **Sentry (MCP)**](sentry-mcp.md)
+-   [:simple-victoriametrics:{ .lg .middle } **VictoriaLogs**](victorialogs.md)
+-   <img src="../../images/integration_logos/zabbix-icon.png" alt="Zabbix" style="height: 32px; vertical-align: middle;"> **[Zabbix](zabbix.md)**
 
 </div>
 
@@ -40,7 +43,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-mysql:{ .lg .middle } **MySQL**](database-mysql.md)
 -   [:simple-postgresql:{ .lg .middle } **PostgreSQL**](database-postgresql.md)
 -   [:simple-sqlite:{ .lg .middle } **SQLite**](database-sqlite.md)
--   [:simple-microsoftsqlserver:{ .lg .middle } **SQL Server**](database-sqlserver.md)
+-   [:material-database:{ .lg .middle } **SQL Server**](database-sqlserver.md)
 -   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB**](mongodb.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
@@ -80,6 +83,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
 -   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
 -   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
+-   [:material-cloud-sync:{ .lg .middle } **Crossplane**](crossplane.md)
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)

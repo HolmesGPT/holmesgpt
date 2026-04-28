@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -37,7 +38,7 @@ from holmes.core.resource_instruction import (
 from holmes.core.truncation.dal_truncation_utils import (
     truncate_evidences_entities_if_necessary,
 )
-from holmes.plugins.runbooks import RobustaRunbookInstruction
+from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
@@ -60,6 +61,9 @@ SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
 SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
 HOLMES_RESULTS_TABLE = "HolmesResults"
+CONVERSATIONS_TABLE = "Conversations"
+CONVERSATION_EVENTS_TABLE = "ConversationEvents"
+OAUTH_TOKENS_TABLE = "OAuthTokens"
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
@@ -593,7 +597,7 @@ class SupabaseDal:
 
         return issue_data
 
-    def get_runbook_catalog(self) -> Optional[List[RobustaRunbookInstruction]]:
+    def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
         if not self.enabled:
             return None
 
@@ -603,6 +607,7 @@ class SupabaseDal:
                 .select("*")
                 .eq("account_id", self.account_id)
                 .eq("subject_type", "RunbookCatalog")
+                .eq("enabled", True)
                 .execute()
             )
             if not res.data:
@@ -613,20 +618,24 @@ class SupabaseDal:
                 id = row.get("runbook_id")
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
+                clusters = row.get("clusters")
                 if not symptom:
-                    logging.warning("Skipping runbook with empty symptom: %s", id)
+                    logging.warning("Skipping skill with empty symptom: %s", id)
+                    continue
+                # Filter by cluster: null means all clusters, otherwise check membership
+                if clusters is not None and self.cluster not in clusters:
                     continue
                 instructions.append(
-                    RobustaRunbookInstruction(id=id, symptom=symptom, title=title)
+                    RobustaSkillInstruction(id=id, symptom=symptom, title=title)
                 )
             return instructions
         except Exception:
-            logging.exception("Failed to fetch RunbookCatalog", exc_info=True)
+            logging.exception("Failed to fetch skill catalog", exc_info=True)
             return None
 
-    def get_runbook_content(
-        self, runbook_id: str
-    ) -> Optional[RobustaRunbookInstruction]:
+    def get_skill_content(
+        self, skill_id: str
+    ) -> Optional[RobustaSkillInstruction]:
         if not self.enabled:
             return None
 
@@ -635,7 +644,7 @@ class SupabaseDal:
             .select("*")
             .eq("account_id", self.account_id)
             .eq("subject_type", "RunbookCatalog")
-            .eq("runbook_id", runbook_id)
+            .eq("runbook_id", skill_id)
             .execute()
         )
         if not res.data or len(res.data) != 1:
@@ -658,11 +667,11 @@ class SupabaseDal:
         else:
             # in case the format is unexpected, convert to string
             logging.error(
-                f"Unexpected runbook instruction format for runbook_id={runbook_id}: {raw_instruction}"
+                f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
             )
             instruction = str(raw_instruction)
 
-        return RobustaRunbookInstruction(
+        return RobustaSkillInstruction(
             id=id, symptom=symptom, instruction=instruction, title=title
         )
 
@@ -899,6 +908,185 @@ class SupabaseDal:
             )
             return False
 
+    # ---- M2: Conversations worker DAL methods ----
+
+    def claim_conversations(self, holmes_id: str) -> List[Dict]:
+        """
+        Atomically claim all pending conversations for this cluster.
+        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
+        """
+        if not self.enabled:
+            return []
+
+        try:
+            res = self.client.rpc(
+                "claim_conversations",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_id": self.cluster,
+                    "_assignee": holmes_id,
+                },
+            ).execute()
+            if not res.data:
+                return []
+            if isinstance(res.data, list):
+                return res.data
+            return [res.data]
+        except Exception:
+            logging.exception(
+                "Supabase error while claiming conversations", exc_info=True
+            )
+            return []
+
+    def post_conversation_events(
+        self,
+        conversation_id: str,
+        assignee: str,
+        request_sequence: int,
+        events: list,
+        compact: bool = False,
+    ) -> Optional[int]:
+        """
+        Post a batch of events. Returns assigned seq number on success.
+        Raises an exception on errors including assignee / request_sequence mismatch.
+
+        When ``compact=True``, the ``post_conversation_events`` RPC marks all
+        previous events in the conversation with seq < new_seq as compacted=true
+        (global per conversation, not scoped to request_sequence).
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc(
+                "post_conversation_events",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_assignee": assignee,
+                    "_request_sequence": request_sequence,
+                    "_events": events,
+                    "_compact": compact,
+                },
+            ).execute()
+            if res.data is None:
+                return None
+            if isinstance(res.data, list):
+                if not res.data:
+                    return None
+                return (
+                    int(res.data[0]) if not isinstance(res.data[0], dict) else None
+                )
+            return int(res.data)
+        except Exception:
+            logging.exception(
+                "Supabase error while posting conversation events", exc_info=True
+            )
+            raise
+
+    def update_conversation_status(
+        self,
+        conversation_id: str,
+        request_sequence: int,
+        assignee: str,
+        status: str,
+    ) -> bool:
+        """
+        Transition a conversation between active states or to terminal states.
+
+        Accepted statuses: ``queued``, ``running``, ``completed``, ``failed``.
+        The RPC validates that the current status is ``queued`` or ``running``
+        and that assignee + request_sequence match the row.  On terminal states
+        (``completed``, ``failed``) the assignee is cleared by the RPC.
+        """
+        if not self.enabled:
+            return False
+
+        if status not in ("queued", "running", "completed", "failed"):
+            logging.error(
+                "update_conversation_status received invalid status %s", status
+            )
+            return False
+
+        try:
+            res = self.client.rpc(
+                "update_conversation_status",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_request_sequence": request_sequence,
+                    "_assignee": assignee,
+                    "_status": status,
+                },
+            ).execute()
+            return bool(res.data)
+        except Exception as e:
+            # The RPC raises MISMATCH errors when assignee, request_sequence,
+            # or status guards fail — propagate these so the worker can exit
+            # cleanly rather than retrying a stale transition.
+            if "mismatch" in str(e).lower():
+                from holmes.core.conversations_worker.models import (
+                    ConversationReassignedError,
+                )
+
+                raise ConversationReassignedError(str(e)) from e
+            logging.exception(
+                "Supabase error while updating conversation status", exc_info=True
+            )
+            return False
+
+    def get_conversation_events(
+        self,
+        conversation_id: str,
+        include_compacted: bool = False,
+        min_seq: int = 1,
+    ) -> List[Dict]:
+        """
+        Fetch conversation events as a flat chronological list.
+
+        Calls the ``get_conversation_events`` RPC, which flattens all events
+        from all matching rows into a single array ordered by ``(seq, ord)``.
+        Each element is an event dict ``{"event": ..., "data": ..., "ts": ...}``.
+
+        When ``include_compacted=False`` (default), events from rows marked
+        ``compacted=true`` are excluded — those have been superseded by a later
+        ``conversation_history_compacted`` event whose ``messages`` array already
+        reflects the consolidated state.
+
+        Holmes does not have direct SELECT/UPDATE on ConversationEvents under
+        RLS — all reads go through this SECURITY DEFINER RPC.
+        """
+        if not self.enabled:
+            return []
+
+        # Retry a few times on transient infrastructure errors (DNS/cache
+        # overflows in the Supabase proxy, 5xx gateway errors, etc.).  The
+        # caller's fallback when this returns [] is to mark the conversation
+        # failed for lack of a user question, so a transient hiccup here
+        # would cause a spurious permanent failure.
+        last_err: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                res = self.client.rpc(
+                    "get_conversation_events",
+                    {
+                        "_account_id": self.account_id,
+                        "_conversation_id": conversation_id,
+                        "_include_compacted": include_compacted,
+                        "_min_seq": min_seq,
+                    },
+                ).execute()
+                return res.data or []
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(0.5 * (2 ** attempt))  # 0.5s, 1s
+        logging.exception(
+            "Supabase error while fetching conversation events (after retries)",
+            exc_info=last_err,
+        )
+        return []
+
     def finish_scheduled_prompt_run(
         self,
         status: RunStatus,
@@ -945,3 +1133,110 @@ class SupabaseDal:
                 exc_info=True,
             )
             return False
+
+    # --- OAuth Token Storage ---
+
+    def get_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> Optional[Dict]:
+        """Get the OAuth token for a provider in this account, scoped to a user and signing key.
+
+        When user_id is None, returns None — in server mode every token is stored
+        with a real user_id, so there are no unscoped tokens to find.
+        """
+        if not self.enabled:
+            return None
+        if not user_id:
+            return None
+        try:
+            query = (
+                self.client.table(OAUTH_TOKENS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("provider_name", provider_name)
+                .eq("user_id", user_id)
+            )
+            res = query.order("updated_at", desc=True).execute()
+            if not res.data:
+                return None
+            matched = None
+            # this logic could be simplified if we queried by signing_key_hash but it is deliberate to notify users on signing_key mismatches
+            for row in res.data:
+                stored_hash = row.get("signing_key_hash")
+                if stored_hash == signing_key_hash:
+                    matched = row
+                else:
+                    if signing_key_hash:
+                        logging.warning(
+                            "DB token signing_key_hash mismatch (stored=%s, current=%s)",
+                            stored_hash[:12], signing_key_hash[:12],
+                        )
+            return matched
+        except Exception:
+            logging.exception("Error fetching OAuth token for provider %s", provider_name)
+            return None
+
+    def upsert_oauth_token(
+        self,
+        provider_name: str,
+        encrypted_token: str,
+        signing_key_hash: str,
+        token_expiry: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Store or update an OAuth token for a provider in this account, scoped to a user."""
+        if not self.enabled:
+            return False
+        if not user_id:
+            logging.warning("Cannot upsert OAuth token without user_id (provider=%s)", provider_name)
+            return False
+        try:
+            row = {
+                "account_id": self.account_id,
+                "origin_cluster_id": self.cluster or "unknown",
+                "provider_name": provider_name,
+                "encrypted_token": encrypted_token,
+                "signing_key_hash": signing_key_hash,
+                "token_expiry": token_expiry,
+                "updated_at": "now()",
+                "user_id": user_id,
+            }
+            self.client.table(OAUTH_TOKENS_TABLE).upsert(
+                row,
+                on_conflict="account_id,provider_name,signing_key_hash,user_id",
+            ).execute()
+            return True
+        except Exception:
+            logging.exception("Error upserting OAuth token for provider %s", provider_name)
+            return False
+
+    def delete_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> None:
+        """Delete an OAuth token (e.g. after a 401 proves it's revoked)."""
+        self.client.table(OAUTH_TOKENS_TABLE).delete().eq(
+            "account_id", self.account_id
+        ).eq("provider_name", provider_name).eq("user_id", user_id).eq(
+            "signing_key_hash", signing_key_hash
+        ).execute()
+
+    def get_all_oauth_tokens_for_cluster(self, signing_key_hash: str) -> list[Dict]:
+        """Get all OAuth tokens owned by this cluster that match the signing key.
+
+        Preloads tokens into the in-memory cache at startup so the background
+        sweep thread can keep them alive (refresh before expiry). Without this,
+        tokens only enter the cache on first user request and may expire in the
+        DB if no requests arrive within the token lifetime.
+        """
+        if not self.enabled:
+            return []
+        try:
+            res = (
+                self.client.table(OAUTH_TOKENS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("origin_cluster_id", self.cluster or "unknown")
+                .eq("signing_key_hash", signing_key_hash)
+                .execute()
+            )
+            return res.data or []
+        except Exception:
+            logging.exception("Error fetching OAuth tokens for cluster preload")
+            return []
+

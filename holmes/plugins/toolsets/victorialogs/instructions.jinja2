@@ -1,0 +1,17 @@
+VictoriaLogs is a high-performance log database. Query it using LogsQL.
+
+LogsQL syntax cheatsheet:
+- Word/phrase filter: `error`, `"connection refused"`
+- Field filter: `level:error`, `service:checkout`
+- Stream selector (fastest): `{namespace="app-1",service="checkout"}`
+- Regex: `~"5\\d\\d"`
+- Combine with AND/OR/NOT: `level:error -healthcheck`, `(app:nginx OR app:apache)`
+- Time filter via tool params (`start`, `end`); avoid embedding `_time:` in the query.
+
+Workflow guidance:
+- Prefer stream selectors when you know labels - they are the fastest filter.
+- If you don't know which labels exist, call victorialogs_streams or victorialogs_field_names first.
+- For Kubernetes pod logs, common label fields are `namespace`, `pod` and `container` or `service`.
+- When a partial pod name is known, search field values first (e.g. `victorialogs_field_values` with `field=pod`, `query=*`).
+- Always include a tight time range; default is the last 7 days.
+- If no results are returned, broaden the query (drop a filter, widen the time range).

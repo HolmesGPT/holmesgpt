@@ -139,7 +139,7 @@ markers = [
     "metrics: Tests involving metrics processing",
     "context_window: Tests involving context window handling",
     "network: Tests requiring network connectivity",
-    "runbooks: Tests involving runbook functionality",
+    "skills: Tests involving skill functionality",
     "chain-of-causation: Tests involving chain-of-causation analysis",
     "slackbot: Tests involving Slack bot functionality",
     "numerical: Tests involving numerical calculations or data",
@@ -171,6 +171,7 @@ markers = [
     "grafana: Tests involving Grafana dashboard interactions",
     "images: Tests involving multimodal image content (vision, rendering, MCP ImageContent)",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
+    "victorialogs: Tests for VictoriaLogs toolset functionality",
     "integration: Integration tests requiring external services (e.g., running server, real APIs)",
     "confluence: Tests for Confluence page fetching toolset",
     # REGRESSION TEST SELECTION CRITERIA:
@@ -182,6 +183,8 @@ markers = [
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
+    "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
+    "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
     "token-limit: Tests that enforce a maximum token usage budget"
 ]
 

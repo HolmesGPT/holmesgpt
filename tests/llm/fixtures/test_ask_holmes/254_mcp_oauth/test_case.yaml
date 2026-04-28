@@ -1,0 +1,140 @@
+user_prompt: |
+  List all Cloudflare workers and their statuses. Then get the logs for any
+  worker that has errors. Report the worker names, the verification code
+  from the worker listing, and any error codes found in the logs.
+
+expected_output:
+  - "Must contain the verification code CF-EVAL-4x7k9m from the worker listing"
+  - "Must list worker name checkout-api-handler"
+  - "Must report error code ERR-9872-TIMEOUT from the checkout-api-handler logs"
+
+include_tool_calls: true
+
+tags:
+  - mcp
+  - hard
+  - no-cicd
+
+setup_timeout: 300
+
+port_forwards:
+  - namespace: app-254
+    service: keycloak
+    local_port: 18080
+    remote_port: 8080
+  - namespace: app-254
+    service: mcp-oauth-server
+    local_port: 18254
+    remote_port: 8000
+
+before_test: |
+  set -e
+
+  NAMESPACE="app-254"
+
+  echo "=== Creating namespace ${NAMESPACE} ==="
+  kubectl create namespace ${NAMESPACE} --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "=== Deploying Keycloak ==="
+  kubectl apply -f keycloak.yaml
+
+  echo "=== Deploying MCP OAuth server ==="
+  kubectl apply -f mcp-oauth-server.yaml
+
+  # --- Wait for Keycloak (no readiness probe — poll logs for full startup) ---
+  echo "=== Waiting for Keycloak to start ==="
+  KC_READY=false
+  for i in $(seq 1 120); do
+    if kubectl logs -l app=keycloak -n ${NAMESPACE} --tail=5 2>/dev/null | grep -q "Listening on:"; then
+      echo "✅ Keycloak fully started (realm imported)"
+      KC_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$KC_READY" = false ]; then
+    echo "❌ Keycloak did not start within 240s"
+    kubectl get pods -n ${NAMESPACE}
+    kubectl logs -l app=keycloak -n ${NAMESPACE} --tail=30
+    exit 1
+  fi
+  sleep 5
+
+  # --- Wait for MCP server ---
+  echo "=== Waiting for MCP server pod ==="
+  MCP_READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l app=mcp-oauth-server -n ${NAMESPACE} --timeout=5s 2>/dev/null; then
+      echo "✅ MCP server pod is ready"
+      MCP_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$MCP_READY" = false ]; then
+    echo "❌ MCP server pod failed to become ready"
+    kubectl get pods -n ${NAMESPACE}
+    kubectl logs -l app=mcp-oauth-server -n ${NAMESPACE} --tail=30
+    exit 1
+  fi
+
+  # --- Obtain OAuth token via Keycloak direct access grant ---
+  # Use the MCP server pod (python:3.12-slim) since the Keycloak image has no wget/curl
+  echo "=== Obtaining OAuth token ==="
+  TOKEN_JSON=""
+  FETCH_SCRIPT='import urllib.request, urllib.parse, json; data = urllib.parse.urlencode({"grant_type": "password", "client_id": "holmes-client", "username": "test-user", "password": "test-password", "scope": "mcp:tools"}).encode(); req = urllib.request.Request("http://keycloak.app-254.svc.cluster.local:8080/realms/mcp-oauth/protocol/openid-connect/token", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}); resp = urllib.request.urlopen(req, timeout=10); print(resp.read().decode())'
+  for i in $(seq 1 10); do
+    TOKEN_JSON=$(kubectl exec -n ${NAMESPACE} deployment/mcp-oauth-server -- python3 -c "$FETCH_SCRIPT" 2>/dev/null || true)
+    if echo "$TOKEN_JSON" | python3 -c "import sys,json; json.load(sys.stdin)['access_token']" 2>/dev/null; then
+      break
+    fi
+    echo "⏳ Token request attempt $i/10 failed, retrying..."
+    echo "  Response (first 200 chars): ${TOKEN_JSON:0:200}"
+    sleep 3
+  done
+
+  if [ -z "$TOKEN_JSON" ]; then
+    echo "❌ Failed to obtain token from Keycloak"
+    exit 1
+  fi
+
+  ACCESS_TOKEN=$(echo "$TOKEN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+  EXPIRES_IN=$(echo "$TOKEN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('expires_in', 1800))")
+  REFRESH_TOKEN=$(echo "$TOKEN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('refresh_token', ''))")
+
+  if [ -z "$ACCESS_TOKEN" ]; then
+    echo "❌ No access_token in response"
+    echo "Response: $TOKEN_JSON"
+    exit 1
+  fi
+  echo "✅ Token obtained (expires_in=${EXPIRES_IN}s)"
+
+  # --- Write token to Holmes disk store ---
+  echo "=== Writing token to disk store ==="
+  mkdir -p "${HOME}/.holmes/auth"
+  export ACCESS_TOKEN EXPIRES_IN REFRESH_TOKEN
+  python3 -c "import json, os, time; token_file = os.path.expanduser('~/.holmes/auth/mcp_tokens.json'); existing = {}; exec('try:\\n with open(token_file) as f: existing = json.load(f)\\nexcept: pass') if os.path.exists(token_file) else None; existing['http://localhost:18254/'] = {'access_token': os.environ['ACCESS_TOKEN'], 'expires_at': time.time() + int(os.environ.get('EXPIRES_IN', '1800')), 'refresh_token': os.environ.get('REFRESH_TOKEN', '')}; json.dump(existing, open(token_file, 'w'), indent=2); print('Token written to ' + token_file)"
+
+  # --- Verify token works against MCP server ---
+  echo "=== Verifying token against MCP server ==="
+  VERIFY_SCRIPT="import urllib.request, json; req = urllib.request.Request('http://localhost:8000/', data=json.dumps({'jsonrpc':'2.0','method':'tools/list','id':1}).encode(), headers={'Authorization': 'Bearer ${ACCESS_TOKEN}', 'Content-Type': 'application/json'}); resp = urllib.request.urlopen(req, timeout=10); print(resp.read().decode())"
+  VERIFY_OK=false
+  for i in $(seq 1 10); do
+    RESULT=$(kubectl exec -n ${NAMESPACE} deployment/mcp-oauth-server -- python3 -c "$VERIFY_SCRIPT" 2>/dev/null || true)
+    if echo "$RESULT" | grep -q "list_workers"; then
+      echo "✅ Token verified — MCP tools accessible"
+      VERIFY_OK=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$VERIFY_OK" = false ]; then
+    echo "⚠️  Token verification inconclusive (may work via port-forward)"
+    kubectl logs -l app=mcp-oauth-server -n ${NAMESPACE} --tail=20
+  fi
+
+  echo "=== Setup complete ==="
+
+after_test: |
+  kubectl delete namespace app-254 || true
+  python3 -c "import json, os; f = os.path.expanduser('~/.holmes/auth/mcp_tokens.json'); d = json.load(open(f)) if os.path.exists(f) else {}; d.pop('http://localhost:18254/', None); json.dump(d, open(f, 'w'), indent=2)" 2>/dev/null || true

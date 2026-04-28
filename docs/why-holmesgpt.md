@@ -56,10 +56,10 @@ See the [Operator documentation](operator/index.md) for installation and configu
 HolmesGPT ships with read-only integrations for every major observability vendor. Connect custom MCP servers for proprietary tools, or use the [HTTP connector](data-sources/api-toolsets.md) to turn any REST API into an LLM-friendly data source through YAML alone.
 
 - **Metrics**: Prometheus, Datadog, Coralogix, NewRelic
-- **Logs**: Loki, Elasticsearch/OpenSearch, Datadog, Coralogix, Splunk
+- **Logs**: Loki, Elasticsearch/OpenSearch, VictoriaLogs, Datadog, Coralogix, Splunk
 - **Traces**: Tempo, Datadog, NewRelic
 - **Dashboards**: Grafana
-- **Infrastructure**: Kubernetes, Docker, Helm, ArgoCD, OpenShift, Cilium, KubeVela
+- **Infrastructure**: Kubernetes, Docker, Helm, ArgoCD, Crossplane, OpenShift, Cilium, KubeVela
 - **CI/CD**: Jenkins
 - **Cloud**: AWS RDS, Azure SQL, Azure AKS, GCP
 - **Databases**: PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, MongoDB Atlas

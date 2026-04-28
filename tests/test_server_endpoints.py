@@ -35,6 +35,7 @@ def test_api_chat_all_fields(
             {"role": "user", "content": "What can you do?"},
         ],
         metadata={},
+        num_llm_calls=1,
     )
     mock_create_toolcalling_llm.return_value = mock_ai
 
@@ -98,6 +99,7 @@ def test_api_chat_with_images(
             tool_calls=[],
             messages=messages,
             metadata={},
+            num_llm_calls=1,
         )
 
     mock_ai.call.side_effect = capture_messages
@@ -172,6 +174,7 @@ def test_api_chat_with_images_advanced_format(
             tool_calls=[],
             messages=messages,
             metadata={},
+            num_llm_calls=1,
         )
 
     mock_ai.call.side_effect = capture_messages
@@ -260,6 +263,7 @@ def test_api_chat_with_images_missing_url_key(
         tool_calls=[],
         messages=[],
         metadata={},
+        num_llm_calls=1,
     )
     mock_create_toolcalling_llm.return_value = mock_ai
     mock_get_global_instructions.return_value = []

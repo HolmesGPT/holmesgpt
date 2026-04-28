@@ -9,6 +9,7 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import ModelResponse, TextCompletionResponse
 from pydantic import BaseModel, Field
 
+from holmes.common.env_vars import TRACE_TOKEN_USAGE
 from holmes.core.llm import ContextWindowUsage, build_usage_metadata
 
 
@@ -67,10 +68,19 @@ def _is_rate_limit_error(e: Exception) -> bool:
 def stream_chat_formatter(
     call_stream: Generator[StreamMessage, None, None],
     followups: Optional[List[dict]] = None,
+    model: Optional[str] = None,
 ):
     try:
         for message in call_stream:
             if message.event == StreamEvents.ANSWER_END:
+                if TRACE_TOKEN_USAGE:
+                    costs = message.data.get("costs", {})
+                    logging.info(
+                        f"Completed /api/chat request (stream) | model={model}, "
+                        f"input={costs.get('prompt_tokens')}, output={costs.get('completion_tokens')}, "
+                        f"cached={costs.get('cached_tokens')}, total={costs.get('total_tokens')}, "
+                        f"cost=${costs.get('total_cost', 0):.4f}"
+                    )
                 response_data = {
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
