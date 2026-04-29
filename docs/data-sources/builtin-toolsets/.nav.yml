@@ -30,6 +30,7 @@ nav:
   - Kafka: kafka.md
   - Kubectl Run: kubectl-run.md
   - Kubernetes: kubernetes.md
+  - Kubernetes (MCP): kubernetes-mcp.md
   - Kubernetes Remediation (MCP): kubernetes-remediation-mcp.md
   - KubeVela: kubevela.md
   - MariaDB: database-mariadb.md

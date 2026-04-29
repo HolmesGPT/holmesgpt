@@ -87,6 +87,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes (MCP)**](kubernetes-mcp.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubernetes Remediation (MCP)**](kubernetes-remediation-mcp.md)
 
 </div>
