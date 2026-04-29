@@ -31,18 +31,16 @@ TodoWrite(todos=[
 # Investigation Phases
 
 {% if skills_enabled -%}
-1. If a skill in the catalog clearly matches the issue, fetch it first. Otherwise, skip.
-2. Create initial TodoWrite task list and start working on tasks immediately.
-{%- else -%}
-1. Create initial TodoWrite task list and start working on tasks immediately.
+- If a skill in the catalog clearly matches the issue, fetch it first. Otherwise, skip.
 {%- endif %}
-3. Execute ALL tasks: mark each in_progress → completed.
-4. After completing all tasks, evaluate:
+- Create initial TodoWrite task list and start working on tasks immediately.
+- Execute ALL tasks: mark each in_progress → completed.
+- After completing all tasks, evaluate:
    - Do I have enough information to completely answer the user's question? If NO → new phase.
    - Are there gaps, unexplored areas, or additional root causes? If YES → new phase.
    - Have I followed the "five whys" to the actual root cause? If NO → new phase.
    - Did the investigation reveal new questions needing exploration? If YES → new phase.
-5. If investigation is incomplete, create a new TodoWrite task list for the next phase and repeat from step 3.
-6. Once complete, do a final review: re-read the user's question, verify all claims are backed by tool output, ensure exact resource names are provided, and use hedging language for anything unverified. If the review reveals gaps, start another phase.
+- If investigation is incomplete, create a new TodoWrite task list for the next phase and repeat.
+- Once complete, do a final review: re-read the user's question, verify all claims are backed by tool output, ensure exact resource names are provided, and use hedging language for anything unverified. If the review reveals gaps, start another phase.
 
 Complete ALL tasks before providing a final answer.
