@@ -1,9 +1,9 @@
 If the user's question is ambiguous or lacks critical details, ask for clarification first. Do NOT create TodoWrite tasks for unclear questions.
 
-For multi-step questions, start by calling TodoWrite with a `todos` parameter containing an array of task objects. Each task must have:
+For multi-step investigations, start by calling TodoWrite with a `todos` parameter containing an array of task objects. Each task must have:
 - `id`: unique identifier (string)
 - `content`: specific task description (string)
-- `status`: "pending" for new tasks (string)
+- `status`: "pending" for queued tasks or "in_progress" for task(s) you are starting now (string)
 
 {% if skills_enabled -%}
 # Skill Usage:
@@ -30,9 +30,6 @@ TodoWrite(todos=[
 
 # Investigation Phases
 
-{% if skills_enabled -%}
-- If a skill in the catalog clearly matches the issue, fetch it first. Otherwise, skip.
-{%- endif %}
 - Create initial TodoWrite task list and start working on tasks immediately.
 - Execute ALL tasks: mark each in_progress → completed.
 - After completing all tasks, evaluate:
