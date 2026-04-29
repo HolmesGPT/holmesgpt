@@ -68,11 +68,14 @@ class SupabaseFixture:
         ask: str,
         title: str = "integration test",
         enable_tool_approval: bool = False,
+        extra_user_message_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         now_iso = datetime.now(timezone.utc).isoformat()
         user_msg_data: Dict[str, Any] = {"ask": ask}
         if enable_tool_approval:
             user_msg_data["enable_tool_approval"] = True
+        if extra_user_message_data:
+            user_msg_data.update(extra_user_message_data)
         conv = self.client.rpc(
             "post_new_conversation",
             {

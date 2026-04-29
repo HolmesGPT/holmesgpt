@@ -27,15 +27,15 @@ from holmes.core.conversations_worker.models import (
     ConversationTask,
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeManager
-from holmes.core.models import ChatRequest, FrontendToolMode
+from holmes.core.models import ChatRequest
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
     tool_result_storage,
 )
 from holmes.core.tools_utils.frontend_tools import (
-    build_frontend_noop_tool,
-    build_frontend_pause_tool,
+    FrontendToolCollisionError,
+    inject_frontend_tools,
 )
 from holmes.core.tracing import TracingFactory
 from holmes.utils.stream import StreamEvents
@@ -673,49 +673,23 @@ class ConversationWorker:
     ) -> Any:
         """Build per-request frontend tools and clone the executor.
 
-        Returns the AI instance to use for ``call_stream`` (the cloned one when
-        frontend tools are present, otherwise ``ai`` unchanged). Returns
-        ``None`` if a frontend tool name collides with a backend tool — in that
-        case the conversation has already been failed and the caller should
-        return.
+        Thin wrapper over the shared ``inject_frontend_tools`` helper that
+        translates a name-collision exception into a worker-style failure
+        (error event + status=failed). The pause-vs-stream check is irrelevant
+        here because the worker always streams.
 
-        Mirrors ``server.py::chat`` so streamed conversations and worker-driven
-        conversations expose the same set of tools to the LLM.
+        Returns the AI instance to use for ``call_stream``, or ``None`` if a
+        collision occurred — in which case the conversation has already been
+        failed and the caller should return.
         """
-        if not chat_request.frontend_tools:
-            return ai
-
-        backend_tool_names = set(ai.tool_executor.tools_by_name.keys())
-        frontend_tool_instances = []
-        for ft in chat_request.frontend_tools:
-            if ft.name in backend_tool_names:
-                self._fail_conversation(
-                    task,
-                    f"Frontend tool name '{ft.name}' conflicts with a built-in Holmes tool. "
-                    "Use a different name.",
-                    error_code=4000,
-                )
-                return None
-            if ft.mode == FrontendToolMode.NOOP:
-                frontend_tool_instances.append(
-                    build_frontend_noop_tool(
-                        name=ft.name,
-                        description=ft.description,
-                        parameters=ft.parameters,
-                        canned_response=ft.noop_response,
-                    )
-                )
-            else:
-                frontend_tool_instances.append(
-                    build_frontend_pause_tool(
-                        name=ft.name,
-                        description=ft.description,
-                        parameters=ft.parameters,
-                    )
-                )
-
-        cloned_executor = ai.tool_executor.clone_with_extra_tools(frontend_tool_instances)
-        return ai.with_executor(cloned_executor)
+        try:
+            request_ai, _has_pause = inject_frontend_tools(
+                ai, chat_request.frontend_tools
+            )
+        except FrontendToolCollisionError as e:
+            self._fail_conversation(task, str(e), error_code=4000)
+            return None
+        return request_ai
 
     @staticmethod
     def _terminal_to_status(terminal: Optional[StreamEvents]) -> str:
