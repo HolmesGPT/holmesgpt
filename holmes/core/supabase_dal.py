@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -60,6 +61,8 @@ SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
 SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
 HOLMES_RESULTS_TABLE = "HolmesResults"
+CONVERSATIONS_TABLE = "Conversations"
+CONVERSATION_EVENTS_TABLE = "ConversationEvents"
 OAUTH_TOKENS_TABLE = "OAuthTokens"
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
@@ -904,6 +907,185 @@ class SupabaseDal:
                 f"Error updating scheduled prompt run status: {e}", exc_info=True
             )
             return False
+
+    # ---- M2: Conversations worker DAL methods ----
+
+    def claim_conversations(self, holmes_id: str) -> List[Dict]:
+        """
+        Atomically claim all pending conversations for this cluster.
+        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
+        """
+        if not self.enabled:
+            return []
+
+        try:
+            res = self.client.rpc(
+                "claim_conversations",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_id": self.cluster,
+                    "_assignee": holmes_id,
+                },
+            ).execute()
+            if not res.data:
+                return []
+            if isinstance(res.data, list):
+                return res.data
+            return [res.data]
+        except Exception:
+            logging.exception(
+                "Supabase error while claiming conversations", exc_info=True
+            )
+            return []
+
+    def post_conversation_events(
+        self,
+        conversation_id: str,
+        assignee: str,
+        request_sequence: int,
+        events: list,
+        compact: bool = False,
+    ) -> Optional[int]:
+        """
+        Post a batch of events. Returns assigned seq number on success.
+        Raises an exception on errors including assignee / request_sequence mismatch.
+
+        When ``compact=True``, the ``post_conversation_events`` RPC marks all
+        previous events in the conversation with seq < new_seq as compacted=true
+        (global per conversation, not scoped to request_sequence).
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc(
+                "post_conversation_events",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_assignee": assignee,
+                    "_request_sequence": request_sequence,
+                    "_events": events,
+                    "_compact": compact,
+                },
+            ).execute()
+            if res.data is None:
+                return None
+            if isinstance(res.data, list):
+                if not res.data:
+                    return None
+                return (
+                    int(res.data[0]) if not isinstance(res.data[0], dict) else None
+                )
+            return int(res.data)
+        except Exception:
+            logging.exception(
+                "Supabase error while posting conversation events", exc_info=True
+            )
+            raise
+
+    def update_conversation_status(
+        self,
+        conversation_id: str,
+        request_sequence: int,
+        assignee: str,
+        status: str,
+    ) -> bool:
+        """
+        Transition a conversation between active states or to terminal states.
+
+        Accepted statuses: ``queued``, ``running``, ``completed``, ``failed``.
+        The RPC validates that the current status is ``queued`` or ``running``
+        and that assignee + request_sequence match the row.  On terminal states
+        (``completed``, ``failed``) the assignee is cleared by the RPC.
+        """
+        if not self.enabled:
+            return False
+
+        if status not in ("queued", "running", "completed", "failed"):
+            logging.error(
+                "update_conversation_status received invalid status %s", status
+            )
+            return False
+
+        try:
+            res = self.client.rpc(
+                "update_conversation_status",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_request_sequence": request_sequence,
+                    "_assignee": assignee,
+                    "_status": status,
+                },
+            ).execute()
+            return bool(res.data)
+        except Exception as e:
+            # The RPC raises MISMATCH errors when assignee, request_sequence,
+            # or status guards fail — propagate these so the worker can exit
+            # cleanly rather than retrying a stale transition.
+            if "mismatch" in str(e).lower():
+                from holmes.core.conversations_worker.models import (
+                    ConversationReassignedError,
+                )
+
+                raise ConversationReassignedError(str(e)) from e
+            logging.exception(
+                "Supabase error while updating conversation status", exc_info=True
+            )
+            return False
+
+    def get_conversation_events(
+        self,
+        conversation_id: str,
+        include_compacted: bool = False,
+        min_seq: int = 1,
+    ) -> List[Dict]:
+        """
+        Fetch conversation events as a flat chronological list.
+
+        Calls the ``get_conversation_events`` RPC, which flattens all events
+        from all matching rows into a single array ordered by ``(seq, ord)``.
+        Each element is an event dict ``{"event": ..., "data": ..., "ts": ...}``.
+
+        When ``include_compacted=False`` (default), events from rows marked
+        ``compacted=true`` are excluded — those have been superseded by a later
+        ``conversation_history_compacted`` event whose ``messages`` array already
+        reflects the consolidated state.
+
+        Holmes does not have direct SELECT/UPDATE on ConversationEvents under
+        RLS — all reads go through this SECURITY DEFINER RPC.
+        """
+        if not self.enabled:
+            return []
+
+        # Retry a few times on transient infrastructure errors (DNS/cache
+        # overflows in the Supabase proxy, 5xx gateway errors, etc.).  The
+        # caller's fallback when this returns [] is to mark the conversation
+        # failed for lack of a user question, so a transient hiccup here
+        # would cause a spurious permanent failure.
+        last_err: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                res = self.client.rpc(
+                    "get_conversation_events",
+                    {
+                        "_account_id": self.account_id,
+                        "_conversation_id": conversation_id,
+                        "_include_compacted": include_compacted,
+                        "_min_seq": min_seq,
+                    },
+                ).execute()
+                return res.data or []
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(0.5 * (2 ** attempt))  # 0.5s, 1s
+        logging.exception(
+            "Supabase error while fetching conversation events (after retries)",
+            exc_info=last_err,
+        )
+        return []
 
     def finish_scheduled_prompt_run(
         self,

@@ -32,6 +32,7 @@ from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
     DEVELOPMENT_MODE,
     ENABLE_CONNECTION_KEEPALIVE,
+    ENABLE_CONVERSATION_WORKER,
     ENABLE_TELEMETRY,
     ENABLED_SCHEDULED_PROMPTS,
     HOLMES_HOST,
@@ -142,6 +143,11 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
+    if conversation_worker is not None:
+        try:
+            conversation_worker.start()
+        except Exception:
+            logging.error("Failed to start conversation worker", exc_info=True)
     if not ENABLED_SCHEDULED_PROMPTS:
         return
     # No need to check if dal is enabled again, done at the start of this function
@@ -577,6 +583,14 @@ def chat(chat_request: ChatRequest, http_request: Request):
 scheduled_prompts_executor = ScheduledPromptsExecutor(
     dal=dal, config=config, chat_function=chat
 )
+
+conversation_worker = None
+if ENABLE_CONVERSATION_WORKER:
+    from holmes.core.conversations_worker import ConversationWorker
+
+    conversation_worker = ConversationWorker(
+        dal=dal, config=config, chat_function=chat
+    )
 
 
 @app.get("/api/model")
