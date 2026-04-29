@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Optional
 
 from holmes import get_version  # type: ignore
+from holmes.common.env_vars import (
+    ENABLE_CONVERSATION_WORKER,
+    CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
+)
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
 
@@ -54,9 +58,8 @@ def _detect_runner_namespace() -> Optional[str]:
 class HolmesMetadata:
     is_robusta_ai_enabled: bool
     supports_additional_system_prompt: bool = True
-    # Namespace where the Holmes runner Pod itself is running. Populated via
-    # the Kubernetes downward API or the service-account namespace file.
-    # ``None`` outside Kubernetes (CLI / local dev).
+    supports_realtime_conversations: bool = False
+    requires_realtime_broadcast: bool = False
     namespace: Optional[str] = None
 
 
@@ -71,6 +74,8 @@ def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
 
     metadata = HolmesMetadata(
         is_robusta_ai_enabled=config.should_try_robusta_ai,
+        supports_realtime_conversations=bool(ENABLE_CONVERSATION_WORKER),
+        requires_realtime_broadcast=bool(CONVERSATION_WORKER_USE_REALTIME_BROADCAST),
         namespace=_detect_runner_namespace(),
     )
 

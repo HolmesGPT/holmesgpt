@@ -170,6 +170,18 @@ mcpAddons:
     # Set to override the default investigation patterns and guidelines
     llmInstructions: ""
 
+    # Additional environment variables for the AWS MCP container
+    additionalEnvVars: []
+
+    # Extra volumes to add to the AWS MCP pod
+    extraVolumes: []
+
+    # Extra volume mounts to add to the AWS MCP container
+    extraVolumeMounts: []
+
+    # Extra init containers to add to the AWS MCP pod
+    extraInitContainers: []
+
     nodeSelector: {}
     tolerations: []
     affinity: {}

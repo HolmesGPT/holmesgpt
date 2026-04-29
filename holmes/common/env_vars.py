@@ -188,3 +188,42 @@ MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
     "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
 )
+
+# Conversation Worker (M2)
+ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", False)
+CONVERSATION_WORKER_MAX_CONCURRENT = int(
+    os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
+)
+# Only used when realtime is disabled or disconnected. When realtime is enabled
+# and connected, Holmes relies on Postgres Changes notifications and does not
+# poll.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 60)
+)
+# Safety-net poll interval when realtime IS connected. Supabase Realtime
+# has at-most-once delivery, so this caps the maximum latency for a missed
+# broadcast/pgchanges notification.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME", 300)
+)
+CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS", 1.0)
+)
+CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS = int(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS", 120)
+)
+CONVERSATION_WORKER_REALTIME_ENABLED = load_bool(
+    "CONVERSATION_WORKER_REALTIME_ENABLED", True
+)
+CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS", 60)
+)
+# When True (default), Holmes subscribes to a Broadcast channel
+# (holmes:submit:{account_id}:{cluster_id}) to detect new pending
+# conversations — the initiator (Frontend/Relay) must send a broadcast
+# after creating the conversation.  Avoids WAL replication overhead at scale.
+# When False, Holmes subscribes to Postgres Changes on the
+# Conversations table instead (no initiator action needed beyond the RPC).
+CONVERSATION_WORKER_USE_REALTIME_BROADCAST = load_bool(
+    "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", True
+)
