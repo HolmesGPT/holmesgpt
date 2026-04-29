@@ -6,14 +6,14 @@ CRITICAL: For multi-step questions, you MUST start by calling the TodoWrite tool
 - `content`: specific task description (string)
 - `status`: "pending" for new tasks (string)
 
-{% if runbooks_enabled -%}
-# Runbook Usage:
-If a runbook in the catalog clearly matches the issue being investigated, fetch it using the `fetch_runbook` tool before diving into other tools.
-Only fetch runbooks that are relevant to the specific issue — do not fetch runbooks speculatively or "just in case".
-If no runbook matches, skip this step and investigate directly with available tools.
+{% if skills_enabled -%}
+# Skill Usage:
+If a skill in the catalog clearly matches the issue being investigated, fetch it using the `fetch_skill` tool before diving into other tools.
+Only fetch skills that are relevant to the specific issue — do not fetch skills speculatively or "just in case".
+If no skill matches, skip this step and investigate directly with available tools.
 
-After fetching a runbook, read the content returned in the tool's data field and follow its steps.
-Runbook content takes priority over general investigation steps.
+After fetching a skill, read the content returned in the tool's data field and follow its steps.
+Skill content takes priority over general investigation steps.
 {%- endif %}
 
 MANDATORY Task Status Updates:
@@ -95,8 +95,8 @@ If you see ANY `[ ] pending` or `[~] in_progress` tasks, DO NOT provide final an
 For ANY question requiring investigation, you MUST follow this structured approach:
 
 ## Phase 1: Initial Investigation
-{% if runbooks_enabled -%}
-1. **Check for matching runbooks**: If a runbook in the catalog clearly matches the issue, fetch it first. Otherwise, skip this step.
+{% if skills_enabled -%}
+1. **Check for matching skills**: If a skill in the catalog clearly matches the issue, fetch it first. Otherwise, skip this step.
 2. **Start with TodoWrite**: Create initial investigation task list
 3. **Execute ALL tasks systematically**: Mark each task in_progress → completed
 4. **Complete EVERY task** in the current list before proceeding

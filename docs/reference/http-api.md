@@ -60,7 +60,7 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 | frontend_tools          | No       |         | array     | Tools defined by the frontend client (see [Frontend Tools](#frontend-tools)). Requires `stream: true`. |
 | frontend_tool_results   | No       |         | array     | Results from frontend-executed tools, sent to resume a paused stream (see [Frontend Tools](#frontend-tools)). |
 | additional_system_prompt| No       |         | string    | Additional instructions appended to system prompt|
-| behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode--prompt-controls)) |
+| behavior_controls       | No       |         | object    | Override prompt sections to enable/disable them (see [Fast Mode & Prompt Controls](#fast-mode-prompt-controls)) |
 
 #### Fast Mode & Prompt Controls
 
@@ -121,7 +121,7 @@ The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.
 | `system_prompt_additions` | System   | Custom additions from configuration          |
 | `files`                   | User     | Attached file contents                       |
 | `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
-| `time_runbooks`           | User     | Runbook content and custom instructions      |
+| `time_skills`             | User     | Skill content and custom instructions        |
 
 #### Structured Output with `response_format`
 

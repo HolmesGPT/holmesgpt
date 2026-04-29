@@ -28,6 +28,7 @@ from holmes.common.env_vars import (
     AZURE_AD_TOKEN_AUTH,
     EXTRA_HEADERS,
     FALLBACK_CONTEXT_WINDOW_SIZE,
+    LLM_EXTRA_STRIP_MESSAGE_FIELDS,
     LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
     REASONING_EFFORT,
@@ -84,7 +85,7 @@ class ModelEntry(BaseModel):
     is_robusta_model: Optional[bool] = None
     custom_args: Optional[Dict[str, Any]] = None
 
-    # LLM configurations used services like Azure OpenAI Service
+    # LLM configuration fields used by services like Azure AI Foundry
     api_base: Optional[str] = None
     api_version: Optional[str] = None
 
@@ -368,19 +369,6 @@ class DefaultLLM(LLM):
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base
             )
-            # validate_environment does not accept api_version, and as a special case for Azure OpenAI Service,
-            # when all the other AZURE environments are set expect AZURE_API_VERSION, validate_environment complains
-            # the missing of it even after the api_version is set.
-            # TODO: There's an open PR in litellm to accept api_version in validate_environment, we can leverage this
-            # change if accepted to ignore the following check.
-            # https://github.com/BerriAI/litellm/pull/13808
-            if (
-                provider == "azure"
-                and ["AZURE_API_VERSION"] == model_requirements["missing_keys"]
-                and api_version is not None
-            ):
-                model_requirements["missing_keys"] = []
-                model_requirements["keys_in_environment"] = True
 
         if not model_requirements["keys_in_environment"]:
             raise Exception(
@@ -581,7 +569,9 @@ class DefaultLLM(LLM):
         # Strip internal fields (e.g. token_count cache) so provider APIs only
         # receive valid message schema fields.  Shallow-copy only when needed to
         # avoid mutating the caller's dicts (which would invalidate the cache).
-        _INTERNAL_FIELDS = {"token_count"}
+        # Extra fields can be added via LLM_EXTRA_STRIP_MESSAGE_FIELDS env var
+        # (e.g. "provider_specific_fields") when a provider rejects them.
+        _INTERNAL_FIELDS = {"token_count"} | LLM_EXTRA_STRIP_MESSAGE_FIELDS
         sanitized_messages: List[Dict[str, Any]] = [
             {k: v for k, v in m.items() if k not in _INTERNAL_FIELDS}
             if m.keys() & _INTERNAL_FIELDS

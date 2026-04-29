@@ -17,14 +17,14 @@ Use conversation history to maintain continuity when appropriate, ensuring effic
 {% if todowrite_enabled %}
 {% include 'investigation_procedure.jinja2' %}
 {% else %}
-{% if runbooks_enabled -%}
-# Runbook Usage:
-If a runbook in the catalog clearly matches the issue being investigated, fetch it using the `fetch_runbook` tool before diving into other tools.
-Only fetch runbooks that are relevant to the specific issue — do not fetch runbooks speculatively or "just in case".
-If no runbook matches, skip this step and investigate directly with available tools.
+{% if skills_enabled -%}
+# Skill Usage:
+If a skill in the catalog clearly matches the issue being investigated, fetch it using the `fetch_skill` tool before diving into other tools.
+Only fetch skills that are relevant to the specific issue — do not fetch skills speculatively or "just in case".
+If no skill matches, skip this step and investigate directly with available tools.
 
-After fetching a runbook, read the content returned in the tool's data field and follow its steps.
-Runbook content takes priority over general investigation steps.
+After fetching a skill, read the content returned in the tool's data field and follow its steps.
+Skill content takes priority over general investigation steps.
 {%- endif %}
 {% endif %}
 
@@ -46,8 +46,8 @@ Runbook content takes priority over general investigation steps.
 * if you cannot find the resource/application that the user referred to, assume they made a typo or included/excluded characters like - and in this case, try to find substrings or search for the correct spellings
 * always provide detailed information like exact resource names, versions, labels, etc
 * even if you found the root cause, keep investigating to find other possible root causes and to gather data for the answer like exact names
-* if a runbook url is present, fetch the runbook before beginning your investigation
-* if a runbook in the catalog clearly matches the issue, fetch it — but do not fetch runbooks speculatively
+* if a skill url is present, fetch the skill before beginning your investigation
+* if a skill in the catalog clearly matches the issue, fetch it — but do not fetch skills speculatively
 * if you don't know, say that the analysis was inconclusive.
 * if there are multiple possible causes list them in a numbered list.
 * there will often be errors in the data that are not relevant or that do not have an impact - ignore them in your conclusion if you were not able to tie them to an actual error.

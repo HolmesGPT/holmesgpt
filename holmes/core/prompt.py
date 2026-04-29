@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from holmes.plugins.prompts import load_and_render_prompt
-from holmes.plugins.runbooks import RunbookCatalog
-from holmes.utils.global_instructions import Instructions, generate_runbooks_args
+from holmes.plugins.skills.skill_loader import SkillCatalog
+from holmes.utils.global_instructions import Instructions, generate_skills_args
 from holmes.version import get_version
 
 
@@ -13,7 +13,7 @@ class PromptComponent(str, Enum):
     # User prompt components
     FILES = "files"
     TODOWRITE_REMINDER = "todowrite_reminder"
-    TIME_RUNBOOKS = "time_runbooks"
+    TIME_SKILLS = "time_skills"
     # System prompt components
     INTRO = "intro"
     ASK_USER = "ask_user"
@@ -82,7 +82,7 @@ def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     Environment variable: ENABLED_PROMPTS
     - If not set: all prompts are ENABLED (production default)
     - If set to "none": all prompts are disabled
-    - Comma-separated names (e.g., "files,ai_safety,time_runbooks")
+    - Comma-separated names (e.g., "files,ai_safety,time_skills")
     """
     enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
 
@@ -149,10 +149,10 @@ def _has_content(value: Optional[str]) -> bool:
     return bool(value and isinstance(value, str) and value.strip())
 
 
-def _should_enable_runbooks(context: Dict[str, str]) -> bool:
+def _should_enable_skills(context: Dict[str, str]) -> bool:
     return any(
         (
-            _has_content(context.get("runbook_catalog")),
+            _has_content(context.get("skill_catalog")),
             _has_content(context.get("custom_instructions")),
             _has_content(context.get("global_instructions")),
         )
@@ -163,13 +163,13 @@ def generate_user_prompt(
     user_prompt: str,
     context: Dict[str, str],
 ) -> str:
-    runbooks_enabled = _should_enable_runbooks(context)
+    skills_enabled = _should_enable_skills(context)
 
     return load_and_render_prompt(
         "builtin://base_user_prompt.jinja2",
         context={
             "user_prompt": user_prompt,
-            "runbooks_enabled": runbooks_enabled,
+            "skills_enabled": skills_enabled,
             **context,
         },
     )
@@ -177,7 +177,7 @@ def generate_user_prompt(
 
 def build_system_prompt(
     toolsets: List[Any],
-    runbooks: Optional[RunbookCatalog],
+    skills: Optional[SkillCatalog],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
     ask_user_enabled: bool,
@@ -205,8 +205,8 @@ def build_system_prompt(
             PromptComponent.GENERAL_INSTRUCTIONS
         ),
         "style_guide_enabled": is_enabled(PromptComponent.STYLE_GUIDE),
-        "runbooks_enabled": bool(runbooks and getattr(runbooks, "catalog", True))
-        and is_enabled(PromptComponent.TIME_RUNBOOKS),
+        "skills_enabled": bool(skills and getattr(skills, "skills", True))
+        and is_enabled(PromptComponent.TIME_SKILLS),
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
         else None,
@@ -225,7 +225,7 @@ UserPromptContent = Union[str, List[Dict[str, Any]]]
 
 def build_user_prompt(
     user_prompt: str,
-    runbooks: Optional[RunbookCatalog],
+    skills: Optional[SkillCatalog],
     global_instructions: Optional[Instructions],
     file_paths: Optional[List[Path]],
     include_todowrite_reminder: bool,
@@ -247,12 +247,12 @@ def build_user_prompt(
     if include_todowrite_reminder and is_enabled(PromptComponent.TODOWRITE_REMINDER):
         user_prompt += get_tasks_management_system_reminder()
 
-    if is_enabled(PromptComponent.TIME_RUNBOOKS):
-        runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=runbooks,
+    if is_enabled(PromptComponent.TIME_SKILLS):
+        skills_ctx = generate_skills_args(
+            skill_catalog=skills,
             global_instructions=global_instructions,
         )
-        user_prompt = generate_user_prompt(user_prompt, runbooks_ctx)
+        user_prompt = generate_user_prompt(user_prompt, skills_ctx)
 
     if images:
         return build_vision_content(user_prompt, images)
@@ -262,7 +262,7 @@ def build_user_prompt(
 def build_prompts(
     toolsets: List[Any],
     user_prompt: str,
-    runbooks: Optional[RunbookCatalog],
+    skills: Optional[SkillCatalog],
     global_instructions: Optional[Instructions],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
@@ -278,7 +278,7 @@ def build_prompts(
 
     system_prompt = build_system_prompt(
         toolsets=toolsets,
-        runbooks=runbooks,
+        skills=skills,
         system_prompt_additions=system_prompt_additions,
         cluster_name=cluster_name,
         ask_user_enabled=ask_user_enabled,
@@ -286,7 +286,7 @@ def build_prompts(
     )
     user_content = build_user_prompt(
         user_prompt=user_prompt,
-        runbooks=runbooks,
+        skills=skills,
         global_instructions=global_instructions,
         file_paths=file_paths,
         include_todowrite_reminder=include_todowrite_reminder,
@@ -300,7 +300,7 @@ def build_initial_ask_messages(
     initial_user_prompt: str,
     file_paths: Optional[List[Path]],
     tool_executor: Any,  # ToolExecutor type
-    runbooks: Optional[RunbookCatalog] = None,
+    skills: Optional[SkillCatalog] = None,
     system_prompt_additions: Optional[str] = None,
     global_instructions: Optional[Instructions] = None,
     cluster_name: Optional[str] = None,
@@ -310,7 +310,7 @@ def build_initial_ask_messages(
     system_prompt, user_prompt = build_prompts(
         toolsets=tool_executor.toolsets,
         user_prompt=initial_user_prompt,
-        runbooks=runbooks,
+        skills=skills,
         global_instructions=global_instructions,
         system_prompt_additions=system_prompt_additions,
         cluster_name=cluster_name,

@@ -1,0 +1,17 @@
+toolsets:
+  cloudflare-mcp:
+    type: mcp
+    enabled: true
+    description: "Cloudflare Workers management platform"
+    config:
+      mode: streamable-http
+      url: http://localhost:18254
+      oauth:
+        enabled: true
+        client_id: "holmes-client"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
