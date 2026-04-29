@@ -1,4 +1,5 @@
 import asyncio
+import base64 as _b64
 import copy
 import logging
 import shutil
@@ -7,7 +8,17 @@ import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.types import CallToolResult, ImageContent, ListToolsResult, TextContent, Tool
+from mcp.types import (
+    BlobResourceContents,
+    CallToolResult,
+    EmbeddedResource,
+    ImageContent,
+    ListToolsResult,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 
 if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
@@ -1148,6 +1159,142 @@ class TestStreamableHttp:
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.images is None
+
+    def _make_mcp_tool(self, monkeypatch):
+        tool = Tool(
+            name="get_file_contents",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Read a file",
+        )
+        toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(toolset, "_get_server_tools", mock_get_server_tools)
+        toolset.prerequisites_callable(config=toolset.config)
+        return RemoteMCPTool.create(tool, toolset)
+
+    def _run_invoke_with_content(self, monkeypatch, content_blocks):
+        mcp_tool = self._make_mcp_tool(monkeypatch)
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        mock_session.call_tool = AsyncMock(
+            return_value=CallToolResult(content=content_blocks, isError=False)
+        )
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+        with client_patch, session_patch:
+            return asyncio.run(mcp_tool._invoke_async({}, None))
+
+    def test_invoke_async_extracts_text_resource_contents(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """EmbeddedResource with TextResourceContents must surface its text.
+
+        Reproduces the github MCP get_file_contents bug where the file body
+        was returned in an EmbeddedResource and silently dropped.
+        """
+        file_body = "name: prompting-service\nreplicaCount: 3\n"
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                TextContent(
+                    type="text",
+                    text="successfully downloaded text file (SHA: abc123)",
+                ),
+                EmbeddedResource(
+                    type="resource",
+                    resource=TextResourceContents(
+                        uri="file:///production/document-extraction/prompting-service/values.yaml",
+                        mimeType="text/yaml",
+                        text=file_body,
+                    ),
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "successfully downloaded text file" in result.data
+        assert file_body in result.data
+
+    def test_invoke_async_decodes_text_blob_resource(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """BlobResourceContents with a text-like mimeType must be base64-decoded."""
+        file_body = '{"hello": "world"}'
+        encoded = _b64.b64encode(file_body.encode("utf-8")).decode("ascii")
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri="file:///config.json",
+                        mimeType="application/json",
+                        blob=encoded,
+                    ),
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert file_body in result.data
+
+    def test_invoke_async_keeps_binary_blob_as_placeholder(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Binary BlobResourceContents must not be decoded to text — emit a placeholder."""
+        encoded = _b64.b64encode(b"\x89PNG\r\n\x1a\n").decode("ascii")
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri="file:///logo.png",
+                        mimeType="image/png",
+                        blob=encoded,
+                    ),
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == (
+            f"[binary resource uri=file:///logo.png mimeType=image/png "
+            f"base64_size={len(encoded)}]"
+        )
+
+    def test_invoke_async_surfaces_resource_link(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """ResourceLink (returned for files >= 1MB) must surface URI in the wrapper format."""
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                TextContent(
+                    type="text",
+                    text="File big.bin is too large to display",
+                ),
+                ResourceLink(
+                    type="resource_link",
+                    uri="https://example.com/raw/big.bin",
+                    name="big.bin",
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == (
+            "File big.bin is too large to display "
+            "[resource_link big.bin: https://example.com/raw/big.bin]"
+        )
 
 
 class TestSSE:

@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
@@ -433,6 +435,52 @@ class RemoteMCPTool(Tool):
         except Exception:
             return False
 
+    @staticmethod
+    def _extract_text_from_content_block(block: Any) -> str:
+        """Extract text from any MCP content block type.
+
+        TextContent: trivial passthrough.
+        EmbeddedResource (type="resource"): pulls text from TextResourceContents,
+        or base64-decodes BlobResourceContents when the mimeType indicates text.
+        Without this, tools like github's get_file_contents — which return the
+        actual file body inside an EmbeddedResource — appear to succeed but
+        deliver nothing usable to the LLM.
+        ResourceLink (type="resource_link"): surfaces the URI as a hint.
+        """
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            return getattr(block, "text", "") or ""
+        if block_type == "resource":
+            resource = getattr(block, "resource", None)
+            if resource is None:
+                return ""
+            text = getattr(resource, "text", None)
+            if text is not None:
+                return text
+            blob = getattr(resource, "blob", None)
+            if blob is None:
+                return ""
+            mime = getattr(resource, "mimeType", "") or ""
+            uri = getattr(resource, "uri", "")
+            if (
+                mime.startswith("text/")
+                or mime in ("application/json", "application/xml")
+                or mime.endswith("+json")
+                or mime.endswith("+xml")
+            ):
+                try:
+                    return base64.b64decode(blob).decode("utf-8", errors="replace")
+                except (binascii.Error, ValueError):
+                    pass
+            return f"[binary resource uri={uri} mimeType={mime} base64_size={len(blob)}]"
+        if block_type == "resource_link":
+            uri = getattr(block, "uri", "")
+            name = getattr(block, "name", "") or ""
+            title = getattr(block, "title", "") or ""
+            label = title or name
+            return f"[resource_link {label}: {uri}]" if label else f"[resource_link: {uri}]"
+        return ""
+
     async def _invoke_async(
         self, params: Dict, request_context: Optional[Dict[str, Any]]
     ) -> StructuredToolResult:
@@ -441,7 +489,10 @@ class RemoteMCPTool(Tool):
         ) as session:
             tool_result = await session.call_tool(self.name, params)
 
-        merged_text = " ".join(c.text for c in tool_result.content if c.type == "text")
+        text_chunks = [
+            self._extract_text_from_content_block(c) for c in tool_result.content
+        ]
+        merged_text = " ".join(t for t in text_chunks if t)
 
         is_error = tool_result.isError or self._is_content_error(merged_text)
 
