@@ -281,7 +281,7 @@ def test_publisher_batches_intermediate_events():
         _stream(
             [
                 StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "t1"}),
-                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}),
+                StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "x"}),
                 StreamMessage(event=StreamEvents.TOKEN_COUNT, data={}),
                 StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "ok"}),
             ]
@@ -290,6 +290,40 @@ def test_publisher_batches_intermediate_events():
     # All 4 should end up in a single flush (final ANSWER_END)
     assert len(dal.calls) == 1
     assert len(dal.calls[0]["events"]) == 4
+
+
+def test_publisher_flushes_eagerly_on_tool_result():
+    """TOOL_RESULT is the last event before another (slow) LLM call, so the
+    publisher must flush immediately rather than wait for the next event —
+    otherwise pending events sit in memory for the duration of the LLM call."""
+    dal = _FakeDal()
+    pub = ConversationEventPublisher(
+        dal=dal,
+        conversation_id="c1",
+        assignee="h1",
+        request_sequence=1,
+        batch_interval_seconds=60.0,  # very large — no interval flush
+    )
+    pub.consume(
+        _stream(
+            [
+                StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}),
+                StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "t1"}),
+                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}),
+                StreamMessage(event=StreamEvents.TOKEN_COUNT, data={}),
+                StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "ok"}),
+            ]
+        )
+    )
+    # First flush: AI_MESSAGE + START_TOOL + TOOL_RESULT (triggered by TOOL_RESULT)
+    # Second flush: TOKEN_COUNT + ANSWER_END (triggered by ANSWER_END)
+    assert len(dal.calls) == 2
+    first_events = [e["event"] for e in dal.calls[0]["events"]]
+    assert first_events == ["ai_message", "start_tool_calling", "tool_calling_result"]
+    assert dal.calls[0]["compact"] is False
+    second_events = [e["event"] for e in dal.calls[1]["events"]]
+    assert second_events == ["token_count", "ai_answer_end"]
+    assert dal.calls[1]["compact"] is True
 
 
 def test_publisher_sticky_compact_across_none_retry():
