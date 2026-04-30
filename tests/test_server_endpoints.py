@@ -287,17 +287,23 @@ def test_api_chat_with_images_missing_url_key(
     assert "Image dict must contain a 'url' key" in data["detail"]
 
 
+@patch("server.tool_result_storage")
 @patch("holmes.config.Config.create_toolcalling_llm")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
 def test_api_chat_frontend_tool_collision_returns_400(
     mock_get_global_instructions,
     mock_create_toolcalling_llm,
+    mock_tool_result_storage,
     client,
 ):
     mock_ai = MagicMock()
     mock_ai.tool_executor.tools_by_name = {"existing_tool": MagicMock()}
     mock_create_toolcalling_llm.return_value = mock_ai
     mock_get_global_instructions.return_value = []
+
+    storage_cm = MagicMock()
+    storage_cm.__enter__.return_value = "/tmp/test"
+    mock_tool_result_storage.return_value = storage_cm
 
     payload = {
         "ask": "anything",
@@ -317,6 +323,49 @@ def test_api_chat_frontend_tool_collision_returns_400(
     response = client.post("/api/chat", json=payload)
     assert response.status_code == 400, response.text
     assert "existing_tool" in response.json()["detail"]
+    storage_cm.__exit__.assert_called_once()
+
+
+@patch("server.tool_result_storage")
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_pause_mode_without_streaming_cleans_up_storage(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    mock_tool_result_storage,
+    client,
+):
+    mock_ai = MagicMock()
+    mock_ai.tool_executor.tools_by_name = {}
+    cloned_executor = MagicMock()
+    mock_ai.tool_executor.clone_with_extra_tools.return_value = cloned_executor
+    mock_ai.with_executor.return_value = MagicMock()
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    storage_cm = MagicMock()
+    storage_cm.__enter__.return_value = "/tmp/test"
+    mock_tool_result_storage.return_value = storage_cm
+
+    payload = {
+        "ask": "anything",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "frontend_tools": [
+            {
+                "name": "create_dashboard",
+                "description": "needs streaming",
+                "parameters": {"type": "object", "properties": {}},
+                "mode": "pause",
+            }
+        ],
+        "stream": False,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 400, response.text
+    assert "stream=true" in response.json()["detail"]
+    storage_cm.__exit__.assert_called_once()
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")

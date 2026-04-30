@@ -457,9 +457,13 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 ai, chat_request.frontend_tools
             )
         except FrontendToolCollisionError as e:
+            # Storage was opened above; the streaming/non-streaming branches
+            # below own its cleanup, but early validation failures bypass them.
+            storage.__exit__(None, None, None)
             raise HTTPException(status_code=400, detail=str(e))
 
         if has_pause_tools and not chat_request.stream:
+            storage.__exit__(None, None, None)
             raise HTTPException(
                 status_code=400,
                 detail="frontend_tools with mode='pause' requires stream=true (the pause/resume flow needs SSE)",
