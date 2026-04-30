@@ -632,12 +632,23 @@ mcpAddons:
       #   kubectl create secret generic k8s-mcp-config --from-file=config.toml=/path/to/config.toml -n <NAMESPACE>
       # For OAuth mode, set serviceAccount.createClusterRoleBinding=false and include in the TOML:
       #   require_oauth = true
+      #   accept_opaque_tokens = true
       #   cluster_auth_mode = "passthrough"
-      #   oauth_audience = "..."
-      #   authorization_url = "..."
       configSecret:
         secretName: ""         # Name of K8s secret containing config.toml
         secretKey: "config.toml"  # Key in secret (default: "config.toml")
+      # OAuth settings for Holmes → k8s-mcp-server authentication.
+      # Passed as-is into the Holmes mcp_servers oauth config.
+      # Example for OpenShift OAuth (per-user RBAC):
+      #   oauth:
+      #     enabled: true
+      #     authorization_url: "https://oauth-openshift.apps.<cluster>/oauth/authorize"
+      #     token_url: "https://oauth-openshift.apps.<cluster>/oauth/token"
+      #     client_id: "mcp-openshift"
+      #     client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
+      #     callback_port: 10234
+      #     scopes: ["user:full"]
+      oauth: {}
 
     resources:
       requests:

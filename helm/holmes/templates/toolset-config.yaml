@@ -163,13 +163,19 @@ data:
     {{- $mcpServers = merge $mcpServers $k8sRemediationMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.kubernetes.enabled }}
-    {{- $k8sMcpServers := dict "kubernetes" (dict
-        "description" "Kubernetes cluster access - pods, events, logs, resources, nodes, and namespaces"
-        "config" (dict
-          "url" (printf "http://%s-k8s-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
+    {{- $k8sMcpConfig := dict
+          "url" (printf "http://%s-k8s-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
           "mode" "streamable-http"
           "icon_url" "https://cdn.simpleicons.org/kubernetes/326CE5"
-        )
+    }}
+    {{- with .Values.mcpAddons.kubernetes.config.oauth }}
+    {{- if . }}
+    {{- $_ := set $k8sMcpConfig "oauth" . }}
+    {{- end }}
+    {{- end }}
+    {{- $k8sMcpServers := dict "kubernetes" (dict
+        "description" "Kubernetes cluster access - pods, events, logs, resources, nodes, and namespaces"
+        "config" $k8sMcpConfig
         "llm_instructions" (include "holmes.kubernetesMcp.llmInstructions" . | trim)
       )
     }}
