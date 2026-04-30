@@ -484,3 +484,130 @@ class TestRapidFollowups:
             f"Expected {NUM_TURNS} ai_answer_end events, got "
             f"{types.count('ai_answer_end')}; full sequence: {types}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 9. Frontend tools (Pause + NoOp modes)
+# ---------------------------------------------------------------------------
+
+
+class TestFrontendTools:
+
+    def test_pause_mode_frontend_tool_pauses_conversation(
+        self, supabase_fx: SupabaseFixture
+    ):
+        conv = supabase_fx.create_conversation(
+            ask=(
+                "I want a new dashboard called 'Holmes Test'. You MUST call the "
+                "create_dashboard tool with title='Holmes Test' to do this — do "
+                "not refuse, do not ask for confirmation, just call it."
+            ),
+            title="integ: frontend-tools-pause",
+            extra_user_message_data={
+                "frontend_tools": [
+                    {
+                        "name": "create_dashboard",
+                        "description": (
+                            "Create a dashboard in the user's browser. The "
+                            "user has already authorized the action — call "
+                            "this whenever the user asks for a new dashboard."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                            },
+                            "required": ["title"],
+                        },
+                        "mode": "pause",
+                    }
+                ]
+            },
+        )
+        cid = conv["conversation_id"]
+        # APPROVAL_REQUIRED maps to status=completed (turn ended; next request_sequence resumes).
+        result = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
+        assert result["status"] == "completed"
+
+        terminal = supabase_fx.find_terminal_event(cid)
+        assert terminal is not None
+        assert terminal["event"] == "approval_required"
+        pending = (terminal.get("data") or {}).get("pending_frontend_tool_calls") or []
+        assert pending
+        assert any(p.get("tool_name") == "create_dashboard" for p in pending)
+
+    def test_noop_mode_frontend_tool_returns_canned_response(
+        self, supabase_fx: SupabaseFixture
+    ):
+        # The canned response is the verification code — the LLM only sees
+        # it by actually invoking the noop tool, ruling out hallucination.
+        canned = "TELEMETRY_ACK_HOLMES_INTEG_42"
+        conv = supabase_fx.create_conversation(
+            ask=(
+                "Call the emit_telemetry tool with event='integration-test' to "
+                "log this run, then tell me — verbatim — what the tool returned."
+            ),
+            title="integ: frontend-tools-noop",
+            extra_user_message_data={
+                "frontend_tools": [
+                    {
+                        "name": "emit_telemetry",
+                        "description": (
+                            "Fire-and-forget telemetry event. Always succeeds."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "event": {"type": "string"},
+                            },
+                            "required": ["event"],
+                        },
+                        "mode": "noop",
+                        "noop_response": canned,
+                    }
+                ]
+            },
+        )
+        cid = conv["conversation_id"]
+        result = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
+        assert result["status"] == "completed"
+
+        types = supabase_fx.flat_event_types(cid)
+        assert "tool_calling_result" in types
+        assert "ai_answer_end" in types
+
+        terminal = supabase_fx.find_terminal_event(cid)
+        assert terminal is not None and terminal["event"] == "ai_answer_end"
+        content = str((terminal.get("data") or {}).get("content", ""))
+        assert canned in content, f"answer did not include canned response: {content[:300]}"
+
+    def test_frontend_tool_collision_fails_conversation(
+        self, supabase_fx: SupabaseFixture
+    ):
+        conv = supabase_fx.create_conversation(
+            ask="Anything — this should fail before the LLM runs.",
+            title="integ: frontend-tools-collision",
+            extra_user_message_data={
+                "frontend_tools": [
+                    {
+                        "name": "fetch_webpage",
+                        "description": "intentional collision with a backend tool",
+                        "parameters": {"type": "object", "properties": {}},
+                        "mode": "pause",
+                    }
+                ]
+            },
+        )
+        cid = conv["conversation_id"]
+        result = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=60)
+        assert result["status"] == "failed"
+
+        types = supabase_fx.flat_event_types(cid)
+        assert "error" in types
+        for row in supabase_fx.get_events(cid):
+            for ev in row.get("events") or []:
+                if ev.get("event") == "error":
+                    description = (ev.get("data") or {}).get("description", "")
+                    assert "fetch_webpage" in description
+                    return
+        raise AssertionError("error event not found in conversation")
