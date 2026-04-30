@@ -12,6 +12,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   AZURE_TENANT_ID: {{ .Values.mcpAddons.azure.config.tenantId | quote }}
   AZURE_SUBSCRIPTION_ID: {{ .Values.mcpAddons.azure.config.subscriptionId | quote }}
@@ -34,9 +38,15 @@ metadata:
     {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
     azure.workload.identity/use: "true"
     {{- end }}
-  {{- if .Values.mcpAddons.azure.serviceAccount.annotations }}
+  {{- $commonAnn := include "holmes.commonAnnotations" . -}}
+  {{- if or .Values.mcpAddons.azure.serviceAccount.annotations $commonAnn }}
   annotations:
-    {{- toYaml .Values.mcpAddons.azure.serviceAccount.annotations | nindent 4 }}
+    {{- with .Values.mcpAddons.azure.serviceAccount.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with $commonAnn }}
+    {{- . | nindent 4 }}
+    {{- end }}
   {{- end }}
 {{- end }}
 ---
@@ -52,6 +62,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -71,6 +85,10 @@ spec:
         {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
         azure.workload.identity/use: "true"
         {{- end }}
+      {{- with (include "holmes.commonAnnotations" .) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
     spec:
       {{- if or .Values.mcpAddons.azure.serviceAccount.create .Values.mcpAddons.azure.serviceAccount.name }}
       serviceAccountName: {{ .Values.mcpAddons.azure.serviceAccount.name }}
@@ -190,6 +208,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   type: ClusterIP
   selector:

@@ -44,6 +44,16 @@ false
 {{- end -}}
 
 {{/*
+Common annotations to apply to all objects created by this chart.
+Usage: {{- include "holmes.commonAnnotations" . | nindent 4 }}
+*/}}
+{{- define "holmes.commonAnnotations" -}}
+{{- with .Values.commonAnnotations }}
+{{- toYaml . }}
+{{- end }}
+{{- end }}
+
+{{/*
 Common labels to apply to all objects created by this chart.
 Reserved keys used in selector.matchLabels are rejected to prevent
 Deployment reconciliation failures caused by label divergence.

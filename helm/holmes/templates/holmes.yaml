@@ -6,6 +6,10 @@ metadata:
   labels:
     app: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   {{- if (not .Values.autoscaling.enabled) }}
   replicas: {{ .Values.replicas }}
@@ -24,6 +28,9 @@ spec:
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with (include "holmes.commonAnnotations" .) }}
+        {{- . | nindent 8 }}
         {{- end }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
@@ -154,6 +161,10 @@ metadata:
   labels:
     app: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: holmes

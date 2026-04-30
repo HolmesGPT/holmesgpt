@@ -12,6 +12,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   AWS_REGION: {{ .Values.mcpAddons.aws.config.region | quote }}
   READ_OPERATIONS_ONLY: {{ .Values.mcpAddons.aws.config.readOnlyMode | quote }}
@@ -42,9 +46,15 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) }}
+  {{- $commonAnn := include "holmes.commonAnnotations" . -}}
+  {{- if or (and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles))) $commonAnn }}
   annotations:
+    {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) }}
     {{- toYaml .Values.mcpAddons.aws.serviceAccount.annotations | nindent 4 }}
+    {{- end }}
+    {{- with $commonAnn }}
+    {{- . | nindent 4 }}
+    {{- end }}
   {{- end }}
 {{- end }}
 ---
@@ -60,6 +70,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -78,6 +92,9 @@ spec:
         {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ .Values.mcpAddons.aws | toYaml | sha256sum }}
+        {{- with (include "holmes.commonAnnotations" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: {{ .Values.mcpAddons.aws.serviceAccount.name }}
       {{- if .Values.mcpAddons.aws.nodeSelector }}
@@ -170,6 +187,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: {{ .Release.Name }}-aws-mcp

@@ -13,6 +13,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   {{- if .Values.mcpAddons.gcp.config.project }}
   GCP_PROJECT: {{ .Values.mcpAddons.gcp.config.project | quote }}
@@ -41,9 +45,15 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- if .Values.mcpAddons.gcp.serviceAccount.annotations }}
+  {{- $commonAnn := include "holmes.commonAnnotations" . -}}
+  {{- if or .Values.mcpAddons.gcp.serviceAccount.annotations $commonAnn }}
   annotations:
-    {{- toYaml .Values.mcpAddons.gcp.serviceAccount.annotations | nindent 4 }}
+    {{- with .Values.mcpAddons.gcp.serviceAccount.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with $commonAnn }}
+    {{- . | nindent 4 }}
+    {{- end }}
   {{- end }}
 {{- end }}
 ---
@@ -59,6 +69,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -77,6 +91,9 @@ spec:
         {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ .Values.mcpAddons.gcp | toYaml | sha256sum }}
+        {{- with (include "holmes.commonAnnotations" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: {{ .Values.mcpAddons.gcp.serviceAccount.name }}
       {{- if .Values.mcpAddons.gcp.nodeSelector }}
@@ -357,6 +374,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: {{ .Release.Name }}-gcp-mcp
