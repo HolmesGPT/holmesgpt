@@ -22,6 +22,7 @@ from holmes.core.conversations_worker.event_publisher import (
     ConversationEventPublisher,
 )
 from holmes.core.conversations_worker.models import (
+    EVENT_USER_MESSAGE,
     ConversationReassignedError,
     ConversationStatus,
     ConversationTask,
@@ -498,7 +499,7 @@ class ConversationWorker:
         terminal_events = ("ai_answer_end", "approval_required")
 
         for idx, ev in enumerate(events):
-            if ev.get("event") == "user_message":
+            if ev.get("event") == EVENT_USER_MESSAGE:
                 current_user_idx = idx
 
         if current_user_idx >= 0:

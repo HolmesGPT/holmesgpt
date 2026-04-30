@@ -54,3 +54,6 @@ class ConversationTask(BaseModel):
 
 class ConversationReassignedError(Exception):
     """Raised when the conversation's assignee/request_sequence no longer matches ours."""
+
+
+EVENT_USER_MESSAGE = "user_message"
