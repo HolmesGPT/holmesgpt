@@ -1,24 +1,8 @@
 # Conversation Worker Tests
 
-Tests for the M2 Conversation Worker live in two tiers: unit tests that mock
-out external services, and integration tests that exercise a real Holmes
-server against a real Supabase instance.
-
-```
-tests/core/conversations_worker/
-├── test_dal_contract.py            # unit
-├── test_event_publisher.py         # unit
-├── test_realtime_manager.py        # unit
-├── test_worker_edge_cases.py       # unit
-├── test_worker_hydration.py        # unit
-├── test_worker_lifecycle.py        # unit
-├── test_worker_polling.py          # unit
-└── integration/
-    ├── __init__.py                 # SupabaseFixture helpers
-    ├── conftest.py
-    ├── test_conversation_integration.py
-    └── broadcast_health_check.py   # standalone long-running monitor
-```
+Tests for the M2 Conversation Worker live in `tests/core/conversations_worker/`:
+unit tests directly under that folder, integration tests under
+`tests/core/conversations_worker/integration/`.
 
 ## Unit tests (no external services)
 
