@@ -180,6 +180,25 @@ class LLMResult(RequestStats):
     metadata: Optional[Dict[Any, Any]] = None
 
 
+def coalesce_llm_content(content: Optional[str]) -> str:
+    """Normalize a possibly-None final LLM response content to a string.
+
+    Some providers occasionally return content=None as the final
+    response after tool execution (see #1676). Downstream consumers —
+    CLI display in holmes/main.py, source-plugin write_back_result,
+    ChatResponse.analysis — assume LLMResult.result is a str, so this
+    is called wherever an LLMResult is built from streamed
+    terminal_data["content"]. Mirrors the fix in #1789 for /api/chat.
+    """
+    if content is None:
+        logging.warning(
+            "LLM returned content=None as the final response after tool "
+            "execution; treating as an empty string (see #1676)."
+        )
+        return ""
+    return content
+
+
 class ToolCallWithDecision(BaseModel):
     message_index: int
     tool_call: ChatCompletionMessageToolCall
@@ -593,7 +612,7 @@ class ToolCallingLLM:
             for tc in all_tool_calls:
                 deduped[tc.get("tool_call_id", id(tc))] = tc
             return LLMResult(
-                result=terminal_data["content"],
+                result=coalesce_llm_content(terminal_data["content"]),
                 tool_calls=list(deduped.values()),
                 num_llm_calls=total_num_llm_calls,
                 messages=terminal_data["messages"],
