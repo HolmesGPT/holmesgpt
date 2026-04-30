@@ -633,8 +633,20 @@ class ConversationWorker:
                 )
 
                 terminal = publisher.consume(stream)
-                status = self._terminal_to_status(terminal)
-                if status in ("completed", "failed"):
+                if terminal is None:
+                    # The stream ended without a terminal event (or the
+                    # terminal batch could not be saved). Post an explanatory
+                    # error event before marking the conversation failed so
+                    # the UI shows why instead of an unexplained status flip.
+                    logging.warning(
+                        "Conversation %s ended without a terminal event",
+                        task.conversation_id,
+                    )
+                    self._fail_conversation(
+                        task, "Conversation ended without a terminal event"
+                    )
+                else:
+                    status = self._terminal_to_status(terminal)
                     ok = self.dal.update_conversation_status(
                         conversation_id=task.conversation_id,
                         request_sequence=task.request_sequence,
@@ -647,14 +659,6 @@ class ConversationWorker:
                             task.conversation_id,
                             status,
                         )
-                else:
-                    logging.warning(
-                        "Conversation %s ended without a terminal event",
-                        task.conversation_id,
-                    )
-                    self._fail_conversation(
-                        task, "Conversation ended without a terminal event"
-                    )
             finally:
                 trace_span.end()
         except ConversationReassignedError as e:
@@ -667,14 +671,10 @@ class ConversationWorker:
     @staticmethod
     def _terminal_to_status(terminal: Optional[StreamEvents]) -> str:
         """Map the terminal StreamEvents value observed by the publisher to the
-        string status we pass to ``update_conversation_status`` (or a sentinel
-        for non-completion states)."""
-        if terminal == StreamEvents.ANSWER_END:
+        string status we pass to ``update_conversation_status``."""
+        if (
+            terminal == StreamEvents.ANSWER_END
+            or terminal == StreamEvents.APPROVAL_REQUIRED
+        ):
             return ConversationStatus.COMPLETED.value
-        if terminal == StreamEvents.ERROR:
-            return ConversationStatus.FAILED.value
-        if terminal == StreamEvents.APPROVAL_REQUIRED:
-            # Approval pauses the LLM but the current request_sequence is
-            # done — the follow-up (with tool_decisions) will re-pend it.
-            return ConversationStatus.COMPLETED.value
-        return "unknown"
+        return ConversationStatus.FAILED.value
