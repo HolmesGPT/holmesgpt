@@ -587,9 +587,6 @@ class ConversationWorker:
                 tool_results_dir=tool_results_dir,
             )
 
-            # Mirror server.py::chat: register frontend tools on a per-request
-            # cloned executor so the LLM can call them. Without this the worker
-            # silently drops frontend_tools and the LLM never sees them.
             request_ai = self._inject_frontend_tools(ai, chat_request, task)
             if request_ai is None:
                 return
@@ -671,17 +668,7 @@ class ConversationWorker:
         chat_request: ChatRequest,
         task: ConversationTask,
     ) -> Any:
-        """Build per-request frontend tools and clone the executor.
-
-        Thin wrapper over the shared ``inject_frontend_tools`` helper that
-        translates a name-collision exception into a worker-style failure
-        (error event + status=failed). The pause-vs-stream check is irrelevant
-        here because the worker always streams.
-
-        Returns the AI instance to use for ``call_stream``, or ``None`` if a
-        collision occurred — in which case the conversation has already been
-        failed and the caller should return.
-        """
+        """Return the AI to use for ``call_stream``, or ``None`` if a name collision failed the conversation."""
         try:
             request_ai, _has_pause = inject_frontend_tools(
                 ai, chat_request.frontend_tools

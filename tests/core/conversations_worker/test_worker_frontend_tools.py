@@ -1,10 +1,4 @@
-"""Tests for ConversationWorker frontend-tool injection.
-
-Mirrors server.py::chat: when a ChatRequest carries ``frontend_tools``, the
-worker must build per-request FrontendPauseTool / FrontendNoopTool instances
-and clone the executor before calling ``call_stream``. Without this the LLM
-never sees the frontend tools.
-"""
+"""Tests for ConversationWorker frontend-tool injection."""
 import threading
 from collections import deque
 from unittest.mock import MagicMock
@@ -54,9 +48,6 @@ def _task():
 
 
 def _ai_with_backend_tools(*backend_tool_names):
-    """Build a fake AI whose tool_executor has the named backend tools and
-    whose ``with_executor`` / ``clone_with_extra_tools`` are spied so the test
-    can verify the injection plumbing without booting a real LLM."""
     ai = MagicMock()
     ai.tool_executor.tools_by_name = {n: MagicMock(name=n) for n in backend_tool_names}
 
@@ -151,7 +142,6 @@ def test_collision_with_backend_tool_fails_conversation():
     assert result is None
     ai.tool_executor.clone_with_extra_tools.assert_not_called()
     ai.with_executor.assert_not_called()
-    # Error event posted + conversation marked failed.
     post_calls = worker.dal.post_conversation_events.call_args_list
     assert post_calls
     err = post_calls[0].kwargs["events"][0]
@@ -165,9 +155,6 @@ def test_collision_with_backend_tool_fails_conversation():
 
 
 def test_duplicate_frontend_tool_names_fail_conversation():
-    """Two frontend tools with the same name must fail cleanly. Without this
-    check ``clone_with_extra_tools`` silently overwrites one with the other,
-    leaving the LLM with an undefined tool surface."""
     worker = _bare_worker()
     ai, _, _ = _ai_with_backend_tools("kubectl_get")
     chat_request = ChatRequest(

@@ -294,11 +294,7 @@ def test_api_chat_frontend_tool_collision_returns_400(
     mock_create_toolcalling_llm,
     client,
 ):
-    """A frontend tool whose name collides with a backend tool must return
-    HTTP 400. Without re-raising HTTPException from the outer try, the
-    generic 500 handler swallowed the 400."""
     mock_ai = MagicMock()
-    # The collision check looks up tools_by_name on the executor.
     mock_ai.tool_executor.tools_by_name = {"existing_tool": MagicMock()}
     mock_create_toolcalling_llm.return_value = mock_ai
     mock_get_global_instructions.return_value = []
@@ -319,10 +315,7 @@ def test_api_chat_frontend_tool_collision_returns_400(
         "stream": True,
     }
     response = client.post("/api/chat", json=payload)
-    assert response.status_code == 400, (
-        f"Expected 400 (HTTPException re-raised); got {response.status_code} "
-        f"body={response.text}"
-    )
+    assert response.status_code == 400, response.text
     assert "existing_tool" in response.json()["detail"]
 
 
@@ -333,10 +326,6 @@ def test_api_chat_noop_frontend_tool_uses_cloned_ai_in_non_streaming(
     mock_create_toolcalling_llm,
     client,
 ):
-    """Non-streaming path must use ``request_ai.call`` (the cloned executor
-    that includes frontend tools), not the bare ``ai.call``. NoOp mode is
-    the only mode allowed without streaming, so this is the regression
-    surface for the bug."""
     mock_ai = MagicMock()
     mock_ai.tool_executor.tools_by_name = {"existing_tool": MagicMock()}
 
@@ -354,8 +343,7 @@ def test_api_chat_noop_frontend_tool_uses_cloned_ai_in_non_streaming(
         metadata={},
         num_llm_calls=1,
     )
-    # Make ai.call distinguishable so the test fails clearly if the
-    # non-streaming path forgets to use request_ai.
+    # Distinguishable so the test fails clearly if request_ai isn't used.
     mock_ai.call.return_value = MagicMock(
         result="answer-from-original-ai-WRONG",
         tool_calls=[],

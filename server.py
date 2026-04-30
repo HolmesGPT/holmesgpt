@@ -452,7 +452,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
             prompt_component_overrides=prompt_component_overrides,
         )
 
-        # Build a per-request AI instance with frontend tools injected into the executor
         try:
             request_ai, has_pause_tools = inject_frontend_tools(
                 ai, chat_request.frontend_tools
@@ -460,7 +459,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
         except FrontendToolCollisionError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        # Pause-mode tools require streaming (the pause/resume flow needs SSE)
         if has_pause_tools and not chat_request.stream:
             raise HTTPException(
                 status_code=400,
@@ -547,8 +545,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span.end()
                 storage.__exit__(None, None, None)
     except HTTPException:
-        # HTTPExceptions (400/401/etc.) carry intentional status codes — let
-        # them propagate without being swallowed by the generic 500 handler.
+        # The generic ``except Exception`` below would otherwise rewrite these as 500.
         raise
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)

@@ -489,17 +489,13 @@ class TestRapidFollowups:
 # ---------------------------------------------------------------------------
 # 9. Frontend tools (Pause + NoOp modes)
 # ---------------------------------------------------------------------------
+
+
 class TestFrontendTools:
-    """End-to-end check that the conversation worker registers ``frontend_tools``
-    on a per-request cloned executor — same as ``/api/chat`` does. Without
-    that wiring the LLM never sees the tool, so these tests would never
-    observe the expected pause / canned-response behavior."""
 
     def test_pause_mode_frontend_tool_pauses_conversation(
         self, supabase_fx: SupabaseFixture
     ):
-        """A Pause-mode frontend tool must surface as approval_required with
-        the matching pending_frontend_tool_calls entry."""
         conv = supabase_fx.create_conversation(
             ask=(
                 "I want a new dashboard called 'Holmes Test'. You MUST call the "
@@ -529,34 +525,22 @@ class TestFrontendTools:
             },
         )
         cid = conv["conversation_id"]
+        # APPROVAL_REQUIRED maps to status=completed (turn ended; next request_sequence resumes).
         result = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
-        # APPROVAL_REQUIRED is mapped to status=completed by _terminal_to_status:
-        # the turn ended cleanly, the next request_sequence will resume it.
-        assert result["status"] == "completed", (
-            f"Expected pause to end the turn cleanly; got {result['status']}"
-        )
+        assert result["status"] == "completed"
 
         terminal = supabase_fx.find_terminal_event(cid)
         assert terminal is not None
-        assert terminal["event"] == "approval_required", (
-            f"Pause-mode tool should pause with approval_required, got "
-            f"{terminal['event']}"
-        )
+        assert terminal["event"] == "approval_required"
         pending = (terminal.get("data") or {}).get("pending_frontend_tool_calls") or []
-        assert pending, (
-            "approval_required must carry the pending_frontend_tool_calls "
-            "list — empty list means the LLM never called the frontend tool"
-        )
-        assert any(p.get("tool_name") == "create_dashboard" for p in pending), (
-            f"Expected a pending frontend call for 'create_dashboard'; got "
-            f"{[p.get('tool_name') for p in pending]}"
-        )
+        assert pending
+        assert any(p.get("tool_name") == "create_dashboard" for p in pending)
 
     def test_noop_mode_frontend_tool_returns_canned_response(
         self, supabase_fx: SupabaseFixture
     ):
-        """A NoOp-mode frontend tool must execute server-side with the canned
-        response and let the LLM continue to ai_answer_end without pausing."""
+        # The canned response is the verification code — the LLM only sees
+        # it by actually invoking the noop tool, ruling out hallucination.
         canned = "TELEMETRY_ACK_HOLMES_INTEG_42"
         conv = supabase_fx.create_conversation(
             ask=(
@@ -588,36 +572,18 @@ class TestFrontendTools:
         result = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
         assert result["status"] == "completed"
 
-        # NoOp-mode frontend tools surface as regular tool_calling_result events.
-        # The LLM should have called emit_telemetry and then produced an answer.
         types = supabase_fx.flat_event_types(cid)
-        assert "tool_calling_result" in types, (
-            f"NoOp frontend tool must produce a tool_calling_result event; "
-            f"got events {types}"
-        )
-        assert "ai_answer_end" in types, (
-            f"NoOp mode must NOT pause — expected ai_answer_end, got events {types}"
-        )
+        assert "tool_calling_result" in types
+        assert "ai_answer_end" in types
 
-        # The canned response is the verification code — the LLM has no other
-        # way to know it, so its presence rules out hallucination.
         terminal = supabase_fx.find_terminal_event(cid)
         assert terminal is not None and terminal["event"] == "ai_answer_end"
         content = str((terminal.get("data") or {}).get("content", ""))
-        assert canned in content, (
-            f"Expected the canned response {canned!r} in the answer (the LLM "
-            f"would only see it by actually calling the noop tool). Answer: "
-            f"{content[:300]}"
-        )
+        assert canned in content, f"answer did not include canned response: {content[:300]}"
 
     def test_frontend_tool_collision_fails_conversation(
         self, supabase_fx: SupabaseFixture
     ):
-        """A frontend tool whose name collides with a backend tool must fail
-        the conversation with an error event — not silently shadow the
-        built-in tool."""
-        # ``fetch_webpage`` is a stable built-in tool name shipped with
-        # the Holmes server; if it is ever renamed, swap in the new one.
         conv = supabase_fx.create_conversation(
             ask="Anything — this should fail before the LLM runs.",
             title="integ: frontend-tools-collision",
@@ -634,23 +600,14 @@ class TestFrontendTools:
         )
         cid = conv["conversation_id"]
         result = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=60)
-        assert result["status"] == "failed", (
-            f"Expected status=failed for backend-name collision, got "
-            f"{result['status']}"
-        )
+        assert result["status"] == "failed"
 
         types = supabase_fx.flat_event_types(cid)
-        assert "error" in types, (
-            f"Collision must post an error event; got {types}"
-        )
-        # Find the error event and confirm the colliding name is referenced.
+        assert "error" in types
         for row in supabase_fx.get_events(cid):
             for ev in row.get("events") or []:
                 if ev.get("event") == "error":
                     description = (ev.get("data") or {}).get("description", "")
-                    assert "fetch_webpage" in description, (
-                        f"Error event should reference the colliding tool "
-                        f"name; got description={description!r}"
-                    )
+                    assert "fetch_webpage" in description
                     return
         raise AssertionError("error event not found in conversation")

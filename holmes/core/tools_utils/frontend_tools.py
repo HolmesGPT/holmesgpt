@@ -149,13 +149,7 @@ def build_frontend_noop_tool(
 
 
 class FrontendToolCollisionError(ValueError):
-    """A frontend tool name collides with a built-in Holmes tool, or with
-    another frontend tool in the same request.
-
-    Raised by ``inject_frontend_tools``. Each caller maps it to its own
-    surface-level error: server.py converts it to an HTTP 400; the
-    conversation worker fails the conversation with an error event.
-    """
+    """A frontend tool name collides with a backend tool or another frontend tool."""
 
     def __init__(self, tool_name: str):
         self.tool_name = tool_name
@@ -170,22 +164,12 @@ def inject_frontend_tools(
     ai: "ToolCallingLLM",
     frontend_tools: Optional[List["FrontendToolDefinition"]],
 ) -> Tuple["ToolCallingLLM", bool]:
-    """Build per-request frontend tool instances and clone the executor.
+    """Build per-request frontend tool instances and return ``(request_ai, has_pause_tools)``.
 
-    Used by both ``server.py::chat`` and the conversation worker so the LLM
-    sees the same set of tools regardless of which entry point handled the
-    request.
-
-    Returns ``(request_ai, has_pause_tools)``. ``request_ai`` is a clone of
-    ``ai`` whose ``tool_executor`` includes the new frontend tools, or ``ai``
-    itself when ``frontend_tools`` is empty. ``has_pause_tools`` lets callers
-    enforce the "pause requires streaming" rule (only relevant for the
-    non-streaming ``/api/chat`` path; the worker always streams).
-
-    Raises ``FrontendToolCollisionError`` if any frontend tool name matches
-    an existing backend tool, or if two frontend tools in the same request
-    share a name (the executor would otherwise silently overwrite one with
-    the other, leaving an undefined tool surface for the LLM).
+    ``request_ai`` is a clone of ``ai`` with the new tools registered, or
+    ``ai`` itself when ``frontend_tools`` is empty. Raises
+    ``FrontendToolCollisionError`` on backend or duplicate-frontend name
+    conflicts.
     """
     from holmes.core.models import FrontendToolMode  # avoid circular import
 
