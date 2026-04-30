@@ -164,6 +164,41 @@ def test_collision_with_backend_tool_fails_conversation():
     assert failed_calls
 
 
+def test_duplicate_frontend_tool_names_fail_conversation():
+    """Two frontend tools with the same name must fail cleanly. Without this
+    check ``clone_with_extra_tools`` silently overwrites one with the other,
+    leaving the LLM with an undefined tool surface."""
+    worker = _bare_worker()
+    ai, _, _ = _ai_with_backend_tools("kubectl_get")
+    chat_request = ChatRequest(
+        ask="hi",
+        frontend_tools=[
+            FrontendToolDefinition(
+                name="create_dashboard",
+                description="first definition",
+                mode=FrontendToolMode.PAUSE,
+            ),
+            FrontendToolDefinition(
+                name="create_dashboard",
+                description="duplicate — should be rejected",
+                mode=FrontendToolMode.NOOP,
+            ),
+        ],
+    )
+    task = _task()
+
+    result = worker._inject_frontend_tools(ai, chat_request, task)
+
+    assert result is None
+    ai.tool_executor.clone_with_extra_tools.assert_not_called()
+    ai.with_executor.assert_not_called()
+    post_calls = worker.dal.post_conversation_events.call_args_list
+    assert post_calls
+    err = post_calls[0].kwargs["events"][0]
+    assert err["event"] == "error"
+    assert "create_dashboard" in err["data"]["description"]
+
+
 def test_mixed_pause_and_noop_tools_are_both_built():
     worker = _bare_worker()
     ai, _, _ = _ai_with_backend_tools("kubectl_get")

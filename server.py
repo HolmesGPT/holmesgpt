@@ -509,7 +509,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     })
 
                 _inv_start = time.time()
-                llm_call = ai.call(
+                llm_call = request_ai.call(
                     messages=messages,
                     trace_span=trace_span,
                     response_format=chat_request.response_format,
@@ -546,6 +546,10 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 if trace_span is not None:
                     trace_span.end()
                 storage.__exit__(None, None, None)
+    except HTTPException:
+        # HTTPExceptions (400/401/etc.) carry intentional status codes — let
+        # them propagate without being swallowed by the generic 500 handler.
+        raise
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:

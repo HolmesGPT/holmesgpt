@@ -149,7 +149,8 @@ def build_frontend_noop_tool(
 
 
 class FrontendToolCollisionError(ValueError):
-    """A frontend tool name collides with a built-in Holmes tool.
+    """A frontend tool name collides with a built-in Holmes tool, or with
+    another frontend tool in the same request.
 
     Raised by ``inject_frontend_tools``. Each caller maps it to its own
     surface-level error: server.py converts it to an HTTP 400; the
@@ -159,8 +160,9 @@ class FrontendToolCollisionError(ValueError):
     def __init__(self, tool_name: str):
         self.tool_name = tool_name
         super().__init__(
-            f"Frontend tool name '{tool_name}' conflicts with a built-in "
-            "Holmes tool. Use a different name."
+            f"Frontend tool name '{tool_name}' conflicts with either a "
+            "built-in Holmes tool or another frontend tool in the same "
+            "request. Use a different name."
         )
 
 
@@ -181,7 +183,9 @@ def inject_frontend_tools(
     non-streaming ``/api/chat`` path; the worker always streams).
 
     Raises ``FrontendToolCollisionError`` if any frontend tool name matches
-    an existing backend tool.
+    an existing backend tool, or if two frontend tools in the same request
+    share a name (the executor would otherwise silently overwrite one with
+    the other, leaving an undefined tool surface for the LLM).
     """
     from holmes.core.models import FrontendToolMode  # avoid circular import
 
@@ -189,11 +193,13 @@ def inject_frontend_tools(
         return ai, False
 
     backend_tool_names = set(ai.tool_executor.tools_by_name.keys())
+    seen_frontend_names: set = set()
     instances: List[Tool] = []
     has_pause = False
     for ft in frontend_tools:
-        if ft.name in backend_tool_names:
+        if ft.name in backend_tool_names or ft.name in seen_frontend_names:
             raise FrontendToolCollisionError(ft.name)
+        seen_frontend_names.add(ft.name)
         if ft.mode == FrontendToolMode.NOOP:
             instances.append(
                 build_frontend_noop_tool(

@@ -287,6 +287,113 @@ def test_api_chat_with_images_missing_url_key(
     assert "Image dict must contain a 'url' key" in data["detail"]
 
 
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_frontend_tool_collision_returns_400(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """A frontend tool whose name collides with a backend tool must return
+    HTTP 400. Without re-raising HTTPException from the outer try, the
+    generic 500 handler swallowed the 400."""
+    mock_ai = MagicMock()
+    # The collision check looks up tools_by_name on the executor.
+    mock_ai.tool_executor.tools_by_name = {"existing_tool": MagicMock()}
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "anything",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "frontend_tools": [
+            {
+                "name": "existing_tool",
+                "description": "intentional collision",
+                "parameters": {"type": "object", "properties": {}},
+                "mode": "pause",
+            }
+        ],
+        "stream": True,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 400, (
+        f"Expected 400 (HTTPException re-raised); got {response.status_code} "
+        f"body={response.text}"
+    )
+    assert "existing_tool" in response.json()["detail"]
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_noop_frontend_tool_uses_cloned_ai_in_non_streaming(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """Non-streaming path must use ``request_ai.call`` (the cloned executor
+    that includes frontend tools), not the bare ``ai.call``. NoOp mode is
+    the only mode allowed without streaming, so this is the regression
+    surface for the bug."""
+    mock_ai = MagicMock()
+    mock_ai.tool_executor.tools_by_name = {"existing_tool": MagicMock()}
+
+    cloned_executor = MagicMock(name="cloned_executor")
+    mock_ai.tool_executor.clone_with_extra_tools.return_value = cloned_executor
+
+    cloned_ai = MagicMock(name="cloned_ai")
+    cloned_ai.call.return_value = MagicMock(
+        result="answer-from-cloned-ai",
+        tool_calls=[],
+        messages=[
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+        ],
+        metadata={},
+        num_llm_calls=1,
+    )
+    # Make ai.call distinguishable so the test fails clearly if the
+    # non-streaming path forgets to use request_ai.
+    mock_ai.call.return_value = MagicMock(
+        result="answer-from-original-ai-WRONG",
+        tool_calls=[],
+        messages=[],
+        metadata={},
+        num_llm_calls=1,
+    )
+    mock_ai.with_executor.return_value = cloned_ai
+
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "log this",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "frontend_tools": [
+            {
+                "name": "emit_telemetry",
+                "description": "Fire-and-forget telemetry",
+                "parameters": {"type": "object", "properties": {}},
+                "mode": "noop",
+                "noop_response": "ack",
+            }
+        ],
+        "stream": False,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["analysis"] == "answer-from-cloned-ai"
+
+    cloned_ai.call.assert_called_once()
+    mock_ai.call.assert_not_called()
+    mock_ai.tool_executor.clone_with_extra_tools.assert_called_once()
+    mock_ai.with_executor.assert_called_once_with(cloned_executor)
+
+
 class TestExtractPassthroughHeaders:
     def test_extract_normal_headers(self):
         scope = {
