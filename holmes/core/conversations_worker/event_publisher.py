@@ -23,13 +23,15 @@ _TERMINAL_EVENTS = {
 # Events that should cause an immediate flush.  Terminal events end a turn;
 # CONVERSATION_HISTORY_COMPACTED isn't terminal but carries the same
 # "history snapshot + prior events superseded" semantics so it's flushed +
-# compacted with the same logic.  TOOL_RESULT events are flushed eagerly
-# because the next step is another LLM call which typically takes >1s — if
-# we don't flush now, pending events sit in memory for the duration of the
-# LLM call and subscribers see nothing.
+# compacted with the same logic.  TOKEN_COUNT events are flushed eagerly:
+# call_stream() emits one right after the LLM response (before tool execution
+# starts) and one right after the last TOOL_RESULT of a batch (before the
+# next LLM call).  Both boundaries precede a long-running step (>1s tool
+# work or LLM call), so flushing here keeps subscribers up to date without
+# the per-tool write amplification of flushing on every TOOL_RESULT.
 _FLUSH_IMMEDIATELY_EVENTS = _TERMINAL_EVENTS | {
     StreamEvents.CONVERSATION_HISTORY_COMPACTED,
-    StreamEvents.TOOL_RESULT,
+    StreamEvents.TOKEN_COUNT,
 }
 
 # Events whose `messages` array carries the full conversation history
