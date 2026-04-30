@@ -25,7 +25,7 @@ from holmes.core.oauth_utils import _get_token_manager
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from litellm.exceptions import AuthenticationError
 
 from holmes import get_version, is_official_release
@@ -61,6 +61,7 @@ from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
+from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
@@ -261,6 +262,27 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+
+HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
+
+if HOLMES_API_KEY:
+    logging.info("API key authentication enabled (HOLMES_API_KEY is set)")
+
+    @app.middleware("http")
+    async def api_key_auth(request: Request, call_next):
+        """Reject requests missing a valid API key (X-API-Key or Bearer token)."""
+        if request.url.path in AUTH_EXEMPT_PATHS:
+            return await call_next(request)
+
+        key = extract_api_key(request)
+
+        if key != HOLMES_API_KEY:
+            logging.warning("Unauthorized request: %s %s", request.method, request.url.path)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or missing API key"},
+            )
+        return await call_next(request)
 
 if LOG_PERFORMANCE:
 
