@@ -8,6 +8,9 @@ from typing import Optional
 RECOMMENDED_OPENAI_MODEL = "gpt-4.1"
 RECOMMENDED_ANTHROPIC_MODEL = "anthropic/claude-opus-4-1-20250805"
 
+# Default user_id for CLI mode (no authenticated user)
+DEFAULT_CLI_USER = "__no_user__"
+
 # Default model for HolmesGPT
 DEFAULT_MODEL = RECOMMENDED_OPENAI_MODEL
 FALLBACK_CONTEXT_WINDOW_SIZE = (
@@ -96,6 +99,7 @@ MAX_OUTPUT_TOKEN_RESERVATION = int(
 BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
 
 LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
+TRACE_TOKEN_USAGE = load_bool("TRACE_TOKEN_USAGE", False)
 
 
 MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
@@ -137,6 +141,16 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
 
+# Extra message fields to strip before sending messages to the provider API.
+# Comma-separated. Set this if a provider rejects a field with an error like:
+#   "messages.N.<field>: Extra inputs are not permitted"
+# Example: LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields,reasoning_content"
+LLM_EXTRA_STRIP_MESSAGE_FIELDS = frozenset(
+    f.strip()
+    for f in os.environ.get("LLM_EXTRA_STRIP_MESSAGE_FIELDS", "").split(",")
+    if f.strip()
+)
+
 ENABLE_CONNECTION_KEEPALIVE = load_bool("ENABLE_CONNECTION_KEEPALIVE", False)
 KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))
 KEEPALIVE_INTVL = int(os.environ.get("KEEPALIVE_INTVL", 2))
@@ -156,6 +170,9 @@ SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
 SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
     os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
 )
+# Disables TodoWrite for scheduled prompts so the report ends up in ChatResponse.analysis
+# rather than being buried in conversation_history behind a trailing TodoWrite call.
+ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",
@@ -173,4 +190,43 @@ MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
 # Filesystem storage for large tool results
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
     "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
+)
+
+# Conversation Worker (M2)
+ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", False)
+CONVERSATION_WORKER_MAX_CONCURRENT = int(
+    os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
+)
+# Only used when realtime is disabled or disconnected. When realtime is enabled
+# and connected, Holmes relies on Postgres Changes notifications and does not
+# poll.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 60)
+)
+# Safety-net poll interval when realtime IS connected. Supabase Realtime
+# has at-most-once delivery, so this caps the maximum latency for a missed
+# broadcast/pgchanges notification.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME", 300)
+)
+CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS", 1.0)
+)
+CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS = int(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS", 120)
+)
+CONVERSATION_WORKER_REALTIME_ENABLED = load_bool(
+    "CONVERSATION_WORKER_REALTIME_ENABLED", True
+)
+CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS", 60)
+)
+# When True (default), Holmes subscribes to a Broadcast channel
+# (holmes:submit:{account_id}:{cluster_id}) to detect new pending
+# conversations — the initiator (Frontend/Relay) must send a broadcast
+# after creating the conversation.  Avoids WAL replication overhead at scale.
+# When False, Holmes subscribes to Postgres Changes on the
+# Conversations table instead (no initiator action needed beyond the RPC).
+CONVERSATION_WORKER_USE_REALTIME_BROADCAST = load_bool(
+    "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", True
 )

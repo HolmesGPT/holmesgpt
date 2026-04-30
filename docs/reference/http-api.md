@@ -3,6 +3,44 @@
 ## Overview
 The HolmesGPT API provides endpoints for conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
 
+## Authentication
+
+API authentication is optional. When the `HOLMES_API_KEY` environment variable is set, all endpoints (except `/healthz` and `/readyz`) require authentication.
+
+**Generating a key:**
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+# or
+openssl rand -base64 32
+```
+
+Then set it on the server:
+```bash
+export HOLMES_API_KEY="<your-generated-key>"
+```
+
+**Include the API key in requests using either header:**
+
+```bash
+# Option 1: X-API-Key header
+curl -H "X-API-Key: your-key" -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"ask": "What is the status of my cluster?"}'
+
+# Option 2: Bearer token
+curl -H "Authorization: Bearer your-key" -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"ask": "What is the status of my cluster?"}'
+```
+
+If authentication is enabled and the key is missing or incorrect, the API returns:
+```json
+{"detail": "Invalid or missing API key"}
+```
+with HTTP status `401 Unauthorized`.
+
+---
+
 ## Model Parameter Behavior
 
 When using the API with a Helm deployment, the `model` parameter must reference a model name from your `modelList` configuration in your Helm values, **not** the direct model identifier.
@@ -121,7 +159,7 @@ The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.
 | `system_prompt_additions` | System   | Custom additions from configuration          |
 | `files`                   | User     | Attached file contents                       |
 | `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
-| `time_runbooks`           | User     | Runbook content and custom instructions      |
+| `time_skills`             | User     | Skill content and custom instructions        |
 
 #### Structured Output with `response_format`
 

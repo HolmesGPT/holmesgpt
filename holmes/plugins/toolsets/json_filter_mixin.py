@@ -58,7 +58,13 @@ class JsonFilterMixin:
 
     filter_parameters: Dict[str, ToolParameter] = {
         "max_depth": ToolParameter(
-            description="Maximum nesting depth to return from the JSON (0 returns only top-level keys). Leave empty for full response.",
+            description=(
+                "Maximum JSON nesting depth to return. Must be >= 1 "
+                "(e.g. 1 keeps only the top-level structure, 3 keeps three levels). "
+                "Omit this parameter for the full response. "
+                "For precise field extraction prefer the `jq` parameter. "
+                "Do NOT pass 0 or negative values — they return no usable data."
+            ),
             type="integer",
             required=False,
         ),
@@ -123,6 +129,30 @@ class JsonFilterMixin:
             base_result.url = self._safe_string(base_result.url)
             base_result.invocation = self._safe_string(base_result.invocation)
             base_result.icon_url = self._safe_string(base_result.icon_url)
+
+        # max_depth<=0 would replace the payload with a sentinel string while keeping
+        # status=SUCCESS, producing a silent false negative. Fail loudly so the LLM retries.
+        # Preserve upstream errors verbatim — only reject when the call actually succeeded.
+        max_depth = params.get("max_depth")
+        if (
+            isinstance(max_depth, int)
+            and max_depth <= 0
+            and base_result.status == StructuredToolResultStatus.SUCCESS
+        ):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    "max_depth must be >= 1 or omitted. "
+                    "max_depth<=0 returns no usable data. "
+                    "Retry with max_depth>=1 for nested truncation, "
+                    "omit the parameter for the full response, "
+                    "or use the jq parameter for precise field extraction."
+                ),
+                params=params,
+                url=base_result.url,
+                invocation=base_result.invocation,
+                icon_url=base_result.icon_url,
+            )
 
         filtered_data, error = self._filter_result_data(base_result.data, params)
         if error:

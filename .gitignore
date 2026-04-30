@@ -2,6 +2,7 @@
 tmp/
 config.yaml
 checks.yaml
+.claude/skills/dev-skills/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -169,5 +170,7 @@ evals_report.md
 config_toolsets.yaml
 
 **/.claude/settings.local.json
+.claude/settings.json
+.claude/skills/dev-skills/
 .claude-trace/
 eval_results.json

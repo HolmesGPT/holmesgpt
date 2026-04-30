@@ -2,7 +2,7 @@ toolsets:
   kubernetes/core:
     description: "Read access to cluster resources (excluding secrets and other sensitive data)"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
-    icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
+    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
     tags:
       - core
     prerequisites:
@@ -438,7 +438,7 @@ toolsets:
   kubernetes/live-metrics:
     description: "Provides real-time metrics for pods and nodes"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
-    icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
+    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
     llm_instructions: |
       The kubectl_top_pods or kubectl_top_nodes do not return time series data or metrics that can be used for graphs
       Do NOT use kubectl_top_pods or kubectl_top_nodes for graph generation - it only shows current snapshot data
@@ -460,7 +460,7 @@ toolsets:
   kubernetes/kube-prometheus-stack:
     description: "Fetches prometheus definition"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
-    icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
+    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
     tags:
       - core
     tools:
@@ -471,7 +471,7 @@ toolsets:
   kubernetes/krew-extras: # To make this work, install kube-lineage with krew
     description: "Fetches children/dependents and parents/dependencies resources using kube-lineage installed via `kubectl krew`"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
-    icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
+    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
     tags:
       - cli
     prerequisites:
@@ -487,7 +487,7 @@ toolsets:
   kubernetes/kube-lineage-extras: # To make this work, build kube-lineage from source
     description: "Fetches children/dependents and parents/dependencies resources using kube-lineage"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
-    icon_url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s"
+    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
     tags:
       - cluster
     prerequisites:

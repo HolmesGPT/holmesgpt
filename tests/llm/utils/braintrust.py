@@ -260,8 +260,8 @@ def log_to_braintrust(
     # Add test configuration if present
     if hasattr(test_case, "conversation_history") and test_case.conversation_history:
         metadata["has_conversation_history"] = True
-    if hasattr(test_case, "runbooks") and test_case.runbooks is not None:
-        metadata["has_custom_runbooks"] = True
+    if hasattr(test_case, "skills") and test_case.skills is not None:
+        metadata["has_custom_skills"] = True
 
     # Add tool usage metrics if available
     if result and getattr(result, "tool_calls", None):

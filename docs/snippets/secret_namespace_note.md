@@ -1,0 +1,2 @@
+!!! note "Namespace must match Holmes' deployment"
+    Create the secret in the same namespace where Holmes runs. The `-n holmes` flag in the **Holmes Helm** tab and `-n default` in the **Robusta Helm** tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.

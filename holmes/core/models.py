@@ -123,6 +123,22 @@ class ToolApprovalDecision(BaseModel):
     approved: bool
     save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
     feedback: Optional[str] = None  # User feedback when denying a tool call
+    decision: Optional[Dict[str, Any]] = None  # Structured decision data (e.g. OAuth callback)
+
+
+class OAuthCallbackRequest(BaseModel):
+    toolset_name: str
+    code: str
+    code_verifier: Optional[str] = None  # Optional: frontend provides when it generated PKCE, Holmes provides when it generated PKCE
+    redirect_uri: str
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None  # Required by some IdPs (e.g. Supabase) that don't support public clients
+    user_id: Optional[str] = None
+
+
+class OAuthCallbackResponse(BaseModel):
+    success: bool
+    error: Optional[str] = None
 
 
 class FrontendToolMode(str, Enum):
@@ -195,6 +211,7 @@ class ChatRequestBaseModel(BaseModel):
     trace_span: Optional[Any] = (
         None  # Optional span for tracing and heartbeat callbacks
     )
+    user_id: Optional[str] = None  # User ID from relay session token validation
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],

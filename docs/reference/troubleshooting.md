@@ -55,6 +55,24 @@ config:
 
 See [benchmark results](../development/evaluations/latest-results.md) for detailed model performance comparisons.
 
+## 6. `Extra inputs are not permitted` Errors From the LLM Provider
+
+Some providers reject messages that contain fields they don't recognize, producing errors like:
+
+```
+litellm.BadRequestError: OpenAIException - messages.1.provider_specific_fields: Extra inputs are not permitted
+```
+
+This happens when LiteLLM attaches provider-specific metadata (e.g. `provider_specific_fields`) to assistant messages and those messages are later sent back to a provider that doesn't accept the field.
+
+**Solution:** Set `LLM_EXTRA_STRIP_MESSAGE_FIELDS` to a comma-separated list of fields to strip before sending:
+
+```bash
+export LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields"
+```
+
+Replace the value with whichever field is named in your error message. Multiple fields can be passed, e.g. `"provider_specific_fields,reasoning_content"`.
+
 ---
 
 ## Still stuck?

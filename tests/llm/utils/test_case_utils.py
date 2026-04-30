@@ -158,7 +158,7 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     ]  # The user's question(s) to ask holmes - can be single string or array
     cluster_name: Optional[str] = None
     include_files: Optional[List[str]] = None  # matches include_files option of the CLI
-    runbooks: Optional[Dict[str, Any]] = None  # Optional runbook catalog override
+    skills: Optional[Dict[str, Any]] = None  # Optional skill catalog override
     allow_toolset_failures: Optional[bool] = (
         False  # Allow toolsets to fail prerequisite checks (default False)
     )

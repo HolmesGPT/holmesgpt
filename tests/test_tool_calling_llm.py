@@ -180,6 +180,8 @@ def mock_tool_executor():
     te = MagicMock(spec=ToolExecutor)
     te.get_all_tools_openai_format.return_value = [SIMPLE_TOOL_OPENAI]
     te.ensure_toolset_initialized.return_value = None
+    te.oauth_connector = MagicMock()
+    te.oauth_connector.get_toolset.return_value = None
     mock_toolset = MagicMock()
     mock_toolset.name = "kubectl"
     te.toolsets = [mock_toolset]
@@ -1271,6 +1273,7 @@ def _make_ai_with_frontend_tools(make_ai_fn, mock_tool_executor, tool_names=None
     clone.enabled_toolsets = [mock_toolset]
     clone.tools_by_name = {}
     clone._tool_to_toolset = {}
+    clone.oauth_connector = mock_tool_executor.oauth_connector
 
     for ft in frontend_tools:
         clone.tools_by_name[ft.name] = ft
@@ -1568,6 +1571,7 @@ def _make_ai_with_noop_tools(make_ai_fn, mock_tool_executor, tool_names=None):
     clone.enabled_toolsets = [mock_toolset]
     clone.tools_by_name = {}
     clone._tool_to_toolset = {}
+    clone.oauth_connector = mock_tool_executor.oauth_connector
 
     for nt in noop_tools:
         clone.tools_by_name[nt.name] = nt

@@ -1,0 +1,101 @@
+toolsets:
+  crossplane/core:
+    description: "Tools for troubleshooting Crossplane managed resources, compositions, providers, and claims"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/crossplane/"
+    icon_url: "https://raw.githubusercontent.com/crossplane/crossplane/master/docs/media/logo.svg"
+    llm_instructions: |
+      You have tools to debug Crossplane-managed infrastructure-as-code resources.
+      Crossplane uses a resource hierarchy: Claims -> Composite Resources (XRs) -> Managed Resources.
+      Providers are controllers that reconcile managed resources against cloud APIs.
+
+      ALWAYS follow this investigation order:
+        1. Check provider health with crossplane_list_providers - a broken provider causes all its managed resources to fail
+        2. If investigating a specific resource, trace its hierarchy from claim down to managed resources
+        3. Check status.conditions on each resource level:
+           - Synced=False usually means a provider/API error (wrong credentials, quota exceeded, invalid config)
+           - Ready=False but Synced=True means the resource is still provisioning or waiting for a dependency
+           - Installed/Healthy conditions on providers indicate controller health
+        4. Look at events for detailed error messages
+        5. Compare spec vs status for drift detection
+
+      When a managed resource fails:
+        - First check if its provider is healthy
+        - Then check the ProviderConfig for credential/connectivity issues
+        - Then look at the managed resource's conditions and events for the specific API error
+
+      {% if tool_names|list|length > 0 %}
+      The following Crossplane tools are available: {{ ", ".join(tool_names) }}
+      {% endif %}
+
+      DO NOT tell the user to check resources manually. Investigate on their behalf using the available tools and report your findings with specific details.
+    tags:
+      - core
+    prerequisites:
+      - command: "kubectl api-resources --api-group=pkg.crossplane.io --no-headers 2>/dev/null | grep -q providers"
+
+    tools:
+      - name: "crossplane_list_providers"
+        description: "List all installed Crossplane providers with their health status, installed version, and package reference"
+        command: "kubectl get providers.pkg.crossplane.io -o wide 2>&1"
+
+      - name: "crossplane_get_provider"
+        description: "Get detailed status of a specific Crossplane provider including conditions (Installed, Healthy), revision, and package info"
+        command: "kubectl get providers.pkg.crossplane.io {{ provider_name }} -o yaml 2>&1"
+
+      - name: "crossplane_list_provider_revisions"
+        description: "List provider revisions to check for version rollout issues or stuck upgrades"
+        command: "kubectl get providerrevisions.pkg.crossplane.io -o wide 2>&1"
+
+      - name: "crossplane_list_provider_configs"
+        description: "List ProviderConfigs of a specific type to check credential configurations. The provider_config_kind should be the full CRD kind (e.g., providerconfigs.aws.upbound.io, providerconfigs.gcp.upbound.io)"
+        command: "kubectl get {{ provider_config_kind }} -o wide 2>&1"
+
+      - name: "crossplane_get_provider_config"
+        description: "Get detailed ProviderConfig including credential source and configuration"
+        command: "kubectl get {{ provider_config_kind }} {{ config_name }} -o yaml 2>&1"
+
+      - name: "crossplane_list_xrds"
+        description: "List all CompositeResourceDefinitions (XRDs) which define the schema for composite resources and claims"
+        command: "kubectl get compositeresourcedefinitions.apiextensions.crossplane.io -o wide 2>&1"
+
+      - name: "crossplane_get_xrd"
+        description: "Get details of a specific CompositeResourceDefinition including its schema, claim names, and offered versions"
+        command: "kubectl get compositeresourcedefinitions.apiextensions.crossplane.io {{ xrd_name }} -o yaml 2>&1"
+
+      - name: "crossplane_list_compositions"
+        description: "List all Compositions which define how composite resources map to managed resources"
+        command: "kubectl get compositions.apiextensions.crossplane.io -o wide 2>&1"
+
+      - name: "crossplane_get_composition"
+        description: "Get details of a specific Composition including its resource templates and patch sets"
+        command: "kubectl get compositions.apiextensions.crossplane.io {{ composition_name }} -o yaml 2>&1"
+
+      - name: "crossplane_get_claim"
+        description: "Get a Crossplane claim's full status including conditions, composite resource reference, and connection details. The claim_kind is the plural form (e.g., postgresqlinstances, buckets)"
+        command: "kubectl get {{ claim_kind }} {{ claim_name }} -n {{ namespace }} -o yaml 2>&1"
+
+      - name: "crossplane_get_composite_resource"
+        description: "Get a composite resource (XR) including its status, conditions, composed resource references, and connection details. The xr_kind is the plural form (e.g., xpostgresqlinstances, xbuckets)"
+        command: "kubectl get {{ xr_kind }} {{ xr_name }} -o yaml 2>&1"
+
+      - name: "crossplane_list_managed_resources"
+        description: "List managed resources of a specific kind with their sync and ready status. The resource_kind is the plural form (e.g., buckets.s3.aws.upbound.io, instances.rds.aws.upbound.io)"
+        command: "kubectl get {{ resource_kind }} -o wide 2>&1"
+
+      - name: "crossplane_get_managed_resource"
+        description: "Get full details of a specific managed resource including conditions (Synced, Ready, LastAsyncOperation), external name, and provider config reference"
+        script: |
+          #!/bin/bash
+          echo "=== Resource Status ==="
+          kubectl get {{ resource_kind }} {{ resource_name }} -o yaml 2>&1
+          echo ""
+          echo "=== Events ==="
+          kubectl get events --field-selector involvedObject.name={{ resource_name }} --sort-by='.lastTimestamp' 2>&1
+
+      - name: "crossplane_get_resource_events"
+        description: "Get Kubernetes events for a specific Crossplane resource to find error messages and status transitions"
+        command: "kubectl get events --field-selector involvedObject.name={{ resource_name }} --sort-by='.lastTimestamp' 2>&1"
+
+      - name: "crossplane_list_managed_by_composite"
+        description: "List all managed resources owned by a specific composite resource by label selector"
+        command: "kubectl get managed -l crossplane.io/composite={{ composite_name }} -o wide 2>&1"
