@@ -45,15 +45,16 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- $commonAnn := include "holmes.commonAnnotations" . -}}
-  {{- if or .Values.mcpAddons.gcp.serviceAccount.annotations $commonAnn }}
+  {{- $ann := dict -}}
+  {{- with .Values.mcpAddons.gcp.serviceAccount.annotations -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- if $ann }}
   annotations:
-    {{- with .Values.mcpAddons.gcp.serviceAccount.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-    {{- with $commonAnn }}
-    {{- . | nindent 4 }}
-    {{- end }}
+    {{- toYaml $ann | nindent 4 }}
   {{- end }}
 {{- end }}
 ---
@@ -90,10 +91,10 @@ spec:
         app.kubernetes.io/part-of: holmes
         {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ .Values.mcpAddons.gcp | toYaml | sha256sum }}
         {{- with (include "holmes.commonAnnotations" .) }}
         {{- . | nindent 8 }}
         {{- end }}
+        checksum/config: {{ .Values.mcpAddons.gcp | toYaml | sha256sum }}
     spec:
       serviceAccountName: {{ .Values.mcpAddons.gcp.serviceAccount.name }}
       {{- if .Values.mcpAddons.gcp.nodeSelector }}

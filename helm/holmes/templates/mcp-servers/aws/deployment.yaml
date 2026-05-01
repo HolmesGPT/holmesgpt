@@ -46,15 +46,16 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- $commonAnn := include "holmes.commonAnnotations" . -}}
-  {{- if or (and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles))) $commonAnn }}
+  {{- $ann := dict -}}
+  {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) -}}
+  {{- $ann = mergeOverwrite $ann .Values.mcpAddons.aws.serviceAccount.annotations -}}
+  {{- end -}}
+  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- if $ann }}
   annotations:
-    {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) }}
-    {{- toYaml .Values.mcpAddons.aws.serviceAccount.annotations | nindent 4 }}
-    {{- end }}
-    {{- with $commonAnn }}
-    {{- . | nindent 4 }}
-    {{- end }}
+    {{- toYaml $ann | nindent 4 }}
   {{- end }}
 {{- end }}
 ---
@@ -91,10 +92,10 @@ spec:
         app.kubernetes.io/part-of: holmes
         {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ .Values.mcpAddons.aws | toYaml | sha256sum }}
         {{- with (include "holmes.commonAnnotations" .) }}
         {{- . | nindent 8 }}
         {{- end }}
+        checksum/config: {{ .Values.mcpAddons.aws | toYaml | sha256sum }}
     spec:
       serviceAccountName: {{ .Values.mcpAddons.aws.serviceAccount.name }}
       {{- if .Values.mcpAddons.aws.nodeSelector }}

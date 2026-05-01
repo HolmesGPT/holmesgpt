@@ -52,10 +52,10 @@ spec:
         app.kubernetes.io/part-of: holmes
         {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ .Values.mcpAddons.prefect | toYaml | sha256sum }}
         {{- with (include "holmes.commonAnnotations" .) }}
         {{- . | nindent 8 }}
         {{- end }}
+        checksum/config: {{ .Values.mcpAddons.prefect | toYaml | sha256sum }}
     spec:
       {{- if .Values.mcpAddons.prefect.nodeSelector }}
       nodeSelector:

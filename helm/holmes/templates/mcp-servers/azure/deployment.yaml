@@ -38,15 +38,16 @@ metadata:
     {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
     azure.workload.identity/use: "true"
     {{- end }}
-  {{- $commonAnn := include "holmes.commonAnnotations" . -}}
-  {{- if or .Values.mcpAddons.azure.serviceAccount.annotations $commonAnn }}
+  {{- $ann := dict -}}
+  {{- with .Values.mcpAddons.azure.serviceAccount.annotations -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- if $ann }}
   annotations:
-    {{- with .Values.mcpAddons.azure.serviceAccount.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-    {{- with $commonAnn }}
-    {{- . | nindent 4 }}
-    {{- end }}
+    {{- toYaml $ann | nindent 4 }}
   {{- end }}
 {{- end }}
 ---
