@@ -39,10 +39,10 @@ metadata:
     azure.workload.identity/use: "true"
     {{- end }}
   {{- $ann := dict -}}
-  {{- with .Values.mcpAddons.azure.serviceAccount.annotations -}}
+  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
   {{- $ann = mergeOverwrite $ann . -}}
   {{- end -}}
-  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
+  {{- with .Values.mcpAddons.azure.serviceAccount.annotations -}}
   {{- $ann = mergeOverwrite $ann . -}}
   {{- end -}}
   {{- if $ann }}

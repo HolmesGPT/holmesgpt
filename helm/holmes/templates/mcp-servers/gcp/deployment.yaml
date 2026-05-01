@@ -46,10 +46,10 @@ metadata:
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- $ann := dict -}}
-  {{- with .Values.mcpAddons.gcp.serviceAccount.annotations -}}
+  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
   {{- $ann = mergeOverwrite $ann . -}}
   {{- end -}}
-  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
+  {{- with .Values.mcpAddons.gcp.serviceAccount.annotations -}}
   {{- $ann = mergeOverwrite $ann . -}}
   {{- end -}}
   {{- if $ann }}

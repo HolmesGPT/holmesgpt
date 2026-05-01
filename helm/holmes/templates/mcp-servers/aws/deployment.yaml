@@ -47,11 +47,11 @@ metadata:
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- $ann := dict -}}
-  {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) -}}
-  {{- $ann = mergeOverwrite $ann .Values.mcpAddons.aws.serviceAccount.annotations -}}
-  {{- end -}}
   {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
   {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- if and .Values.mcpAddons.aws.serviceAccount.annotations (not (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles)) -}}
+  {{- $ann = mergeOverwrite $ann .Values.mcpAddons.aws.serviceAccount.annotations -}}
   {{- end -}}
   {{- if $ann }}
   annotations:
