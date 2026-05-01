@@ -605,7 +605,7 @@ mcpAddons:
     registry: "ghcr.io/sooperset"
     imagePullPolicy: IfNotPresent
 
-    #Enabled custom DNS configuration for runner
+    #Enabled custom DNS configuration for confluenceMcp
     dnsConfig:
       enabled: false
       policy: ClusterFirst
