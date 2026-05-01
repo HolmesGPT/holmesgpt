@@ -86,10 +86,11 @@ spec:
         {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
         azure.workload.identity/use: "true"
         {{- end }}
-      {{- with (include "holmes.commonAnnotations" .) }}
       annotations:
-        {{- . | nindent 8 }}
-      {{- end }}
+        {{- with (include "holmes.commonAnnotations" .) }}
+          {{- . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ .Values.mcpAddons.azure | toYaml | sha256sum }}
     spec:
       {{- if or .Values.mcpAddons.azure.serviceAccount.create .Values.mcpAddons.azure.serviceAccount.name }}
       serviceAccountName: {{ .Values.mcpAddons.azure.serviceAccount.name }}
