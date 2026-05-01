@@ -605,6 +605,14 @@ mcpAddons:
     registry: "ghcr.io/sooperset"
     imagePullPolicy: IfNotPresent
 
+    #Enabled custom DNS configuration for runner
+    dnsConfig:
+      enabled: false
+      policy: ClusterFirst
+      nameservers: [ ]
+      searches: [ ]
+      options: [ ]
+
     auth:
       secretName: ""         # Required: name of K8s secret containing Confluence credentials
       usernameKey: "confluence-username"  # Key in secret for the username/email
