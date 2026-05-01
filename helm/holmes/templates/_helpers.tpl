@@ -48,8 +48,8 @@ Common annotations to apply to all objects created by this chart.
 Usage: {{- include "holmes.commonAnnotations" . | nindent 4 }}
 */}}
 {{- define "holmes.commonAnnotations" -}}
-{{- with .Values.commonAnnotations }}
-{{- toYaml . }}
+{{- range $key, $val := .Values.commonAnnotations }}
+{{ $key | toYaml }}: {{ $val | toString | toYaml }}
 {{- end }}
 {{- end }}
 
