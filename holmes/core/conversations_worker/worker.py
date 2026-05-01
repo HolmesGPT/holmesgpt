@@ -33,6 +33,10 @@ from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
     tool_result_storage,
 )
+from holmes.core.tools_utils.frontend_tools import (
+    FrontendToolCollisionError,
+    inject_frontend_tools,
+)
 from holmes.core.tracing import TracingFactory
 from holmes.utils.stream import StreamEvents
 
@@ -583,6 +587,10 @@ class ConversationWorker:
                 tool_results_dir=tool_results_dir,
             )
 
+            request_ai = self._inject_frontend_tools(ai, chat_request, task)
+            if request_ai is None:
+                return
+
             global_instructions = self.dal.get_global_instructions_for_account()
             if resume_only and chat_request.conversation_history:
                 # Pure tool-decision / frontend-tool-result resume. Don't append
@@ -613,7 +621,7 @@ class ConversationWorker:
             )
 
             try:
-                stream = ai.call_stream(
+                stream = request_ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
                     tool_decisions=chat_request.tool_decisions,
@@ -653,6 +661,22 @@ class ConversationWorker:
             )
         finally:
             storage.__exit__(None, None, None)
+
+    def _inject_frontend_tools(
+        self,
+        ai: Any,
+        chat_request: ChatRequest,
+        task: ConversationTask,
+    ) -> Any:
+        """Return the AI to use for ``call_stream``, or ``None`` if a name collision failed the conversation."""
+        try:
+            request_ai, _has_pause = inject_frontend_tools(
+                ai, chat_request.frontend_tools
+            )
+        except FrontendToolCollisionError as e:
+            self._fail_conversation(task, str(e), error_code=4000)
+            return None
+        return request_ai
 
     @staticmethod
     def _terminal_to_status(terminal: Optional[StreamEvents]) -> str:
