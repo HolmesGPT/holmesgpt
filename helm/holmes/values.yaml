@@ -22,6 +22,14 @@ registry: robustadev
 
 sentryDSN: ""
 
+#Enabled custom DNS configuration for runner
+dnsConfig:
+  enabled: false
+  policy: ClusterFirst
+  nameservers: []
+  searches: []
+  options: []
+
 enableAccountsCreate: true
 revisionHistoryLimit: 10
 
