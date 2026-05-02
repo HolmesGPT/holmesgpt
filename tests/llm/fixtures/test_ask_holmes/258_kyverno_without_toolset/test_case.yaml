@@ -4,7 +4,7 @@ user_prompt: "Check the app-258 namespace for Kyverno policy violations. Which r
 
 expected_output:
   - "Must identify at least one policy violation in namespace app-258"
-  - "Must mention the policy name 'require-team-label'"
+  - "Must mention the ClusterPolicy name 'require-team-label-258'"
   - "Must mention the violating resource named 'unlabeled-api'"
   - "Must report the verification code HOLMES-EVAL-KYVERNO-002 from the violation message"
 
@@ -36,14 +36,17 @@ before_test: |
   fi
 
   echo ""
-  echo "Waiting for Kyverno admission controller to be ready..."
+  echo "Waiting for Kyverno controllers to be ready..."
   KYVERNO_READY=false
   for i in {1..60}; do
-    if kubectl wait --for=condition=available deployment/kyverno-admission-controller -n kyverno --timeout=5s 2>/dev/null; then
-      echo "Kyverno admission controller is ready"
+    if kubectl wait --for=condition=available deployment/kyverno-admission-controller -n kyverno --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=available deployment/kyverno-reports-controller -n kyverno --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=available deployment/kyverno-background-controller -n kyverno --timeout=5s 2>/dev/null; then
+      echo "Kyverno controllers are ready"
       KYVERNO_READY=true
       break
     fi
+    # Also check older single-controller deployment name
     if kubectl wait --for=condition=available deployment/kyverno -n kyverno --timeout=5s 2>/dev/null; then
       echo "Kyverno controller is ready (legacy deployment)"
       KYVERNO_READY=true
