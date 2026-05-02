@@ -103,7 +103,7 @@ FROM python:3.11-alpine
 
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/venv/bin:$PATH"
-ENV PYTHONPATH=$PYTHONPATH:.:/app/holmes
+ENV PYTHONPATH=.:/app/holmes
 
 WORKDIR /app
 
