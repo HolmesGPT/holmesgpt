@@ -322,6 +322,14 @@ class ToolCallingLLM:
                             result="OAuth authentication failed. Please try again.",  # type: ignore
                         )
 
+                if tool_decision.edit_command is not None:
+                    try:
+                        edited_params = json.loads(tool_call.function.arguments or "{}")
+                    except Exception:
+                        edited_params = {}
+                    edited_params["command"] = tool_decision.edit_command
+                    tool_call.function.arguments = json.dumps(edited_params)
+
                 if not tool_result:
                     tool_result = self._invoke_llm_tool_call(
                         tool_to_call=tool_call,
