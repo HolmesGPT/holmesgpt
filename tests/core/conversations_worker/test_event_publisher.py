@@ -281,15 +281,66 @@ def test_publisher_batches_intermediate_events():
         _stream(
             [
                 StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "t1"}),
+                StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "x"}),
                 StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}),
-                StreamMessage(event=StreamEvents.TOKEN_COUNT, data={}),
                 StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "ok"}),
             ]
         )
     )
-    # All 4 should end up in a single flush (final ANSWER_END)
+    # All 4 should end up in a single flush (final ANSWER_END) — TOOL_RESULT
+    # alone no longer triggers a flush; only TOKEN_COUNT and terminal events do.
     assert len(dal.calls) == 1
     assert len(dal.calls[0]["events"]) == 4
+
+
+def test_publisher_flushes_eagerly_on_token_count():
+    """TOKEN_COUNT marks the boundary before a >1s step (tool batch or LLM
+    call), so the publisher flushes immediately rather than letting pending
+    events sit in memory for the duration of that step."""
+    dal = _FakeDal()
+    pub = ConversationEventPublisher(
+        dal=dal,
+        conversation_id="c1",
+        assignee="h1",
+        request_sequence=1,
+        batch_interval_seconds=60.0,  # very large — no interval flush
+    )
+    pub.consume(
+        _stream(
+            [
+                # First LLM iteration: response + tool batch
+                StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}),
+                StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"k": "post-llm"}),
+                StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "t1"}),
+                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}),
+                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "2"}),
+                StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"k": "post-tools"}),
+                # Second LLM iteration: final answer
+                StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "ok"}),
+            ]
+        )
+    )
+    # First flush:  AI_MESSAGE + TOKEN_COUNT       (triggered by TOKEN_COUNT #1)
+    # Second flush: START_TOOL + TOOL_RESULT × 2 + TOKEN_COUNT
+    #                                              (triggered by TOKEN_COUNT #2)
+    # Third flush:  ANSWER_END                     (triggered by ANSWER_END)
+    assert len(dal.calls) == 3
+    first_events = [e["event"] for e in dal.calls[0]["events"]]
+    assert first_events == ["ai_message", "token_count"]
+    assert dal.calls[0]["compact"] is False
+
+    second_events = [e["event"] for e in dal.calls[1]["events"]]
+    assert second_events == [
+        "start_tool_calling",
+        "tool_calling_result",
+        "tool_calling_result",
+        "token_count",
+    ]
+    assert dal.calls[1]["compact"] is False
+
+    third_events = [e["event"] for e in dal.calls[2]["events"]]
+    assert third_events == ["ai_answer_end"]
+    assert dal.calls[2]["compact"] is True
 
 
 def test_publisher_sticky_compact_across_none_retry():
