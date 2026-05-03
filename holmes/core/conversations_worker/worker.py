@@ -646,7 +646,7 @@ class ConversationWorker:
                     # terminal batch could not be saved). Post an explanatory
                     # error event before marking the conversation failed so
                     # the UI shows why instead of an unexplained status flip.
-                    logging.warning(
+                    logging.error(
                         "Conversation %s ended without a terminal event",
                         task.conversation_id,
                     )
