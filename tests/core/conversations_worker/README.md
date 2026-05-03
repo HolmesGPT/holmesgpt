@@ -19,9 +19,7 @@ poetry run pytest tests/core/conversations_worker/ \
 
 These tests create real `Conversations` rows in Supabase, wait for a running
 Holmes server to process them, and assert on the resulting `ConversationEvents`
-and status transitions. They cover: single-turn, multi-turn, tool approval,
-stop-conversation, error events, stress / concurrency, status lifecycle, and
-rapid follow-ups.
+and status transitions.
 
 ### Prerequisites
 
@@ -65,11 +63,18 @@ poetry run pytest tests/core/conversations_worker/integration/ \
     -m conversation_worker --no-cov -v
 ```
 
-To run a single test class or test:
+To list every test or test class without running them:
 
 ```bash
-poetry run pytest -k "TestSingleTurn" -m conversation_worker --no-cov -v
-poetry run pytest -k "test_approval_pause_and_resume" -m conversation_worker --no-cov -v
+poetry run pytest tests/core/conversations_worker/integration/ \
+    -m conversation_worker --no-cov --collect-only -q
+```
+
+To run a single test class or test, pass its name to `-k`:
+
+```bash
+poetry run pytest -k "<TestClass>" -m conversation_worker --no-cov -v
+poetry run pytest -k "<test_name>" -m conversation_worker --no-cov -v
 ```
 
 ### Key flags
@@ -78,21 +83,6 @@ poetry run pytest -k "test_approval_pause_and_resume" -m conversation_worker --n
   marked with `@pytest.mark.conversation_worker`).
 - `--no-cov` — skip coverage; these are slow end-to-end tests.
 - `-v` — verbose output.
-
-### Test categories
-
-- **TestSingleTurn** — simple question completes, answer has content,
-  compaction works.
-- **TestMultiTurn** — follow-up preserves history, compaction grows across
-  turns.
-- **TestToolApproval** — `approval_required` pause, approve and resume.
-- **TestStopConversation** — stop mid-stream, verify `stopped` status.
-- **TestErrorEvents** — successful conversation has no error event.
-- **TestStress** — concurrent conversations queue and complete,
-  `max_concurrent` is never exceeded.
-- **TestStatusLifecycle** — `pending` → `running` → `completed` transitions.
-- **TestRapidFollowups** — multiple fast follow-ups all complete without
-  losing turns.
 
 ### Timeouts
 
