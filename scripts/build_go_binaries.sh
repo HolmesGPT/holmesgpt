@@ -1,9 +1,11 @@
 #!/bin/bash
 # Build CVE-patched Go binaries for the holmes Docker image.
 #
-# ArgoCD: built with Go 1.25.7+ to fix CVE-2025-68121.
-#   ArgoCD v3.3.4 ships with Go 1.25.5 which is vulnerable.
-#   Revert when ArgoCD releases a version built with Go >= 1.25.7.
+# ArgoCD: rebuilt from v3.3.9 source with otel/sdk replaced to v1.43.0 to fix
+#   CVE-2026-39883. ArgoCD v3.3.9 already ships with patched grpc 1.79.3 + go-jose
+#   4.1.4 + spdystream 0.5.1 + Go 1.26.2 (so stdlib + CVE-2026-33186/34986/35469
+#   + CVE-2025-68121 are clean upstream); only otel/sdk still needs the replace.
+#   Revert to plain upstream binary when ArgoCD ships otel/sdk >= 1.43.0.
 #
 # Helm: built with Go 1.25.9+ to fix stdlib CVE-2026-32280/32281/32283/25679,
 #   and grpc replaced to v1.79.3 to fix CVE-2026-33186.
@@ -15,8 +17,9 @@
 
 set -euo pipefail
 
-ARGOCD_VERSION=v3.3.4
+ARGOCD_VERSION=v3.3.9
 ARGOCD_VERSION_NO_V="${ARGOCD_VERSION#v}"
+OTEL_SDK_PATCHED_VERSION=v1.43.0
 HELM_VERSION=v3.20.2
 GRPC_PATCHED_VERSION=v1.79.3
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -32,15 +35,20 @@ mkdir -p "$OUTDIR"/{amd64,arm64}
 echo "==> Cloning ArgoCD $ARGOCD_VERSION..."
 git clone --depth 1 --branch "$ARGOCD_VERSION" https://github.com/argoproj/argo-cd.git "$TMPDIR/argo-cd"
 
-echo "==> Building ArgoCD for linux/amd64..."
+echo "==> Pinning otel/sdk to $OTEL_SDK_PATCHED_VERSION (CVE-2026-39883)..."
 cd "$TMPDIR/argo-cd"
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-  -ldflags "-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V" \
+go mod edit -replace="go.opentelemetry.io/otel/sdk=go.opentelemetry.io/otel/sdk@$OTEL_SDK_PATCHED_VERSION"
+
+ARGOCD_LDFLAGS="-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V"
+
+echo "==> Building ArgoCD for linux/amd64..."
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \
+  -ldflags "$ARGOCD_LDFLAGS" \
   -o "$OUTDIR/amd64/argocd" ./cmd
 
 echo "==> Building ArgoCD for linux/arm64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V" \
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
+  -ldflags "$ARGOCD_LDFLAGS" \
   -o "$OUTDIR/arm64/argocd" ./cmd
 
 echo "==> Cloning Helm $HELM_VERSION..."
