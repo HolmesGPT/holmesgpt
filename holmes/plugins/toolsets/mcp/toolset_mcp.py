@@ -319,6 +319,7 @@ class RemoteMCPTool(Tool):
                 authorization_url=oauth_config.authorization_url,
                 token_url=oauth_config.token_url,
                 client_id=oauth_config.client_id,
+                client_secret=oauth_config.client_secret,
                 scopes=oauth_config.scopes,
                 registration_endpoint=oauth_config.registration_endpoint,
             )
