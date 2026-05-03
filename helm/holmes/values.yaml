@@ -134,7 +134,7 @@ mcpAddons:
     serviceAccount:
       create: true
       name: "aws-api-mcp-sa"
-      annotations: {} # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
+      annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
     image: "aws-api-mcp-server:2.0.1"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
@@ -149,21 +149,21 @@ mcpAddons:
 
     config:
       region: "us-east-1"
-      readOnlyMode: true # Set to false to allow write operations (use with caution)
-      namespace: "" # Kubernetes namespace (defaults to release namespace if empty)
+      readOnlyMode: true   # Set to false to allow write operations (use with caution)
+      namespace: ""        # Kubernetes namespace (defaults to release namespace if empty)
 
     # Multi-account configuration
     # When multiAccount.profiles is defined, the chart will use EKS token projection
     multiAccount:
-      enabled: false # Set to true to enable multi-account access
+      enabled: false  # Set to true to enable multi-account access
       image: "multi-aws-api-mcp-server:2.0.1"
       # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
       profiles: {}
       llm_account_descriptions: ""
-
+      
     # Network policy to restrict access to MCP server
     networkPolicy:
-      enabled: true # Enable network isolation (recommended)
+      enabled: true  # Enable network isolation (recommended)
 
     # Custom LLM instructions (optional)
     # Leave empty to use default comprehensive instructions
@@ -193,16 +193,16 @@ mcpAddons:
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
-      host: "" # MariaDB host
-      port: "3306" # MariaDB port
-      database: "" # Database name
-      username: "" # Username
-      password: "" # Password
-      namespace: "" # Kubernetes mcp server namespace
+      host: ""       # MariaDB host
+      port: "3306"   # MariaDB port
+      database: ""   # Database name
+      username: ""   # Username
+      password: ""   # Password
+      namespace: ""  # Kubernetes mcp server namespace
 
       readOnlyMode: true
       maxPoolSize: "5"
-      useSSL: true # Use SSL for database connection
+      useSSL: true  # Use SSL for database connection
 
     resources:
       requests:
@@ -212,8 +212,9 @@ mcpAddons:
         memory: "512Mi"
         cpu: "500m"
 
+
     networkPolicy:
-      enabled: true # Network policy to restrict access to MCP server (recommended)
+      enabled: true  # Network policy to restrict access to MCP server (recommended)
 
     # Custom LLM instructions (optional). Leave empty to use default instructions
     llmInstructions: ""
@@ -247,15 +248,14 @@ mcpAddons:
 
     # Service account key authentication (recommended)
     serviceAccountKey:
-      secretName: ""
-        # Name of K8s secret containing the service account key (e.g., "gcp-sa-key")
-        # Secret must have a key named "key.json" with the service account JSON key
+      secretName: ""  # Name of K8s secret containing the service account key (e.g., "gcp-sa-key")
+                     # Secret must have a key named "key.json" with the service account JSON key
 
     # Kubernetes service account (for Workload Identity - currently not working with gcloud CLI)
     serviceAccount:
       create: true
       name: "gcp-mcp-sa"
-      annotations: {} # Add GKE Workload Identity annotations if needed
+      annotations: {}  # Add GKE Workload Identity annotations if needed
 
     # Container registry for GCP MCP images
     # Build images from: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
@@ -264,16 +264,16 @@ mcpAddons:
 
     # Workload Identity configuration (works for observability/storage MCPs, not gcloud)
     workloadIdentity:
-      enabled: false # Set to true for observability/storage MCPs
+      enabled: false  # Set to true for observability/storage MCPs
 
     networkPolicy:
       enabled: true
 
     config:
-      project: "" # Optional: Holmes uses this if not asked about a specific project
-      projectNumber: "" # GCP project number (only needed if using Workload Identity)
-      region: "us-central1" # Optional: Holmes uses this if not asked about a specific region
-      namespace: "" # MCP server installation namespace (defaults to release namespace if empty)
+      project: ""            # Optional: Holmes uses this if not asked about a specific project
+      projectNumber: ""      # GCP project number (only needed if using Workload Identity)
+      region: "us-central1"  # Optional: Holmes uses this if not asked about a specific region
+      namespace: ""          # MCP server installation namespace (defaults to release namespace if empty)
 
     # Individual MCP server toggles and configurations
     # gcloud MCP - General GCP management via gcloud CLI
@@ -311,7 +311,7 @@ mcpAddons:
           cpu: "100m"
         limits:
           memory: "512Mi"
-
+          
     # Custom LLM instructions (optional) - These will override the default instructions for each of the gcp MCPs
     # Leave empty to use default instructions
     llmInstructions:
@@ -326,8 +326,7 @@ mcpAddons:
     serviceAccount:
       create: true
       name: "azure-api-mcp-sa"
-      annotations: {}
-        # Add workload identity annotations here
+      annotations: {}  # Add workload identity annotations here
         # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
         # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
 
@@ -336,14 +335,14 @@ mcpAddons:
     imagePullPolicy: "IfNotPresent"
 
     config:
-      tenantId: "" # Azure tenant ID (required for workload identity)
-      subscriptionId: "" # Default Azure subscription ID
-      clientId: "" # Azure client ID (required for workload-identity and managed-identity)
-      readOnlyMode: true # Blocks write operations against the Azure API. Set to false to allow writes (use with caution). Default true matches AWS/MariaDB MCP addons.
-      authMethod: "workload-identity" # Options: workload-identity, managed-identity, service-principal
-      enableSecurityPolicy: false # Enable additional security policies
-      timeout: "120" # Command execution timeout in seconds
-      namespace: "" # MCP installation namespace (defaults to release namespace if empty)
+      tenantId: ""                      # Azure tenant ID (required for workload identity)
+      subscriptionId: ""                # Default Azure subscription ID
+      clientId: ""                      # Azure client ID (required for workload-identity and managed-identity)
+      readOnlyMode: true                # Blocks write operations against the Azure API. Set to false to allow writes (use with caution). Default true matches AWS/MariaDB MCP addons.
+      authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
+      enableSecurityPolicy: false       # Enable additional security policies
+      timeout: "120"                    # Command execution timeout in seconds
+      namespace: ""                     # MCP installation namespace (defaults to release namespace if empty)
 
     # Secret name for service principal authentication (if using service-principal auth)
     secretName: "azure-mcp-creds"
@@ -397,8 +396,8 @@ mcpAddons:
     auth:
       # Option 1: Personal Access Token (PAT)
       # Create a secret: kubectl create secret generic github-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
-      secretName: "" # Name of K8s secret containing the GitHub PAT
-      secretKey: "token" # Key in secret (default: "token")
+      secretName: ""      # Name of K8s secret containing the GitHub PAT
+      secretKey: "token"  # Key in secret (default: "token")
 
       # Option 2: GitHub App installation token
       # Deploys a self-hosted MCP server that generates and refreshes installation tokens
@@ -409,8 +408,8 @@ mcpAddons:
       #     --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       #     -n <NAMESPACE>
       githubApp:
-        secretName: "" # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.2" # Image with GitHub App token management
+        secretName: ""                                          # Name of K8s secret containing GitHub App credentials
+        image: "github-app-mcp:1.0.2"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
@@ -467,8 +466,8 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     auth:
-      secretName: "" # Required: name of K8s secret containing the Sentry auth token
-      secretKey: "token" # Key in secret (default: "token")
+      secretName: ""      # Required: name of K8s secret containing the Sentry auth token
+      secretKey: "token"  # Key in secret (default: "token")
 
     config:
       # Sentry host URL (leave empty for sentry.io)
@@ -505,8 +504,8 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     auth:
-      secretName: "" # Name of K8s secret containing the Prefect API key (required for Cloud, optional for self-hosted)
-      secretKey: "token" # Key in secret (default: "token")
+      secretName: ""      # Name of K8s secret containing the Prefect API key (required for Cloud, optional for self-hosted)
+      secretKey: "token"  # Key in secret (default: "token")
 
     config:
       # Prefect API URL (required)
@@ -545,15 +544,13 @@ mcpAddons:
       create: true
       name: "k8s-remediation-mcp-sa"
       annotations: {}
-      clusterRole: "cluster-admin" # Override with a more restrictive role as needed
+      clusterRole: "cluster-admin"  # Override with a more restrictive role as needed
 
     config:
       # Comma-separated list of allowed kubectl subcommands
-      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,l\
-        abel,annotate"
+      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
       # Comma-separated list of blocked flags
-      dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-grou\
-        p,--as-uid"
+      dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
       # Command timeout in seconds
       timeout: "60"
       # Log level
@@ -601,17 +598,16 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     auth:
-      secretName: "" # Required: name of K8s secret containing Confluence credentials
-      usernameKey: "confluence-username" # Key in secret for the username/email
-      tokenKey: "confluence-api-token" # Key in secret for the API token
+      secretName: ""         # Required: name of K8s secret containing Confluence credentials
+      usernameKey: "confluence-username"  # Key in secret for the username/email
+      tokenKey: "confluence-api-token"   # Key in secret for the API token
 
     config:
       # Confluence instance URL (required)
       # Example: "https://your-company.atlassian.net/wiki"
       url: ""
       # Restrict available tools (comma-separated, leave empty for all)
-      enabledTools: "confluence_search,confluence_get_page,confluence_get_page_conten\
-        t,confluence_get_comments"
+      enabledTools: "confluence_search,confluence_get_page,confluence_get_page_content,confluence_get_comments"
       # Set to true to disable write operations
       readOnly: true
 
@@ -634,7 +630,7 @@ mcpAddons:
 
 # Holmes Operator Configuration
 operator:
-  enabled: false # Set to true to deploy the operator
+  enabled: false  # Set to true to deploy the operator
 
   # Container image
   image: holmes-operator:0.0.0
@@ -642,8 +638,8 @@ operator:
   imagePullPolicy: IfNotPresent
 
   # Holmes API connection
-  holmesApiUrl: "" # Defaults to "http://<release-name>-holmes:80"
-  holmesApiTimeout: 300 # seconds
+  holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
+  holmesApiTimeout: 300  # seconds
 
   # Logging
   logLevel: INFO
