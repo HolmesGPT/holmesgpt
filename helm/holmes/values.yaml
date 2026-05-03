@@ -409,7 +409,7 @@ mcpAddons:
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.0"                          # Image with GitHub App token management
+        image: "github-app-mcp:1.0.2"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
