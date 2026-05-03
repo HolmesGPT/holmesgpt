@@ -328,7 +328,19 @@ class ToolCallingLLM:
                     except Exception:
                         edited_params = {}
                     edited_params["command"] = tool_decision.edit_command
-                    tool_call.function.arguments = json.dumps(edited_params)
+                    edited_arguments = json.dumps(edited_params)
+                    tool_call.function.arguments = edited_arguments
+                    # Persist the edited command in the conversation history so
+                    # subsequent turns see the command that was actually executed.
+                    msg_tool_calls = messages[tool_call_with_decision.message_index].get(
+                        "tool_calls", []
+                    )
+                    for original_tool_call in msg_tool_calls:
+                        if original_tool_call.get("id") == tool_call.id:
+                            original_function = original_tool_call.get("function") or {}
+                            original_function["arguments"] = edited_arguments
+                            original_tool_call["function"] = original_function
+                            break
 
                 if not tool_result:
                     tool_result = self._invoke_llm_tool_call(
