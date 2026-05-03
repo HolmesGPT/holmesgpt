@@ -70,6 +70,10 @@ def process_oauth_callback(
     # shared oauth config (other users may have different DCR client_ids)
     effective_client_id = client_id or oauth.client_id
 
+    # Use client_secret from frontend (DCR) if available, otherwise fall back
+    # to the server-side config (for pre-registered confidential clients like Azure AD).
+    effective_client_secret = request.client_secret or oauth.client_secret
+
     logger.info("OAuth exchange: token_url=%s client_id=%s", oauth.token_url, effective_client_id)
     token_data = exchange_code_for_tokens(
         token_url=oauth.token_url,
@@ -77,7 +81,7 @@ def process_oauth_callback(
         redirect_uri=request.redirect_uri,
         client_id=effective_client_id,
         code_verifier=request.code_verifier,
-        client_secret=request.client_secret,
+        client_secret=effective_client_secret,
     )
     # Include client_id in token_data so store_token persists it for refresh
     token_data["client_id"] = effective_client_id

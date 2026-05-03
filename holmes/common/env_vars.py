@@ -170,6 +170,9 @@ SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
 SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
     os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
 )
+# Disables TodoWrite for scheduled prompts so the report ends up in ChatResponse.analysis
+# rather than being buried in conversation_history behind a trailing TodoWrite call.
+ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",
@@ -217,6 +220,14 @@ CONVERSATION_WORKER_REALTIME_ENABLED = load_bool(
 )
 CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS", 60)
+)
+# Upper bound on how long a silently-dead realtime WebSocket can go undetected.
+# The realtime library can leave a stale connection in place when the server
+# closes the socket cleanly (ConnectionClosedOK) — _listen_task exits, no
+# auto-reconnect fires, and is_connected still reports True. We re-evaluate
+# liveness every tick and trigger a full reconnect on any failure signal.
+CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS", 5)
 )
 # When True (default), Holmes subscribes to a Broadcast channel
 # (holmes:submit:{account_id}:{cluster_id}) to detect new pending

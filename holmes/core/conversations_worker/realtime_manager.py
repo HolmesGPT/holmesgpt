@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover — optional dependency
 
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS,
+    CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS,
     CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
 )
@@ -247,17 +248,19 @@ class RealtimeManager:
                 return
 
             refresh_interval = CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS
+            health_tick = CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS
             next_refresh_at = asyncio.get_running_loop().time() + refresh_interval
             while not self._stop_event.is_set():
                 now = asyncio.get_running_loop().time()
 
-                # Detect channel closure (e.g. token expiry → server sends
-                # phx_close). The library's auto-reconnect is unreliable
-                # after a channel close, so we do a full teardown/reconnect.
-                if await self._channel_needs_reconnect():
+                # Detect channel closure or silently-dead WS. The library's
+                # auto-reconnect is unreliable on clean closes, so we do our
+                # own full teardown/reconnect on any failure signal.
+                unhealthy_reason = self._channel_unhealthy()
+                if unhealthy_reason is not None:
                     logging.warning(
-                        "Channel no longer joined (state=%s), reconnecting",
-                        self._channel.state if self._channel else "None",
+                        "Realtime channel unhealthy (%s), reconnecting",
+                        unhealthy_reason,
                     )
                     self._connected = False
                     try:
@@ -298,20 +301,24 @@ class RealtimeManager:
                     next_refresh_at = (
                         asyncio.get_running_loop().time() + refresh_interval
                     )
+                # Cap the sleep at the health tick so a silently-dead WS is
+                # detected within ~health_tick seconds rather than waiting
+                # for the next auth refresh.
+                now = asyncio.get_running_loop().time()
                 sleep_for = max(
                     0.01,
-                    next_refresh_at - asyncio.get_running_loop().time(),
+                    min(next_refresh_at - now, health_tick),
                 )
                 # wait_for with _async_stop allows stop() to wake us
                 # immediately via call_soon_threadsafe instead of blocking
-                # for the full refresh interval.
+                # for the full sleep interval.
                 try:
                     await asyncio.wait_for(
                         self._async_stop.wait(), timeout=sleep_for
                     )
                     break  # _async_stop was set → exit loop
                 except asyncio.TimeoutError:
-                    pass  # normal wake — check refresh and loop
+                    pass  # normal wake — re-check health and refresh
         except Exception:
             logging.exception("Error in realtime manager main loop", exc_info=True)
         finally:
@@ -330,18 +337,38 @@ class RealtimeManager:
                     exc_info=True,
                 )
 
-    async def _channel_needs_reconnect(self) -> bool:
-        """True when the subscription channel has left the JOINED state.
+    def _channel_unhealthy(self) -> Optional[str]:
+        """Return a short reason string when the subscription is unhealthy, else None.
 
-        Supabase closes the channel on JWT expiry ("Token has expired").
-        The library's built-in auto-reconnect is unreliable after a channel
-        close — the _listen task can crash with ``ValueError('Set of
-        Tasks/Futures is empty.')``.  We detect this early and do our own
-        full reconnect.
+        Detects the silent-death window in the realtime library: when the
+        server closes the WS cleanly (ConnectionClosedOK), `_listen` exits
+        without triggering auto-reconnect, the heartbeat coroutine swallows
+        the close, and `is_connected` keeps returning True. The channel
+        state also stays JOINED because no `phx_close` arrives.
+
+        Strongest signals (in order of reliability):
+          1. listen task done — cleanest indicator of a dead read loop
+          2. heartbeat task done — write loop crashed/exited
+          3. ws_connection cleared — auto-reconnect did fire but failed
+          4. channel state != JOINED — server-side close (token expiry, etc.)
         """
         if self._channel is None:
-            return True
-        return self._channel.state != ChannelStates.JOINED
+            return "channel_none"
+        if self._channel.state != ChannelStates.JOINED:
+            return f"channel_state={self._channel.state}"
+        if self._client is None:
+            return "client_none"
+        if not self._client.is_connected:
+            return "ws_disconnected"
+        # Library internals — guarded so a future rename degrades to the
+        # public-API checks above instead of crashing the worker.
+        listen_task = getattr(self._client, "_listen_task", None)
+        if listen_task is None or listen_task.done():
+            return "listen_task_done"
+        heartbeat_task = getattr(self._client, "_heartbeat_task", None)
+        if heartbeat_task is None or heartbeat_task.done():
+            return "heartbeat_task_done"
+        return None
 
     async def _full_reconnect(self) -> bool:
         """Tear down the current client and re-establish from scratch.
