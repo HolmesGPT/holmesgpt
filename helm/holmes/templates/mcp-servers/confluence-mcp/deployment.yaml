@@ -102,6 +102,9 @@ spec:
         - name: READ_ONLY_MODE
           value: "true"
         {{- end }}
+        {{- if .Values.mcpAddons.confluenceMcp.additionalEnvVars }}
+        {{- toYaml .Values.mcpAddons.confluenceMcp.additionalEnvVars | nindent 8 }}
+        {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.confluenceMcp.resources | nindent 10 }}
         readinessProbe:
