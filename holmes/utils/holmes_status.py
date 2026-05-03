@@ -63,7 +63,11 @@ class HolmesMetadata:
     namespace: Optional[str] = None
 
 
-def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
+def update_holmes_status_in_db(
+    dal: SupabaseDal,
+    config: Config,
+    realtime_available: Optional[bool] = None,
+):
     logging.info("Updating status of holmes")
 
     if not config.cluster_name:
@@ -72,10 +76,20 @@ def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
             "or verify that a cluster name is provided in the Robusta configuration file."
         )
 
+    # When Supabase Realtime is definitively unavailable, force the
+    # conversation-related fields off regardless of env vars — the worker
+    # cannot function without realtime so advertising support would be a lie.
+    if realtime_available is False:
+        supports_realtime = False
+        requires_broadcast = False
+    else:
+        supports_realtime = bool(ENABLE_CONVERSATION_WORKER)
+        requires_broadcast = bool(CONVERSATION_WORKER_USE_REALTIME_BROADCAST)
+
     metadata = HolmesMetadata(
         is_robusta_ai_enabled=config.should_try_robusta_ai,
-        supports_realtime_conversations=bool(ENABLE_CONVERSATION_WORKER),
-        requires_realtime_broadcast=bool(CONVERSATION_WORKER_USE_REALTIME_BROADCAST),
+        supports_realtime_conversations=supports_realtime,
+        requires_realtime_broadcast=requires_broadcast,
         namespace=_detect_runner_namespace(),
     )
 

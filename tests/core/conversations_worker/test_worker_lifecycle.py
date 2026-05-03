@@ -327,6 +327,87 @@ def test_notify_event_wakes_claim_loop():
     assert call_count["n"] == 1
 
 
+def _make_worker_for_start():
+    """Build a real ConversationWorker with mocked collaborators so we can
+    exercise start() — not the bare-bones helper used elsewhere."""
+    dal = MagicMock()
+    dal.enabled = True
+    dal.account_id = "acct"
+    dal.cluster = "cl"
+    config = MagicMock()
+    chat_function = MagicMock()
+    return ConversationWorker(dal=dal, config=config, chat_function=chat_function)
+
+
+def test_start_aborts_when_realtime_disabled_and_updates_status():
+    """If Supabase says realtime is disabled, start() must NOT spin up the
+    claim loop and MUST call update_holmes_status_in_db with the override."""
+    w = _make_worker_for_start()
+    w.dal.is_realtime_enabled.return_value = False
+
+    with patch(
+        "holmes.utils.holmes_status.update_holmes_status_in_db"
+    ) as mock_update:
+        w.start()
+
+    assert w._running is False
+    assert w._claim_thread is None
+    w.dal.is_realtime_enabled.assert_called_once_with()
+    mock_update.assert_called_once_with(w.dal, w.config, realtime_available=False)
+
+
+def test_start_proceeds_when_realtime_enabled():
+    """When realtime is True, start() should proceed normally."""
+    w = _make_worker_for_start()
+    w.dal.is_realtime_enabled.return_value = True
+
+    with patch(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_REALTIME_ENABLED",
+        False,
+    ), patch(
+        "holmes.utils.holmes_status.update_holmes_status_in_db"
+    ) as mock_update:
+        try:
+            w.start()
+            assert w._running is True
+            mock_update.assert_not_called()
+        finally:
+            w.stop()
+
+
+def test_start_proceeds_when_realtime_check_inconclusive():
+    """When the realtime check returns None (connectivity error), start()
+    must still proceed — we don't take destructive action without a
+    definitive answer from the server."""
+    w = _make_worker_for_start()
+    w.dal.is_realtime_enabled.return_value = None
+
+    with patch(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_REALTIME_ENABLED",
+        False,
+    ), patch(
+        "holmes.utils.holmes_status.update_holmes_status_in_db"
+    ) as mock_update:
+        try:
+            w.start()
+            assert w._running is True
+            mock_update.assert_not_called()
+        finally:
+            w.stop()
+
+
+def test_start_skips_realtime_check_when_dal_disabled():
+    """If the DAL itself isn't enabled, start() returns early before any
+    RPCs are issued — there's no Supabase connection to ask."""
+    w = _make_worker_for_start()
+    w.dal.enabled = False
+
+    w.start()
+
+    assert w._running is False
+    w.dal.is_realtime_enabled.assert_not_called()
+
+
 def test_claim_loop_initial_claim_without_realtime():
     """When _realtime_manager is None, the claim loop does an immediate
     initial claim without waiting for a notification."""

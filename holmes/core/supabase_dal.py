@@ -910,6 +910,57 @@ class SupabaseDal:
 
     # ---- M2: Conversations worker DAL methods ----
 
+    def is_realtime_enabled(self) -> Optional[bool]:
+        """
+        Check whether Supabase Realtime is enabled by calling the
+        ``public.is_realtime_enabled()`` RPC.
+
+        Returns:
+            ``True``  — RPC executed and reported realtime is enabled.
+            ``False`` — RPC executed and reported realtime is NOT enabled,
+                       OR the RPC does not exist (treated as not enabled).
+            ``None``  — Could not determine (connectivity error, auth failure,
+                       or any other transport-level issue). The caller should
+                       NOT take destructive action in this case.
+
+        We deliberately distinguish "definitive answer from server" from
+        "couldn't reach the server" so the conversation worker only disables
+        itself when Supabase has actually told us realtime is off.
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc("is_realtime_enabled", {}).execute()
+        except PGAPIError as exc:
+            # PostgREST returns PGRST202 ("Could not find the function ...")
+            # when the RPC does not exist. Treat that as a definitive "no".
+            code = getattr(exc, "code", None) or ""
+            message = (getattr(exc, "message", None) or "").lower()
+            if code == "PGRST202" or "could not find the function" in message:
+                logging.info(
+                    "is_realtime_enabled RPC does not exist — treating Supabase "
+                    "Realtime as disabled"
+                )
+                return False
+            logging.warning(
+                "Supabase API error while checking realtime status (code=%s): %s",
+                code,
+                exc,
+            )
+            return None
+        except Exception:
+            logging.warning(
+                "Connectivity/transport error while checking realtime status",
+                exc_info=True,
+            )
+            return None
+
+        data = res.data
+        if isinstance(data, list):
+            data = data[0] if data else None
+        return bool(data)
+
     def claim_conversations(self, holmes_id: str) -> List[Dict]:
         """
         Atomically claim all pending conversations for this cluster.

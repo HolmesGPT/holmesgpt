@@ -114,6 +114,32 @@ class ConversationWorker:
             logging.warning("ConversationWorker is already running")
             return
 
+        # Verify Supabase Realtime is actually enabled before starting.
+        # Returns True/False if Supabase responded definitively, or None if
+        # we couldn't reach the server. We only refuse to start on a
+        # definitive False — a connectivity issue is transient and the
+        # worker can retry, but a confirmed-disabled realtime means the
+        # worker would loop uselessly.
+        realtime_status = self.dal.is_realtime_enabled()
+        if realtime_status is False:
+            logging.warning(
+                "ConversationWorker not started - Supabase Realtime is not "
+                "enabled on this project"
+            )
+            try:
+                from holmes.utils.holmes_status import update_holmes_status_in_db
+
+                update_holmes_status_in_db(
+                    self.dal, self.config, realtime_available=False
+                )
+            except Exception:
+                logging.exception(
+                    "Failed to update holmes status after detecting "
+                    "realtime is disabled",
+                    exc_info=True,
+                )
+            return
+
         self._running = True
         self._executor = ThreadPoolExecutor(
             max_workers=CONVERSATION_WORKER_MAX_CONCURRENT,
