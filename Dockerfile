@@ -51,11 +51,13 @@ ARG TARGETARCH
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
 RUN gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd
 
-# Set up Helm
-ARG HELM_VERSION=v3.20.1
-RUN curl -sSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz | tar xz -C /tmp \
-    && mv /tmp/linux-${TARGETARCH}/helm /helm \
-    && rm -rf /tmp/linux-${TARGETARCH}
+# Set up Helm (pre-built with Go 1.25.9 to fix stdlib CVE-2026-32280/32281/32283/25679,
+# and grpc pinned to v1.79.3 to fix CVE-2026-33186).
+# Helm v3.20.2 ships with Go 1.25.8 + grpc 1.72.2 which are vulnerable.
+# Rebuild with: ./scripts/build_go_binaries.sh
+# Revert to upstream binary when Helm releases a version built with Go >= 1.25.9 and grpc >= 1.79.3.
+COPY bin/go-cve-rebuild/${TARGETARCH}/helm.gz /tmp/helm.gz
+RUN gunzip /tmp/helm.gz && mv /tmp/helm /helm && chmod +x /helm
 
 # Set up poetry
 ARG PRIVATE_PACKAGE_REGISTRY="none"
