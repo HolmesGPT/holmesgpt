@@ -264,6 +264,23 @@ class TestToolApproval:
                 decision["edit_command"] = edited_command
             tool_decisions.append(decision)
 
+        # The test is only meaningful if a bash tool call was pending and we
+        # actually attached an edit_command override to its decision.  Fail
+        # loudly if not, so the cause is obvious instead of surfacing as a
+        # confusing StopIteration / "edited command not found" later on.
+        edited_id = next(
+            (p["tool_call_id"] for p in pending if p.get("tool_name") == "bash"),
+            None,
+        )
+        assert edited_id is not None, (
+            f"Expected a bash tool call in pending approvals, got: "
+            f"{[p.get('tool_name') for p in pending]}"
+        )
+        assert any("edit_command" in d for d in tool_decisions), (
+            "Expected at least one tool_decision to carry an edit_command "
+            f"override; built decisions: {tool_decisions}"
+        )
+
         now_iso = datetime.now(timezone.utc).isoformat()
         followup = supabase_fx.post_followup(
             conversation_id=cid,
@@ -282,12 +299,6 @@ class TestToolApproval:
             cid, request_sequence=followup["request_sequence"], timeout=180
         )
         assert result["status"] == "completed"
-
-        # Capture the id of the tool call we actually edited so we can
-        # later assert its TOOL_RESULT params and history entry.
-        edited_id = next(
-            p["tool_call_id"] for p in pending if p.get("tool_name") == "bash"
-        )
 
         # Holmes may issue further tool calls before producing ai_answer_end
         # (the unfamiliar verification string can encourage extra
