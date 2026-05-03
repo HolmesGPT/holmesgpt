@@ -21,7 +21,7 @@ from postgrest.exceptions import APIError as PGAPIError
 from postgrest.types import ReturnMethod
 from pydantic import BaseModel
 from supabase import create_client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import SyncClientOptions as ClientOptions
 
 from holmes.common.env_vars import (
     ROBUSTA_ACCOUNT_ID,

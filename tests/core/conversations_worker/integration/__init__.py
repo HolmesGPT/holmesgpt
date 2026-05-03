@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from realtime._async.client import AsyncRealtimeClient
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import SyncClientOptions as ClientOptions
 
 from holmes.core.conversations_worker.realtime_manager import (
     broadcast_submit_topic,
