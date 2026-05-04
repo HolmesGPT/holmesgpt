@@ -17,6 +17,12 @@ const TOOLSET_TYPES = [
 
 const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce'])
 
+type PagerDutyInstanceConfig = {
+  service_ids?: string[]
+  team_ids?: string[]
+  api_key?: string
+}
+
 function TagsEditor({
   tags,
   onChange,
@@ -98,6 +104,75 @@ function TagsEditor({
   )
 }
 
+function ChipListEditor({
+  label,
+  placeholder,
+  values,
+  onChange,
+}: {
+  label: string
+  placeholder: string
+  values: string[]
+  onChange: (next: string[]) => void
+}) {
+  const [input, setInput] = useState('')
+
+  const add = () => {
+    const v = input.trim()
+    if (v && !values.includes(v)) {
+      onChange([...values, v])
+      setInput('')
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-pdi-granite mb-1">{label}</label>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {values.map((v) => (
+          <span
+            key={v}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-pdi-sky/10 text-pdi-sky border border-pdi-sky/20 rounded-md"
+          >
+            {v}
+            <button
+              type="button"
+              aria-label={`Remove ${v}`}
+              onClick={() => onChange(values.filter((x) => x !== v))}
+              className="hover:text-pdi-orange"
+            >
+              &times;
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+          placeholder={placeholder}
+          aria-label={label}
+          className="flex-1 text-sm border border-pdi-cool-gray rounded-md px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-pdi-sky"
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="px-3 py-2 text-sm font-medium text-pdi-slate bg-white border border-pdi-cool-gray rounded-md hover:bg-gray-50 transition-colors"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function InstanceFormDialog({
   instance,
   onClose,
@@ -117,13 +192,11 @@ function InstanceFormDialog({
   const [awsRoleArn, setAwsRoleArn] = useState(instance?.aws_role_arn ?? '')
   const [awsRegions, setAwsRegions] = useState<string[]>(instance?.aws_regions ?? [])
   const [pdServiceIds, setPdServiceIds] = useState<string[]>(
-    (instance?.config as { service_ids?: string[] } | null | undefined)?.service_ids ?? []
+    (instance?.config as PagerDutyInstanceConfig | null | undefined)?.service_ids ?? []
   )
   const [pdTeamIds, setPdTeamIds] = useState<string[]>(
-    (instance?.config as { team_ids?: string[] } | null | undefined)?.team_ids ?? []
+    (instance?.config as PagerDutyInstanceConfig | null | undefined)?.team_ids ?? []
   )
-  const [pdServiceInput, setPdServiceInput] = useState('')
-  const [pdTeamInput, setPdTeamInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
@@ -409,106 +482,20 @@ function InstanceFormDialog({
               </p>
 
               {/* Service IDs */}
-              <div>
-                <label className="block text-sm font-medium text-pdi-granite mb-1">Service IDs</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {pdServiceIds.map((id) => (
-                    <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-pdi-sky/10 text-pdi-sky border border-pdi-sky/20 rounded-md">
-                      {id}
-                      <button
-                        type="button"
-                        onClick={() => setPdServiceIds(pdServiceIds.filter((x) => x !== id))}
-                        className="hover:text-pdi-orange"
-                      >
-                        &times;
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={pdServiceInput}
-                    onChange={(e) => setPdServiceInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        const v = pdServiceInput.trim()
-                        if (v && !pdServiceIds.includes(v)) {
-                          setPdServiceIds([...pdServiceIds, v])
-                          setPdServiceInput('')
-                        }
-                      }
-                    }}
-                    placeholder="e.g. PSVC123"
-                    className="flex-1 text-sm border border-pdi-cool-gray rounded-md px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-pdi-sky"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const v = pdServiceInput.trim()
-                      if (v && !pdServiceIds.includes(v)) {
-                        setPdServiceIds([...pdServiceIds, v])
-                        setPdServiceInput('')
-                      }
-                    }}
-                    className="px-3 py-2 text-sm font-medium text-pdi-slate bg-white border border-pdi-cool-gray rounded-md hover:bg-gray-50 transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
+              <ChipListEditor
+                label="Service IDs"
+                placeholder="e.g. PSVC123"
+                values={pdServiceIds}
+                onChange={setPdServiceIds}
+              />
 
               {/* Team IDs */}
-              <div>
-                <label className="block text-sm font-medium text-pdi-granite mb-1">Team IDs</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {pdTeamIds.map((id) => (
-                    <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-pdi-sky/10 text-pdi-sky border border-pdi-sky/20 rounded-md">
-                      {id}
-                      <button
-                        type="button"
-                        onClick={() => setPdTeamIds(pdTeamIds.filter((x) => x !== id))}
-                        className="hover:text-pdi-orange"
-                      >
-                        &times;
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={pdTeamInput}
-                    onChange={(e) => setPdTeamInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        const v = pdTeamInput.trim()
-                        if (v && !pdTeamIds.includes(v)) {
-                          setPdTeamIds([...pdTeamIds, v])
-                          setPdTeamInput('')
-                        }
-                      }
-                    }}
-                    placeholder="e.g. PTEAM456"
-                    className="flex-1 text-sm border border-pdi-cool-gray rounded-md px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-pdi-sky"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const v = pdTeamInput.trim()
-                      if (v && !pdTeamIds.includes(v)) {
-                        setPdTeamIds([...pdTeamIds, v])
-                        setPdTeamInput('')
-                      }
-                    }}
-                    className="px-3 py-2 text-sm font-medium text-pdi-slate bg-white border border-pdi-cool-gray rounded-md hover:bg-gray-50 transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
+              <ChipListEditor
+                label="Team IDs"
+                placeholder="e.g. PTEAM456"
+                values={pdTeamIds}
+                onChange={setPdTeamIds}
+              />
 
               {/* Connection status */}
               {connectionStatus && (
@@ -532,7 +519,7 @@ function InstanceFormDialog({
               )}
 
               {/* Test Connection button — only for saved instances with credentials */}
-              {instance && (instance.secret_arn || (instance.config as { api_key?: string } | null | undefined)?.api_key) && (
+              {instance && (instance.secret_arn || (instance.config as PagerDutyInstanceConfig | null | undefined)?.api_key) && (
                 <button
                   type="button"
                   onClick={handleTestConnection}
