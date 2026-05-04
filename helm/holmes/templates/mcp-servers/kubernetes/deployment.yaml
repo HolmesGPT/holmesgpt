@@ -1,4 +1,18 @@
 {{- if .Values.mcpAddons.kubernetes.enabled }}
+{{- /* Resolve which Secret holds the MCP server's config.toml (if any).
+       Either:
+         - serverConfig: free-form TOML content; the chart generates a Secret.
+         - configSecret.secretName: name of an externally-managed Secret.
+       Both set is a config error. */ -}}
+{{- $serverConfig := .Values.mcpAddons.kubernetes.config.serverConfig | default "" -}}
+{{- $configSecretName := .Values.mcpAddons.kubernetes.config.configSecret.secretName | default "" -}}
+{{- if and $serverConfig $configSecretName -}}
+  {{- fail "mcpAddons.kubernetes.config: set either `serverConfig` (chart-generated Secret) or `configSecret.secretName` (external Secret), not both." -}}
+{{- end -}}
+{{- if $serverConfig -}}
+  {{- $configSecretName = printf "%s-k8s-mcp-server-config" .Release.Name -}}
+{{- end -}}
+{{- $useConfigFile := ne $configSecretName "" -}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -12,6 +26,24 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
 data: {}
+{{- if $serverConfig }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $configSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+type: Opaque
+stringData:
+  config.toml: |
+{{ $serverConfig | indent 4 }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -76,7 +108,7 @@ spec:
           - "--log-level"
           - {{ .Values.mcpAddons.kubernetes.config.logLevel | quote }}
           {{- end }}
-          {{- if .Values.mcpAddons.kubernetes.config.configSecret.secretName }}
+          {{- if $useConfigFile }}
           - "--config"
           - "/etc/kubernetes-mcp/config.toml"
           {{- end }}
@@ -104,20 +136,20 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
-        {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName .Values.mcpAddons.kubernetes.config.configSecret.secretName }}
+        {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile }}
         volumeMounts:
         {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
         - name: kubeconfig
           mountPath: /etc/kubernetes
           readOnly: true
         {{- end }}
-        {{- if .Values.mcpAddons.kubernetes.config.configSecret.secretName }}
+        {{- if $useConfigFile }}
         - name: mcp-config
           mountPath: /etc/kubernetes-mcp
           readOnly: true
         {{- end }}
         {{- end }}
-      {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName .Values.mcpAddons.kubernetes.config.configSecret.secretName }}
+      {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile }}
       volumes:
       {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
       - name: kubeconfig
@@ -125,10 +157,10 @@ spec:
           secretName: {{ .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
           defaultMode: 420
       {{- end }}
-      {{- if .Values.mcpAddons.kubernetes.config.configSecret.secretName }}
+      {{- if $useConfigFile }}
       - name: mcp-config
         secret:
-          secretName: {{ .Values.mcpAddons.kubernetes.config.configSecret.secretName }}
+          secretName: {{ $configSecretName }}
           defaultMode: 420
       {{- end }}
       {{- end }}

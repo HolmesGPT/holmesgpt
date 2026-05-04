@@ -594,7 +594,7 @@ mcpAddons:
   kubernetes:
     enabled: false
 
-    image: "kubernetes-mcp-server:0.0.61-oauth"
+    image: "kubernetes-mcp-server:v0.0.61-oauth"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -627,13 +627,31 @@ mcpAddons:
       kubeconfig:
         secretName: ""    # Name of K8s secret containing the kubeconfig file
         secretKey: "kubeconfig"  # Key in secret (default: "kubeconfig")
-      # TOML configuration file secret for advanced settings (OAuth/OIDC, etc.)
-      # Create a secret with the TOML config:
+      # Inline TOML server config. The chart creates a Secret containing this
+      # content and mounts it at /etc/kubernetes-mcp/config.toml. Use this for
+      # OAuth/OIDC settings — the kubernetes-mcp-server only accepts those via
+      # config.toml (no CLI flags or env vars exist for them).
+      # For OAuth mode also set serviceAccount.createClusterRoleBinding=false.
+      #
+      # Example (OpenShift OAuth, opaque-token passthrough):
+      #   serverConfig: |
+      #     require_oauth = true
+      #     accept_opaque_tokens = true
+      #     cluster_auth_mode = "passthrough"
+      #
+      # Example (Microsoft Entra ID / Azure AD):
+      #   serverConfig: |
+      #     require_oauth = true
+      #     authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
+      #     oauth_audience = "6dae42f8-4368-4678-94ff-3960e28e3630"
+      #     oauth_scopes = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
+      #     issuer_url = "https://sts.windows.net/<TENANT_ID>/"
+      #
+      # Mutually exclusive with `configSecret.secretName` below.
+      serverConfig: ""
+      # Reference an externally-managed Secret containing config.toml. Use this
+      # if you'd rather create the Secret out-of-band:
       #   kubectl create secret generic k8s-mcp-config --from-file=config.toml=/path/to/config.toml -n <NAMESPACE>
-      # For OAuth mode, set serviceAccount.createClusterRoleBinding=false and include in the TOML:
-      #   require_oauth = true
-      #   accept_opaque_tokens = true
-      #   cluster_auth_mode = "passthrough"
       configSecret:
         secretName: ""         # Name of K8s secret containing config.toml
         secretKey: "config.toml"  # Key in secret (default: "config.toml")
@@ -744,3 +762,13 @@ operator:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+
+
+
+
+
+
+
+
+       
