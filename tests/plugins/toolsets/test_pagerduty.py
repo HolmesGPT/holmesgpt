@@ -1,9 +1,13 @@
 """Unit tests for the PagerDuty toolset."""
 
+from unittest.mock import patch, MagicMock
+
+from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.pagerduty.toolset_pagerduty import (
     PagerDutyConfig,
     PagerDutyToolset,
 )
+from tests.conftest import create_mock_tool_invoke_context
 
 
 class TestPagerDutyConfig:
@@ -75,3 +79,69 @@ class TestApplyScopeFilters:
         query, note = ts._apply_scope_filters({}, {"service_ids": "PX,PY"})
         assert query["service_ids[]"] == ["PX", "PY"]
         assert note is None
+
+
+def _mock_ok(json_body: dict) -> MagicMock:
+    m = MagicMock()
+    m.status_code = 200
+    m.json.return_value = json_body
+    m.raise_for_status = MagicMock()
+    return m
+
+
+class TestListToolsWithScope:
+    def _toolset(self, **cfg_kwargs) -> PagerDutyToolset:
+        ts = PagerDutyToolset()
+        ts.pd_config = PagerDutyConfig(api_key="k", **cfg_kwargs)
+        return ts
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_list_incidents_applies_instance_service_filter(self, mock_get):
+        mock_get.return_value = _mock_ok({"incidents": []})
+        ts = self._toolset(service_ids=["PSVC_ALPHA"])
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_incidents")
+
+        result = tool._invoke({}, create_mock_tool_invoke_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["service_ids[]"] == ["PSVC_ALPHA"]
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_list_services_applies_team_filter(self, mock_get):
+        mock_get.return_value = _mock_ok({"services": []})
+        ts = self._toolset(team_ids=["PTEAM_A"])
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_services")
+
+        result = tool._invoke({}, create_mock_tool_invoke_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["team_ids[]"] == ["PTEAM_A"]
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_get_oncall_applies_team_filter_but_not_service_filter(self, mock_get):
+        # /oncalls does not support service_ids — confirm it is NOT sent.
+        mock_get.return_value = _mock_ok({"oncalls": []})
+        ts = self._toolset(team_ids=["PTEAM_A"], service_ids=["PSVC1"])
+        tool = next(t for t in ts.tools if t.name == "get_pagerduty_oncall")
+
+        result = tool._invoke({}, create_mock_tool_invoke_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["team_ids[]"] == ["PTEAM_A"]
+        assert "service_ids[]" not in kwargs["params"]
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_list_incidents_notes_narrowed_filter_in_result_data(self, mock_get):
+        mock_get.return_value = _mock_ok({"incidents": []})
+        ts = self._toolset(service_ids=["P1"])
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_incidents")
+
+        result = tool._invoke(
+            {"service_ids": "P2,P3"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "narrowed" in result.data.lower()

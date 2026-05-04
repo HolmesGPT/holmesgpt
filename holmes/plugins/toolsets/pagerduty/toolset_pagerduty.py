@@ -231,20 +231,20 @@ class ListPagerDutyIncidents(BasePagerDutyTool):
                 "limit": params.get("limit", self.toolset.pd_config.default_limit),
                 "sort_by": "created_at:desc",
             }
-            for s in statuses:
-                query.setdefault("statuses[]", []).append(s)  # type: ignore[attr-defined]
-
-            if params.get("service_ids"):
-                for sid in params["service_ids"].split(","):
-                    query.setdefault("service_ids[]", []).append(sid.strip())  # type: ignore[attr-defined]
+            query["statuses[]"] = statuses
 
             if params.get("urgency"):
-                query["urgencies[]"] = [params["urgency"]]  # type: ignore[assignment]
+                query["urgencies[]"] = [params["urgency"]]
+
+            query, scope_note = self.toolset._apply_scope_filters(query, params)
 
             data = self.toolset.get("/incidents", params=query)
+            payload = json.dumps(data, indent=2)
+            if scope_note:
+                payload = f"[{scope_note}]\n{payload}"
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(data, indent=2),
+                data=payload,
                 params=params,
                 url="https://app.pagerduty.com/incidents",
             )
@@ -350,10 +350,16 @@ class ListPagerDutyServices(BasePagerDutyTool):
             }
             if params.get("query"):
                 query["query"] = params["query"]
+
+            query, scope_note = self.toolset._apply_scope_filters(query, params)
+
             data = self.toolset.get("/services", params=query)
+            payload = json.dumps(data, indent=2)
+            if scope_note:
+                payload = f"[{scope_note}]\n{payload}"
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(data, indent=2),
+                data=payload,
                 params=params,
                 url="https://app.pagerduty.com/services",
             )
@@ -445,15 +451,32 @@ class GetPagerDutyOnCall(BasePagerDutyTool):
             if params.get("escalation_policy_ids"):
                 query["escalation_policy_ids[]"] = [
                     p.strip() for p in params["escalation_policy_ids"].split(",")
-                ]  # type: ignore[assignment]
+                ]
             if params.get("schedule_ids"):
                 query["schedule_ids[]"] = [
                     s.strip() for s in params["schedule_ids"].split(",")
-                ]  # type: ignore[assignment]
+                ]
+
+            # /oncalls does not support service_ids. Drop user-supplied service_ids
+            # from params AND temporarily clear the instance's service_ids so the
+            # scope helper skips that dimension.
+            filtered_params = {k: v for k, v in params.items() if k != "service_ids"}
+            saved_service_ids = self.toolset.pd_config.service_ids
+            self.toolset.pd_config.service_ids = None
+            try:
+                query, scope_note = self.toolset._apply_scope_filters(
+                    query, filtered_params
+                )
+            finally:
+                self.toolset.pd_config.service_ids = saved_service_ids
+
             data = self.toolset.get("/oncalls", params=query)
+            payload = json.dumps(data, indent=2)
+            if scope_note:
+                payload = f"[{scope_note}]\n{payload}"
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(data, indent=2),
+                data=payload,
                 params=params,
                 url="https://app.pagerduty.com/on-call-coverage",
             )
