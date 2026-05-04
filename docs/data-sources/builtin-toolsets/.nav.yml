@@ -2,6 +2,7 @@ nav:
   - index.md
   - AKS Node Health: aks-node-health.md
   - ArgoCD: argocd.md
+  - Atlassian (MCP): atlassian-mcp.md
   - AWS (MCP): aws.md
   - Azure (MCP): azure-mcp.md
   - Azure Kubernetes Service: aks.md
