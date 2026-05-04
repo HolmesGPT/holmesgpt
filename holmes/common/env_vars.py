@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import platform
 import tempfile
@@ -242,52 +241,11 @@ CONVERSATION_WORKER_USE_REALTIME_BROADCAST = load_bool(
 # Initial backoff (seconds) when checking is_realtime_enabled() RPC fails
 # due to connectivity issues. The verifier doubles this on each retry up
 # to CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS.
-def _load_positive_float(name: str, default: float) -> float:
-    """Read a strictly-positive float from the environment, falling back
-    to ``default`` for missing, non-numeric, or non-positive values."""
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        logging.warning(
-            "%s=%r is not a number; falling back to %s", name, raw, default
-        )
-        return default
-    if value <= 0:
-        logging.warning(
-            "%s=%s must be > 0; falling back to %s", name, value, default
-        )
-        return default
-    return value
-
-
-_DEFAULT_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS = 5.0
-_DEFAULT_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = 120.0
-
-CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS = _load_positive_float(
-    "CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS",
-    _DEFAULT_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
-)
-CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = _load_positive_float(
-    "CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS",
-    _DEFAULT_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
-)
-# Max must be >= initial — otherwise the doubling loop would actually
-# shrink the wait. Clamp up if misconfigured.
-if (
-    CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS
-    < CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS
-):
-    logging.warning(
-        "CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS=%s < "
-        "CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS=%s; "
-        "raising max to match initial",
-        CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
-        CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
+CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS = float(
+    os.environ.get(
+        "CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS", 5.0
     )
-    CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = max(
-        CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
-        _DEFAULT_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
-    )
+)
+CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS", 120.0)
+)
