@@ -26,6 +26,14 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 PAGERDUTY_API_BASE = "https://api.pagerduty.com"
 
 
+class PagerDutyAuthError(RuntimeError):
+    """Raised when PagerDuty returns 401."""
+
+
+class PagerDutyRateLimitError(RuntimeError):
+    """Raised when PagerDuty returns 429."""
+
+
 class PagerDutyConfig(ToolsetConfig):
     """Configuration for PagerDuty API access."""
 
@@ -129,6 +137,16 @@ class PagerDutyToolset(Toolset):
         resp = requests.get(
             url, headers=self._headers(), params=params or {}, timeout=30
         )
+        if resp.status_code == 401:
+            raise PagerDutyAuthError(
+                "PagerDuty API key rejected (401). "
+                "Check the secret configured for this instance."
+            )
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "unknown")
+            raise PagerDutyRateLimitError(
+                f"PagerDuty API rate limit exceeded (429). Retry-After: {retry_after}"
+            )
         resp.raise_for_status()
         return resp.json()
 

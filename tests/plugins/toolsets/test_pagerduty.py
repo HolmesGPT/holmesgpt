@@ -337,3 +337,42 @@ class TestHealthCheck:
         _, kwargs = mock_get.call_args
         assert "service_ids[]" not in kwargs["params"]
         assert "team_ids[]" not in kwargs["params"]
+
+
+import requests as _requests
+
+
+class TestRuntimeErrorMessages:
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_401_at_tool_call_returns_clear_error(self, mock_get):
+        resp = MagicMock()
+        resp.status_code = 401
+        resp.text = "Unauthorized"
+        resp.raise_for_status.side_effect = _requests.HTTPError(response=resp)
+        mock_get.return_value = resp
+
+        ts = PagerDutyToolset()
+        ts.pd_config = PagerDutyConfig(api_key="k")
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_incidents")
+        result = tool._invoke({}, create_mock_tool_invoke_context())
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "rejected" in result.error.lower() or "401" in result.error
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_429_at_tool_call_returns_rate_limit_error(self, mock_get):
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.text = "Too Many Requests"
+        resp.headers = {"Retry-After": "30"}
+        resp.raise_for_status.side_effect = _requests.HTTPError(response=resp)
+        mock_get.return_value = resp
+
+        ts = PagerDutyToolset()
+        ts.pd_config = PagerDutyConfig(api_key="k")
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_incidents")
+        result = tool._invoke({}, create_mock_tool_invoke_context())
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "rate limit" in result.error.lower()
+        assert "30" in result.error
