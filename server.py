@@ -462,17 +462,31 @@ def chat(chat_request: ChatRequest, http_request: Request):
         )
 
         global_instructions = dal.get_global_instructions_for_account()
-        messages = build_chat_messages(
-            chat_request.ask,
-            chat_request.conversation_history,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            additional_system_prompt=chat_request.additional_system_prompt,
-            skills=skills,
-            images=chat_request.images,
-            prompt_component_overrides=prompt_component_overrides,
+
+        # A follow-up may carry only tool_decisions / frontend_tool_results
+        # (no new user question). In that case, resume from the existing
+        # conversation_history without appending an empty user message —
+        # otherwise the LLM sees a content-less user turn and responds with
+        # something like "looks like your question is empty, how can I help?".
+        resume_only = bool(
+            not chat_request.ask
+            and chat_request.conversation_history
+            and (chat_request.tool_decisions or chat_request.frontend_tool_results)
         )
+        if resume_only:
+            messages = list(chat_request.conversation_history)
+        else:
+            messages = build_chat_messages(
+                chat_request.ask,
+                chat_request.conversation_history,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+                additional_system_prompt=chat_request.additional_system_prompt,
+                skills=skills,
+                images=chat_request.images,
+                prompt_component_overrides=prompt_component_overrides,
+            )
 
         try:
             request_ai, has_pause_tools = inject_frontend_tools(
