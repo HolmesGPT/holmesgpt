@@ -487,6 +487,68 @@ async def _test_pagerduty_instance_connection(store, inst):
     return {"ok": False, "status": "error", "error": msg}
 
 
+async def _test_mcp_instance_connection(store, inst):
+    """Test an MCP instance by building a RemoteMCPToolset and running
+    check_prerequisites. Returns dict payload for JSONResponse.
+    """
+    from projects import (  # noqa: PLC0415
+        _build_mcp_toolset,
+        _fetch_secret,
+        _instance_to_toolset_instance,
+    )
+
+    # Resolve api_key.
+    if inst.secret_arn:
+        try:
+            creds = _fetch_secret(inst.secret_arn)
+        except Exception as e:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": f"Failed to fetch secret: {e}",
+            }
+        api_key = creds.get("api_key") or creds.get("x-api-key") or ""
+        if not api_key:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": "Secret has no 'api_key' field",
+            }
+    else:
+        env_var = f"MCP_{inst.type.upper()}_API_KEY"
+        api_key = os.environ.get(env_var, "")
+        if not api_key:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": (
+                    f"No credential source: set secret_arn on the instance or "
+                    f"populate {env_var} in the pod environment"
+                ),
+            }
+
+    # Convert Instance → ToolsetInstance (what _build_mcp_toolset expects).
+    tsi = _instance_to_toolset_instance(inst)
+    try:
+        ts = _build_mcp_toolset(tsi, api_key)
+    except ValueError as e:
+        return {"ok": False, "status": "error", "error": str(e)}
+
+    ok, msg = ts.check_prerequisites()
+
+    # Defensive: strip api_key from any error message before returning.
+    if msg and api_key and api_key in msg:
+        msg = msg.replace(api_key, "<redacted>")
+
+    if ok:
+        return {
+            "ok": True,
+            "status": "success",
+            "tool_count": len(getattr(ts, "tools", [])),
+        }
+    return {"ok": False, "status": "error", "error": msg}
+
+
 def mount_frontend(app: FastAPI, config=None) -> None:
     """Add auth endpoints, integrations API, and static file serving to the FastAPI app."""
 
@@ -1436,6 +1498,11 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 return JSONResponse(body)
             if inst.type == "pagerduty":
                 body = await _test_pagerduty_instance_connection(store, inst)
+                return JSONResponse(body)
+
+            from projects import _MCP_TOOLSET_TYPES  # noqa: PLC0415
+            if inst.type in _MCP_TOOLSET_TYPES:
+                body = await _test_mcp_instance_connection(store, inst)
                 return JSONResponse(body)
 
             raise HTTPException(
