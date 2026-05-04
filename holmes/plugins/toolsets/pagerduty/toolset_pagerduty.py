@@ -92,13 +92,16 @@ class PagerDutyToolset(Toolset):
     def _health_check(self) -> Tuple[bool, str]:
         assert self.pd_config is not None
         try:
-            # Use /services with limit=1 as a lightweight health check.
-            # The /abilities endpoint was deprecated by PagerDuty and may
-            # return 410 Gone or 404 on newer accounts.
+            params: dict[str, Any] = {"limit": 1}
+            if self.pd_config.service_ids:
+                params["service_ids[]"] = list(self.pd_config.service_ids)
+            if self.pd_config.team_ids:
+                params["team_ids[]"] = list(self.pd_config.team_ids)
+
             resp = requests.get(
                 f"{self.pd_config.api_url}/services",
                 headers=self._headers(),
-                params={"limit": 1},
+                params=params,
                 timeout=10,
             )
             if resp.status_code == 200:

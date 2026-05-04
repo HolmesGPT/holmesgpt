@@ -302,3 +302,38 @@ class TestListAlertsScopeGuard:
 
         assert result.status == StructuredToolResultStatus.ERROR
         assert "not in this project's scope" in result.error
+
+
+class TestHealthCheck:
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_health_check_401_returns_clear_error(self, mock_get):
+        resp = MagicMock()
+        resp.status_code = 401
+        resp.text = "Unauthorized"
+        mock_get.return_value = resp
+        ts = PagerDutyToolset()
+        ok, msg = ts.prerequisites_callable({"api_key": "bad"})
+        assert ok is False
+        assert "invalid or expired" in msg
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_health_check_includes_scope_filters(self, mock_get):
+        mock_get.return_value = _mock_ok({"services": []})
+        ts = PagerDutyToolset()
+        ok, msg = ts.prerequisites_callable(
+            {"api_key": "k", "service_ids": ["P1"], "team_ids": ["T1"]}
+        )
+        assert ok is True
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["service_ids[]"] == ["P1"]
+        assert kwargs["params"]["team_ids[]"] == ["T1"]
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_health_check_no_filters_no_filter_params(self, mock_get):
+        mock_get.return_value = _mock_ok({"services": []})
+        ts = PagerDutyToolset()
+        ok, msg = ts.prerequisites_callable({"api_key": "k"})
+        assert ok is True
+        _, kwargs = mock_get.call_args
+        assert "service_ids[]" not in kwargs["params"]
+        assert "team_ids[]" not in kwargs["params"]
