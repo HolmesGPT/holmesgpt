@@ -535,10 +535,15 @@ async def _test_mcp_instance_connection(store, inst):
         return {"ok": False, "status": "error", "error": str(e)}
 
     # MCP toolsets use the Toolset base-class check which sets self.status
-    # and self.error instead of returning (ok, msg).
+    # and self.error instead of returning (ok, msg). The check_prerequisites
+    # implementation internally runs asyncio.run() for MCP handshakes, which
+    # can't execute inside our already-running FastAPI event loop, so we
+    # dispatch it to a worker thread.
+    import asyncio  # noqa: PLC0415
+
     from holmes.core.tools import ToolsetStatusEnum  # noqa: PLC0415
 
-    ts.check_prerequisites()
+    await asyncio.to_thread(ts.check_prerequisites)
     ok = ts.status == ToolsetStatusEnum.ENABLED
     msg = getattr(ts, "error", "") or ""
 
