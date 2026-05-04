@@ -94,3 +94,20 @@ class TestPagerDutyConnectionHelper:
         )
         assert body["ok"] is False
         assert "no 'api_key' field" in body["error"]
+
+
+class TestJenkinsInMcpRegistry:
+    def test_jenkins_registered_in_mcp_types(self):
+        from projects import (  # noqa: PLC0415
+            _MCP_DEFAULT_URLS,
+            _MCP_DESCRIPTIONS,
+            _MCP_ICONS,
+            _MCP_TOOLSET_TYPES,
+        )
+
+        assert "jenkins" in _MCP_TOOLSET_TYPES
+        assert _MCP_DEFAULT_URLS["jenkins"] == (
+            "https://mcp-api.platform.pditechnologies.com/v1/jenkins-sse/mcp"
+        )
+        assert _MCP_ICONS["jenkins"].startswith("https://cdn.simpleicons.org/jenkins/")
+        assert "Jenkins" in _MCP_DESCRIPTIONS["jenkins"]
