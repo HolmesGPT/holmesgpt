@@ -958,7 +958,19 @@ class SupabaseDal:
 
         data = res.data
         if isinstance(data, list):
-            data = data[0] if data else None
+            # An empty list means PostgREST returned no rows — there's no
+            # value to coerce, so we can't conclude anything. Treat it as
+            # inconclusive (None) rather than silently disabling the
+            # worker on a False fallback.
+            if not data:
+                logging.warning(
+                    "is_realtime_enabled returned an empty result set — "
+                    "treating as inconclusive"
+                )
+                return None
+            data = data[0]
+        if data is None:
+            return None
         return bool(data)
 
     def claim_conversations(self, holmes_id: str) -> List[Dict]:

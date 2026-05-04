@@ -347,7 +347,7 @@ def test_realtime_verify_loop_updates_status_and_starts_workers_on_true():
     w._start_active_workers = MagicMock()
 
     with patch(
-        "holmes.utils.holmes_status.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -367,7 +367,7 @@ def test_realtime_verify_loop_shuts_down_on_definitive_false():
     w._start_active_workers = MagicMock()
 
     with patch(
-        "holmes.utils.holmes_status.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -393,7 +393,7 @@ def test_realtime_verify_loop_retries_on_connectivity_errors():
 
     try:
         with patch(
-            "holmes.utils.holmes_status.update_holmes_status_in_db"
+            "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
         ) as mock_update:
             w._realtime_verify_loop()
     finally:
@@ -411,7 +411,7 @@ def test_realtime_verify_loop_exits_when_stop_event_set():
     w._realtime_verify_stop.set()
 
     with patch(
-        "holmes.utils.holmes_status.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -427,7 +427,7 @@ def test_realtime_verify_loop_exits_when_running_flag_cleared():
     w.dal.is_realtime_enabled.return_value = None
 
     with patch(
-        "holmes.utils.holmes_status.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -445,7 +445,7 @@ def test_realtime_verify_loop_swallows_unexpected_exceptions():
     w._realtime_verify_stop.wait = lambda timeout=None: False  # type: ignore[assignment]
 
     with patch(
-        "holmes.utils.holmes_status.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -505,7 +505,7 @@ def test_start_starts_active_workers_after_definitive_true():
         "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_REALTIME_ENABLED",
         False,
     ), patch(
-        "holmes.utils.holmes_status.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
         try:
             w.start()
@@ -533,7 +533,7 @@ def test_start_does_not_start_active_workers_after_definitive_false():
     w = ConversationWorker(dal=dal, config=config, chat_function=chat_function)
 
     with patch(
-        "holmes.utils.holmes_status.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
         w.start()
         assert w._realtime_verify_thread is not None

@@ -80,6 +80,19 @@ class TestIsRealtimeEnabled:
         assert mock_dal.is_realtime_enabled() is None
         mock_dal.client.rpc.assert_not_called()
 
+    def test_returns_none_on_empty_list_response(self, mock_dal):
+        # An empty list from PostgREST means no rows — there's no value to
+        # coerce, so we should treat it as inconclusive rather than
+        # collapsing to False.
+        self._set_rpc_result(mock_dal, data=[])
+        assert mock_dal.is_realtime_enabled() is None
+
+    def test_returns_none_on_null_data(self, mock_dal):
+        # Likewise, an explicit None payload is inconclusive — not a
+        # definitive False.
+        self._set_rpc_result(mock_dal, data=None)
+        assert mock_dal.is_realtime_enabled() is None
+
 
 class TestGetResourceRecommendation:
     """Test cases for SupabaseDal.get_resource_recommendation method."""

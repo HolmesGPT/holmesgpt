@@ -40,6 +40,7 @@ from holmes.core.tools_utils.frontend_tools import (
     inject_frontend_tools,
 )
 from holmes.core.tracing import TracingFactory
+from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.stream import StreamEvents
 
 if TYPE_CHECKING:
@@ -216,12 +217,18 @@ class ConversationWorker:
                 # shutdown(wait=False): prevent new tasks from being accepted,
                 # but don't block on in-flight conversations.
                 self._executor.shutdown(wait=False)
+                self._executor = None
         if self._claim_thread:
             # Bounded join: the claim loop wakes up once per notify or poll
             # interval and checks ``self._running``, so 5 seconds is plenty
             # for the common case. If it's somehow stuck we still return
             # promptly rather than hang the shutdown path.
             self._claim_thread.join(timeout=5)
+            self._claim_thread = None
+        # Drop the realtime manager handle so a subsequent start() can
+        # bring up a fresh one. The reference itself was already torn
+        # down above via _realtime_manager.stop().
+        self._realtime_manager = None
         # Don't join the verify thread from inside itself — when the
         # verifier triggers stop() on a definitive False, it's running on
         # this very thread. ``current_thread()`` lets us skip the join in
@@ -232,6 +239,7 @@ class ConversationWorker:
             and self._realtime_verify_thread is not threading.current_thread()
         ):
             self._realtime_verify_thread.join(timeout=5)
+            self._realtime_verify_thread = None
         logging.info("ConversationWorker stopped")
 
     # ---- realtime verifier ----
@@ -270,10 +278,6 @@ class ConversationWorker:
                     "polling/subscription and updating HolmesStatus"
                 )
                 try:
-                    from holmes.utils.holmes_status import (
-                        update_holmes_status_in_db,
-                    )
-
                     update_holmes_status_in_db(
                         self.dal, self.config, realtime_available=True
                     )
