@@ -406,6 +406,87 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
     )
 
 
+async def _test_aws_instance_connection(store, inst):
+    """Attempt STS AssumeRole against the instance's cross-account role.
+
+    Returns a dict payload suitable for JSONResponse: {"ok": bool, "status": str, ...}.
+    """
+    import boto3 as _boto3  # noqa: PLC0415
+
+    if not inst.aws_role_arn:
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "Instance has no Role ARN",
+        }
+    sts = _boto3.client(
+        "sts", region_name=os.environ.get("AWS_REGION", "us-east-1")
+    )
+    try:
+        resp = sts.assume_role(
+            RoleArn=inst.aws_role_arn,
+            RoleSessionName="holmesgpt-connection-test",
+            DurationSeconds=900,
+        )
+        caller = resp["AssumedRoleUser"]["Arn"]
+        store.update(
+            inst.id,
+            aws_connection_status="success",
+            aws_connection_error=None,
+        )
+        return {"ok": True, "status": "success", "assumed_role": caller}
+    except Exception as assume_err:
+        error_msg = str(assume_err)
+        store.update(
+            inst.id,
+            aws_connection_status="error",
+            aws_connection_error=error_msg,
+        )
+        return {"ok": False, "status": "error", "error": error_msg}
+
+
+async def _test_pagerduty_instance_connection(store, inst):
+    """Run the PagerDuty toolset prerequisites callable with instance config.
+
+    Returns a dict payload suitable for JSONResponse.
+    """
+    from projects import _fetch_secret  # noqa: PLC0415
+    from holmes.plugins.toolsets.pagerduty.toolset_pagerduty import (  # noqa: PLC0415
+        PagerDutyToolset,
+    )
+
+    cfg: dict = dict(inst.config or {})
+    if inst.secret_arn:
+        try:
+            creds = _fetch_secret(inst.secret_arn)
+        except Exception as e:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": f"Failed to fetch secret: {e}",
+            }
+        if "api_key" not in creds:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": "Secret has no 'api_key' field",
+            }
+        cfg["api_key"] = creds["api_key"]
+
+    if not cfg.get("api_key"):
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "PagerDuty instance has no credential source",
+        }
+
+    ts = PagerDutyToolset()
+    ok, msg = ts.prerequisites_callable(cfg)
+    if ok:
+        return {"ok": True, "status": "success"}
+    return {"ok": False, "status": "error", "error": msg}
+
+
 def mount_frontend(app: FastAPI, config=None) -> None:
     """Add auth endpoints, integrations API, and static file serving to the FastAPI app."""
 
@@ -1338,51 +1419,29 @@ def mount_frontend(app: FastAPI, config=None) -> None:
 
     @app.post("/api/instances/{instance_id}/test-connection")
     async def test_instance_connection(instance_id: str):
-        """Test AWS cross-account connection by attempting STS AssumeRole."""
+        """Test the external connection for an instance.
+
+        Supports: aws_api (AssumeRole), pagerduty (REST /services with scope filters).
+        """
         try:
-            import boto3 as _boto3  # noqa: PLC0415
             from projects import get_instances_store  # noqa: PLC0415
 
             store = get_instances_store()
             inst = store.get(instance_id)
             if not inst:
                 raise HTTPException(status_code=404, detail="Instance not found")
-            if inst.type != "aws_api" or not inst.aws_role_arn:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Instance is not an AWS type or has no Role ARN",
-                )
 
-            # Attempt AssumeRole to validate the cross-account trust
-            sts = _boto3.client(
-                "sts", region_name=os.environ.get("AWS_REGION", "us-east-1")
+            if inst.type == "aws_api":
+                body = await _test_aws_instance_connection(store, inst)
+                return JSONResponse(body)
+            if inst.type == "pagerduty":
+                body = await _test_pagerduty_instance_connection(store, inst)
+                return JSONResponse(body)
+
+            raise HTTPException(
+                status_code=400,
+                detail=f"test-connection not supported for type '{inst.type}'",
             )
-            try:
-                resp = sts.assume_role(
-                    RoleArn=inst.aws_role_arn,
-                    RoleSessionName="holmesgpt-connection-test",
-                    DurationSeconds=900,
-                )
-                caller = resp["AssumedRoleUser"]["Arn"]
-                # Update instance with success status
-                store.update(
-                    instance_id,
-                    aws_connection_status="success",
-                    aws_connection_error=None,
-                )
-                return JSONResponse(
-                    {"ok": True, "status": "success", "assumed_role": caller}
-                )
-            except Exception as assume_err:
-                error_msg = str(assume_err)
-                store.update(
-                    instance_id,
-                    aws_connection_status="error",
-                    aws_connection_error=error_msg,
-                )
-                return JSONResponse(
-                    {"ok": False, "status": "error", "error": error_msg}
-                )
         except HTTPException:
             raise
         except Exception as e:
