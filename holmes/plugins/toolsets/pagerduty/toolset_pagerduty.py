@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Optional, Tuple, Type
+from typing import Any, List, Optional, Tuple, Type
 
 import requests
 from pydantic import Field
@@ -34,10 +34,25 @@ class PagerDutyConfig(ToolsetConfig):
         description="PagerDuty REST API key (v2). Generate one at: Account Settings → API Access Keys",
         examples=["u+xxxxxxxxxxxxxxxxxxxx"],
     )
+    api_url: str = Field(
+        default=PAGERDUTY_API_BASE,
+        title="API URL",
+        description="PagerDuty API base URL. Override for on-prem forks or local mocks.",
+    )
     default_limit: int = Field(
         default=25,
         title="Default Result Limit",
         description="Maximum number of results to return per query",
+    )
+    team_ids: Optional[List[str]] = Field(
+        default=None,
+        title="Team IDs (project scope)",
+        description="When set, all list queries are filtered to these PagerDuty team IDs. Leave unset for no filter.",
+    )
+    service_ids: Optional[List[str]] = Field(
+        default=None,
+        title="Service IDs (project scope)",
+        description="When set, all list queries are filtered to these PagerDuty service IDs. Leave unset for no filter.",
     )
 
 
@@ -75,12 +90,13 @@ class PagerDutyToolset(Toolset):
             return False, f"Failed to configure PagerDuty toolset: {e}"
 
     def _health_check(self) -> Tuple[bool, str]:
+        assert self.pd_config is not None
         try:
             # Use /services with limit=1 as a lightweight health check.
             # The /abilities endpoint was deprecated by PagerDuty and may
             # return 410 Gone or 404 on newer accounts.
             resp = requests.get(
-                f"{PAGERDUTY_API_BASE}/services",
+                f"{self.pd_config.api_url}/services",
                 headers=self._headers(),
                 params={"limit": 1},
                 timeout=10,
@@ -106,7 +122,7 @@ class PagerDutyToolset(Toolset):
 
     def get(self, path: str, params: Optional[dict] = None) -> dict:
         assert self.pd_config is not None
-        url = f"{PAGERDUTY_API_BASE}{path}"
+        url = f"{self.pd_config.api_url}{path}"
         resp = requests.get(
             url, headers=self._headers(), params=params or {}, timeout=30
         )
