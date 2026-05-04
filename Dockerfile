@@ -37,7 +37,10 @@ RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key -o Releas
 # Revert to upstream binary when kube-lineage releases a version with all three at fixed versions.
 ARG TARGETARCH
 COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz /tmp/kube-lineage.gz
-RUN gunzip /tmp/kube-lineage.gz && mv /tmp/kube-lineage /kube-lineage && chmod +x /kube-lineage
+COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz.sha256 /tmp/kube-lineage.gz.sha256
+RUN cd /tmp && sha256sum -c kube-lineage.gz.sha256 \
+    && gunzip /tmp/kube-lineage.gz && mv /tmp/kube-lineage /kube-lineage && chmod +x /kube-lineage \
+    && rm -f /tmp/kube-lineage.gz.sha256
 RUN /kube-lineage --version
 
 # Set up ArgoCD (rebuilt from v3.3.9 source with otel/sdk pinned to v1.43.0 to fix CVE-2026-39883).
@@ -46,7 +49,10 @@ RUN /kube-lineage --version
 # Rebuild with: ./scripts/build_go_binaries.sh
 # Revert to plain upstream binary when ArgoCD ships otel/sdk >= 1.43.0.
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
-RUN gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd
+COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz.sha256 /tmp/argocd.gz.sha256
+RUN cd /tmp && sha256sum -c argocd.gz.sha256 \
+    && gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd \
+    && rm -f /tmp/argocd.gz.sha256
 
 # Set up Helm (pre-built with Go 1.25.9 to fix stdlib CVE-2026-32280/32281/32283/25679,
 # and grpc pinned to v1.79.3 to fix CVE-2026-33186).
@@ -54,7 +60,10 @@ RUN gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd
 # Rebuild with: ./scripts/build_go_binaries.sh
 # Revert to upstream binary when Helm releases a version built with Go >= 1.25.9 and grpc >= 1.79.3.
 COPY bin/go-cve-rebuild/${TARGETARCH}/helm.gz /tmp/helm.gz
-RUN gunzip /tmp/helm.gz && mv /tmp/helm /helm && chmod +x /helm
+COPY bin/go-cve-rebuild/${TARGETARCH}/helm.gz.sha256 /tmp/helm.gz.sha256
+RUN cd /tmp && sha256sum -c helm.gz.sha256 \
+    && gunzip /tmp/helm.gz && mv /tmp/helm /helm && chmod +x /helm \
+    && rm -f /tmp/helm.gz.sha256
 
 # Set up poetry
 ARG PRIVATE_PACKAGE_REGISTRY="none"

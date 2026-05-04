@@ -24,6 +24,29 @@
 
 set -euo pipefail
 
+MIN_GO_VERSION="1.25.9"
+CURRENT_GO_VERSION="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
+if [ -z "$CURRENT_GO_VERSION" ]; then
+  echo "Go is not installed or not on PATH. Go ${MIN_GO_VERSION}+ is required." >&2
+  exit 1
+fi
+if ! printf '%s\n%s\n' "$MIN_GO_VERSION" "$CURRENT_GO_VERSION" | sort -V -C; then
+  echo "Go ${MIN_GO_VERSION}+ is required (found ${CURRENT_GO_VERSION}). Please upgrade." >&2
+  exit 1
+fi
+
+assert_module_version() {
+  local module="$1"
+  local expected="$2"
+  local actual
+  # Resolve via the replace directive if one is present, otherwise the require version.
+  actual="$(go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' "$module" 2>/dev/null)"
+  if [ "$actual" != "$expected" ]; then
+    echo "ERROR: Expected $module=$expected, got ${actual:-<missing>}" >&2
+    exit 1
+  fi
+}
+
 ARGOCD_VERSION=v3.3.9
 ARGOCD_VERSION_NO_V="${ARGOCD_VERSION#v}"
 OTEL_SDK_PATCHED_VERSION=v1.43.0
@@ -47,6 +70,7 @@ git clone --depth 1 --branch "$ARGOCD_VERSION" https://github.com/argoproj/argo-
 echo "==> Pinning otel/sdk to $OTEL_SDK_PATCHED_VERSION (CVE-2026-39883)..."
 cd "$TMPDIR/argo-cd"
 go mod edit -replace="go.opentelemetry.io/otel/sdk=go.opentelemetry.io/otel/sdk@$OTEL_SDK_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "go.opentelemetry.io/otel/sdk" "$OTEL_SDK_PATCHED_VERSION"
 
 ARGOCD_LDFLAGS="-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V"
 
@@ -66,6 +90,7 @@ git clone --depth 1 --branch "$HELM_VERSION" https://github.com/helm/helm.git "$
 echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (CVE-2026-33186)..."
 cd "$TMPDIR/helm"
 go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
 # Skip 'go mod tidy' — it re-resolves the full graph and pulls test-only transitives
 # that fail to build (e.g. otel/sdk/internal/internaltest removed in newer otel releases).
 # GOFLAGS=-mod=mod lets 'go build' fetch only what the binary actually needs.
@@ -89,6 +114,8 @@ echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (CVE-2026-33186) and spdystream 
 cd "$TMPDIR/kube-lineage"
 go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
 go mod edit -replace="github.com/moby/spdystream=github.com/moby/spdystream@$SPDYSTREAM_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "github.com/moby/spdystream" "$SPDYSTREAM_PATCHED_VERSION"
 
 echo "==> Building kube-lineage for linux/amd64..."
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \
@@ -105,6 +132,19 @@ gzip -f "$OUTDIR/amd64/helm"
 gzip -f "$OUTDIR/arm64/helm"
 gzip -f "$OUTDIR/amd64/kube-lineage"
 gzip -f "$OUTDIR/arm64/kube-lineage"
+
+echo "==> Generating SHA-256 checksums..."
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256_CMD="sha256sum"
+else
+  # macOS fallback
+  SHA256_CMD="shasum -a 256"
+fi
+for arch in amd64 arm64; do
+  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz; do
+    $SHA256_CMD "$f" > "$f.sha256"
+  done)
+done
 
 echo ""
 echo "Done! Compressed binaries:"
