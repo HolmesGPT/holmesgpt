@@ -165,3 +165,54 @@ class TestListToolsWithScope:
         assert result.status == StructuredToolResultStatus.SUCCESS
         _, kwargs = mock_get.call_args
         assert kwargs["params"]["service_ids[]"] == ["PX", "PY"]
+
+
+class TestGetIncidentScopeGuard:
+    def _toolset(self, **cfg_kwargs) -> PagerDutyToolset:
+        ts = PagerDutyToolset()
+        ts.pd_config = PagerDutyConfig(api_key="k", **cfg_kwargs)
+        return ts
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_in_scope_incident_returns_success(self, mock_get):
+        mock_get.return_value = _mock_ok(
+            {"incident": {"id": "PINC1", "service": {"id": "P1"}, "html_url": "http://x"}}
+        )
+        ts = self._toolset(service_ids=["P1"])
+        tool = next(t for t in ts.tools if t.name == "get_pagerduty_incident")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_out_of_scope_incident_returns_error(self, mock_get):
+        mock_get.return_value = _mock_ok(
+            {"incident": {"id": "PINC1", "service": {"id": "P99"}}}
+        )
+        ts = self._toolset(service_ids=["P1"])
+        tool = next(t for t in ts.tools if t.name == "get_pagerduty_incident")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not in this project's scope" in result.error
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_no_scope_set_returns_success(self, mock_get):
+        """When instance has no service_ids, any incident is returned."""
+        mock_get.return_value = _mock_ok(
+            {"incident": {"id": "PINC1", "service": {"id": "P99"}}}
+        )
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_pagerduty_incident")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS

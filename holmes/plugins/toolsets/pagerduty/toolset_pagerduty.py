@@ -306,6 +306,22 @@ class GetPagerDutyIncident(BasePagerDutyTool):
         try:
             data = self.toolset.get(f"/incidents/{incident_id}")
             incident = data.get("incident", data)
+
+            # Project-scope guard: if instance has service_ids, block incidents
+            # whose service is outside scope.
+            instance_service_ids = self.toolset.pd_config.service_ids
+            if instance_service_ids:
+                incident_service_id = (incident.get("service") or {}).get("id")
+                if incident_service_id not in instance_service_ids:
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error=(
+                            f"Incident {incident_id} is not in this project's scope "
+                            f"(service={incident_service_id}, allowed services={instance_service_ids})"
+                        ),
+                        params=params,
+                    )
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=json.dumps(incident, indent=2),
