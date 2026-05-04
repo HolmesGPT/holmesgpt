@@ -95,12 +95,13 @@ Tool call (e.g. list_pagerduty_incidents):
 
 - No code change required. The existing "Python toolset with per-project creds" path (lines ~1063–1089) already handles factory-registered toolsets. Once `pagerduty` is in `PYTHON_TOOLSET_FACTORIES`, PagerDuty instances flow through the same path Datadog/DBADash use. Instance `config` (team_ids/service_ids) and secret-derived `api_key` both end up in `synthetic_config["config"]` and are consumed by `PagerDutyConfig`.
 
-### Backend — test-connection endpoint (`frontend/api_v1.py`)
+### Backend — test-connection endpoint (`frontend/server_frontend.py`)
 
-- Extend `POST /api/v1/instances/{id}/test-connection` to handle `type == "pagerduty"`:
+- Extend `POST /api/instances/{instance_id}/test-connection` to handle `type == "pagerduty"` (currently only handles `aws_api`):
   1. Fetch secret_arn from Secrets Manager.
   2. Instantiate `PagerDutyToolset`, run `prerequisites_callable(merged_config)`.
-  3. Return `{"success": true}` or `{"success": false, "error": "<message>"}`.
+  3. Return `{"ok": true, "status": "success"}` or `{"ok": false, "status": "error", "error": "<message>"}`.
+  4. Persist `connection_status`/`connection_error` on the Instance (may need new generic fields, or reuse `aws_connection_status`/`aws_connection_error` — plan will decide).
 - Mirrors the existing AWS `test-connection` shape.
 
 ### Frontend — Instances UI (`frontend/src/components/Instances.tsx`)
@@ -223,9 +224,9 @@ Cloud-service-eval pattern (no Kubernetes). Uses `responses` fixture to mock `ap
 
 `tests/frontend/test_instances_api.py` (extend or create):
 
-- POST `/api/v1/instances/{id}/test-connection` for a `pagerduty` instance with mocked Secrets Manager and mocked `/services` → `{success: true}`.
-- Same with 401 response → `{success: false, error: "PagerDuty API key is invalid or expired"}`.
-- Missing secret_arn and no inline api_key → `{success: false, error: "PagerDuty instance has no credential source"}`.
+- POST `/api/instances/{id}/test-connection` for a `pagerduty` instance with mocked Secrets Manager and mocked `/services` → `{ok: true, status: "success"}`.
+- Same with 401 response → `{ok: false, status: "error", error: "PagerDuty API key is invalid or expired"}`.
+- Missing secret_arn and no inline api_key → `{ok: false, status: "error", error: "PagerDuty instance has no credential source"}`.
 
 ### CI
 
