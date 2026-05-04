@@ -27,7 +27,7 @@ class TestPagerDutyConnectionHelper:
         mock_get.return_value = resp
 
         store = MagicMock()
-        body = asyncio.get_event_loop().run_until_complete(
+        body = asyncio.run(
             _test_pagerduty_instance_connection(store, inst)
         )
         assert body["ok"] is True
@@ -53,7 +53,7 @@ class TestPagerDutyConnectionHelper:
         mock_get.return_value = resp
 
         store = MagicMock()
-        body = asyncio.get_event_loop().run_until_complete(
+        body = asyncio.run(
             _test_pagerduty_instance_connection(store, inst)
         )
         assert body["ok"] is False
@@ -70,7 +70,7 @@ class TestPagerDutyConnectionHelper:
             name="pd-empty",
         )
         store = MagicMock()
-        body = asyncio.get_event_loop().run_until_complete(
+        body = asyncio.run(
             _test_pagerduty_instance_connection(store, inst)
         )
         assert body["ok"] is False
@@ -89,7 +89,7 @@ class TestPagerDutyConnectionHelper:
         )
         mock_secret.return_value = {"some_other_key": "x"}  # no api_key
         store = MagicMock()
-        body = asyncio.get_event_loop().run_until_complete(
+        body = asyncio.run(
             _test_pagerduty_instance_connection(store, inst)
         )
         assert body["ok"] is False
