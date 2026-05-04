@@ -24,6 +24,7 @@ from holmes.core.conversations_worker.event_publisher import (
 from holmes.core.conversations_worker.models import (
     EVENT_USER_MESSAGE,
     ConversationReassignedError,
+    ConversationStatus,
     ConversationTask,
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeManager
@@ -32,6 +33,10 @@ from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
     tool_result_storage,
+)
+from holmes.core.tools_utils.frontend_tools import (
+    FrontendToolCollisionError,
+    inject_frontend_tools,
 )
 from holmes.core.tracing import TracingFactory
 from holmes.utils.stream import StreamEvents
@@ -468,6 +473,7 @@ class ConversationWorker:
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
             behavior_controls=data.get("behavior_controls"),
+            user_id=data.get("user_id"),
         )
 
         self._run_chat_and_publish(
@@ -583,6 +589,10 @@ class ConversationWorker:
                 tool_results_dir=tool_results_dir,
             )
 
+            request_ai = self._inject_frontend_tools(ai, chat_request, task)
+            if request_ai is None:
+                return
+
             global_instructions = self.dal.get_global_instructions_for_account()
             if resume_only and chat_request.conversation_history:
                 # Pure tool-decision / frontend-tool-result resume. Don't append
@@ -612,19 +622,39 @@ class ConversationWorker:
                 }
             )
 
+            # Build request_context with user_id so per-user OAuth tools resolve
+            # correctly inside call_stream (matches the regular /api/chat flow
+            # in server.py).
+            request_context: Optional[Dict[str, Any]] = None
+            if chat_request.user_id:
+                request_context = {"user_id": chat_request.user_id}
+
             try:
-                stream = ai.call_stream(
+                stream = request_ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
                     tool_decisions=chat_request.tool_decisions,
                     frontend_tool_results=chat_request.frontend_tool_results,
                     response_format=chat_request.response_format,
+                    request_context=request_context,
                     trace_span=trace_span,
                 )
 
                 terminal = publisher.consume(stream)
-                status = self._terminal_to_status(terminal)
-                if status in ("completed", "failed"):
+                if terminal is None:
+                    # The stream ended without a terminal event (or the
+                    # terminal batch could not be saved). Post an explanatory
+                    # error event before marking the conversation failed so
+                    # the UI shows why instead of an unexplained status flip.
+                    logging.error(
+                        "Conversation %s ended without a terminal event",
+                        task.conversation_id,
+                    )
+                    self._fail_conversation(
+                        task, "Conversation ended without a terminal event"
+                    )
+                else:
+                    status = self._terminal_to_status(terminal)
                     ok = self.dal.update_conversation_status(
                         conversation_id=task.conversation_id,
                         request_sequence=task.request_sequence,
@@ -637,14 +667,6 @@ class ConversationWorker:
                             task.conversation_id,
                             status,
                         )
-                else:
-                    logging.warning(
-                        "Conversation %s ended without a terminal event",
-                        task.conversation_id,
-                    )
-                    self._fail_conversation(
-                        task, "Conversation ended without a terminal event"
-                    )
             finally:
                 trace_span.end()
         except ConversationReassignedError as e:
@@ -654,17 +676,29 @@ class ConversationWorker:
         finally:
             storage.__exit__(None, None, None)
 
+    def _inject_frontend_tools(
+        self,
+        ai: Any,
+        chat_request: ChatRequest,
+        task: ConversationTask,
+    ) -> Any:
+        """Return the AI to use for ``call_stream``, or ``None`` if a name collision failed the conversation."""
+        try:
+            request_ai, _has_pause = inject_frontend_tools(
+                ai, chat_request.frontend_tools
+            )
+        except FrontendToolCollisionError as e:
+            self._fail_conversation(task, str(e), error_code=4000)
+            return None
+        return request_ai
+
     @staticmethod
     def _terminal_to_status(terminal: Optional[StreamEvents]) -> str:
         """Map the terminal StreamEvents value observed by the publisher to the
-        string status we pass to ``update_conversation_status`` (or a sentinel
-        for non-completion states)."""
-        if terminal == StreamEvents.ANSWER_END:
-            return "completed"
-        if terminal == StreamEvents.ERROR:
-            return "failed"
-        if terminal == StreamEvents.APPROVAL_REQUIRED:
-            # Approval pauses the LLM but the current request_sequence is
-            # done — the follow-up (with tool_decisions) will re-pend it.
-            return "completed"
-        return "unknown"
+        string status we pass to ``update_conversation_status``."""
+        if (
+            terminal == StreamEvents.ANSWER_END
+            or terminal == StreamEvents.APPROVAL_REQUIRED
+        ):
+            return ConversationStatus.COMPLETED.value
+        return ConversationStatus.FAILED.value
