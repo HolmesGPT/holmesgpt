@@ -42,6 +42,7 @@ ANTHROPIC_API_KEY=$(sm_get "anthropic-api-key" "ANTHROPIC_API_KEY")
 MCP_ADO=$(sm_get "mcp-api-keys" "MCP_ADO_API_KEY")
 MCP_ATLASSIAN=$(sm_get "mcp-api-keys" "MCP_ATLASSIAN_API_KEY")
 MCP_SALESFORCE=$(sm_get "mcp-api-keys" "MCP_SALESFORCE_API_KEY")
+MCP_JENKINS=$(sm_get "mcp-api-keys" "MCP_JENKINS_API_KEY")
 
 # ── Apply ────────────────────────────────────────────────────────────
 ~/.local/bin/tofu apply -var-file=envs/dev.tfvars \
@@ -49,6 +50,7 @@ MCP_SALESFORCE=$(sm_get "mcp-api-keys" "MCP_SALESFORCE_API_KEY")
   -var="mcp_ado_api_key=$MCP_ADO" \
   -var="mcp_atlassian_api_key=$MCP_ATLASSIAN" \
   -var="mcp_salesforce_api_key=$MCP_SALESFORCE" \
+  -var="mcp_jenkins_api_key=$MCP_JENKINS" \
   -auto-approve
 ```
 
