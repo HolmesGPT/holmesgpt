@@ -16,6 +16,8 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
     CONVERSATION_WORKER_REALTIME_ENABLED,
+    CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
+    CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
 )
 from holmes.core.conversations import build_chat_messages
 from holmes.core.conversations_worker.event_publisher import (
@@ -39,6 +41,7 @@ from holmes.core.tools_utils.frontend_tools import (
     inject_frontend_tools,
 )
 from holmes.core.tracing import TracingFactory
+from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.stream import StreamEvents
 
 if TYPE_CHECKING:
@@ -105,6 +108,18 @@ class ConversationWorker:
 
         self._realtime_manager: Optional[RealtimeManager] = None
 
+        # Background thread that verifies Supabase Realtime is actually
+        # enabled by calling the is_realtime_enabled() RPC.  HolmesStatus
+        # advertises supports_realtime_conversations=False on startup and
+        # only flips to True once the verifier gets a definitive True from
+        # Supabase. On a definitive False the verifier shuts the worker
+        # down. Connectivity errors trigger an exponential backoff retry
+        # — we keep retrying until Supabase responds.
+        self._realtime_verify_thread: Optional[threading.Thread] = None
+        # Used by the verifier to wait between retries; setting it during
+        # stop() makes the thread exit promptly.
+        self._realtime_verify_stop = threading.Event()
+
     def start(self) -> None:
         if not self.dal.enabled:
             logging.info(
@@ -115,7 +130,41 @@ class ConversationWorker:
             logging.warning("ConversationWorker is already running")
             return
 
+        # We mark the worker as running so stop() / status checks see a
+        # consistent state, but defer spinning up the executor, claim loop,
+        # and Realtime subscription until the verifier confirms Supabase
+        # Realtime is actually enabled.  Until then we don't poll or
+        # subscribe — that would be wasted load against a project that
+        # doesn't support our use case.
         self._running = True
+
+        self._realtime_verify_stop.clear()
+        self._realtime_verify_thread = threading.Thread(
+            target=self._realtime_verify_loop,
+            daemon=True,
+            name="conversation-realtime-verify",
+        )
+        self._realtime_verify_thread.start()
+
+        logging.info(
+            "ConversationWorker waiting for Supabase Realtime verification "
+            "(holmes_id=%s, account=%s, cluster=%s)",
+            self.holmes_id,
+            self.dal.account_id,
+            self.dal.cluster,
+        )
+
+    def _start_active_workers(self) -> None:
+        """
+        Spin up the components that actually consume conversations — the
+        executor, the claim loop, and (optionally) the Realtime manager.
+
+        Called by the verifier once Supabase confirms Realtime is enabled.
+        Idempotent: if already started (re-entrant call), returns early.
+        """
+        if self._executor is not None or self._claim_thread is not None:
+            return
+
         self._executor = ThreadPoolExecutor(
             max_workers=CONVERSATION_WORKER_MAX_CONCURRENT,
             thread_name_prefix="conversation-worker",
@@ -142,8 +191,9 @@ class ConversationWorker:
             name="conversation-claim-loop",
         )
         self._claim_thread.start()
+
         logging.info(
-            "ConversationWorker started (holmes_id=%s, account=%s, cluster=%s, realtime=%s)",
+            "ConversationWorker active (holmes_id=%s, account=%s, cluster=%s, realtime=%s)",
             self.holmes_id,
             self.dal.account_id,
             self.dal.cluster,
@@ -154,6 +204,7 @@ class ConversationWorker:
         logging.info("Stopping ConversationWorker...")
         self._running = False
         self._notify_event.set()
+        self._realtime_verify_stop.set()
         if self._realtime_manager:
             try:
                 self._realtime_manager.stop()
@@ -165,15 +216,121 @@ class ConversationWorker:
         with self._dispatch_lock:
             if self._executor:
                 # shutdown(wait=False): prevent new tasks from being accepted,
-                # but don't block on in-flight conversations. 
+                # but don't block on in-flight conversations.
                 self._executor.shutdown(wait=False)
+                self._executor = None
         if self._claim_thread:
             # Bounded join: the claim loop wakes up once per notify or poll
             # interval and checks ``self._running``, so 5 seconds is plenty
             # for the common case. If it's somehow stuck we still return
             # promptly rather than hang the shutdown path.
             self._claim_thread.join(timeout=5)
+            self._claim_thread = None
+        # Drop the realtime manager handle so a subsequent start() can
+        # bring up a fresh one. The reference itself was already torn
+        # down above via _realtime_manager.stop().
+        self._realtime_manager = None
+        # Don't join the verify thread from inside itself — when the
+        # verifier triggers stop() on a definitive False, it's running on
+        # this very thread. ``current_thread()`` lets us skip the join in
+        # that case; the daemon flag guarantees it won't outlive the
+        # process.
+        if (
+            self._realtime_verify_thread
+            and self._realtime_verify_thread is not threading.current_thread()
+        ):
+            self._realtime_verify_thread.join(timeout=5)
+            self._realtime_verify_thread = None
         logging.info("ConversationWorker stopped")
+
+    # ---- realtime verifier ----
+
+    def _realtime_verify_loop(self) -> None:
+        """
+        Repeatedly call ``is_realtime_enabled()`` until Supabase gives a
+        definitive answer. We keep retrying on connectivity errors with
+        exponential backoff so a transient network blip doesn't cause us
+        to either silently advertise stale capabilities or shut the
+        worker down prematurely.
+
+        Outcomes:
+            * Definitive ``True``  → flip HolmesStatus.supports_realtime_*
+              to their env-var-driven values and exit the loop.
+            * Definitive ``False`` → log and call ``self.stop()``; status
+              fields stay at their default ``False``.
+            * Connectivity error  → wait with exponential backoff and try
+              again.
+        """
+        backoff = CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS
+        max_backoff = CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS
+
+        while self._running and not self._realtime_verify_stop.is_set():
+            try:
+                result = self.dal.is_realtime_enabled()
+            except Exception:
+                logging.exception(
+                    "Unexpected error in realtime verify loop", exc_info=True
+                )
+                result = None
+
+            if result is True:
+                logging.info(
+                    "Supabase Realtime is enabled — starting conversation "
+                    "polling/subscription and updating HolmesStatus"
+                )
+                try:
+                    update_holmes_status_in_db(
+                        self.dal, self.config, realtime_available=True
+                    )
+                except Exception:
+                    logging.exception(
+                        "Failed to update HolmesStatus after realtime "
+                        "verification",
+                        exc_info=True,
+                    )
+                # Spin up the executor, claim loop, and (if enabled)
+                # Realtime subscription now that we know they'll do useful
+                # work. If stop() raced us, _running is already False —
+                # don't bring up workers that will immediately need to be
+                # torn down.
+                if self._running and not self._realtime_verify_stop.is_set():
+                    try:
+                        self._start_active_workers()
+                    except Exception:
+                        logging.exception(
+                            "Failed to start active workers after realtime "
+                            "verification",
+                            exc_info=True,
+                        )
+                return
+
+            if result is False:
+                logging.warning(
+                    "Supabase Realtime is not enabled on this project — "
+                    "shutting down ConversationWorker"
+                )
+                # HolmesStatus already advertises false by default, so no
+                # further write is needed. Trigger a shutdown — note that
+                # stop() detects we're calling from the verify thread and
+                # skips the self-join.
+                try:
+                    self.stop()
+                except Exception:
+                    logging.exception(
+                        "Error during ConversationWorker shutdown after "
+                        "realtime check returned False",
+                        exc_info=True,
+                    )
+                return
+
+            # result is None — Supabase couldn't be reached. Wait and retry.
+            logging.info(
+                "is_realtime_enabled() inconclusive — retrying in %.1fs",
+                backoff,
+            )
+            if self._realtime_verify_stop.wait(timeout=backoff):
+                return  # stop() was called; bail out
+            backoff = min(backoff * 2, max_backoff)
 
     # ---- claim loop ----
 
