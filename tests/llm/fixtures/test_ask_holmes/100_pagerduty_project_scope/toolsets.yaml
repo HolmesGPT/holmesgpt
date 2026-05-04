@@ -1,0 +1,7 @@
+toolsets:
+  pagerduty:
+    enabled: true
+    config:
+      api_key: "eval-dummy-key"
+      api_url: "http://127.0.0.1:9501"
+      service_ids: ["PSVC_ALPHA"]
