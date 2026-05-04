@@ -1,5 +1,6 @@
 """Unit tests for the PagerDuty toolset."""
 
+import json
 from unittest.mock import patch, MagicMock
 
 from holmes.core.tools import StructuredToolResultStatus
@@ -144,4 +145,23 @@ class TestListToolsWithScope:
         )
 
         assert result.status == StructuredToolResultStatus.SUCCESS
-        assert "narrowed" in result.data.lower()
+        # Note must be present AND result.data must be valid JSON.
+        parsed = json.loads(result.data)
+        assert "_scope_note" in parsed
+        assert "narrowed" in parsed["_scope_note"].lower()
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_list_incidents_user_filter_passes_through_when_no_instance_scope(
+        self, mock_get
+    ):
+        mock_get.return_value = _mock_ok({"incidents": []})
+        ts = self._toolset()  # no instance scope
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_incidents")
+
+        result = tool._invoke(
+            {"service_ids": "PX,PY"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["service_ids[]"] == ["PX", "PY"]

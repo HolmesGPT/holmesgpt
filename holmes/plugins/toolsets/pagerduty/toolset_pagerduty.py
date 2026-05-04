@@ -130,7 +130,7 @@ class PagerDutyToolset(Toolset):
         return resp.json()
 
     def _apply_scope_filters(
-        self, query: dict, params: dict
+        self, query: dict, params: dict, *, skip_service_ids: bool = False
     ) -> Tuple[dict, Optional[str]]:
         """
         Apply instance-level team/service scope to a query dict.
@@ -142,6 +142,11 @@ class PagerDutyToolset(Toolset):
         - If the user passes IDs outside the instance scope, they are dropped
           (never widens beyond instance scope) and a note is returned so the LLM
           sees why.
+
+        Set skip_service_ids=True for endpoints like /oncalls that do not
+        accept service_ids[] — this bypasses the service_ids dimension entirely
+        (both instance scope and user-supplied values) without mutating
+        shared pd_config state.
 
         Returns (query_with_filters_appended, optional_note_string).
         """
@@ -172,11 +177,24 @@ class PagerDutyToolset(Toolset):
                 # No instance scope — user filter passes through unchanged.
                 query[f"{field_name}[]"] = user_values
 
-        _merge("service_ids", self.pd_config.service_ids)
+        if not skip_service_ids:
+            _merge("service_ids", self.pd_config.service_ids)
         _merge("team_ids", self.pd_config.team_ids)
 
         note = "; ".join(note_parts) if note_parts else None
         return query, note
+
+    @staticmethod
+    def _format_payload(data: dict, scope_note: Optional[str]) -> str:
+        """Serialize PagerDuty API response, optionally embedding a scope note.
+
+        The note is emitted as a top-level key `_scope_note` so the payload
+        remains valid JSON and any downstream parser can access the note.
+        """
+        if scope_note:
+            merged = {"_scope_note": scope_note, **data}
+            return json.dumps(merged, indent=2)
+        return json.dumps(data, indent=2)
 
 
 class BasePagerDutyTool(Tool):
@@ -239,9 +257,7 @@ class ListPagerDutyIncidents(BasePagerDutyTool):
             query, scope_note = self.toolset._apply_scope_filters(query, params)
 
             data = self.toolset.get("/incidents", params=query)
-            payload = json.dumps(data, indent=2)
-            if scope_note:
-                payload = f"[{scope_note}]\n{payload}"
+            payload = self.toolset._format_payload(data, scope_note)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=payload,
@@ -354,9 +370,7 @@ class ListPagerDutyServices(BasePagerDutyTool):
             query, scope_note = self.toolset._apply_scope_filters(query, params)
 
             data = self.toolset.get("/services", params=query)
-            payload = json.dumps(data, indent=2)
-            if scope_note:
-                payload = f"[{scope_note}]\n{payload}"
+            payload = self.toolset._format_payload(data, scope_note)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=payload,
@@ -458,22 +472,14 @@ class GetPagerDutyOnCall(BasePagerDutyTool):
                 ]
 
             # /oncalls does not support service_ids. Drop user-supplied service_ids
-            # from params AND temporarily clear the instance's service_ids so the
-            # scope helper skips that dimension.
+            # from params and tell the helper to skip that dimension.
             filtered_params = {k: v for k, v in params.items() if k != "service_ids"}
-            saved_service_ids = self.toolset.pd_config.service_ids
-            self.toolset.pd_config.service_ids = None
-            try:
-                query, scope_note = self.toolset._apply_scope_filters(
-                    query, filtered_params
-                )
-            finally:
-                self.toolset.pd_config.service_ids = saved_service_ids
+            query, scope_note = self.toolset._apply_scope_filters(
+                query, filtered_params, skip_service_ids=True
+            )
 
             data = self.toolset.get("/oncalls", params=query)
-            payload = json.dumps(data, indent=2)
-            if scope_note:
-                payload = f"[{scope_note}]\n{payload}"
+            payload = self.toolset._format_payload(data, scope_note)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=payload,
