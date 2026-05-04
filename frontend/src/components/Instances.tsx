@@ -13,9 +13,10 @@ const TOOLSET_TYPES = [
   'kubernetes',
   'dbdash',
   'pagerduty',
+  'jenkins',
 ]
 
-const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce'])
+const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce', 'jenkins'])
 
 type PagerDutyInstanceConfig = {
   service_ids?: string[]
