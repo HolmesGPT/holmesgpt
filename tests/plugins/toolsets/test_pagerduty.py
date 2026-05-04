@@ -3,6 +3,8 @@
 import json
 from unittest.mock import patch, MagicMock
 
+import requests as _requests
+
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.pagerduty.toolset_pagerduty import (
     PagerDutyConfig,
@@ -337,9 +339,6 @@ class TestHealthCheck:
         _, kwargs = mock_get.call_args
         assert "service_ids[]" not in kwargs["params"]
         assert "team_ids[]" not in kwargs["params"]
-
-
-import requests as _requests
 
 
 class TestRuntimeErrorMessages:
