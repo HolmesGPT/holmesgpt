@@ -624,6 +624,9 @@ mcpAddons:
 
     llmInstructions: ""
 
+    # Additional environment variables for the Confluence MCP container
+    additionalEnvVars: []
+
     nodeSelector: {}
     tolerations: []
     affinity: {}

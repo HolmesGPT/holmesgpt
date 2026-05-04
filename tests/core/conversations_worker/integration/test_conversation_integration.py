@@ -14,6 +14,7 @@ process them, and asserts on the resulting ConversationEvents and status.
 """
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timezone
 
@@ -209,6 +210,178 @@ class TestToolApproval:
         stats = supabase_fx.get_compaction_stats(cid)
         assert stats["compacted"] >= 2, (
             f"Approval + answer should compact multiple prior rows; got {stats}"
+        )
+
+    def test_approval_with_edit_command(self, supabase_fx: SupabaseFixture):
+        """When the user approves a pending tool call with an `edit_command`
+        override, the worker must execute the edited command (not the
+        original) and the edited command must appear both in the
+        TOOL_RESULT event and in the conversation history attached to
+        the AI_ANSWER_END terminal event."""
+        verification_code = "HOLMES_INTEG_EDIT_42_X9K2M"
+        edited_command = f"echo {verification_code}"
+
+        # Turn 1: force a bash call by asking for an URL that needs the shell.
+        # We don't care what command Holmes picks because we'll override it.
+        conv = supabase_fx.create_conversation(
+            ask=(
+                "Run the bash command `curl -sf -H 'Authorization: ApiKey ENV_KEY' "
+                "https://example.invalid/no-op || echo done` to confirm a simple "
+                "shell works. You MUST use the bash tool."
+            ),
+            title="integ: tool-approval-edit-command",
+            enable_tool_approval=True,
+        )
+        cid = conv["conversation_id"]
+        supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
+
+        terminal1 = supabase_fx.find_terminal_event(cid)
+        assert terminal1 is not None
+        assert terminal1["event"] == "approval_required"
+        pending = terminal1["data"].get("pending_approvals") or []
+        assert len(pending) > 0, "Must have at least one pending approval"
+
+        # Sanity: the original command Holmes picked is NOT our verification
+        # code, so any later sighting can only come from the edit override.
+        for p in pending:
+            original_cmd = (p.get("params") or {}).get("command", "")
+            assert verification_code not in original_cmd, (
+                f"verification code leaked into original command: {original_cmd}"
+            )
+
+        # Turn 2: approve, but override the bash command for every pending
+        # call.  Only the bash tool understands "command", so we only set
+        # edit_command on bash decisions.
+        tool_decisions = []
+        for p in pending:
+            decision = {
+                "tool_call_id": p["tool_call_id"],
+                "approved": True,
+                "save_prefixes": None,
+                "feedback": None,
+            }
+            if p.get("tool_name") == "bash":
+                decision["edit_command"] = edited_command
+            tool_decisions.append(decision)
+
+        # The test is only meaningful if a bash tool call was pending and we
+        # actually attached an edit_command override to its decision.  Fail
+        # loudly if not, so the cause is obvious instead of surfacing as a
+        # confusing StopIteration / "edited command not found" later on.
+        edited_id = next(
+            (p["tool_call_id"] for p in pending if p.get("tool_name") == "bash"),
+            None,
+        )
+        assert edited_id is not None, (
+            f"Expected a bash tool call in pending approvals, got: "
+            f"{[p.get('tool_name') for p in pending]}"
+        )
+        assert any("edit_command" in d for d in tool_decisions), (
+            "Expected at least one tool_decision to carry an edit_command "
+            f"override; built decisions: {tool_decisions}"
+        )
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        followup = supabase_fx.post_followup(
+            conversation_id=cid,
+            events=[
+                {
+                    "event": "user_message",
+                    "data": {
+                        "tool_decisions": tool_decisions,
+                        "enable_tool_approval": True,
+                    },
+                    "ts": now_iso,
+                }
+            ],
+        )
+        result = supabase_fx.wait_for_terminal(
+            cid, request_sequence=followup["request_sequence"], timeout=180
+        )
+        assert result["status"] == "completed"
+
+        # Holmes may issue further tool calls before producing ai_answer_end
+        # (the unfamiliar verification string can encourage extra
+        # investigation).  Auto-approve any follow-up tool calls verbatim
+        # until we reach ai_answer_end.
+        for _ in range(5):
+            term = supabase_fx.find_terminal_event(cid)
+            assert term is not None
+            if term["event"] == "ai_answer_end":
+                break
+            assert term["event"] == "approval_required", (
+                f"Unexpected terminal event {term['event']}"
+            )
+            more_pending = (term.get("data") or {}).get("pending_approvals") or []
+            assert more_pending, "approval_required without pending approvals"
+            now_iso = datetime.now(timezone.utc).isoformat()
+            followup = supabase_fx.post_followup(
+                conversation_id=cid,
+                events=[
+                    {
+                        "event": "user_message",
+                        "data": {
+                            "tool_decisions": [
+                                {
+                                    "tool_call_id": p["tool_call_id"],
+                                    "approved": True,
+                                    "save_prefixes": None,
+                                    "feedback": None,
+                                }
+                                for p in more_pending
+                            ],
+                            "enable_tool_approval": True,
+                        },
+                        "ts": now_iso,
+                    }
+                ],
+            )
+            result = supabase_fx.wait_for_terminal(
+                cid, request_sequence=followup["request_sequence"], timeout=180
+            )
+            assert result["status"] == "completed"
+        tool_result_ev = None
+        for row in supabase_fx.get_events(cid):
+            for ev in row.get("events") or []:
+                if (
+                    ev.get("event") == "tool_calling_result"
+                    and (ev.get("data") or {}).get("tool_call_id") == edited_id
+                ):
+                    tool_result_ev = ev
+        assert tool_result_ev is not None, (
+            "tool_calling_result for edited tool call not found"
+        )
+        result_params = (
+            (tool_result_ev.get("data") or {}).get("result") or {}
+        ).get("params") or {}
+        assert result_params.get("command") == edited_command, (
+            f"TOOL_RESULT params.command must be the edited command, "
+            f"got: {result_params!r}"
+        )
+
+        # The ai_answer_end terminal event includes the conversation_history
+        # ("messages").  The assistant message that originally requested the
+        # bash call must now reflect the edited command.
+        terminal2 = supabase_fx.find_terminal_event(cid)
+        assert terminal2 is not None and terminal2["event"] == "ai_answer_end"
+        history = (terminal2.get("data") or {}).get("messages") or []
+        found_edited = False
+        for msg in history:
+            if msg.get("role") != "assistant":
+                continue
+            for tc in msg.get("tool_calls") or []:
+                if tc.get("id") != edited_id:
+                    continue
+                args_raw = (tc.get("function") or {}).get("arguments") or "{}"
+                try:
+                    args = json.loads(args_raw)
+                except json.JSONDecodeError:
+                    args = {}
+                if args.get("command") == edited_command:
+                    found_edited = True
+        assert found_edited, (
+            "ai_answer_end conversation_history must contain the edited command "
+            f"on tool_call {edited_id}"
         )
 
 
