@@ -12,6 +12,7 @@ const TOOLSET_TYPES = [
   'salesforce',
   'kubernetes',
   'dbdash',
+  'pagerduty',
 ]
 
 const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce'])
@@ -115,6 +116,14 @@ function InstanceFormDialog({
   const [awsAccountId, setAwsAccountId] = useState(instance?.aws_account_id ?? '')
   const [awsRoleArn, setAwsRoleArn] = useState(instance?.aws_role_arn ?? '')
   const [awsRegions, setAwsRegions] = useState<string[]>(instance?.aws_regions ?? [])
+  const [pdServiceIds, setPdServiceIds] = useState<string[]>(
+    (instance?.config as { service_ids?: string[] } | null | undefined)?.service_ids ?? []
+  )
+  const [pdTeamIds, setPdTeamIds] = useState<string[]>(
+    (instance?.config as { team_ids?: string[] } | null | undefined)?.team_ids ?? []
+  )
+  const [pdServiceInput, setPdServiceInput] = useState('')
+  const [pdTeamInput, setPdTeamInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
@@ -124,6 +133,7 @@ function InstanceFormDialog({
 
   const isMcp = MCP_TYPES.has(type)
   const isAws = type === 'aws_api'
+  const isPagerDuty = type === 'pagerduty'
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -152,6 +162,14 @@ function InstanceFormDialog({
         aws_account_id: isAws ? (awsAccountId.trim() || null) : null,
         aws_role_arn: isAws ? (awsRoleArn.trim() || null) : null,
         aws_regions: isAws && awsRegions.length > 0 ? awsRegions : null,
+        config: isPagerDuty
+          ? (pdServiceIds.length > 0 || pdTeamIds.length > 0
+              ? {
+                  ...(pdServiceIds.length > 0 ? { service_ids: pdServiceIds } : {}),
+                  ...(pdTeamIds.length > 0 ? { team_ids: pdTeamIds } : {}),
+                }
+              : null)
+          : (instance?.config ?? null),
       }
       if (instance) {
         await api.updateInstance(instance.id, payload)
@@ -353,6 +371,168 @@ function InstanceFormDialog({
 
               {/* Test Connection button — only for saved instances */}
               {instance && awsRoleArn.trim() && (
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-pdi-sky border border-pdi-sky/30 rounded-lg hover:bg-pdi-sky/5 transition-colors disabled:opacity-50"
+                >
+                  {testing ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Testing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Test Connection
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+
+          {isPagerDuty && (
+            <div className="space-y-4 p-4 bg-gray-50 rounded-lg border border-pdi-cool-gray">
+              <p className="text-xs font-medium text-pdi-slate uppercase tracking-wider">
+                PagerDuty Project Scope
+              </p>
+              <p className="text-xs text-pdi-slate">
+                PagerDuty API keys are account-wide. Scope this instance to specific
+                services or teams by listing IDs below. Leave empty to allow all.
+              </p>
+
+              {/* Service IDs */}
+              <div>
+                <label className="block text-sm font-medium text-pdi-granite mb-1">Service IDs</label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {pdServiceIds.map((id) => (
+                    <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-pdi-sky/10 text-pdi-sky border border-pdi-sky/20 rounded-md">
+                      {id}
+                      <button
+                        type="button"
+                        onClick={() => setPdServiceIds(pdServiceIds.filter((x) => x !== id))}
+                        className="hover:text-pdi-orange"
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={pdServiceInput}
+                    onChange={(e) => setPdServiceInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const v = pdServiceInput.trim()
+                        if (v && !pdServiceIds.includes(v)) {
+                          setPdServiceIds([...pdServiceIds, v])
+                          setPdServiceInput('')
+                        }
+                      }
+                    }}
+                    placeholder="e.g. PSVC123"
+                    className="flex-1 text-sm border border-pdi-cool-gray rounded-md px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-pdi-sky"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const v = pdServiceInput.trim()
+                      if (v && !pdServiceIds.includes(v)) {
+                        setPdServiceIds([...pdServiceIds, v])
+                        setPdServiceInput('')
+                      }
+                    }}
+                    className="px-3 py-2 text-sm font-medium text-pdi-slate bg-white border border-pdi-cool-gray rounded-md hover:bg-gray-50 transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Team IDs */}
+              <div>
+                <label className="block text-sm font-medium text-pdi-granite mb-1">Team IDs</label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {pdTeamIds.map((id) => (
+                    <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-pdi-sky/10 text-pdi-sky border border-pdi-sky/20 rounded-md">
+                      {id}
+                      <button
+                        type="button"
+                        onClick={() => setPdTeamIds(pdTeamIds.filter((x) => x !== id))}
+                        className="hover:text-pdi-orange"
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={pdTeamInput}
+                    onChange={(e) => setPdTeamInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const v = pdTeamInput.trim()
+                        if (v && !pdTeamIds.includes(v)) {
+                          setPdTeamIds([...pdTeamIds, v])
+                          setPdTeamInput('')
+                        }
+                      }
+                    }}
+                    placeholder="e.g. PTEAM456"
+                    className="flex-1 text-sm border border-pdi-cool-gray rounded-md px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-pdi-sky"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const v = pdTeamInput.trim()
+                      if (v && !pdTeamIds.includes(v)) {
+                        setPdTeamIds([...pdTeamIds, v])
+                        setPdTeamInput('')
+                      }
+                    }}
+                    className="px-3 py-2 text-sm font-medium text-pdi-slate bg-white border border-pdi-cool-gray rounded-md hover:bg-gray-50 transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Connection status */}
+              {connectionStatus && (
+                <div className={`flex items-start gap-2 text-xs rounded-md px-3 py-2 ${
+                  connectionStatus === 'success'
+                    ? 'bg-pdi-grass/10 text-pdi-grass border border-pdi-grass/20'
+                    : 'bg-pdi-orange/10 text-pdi-orange border border-pdi-orange/20'
+                }`}>
+                  <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                    connectionStatus === 'success' ? 'bg-pdi-grass' : 'bg-pdi-orange'
+                  }`} />
+                  <div>
+                    <span className="font-medium">
+                      {connectionStatus === 'success' ? 'Connected' : 'Connection failed'}
+                    </span>
+                    {connectionError && (
+                      <p className="mt-0.5 text-[11px] opacity-80 break-all">{connectionError}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Test Connection button — only for saved instances with credentials */}
+              {instance && (instance.secret_arn || (instance.config as { api_key?: string } | null | undefined)?.api_key) && (
                 <button
                   type="button"
                   onClick={handleTestConnection}
