@@ -536,9 +536,20 @@ async def _test_mcp_instance_connection(store, inst):
 
     ok, msg = ts.check_prerequisites()
 
-    # Defensive: strip api_key from any error message before returning.
-    if msg and api_key and api_key in msg:
-        msg = msg.replace(api_key, "<redacted>")
+    # Defensive: strip api_key variants from any error message before returning.
+    # Covers verbatim, stripped, and URL-encoded forms (some libraries echo headers).
+    if msg and api_key:
+        import urllib.parse  # noqa: PLC0415
+
+        variants = {
+            api_key,
+            api_key.strip(),
+            urllib.parse.quote(api_key, safe=""),
+            urllib.parse.quote_plus(api_key),
+        }
+        for v in variants:
+            if v and v in msg:
+                msg = msg.replace(v, "<redacted>")
 
     if ok:
         return {
@@ -1483,7 +1494,8 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     async def test_instance_connection(instance_id: str):
         """Test the external connection for an instance.
 
-        Supports: aws_api (AssumeRole), pagerduty (REST /services with scope filters).
+        Supports: aws_api (AssumeRole), pagerduty (REST /services), mcp toolsets
+        (ado, atlassian, salesforce, jenkins - via RemoteMCPToolset.check_prerequisites).
         """
         try:
             from projects import get_instances_store  # noqa: PLC0415

@@ -198,3 +198,35 @@ class TestMcpConnectionHelper:
             assert body["ok"] is False
             assert body["status"] == "error"
             assert "No credential source" in body["error"]
+
+    @patch("holmes.plugins.toolsets.mcp.toolset_mcp.RemoteMCPToolset.check_prerequisites")
+    @patch("projects._fetch_secret")
+    def test_atlassian_connection_strips_url_encoded_api_key_from_error(
+        self, mock_secret, mock_check
+    ):
+        """Verify that a URL-encoded api_key in an error message is also redacted."""
+        import urllib.parse
+
+        from server_frontend import _test_mcp_instance_connection  # noqa: PLC0415
+        from projects import Instance  # noqa: PLC0415
+
+        # Use a key with chars that URL-encoding transforms (/, +, =).
+        leaked_key = "sk/live+DO/NOT=LEAK=xyz"
+        encoded = urllib.parse.quote(leaked_key, safe="")
+
+        inst = Instance(
+            id="inst_at4",
+            type="atlassian",
+            name="atlassian-url-enc",
+            secret_arn="arn:aws:secretsmanager:us-east-1:1:secret:at4",
+        )
+        mock_secret.return_value = {"api_key": leaked_key}
+        # Simulate a library that echoes the URL-encoded form of the header value.
+        mock_check.return_value = (False, f"HTTP 401 — url: https://server/?x-api-key={encoded}")
+
+        store = MagicMock()
+        body = asyncio.run(_test_mcp_instance_connection(store, inst))
+        assert body["ok"] is False
+        assert leaked_key not in body["error"]
+        assert encoded not in body["error"]
+        assert "<redacted>" in body["error"]
