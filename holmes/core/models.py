@@ -124,6 +124,7 @@ class ToolApprovalDecision(BaseModel):
     save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
     feedback: Optional[str] = None  # User feedback when denying a tool call
     decision: Optional[Dict[str, Any]] = None  # Structured decision data (e.g. OAuth callback)
+    edit_command: Optional[str] = None  # If set, replaces the tool call's "command" argument before execution
 
 
 class OAuthCallbackRequest(BaseModel):

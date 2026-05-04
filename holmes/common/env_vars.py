@@ -221,6 +221,14 @@ CONVERSATION_WORKER_REALTIME_ENABLED = load_bool(
 CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS", 60)
 )
+# Upper bound on how long a silently-dead realtime WebSocket can go undetected.
+# The realtime library can leave a stale connection in place when the server
+# closes the socket cleanly (ConnectionClosedOK) — _listen_task exits, no
+# auto-reconnect fires, and is_connected still reports True. We re-evaluate
+# liveness every tick and trigger a full reconnect on any failure signal.
+CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS", 5)
+)
 # When True (default), Holmes subscribes to a Broadcast channel
 # (holmes:submit:{account_id}:{cluster_id}) to detect new pending
 # conversations — the initiator (Frontend/Relay) must send a broadcast
