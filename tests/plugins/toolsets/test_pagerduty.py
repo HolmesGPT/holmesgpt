@@ -375,3 +375,11 @@ class TestRuntimeErrorMessages:
         assert result.status == StructuredToolResultStatus.ERROR
         assert "rate limit" in result.error.lower()
         assert "30" in result.error
+
+
+class TestFactoryRegistration:
+    def test_pagerduty_registered_in_python_factories(self):
+        from holmes.plugins.toolsets import PYTHON_TOOLSET_FACTORIES
+
+        assert "pagerduty" in PYTHON_TOOLSET_FACTORIES
+        assert PYTHON_TOOLSET_FACTORIES["pagerduty"] is PagerDutyToolset

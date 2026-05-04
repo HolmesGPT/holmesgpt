@@ -277,6 +277,7 @@ PYTHON_TOOLSET_FACTORIES: dict[str, type] = {
     "datadog/logs": DatadogLogsToolset,
     "datadog/metrics": DatadogMetricsToolset,
     "datadog/traces": DatadogTracesToolset,
+    "pagerduty": PagerDutyToolset,
 }
 
 # PrometheusToolset is conditionally imported, so add it only when available
