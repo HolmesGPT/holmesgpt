@@ -534,7 +534,13 @@ async def _test_mcp_instance_connection(store, inst):
     except ValueError as e:
         return {"ok": False, "status": "error", "error": str(e)}
 
-    ok, msg = ts.check_prerequisites()
+    # MCP toolsets use the Toolset base-class check which sets self.status
+    # and self.error instead of returning (ok, msg).
+    from holmes.core.tools import ToolsetStatusEnum  # noqa: PLC0415
+
+    ts.check_prerequisites()
+    ok = ts.status == ToolsetStatusEnum.ENABLED
+    msg = getattr(ts, "error", "") or ""
 
     # Defensive: strip api_key variants from any error message before returning.
     # Covers verbatim, stripped, and URL-encoded forms (some libraries echo headers).
@@ -557,7 +563,7 @@ async def _test_mcp_instance_connection(store, inst):
             "status": "success",
             "tool_count": len(getattr(ts, "tools", [])),
         }
-    return {"ok": False, "status": "error", "error": msg}
+    return {"ok": False, "status": "error", "error": msg or "Connection failed"}
 
 
 def mount_frontend(app: FastAPI, config=None) -> None:

@@ -115,10 +115,29 @@ class TestJenkinsInMcpRegistry:
 
 
 class TestMcpConnectionHelper:
-    @patch("holmes.plugins.toolsets.mcp.toolset_mcp.RemoteMCPToolset.check_prerequisites")
+    """MCP toolsets' check_prerequisites() returns None and sets self.status
+    and self.error. The helper reads those attributes. These tests patch
+    projects._build_mcp_toolset to return a fake toolset with preset state.
+    """
+
+    @staticmethod
+    def _fake_toolset(status="ENABLED", error="", tools=None):
+        """Build a fake toolset MagicMock matching the interface the helper uses."""
+        from holmes.core.tools import ToolsetStatusEnum  # noqa: PLC0415
+
+        ts = MagicMock()
+        ts.status = (
+            ToolsetStatusEnum.ENABLED if status == "ENABLED" else ToolsetStatusEnum.FAILED
+        )
+        ts.error = error
+        ts.tools = tools if tools is not None else [MagicMock(), MagicMock()]
+        ts.check_prerequisites = MagicMock(return_value=None)
+        return ts
+
+    @patch("projects._build_mcp_toolset")
     @patch("projects._fetch_secret")
     def test_atlassian_connection_success_via_secret_arn(
-        self, mock_secret, mock_check
+        self, mock_secret, mock_build
     ):
         from server_frontend import _test_mcp_instance_connection  # noqa: PLC0415
         from projects import Instance  # noqa: PLC0415
@@ -130,17 +149,17 @@ class TestMcpConnectionHelper:
             secret_arn="arn:aws:secretsmanager:us-east-1:1:secret:at1",
         )
         mock_secret.return_value = {"api_key": "real-key"}
-        mock_check.return_value = (True, "")
+        mock_build.return_value = self._fake_toolset(status="ENABLED")
 
         store = MagicMock()
         body = asyncio.run(_test_mcp_instance_connection(store, inst))
         assert body["ok"] is True
         assert body["status"] == "success"
-        assert "tool_count" in body
+        assert body["tool_count"] == 2
 
     @patch.dict(os.environ, {"MCP_JENKINS_API_KEY": "env-key"}, clear=False)
-    @patch("holmes.plugins.toolsets.mcp.toolset_mcp.RemoteMCPToolset.check_prerequisites")
-    def test_jenkins_connection_success_via_env_fallback(self, mock_check):
+    @patch("projects._build_mcp_toolset")
+    def test_jenkins_connection_success_via_env_fallback(self, mock_build):
         from server_frontend import _test_mcp_instance_connection  # noqa: PLC0415
         from projects import Instance  # noqa: PLC0415
 
@@ -149,17 +168,17 @@ class TestMcpConnectionHelper:
             type="jenkins",
             name="jenkins-test",
         )
-        mock_check.return_value = (True, "")
+        mock_build.return_value = self._fake_toolset(status="ENABLED")
 
         store = MagicMock()
         body = asyncio.run(_test_mcp_instance_connection(store, inst))
         assert body["ok"] is True
         assert body["status"] == "success"
 
-    @patch("holmes.plugins.toolsets.mcp.toolset_mcp.RemoteMCPToolset.check_prerequisites")
+    @patch("projects._build_mcp_toolset")
     @patch("projects._fetch_secret")
     def test_atlassian_connection_strips_api_key_from_error(
-        self, mock_secret, mock_check
+        self, mock_secret, mock_build
     ):
         from server_frontend import _test_mcp_instance_connection  # noqa: PLC0415
         from projects import Instance  # noqa: PLC0415
@@ -172,7 +191,10 @@ class TestMcpConnectionHelper:
             secret_arn="arn:aws:secretsmanager:us-east-1:1:secret:at2",
         )
         mock_secret.return_value = {"api_key": leaked_key}
-        mock_check.return_value = (False, f"HTTP 401: token '{leaked_key}' rejected")
+        mock_build.return_value = self._fake_toolset(
+            status="FAILED",
+            error=f"HTTP 401: token '{leaked_key}' rejected",
+        )
 
         store = MagicMock()
         body = asyncio.run(_test_mcp_instance_connection(store, inst))
@@ -199,10 +221,10 @@ class TestMcpConnectionHelper:
             assert body["status"] == "error"
             assert "No credential source" in body["error"]
 
-    @patch("holmes.plugins.toolsets.mcp.toolset_mcp.RemoteMCPToolset.check_prerequisites")
+    @patch("projects._build_mcp_toolset")
     @patch("projects._fetch_secret")
     def test_atlassian_connection_strips_url_encoded_api_key_from_error(
-        self, mock_secret, mock_check
+        self, mock_secret, mock_build
     ):
         """Verify that a URL-encoded api_key in an error message is also redacted."""
         import urllib.parse
@@ -222,7 +244,10 @@ class TestMcpConnectionHelper:
         )
         mock_secret.return_value = {"api_key": leaked_key}
         # Simulate a library that echoes the URL-encoded form of the header value.
-        mock_check.return_value = (False, f"HTTP 401 — url: https://server/?x-api-key={encoded}")
+        mock_build.return_value = self._fake_toolset(
+            status="FAILED",
+            error=f"HTTP 401 — url: https://server/?x-api-key={encoded}",
+        )
 
         store = MagicMock()
         body = asyncio.run(_test_mcp_instance_connection(store, inst))
