@@ -30,6 +30,8 @@ def _bare_worker():
     w._queued_lock = threading.Lock()
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
+    w._realtime_verify_thread = None
+    w._realtime_verify_stop = threading.Event()
     return w
 
 
@@ -325,6 +327,243 @@ def test_notify_event_wakes_claim_loop():
     t.join(timeout=3)
     assert not t.is_alive(), "claim loop did not exit after notify"
     assert call_count["n"] == 1
+
+
+def _verify_worker():
+    """Build a worker bare enough to drive _realtime_verify_loop directly,
+    without spinning up the executor/claim-thread machinery."""
+    w = _bare_worker()
+    w._running = True
+    w.config = MagicMock()
+    return w
+
+
+def test_realtime_verify_loop_updates_status_and_starts_workers_on_true():
+    """A definitive True must flip HolmesStatus to env-var values, kick
+    off the executor / claim loop / Realtime subscription, and exit the
+    verifier loop."""
+    w = _verify_worker()
+    w.dal.is_realtime_enabled.return_value = True
+    w._start_active_workers = MagicMock()
+
+    with patch(
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+    ) as mock_update:
+        w._realtime_verify_loop()
+
+    mock_update.assert_called_once_with(w.dal, w.config, realtime_available=True)
+    w._start_active_workers.assert_called_once_with()
+    assert w._running is True
+    w.dal.is_realtime_enabled.assert_called_once_with()
+
+
+def test_realtime_verify_loop_shuts_down_on_definitive_false():
+    """A definitive False must call stop() WITHOUT having ever spun up
+    the active workers; HolmesStatus is left at its default False so no
+    extra status write is needed from this path."""
+    w = _verify_worker()
+    w.dal.is_realtime_enabled.return_value = False
+    w.stop = MagicMock()  # don't actually tear down the bare worker
+    w._start_active_workers = MagicMock()
+
+    with patch(
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+    ) as mock_update:
+        w._realtime_verify_loop()
+
+    w.stop.assert_called_once_with()
+    w._start_active_workers.assert_not_called()
+    mock_update.assert_not_called()
+
+
+def test_realtime_verify_loop_retries_on_connectivity_errors():
+    """When is_realtime_enabled returns None (connectivity error), the
+    loop must wait and retry until it gets a definitive answer."""
+    w = _verify_worker()
+    # Three connectivity failures, then True.
+    w.dal.is_realtime_enabled.side_effect = [None, None, None, True]
+
+    # Patch the stop event's wait to be non-blocking (no real backoff).
+    original_wait = w._realtime_verify_stop.wait
+
+    def fast_wait(timeout=None):
+        return False  # never signalled, return immediately
+
+    w._realtime_verify_stop.wait = fast_wait  # type: ignore[assignment]
+
+    try:
+        with patch(
+            "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        ) as mock_update:
+            w._realtime_verify_loop()
+    finally:
+        w._realtime_verify_stop.wait = original_wait  # type: ignore[assignment]
+
+    assert w.dal.is_realtime_enabled.call_count == 4
+    mock_update.assert_called_once_with(w.dal, w.config, realtime_available=True)
+
+
+def test_realtime_verify_loop_exits_when_stop_event_set():
+    """If stop() has already been called when the verifier starts, the
+    loop must bail out before issuing any probe."""
+    w = _verify_worker()
+    w.dal.is_realtime_enabled.return_value = None  # always inconclusive
+    w._realtime_verify_stop.set()
+
+    with patch(
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+    ) as mock_update:
+        w._realtime_verify_loop()
+
+    w.dal.is_realtime_enabled.assert_not_called()
+    mock_update.assert_not_called()
+
+
+def test_realtime_verify_loop_exits_when_running_flag_cleared():
+    """If _running is cleared (worker stopped), the loop must not start a
+    new probe iteration."""
+    w = _verify_worker()
+    w._running = False
+    w.dal.is_realtime_enabled.return_value = None
+
+    with patch(
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+    ) as mock_update:
+        w._realtime_verify_loop()
+
+    w.dal.is_realtime_enabled.assert_not_called()
+    mock_update.assert_not_called()
+
+
+def test_realtime_verify_loop_swallows_unexpected_exceptions():
+    """An unexpected exception from is_realtime_enabled must be treated as
+    an inconclusive result, NOT as a definitive False — the loop should
+    keep retrying."""
+    w = _verify_worker()
+    w.dal.is_realtime_enabled.side_effect = [RuntimeError("boom"), True]
+
+    w._realtime_verify_stop.wait = lambda timeout=None: False  # type: ignore[assignment]
+
+    with patch(
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+    ) as mock_update:
+        w._realtime_verify_loop()
+
+    assert w.dal.is_realtime_enabled.call_count == 2
+    mock_update.assert_called_once_with(w.dal, w.config, realtime_available=True)
+
+
+def test_start_only_spawns_verifier_not_active_workers():
+    """start() must NOT spin up the executor, claim loop, or Realtime
+    subscription before the verifier confirms realtime is enabled —
+    otherwise we'd be polling/subscribing for projects that don't
+    support our feature at all."""
+    dal = MagicMock()
+    dal.enabled = True
+    dal.account_id = "acct"
+    dal.cluster = "cl"
+    # Make is_realtime_enabled block forever so the verifier doesn't
+    # progress; we want to inspect the state BEFORE verification completes.
+    block_event = threading.Event()
+
+    def blocking_check():
+        block_event.wait(timeout=5)
+        return None
+
+    dal.is_realtime_enabled.side_effect = blocking_check
+    config = MagicMock()
+    chat_function = MagicMock()
+    w = ConversationWorker(dal=dal, config=config, chat_function=chat_function)
+
+    try:
+        w.start()
+        # Verifier thread is up.
+        assert w._realtime_verify_thread is not None
+        assert w._realtime_verify_thread.is_alive()
+        # But active workers haven't been started.
+        assert w._executor is None
+        assert w._claim_thread is None
+        assert w._realtime_manager is None
+    finally:
+        block_event.set()
+        w.stop()
+
+
+def test_start_starts_active_workers_after_definitive_true():
+    """End-to-end: once is_realtime_enabled returns True, the verifier
+    must call _start_active_workers and update HolmesStatus."""
+    dal = MagicMock()
+    dal.enabled = True
+    dal.account_id = "acct"
+    dal.cluster = "cl"
+    dal.is_realtime_enabled.return_value = True
+    config = MagicMock()
+    chat_function = MagicMock()
+    w = ConversationWorker(dal=dal, config=config, chat_function=chat_function)
+
+    with patch(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_REALTIME_ENABLED",
+        False,
+    ), patch(
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+    ) as mock_update:
+        try:
+            w.start()
+            assert w._realtime_verify_thread is not None
+            w._realtime_verify_thread.join(timeout=3)
+            assert not w._realtime_verify_thread.is_alive()
+            mock_update.assert_called_once_with(dal, config, realtime_available=True)
+            # Active workers should be up now.
+            assert w._executor is not None
+            assert w._claim_thread is not None
+        finally:
+            w.stop()
+
+
+def test_start_does_not_start_active_workers_after_definitive_false():
+    """When is_realtime_enabled returns False, the active workers must
+    never spin up — start() never produced an executor or claim loop."""
+    dal = MagicMock()
+    dal.enabled = True
+    dal.account_id = "acct"
+    dal.cluster = "cl"
+    dal.is_realtime_enabled.return_value = False
+    config = MagicMock()
+    chat_function = MagicMock()
+    w = ConversationWorker(dal=dal, config=config, chat_function=chat_function)
+
+    with patch(
+        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+    ) as mock_update:
+        w.start()
+        assert w._realtime_verify_thread is not None
+        w._realtime_verify_thread.join(timeout=3)
+        assert not w._realtime_verify_thread.is_alive()
+
+    # No HolmesStatus update from this path — the default-False row from
+    # server startup already reflects reality.
+    mock_update.assert_not_called()
+    # And no polling/subscription components were ever created.
+    assert w._executor is None
+    assert w._claim_thread is None
+    assert w._realtime_manager is None
+    assert w._running is False  # stop() was triggered by the verifier
+
+
+def test_start_skips_when_dal_disabled():
+    """If the DAL itself isn't enabled, start() returns early without
+    spawning any threads."""
+    dal = MagicMock()
+    dal.enabled = False
+    config = MagicMock()
+    chat_function = MagicMock()
+    w = ConversationWorker(dal=dal, config=config, chat_function=chat_function)
+
+    w.start()
+
+    assert w._running is False
+    assert w._realtime_verify_thread is None
+    dal.is_realtime_enabled.assert_not_called()
 
 
 def test_claim_loop_initial_claim_without_realtime():
