@@ -129,6 +129,55 @@ class PagerDutyToolset(Toolset):
         resp.raise_for_status()
         return resp.json()
 
+    def _apply_scope_filters(
+        self, query: dict, params: dict
+    ) -> Tuple[dict, Optional[str]]:
+        """
+        Apply instance-level team/service scope to a query dict.
+
+        - If the instance has team_ids or service_ids set, those are treated as
+          the maximum permitted scope.
+        - If the user (LLM) passes the same filter via tool params, the result is
+          the intersection of user-supplied values and instance scope.
+        - If the user passes IDs outside the instance scope, they are dropped
+          (never widens beyond instance scope) and a note is returned so the LLM
+          sees why.
+
+        Returns (query_with_filters_appended, optional_note_string).
+        """
+        assert self.pd_config is not None
+        note_parts: list[str] = []
+
+        def _merge(field_name: str, instance_values: Optional[List[str]]) -> None:
+            user_raw = params.get(field_name)
+            user_values: Optional[List[str]] = None
+            if user_raw:
+                user_values = [v.strip() for v in user_raw.split(",") if v.strip()]
+
+            if instance_values is not None:
+                if user_values is None:
+                    final = list(instance_values)
+                else:
+                    final = [v for v in user_values if v in instance_values]
+                    dropped = [v for v in user_values if v not in instance_values]
+                    if dropped:
+                        note_parts.append(
+                            f"Filter narrowed to project scope: "
+                            f"{field_name} allowed={instance_values} "
+                            f"applied={final} "
+                            f"(dropped out-of-scope IDs: {dropped})"
+                        )
+                query[f"{field_name}[]"] = final
+            elif user_values is not None:
+                # No instance scope — user filter passes through unchanged.
+                query[f"{field_name}[]"] = user_values
+
+        _merge("service_ids", self.pd_config.service_ids)
+        _merge("team_ids", self.pd_config.team_ids)
+
+        note = "; ".join(note_parts) if note_parts else None
+        return query, note
+
 
 class BasePagerDutyTool(Tool):
     toolset: "PagerDutyToolset"
