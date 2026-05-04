@@ -235,7 +235,7 @@ class InitProgressRenderer:
         return display
 
     def on_event(self, event: StatusEvent) -> None:
-        """Callback passed as on_event to create_console_toolcalling_llm."""
+        """Callback passed as on_event to create_toolcalling_llm."""
         with self._lock:
             if event.kind == StatusEventKind.TOOLSET_CHECKING:
                 self._in_flight[event.name] = time.time()
@@ -268,7 +268,7 @@ class InitProgressRenderer:
                     self._live.update(self._build_display())
 
     def start(self) -> None:
-        """Start the live display. Call before create_console_toolcalling_llm."""
+        """Start the live display. Call before create_toolcalling_llm."""
         self._start_time = time.time()
         self._live = _make_live(
             self._build_display(),
@@ -2258,7 +2258,7 @@ def run_interactive_loop(
     include_files: Optional[List[Path]],
     show_tool_output: bool,
     tracer=None,
-    runbooks=None,
+    skills=None,
     system_prompt_additions: Optional[str] = None,
     check_version: bool = True,
     feedback_callback: Optional[FeedbackCallback] = None,
@@ -2554,7 +2554,7 @@ def run_interactive_loop(
                     user_input,
                     include_files,
                     ai.tool_executor,
-                    runbooks,
+                    skills,
                     system_prompt_additions,
                     prompt_component_overrides=prompt_component_overrides,
                 )

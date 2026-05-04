@@ -47,7 +47,7 @@ export OPENAI_API_KEY="your-api-key-here"
 # Anthropic
 export ANTHROPIC_API_KEY="your-api-key-here"
 
-# Azure OpenAI
+# Azure AI Foundry
 export AZURE_API_KEY="your-api-key-here"
 export AZURE_API_BASE="your-api-base-url"
 

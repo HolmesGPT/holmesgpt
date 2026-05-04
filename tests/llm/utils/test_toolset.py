@@ -171,20 +171,20 @@ class TestToolsetManager:
                 or toolset.name in database_toolsets
             ):
                 continue
-            # Replace RunbookToolset with one that has test folder search path
-            if toolset.name == "runbook":
-                from holmes.plugins.toolsets.runbook.runbook_fetcher import (
-                    RunbookToolset,
+            # Replace SkillsToolset with one that has test folder search path
+            if toolset.name == "skills":
+                from holmes.plugins.toolsets.skills.skills_fetcher import (
+                    SkillsToolset,
                 )
 
-                new_runbook_toolset = RunbookToolset(
+                new_skills_toolset = SkillsToolset(
                     dal=dal, additional_search_paths=[self.test_case_folder]
                 )
-                new_runbook_toolset.enabled = toolset.enabled
-                new_runbook_toolset.status = toolset.status
+                new_skills_toolset.enabled = toolset.enabled
+                new_skills_toolset.status = toolset.status
                 if toolset.config:
-                    new_runbook_toolset.config.update(toolset.config)
-                toolset = new_runbook_toolset
+                    new_skills_toolset.config.update(toolset.config)
+                toolset = new_skills_toolset
             elif toolset.name == "kubernetes/core":
                 if not isinstance(toolset, YAMLToolset):
                     raise ValueError(

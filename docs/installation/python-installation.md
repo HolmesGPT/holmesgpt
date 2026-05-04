@@ -20,13 +20,17 @@ pip install "https://github.com/HolmesGPT/holmesgpt/archive/refs/heads/master.zi
 import os
 from holmes.config import Config
 from holmes.core.prompt import build_initial_ask_messages
+from holmes.core.tools import ToolsetTag
 
 config = Config(
     api_key=os.getenv("ANTHROPIC_API_KEY"),
     model="anthropic/claude-sonnet-4-5-20250929",
 )
 
-ai = config.create_console_toolcalling_llm()
+ai = config.create_toolcalling_llm(
+    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+    enable_all_toolsets_possible=True,
+)
 
 messages = build_initial_ask_messages(
     initial_user_prompt="what pods are failing in production?",

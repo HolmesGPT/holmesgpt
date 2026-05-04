@@ -2,7 +2,7 @@ toolsets:
   slab:
     description: "Fetches slab pages"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/slab/"
-    icon_url: "https://platform.robusta.dev/demos/slab-mark.svg"
+    icon_url: "https://cdn.simpleicons.org/bookstack/0288D1"
     tags:
       - core
     prerequisites:

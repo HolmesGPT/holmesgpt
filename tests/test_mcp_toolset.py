@@ -1,4 +1,5 @@
 import asyncio
+import base64 as _b64
 import copy
 import logging
 import shutil
@@ -7,7 +8,17 @@ import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.types import CallToolResult, ImageContent, ListToolsResult, TextContent, Tool
+from mcp.types import (
+    BlobResourceContents,
+    CallToolResult,
+    EmbeddedResource,
+    ImageContent,
+    ListToolsResult,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 
 if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
@@ -64,6 +75,26 @@ class TestToolParameter:
         """Test that the default type is 'string'."""
         param = ToolParameter()
         assert param.type == "string"
+
+    def test_enum_accepts_list_of_strings(self) -> None:
+        """Test that ToolParameter.enum accepts a list of strings."""
+        param = ToolParameter(type="string", enum=["buy", "sell"])
+        assert param.enum == ["buy", "sell"]
+
+    def test_enum_accepts_non_string_values(self) -> None:
+        """Test that ToolParameter.enum accepts non-string values like integers and booleans.
+
+        JSON Schema allows enum values of any type, not just strings.
+        Honeycomb MCP uses integer enum values which previously caused a
+        ValidationError: 'Input should be a valid string'.
+        """
+        param = ToolParameter(type="integer", enum=[1, 2, 3])
+        assert param.enum == [1, 2, 3]
+
+    def test_enum_accepts_mixed_types(self) -> None:
+        """Test that ToolParameter.enum accepts mixed types (e.g. strings and None)."""
+        param = ToolParameter(type="string", enum=["asc", "desc", None])
+        assert param.enum == ["asc", "desc", None]
 
 
 def npx_not_available() -> tuple[bool, str]:
@@ -132,6 +163,53 @@ class TestMCPGeneral:
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
         assert tool.parameters == expected_schema
         assert tool.description == "desc"
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_non_string_enum_values_in_schema_parses_correctly(self) -> None:
+        """Test that MCP tools with non-string enum values (e.g. integers) parse correctly.
+
+        Honeycomb MCP defines integer enum values in tool schemas, which previously
+        caused: 'Failed to load mcp server honeycomb: 21 validation errors for
+        ToolParameter enum.0 Input should be a valid string'.
+        """
+        mcp_tool = Tool(
+            name="get_query_results",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of results to return",
+                        "enum": [10, 100, 1000],
+                    },
+                    "order": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                    },
+                },
+                "required": ["limit"],
+            },
+            description="Get query results",
+            annotations=None,
+        )
+
+        expected_schema = {
+            "limit": ToolParameter(
+                type="integer",
+                required=True,
+                description="Number of results to return",
+                enum=[10, 100, 1000],
+            ),
+            "order": ToolParameter(type="string", required=False, enum=["asc", "desc"]),
+        }
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+        assert tool.parameters == expected_schema
 
     @pytest.mark.usefixtures("suppress_migration_warnings")
     def test_nullable_type_schema_parses_correctly(self) -> None:
@@ -1081,6 +1159,142 @@ class TestStreamableHttp:
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.images is None
+
+    def _make_mcp_tool(self, monkeypatch):
+        tool = Tool(
+            name="get_file_contents",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Read a file",
+        )
+        toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(toolset, "_get_server_tools", mock_get_server_tools)
+        toolset.prerequisites_callable(config=toolset.config)
+        return RemoteMCPTool.create(tool, toolset)
+
+    def _run_invoke_with_content(self, monkeypatch, content_blocks):
+        mcp_tool = self._make_mcp_tool(monkeypatch)
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        mock_session.call_tool = AsyncMock(
+            return_value=CallToolResult(content=content_blocks, isError=False)
+        )
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+        with client_patch, session_patch:
+            return asyncio.run(mcp_tool._invoke_async({}, None))
+
+    def test_invoke_async_extracts_text_resource_contents(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """EmbeddedResource with TextResourceContents must surface its text.
+
+        Reproduces the github MCP get_file_contents bug where the file body
+        was returned in an EmbeddedResource and silently dropped.
+        """
+        file_body = "name: prompting-service\nreplicaCount: 3\n"
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                TextContent(
+                    type="text",
+                    text="successfully downloaded text file (SHA: abc123)",
+                ),
+                EmbeddedResource(
+                    type="resource",
+                    resource=TextResourceContents(
+                        uri="file:///production/document-extraction/prompting-service/values.yaml",
+                        mimeType="text/yaml",
+                        text=file_body,
+                    ),
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "successfully downloaded text file" in result.data
+        assert file_body in result.data
+
+    def test_invoke_async_decodes_text_blob_resource(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """BlobResourceContents with a text-like mimeType must be base64-decoded."""
+        file_body = '{"hello": "world"}'
+        encoded = _b64.b64encode(file_body.encode("utf-8")).decode("ascii")
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri="file:///config.json",
+                        mimeType="application/json",
+                        blob=encoded,
+                    ),
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert file_body in result.data
+
+    def test_invoke_async_keeps_binary_blob_as_placeholder(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Binary BlobResourceContents must not be decoded to text — emit a placeholder."""
+        encoded = _b64.b64encode(b"\x89PNG\r\n\x1a\n").decode("ascii")
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri="file:///logo.png",
+                        mimeType="image/png",
+                        blob=encoded,
+                    ),
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == (
+            f"[binary resource uri=file:///logo.png mimeType=image/png "
+            f"base64_size={len(encoded)}]"
+        )
+
+    def test_invoke_async_surfaces_resource_link(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """ResourceLink (returned for files >= 1MB) must surface URI in the wrapper format."""
+        result = self._run_invoke_with_content(
+            monkeypatch,
+            [
+                TextContent(
+                    type="text",
+                    text="File big.bin is too large to display",
+                ),
+                ResourceLink(
+                    type="resource_link",
+                    uri="https://example.com/raw/big.bin",
+                    name="big.bin",
+                ),
+            ],
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == (
+            "File big.bin is too large to display "
+            "[resource_link big.bin: https://example.com/raw/big.bin]"
+        )
 
 
 class TestSSE:

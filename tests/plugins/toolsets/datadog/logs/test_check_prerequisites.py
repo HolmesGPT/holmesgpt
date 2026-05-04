@@ -2,7 +2,8 @@ from unittest.mock import Mock, patch
 
 from holmes.core.tools import StructuredToolResultStatus, ToolsetStatusEnum
 from holmes.plugins.toolsets.datadog.datadog_models import (
-    DEFAULT_STORAGE_TIERS,
+    DEFAULT_STORAGE_TIER,
+    DataDogStorageTier,
 )
 from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
     DatadogLogsToolset,
@@ -47,7 +48,7 @@ class TestDatadogToolsetCheckPrerequisites:
 
         assert toolset.status == ToolsetStatusEnum.FAILED
         assert toolset.error
-        assert "Failed to parse Datadog configuration" in toolset.error
+        assert "Invalid Datadog Logs configuration" in toolset.error
 
     def test_check_prerequisites_invalid_config_format(self):
         """Test check_prerequisites with invalid config format"""
@@ -56,13 +57,13 @@ class TestDatadogToolsetCheckPrerequisites:
             "api_key": "test-api-key",
             "app_key": "test-app-key",
             "api_url": "https://api.datadoghq.com",
-            "storage_tiers": ["invalid-tier"],  # Invalid storage tier
+            "storage_tier": "invalid-tier",  # Invalid storage tier
         }
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.FAILED
         assert toolset.error
-        assert "Failed to parse Datadog configuration" in toolset.error
+        assert "Invalid Datadog Logs configuration" in toolset.error
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
@@ -92,7 +93,7 @@ class TestDatadogToolsetCheckPrerequisites:
             str(toolset.dd_config.api_url).rstrip("/")
             == "https://api.datadoghq.com"
         )
-        assert toolset.dd_config.storage_tiers == DEFAULT_STORAGE_TIERS
+        assert toolset.dd_config.storage_tier == DEFAULT_STORAGE_TIER
 
         # Verify healthcheck was called with correct params
         mock_execute_request.assert_called_once()
@@ -129,7 +130,7 @@ class TestDatadogToolsetCheckPrerequisites:
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.FAILED
-        assert "Healthcheck failed with exception: Network error" in toolset.error
+        assert "Datadog Logs health check failed: Network error" in toolset.error
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
@@ -143,7 +144,7 @@ class TestDatadogToolsetCheckPrerequisites:
             "app_key": "test-app-key",
             "api_url": "https://api.us3.datadoghq.com",
             "indexes": ["main", "secondary"],
-            "storage_tiers": ["indexes", "flex"],
+            "storage_tier": "flex",
             "labels": {"pod": "custom_pod_name", "namespace": "custom_namespace"},
             "page_size": 500,
             "default_limit": 2000,
@@ -160,22 +161,52 @@ class TestDatadogToolsetCheckPrerequisites:
         )
         assert toolset.dd_config.indexes == ["main", "secondary"]
 
-    def test_check_prerequisites_with_empty_storage_tiers(self):
-        """Test check_prerequisites with empty storage_tiers should fail validation"""
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_check_prerequisites_migrates_legacy_storage_tiers(self, mock_execute):
+        """Legacy list-valued `storage_tiers` config should migrate to singular `storage_tier`."""
+        mock_result = Mock()
+        mock_result.status = StructuredToolResultStatus.SUCCESS
+        mock_result.error = None
+        mock_execute.return_value = mock_result
+
         toolset = DatadogLogsToolset()
         toolset.config = {
             "api_key": "test-api-key",
             "app_key": "test-app-key",
             "api_url": "https://api.datadoghq.com",
-            "storage_tiers": [],  # Empty list
+            "storage_tiers": ["indexes", "flex"],  # legacy list form — last element wins
         }
         toolset.check_prerequisites()
 
-        assert toolset.status == ToolsetStatusEnum.FAILED
-        assert toolset.error is not None
-        assert "Failed to parse Datadog configuration" in toolset.error
-        assert "storage_tiers" in toolset.error
-        assert "at least 1 item" in toolset.error
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset.dd_config is not None
+        # Last element of the legacy list becomes the new scalar storage_tier
+        assert toolset.dd_config.storage_tier == DataDogStorageTier.FLEX
+
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_check_prerequisites_legacy_empty_storage_tiers_falls_back_to_default(self, mock_execute):
+        """Empty legacy `storage_tiers: []` should silently fall back to the default tier."""
+        mock_result = Mock()
+        mock_result.status = StructuredToolResultStatus.SUCCESS
+        mock_result.error = None
+        mock_execute.return_value = mock_result
+
+        toolset = DatadogLogsToolset()
+        toolset.config = {
+            "api_key": "test-api-key",
+            "app_key": "test-app-key",
+            "api_url": "https://api.datadoghq.com",
+            "storage_tiers": [],  # legacy empty list — should fall back to the default
+        }
+        toolset.check_prerequisites()
+
+        assert toolset.status == ToolsetStatusEnum.ENABLED
+        assert toolset.dd_config is not None
+        assert toolset.dd_config.storage_tier == DEFAULT_STORAGE_TIER
 
     def test_check_prerequisites_integration(self):
         """Integration test to ensure check_prerequisites is called via CallablePrerequisite"""

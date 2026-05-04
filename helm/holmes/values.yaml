@@ -170,6 +170,18 @@ mcpAddons:
     # Set to override the default investigation patterns and guidelines
     llmInstructions: ""
 
+    # Additional environment variables for the AWS MCP container
+    additionalEnvVars: []
+
+    # Extra volumes to add to the AWS MCP pod
+    extraVolumes: []
+
+    # Extra volume mounts to add to the AWS MCP container
+    extraVolumeMounts: []
+
+    # Extra init containers to add to the AWS MCP pod
+    extraInitContainers: []
+
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -326,7 +338,7 @@ mcpAddons:
       tenantId: ""                      # Azure tenant ID (required for workload identity)
       subscriptionId: ""                # Default Azure subscription ID
       clientId: ""                      # Azure client ID (required for workload-identity and managed-identity)
-      readOnlyMode: false               # read-only mode blocks any post requests. Limit the Azure roles to read-only
+      readOnlyMode: true                # Blocks write operations against the Azure API. Set to false to allow writes (use with caution). Default true matches AWS/MariaDB MCP addons.
       authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
       enableSecurityPolicy: false       # Enable additional security policies
       timeout: "120"                    # Command execution timeout in seconds
@@ -366,7 +378,7 @@ mcpAddons:
   #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
   # Option 2 - GitHub App: Deploys a self-hosted MCP server using the github-app-mcp image
   #   which generates and auto-refreshes installation tokens from GitHub App credentials
-  #   kubectl create secret generic github-app-secret --from-literal=GITHUB_APP_ID=... -n <NAMESPACE>
+  #   kubectl create secret generic holmes-github-app --from-literal=GITHUB_APP_ID=... -n <NAMESPACE>
   #
   # GITHUB ENTERPRISE:
   # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
@@ -390,14 +402,14 @@ mcpAddons:
       # Option 2: GitHub App installation token
       # Deploys a self-hosted MCP server that generates and refreshes installation tokens
       # from GitHub App credentials. Uses a separate image with built-in token management.
-      #   kubectl create secret generic github-app-secret \
+      #   kubectl create secret generic holmes-github-app \
       #     --from-literal=GITHUB_APP_ID=<APP_ID> \
       #     --from-literal=GITHUB_APP_INSTALLATION_ID=<INSTALLATION_ID> \
       #     --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.0"                          # Image with GitHub App token management
+        image: "github-app-mcp:1.0.2"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
@@ -414,10 +426,13 @@ mcpAddons:
       # Toolsets to enable (comma-separated list of toolset names)
       # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
       # Default: repos, issues, pull_requests, actions (covers most investigation needs)
+      # Ignored when `tools` below is set (tools takes precedence as a hard allowlist).
       toolsets: "repos,issues,pull_requests,actions"
 
-      # Individual tools to enable (comma-separated, optional)
-      # Use this for fine-grained control. Leave empty to use all tools from enabled toolsets.
+      # Individual tools to enable (comma-separated, optional).
+      # When set, restricts Holmes to EXACTLY this list of tools — takes precedence
+      # over `toolsets` above. Leave empty (the default) to expose every tool from
+      # the toolsets listed above.
       # Example: "get_file_contents,list_commits,list_workflow_runs"
       tools: ""
 
@@ -608,6 +623,9 @@ mcpAddons:
       enabled: false
 
     llmInstructions: ""
+
+    # Additional environment variables for the Confluence MCP container
+    additionalEnvVars: []
 
     nodeSelector: {}
     tolerations: []

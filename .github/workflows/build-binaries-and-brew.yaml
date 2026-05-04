@@ -83,7 +83,7 @@ jobs:
       run: |
        pyinstaller holmes_cli.py \
             --name holmes \
-            --add-data 'holmes/plugins/runbooks/*:holmes/plugins/runbooks' \
+            --add-data 'holmes/plugins/skills/*:holmes/plugins/skills' \
             --add-data 'holmes/plugins/prompts/*:holmes/plugins/prompts' \
             --add-data 'holmes/plugins/toolsets/*:holmes/plugins/toolsets' \
             --add-data 'holmes/plugins/toolsets/coralogix*:holmes/plugins/toolsets/coralogix' \
@@ -103,7 +103,7 @@ jobs:
       if: matrix.platform != 'windows'
       run: |
         cd dist
-        zip -r holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip holmes
+        zip -r --symlinks holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip holmes
         mv holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip ../
         cd ..
 

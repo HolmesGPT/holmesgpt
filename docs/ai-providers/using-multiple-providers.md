@@ -103,7 +103,7 @@ Define multiple model configurations and switch between them by name. This is us
         model: openai/gpt-4.1
         temperature: 0
 
-      # Azure OpenAI Models
+      # Azure AI Foundry Models
       azure-41:
         api_key: "{{ env.AZURE_API_KEY }}"
         model: azure/gpt-4.1
@@ -210,7 +210,7 @@ Define multiple model configurations and switch between them by name. This is us
           model: openai/gpt-4.1
           temperature: 0
 
-        # Azure OpenAI Models
+        # Azure AI Foundry Models
         azure-41:
           api_key: "{{ env.AZURE_API_KEY }}"
           model: azure/gpt-4.1

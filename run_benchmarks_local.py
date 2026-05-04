@@ -345,7 +345,7 @@ Examples:
 
 Environment variables:
   OPENAI_API_KEY, ANTHROPIC_API_KEY    - LLM API keys
-  AZURE_API_BASE, AZURE_API_KEY        - Azure OpenAI configuration
+  AZURE_API_BASE, AZURE_API_KEY        - Azure AI Foundry configuration
   CLASSIFIER_MODEL                     - Model for scoring (default: gpt-4.1)
   EXPERIMENT_ID                        - Custom experiment name
   BRAINTRUST_API_KEY                   - Required for benchmark tracking (unless --no-braintrust)

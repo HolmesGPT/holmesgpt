@@ -105,6 +105,8 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
+    oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
@@ -159,6 +161,19 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
+class PrerequisiteCacheMode(str, Enum):
+    """Controls how prerequisite check results are cached.
+
+    DISABLED:      Run full prerequisite checks eagerly, no disk caching.
+    ENABLED:       Use cached results if available; fast config-validity checks on startup.
+    FORCE_REFRESH: Re-run all checks now and update the disk cache.
+    """
+
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    FORCE_REFRESH = "force_refresh"
+
+
 class ToolsetStatusEnum(str, Enum):
     ENABLED = "enabled"
     DISABLED = "disabled"
@@ -188,7 +203,7 @@ class ToolParameter(BaseModel):
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
-    enum: Optional[List[str]] = None  # For restricting to specific values
+    enum: Optional[List[Any]] = None  # For restricting to specific values (JSON Schema allows any type)
     # For object types: stores the additionalProperties JSON Schema value.
     # None = not specified, False = no additional properties allowed,
     # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
@@ -280,7 +295,7 @@ class Tool(ABC, BaseModel):
     transformers: Optional[List[Transformer]] = None
     restricted: bool = Field(
         default=False,
-        description="If True, tool requires runbook authorization or restricted_tools=true to use",
+        description="If True, tool requires skill authorization or restricted_tools=true to use",
     )
 
     # Private attribute to store initialized transformer instances for performance
@@ -745,7 +760,7 @@ class Toolset(BaseModel):
 
     restricted_tools: List[str] = Field(
         default_factory=list,
-        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
+        description="Tool names/patterns that require skill authorization (use '*' for all tools)",
     )
     approval_required_tools: List[str] = Field(
         default_factory=list,
@@ -765,18 +780,29 @@ class Toolset(BaseModel):
     path: Optional[FilePath] = None
     status: ToolsetStatusEnum = ToolsetStatusEnum.DISABLED
     error: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
+
+    # Optional top-level YAML disambiguator for multi-variant toolsets
+    # (e.g. Database: `subtype: mysql`; Prometheus: `subtype: victoriametrics`).
+    # The value is toolset-specific; consult the toolset's documentation for
+    # accepted values. Toolsets that don't support variants ignore this field.
+    subtype: Optional[str] = None
 
     def override_with(self, override: "Toolset") -> None:
         """
         Overrides the current attributes with values from the Toolset loaded from custom config
         if they are not None.
         """
-        for field, value in override.model_dump(
-            exclude_unset=True,
-            exclude=("name"),  # type: ignore
-        ).items():
-            if field in self.__class__.model_fields and value not in (None, [], {}, ""):
-                setattr(self, field, value)
+        # Read values via getattr (not model_dump) so custom types like benedict
+        # don't round-trip through a serializer that loses in-place mutations
+        # such as env-var substitution.
+        for field in override.model_fields_set:
+            if field == "name" or field not in self.__class__.model_fields:
+                continue
+            value = getattr(override, field)
+            if value in (None, [], {}, ""):
+                continue
+            setattr(self, field, value)
 
     @model_validator(mode="before")
     def preprocess_tools(cls, values):
@@ -921,7 +947,11 @@ class Toolset(BaseModel):
                         self.error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
                 except subprocess.CalledProcessError as e:
                     self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"`{prereq.command}` returned {e.returncode}"
+                    stderr = (e.stderr or "").strip()
+                    detail = f": {stderr}" if stderr else ""
+                    self.error = (
+                        f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
+                    )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
                 for env_var in prereq.env:
@@ -1037,16 +1067,15 @@ class Toolset(BaseModel):
         return None
 
     def get_config_schema(self) -> Optional[Dict[str, Any]]:
-        """Returns JSON Schema for the toolset's configuration.
+        """Returns the per-variant JSON Schema map for the toolset's configuration.
 
-        Returns a dict of { config_class_name: model_json_schema } (if any), otherwise returns None.
+        Returns `{ config_class_name: <schema entry> }` if `config_classes` is
+        set, otherwise None. Each entry's shape and the rules for hiding /
+        requiring fields are documented on `ToolsetConfig.build_schema_entry`.
         """
-        if self.config_classes:
-            return {
-                config_cls.__name__: config_cls.model_json_schema()
-                for config_cls in self.config_classes
-            }
-        return None
+        if not self.config_classes:
+            return None
+        return {cls.__name__: cls.build_schema_entry() for cls in self.config_classes}
 
     def _load_llm_instructions(self, jinja_template: str):
         tool_names = [t.name for t in self.tools]
@@ -1117,6 +1146,7 @@ class ToolsetDBModel(BaseModel):
     description: Optional[str] = None
     docs_url: Optional[str] = None
     installation_instructions: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
     updated_at: str = Field(default_factory=datetime.now().isoformat)
 
 
