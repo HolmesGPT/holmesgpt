@@ -548,6 +548,70 @@ function InstanceFormDialog({
             </div>
           )}
 
+          {isMcp && (
+            <div className="space-y-4 p-4 bg-gray-50 rounded-lg border border-pdi-cool-gray">
+              <p className="text-xs font-medium text-pdi-slate uppercase tracking-wider">
+                MCP Connection
+              </p>
+              <p className="text-xs text-pdi-slate">
+                This instance connects to the PDI MCP gateway for{' '}
+                <span className="font-mono">{type}</span>. Leave Secret ARN blank to use the
+                globally configured <span className="font-mono">MCP_{type.toUpperCase()}_API_KEY</span>,
+                or set a Secret ARN to scope this project to a specific API key.
+              </p>
+
+              {/* Connection status */}
+              {connectionStatus && (
+                <div className={`flex items-start gap-2 text-xs rounded-md px-3 py-2 ${
+                  connectionStatus === 'success'
+                    ? 'bg-pdi-grass/10 text-pdi-grass border border-pdi-grass/20'
+                    : 'bg-pdi-orange/10 text-pdi-orange border border-pdi-orange/20'
+                }`}>
+                  <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                    connectionStatus === 'success' ? 'bg-pdi-grass' : 'bg-pdi-orange'
+                  }`} />
+                  <div>
+                    <span className="font-medium">
+                      {connectionStatus === 'success' ? 'Connected' : 'Connection failed'}
+                    </span>
+                    {connectionError && (
+                      <p className="mt-0.5 text-[11px] opacity-80 break-all">{connectionError}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Test Connection button — enabled for any saved MCP instance.
+                  The backend handler resolves secret_arn → env-var fallback and
+                  returns a clear "No credential source" error if neither is set. */}
+              {instance && (
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-pdi-sky border border-pdi-sky/30 rounded-lg hover:bg-pdi-sky/5 transition-colors disabled:opacity-50"
+                >
+                  {testing ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Testing…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Test Connection
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+
           {error && <p className="text-sm text-pdi-orange">{error}</p>}
         </div>
         <div className="px-6 py-4 border-t border-pdi-cool-gray flex justify-end gap-3">
