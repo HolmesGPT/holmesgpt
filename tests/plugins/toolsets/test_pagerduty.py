@@ -216,3 +216,89 @@ class TestGetIncidentScopeGuard:
         )
 
         assert result.status == StructuredToolResultStatus.SUCCESS
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_null_service_on_incident_treated_as_out_of_scope(self, mock_get):
+        mock_get.return_value = _mock_ok(
+            {"incident": {"id": "PINC1", "service": None}}
+        )
+        ts = self._toolset(service_ids=["P1"])
+        tool = next(t for t in ts.tools if t.name == "get_pagerduty_incident")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not in this project's scope" in result.error
+
+
+class TestListAlertsScopeGuard:
+    def _toolset(self, **cfg_kwargs) -> PagerDutyToolset:
+        ts = PagerDutyToolset()
+        ts.pd_config = PagerDutyConfig(api_key="k", **cfg_kwargs)
+        return ts
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_out_of_scope_parent_blocks_alerts_call(self, mock_get):
+        # First GET returns the parent incident (out-of-scope).
+        mock_get.return_value = _mock_ok(
+            {"incident": {"id": "PINC1", "service": {"id": "P99"}}}
+        )
+        ts = self._toolset(service_ids=["P1"])
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_alerts")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not in this project's scope" in result.error
+        # Exactly one GET should have been made — the parent lookup.
+        assert mock_get.call_count == 1
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_in_scope_parent_allows_alerts_call(self, mock_get):
+        mock_get.side_effect = [
+            _mock_ok({"incident": {"id": "PINC1", "service": {"id": "P1"}}}),
+            _mock_ok({"alerts": []}),
+        ]
+        ts = self._toolset(service_ids=["P1"])
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_alerts")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert mock_get.call_count == 2
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_no_scope_skips_parent_check(self, mock_get):
+        """When no service_ids configured, no extra parent-lookup round-trip."""
+        mock_get.return_value = _mock_ok({"alerts": []})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_alerts")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert mock_get.call_count == 1
+
+    @patch("holmes.plugins.toolsets.pagerduty.toolset_pagerduty.requests.get")
+    def test_null_service_on_parent_treated_as_out_of_scope(self, mock_get):
+        """Defensive: if parent incident has service=null, block rather than crash."""
+        mock_get.return_value = _mock_ok(
+            {"incident": {"id": "PINC1", "service": None}}
+        )
+        ts = self._toolset(service_ids=["P1"])
+        tool = next(t for t in ts.tools if t.name == "list_pagerduty_alerts")
+
+        result = tool._invoke(
+            {"incident_id": "PINC1"}, create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not in this project's scope" in result.error

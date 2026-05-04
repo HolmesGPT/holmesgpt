@@ -184,6 +184,33 @@ class PagerDutyToolset(Toolset):
         note = "; ".join(note_parts) if note_parts else None
         return query, note
 
+    def _check_service_in_scope(
+        self, incident: dict, incident_id: str, params: dict
+    ) -> Optional[StructuredToolResult]:
+        """Return an ERROR StructuredToolResult if the incident's service
+        is not in the instance's service_ids scope; otherwise return None.
+
+        A None return means 'allow' — either no scope is configured or the
+        incident's service is within scope.
+        """
+        assert self.pd_config is not None
+        instance_service_ids = self.pd_config.service_ids
+        if not instance_service_ids:
+            return None
+
+        incident_service_id = (incident.get("service") or {}).get("id")
+        if incident_service_id in instance_service_ids:
+            return None
+
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR,
+            error=(
+                f"Incident {incident_id} is not in this project's scope "
+                f"(service={incident_service_id}, allowed services={instance_service_ids})"
+            ),
+            params=params,
+        )
+
     @staticmethod
     def _format_payload(data: dict, scope_note: Optional[str]) -> str:
         """Serialize PagerDuty API response, optionally embedding a scope note.
@@ -307,20 +334,11 @@ class GetPagerDutyIncident(BasePagerDutyTool):
             data = self.toolset.get(f"/incidents/{incident_id}")
             incident = data.get("incident", data)
 
-            # Project-scope guard: if instance has service_ids, block incidents
-            # whose service is outside scope.
-            instance_service_ids = self.toolset.pd_config.service_ids
-            if instance_service_ids:
-                incident_service_id = (incident.get("service") or {}).get("id")
-                if incident_service_id not in instance_service_ids:
-                    return StructuredToolResult(
-                        status=StructuredToolResultStatus.ERROR,
-                        error=(
-                            f"Incident {incident_id} is not in this project's scope "
-                            f"(service={incident_service_id}, allowed services={instance_service_ids})"
-                        ),
-                        params=params,
-                    )
+            scope_error = self.toolset._check_service_in_scope(
+                incident, incident_id, params
+            )
+            if scope_error is not None:
+                return scope_error
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -433,6 +451,17 @@ class ListPagerDutyAlerts(BasePagerDutyTool):
                 params=params,
             )
         try:
+            # Project-scope guard: if instance has service_ids set, fetch the
+            # parent incident first and verify its service is in scope.
+            if self.toolset.pd_config.service_ids:
+                parent = self.toolset.get(f"/incidents/{incident_id}")
+                parent_incident = parent.get("incident", parent)
+                scope_error = self.toolset._check_service_in_scope(
+                    parent_incident, incident_id, params
+                )
+                if scope_error is not None:
+                    return scope_error
+
             data = self.toolset.get(f"/incidents/{incident_id}/alerts")
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
