@@ -977,7 +977,20 @@ class SupabaseDal:
             data = data[0]
         if data is None:
             return None
-        return bool(data)
+        # PostgREST normally returns the scalar boolean directly, but a
+        # SQL function tweak could yield a row dict like {"enabled": ...}.
+        # Bail to inconclusive on anything else — naive bool() coercion
+        # would misclassify a non-empty dict as True.
+        if isinstance(data, bool):
+            return data
+        if isinstance(data, dict) and "enabled" in data:
+            return bool(data["enabled"])
+        logging.warning(
+            "is_realtime_enabled returned unexpected payload type %s — "
+            "treating as inconclusive",
+            type(data).__name__,
+        )
+        return None
 
     def claim_conversations(self, holmes_id: str) -> List[Dict]:
         """

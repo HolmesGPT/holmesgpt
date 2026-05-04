@@ -93,6 +93,32 @@ class TestIsRealtimeEnabled:
         self._set_rpc_result(mock_dal, data=None)
         assert mock_dal.is_realtime_enabled() is None
 
+    def test_returns_true_for_dict_with_enabled_true(self, mock_dal):
+        # A SQL function variant could return a row instead of a scalar.
+        self._set_rpc_result(mock_dal, data={"enabled": True})
+        assert mock_dal.is_realtime_enabled() is True
+
+    def test_returns_false_for_dict_with_enabled_false(self, mock_dal):
+        # And the same row shape with the field set to false. Naive
+        # bool(data) would have wrongly returned True here.
+        self._set_rpc_result(mock_dal, data={"enabled": False})
+        assert mock_dal.is_realtime_enabled() is False
+
+    def test_returns_true_for_dict_with_enabled_truthy_in_list(self, mock_dal):
+        self._set_rpc_result(mock_dal, data=[{"enabled": True}])
+        assert mock_dal.is_realtime_enabled() is True
+
+    def test_returns_none_for_dict_without_enabled_key(self, mock_dal):
+        # Unknown dict shape — refuse to guess.
+        self._set_rpc_result(mock_dal, data={"other": True})
+        assert mock_dal.is_realtime_enabled() is None
+
+    def test_returns_none_for_unexpected_payload_type(self, mock_dal):
+        # A string (or any other unexpected type) is inconclusive — we
+        # won't fall back to truthy/falsy coercion.
+        self._set_rpc_result(mock_dal, data="true")
+        assert mock_dal.is_realtime_enabled() is None
+
 
 class TestGetResourceRecommendation:
     """Test cases for SupabaseDal.get_resource_recommendation method."""
