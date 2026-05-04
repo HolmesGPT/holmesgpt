@@ -22,6 +22,12 @@ from postgrest.types import ReturnMethod
 from pydantic import BaseModel
 from supabase import create_client
 from supabase.lib.client_options import ClientOptions
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from holmes.common.env_vars import (
     ROBUSTA_ACCOUNT_ID,
@@ -999,10 +1005,14 @@ class SupabaseDal:
         and that assignee + request_sequence match the row.  On terminal states
         (``completed``, ``failed``) the assignee is cleared by the RPC.
         """
+        # Lazy imports avoid a circular import: conversations_worker pulls in
+        # conversations.py → config → llm → supabase_dal at module load time.
+        from holmes.core.conversations_worker.models import ConversationStatus
+
         if not self.enabled:
             return False
 
-        if status not in ("queued", "running", "completed", "failed"):
+        if status not in ConversationStatus.updatable_values():
             logging.error(
                 "update_conversation_status received invalid status %s", status
             )
@@ -1064,28 +1074,32 @@ class SupabaseDal:
         # caller's fallback when this returns [] is to mark the conversation
         # failed for lack of a user question, so a transient hiccup here
         # would cause a spurious permanent failure.
-        last_err: Optional[Exception] = None
-        for attempt in range(3):
-            try:
-                res = self.client.rpc(
-                    "get_conversation_events",
-                    {
-                        "_account_id": self.account_id,
-                        "_conversation_id": conversation_id,
-                        "_include_compacted": include_compacted,
-                        "_min_seq": min_seq,
-                    },
-                ).execute()
-                return res.data or []
-            except Exception as e:
-                last_err = e
-                if attempt < 2:
-                    time.sleep(0.5 * (2 ** attempt))  # 0.5s, 1s
-        logging.exception(
-            "Supabase error while fetching conversation events (after retries)",
-            exc_info=last_err,
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
         )
-        return []
+        def _fetch() -> List[Dict]:
+            res = self.client.rpc(
+                "get_conversation_events",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_include_compacted": include_compacted,
+                    "_min_seq": min_seq,
+                },
+            ).execute()
+            return res.data or []
+
+        try:
+            return _fetch()
+        except Exception:
+            logging.exception(
+                "Supabase error while fetching conversation events (after retries)",
+                exc_info=True,
+            )
+            return []
 
     def finish_scheduled_prompt_run(
         self,
