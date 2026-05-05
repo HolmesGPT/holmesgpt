@@ -134,6 +134,20 @@ class TestEndpointConfigHostNormalization:
         endpoint = EndpointConfig(hosts=["*.example.com:443"])
         assert endpoint.hosts == ["*.example.com"]
 
+    def test_strips_userinfo_in_url(self):
+        endpoint = EndpointConfig(
+            hosts=["https://user:pass@api.example.com:8443/v1"]
+        )
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_strips_userinfo_only(self):
+        endpoint = EndpointConfig(hosts=["user:pass@api.example.com"])
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_strips_userinfo_with_wildcard(self):
+        endpoint = EndpointConfig(hosts=["https://user:pass@*.example.com:8443"])
+        assert endpoint.hosts == ["*.example.com"]
+
     def test_already_normalized_does_not_warn(self, caplog):
         with caplog.at_level("WARNING"):
             endpoint = EndpointConfig(hosts=["api.example.com"])

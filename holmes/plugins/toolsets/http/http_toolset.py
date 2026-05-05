@@ -80,10 +80,13 @@ class EndpointConfig(BaseModel):
             candidate = entry.strip()
             if "://" in candidate:
                 parsed = urlparse(candidate)
-                candidate = parsed.netloc or parsed.path
+                # parsed.hostname strips userinfo and port automatically.
+                candidate = parsed.hostname or parsed.netloc or parsed.path
             for sep in ("/", "?", "#"):
                 if sep in candidate:
                     candidate = candidate.split(sep, 1)[0]
+            if "@" in candidate:
+                candidate = candidate.rsplit("@", 1)[-1]
             if candidate.startswith("*."):
                 wildcard, _, rest = candidate.partition(".")
                 if ":" in rest:
