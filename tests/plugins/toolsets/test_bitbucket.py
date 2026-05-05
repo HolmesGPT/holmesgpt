@@ -363,3 +363,59 @@ class TestPullRequestTools:
         assert result.status == StructuredToolResultStatus.SUCCESS
         args, _ = mock_get.call_args
         assert "/repositories/acme/x/pullrequests/42/comments" in args[0]
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_list_prs_state_none_falls_back_to_open(self, mock_get):
+        # LLM may emit {"state": null}; must behave like missing key, not send "None".
+        mock_get.return_value = _mock_resp(200, {"values": []})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_pull_requests")
+        tool._invoke({"repo_slug": "x", "state": None}, create_mock_tool_invoke_context())
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["state"] == "OPEN"
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_get_pr_404_friendly_error(self, mock_get):
+        mock_get.return_value = _mock_resp(404)
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request")
+        result = tool._invoke(
+            {"repo_slug": "x", "pull_request_id": "999"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not found" in result.error.lower()
+        assert "x#999" in result.error
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_get_pr_out_of_scope_blocks(self, mock_get):
+        ts = self._toolset(repositories=["a"])
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request")
+        result = tool._invoke(
+            {"repo_slug": "b", "pull_request_id": "1"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not in this project's scope" in result.error
+        assert mock_get.call_count == 0
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_list_pr_comments_out_of_scope_blocks(self, mock_get):
+        ts = self._toolset(repositories=["a"])
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_pull_request_comments")
+        result = tool._invoke(
+            {"repo_slug": "b", "pull_request_id": "1"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert mock_get.call_count == 0
+
+    def test_get_pr_pull_request_id_none_rejected(self):
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request")
+        result = tool._invoke(
+            {"repo_slug": "x", "pull_request_id": None},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "pull_request_id is required" in result.error

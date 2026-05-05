@@ -351,7 +351,7 @@ class ListBitbucketPullRequests(_BaseBitbucketTool):
         scope_err = self.toolset._check_repo_in_scope(repo, params)
         if scope_err is not None:
             return scope_err
-        state = params.get("state", "OPEN")
+        state = params.get("state") or "OPEN"
         try:
             data = self.toolset.get(
                 f"/repositories/{self.toolset.bb_config.workspace}/{repo}/pullrequests",
