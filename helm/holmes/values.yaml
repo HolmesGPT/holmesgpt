@@ -604,8 +604,8 @@ mcpAddons:
   confluenceMcp:
     enabled: false
 
-    image: "mcp-atlassian:latest"
-    registry: "ghcr.io/sooperset"
+    image: "mcp-atlassian:v0.21.2"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
     auth:
