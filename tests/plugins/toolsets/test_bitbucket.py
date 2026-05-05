@@ -292,3 +292,74 @@ class TestRepoTools:
         assert result.status == StructuredToolResultStatus.ERROR
         assert "not found" in result.error.lower()
         assert "acme/nonexistent" in result.error
+
+
+class TestPullRequestTools:
+    def _toolset(self, **cfg_kwargs):
+        ts = BitbucketToolset()
+        ts.bb_config = BitbucketConfig(api_token="t", workspace="acme", **cfg_kwargs)
+        return ts
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_list_prs_default_state_open(self, mock_get):
+        mock_get.return_value = _mock_resp(200, {"values": []})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_pull_requests")
+        tool._invoke({"repo_slug": "x"}, create_mock_tool_invoke_context())
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["state"] == "OPEN"
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_list_prs_state_override(self, mock_get):
+        mock_get.return_value = _mock_resp(200, {"values": []})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_pull_requests")
+        tool._invoke(
+            {"repo_slug": "x", "state": "MERGED"},
+            create_mock_tool_invoke_context(),
+        )
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"]["state"] == "MERGED"
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_list_prs_out_of_scope_blocks(self, mock_get):
+        ts = self._toolset(repositories=["a"])
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_pull_requests")
+        result = tool._invoke({"repo_slug": "b"}, create_mock_tool_invoke_context())
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert mock_get.call_count == 0
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_get_pr(self, mock_get):
+        mock_get.return_value = _mock_resp(200, {"id": 42, "title": "Fix"})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request")
+        result = tool._invoke(
+            {"repo_slug": "x", "pull_request_id": "42"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        args, _ = mock_get.call_args
+        assert "/repositories/acme/x/pullrequests/42" in args[0]
+
+    def test_get_pr_missing_id(self):
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request")
+        result = tool._invoke(
+            {"repo_slug": "x"}, create_mock_tool_invoke_context()
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "pull_request_id is required" in result.error
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_list_pr_comments(self, mock_get):
+        mock_get.return_value = _mock_resp(200, {"values": [{"content": {"raw": "nit"}}]})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_pull_request_comments")
+        result = tool._invoke(
+            {"repo_slug": "x", "pull_request_id": "42"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        args, _ = mock_get.call_args
+        assert "/repositories/acme/x/pullrequests/42/comments" in args[0]

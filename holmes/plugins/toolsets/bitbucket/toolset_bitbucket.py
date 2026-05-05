@@ -90,6 +90,9 @@ class BitbucketToolset(Toolset):
             tools=[
                 ListBitbucketRepositories(toolset=self),
                 GetBitbucketRepository(toolset=self),
+                ListBitbucketPullRequests(toolset=self),
+                GetBitbucketPullRequest(toolset=self),
+                ListBitbucketPullRequestComments(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
         )
@@ -316,4 +319,125 @@ class GetBitbucketRepository(_BaseBitbucketTool):
             return self._err(params, str(e))
         except Exception as e:
             logging.exception("Failed to get Bitbucket repository")
+            return self._err(params, str(e))
+
+
+class ListBitbucketPullRequests(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="list_bitbucket_pull_requests",
+            description="[bitbucket toolset] List pull requests in a repository (default state=OPEN)",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "state": ToolParameter(
+                    description="PR state: OPEN, MERGED, DECLINED, SUPERSEDED (default: OPEN)",
+                    type="string",
+                    required=False,
+                ),
+                "limit": ToolParameter(description="Max results (default 25, max 100)", type="integer", required=False),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List PRs in {params.get('repo_slug', '')}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        state = params.get("state", "OPEN")
+        try:
+            data = self.toolset.get(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/pullrequests",
+                params={"state": state, "pagelen": self._capped_limit(params.get("limit"))},
+            )
+            return self._ok(params, data)
+        except Exception as e:
+            logging.exception("Failed to list Bitbucket PRs")
+            return self._err(params, str(e))
+
+
+class GetBitbucketPullRequest(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="get_bitbucket_pull_request",
+            description="[bitbucket toolset] Get full details for a specific pull request",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "pull_request_id": ToolParameter(description="PR id (integer as string)", type="string", required=True),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get PR {params.get('repo_slug')}#{params.get('pull_request_id')}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        pr_id = str(params.get("pull_request_id", "") or "").strip()
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        if not pr_id:
+            return self._err(params, "pull_request_id is required")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        try:
+            data = self.toolset.get(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/pullrequests/{pr_id}"
+            )
+            return self._ok(params, data, url=data.get("links", {}).get("html", {}).get("href", ""))
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return self._err(params, f"Pull request {repo}#{pr_id} not found")
+            return self._err(params, str(e))
+        except Exception as e:
+            logging.exception("Failed to get Bitbucket PR")
+            return self._err(params, str(e))
+
+
+class ListBitbucketPullRequestComments(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="list_bitbucket_pull_request_comments",
+            description="[bitbucket toolset] List comments on a specific pull request",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "pull_request_id": ToolParameter(description="PR id", type="string", required=True),
+                "limit": ToolParameter(description="Max comments (default 25, max 100)", type="integer", required=False),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: PR comments {params.get('repo_slug')}#{params.get('pull_request_id')}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        pr_id = str(params.get("pull_request_id", "") or "").strip()
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        if not pr_id:
+            return self._err(params, "pull_request_id is required")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        try:
+            data = self.toolset.get(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/pullrequests/{pr_id}/comments",
+                params={"pagelen": self._capped_limit(params.get("limit"))},
+            )
+            return self._ok(params, data)
+        except Exception as e:
+            logging.exception("Failed to list Bitbucket PR comments")
             return self._err(params, str(e))
