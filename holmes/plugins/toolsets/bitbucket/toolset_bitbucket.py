@@ -93,6 +93,53 @@ class BitbucketToolset(Toolset):
             return False, "Missing Bitbucket configuration. Provide api_token and workspace."
         try:
             self.bb_config = BitbucketConfig(**config)
-            return True, ""  # _health_check added in Task 2.
         except Exception as e:
             return False, f"Failed to configure Bitbucket toolset: {e}"
+        return self._health_check()
+
+    def _headers(self) -> dict:
+        assert self.bb_config is not None
+        return {
+            "Authorization": f"Bearer {self.bb_config.api_token}",
+            "Accept": "application/json",
+        }
+
+    def get(self, path: str, params: Optional[dict] = None) -> Any:
+        """GET a Bitbucket API path and return parsed JSON.
+
+        Maps 401/403/429 to friendly custom exceptions.
+        404 and other HTTPErrors bubble for caller-specific handling.
+        """
+        assert self.bb_config is not None
+        url = f"{self.bb_config.api_url}{path}"
+        resp = requests.get(
+            url, headers=self._headers(), params=params or {}, timeout=30
+        )
+        if resp.status_code == 401:
+            raise BitbucketAuthError(
+                "Bitbucket API token rejected (401). Check the secret configured for this instance."
+            )
+        if resp.status_code == 403:
+            raise BitbucketForbiddenError(
+                f"Token has no access to workspace '{self.bb_config.workspace}' (or to this resource). "
+                "Verify the token's Repository scopes."
+            )
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "unknown")
+            raise BitbucketRateLimitError(
+                f"Bitbucket API rate limit exceeded (429). Retry-After: {retry_after}"
+            )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _health_check(self) -> Tuple[bool, str]:
+        assert self.bb_config is not None
+        try:
+            self.get(f"/workspaces/{self.bb_config.workspace}")
+            return True, ""
+        except BitbucketAuthError as e:
+            return False, str(e)
+        except BitbucketForbiddenError as e:
+            return False, str(e)
+        except Exception as e:
+            return False, f"Bitbucket health check failed: {e}"
