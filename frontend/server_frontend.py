@@ -487,6 +487,46 @@ async def _test_pagerduty_instance_connection(store, inst):
     return {"ok": False, "status": "error", "error": msg}
 
 
+async def _test_bitbucket_instance_connection(store, inst):
+    """Test a Bitbucket instance by fetching the workspace via prerequisites_callable.
+
+    Returns dict payload for JSONResponse.
+    """
+    from projects import _fetch_secret  # noqa: PLC0415
+    from holmes.plugins.toolsets.bitbucket.toolset_bitbucket import (  # noqa: PLC0415
+        BitbucketToolset,
+    )
+
+    if not inst.secret_arn:
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "Bitbucket instance has no credential source (secret_arn required)",
+        }
+    try:
+        creds = _fetch_secret(inst.secret_arn)
+    except Exception as e:
+        return {"ok": False, "status": "error", "error": f"Failed to fetch secret: {e}"}
+    if "api_token" not in creds or "workspace" not in creds:
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "Secret must contain `api_token` and `workspace` fields",
+        }
+
+    cfg = {**creds, **(inst.config or {})}
+    ts = BitbucketToolset()
+    ok, msg = ts.prerequisites_callable(cfg)
+    if ok:
+        return {"ok": True, "status": "success"}
+    # Defensively strip the token from the error before returning.
+    token = creds.get("api_token", "")
+    if msg and token and token in msg:
+        msg = msg.replace(token, "<redacted>")
+    return {"ok": False, "status": "error", "error": msg}
+
+
+
 async def _test_mcp_instance_connection(store, inst):
     """Test an MCP instance by building a RemoteMCPToolset and running
     check_prerequisites. Returns dict payload for JSONResponse.
@@ -1521,6 +1561,9 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 return JSONResponse(body)
             if inst.type == "pagerduty":
                 body = await _test_pagerduty_instance_connection(store, inst)
+                return JSONResponse(body)
+            if inst.type == "bitbucket":
+                body = await _test_bitbucket_instance_connection(store, inst)
                 return JSONResponse(body)
 
             from projects import _MCP_TOOLSET_TYPES  # noqa: PLC0415

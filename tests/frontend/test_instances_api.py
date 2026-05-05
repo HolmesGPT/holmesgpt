@@ -255,3 +255,69 @@ class TestMcpConnectionHelper:
         assert leaked_key not in body["error"]
         assert encoded not in body["error"]
         assert "<redacted>" in body["error"]
+
+
+class TestBitbucketConnectionHelper:
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    @patch("projects._fetch_secret")
+    def test_bitbucket_connection_success_via_secret_arn(
+        self, mock_secret, mock_get
+    ):
+        from server_frontend import _test_bitbucket_instance_connection  # noqa: PLC0415
+        from projects import Instance  # noqa: PLC0415
+
+        inst = Instance(
+            id="inst_bb1",
+            type="bitbucket",
+            name="bb-test",
+            secret_arn="arn:aws:secretsmanager:us-east-1:1:secret:bb-test",
+        )
+        mock_secret.return_value = {"api_token": "t", "workspace": "acme"}
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"slug": "acme"}
+        resp.raise_for_status = MagicMock()
+        mock_get.return_value = resp
+
+        store = MagicMock()
+        body = asyncio.run(_test_bitbucket_instance_connection(store, inst))
+        assert body["ok"] is True
+        assert body["status"] == "success"
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    @patch("projects._fetch_secret")
+    def test_bitbucket_connection_403_returns_clear_error(
+        self, mock_secret, mock_get
+    ):
+        from server_frontend import _test_bitbucket_instance_connection  # noqa: PLC0415
+        from projects import Instance  # noqa: PLC0415
+
+        inst = Instance(
+            id="inst_bb2",
+            type="bitbucket",
+            name="bb-bad",
+            secret_arn="arn:aws:secretsmanager:us-east-1:1:secret:bb-bad",
+        )
+        mock_secret.return_value = {"api_token": "t", "workspace": "acme"}
+
+        resp = MagicMock()
+        resp.status_code = 403
+        resp.text = "Forbidden"
+        resp.raise_for_status = MagicMock()
+        mock_get.return_value = resp
+
+        store = MagicMock()
+        body = asyncio.run(_test_bitbucket_instance_connection(store, inst))
+        assert body["ok"] is False
+        assert "no access" in body["error"].lower() or "403" in body["error"]
+
+    def test_bitbucket_no_credential_source(self):
+        from server_frontend import _test_bitbucket_instance_connection  # noqa: PLC0415
+        from projects import Instance  # noqa: PLC0415
+
+        inst = Instance(id="inst_bb3", type="bitbucket", name="bb-empty")
+        store = MagicMock()
+        body = asyncio.run(_test_bitbucket_instance_connection(store, inst))
+        assert body["ok"] is False
+        assert "credential source" in body["error"].lower() or "secret_arn" in body["error"]
