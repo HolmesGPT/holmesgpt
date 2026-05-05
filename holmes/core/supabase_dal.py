@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import threading
-import time
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -21,7 +20,7 @@ from postgrest.exceptions import APIError as PGAPIError
 from postgrest.types import ReturnMethod
 from pydantic import BaseModel
 from supabase import create_client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -639,9 +638,7 @@ class SupabaseDal:
             logging.exception("Failed to fetch skill catalog", exc_info=True)
             return None
 
-    def get_skill_content(
-        self, skill_id: str
-    ) -> Optional[RobustaSkillInstruction]:
+    def get_skill_content(self, skill_id: str) -> Optional[RobustaSkillInstruction]:
         if not self.enabled:
             return None
 
@@ -1056,9 +1053,7 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 if not res.data:
                     return None
-                return (
-                    int(res.data[0]) if not isinstance(res.data[0], dict) else None
-                )
+                return int(res.data[0]) if not isinstance(res.data[0], dict) else None
             return int(res.data)
         except Exception:
             logging.exception(
@@ -1226,7 +1221,9 @@ class SupabaseDal:
 
     # --- OAuth Token Storage ---
 
-    def get_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> Optional[Dict]:
+    def get_oauth_token(
+        self, provider_name: str, user_id: str, signing_key_hash: str
+    ) -> Optional[Dict]:
         """Get the OAuth token for a provider in this account, scoped to a user and signing key.
 
         When user_id is None, returns None — in server mode every token is stored
@@ -1257,11 +1254,14 @@ class SupabaseDal:
                     if signing_key_hash:
                         logging.warning(
                             "DB token signing_key_hash mismatch (stored=%s, current=%s)",
-                            stored_hash[:12], signing_key_hash[:12],
+                            stored_hash[:12],
+                            signing_key_hash[:12],
                         )
             return matched
         except Exception:
-            logging.exception("Error fetching OAuth token for provider %s", provider_name)
+            logging.exception(
+                "Error fetching OAuth token for provider %s", provider_name
+            )
             return None
 
     def upsert_oauth_token(
@@ -1276,7 +1276,9 @@ class SupabaseDal:
         if not self.enabled:
             return False
         if not user_id:
-            logging.warning("Cannot upsert OAuth token without user_id (provider=%s)", provider_name)
+            logging.warning(
+                "Cannot upsert OAuth token without user_id (provider=%s)", provider_name
+            )
             return False
         try:
             row = {
@@ -1295,10 +1297,14 @@ class SupabaseDal:
             ).execute()
             return True
         except Exception:
-            logging.exception("Error upserting OAuth token for provider %s", provider_name)
+            logging.exception(
+                "Error upserting OAuth token for provider %s", provider_name
+            )
             return False
 
-    def delete_oauth_token(self, provider_name: str, user_id: str, signing_key_hash: str) -> None:
+    def delete_oauth_token(
+        self, provider_name: str, user_id: str, signing_key_hash: str
+    ) -> None:
         """Delete an OAuth token (e.g. after a 401 proves it's revoked)."""
         self.client.table(OAUTH_TOKENS_TABLE).delete().eq(
             "account_id", self.account_id
@@ -1329,4 +1335,3 @@ class SupabaseDal:
         except Exception:
             logging.exception("Error fetching OAuth tokens for cluster preload")
             return []
-

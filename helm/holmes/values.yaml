@@ -9,6 +9,17 @@ podAnnotations: {}
 replicas: 1
 imagePullPolicy: IfNotPresent
 
+# Deployment rollout strategy.
+# Leave unset (empty) to use the Kubernetes default (RollingUpdate with maxSurge=25%, maxUnavailable=25%).
+# Set maxSurge: 0 if you need zero extra capacity during upgrades (e.g. tight resource quotas).
+# Example:
+#   strategy:
+#     type: RollingUpdate
+#     rollingUpdate:
+#       maxSurge: 0
+#       maxUnavailable: 1
+strategy: {}
+
 autoscaling:
   enabled: false
   minReplicas: 1
