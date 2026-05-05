@@ -321,3 +321,100 @@ class TestBitbucketConnectionHelper:
         body = asyncio.run(_test_bitbucket_instance_connection(store, inst))
         assert body["ok"] is False
         assert "credential source" in body["error"].lower() or "secret_arn" in body["error"]
+
+
+class TestPerProjectFactoryMerge:
+    """Regression tests for the secret+config merge in build_project_tool_executor.
+
+    Bug: when an instance has both `secret_arn` (credentials) AND `config` (scoping
+    fields like `repositories`, `service_ids`, `team_ids`), only one source was
+    picked. This meant the Bitbucket repository allowlist and the PagerDuty
+    service_ids/team_ids filters never reached the toolset at chat-time.
+    """
+
+    @patch("holmes.plugins.toolsets.load_toolsets_from_config")
+    @patch("projects._fetch_secret")
+    def test_bitbucket_instance_merges_secret_and_config(
+        self, mock_secret, mock_load
+    ):
+        from projects import build_project_tool_executor  # noqa: PLC0415
+        from projects import Instance, Project, TagFilter  # noqa: PLC0415
+
+        mock_secret.return_value = {"api_token": "bb-token", "workspace": "acme"}
+        mock_load.return_value = []  # short-circuit — we only need to capture the call
+
+        instance = Instance(
+            id="inst_bb1",
+            type="bitbucket",
+            name="bb-logistics",
+            secret_arn="arn:aws:secretsmanager:us-east-1:1:secret:bb-x",
+            config={"repositories": ["checkout-api", "inventory-db"]},
+            tags={"project": "logistics"},
+        )
+
+        store = MagicMock()
+        store.list.return_value = [instance]
+
+        project = Project(
+            id="proj_1",
+            name="logistics",
+            tag_filter=TagFilter(tags={"project": "logistics"}),
+        )
+        cfg = MagicMock()
+        cfg._server_tool_executor = MagicMock()
+        cfg._server_tool_executor.toolsets = []
+        dal = MagicMock()
+
+        build_project_tool_executor(project, cfg, dal, instances_store=store)
+
+        # load_toolsets_from_config should have been called with a synthetic
+        # config whose 'config' dict contains BOTH the secret fields AND the
+        # instance.config fields.
+        assert mock_load.called, "load_toolsets_from_config was not invoked"
+        synthetic = mock_load.call_args[0][0]["bb-logistics"]
+        merged = synthetic["config"]
+        assert merged["api_token"] == "bb-token"
+        assert merged["workspace"] == "acme"
+        assert merged["repositories"] == ["checkout-api", "inventory-db"]
+
+    @patch("holmes.plugins.toolsets.load_toolsets_from_config")
+    @patch("projects._fetch_secret")
+    def test_pagerduty_instance_merges_secret_and_config(
+        self, mock_secret, mock_load
+    ):
+        from projects import build_project_tool_executor  # noqa: PLC0415
+        from projects import Instance, Project, TagFilter  # noqa: PLC0415
+
+        mock_secret.return_value = {"api_key": "pd-key"}
+        mock_load.return_value = []
+
+        instance = Instance(
+            id="inst_pd1",
+            type="pagerduty",
+            name="pd-logistics",
+            secret_arn="arn:aws:secretsmanager:us-east-1:1:secret:pd-x",
+            config={"service_ids": ["PSVC1"], "team_ids": ["PTEAM1"]},
+            tags={"project": "logistics"},
+        )
+
+        store = MagicMock()
+        store.list.return_value = [instance]
+
+        project = Project(
+            id="proj_1",
+            name="logistics",
+            tag_filter=TagFilter(tags={"project": "logistics"}),
+        )
+        cfg = MagicMock()
+        cfg._server_tool_executor = MagicMock()
+        cfg._server_tool_executor.toolsets = []
+        dal = MagicMock()
+
+        build_project_tool_executor(project, cfg, dal, instances_store=store)
+
+        assert mock_load.called
+        synthetic = mock_load.call_args[0][0]["pd-logistics"]
+        merged = synthetic["config"]
+        assert merged["api_key"] == "pd-key"
+        assert merged["service_ids"] == ["PSVC1"]
+        assert merged["team_ids"] == ["PTEAM1"]

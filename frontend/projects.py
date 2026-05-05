@@ -1064,12 +1064,14 @@ def build_project_tool_executor(
                     continue
 
             # ── Dynamically instantiate Python toolset with per-project creds ──
+            # Merge secret (credentials) with instance.config (non-secret scoping fields
+            # like repositories, service_ids, team_ids). Config overrides secret for
+            # same-named keys so instance-level overrides win.
+            creds: dict = {}
             if instance.secret_arn:
-                creds = _fetch_secret(instance.secret_arn)
-            elif instance.config:
-                creds = instance.config
-            else:
-                creds = {}
+                creds.update(_fetch_secret(instance.secret_arn))
+            if instance.config:
+                creds.update(instance.config)
             # For toolsets registered in PYTHON_TOOLSET_FACTORIES (e.g. "dbdash"),
             # inject _python_base so load_toolsets_from_config uses the factory.
             from holmes.plugins.toolsets import PYTHON_TOOLSET_FACTORIES
