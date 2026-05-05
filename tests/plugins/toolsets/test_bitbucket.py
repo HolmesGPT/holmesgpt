@@ -282,3 +282,13 @@ class TestRepoTools:
         result = tool._invoke({"repo_slug": "foo/../bar"}, create_mock_tool_invoke_context())
         assert result.status == StructuredToolResultStatus.ERROR
         assert "Invalid repo_slug" in result.error
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_get_repository_404_friendly_error(self, mock_get):
+        mock_get.return_value = _mock_resp(404)
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_repository")
+        result = tool._invoke({"repo_slug": "nonexistent"}, create_mock_tool_invoke_context())
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not found" in result.error.lower()
+        assert "acme/nonexistent" in result.error

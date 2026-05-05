@@ -307,6 +307,13 @@ class GetBitbucketRepository(_BaseBitbucketTool):
                 f"/repositories/{self.toolset.bb_config.workspace}/{repo_slug}"
             )
             return self._ok(params, data, url=data.get("links", {}).get("html", {}).get("href", ""))
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return self._err(
+                    params,
+                    f"Repository {self.toolset.bb_config.workspace}/{repo_slug} not found",
+                )
+            return self._err(params, str(e))
         except Exception as e:
             logging.exception("Failed to get Bitbucket repository")
             return self._err(params, str(e))
