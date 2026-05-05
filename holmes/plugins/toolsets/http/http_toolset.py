@@ -129,10 +129,10 @@ def _parse_host_pattern(entry: str) -> ParsedHostPattern:
     else:
         try:
             port_num = int(port_str)
-        except ValueError:
+        except ValueError as err:
             raise ValueError(
                 f"Invalid port {port_str!r} in host pattern {entry!r}"
-            )
+            ) from err
         if not (1 <= port_num <= 65535):
             raise ValueError(
                 f"Port {port_num} out of range (1-65535) in host pattern {entry!r}"
