@@ -7,7 +7,7 @@ from typing import Any, ClassVar, Dict, FrozenSet, List, Literal, Optional, Tupl
 from urllib.parse import urlparse
 
 import requests  # type: ignore
-from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import (
@@ -189,24 +189,6 @@ class EndpointConfig(BaseModel):
             ]
         ],
     )
-    _parsed_hosts: List[ParsedHostPattern] = PrivateAttr(default_factory=list)
-
-    @field_validator("hosts", mode="after")
-    @classmethod
-    def _validate_host_patterns(cls, value: List[str]) -> List[str]:
-        # Validate by parsing; raises ValueError on malformed entries.
-        for entry in value:
-            _parse_host_pattern(entry)
-        return value
-
-    @model_validator(mode="after")
-    def _build_parsed_hosts(self) -> "EndpointConfig":
-        self._parsed_hosts = [_parse_host_pattern(h) for h in self.hosts]
-        return self
-
-    def parsed_hosts(self) -> List[ParsedHostPattern]:
-        return self._parsed_hosts
-
     paths: List[str] = Field(
         default_factory=lambda: ["*"],
         description="Allowed path patterns (glob-style). Default allows all paths.",
@@ -226,6 +208,17 @@ class EndpointConfig(BaseModel):
         description="Optional URL to verify auth at initialization time.",
         examples=["https://api.example.com/health"],
     )
+
+    _parsed_hosts: List[ParsedHostPattern] = PrivateAttr(default_factory=list)
+
+    @model_validator(mode="after")
+    def _parse_and_cache_hosts(self) -> "EndpointConfig":
+        # Parsing both validates entries (raises on malformed) and populates the cache.
+        self._parsed_hosts = [_parse_host_pattern(h) for h in self.hosts]
+        return self
+
+    def parsed_hosts(self) -> List[ParsedHostPattern]:
+        return self._parsed_hosts
 
     def get_methods(self) -> List[str]:
         return [m.upper() for m in self.methods]
