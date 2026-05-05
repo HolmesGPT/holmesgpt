@@ -299,11 +299,13 @@ class SupabaseFixture:
 
 
 @pytest.fixture(scope="session")
-def supabase_fx() -> SupabaseFixture:
+def supabase_fx(request) -> SupabaseFixture:
     """Session-scoped Supabase client fixture.
 
     Requires ROBUSTA_UI_TOKEN and CLUSTER_NAME environment variables.
-    Performs best-effort cleanup of created conversations after the session.
+    Performs best-effort cleanup of created conversations after the session,
+    unless ``--skip-cleanup`` is passed (useful for inspecting the rows that
+    a test left behind in the DB).
     """
     decoded = _decode_token()
     cluster_id = os.environ.get("CLUSTER_NAME")
@@ -332,6 +334,15 @@ def supabase_fx() -> SupabaseFixture:
         use_pgchanges=use_pgchanges,
     )
     yield fx
+
+    if request.config.getoption("--skip-cleanup"):
+        if fx._created_conversations:
+            logging.warning(
+                "--skip-cleanup set: leaving %d conversation(s) in the DB: %s",
+                len(fx._created_conversations),
+                fx._created_conversations,
+            )
+        return
 
     # Best-effort teardown: stop any still-active conversations and delete them
     for cid in fx._created_conversations:
