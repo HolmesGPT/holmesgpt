@@ -148,6 +148,21 @@ class TestGetHTTPWrapper:
         assert kwargs["params"] == {"pagelen": 10}
         assert kwargs["headers"]["Authorization"] == "Bearer t"
 
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_basic_auth_when_email_set(self, mock_get):
+        """App-password auth: when `email` is set, use Basic auth with base64(email:token)."""
+        import base64
+
+        mock_get.return_value = _mock_resp(200, {})
+        ts = BitbucketToolset()
+        ts.bb_config = BitbucketConfig(
+            api_token="app-pass-xyz", workspace="acme", email="user@pdi.com"
+        )
+        ts.get("/repositories/acme")
+        _, kwargs = mock_get.call_args
+        expected = "Basic " + base64.b64encode(b"user@pdi.com:app-pass-xyz").decode()
+        assert kwargs["headers"]["Authorization"] == expected
+
 
 class TestCheckRepoInScope:
     def _toolset(self, **cfg_kwargs):

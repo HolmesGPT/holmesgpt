@@ -44,7 +44,18 @@ class BitbucketConfig(ToolsetConfig):
 
     api_token: str = Field(
         title="API Token",
-        description="Bitbucket API token (Atlassian token with Bitbucket scopes).",
+        description=(
+            "Atlassian API token (Bearer auth, recommended) OR Bitbucket App Password "
+            "(Basic auth — set `email` to enable)."
+        ),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        title="Atlassian Email",
+        description=(
+            "Atlassian account email. When set, `api_token` is used as a Bitbucket "
+            "App Password via Basic auth. Omit for Atlassian API tokens (Bearer auth)."
+        ),
     )
     workspace: str = Field(
         title="Workspace",
@@ -113,6 +124,17 @@ class BitbucketToolset(Toolset):
 
     def _headers(self) -> dict:
         assert self.bb_config is not None
+        if self.bb_config.email:
+            # Basic auth for Bitbucket App Passwords.
+            import base64
+
+            creds = base64.b64encode(
+                f"{self.bb_config.email}:{self.bb_config.api_token}".encode()
+            ).decode()
+            return {
+                "Authorization": f"Basic {creds}",
+                "Accept": "application/json",
+            }
         return {
             "Authorization": f"Bearer {self.bb_config.api_token}",
             "Accept": "application/json",
