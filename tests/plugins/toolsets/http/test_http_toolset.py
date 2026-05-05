@@ -148,6 +148,20 @@ class TestEndpointConfigHostNormalization:
         endpoint = EndpointConfig(hosts=["https://user:pass@*.example.com:8443"])
         assert endpoint.hosts == ["*.example.com"]
 
+    def test_ipv6_url_preserves_address(self):
+        endpoint = EndpointConfig(hosts=["https://[::1]:8443/foo"])
+        assert endpoint.hosts == ["::1"]
+
+    def test_ipv6_bare_address_preserved(self):
+        endpoint = EndpointConfig(hosts=["::1"])
+        assert endpoint.hosts == ["::1"]
+
+    def test_ipv6_full_address_preserved(self):
+        endpoint = EndpointConfig(
+            hosts=["https://[2001:db8::1]:443/api"]
+        )
+        assert endpoint.hosts == ["2001:db8::1"]
+
     def test_already_normalized_does_not_warn(self, caplog):
         with caplog.at_level("WARNING"):
             endpoint = EndpointConfig(hosts=["api.example.com"])

@@ -92,7 +92,9 @@ class EndpointConfig(BaseModel):
                 if ":" in rest:
                     rest = rest.split(":", 1)[0]
                 candidate = f"{wildcard}.{rest}"
-            elif ":" in candidate:
+            elif candidate.count(":") == 1:
+                # Strip port for IPv4/hostname forms; IPv6 (multiple colons)
+                # is left alone since urlparse already removed any port.
                 candidate = candidate.split(":", 1)[0]
             candidate = candidate.lower()
             if candidate != original:
