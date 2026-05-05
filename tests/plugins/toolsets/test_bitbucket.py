@@ -6,6 +6,7 @@ import pytest
 import requests
 from pydantic import ValidationError
 
+from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.bitbucket.toolset_bitbucket import (
     BitbucketAuthError,
     BitbucketConfig,
@@ -145,3 +146,75 @@ class TestGetHTTPWrapper:
         _, kwargs = mock_get.call_args
         assert kwargs["params"] == {"pagelen": 10}
         assert kwargs["headers"]["Authorization"] == "Bearer t"
+
+
+class TestCheckRepoInScope:
+    def _toolset(self, **cfg_kwargs):
+        ts = BitbucketToolset()
+        ts.bb_config = BitbucketConfig(api_token="t", workspace="acme", **cfg_kwargs)
+        return ts
+
+    def test_no_allowlist_any_repo_allowed(self):
+        ts = self._toolset()
+        assert ts._check_repo_in_scope("anything", {}) is None
+
+    def test_allowlist_in_scope(self):
+        ts = self._toolset(repositories=["a", "b"])
+        assert ts._check_repo_in_scope("a", {}) is None
+
+    def test_allowlist_out_of_scope_returns_error(self):
+        ts = self._toolset(repositories=["a"])
+        result = ts._check_repo_in_scope("b", {"repo_slug": "b"})
+        assert result is not None
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not in this project's scope" in result.error
+        assert "['a']" in result.error
+
+    def test_allowlist_case_insensitive(self):
+        ts = self._toolset(repositories=["Checkout-API"])
+        assert ts._check_repo_in_scope("checkout-api", {}) is None
+
+
+class TestTruncate:
+    def test_under_limit_unchanged(self):
+        ts = BitbucketToolset()
+        result = ts._truncate("small", max_bytes=100)
+        assert result == "small"
+
+    def test_byte_based_trim(self):
+        ts = BitbucketToolset()
+        payload = "a" * 500 + "\n" + "b" * 500
+        result = ts._truncate(payload, max_bytes=600)
+        assert "truncated" in result
+        assert len(result.encode("utf-8")) <= 800  # rough bound: marker adds overhead
+
+    def test_line_based_trim(self):
+        ts = BitbucketToolset()
+        payload = "\n".join(f"line {i}" for i in range(5000))
+        result = ts._truncate(payload, max_bytes=0, line_mode=True, max_lines=2000)
+        assert "truncated" in result
+        assert result.count("\n") <= 2001  # 2000 lines + marker line
+
+
+class TestInputValidation:
+    def test_valid_repo_slug(self):
+        ts = BitbucketToolset()
+        assert ts._validate_repo_slug("checkout-api") is True
+        assert ts._validate_repo_slug("a.b_c-d123") is True
+
+    def test_invalid_repo_slug_rejects_path_traversal(self):
+        ts = BitbucketToolset()
+        assert ts._validate_repo_slug("foo/../bar") is False
+        assert ts._validate_repo_slug("foo/bar") is False
+        assert ts._validate_repo_slug("UPPER") is False
+
+    def test_valid_ref(self):
+        ts = BitbucketToolset()
+        assert ts._validate_ref("main") is True
+        assert ts._validate_ref("feature/new-thing") is True
+        assert ts._validate_ref("v1.2.3") is True
+
+    def test_invalid_ref_rejects_double_dot(self):
+        ts = BitbucketToolset()
+        assert ts._validate_ref("foo/../etc") is False
+        assert ts._validate_ref("..") is False

@@ -77,6 +77,9 @@ class BitbucketToolset(Toolset):
 
     bb_config: Optional[BitbucketConfig] = None
 
+    _REPO_SLUG_RE: ToolsClassVar[re.Pattern] = re.compile(r"^[a-z0-9._-]+$")
+    _REF_RE: ToolsClassVar[re.Pattern] = re.compile(r"^[A-Za-z0-9._/-]{1,255}$")
+
     def __init__(self):
         super().__init__(
             name="bitbucket",
@@ -143,3 +146,70 @@ class BitbucketToolset(Toolset):
             return False, str(e)
         except Exception as e:
             return False, f"Bitbucket health check failed: {e}"
+
+    def _check_repo_in_scope(
+        self, repo_slug: str, params: dict
+    ) -> Optional[StructuredToolResult]:
+        """Return an ERROR result if the repo is outside the instance's scope; else None.
+
+        When the instance has a `repositories` allowlist, every repo-specific tool
+        call must match one of its entries (case-insensitive). Missing allowlist =
+        all repos in the workspace are allowed.
+        """
+        assert self.bb_config is not None
+        allowed = self.bb_config.repositories
+        if not allowed:
+            return None
+        normalized = repo_slug.strip().lower()
+        allowed_lower = [r.strip().lower() for r in allowed]
+        if normalized in allowed_lower:
+            return None
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR,
+            error=(
+                f"Repository '{repo_slug}' is not in this project's scope "
+                f"(allowed: {allowed})"
+            ),
+            params=params,
+        )
+
+    @staticmethod
+    def _truncate(
+        text: str,
+        max_bytes: int,
+        *,
+        line_mode: bool = False,
+        max_lines: int = 2000,
+    ) -> str:
+        """Trim `text` with a trailing marker when it exceeds the configured cap.
+
+        Byte mode: trim on a line boundary when possible.
+        Line mode: cap line count at `max_lines`.
+        """
+        if line_mode:
+            lines = text.splitlines()
+            if len(lines) <= max_lines:
+                return text
+            kept = lines[:max_lines]
+            dropped = len(lines) - max_lines
+            return "\n".join(kept) + f"\n[... truncated {dropped} lines ...]"
+        encoded = text.encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return text
+        trimmed = encoded[:max_bytes].decode("utf-8", errors="ignore")
+        # Snap back to the last newline for readability.
+        last_nl = trimmed.rfind("\n")
+        if last_nl > max_bytes // 2:
+            trimmed = trimmed[:last_nl]
+        dropped_bytes = len(encoded) - len(trimmed.encode("utf-8"))
+        return f"{trimmed}\n[... truncated {dropped_bytes} bytes ...]"
+
+    @classmethod
+    def _validate_repo_slug(cls, slug: str) -> bool:
+        return bool(slug) and bool(cls._REPO_SLUG_RE.match(slug))
+
+    @classmethod
+    def _validate_ref(cls, ref: str) -> bool:
+        if not ref or ".." in ref:
+            return False
+        return bool(cls._REF_RE.match(ref))
