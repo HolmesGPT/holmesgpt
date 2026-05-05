@@ -600,3 +600,11 @@ class TestFileContentsTool:
         )
         assert result.status == StructuredToolResultStatus.ERROR
         assert "path is required" in result.error
+
+
+class TestFactoryRegistration:
+    def test_bitbucket_in_python_toolset_factories(self):
+        from holmes.plugins.toolsets import PYTHON_TOOLSET_FACTORIES
+
+        assert "bitbucket" in PYTHON_TOOLSET_FACTORIES
+        assert PYTHON_TOOLSET_FACTORIES["bitbucket"] is BitbucketToolset

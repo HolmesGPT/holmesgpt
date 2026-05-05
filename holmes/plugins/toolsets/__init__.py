@@ -53,6 +53,7 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.outlook.toolset_outlook import OutlookToolset
 from holmes.plugins.toolsets.pagerduty.toolset_pagerduty import PagerDutyToolset
+from holmes.plugins.toolsets.bitbucket.toolset_bitbucket import BitbucketToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
 from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
@@ -124,6 +125,7 @@ def load_python_toolsets(
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
         PagerDutyToolset(),
+        BitbucketToolset(),
         TeamsToolset(),
         OutlookToolset(),
     ]
@@ -278,6 +280,7 @@ PYTHON_TOOLSET_FACTORIES: dict[str, type] = {
     "datadog/metrics": DatadogMetricsToolset,
     "datadog/traces": DatadogTracesToolset,
     "pagerduty": PagerDutyToolset,
+    "bitbucket": BitbucketToolset,
 }
 
 # PrometheusToolset is conditionally imported, so add it only when available
