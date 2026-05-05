@@ -14,6 +14,7 @@ const TOOLSET_TYPES = [
   'dbdash',
   'pagerduty',
   'jenkins',
+  'bitbucket',
 ]
 
 const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce', 'jenkins'])
@@ -22,6 +23,10 @@ type PagerDutyInstanceConfig = {
   service_ids?: string[]
   team_ids?: string[]
   api_key?: string
+}
+
+type BitbucketInstanceConfig = {
+  repositories?: string[]
 }
 
 function TagsEditor({
@@ -198,6 +203,9 @@ function InstanceFormDialog({
   const [pdTeamIds, setPdTeamIds] = useState<string[]>(
     (instance?.config as PagerDutyInstanceConfig | null | undefined)?.team_ids ?? []
   )
+  const [bbRepositories, setBbRepositories] = useState<string[]>(
+    (instance?.config as BitbucketInstanceConfig | null | undefined)?.repositories ?? []
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
@@ -208,6 +216,7 @@ function InstanceFormDialog({
   const isMcp = MCP_TYPES.has(type)
   const isAws = type === 'aws_api'
   const isPagerDuty = type === 'pagerduty'
+  const isBitbucket = type === 'bitbucket'
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -243,6 +252,8 @@ function InstanceFormDialog({
                   ...(pdTeamIds.length > 0 ? { team_ids: pdTeamIds } : {}),
                 }
               : null)
+          : isBitbucket
+          ? (bbRepositories.length > 0 ? { repositories: bbRepositories } : null)
           : (instance?.config ?? null),
       }
       if (instance) {
@@ -534,6 +545,74 @@ function InstanceFormDialog({
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
                       Testing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Test Connection
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+
+          {isBitbucket && (
+            <div className="space-y-4 p-4 bg-gray-50 rounded-lg border border-pdi-cool-gray">
+              <p className="text-xs font-medium text-pdi-slate uppercase tracking-wider">
+                Bitbucket Connection
+              </p>
+              <p className="text-xs text-pdi-slate">
+                Store a Secrets Manager secret with{' '}
+                <span className="font-mono">{'{"api_token": "...", "workspace": "..."}'}</span>{' '}
+                and paste its ARN above. Optionally restrict this instance to a subset of repos.
+              </p>
+
+              <ChipListEditor
+                label="Repository Allowlist (optional)"
+                placeholder="e.g. checkout-api"
+                values={bbRepositories}
+                onChange={setBbRepositories}
+              />
+
+              {/* Connection status */}
+              {connectionStatus && (
+                <div className={`flex items-start gap-2 text-xs rounded-md px-3 py-2 ${
+                  connectionStatus === 'success'
+                    ? 'bg-pdi-grass/10 text-pdi-grass border border-pdi-grass/20'
+                    : 'bg-pdi-orange/10 text-pdi-orange border border-pdi-orange/20'
+                }`}>
+                  <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                    connectionStatus === 'success' ? 'bg-pdi-grass' : 'bg-pdi-orange'
+                  }`} />
+                  <div>
+                    <span className="font-medium">
+                      {connectionStatus === 'success' ? 'Connected' : 'Connection failed'}
+                    </span>
+                    {connectionError && (
+                      <p className="mt-0.5 text-[11px] opacity-80 break-all">{connectionError}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Test Connection button */}
+              {instance && instance.secret_arn && (
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-pdi-sky border border-pdi-sky/30 rounded-lg hover:bg-pdi-sky/5 transition-colors disabled:opacity-50"
+                >
+                  {testing ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Testing…
                     </>
                   ) : (
                     <>
