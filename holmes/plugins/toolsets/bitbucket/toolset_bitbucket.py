@@ -97,6 +97,7 @@ class BitbucketToolset(Toolset):
                 GetBitbucketCommitDiff(toolset=self),
                 ListBitbucketCommits(toolset=self),
                 GetBitbucketCommit(toolset=self),
+                GetBitbucketFileContents(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
         )
@@ -647,4 +648,61 @@ class GetBitbucketCommit(_BaseBitbucketTool):
             return self._err(params, str(e))
         except Exception as e:
             logging.exception("Failed to get Bitbucket commit")
+            return self._err(params, str(e))
+
+
+FILE_CONTENTS_MAX_LINES = 2000
+
+
+class GetBitbucketFileContents(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="get_bitbucket_file_contents",
+            description="[bitbucket toolset] Get the contents of a file at a specific ref (branch/commit/tag), truncated at 2000 lines by default",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "ref": ToolParameter(description="Branch, commit SHA, or tag", type="string", required=True),
+                "path": ToolParameter(description="File path inside the repo (e.g. 'src/app.py')", type="string", required=True),
+                "max_lines": ToolParameter(
+                    description="Max lines to return (default 2000)",
+                    type="integer",
+                    required=False,
+                ),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: File {params.get('repo_slug')}:{params.get('path')}@{params.get('ref')}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        ref = params.get("ref", "")
+        path = params.get("path", "") or ""
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        if not self.toolset._validate_ref(ref):
+            return self._err(params, "Invalid ref")
+        if not path.strip():
+            return self._err(params, "path is required")
+        if ".." in path:
+            return self._err(params, "Invalid path: must not contain '..'")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        max_lines = int(params.get("max_lines") or FILE_CONTENTS_MAX_LINES)
+        try:
+            raw = self.toolset.get_text(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/src/{ref}/{path}"
+            )
+            truncated = self.toolset._truncate(raw, max_bytes=0, line_mode=True, max_lines=max_lines)
+            return self._ok(params, truncated)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return self._err(params, f"File not found: {repo}:{path}@{ref}")
+            return self._err(params, str(e))
+        except Exception as e:
+            logging.exception("Failed to fetch Bitbucket file contents")
             return self._err(params, str(e))

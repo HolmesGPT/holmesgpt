@@ -544,3 +544,59 @@ class TestCommitTools:
         assert result.status == StructuredToolResultStatus.SUCCESS
         args, _ = mock_get.call_args
         assert "/repositories/acme/x/commit/abc123" in args[0]
+
+
+class TestFileContentsTool:
+    def _toolset(self, **cfg_kwargs):
+        ts = BitbucketToolset()
+        ts.bb_config = BitbucketConfig(api_token="t", workspace="acme", **cfg_kwargs)
+        return ts
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_file_contents_small(self, mock_get):
+        mock_get.return_value = _mock_resp(200, text="print('hello')\n")
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_file_contents")
+        result = tool._invoke(
+            {"repo_slug": "x", "ref": "main", "path": "src/app.py"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "truncated" not in result.data
+        args, _ = mock_get.call_args
+        assert "/repositories/acme/x/src/main/src/app.py" in args[0]
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_file_contents_large_truncated_at_2000_lines(self, mock_get):
+        big = "\n".join(f"line {i}" for i in range(5000))
+        mock_get.return_value = _mock_resp(200, text=big)
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_file_contents")
+        result = tool._invoke(
+            {"repo_slug": "x", "ref": "main", "path": "big.txt"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "truncated" in result.data
+        # Expect 2000 kept lines + 1 marker line
+        assert result.data.count("\n") <= 2001
+
+    def test_file_contents_invalid_ref_rejected(self):
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_file_contents")
+        result = tool._invoke(
+            {"repo_slug": "x", "ref": "main/../evil", "path": "x"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "Invalid ref" in result.error
+
+    def test_file_contents_missing_path(self):
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_file_contents")
+        result = tool._invoke(
+            {"repo_slug": "x", "ref": "main"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "path is required" in result.error
