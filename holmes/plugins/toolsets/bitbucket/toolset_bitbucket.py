@@ -93,6 +93,8 @@ class BitbucketToolset(Toolset):
                 ListBitbucketPullRequests(toolset=self),
                 GetBitbucketPullRequest(toolset=self),
                 ListBitbucketPullRequestComments(toolset=self),
+                GetBitbucketPullRequestDiff(toolset=self),
+                GetBitbucketCommitDiff(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
         )
@@ -140,6 +142,27 @@ class BitbucketToolset(Toolset):
             )
         resp.raise_for_status()
         return resp.json()
+
+    def get_text(self, path: str, params: Optional[dict] = None) -> str:
+        assert self.bb_config is not None
+        url = f"{self.bb_config.api_url}{path}"
+        resp = requests.get(url, headers=self._headers(), params=params or {}, timeout=60)
+        if resp.status_code == 401:
+            raise BitbucketAuthError(
+                "Bitbucket API token rejected (401). Check the secret configured for this instance."
+            )
+        if resp.status_code == 403:
+            raise BitbucketForbiddenError(
+                f"Token has no access to workspace '{self.bb_config.workspace}' (or to this resource). "
+                "Verify the token's Repository scopes."
+            )
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "unknown")
+            raise BitbucketRateLimitError(
+                f"Bitbucket API rate limit exceeded (429). Retry-After: {retry_after}"
+            )
+        resp.raise_for_status()
+        return resp.text
 
     def _health_check(self) -> Tuple[bool, str]:
         assert self.bb_config is not None
@@ -440,4 +463,104 @@ class ListBitbucketPullRequestComments(_BaseBitbucketTool):
             return self._ok(params, data)
         except Exception as e:
             logging.exception("Failed to list Bitbucket PR comments")
+            return self._err(params, str(e))
+
+
+PR_DIFF_MAX_BYTES = 200_000
+COMMIT_DIFF_MAX_BYTES = 200_000
+
+
+class GetBitbucketPullRequestDiff(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="get_bitbucket_pull_request_diff",
+            description="[bitbucket toolset] Get the unified diff of a pull request (truncated at ~200 KB by default)",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "pull_request_id": ToolParameter(description="PR id", type="string", required=True),
+                "max_bytes": ToolParameter(
+                    description="Max diff bytes to return (default 200000)",
+                    type="integer",
+                    required=False,
+                ),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: PR diff {params.get('repo_slug')}#{params.get('pull_request_id')}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        pr_id = str(params.get("pull_request_id", "") or "").strip()
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        if not pr_id:
+            return self._err(params, "pull_request_id is required")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        max_bytes = int(params.get("max_bytes") or PR_DIFF_MAX_BYTES)
+        try:
+            raw = self.toolset.get_text(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/pullrequests/{pr_id}/diff"
+            )
+            return self._ok(params, self.toolset._truncate(raw, max_bytes=max_bytes))
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return self._err(params, f"Pull request {repo}#{pr_id} not found")
+            return self._err(params, str(e))
+        except Exception as e:
+            logging.exception("Failed to fetch PR diff")
+            return self._err(params, str(e))
+
+
+class GetBitbucketCommitDiff(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="get_bitbucket_commit_diff",
+            description="[bitbucket toolset] Get the unified diff of a specific commit (truncated at ~200 KB by default)",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "commit_sha": ToolParameter(description="Commit SHA or ref", type="string", required=True),
+                "max_bytes": ToolParameter(
+                    description="Max diff bytes (default 200000)",
+                    type="integer",
+                    required=False,
+                ),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Commit diff {params.get('repo_slug')}@{params.get('commit_sha', '')[:8]}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        sha = str(params.get("commit_sha", "") or "").strip()
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        if not sha:
+            return self._err(params, "commit_sha is required")
+        if not self.toolset._validate_ref(sha):
+            return self._err(params, "Invalid commit_sha")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        max_bytes = int(params.get("max_bytes") or COMMIT_DIFF_MAX_BYTES)
+        try:
+            raw = self.toolset.get_text(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/diff/{sha}"
+            )
+            return self._ok(params, self.toolset._truncate(raw, max_bytes=max_bytes))
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return self._err(params, f"Commit {repo}@{sha} not found")
+            return self._err(params, str(e))
+        except Exception as e:
+            logging.exception("Failed to fetch commit diff")
             return self._err(params, str(e))

@@ -419,3 +419,57 @@ class TestPullRequestTools:
         )
         assert result.status == StructuredToolResultStatus.ERROR
         assert "pull_request_id is required" in result.error
+
+
+class TestDiffTools:
+    def _toolset(self, **cfg_kwargs):
+        ts = BitbucketToolset()
+        ts.bb_config = BitbucketConfig(api_token="t", workspace="acme", **cfg_kwargs)
+        return ts
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_pr_diff_small_not_truncated(self, mock_get):
+        mock_get.return_value = _mock_resp(200, text="diff --git a/x b/x\n+1 line")
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request_diff")
+        result = tool._invoke(
+            {"repo_slug": "x", "pull_request_id": "42"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "truncated" not in result.data
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_pr_diff_large_truncated(self, mock_get):
+        # 500 KB payload, default cap is 200 KB.
+        big = "a" * 500_000
+        mock_get.return_value = _mock_resp(200, text=big)
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request_diff")
+        result = tool._invoke(
+            {"repo_slug": "x", "pull_request_id": "42"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "truncated" in result.data
+        assert len(result.data.encode("utf-8")) < 250_000
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_commit_diff_hits_correct_url(self, mock_get):
+        mock_get.return_value = _mock_resp(200, text="diff ...")
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_commit_diff")
+        result = tool._invoke(
+            {"repo_slug": "x", "commit_sha": "abc123"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        args, _ = mock_get.call_args
+        assert "/repositories/acme/x/diff/abc123" in args[0]
+
+    def test_commit_diff_missing_sha(self):
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_commit_diff")
+        result = tool._invoke({"repo_slug": "x"}, create_mock_tool_invoke_context())
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "commit_sha is required" in result.error
