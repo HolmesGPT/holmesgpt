@@ -1,5 +1,7 @@
 """Unit tests for the Bitbucket Cloud toolset."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import requests
 from pydantic import ValidationError
@@ -50,9 +52,6 @@ class TestBitbucketExceptionsExist:
 
     def test_rate_limit_error(self):
         assert issubclass(BitbucketRateLimitError, RuntimeError)
-
-
-from unittest.mock import MagicMock, patch
 
 
 def _mock_resp(status_code: int, json_body=None, text="", headers=None):
