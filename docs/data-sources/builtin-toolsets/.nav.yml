@@ -8,6 +8,7 @@ nav:
   - Azure Kubernetes Service: aks.md
   - Azure SQL Database: azure-sql.md
   - Bash: bash.md
+  - Bitbucket: bitbucket.md
   - Cilium: cilium.md
   - ClickHouse: database-clickhouse.md
   - Confluence: confluence.md
