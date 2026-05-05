@@ -91,6 +91,65 @@ class TestEndpointConfig:
         assert endpoint.get_methods() == ["GET", "POST", "PUT"]
 
 
+class TestEndpointConfigHostNormalization:
+    def test_strips_https_scheme(self, caplog):
+        with caplog.at_level("WARNING"):
+            endpoint = EndpointConfig(hosts=["https://api.example.com"])
+        assert endpoint.hosts == ["api.example.com"]
+        assert "normalized" in caplog.text
+
+    def test_strips_http_scheme(self):
+        endpoint = EndpointConfig(hosts=["http://api.example.com"])
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_strips_trailing_slash(self):
+        endpoint = EndpointConfig(hosts=["api.example.com/"])
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_strips_path(self):
+        endpoint = EndpointConfig(hosts=["https://api.example.com/some/path"])
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_strips_port(self):
+        endpoint = EndpointConfig(hosts=["api.example.com:8443"])
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_strips_scheme_and_port_and_path(self):
+        endpoint = EndpointConfig(hosts=["https://api.example.com:8443/v1/"])
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_lowercases_host(self):
+        endpoint = EndpointConfig(hosts=["API.Example.COM"])
+        assert endpoint.hosts == ["api.example.com"]
+
+    def test_preserves_wildcard(self):
+        endpoint = EndpointConfig(hosts=["*.example.com"])
+        assert endpoint.hosts == ["*.example.com"]
+
+    def test_wildcard_with_scheme(self):
+        endpoint = EndpointConfig(hosts=["https://*.example.com"])
+        assert endpoint.hosts == ["*.example.com"]
+
+    def test_wildcard_with_port(self):
+        endpoint = EndpointConfig(hosts=["*.example.com:443"])
+        assert endpoint.hosts == ["*.example.com"]
+
+    def test_already_normalized_does_not_warn(self, caplog):
+        with caplog.at_level("WARNING"):
+            endpoint = EndpointConfig(hosts=["api.example.com"])
+        assert endpoint.hosts == ["api.example.com"]
+        assert "normalized" not in caplog.text
+
+    def test_normalization_makes_match_succeed(self):
+        ts = HttpToolset()
+        ts._http_config = HttpToolsetConfig(
+            endpoints=[EndpointConfig(hosts=["https://api.example.com"])]
+        )
+        endpoint, error = ts.match_endpoint("https://api.example.com/v1/things")
+        assert endpoint is not None
+        assert error is None
+
+
 class TestHttpToolsetHostMatching:
     @pytest.fixture
     def toolset(self):

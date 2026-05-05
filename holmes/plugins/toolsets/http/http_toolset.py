@@ -6,7 +6,7 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type
 from urllib.parse import urlparse
 
 import requests  # type: ignore
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import (
@@ -58,9 +58,50 @@ class AuthConfig(BaseModel):
 
 class EndpointConfig(BaseModel):
     hosts: List[str] = Field(
-        description="List of allowed host patterns (e.g., ['*.atlassian.net', 'confluence.mycompany.com'])",
+        description=(
+            "List of allowed host patterns. Use a bare hostname like "
+            "'api.example.com' or a leading wildcard like '*.example.com'. "
+            "Do not include scheme, path, or port."
+        ),
         examples=[["api.example.com"]],
     )
+
+    @field_validator("hosts", mode="before")
+    @classmethod
+    def normalize_hosts(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        normalized: List[Any] = []
+        for entry in value:
+            if not isinstance(entry, str):
+                normalized.append(entry)
+                continue
+            original = entry
+            candidate = entry.strip()
+            if "://" in candidate:
+                parsed = urlparse(candidate)
+                candidate = parsed.netloc or parsed.path
+            for sep in ("/", "?", "#"):
+                if sep in candidate:
+                    candidate = candidate.split(sep, 1)[0]
+            if candidate.startswith("*."):
+                wildcard, _, rest = candidate.partition(".")
+                if ":" in rest:
+                    rest = rest.split(":", 1)[0]
+                candidate = f"{wildcard}.{rest}"
+            elif ":" in candidate:
+                candidate = candidate.split(":", 1)[0]
+            candidate = candidate.lower()
+            if candidate != original:
+                logger.warning(
+                    "HTTP toolset host pattern %r normalized to %r. "
+                    "Configure hosts as bare hostnames (e.g. 'api.example.com' "
+                    "or '*.example.com') without scheme, path, or port.",
+                    original,
+                    candidate,
+                )
+            normalized.append(candidate)
+        return normalized
     paths: List[str] = Field(
         default_factory=lambda: ["*"],
         description="Allowed path patterns (glob-style). Default allows all paths.",
