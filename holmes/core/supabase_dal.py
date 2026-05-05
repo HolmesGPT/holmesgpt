@@ -22,6 +22,12 @@ from postgrest.types import ReturnMethod
 from pydantic import BaseModel
 from supabase import create_client
 from supabase.lib.client_options import ClientOptions
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from holmes.common.env_vars import (
     ROBUSTA_ACCOUNT_ID,
@@ -910,6 +916,82 @@ class SupabaseDal:
 
     # ---- M2: Conversations worker DAL methods ----
 
+    def is_realtime_enabled(self) -> Optional[bool]:
+        """
+        Check whether Supabase Realtime is enabled by calling the
+        ``public.is_realtime_enabled()`` RPC.
+
+        Returns:
+            ``True``  — RPC executed and reported realtime is enabled.
+            ``False`` — RPC executed and reported realtime is NOT enabled,
+                       OR the RPC does not exist (treated as not enabled).
+            ``None``  — Could not determine (connectivity error, auth failure,
+                       or any other transport-level issue). The caller should
+                       NOT take destructive action in this case.
+
+        We deliberately distinguish "definitive answer from server" from
+        "couldn't reach the server" so the conversation worker only disables
+        itself when Supabase has actually told us realtime is off.
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc("is_realtime_enabled", {}).execute()
+        except PGAPIError as exc:
+            # PostgREST returns PGRST202 ("Could not find the function ...")
+            # when the RPC does not exist. Treat that as a definitive "no".
+            code = getattr(exc, "code", None) or ""
+            message = (getattr(exc, "message", None) or "").lower()
+            if code == "PGRST202" or "could not find the function" in message:
+                logging.info(
+                    "is_realtime_enabled RPC does not exist — treating Supabase "
+                    "Realtime as disabled"
+                )
+                return False
+            logging.warning(
+                "Supabase API error while checking realtime status (code=%s): %s",
+                code,
+                exc,
+            )
+            return None
+        except Exception:
+            logging.warning(
+                "Connectivity/transport error while checking realtime status",
+                exc_info=True,
+            )
+            return None
+
+        data = res.data
+        if isinstance(data, list):
+            # An empty list means PostgREST returned no rows — there's no
+            # value to coerce, so we can't conclude anything. Treat it as
+            # inconclusive (None) rather than silently disabling the
+            # worker on a False fallback.
+            if not data:
+                logging.warning(
+                    "is_realtime_enabled returned an empty result set — "
+                    "treating as inconclusive"
+                )
+                return None
+            data = data[0]
+        if data is None:
+            return None
+        # PostgREST normally returns the scalar boolean directly, but a
+        # SQL function tweak could yield a row dict like {"enabled": ...}.
+        # Bail to inconclusive on anything else — naive bool() coercion
+        # would misclassify a non-empty dict as True.
+        if isinstance(data, bool):
+            return data
+        if isinstance(data, dict) and "enabled" in data:
+            return bool(data["enabled"])
+        logging.warning(
+            "is_realtime_enabled returned unexpected payload type %s — "
+            "treating as inconclusive",
+            type(data).__name__,
+        )
+        return None
+
     def claim_conversations(self, holmes_id: str) -> List[Dict]:
         """
         Atomically claim all pending conversations for this cluster.
@@ -999,10 +1081,14 @@ class SupabaseDal:
         and that assignee + request_sequence match the row.  On terminal states
         (``completed``, ``failed``) the assignee is cleared by the RPC.
         """
+        # Lazy imports avoid a circular import: conversations_worker pulls in
+        # conversations.py → config → llm → supabase_dal at module load time.
+        from holmes.core.conversations_worker.models import ConversationStatus
+
         if not self.enabled:
             return False
 
-        if status not in ("queued", "running", "completed", "failed"):
+        if status not in ConversationStatus.updatable_values():
             logging.error(
                 "update_conversation_status received invalid status %s", status
             )
@@ -1064,28 +1150,32 @@ class SupabaseDal:
         # caller's fallback when this returns [] is to mark the conversation
         # failed for lack of a user question, so a transient hiccup here
         # would cause a spurious permanent failure.
-        last_err: Optional[Exception] = None
-        for attempt in range(3):
-            try:
-                res = self.client.rpc(
-                    "get_conversation_events",
-                    {
-                        "_account_id": self.account_id,
-                        "_conversation_id": conversation_id,
-                        "_include_compacted": include_compacted,
-                        "_min_seq": min_seq,
-                    },
-                ).execute()
-                return res.data or []
-            except Exception as e:
-                last_err = e
-                if attempt < 2:
-                    time.sleep(0.5 * (2 ** attempt))  # 0.5s, 1s
-        logging.exception(
-            "Supabase error while fetching conversation events (after retries)",
-            exc_info=last_err,
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
         )
-        return []
+        def _fetch() -> List[Dict]:
+            res = self.client.rpc(
+                "get_conversation_events",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_include_compacted": include_compacted,
+                    "_min_seq": min_seq,
+                },
+            ).execute()
+            return res.data or []
+
+        try:
+            return _fetch()
+        except Exception:
+            logging.exception(
+                "Supabase error while fetching conversation events (after retries)",
+                exc_info=True,
+            )
+            return []
 
     def finish_scheduled_prompt_run(
         self,

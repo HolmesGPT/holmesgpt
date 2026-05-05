@@ -3,8 +3,121 @@
 from unittest.mock import Mock, patch
 
 import pytest
+from postgrest.exceptions import APIError as PGAPIError
 
 from holmes.core.supabase_dal import SupabaseDal
+
+
+class TestIsRealtimeEnabled:
+    """Tests for SupabaseDal.is_realtime_enabled()."""
+
+    @pytest.fixture
+    def mock_dal(self):
+        with patch("holmes.core.supabase_dal.create_client"):
+            dal = SupabaseDal(cluster="test-cluster")
+            dal.enabled = True
+            dal.account_id = "test-account"
+            dal.client = Mock()
+            return dal
+
+    def _set_rpc_result(self, mock_dal, *, data=None, raise_exc=None):
+        rpc_chain = Mock()
+        if raise_exc is not None:
+            rpc_chain.execute.side_effect = raise_exc
+        else:
+            res = Mock()
+            res.data = data
+            rpc_chain.execute.return_value = res
+        mock_dal.client.rpc.return_value = rpc_chain
+        return rpc_chain
+
+    def test_returns_true_when_rpc_returns_true(self, mock_dal):
+        self._set_rpc_result(mock_dal, data=True)
+        assert mock_dal.is_realtime_enabled() is True
+        mock_dal.client.rpc.assert_called_once_with("is_realtime_enabled", {})
+
+    def test_returns_false_when_rpc_returns_false(self, mock_dal):
+        self._set_rpc_result(mock_dal, data=False)
+        assert mock_dal.is_realtime_enabled() is False
+
+    def test_returns_false_when_rpc_returns_list_of_false(self, mock_dal):
+        # Some PostgREST responses wrap scalar return values in a single-row list.
+        self._set_rpc_result(mock_dal, data=[False])
+        assert mock_dal.is_realtime_enabled() is False
+
+    def test_returns_true_when_rpc_returns_list_of_true(self, mock_dal):
+        self._set_rpc_result(mock_dal, data=[True])
+        assert mock_dal.is_realtime_enabled() is True
+
+    def test_returns_false_when_rpc_does_not_exist_pgrst202(self, mock_dal):
+        exc = PGAPIError(
+            {"code": "PGRST202", "message": "Could not find the function"}
+        )
+        self._set_rpc_result(mock_dal, raise_exc=exc)
+        assert mock_dal.is_realtime_enabled() is False
+
+    def test_returns_false_when_rpc_does_not_exist_message_match(self, mock_dal):
+        exc = PGAPIError(
+            {
+                "code": "OTHER",
+                "message": "Could not find the function public.is_realtime_enabled",
+            }
+        )
+        self._set_rpc_result(mock_dal, raise_exc=exc)
+        assert mock_dal.is_realtime_enabled() is False
+
+    def test_returns_none_on_other_api_error(self, mock_dal):
+        exc = PGAPIError({"code": "PGRST301", "message": "JWT expired"})
+        self._set_rpc_result(mock_dal, raise_exc=exc)
+        assert mock_dal.is_realtime_enabled() is None
+
+    def test_returns_none_on_connectivity_error(self, mock_dal):
+        self._set_rpc_result(mock_dal, raise_exc=ConnectionError("network down"))
+        assert mock_dal.is_realtime_enabled() is None
+
+    def test_returns_none_when_dal_disabled(self, mock_dal):
+        mock_dal.enabled = False
+        assert mock_dal.is_realtime_enabled() is None
+        mock_dal.client.rpc.assert_not_called()
+
+    def test_returns_none_on_empty_list_response(self, mock_dal):
+        # An empty list from PostgREST means no rows — there's no value to
+        # coerce, so we should treat it as inconclusive rather than
+        # collapsing to False.
+        self._set_rpc_result(mock_dal, data=[])
+        assert mock_dal.is_realtime_enabled() is None
+
+    def test_returns_none_on_null_data(self, mock_dal):
+        # Likewise, an explicit None payload is inconclusive — not a
+        # definitive False.
+        self._set_rpc_result(mock_dal, data=None)
+        assert mock_dal.is_realtime_enabled() is None
+
+    def test_returns_true_for_dict_with_enabled_true(self, mock_dal):
+        # A SQL function variant could return a row instead of a scalar.
+        self._set_rpc_result(mock_dal, data={"enabled": True})
+        assert mock_dal.is_realtime_enabled() is True
+
+    def test_returns_false_for_dict_with_enabled_false(self, mock_dal):
+        # And the same row shape with the field set to false. Naive
+        # bool(data) would have wrongly returned True here.
+        self._set_rpc_result(mock_dal, data={"enabled": False})
+        assert mock_dal.is_realtime_enabled() is False
+
+    def test_returns_true_for_dict_with_enabled_truthy_in_list(self, mock_dal):
+        self._set_rpc_result(mock_dal, data=[{"enabled": True}])
+        assert mock_dal.is_realtime_enabled() is True
+
+    def test_returns_none_for_dict_without_enabled_key(self, mock_dal):
+        # Unknown dict shape — refuse to guess.
+        self._set_rpc_result(mock_dal, data={"other": True})
+        assert mock_dal.is_realtime_enabled() is None
+
+    def test_returns_none_for_unexpected_payload_type(self, mock_dal):
+        # A string (or any other unexpected type) is inconclusive — we
+        # won't fall back to truthy/falsy coercion.
+        self._set_rpc_result(mock_dal, data="true")
+        assert mock_dal.is_realtime_enabled() is None
 
 
 class TestGetResourceRecommendation:

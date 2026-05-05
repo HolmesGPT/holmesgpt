@@ -508,3 +508,115 @@ def test_streaming_chat_approval_workflow_reject_command(
     assert len(tool_decisions) == 1
     assert tool_decisions[0].tool_call_id == "tool_call_123"
     assert tool_decisions[0].approved is False
+
+
+@patch("holmes.core.supabase_dal.SupabaseDal._SupabaseDal__load_robusta_config")
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_chat_with_empty_ask_and_tool_decisions_does_not_append_empty_user_message(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    mock_load_robusta_config,
+    client,
+):
+    """Frontend resumes a tool-approval flow by sending ask='' + tool_decisions.
+
+    The /api/chat endpoint must NOT append an empty user message to the
+    conversation_history in that case — otherwise the LLM sees a content-less
+    user turn and replies with something like "looks like your question is
+    empty, how can I help?".
+    """
+
+    mock_load_robusta_config.return_value = None
+    mock_get_global_instructions.return_value = []
+
+    mock_llm = MagicMock(spec=LLM)
+    mock_tool_executor = MagicMock(spec=ToolExecutor)
+
+    ai = ToolCallingLLM(
+        tool_executor=mock_tool_executor,
+        max_steps=5,
+        llm=mock_llm,
+        tool_results_dir=None,
+    )
+
+    mock_llm.count_tokens.return_value = ContextWindowUsage(
+        total_tokens=100,
+        system_tokens=0,
+        tools_to_call_tokens=0,
+        tools_tokens=0,
+        user_tokens=0,
+        assistant_tokens=0,
+        other_tokens=0,
+    )
+    mock_llm.get_context_window_size.return_value = 128000
+    mock_llm.get_maximum_output_token.return_value = 4096
+    mock_llm.model = "gpt-4o"
+
+    mock_tool_executor.get_all_tools_openai_format.return_value = []
+    mock_toolset = MagicMock()
+    mock_toolset.name = "kubectl"
+    mock_toolset.status = MagicMock()
+    mock_toolset.status.value = "enabled"
+    mock_tool_executor.toolsets = [mock_toolset]
+
+    captured: Dict[str, Any] = {}
+
+    def fake_call_stream(msgs, **kwargs):
+        captured["msgs"] = list(msgs)
+        captured["tool_decisions"] = kwargs.get("tool_decisions")
+        return iter([])
+
+    ai.call_stream = MagicMock(side_effect=fake_call_stream)
+    ai.with_executor = MagicMock(return_value=ai)
+    mock_create_toolcalling_llm.return_value = ai
+
+    conversation_history: List[Dict[str, Any]] = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Delete the dangerous pod"},
+        {
+            "role": "assistant",
+            "content": "I need to run a dangerous command. Let me check if this is allowed.",
+            "tool_calls": [
+                {
+                    "id": "tool_call_123",
+                    "type": "function",
+                    "function": {
+                        "name": "kubectl_delete",
+                        "arguments": json.dumps(
+                            {"command": "kubectl delete pod dangerous-pod"}
+                        ),
+                    },
+                }
+            ],
+            "pending_approval": True,
+        },
+    ]
+
+    resume_payload: Dict[str, Any] = {
+        "ask": "",
+        "conversation_history": conversation_history,
+        "stream": True,
+        "enable_tool_approval": True,
+        "tool_decisions": [{"tool_call_id": "tool_call_123", "approved": True}],
+    }
+
+    response = client.post("/api/chat", json=resume_payload)
+    assert response.status_code == 200
+    # Drain the streaming body so the route's finally-blocks run.
+    _ = response.text
+
+    assert "msgs" in captured, "call_stream was not invoked"
+    msgs = captured["msgs"]
+
+    # The messages passed to the LLM must equal the conversation_history that
+    # was sent in — no extra empty user turn appended at the end.
+    assert msgs == conversation_history, (
+        f"Expected msgs to equal conversation_history (resume_only path), "
+        f"got: {msgs}"
+    )
+
+    assert not any(
+        m.get("role") == "user" and not m.get("content")
+        for m in msgs
+    ), "An empty user message was appended to messages on resume_only path"
