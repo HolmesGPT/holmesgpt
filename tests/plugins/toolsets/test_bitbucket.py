@@ -473,3 +473,31 @@ class TestDiffTools:
         result = tool._invoke({"repo_slug": "x"}, create_mock_tool_invoke_context())
         assert result.status == StructuredToolResultStatus.ERROR
         assert "commit_sha is required" in result.error
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_commit_diff_404_friendly_error(self, mock_get):
+        mock_get.return_value = _mock_resp(404)
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_commit_diff")
+        result = tool._invoke(
+            {"repo_slug": "x", "commit_sha": "deadbeef"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not found" in result.error.lower()
+        assert "x@deadbeef" in result.error
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_pr_diff_max_bytes_override_respected(self, mock_get):
+        # 300 KB payload with max_bytes=500000 should NOT be truncated.
+        big = "a" * 300_000
+        mock_get.return_value = _mock_resp(200, text=big)
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_pull_request_diff")
+        result = tool._invoke(
+            {"repo_slug": "x", "pull_request_id": "42", "max_bytes": 500_000},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "truncated" not in result.data
+        assert len(result.data) == 300_000
