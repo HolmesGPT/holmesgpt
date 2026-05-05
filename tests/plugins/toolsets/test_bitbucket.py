@@ -501,3 +501,46 @@ class TestDiffTools:
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert "truncated" not in result.data
         assert len(result.data) == 300_000
+
+
+class TestCommitTools:
+    def _toolset(self, **cfg_kwargs):
+        ts = BitbucketToolset()
+        ts.bb_config = BitbucketConfig(api_token="t", workspace="acme", **cfg_kwargs)
+        return ts
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_list_commits_default_branch(self, mock_get):
+        mock_get.return_value = _mock_resp(200, {"values": []})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_commits")
+        result = tool._invoke(
+            {"repo_slug": "x", "branch": "main"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        args, _ = mock_get.call_args
+        assert "/repositories/acme/x/commits/main" in args[0]
+
+    def test_list_commits_invalid_branch_rejected(self):
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "list_bitbucket_commits")
+        result = tool._invoke(
+            {"repo_slug": "x", "branch": "main/../evil"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "Invalid" in result.error
+
+    @patch("holmes.plugins.toolsets.bitbucket.toolset_bitbucket.requests.get")
+    def test_get_commit(self, mock_get):
+        mock_get.return_value = _mock_resp(200, {"hash": "abc123", "message": "Fix"})
+        ts = self._toolset()
+        tool = next(t for t in ts.tools if t.name == "get_bitbucket_commit")
+        result = tool._invoke(
+            {"repo_slug": "x", "commit_sha": "abc123"},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        args, _ = mock_get.call_args
+        assert "/repositories/acme/x/commit/abc123" in args[0]

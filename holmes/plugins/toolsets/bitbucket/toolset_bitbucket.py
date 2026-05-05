@@ -95,6 +95,8 @@ class BitbucketToolset(Toolset):
                 ListBitbucketPullRequestComments(toolset=self),
                 GetBitbucketPullRequestDiff(toolset=self),
                 GetBitbucketCommitDiff(toolset=self),
+                ListBitbucketCommits(toolset=self),
+                GetBitbucketCommit(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
         )
@@ -563,4 +565,86 @@ class GetBitbucketCommitDiff(_BaseBitbucketTool):
             return self._err(params, str(e))
         except Exception as e:
             logging.exception("Failed to fetch commit diff")
+            return self._err(params, str(e))
+
+
+class ListBitbucketCommits(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="list_bitbucket_commits",
+            description="[bitbucket toolset] List commits on a branch (or commit ref)",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "branch": ToolParameter(description="Branch name or commit ref", type="string", required=True),
+                "limit": ToolParameter(description="Max commits (default 25, max 100)", type="integer", required=False),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Commits {params.get('repo_slug')}@{params.get('branch')}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        branch = params.get("branch", "")
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        if not self.toolset._validate_ref(branch):
+            return self._err(params, "Invalid branch")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        try:
+            data = self.toolset.get(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/commits/{branch}",
+                params={"pagelen": self._capped_limit(params.get("limit"))},
+            )
+            return self._ok(params, data)
+        except Exception as e:
+            logging.exception("Failed to list Bitbucket commits")
+            return self._err(params, str(e))
+
+
+class GetBitbucketCommit(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="get_bitbucket_commit",
+            description="[bitbucket toolset] Get details for a specific commit",
+            parameters={
+                "repo_slug": ToolParameter(description="Repo slug", type="string", required=True),
+                "commit_sha": ToolParameter(description="Commit SHA", type="string", required=True),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Commit {params.get('repo_slug')}@{params.get('commit_sha', '')[:8]}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo = params.get("repo_slug", "")
+        sha = str(params.get("commit_sha", "") or "").strip()
+        if not self.toolset._validate_repo_slug(repo):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        if not sha:
+            return self._err(params, "commit_sha is required")
+        if not self.toolset._validate_ref(sha):
+            return self._err(params, "Invalid commit_sha")
+        scope_err = self.toolset._check_repo_in_scope(repo, params)
+        if scope_err is not None:
+            return scope_err
+        try:
+            data = self.toolset.get(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo}/commit/{sha}"
+            )
+            return self._ok(params, data, url=data.get("links", {}).get("html", {}).get("href", ""))
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return self._err(params, f"Commit {repo}@{sha} not found")
+            return self._err(params, str(e))
+        except Exception as e:
+            logging.exception("Failed to get Bitbucket commit")
             return self._err(params, str(e))
