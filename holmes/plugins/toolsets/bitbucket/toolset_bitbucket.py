@@ -77,8 +77,8 @@ class BitbucketToolset(Toolset):
 
     bb_config: Optional[BitbucketConfig] = None
 
-    _REPO_SLUG_RE: ToolsClassVar[re.Pattern] = re.compile(r"^[a-z0-9._-]+$")
-    _REF_RE: ToolsClassVar[re.Pattern] = re.compile(r"^[A-Za-z0-9._/-]{1,255}$")
+    _REPO_SLUG_RE: ToolsClassVar[re.Pattern] = re.compile(r"\A[a-z0-9._-]+\Z")
+    _REF_RE: ToolsClassVar[re.Pattern] = re.compile(r"\A[A-Za-z0-9._/-]{1,255}\Z")
 
     def __init__(self):
         super().__init__(
@@ -206,7 +206,9 @@ class BitbucketToolset(Toolset):
 
     @classmethod
     def _validate_repo_slug(cls, slug: str) -> bool:
-        return bool(slug) and bool(cls._REPO_SLUG_RE.match(slug))
+        if not slug or ".." in slug:
+            return False
+        return bool(cls._REPO_SLUG_RE.match(slug))
 
     @classmethod
     def _validate_ref(cls, ref: str) -> bool:

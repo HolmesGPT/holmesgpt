@@ -218,3 +218,16 @@ class TestInputValidation:
         ts = BitbucketToolset()
         assert ts._validate_ref("foo/../etc") is False
         assert ts._validate_ref("..") is False
+
+    def test_validate_repo_slug_rejects_trailing_newline(self):
+        ts = BitbucketToolset()
+        assert ts._validate_repo_slug("foo\n") is False
+
+    def test_validate_ref_rejects_trailing_newline(self):
+        ts = BitbucketToolset()
+        assert ts._validate_ref("main\n") is False
+
+    def test_validate_repo_slug_rejects_standalone_dotdot(self):
+        ts = BitbucketToolset()
+        assert ts._validate_repo_slug("..") is False
+        assert ts._validate_repo_slug(".") is True  # '.' alone is a weird but technically valid char set; double-dot is what matters
