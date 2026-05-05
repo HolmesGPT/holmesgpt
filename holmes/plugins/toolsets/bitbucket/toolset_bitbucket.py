@@ -87,7 +87,10 @@ class BitbucketToolset(Toolset):
             docs_url="https://developer.atlassian.com/cloud/bitbucket/rest/",
             icon_url="https://cdn.simpleicons.org/bitbucket/0052CC",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            tools=[],  # Tools added in later tasks.
+            tools=[
+                ListBitbucketRepositories(toolset=self),
+                GetBitbucketRepository(toolset=self),
+            ],
             tags=[ToolsetTag.CORE],
         )
 
@@ -215,3 +218,95 @@ class BitbucketToolset(Toolset):
         if not ref or ".." in ref:
             return False
         return bool(cls._REF_RE.match(ref))
+
+
+class _BaseBitbucketTool(Tool):
+    toolset: "BitbucketToolset"
+
+    def _err(self, params: dict, msg: str) -> StructuredToolResult:
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR, error=msg, params=params
+        )
+
+    def _ok(self, params: dict, data: Any, url: str = "") -> StructuredToolResult:
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=json.dumps(data, indent=2) if not isinstance(data, str) else data,
+            params=params,
+            url=url,
+        )
+
+    def _capped_limit(self, user_limit: Any) -> int:
+        try:
+            n = int(user_limit) if user_limit else self.toolset.bb_config.default_limit
+        except (TypeError, ValueError):
+            n = self.toolset.bb_config.default_limit
+        return max(1, min(n, 100))
+
+
+class ListBitbucketRepositories(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="list_bitbucket_repositories",
+            description="[bitbucket toolset] List repositories in the instance's workspace",
+            parameters={
+                "limit": ToolParameter(
+                    description="Max repos to return (default 25, max 100)",
+                    type="integer",
+                    required=False,
+                ),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: List repos"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        try:
+            query = {"pagelen": self._capped_limit(params.get("limit"))}
+            path = f"/repositories/{self.toolset.bb_config.workspace}"
+            data = self.toolset.get(path, params=query)
+            return self._ok(params, data)
+        except Exception as e:
+            logging.exception("Failed to list Bitbucket repositories")
+            return self._err(params, str(e))
+
+
+class GetBitbucketRepository(_BaseBitbucketTool):
+    def __init__(self, toolset: "BitbucketToolset"):
+        super().__init__(
+            name="get_bitbucket_repository",
+            description="[bitbucket toolset] Get details for a specific repository",
+            parameters={
+                "repo_slug": ToolParameter(
+                    description="Repository slug (e.g. 'checkout-api')",
+                    type="string",
+                    required=True,
+                ),
+            },
+            toolset=toolset,
+        )
+
+    def get_parameterized_one_liner(self, params: dict) -> str:
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Get repo {params.get('repo_slug', '')}"
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        if not self.toolset.bb_config:
+            return self._err(params, "Bitbucket not configured")
+        repo_slug = params.get("repo_slug", "")
+        if not self.toolset._validate_repo_slug(repo_slug):
+            return self._err(params, "Invalid repo_slug: must match [a-z0-9._-]+")
+        scope_err = self.toolset._check_repo_in_scope(repo_slug, params)
+        if scope_err is not None:
+            return scope_err
+        try:
+            data = self.toolset.get(
+                f"/repositories/{self.toolset.bb_config.workspace}/{repo_slug}"
+            )
+            return self._ok(params, data, url=data.get("links", {}).get("html", {}).get("href", ""))
+        except Exception as e:
+            logging.exception("Failed to get Bitbucket repository")
+            return self._err(params, str(e))
