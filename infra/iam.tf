@@ -44,6 +44,8 @@ resource "aws_iam_policy" "holmes_secrets" {
           # DBADash credentials — global + per-project secrets fetched at runtime via boto3
           var.dbdash_secrets_manager_arn != "" ? var.dbdash_secrets_manager_arn : "",
           "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.cluster_name}/dbdash-*",
+          # Bitbucket per-workspace credentials (holmesgpt-<env>/bitbucket-<workspace>)
+          "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.cluster_name}/bitbucket-*",
         ])
       }
     ]

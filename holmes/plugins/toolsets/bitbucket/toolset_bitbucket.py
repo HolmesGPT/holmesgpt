@@ -91,9 +91,9 @@ class BitbucketToolset(Toolset):
     _REPO_SLUG_RE: ToolsClassVar[re.Pattern] = re.compile(r"\A[a-z0-9._-]+\Z")
     _REF_RE: ToolsClassVar[re.Pattern] = re.compile(r"\A[A-Za-z0-9._/-]{1,255}\Z")
 
-    def __init__(self):
+    def __init__(self, name: str = "bitbucket"):
         super().__init__(
-            name="bitbucket",
+            name=name,
             description="Read-only access to Bitbucket Cloud: repositories, pull requests, commits, and file contents.",
             docs_url="https://developer.atlassian.com/cloud/bitbucket/rest/",
             icon_url="https://cdn.simpleicons.org/bitbucket/0052CC",
