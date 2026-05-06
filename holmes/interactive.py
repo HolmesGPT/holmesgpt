@@ -214,10 +214,13 @@ class InitProgressRenderer:
         # Color escalates as the duration approaches the prerequisite timeout
         # so the user can see at a glance which datasource is the culprit.
         timeout_secs = self._prereq_timeout_secs
+        # Scale the "show as slow" threshold so it fires before the timeout
+        # even when HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS is set very low.
+        slow_threshold = min(_SLOW_THRESHOLD_SECS, timeout_secs * 0.5)
         slow: List[tuple[str, float]] = []
         for name, started_at in self._in_flight.items():
             duration = now - started_at
-            if duration >= _SLOW_THRESHOLD_SECS:
+            if duration >= slow_threshold:
                 slow.append((name, duration))
         if slow:
             slow.sort(key=lambda x: -x[1])  # longest first

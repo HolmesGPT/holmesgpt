@@ -278,6 +278,18 @@ class ToolsetManager:
                     break
                 for future in done:
                     ts = future_to_toolset[future]
+                    # Surface unexpected exceptions from the worker —
+                    # check_prerequisites catches the common ones, but a
+                    # crash in interpolate_command, subprocess, etc. would
+                    # otherwise leave ts in a stale state.
+                    try:
+                        future.result()
+                    except BaseException as exc:  # noqa: BLE001
+                        logging.exception(
+                            "Toolset %s prerequisite worker crashed", ts.name
+                        )
+                        ts.status = ToolsetStatusEnum.FAILED
+                        ts.error = f"Prerequisite check failed unexpectedly: {exc!s}"
                     if on_event is not None:
                         on_event(
                             StatusEvent(

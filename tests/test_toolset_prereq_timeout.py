@@ -116,6 +116,30 @@ def test_check_toolset_prerequisites_no_timeout_when_all_fast():
     assert all(e.status == ToolsetStatus.ENABLED for e in ready_events)
 
 
+def test_worker_exception_is_surfaced_as_failed():
+    """An unexpected exception from check_prerequisites is reported as FAILED."""
+    from unittest.mock import patch
+
+    fast = _make_toolset("a", lambda c: (True, ""))
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("kaboom")
+
+    events: List[StatusEvent] = []
+    with patch.object(type(fast), "check_prerequisites", boom):
+        ToolsetManager.check_toolset_prerequisites(
+            [fast],
+            silent=True,
+            on_event=events.append,
+            timeout_seconds=2.0,
+        )
+
+    assert fast.status == ToolsetStatusEnum.FAILED
+    assert "kaboom" in (fast.error or "")
+    ready = [e for e in events if e.kind == StatusEventKind.TOOLSET_READY]
+    assert ready and ready[0].status == ToolsetStatus.FAILED
+
+
 def test_late_completion_does_not_overwrite_failed_status():
     """A worker that finishes after the timeout must not flip the toolset back to ENABLED."""
     started = threading.Event()
