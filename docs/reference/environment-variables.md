@@ -56,6 +56,39 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## Server Security
+
+### HOLMES_API_KEY
+**Default:** not set (authentication disabled)
+
+When set, all API requests must include this key via either:
+
+- `X-API-Key: <key>` header, or
+- `Authorization: Bearer <key>` header
+
+Health check endpoints (`/healthz`, `/readyz`) are always exempt.
+
+**Generating a key:**
+```bash
+# Generate a random key with 32 bytes of entropy
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Or use openssl
+openssl rand -base64 32
+```
+
+**Example:**
+```bash
+export HOLMES_API_KEY=my-secret-key-here
+```
+
+**Docker example:**
+```bash
+docker run -d \
+  -e HOLMES_API_KEY=your-generated-key \
+  ...
+```
+
 ## SSL/TLS
 
 ### CERTIFICATE
@@ -134,6 +167,11 @@ export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
 
 ### MODEL_LIST_FILE_LOCATION
 Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
+
+If unset, HolmesGPT looks for the model list file in this order:
+
+1. `/etc/holmes/config/model_list.yaml` (server / Helm default)
+2. `~/.holmes/model_list.yaml` (CLI default)
 
 **Example:**
 ```bash

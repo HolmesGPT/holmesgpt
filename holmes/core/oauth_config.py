@@ -117,6 +117,7 @@ class OAuthEndpoints:
     authorization_url: Optional[str] = None
     token_url: Optional[str] = None
     client_id: Optional[str] = None
+    client_secret: Optional[str] = None
     scopes: Optional[List[str]] = None
     registration_endpoint: Optional[str] = None
 
@@ -134,6 +135,7 @@ class MCPOAuthConfig(BaseModel):
     authorization_url: Optional[str] = Field(default=None, description="IdP authorization endpoint URL. Auto-discovered if omitted.")
     token_url: Optional[str] = Field(default=None, description="IdP token endpoint URL. Auto-discovered if omitted.")
     client_id: Optional[str] = Field(default=None, description="OAuth public client ID. Auto-registered via DCR if omitted.")
+    client_secret: Optional[str] = Field(default=None, description="OAuth client secret for confidential clients.")
     scopes: Optional[List[str]] = Field(default=None, description="OAuth scopes to request.")
     registration_endpoint: Optional[str] = Field(default=None, description="DCR endpoint (auto-populated during discovery, sent to frontend for client registration).")
 
@@ -240,6 +242,10 @@ class OAuthExchangeManager:
             pending.oauth_config.client_id = client_id
             logger.info("OAuth: using client_id from frontend DCR: %s", client_id)
 
+        # Use client_secret from frontend (DCR) if available, otherwise fall back
+        # to the server-side config (for pre-registered confidential clients like Azure AD).
+        client_secret = oauth_code.client_secret or pending.oauth_config.client_secret
+
         try:
             token_data = exchange_code_for_tokens(
                 token_url=pending.oauth_config.token_url,
@@ -247,7 +253,7 @@ class OAuthExchangeManager:
                 redirect_uri=oauth_code.redirect_uri,
                 client_id=client_id,
                 code_verifier=pending.code_verifier,
-                client_secret=oauth_code.client_secret,
+                client_secret=client_secret,
             )
         except (OAuthTokenExchangeError, KeyError, Exception):
             logger.exception("OAuth exchange failed (tool_call_id=%s, token_url=%s)", tool_call_id, pending.oauth_config.token_url)
