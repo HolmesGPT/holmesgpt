@@ -86,7 +86,10 @@ holmes ask "what is the health of my environment?"
 
 ## Next Steps
 
-- **[Interactive Mode](../walkthrough/interactive-mode.md)** - Use Holmes interactively for follow-up questions
-- **[Investigating Prometheus Alerts](../walkthrough/investigating-prometheus-alerts.md)** - Automate alert investigation
-- **[All Built-in Toolsets](builtin-toolsets/index.md)** - Browse the full list of integrations
-- **[Custom Toolsets](custom-toolsets.md)** - Create integrations for proprietary tools
+Add these integrations to get the most value from Holmes:
+
+- **[GitHub](builtin-toolsets/github-mcp.md)** - Investigate CI/CD failures and correlate incidents with recent code changes
+- **[ArgoCD](builtin-toolsets/argocd.md)** or **[Helm](builtin-toolsets/helm.md)** - Tie incidents to recent deployments
+- **[Confluence](builtin-toolsets/confluence.md)** - Let Holmes read your runbooks and internal docs
+
+Browse [all built-in toolsets](builtin-toolsets/index.md) for the full list.
