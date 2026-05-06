@@ -42,6 +42,10 @@ def get_prereq_timeout_seconds() -> float:
         )
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
     if value <= 0:
+        logging.warning(
+            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} is non-positive; "
+            f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
+        )
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
     return value
 
@@ -235,9 +239,16 @@ class ToolsetManager:
         Toolsets whose checks don't return within ``timeout_seconds`` are
         marked FAILED so a hung datasource can't block startup. The timeout
         defaults to ``HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS`` (or 20s).
-        Background threads for stuck checks are not forcibly killed — the
-        executor is shut down without waiting so they unblock when (or if)
-        the underlying call returns.
+
+        Note: the timeout bounds *reporting latency*, not worker lifetime.
+        Python cannot interrupt a thread blocked in C code (e.g.
+        ``subprocess.run`` without its own ``timeout=``, a socket connect
+        with no timeout). ``executor.shutdown(wait=False)`` lets us return
+        early, but the interpreter's atexit handler still joins all pool
+        threads on process exit, so a permanently stuck worker delays
+        shutdown. ``_prereq_aborted`` only stops the worker between
+        prerequisites, not mid-call. Toolset authors should set explicit
+        timeouts on the I/O calls they make from prerequisite callables.
         """
         if timeout_seconds is None:
             timeout_seconds = get_prereq_timeout_seconds()

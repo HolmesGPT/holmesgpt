@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from typing import Any, Dict, List, Tuple
+from unittest.mock import patch
 
 import pytest
 
@@ -118,8 +119,6 @@ def test_check_toolset_prerequisites_no_timeout_when_all_fast():
 
 def test_worker_exception_is_surfaced_as_failed():
     """An unexpected exception from check_prerequisites is reported as FAILED."""
-    from unittest.mock import patch
-
     fast = _make_toolset("a", lambda c: (True, ""))
 
     def boom(*_a, **_kw):
@@ -158,13 +157,15 @@ def test_late_completion_does_not_overwrite_failed_status():
     ts = _make_toolset("eventually_ok", slow_then_succeed)
 
     try:
+        # 1.0s gives the worker thread comfortable headroom to enter the
+        # callable on slow CI runners before the timeout handler fires.
         ToolsetManager.check_toolset_prerequisites(
             [ts],
             silent=True,
-            timeout_seconds=0.3,
+            timeout_seconds=1.0,
         )
         # The worker is still running; let it finish so it tries to commit.
-        assert started.wait(timeout=2)
+        assert started.wait(timeout=5), "worker never entered the callable"
         assert ts.status == ToolsetStatusEnum.FAILED
         release.set()
         # Block until the worker has actually returned, instead of sleeping.
