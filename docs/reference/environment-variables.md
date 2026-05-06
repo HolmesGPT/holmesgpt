@@ -168,6 +168,11 @@ export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
 ### MODEL_LIST_FILE_LOCATION
 Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
 
+If unset, HolmesGPT looks for the model list file in this order:
+
+1. `/etc/holmes/config/model_list.yaml` (server / Helm default)
+2. `~/.holmes/model_list.yaml` (CLI default)
+
 **Example:**
 ```bash
 export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
