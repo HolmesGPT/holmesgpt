@@ -51,6 +51,7 @@ from rich.text import Text
 from holmes.config import Config
 from holmes.core.config import config_path_dir
 from holmes.core.init_event import StatusEvent, StatusEventKind, ToolsetStatus
+from holmes.core.toolset_manager import _get_prereq_timeout_seconds
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
     Feedback,
@@ -206,7 +207,10 @@ class InitProgressRenderer:
             display.append("\n  ")
             display.append(f"  ready: {names}", style="green")
 
-        # Show in-flight toolsets that are taking more than 1 second
+        # Show in-flight toolsets that are taking more than 1 second.
+        # Color escalates as the duration approaches the prerequisite timeout
+        # so the user can see at a glance which datasource is the culprit.
+        timeout_secs = _get_prereq_timeout_seconds()
         slow: List[tuple[str, float]] = []
         for name, started_at in self._in_flight.items():
             duration = now - started_at
@@ -214,9 +218,18 @@ class InitProgressRenderer:
                 slow.append((name, duration))
         if slow:
             slow.sort(key=lambda x: -x[1])  # longest first
-            parts = [f"{name} ({dur:.0f}s)" for name, dur in slow]
             display.append("\n  ")
-            display.append(f"  checking: {', '.join(parts)}", style="yellow")
+            display.append("  checking: ", style="yellow")
+            for i, (name, dur) in enumerate(slow):
+                if i > 0:
+                    display.append(", ", style="yellow")
+                if dur >= timeout_secs:
+                    style = "bold red"
+                elif dur >= timeout_secs * 0.5:
+                    style = "bold yellow"
+                else:
+                    style = "yellow"
+                display.append(f"{name} ({dur:.0f}s)", style=style)
 
         if self._toolsets_failed:
             failed_names = ", ".join(name for name, _ in self._toolsets_failed[-4:])
