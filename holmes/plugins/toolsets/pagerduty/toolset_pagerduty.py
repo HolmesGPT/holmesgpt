@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Optional, Tuple, Type
+from typing import Any, List, Optional, Tuple, Type
 
 import requests
 from pydantic import Field
@@ -26,6 +26,14 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 PAGERDUTY_API_BASE = "https://api.pagerduty.com"
 
 
+class PagerDutyAuthError(RuntimeError):
+    """Raised when PagerDuty returns 401."""
+
+
+class PagerDutyRateLimitError(RuntimeError):
+    """Raised when PagerDuty returns 429."""
+
+
 class PagerDutyConfig(ToolsetConfig):
     """Configuration for PagerDuty API access."""
 
@@ -34,10 +42,25 @@ class PagerDutyConfig(ToolsetConfig):
         description="PagerDuty REST API key (v2). Generate one at: Account Settings → API Access Keys",
         examples=["u+xxxxxxxxxxxxxxxxxxxx"],
     )
+    api_url: str = Field(
+        default=PAGERDUTY_API_BASE,
+        title="API URL",
+        description="PagerDuty API base URL. Override for on-prem forks or local mocks.",
+    )
     default_limit: int = Field(
         default=25,
         title="Default Result Limit",
         description="Maximum number of results to return per query",
+    )
+    team_ids: Optional[List[str]] = Field(
+        default=None,
+        title="Team IDs (project scope)",
+        description="When set, all list queries are filtered to these PagerDuty team IDs. Leave unset for no filter.",
+    )
+    service_ids: Optional[List[str]] = Field(
+        default=None,
+        title="Service IDs (project scope)",
+        description="When set, all list queries are filtered to these PagerDuty service IDs. Leave unset for no filter.",
     )
 
 
@@ -75,14 +98,18 @@ class PagerDutyToolset(Toolset):
             return False, f"Failed to configure PagerDuty toolset: {e}"
 
     def _health_check(self) -> Tuple[bool, str]:
+        assert self.pd_config is not None
         try:
-            # Use /services with limit=1 as a lightweight health check.
-            # The /abilities endpoint was deprecated by PagerDuty and may
-            # return 410 Gone or 404 on newer accounts.
+            params: dict[str, Any] = {"limit": 1}
+            if self.pd_config.service_ids:
+                params["service_ids[]"] = list(self.pd_config.service_ids)
+            if self.pd_config.team_ids:
+                params["team_ids[]"] = list(self.pd_config.team_ids)
+
             resp = requests.get(
-                f"{PAGERDUTY_API_BASE}/services",
+                f"{self.pd_config.api_url}/services",
                 headers=self._headers(),
-                params={"limit": 1},
+                params=params,
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -106,12 +133,116 @@ class PagerDutyToolset(Toolset):
 
     def get(self, path: str, params: Optional[dict] = None) -> dict:
         assert self.pd_config is not None
-        url = f"{PAGERDUTY_API_BASE}{path}"
+        url = f"{self.pd_config.api_url}{path}"
         resp = requests.get(
             url, headers=self._headers(), params=params or {}, timeout=30
         )
+        if resp.status_code == 401:
+            raise PagerDutyAuthError(
+                "PagerDuty API key rejected (401). "
+                "Check the secret configured for this instance."
+            )
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "unknown")
+            raise PagerDutyRateLimitError(
+                f"PagerDuty API rate limit exceeded (429). Retry-After: {retry_after}"
+            )
         resp.raise_for_status()
         return resp.json()
+
+    def _apply_scope_filters(
+        self, query: dict, params: dict, *, skip_service_ids: bool = False
+    ) -> Tuple[dict, Optional[str]]:
+        """
+        Apply instance-level team/service scope to a query dict.
+
+        - If the instance has team_ids or service_ids set, those are treated as
+          the maximum permitted scope.
+        - If the user (LLM) passes the same filter via tool params, the result is
+          the intersection of user-supplied values and instance scope.
+        - If the user passes IDs outside the instance scope, they are dropped
+          (never widens beyond instance scope) and a note is returned so the LLM
+          sees why.
+
+        Set skip_service_ids=True for endpoints like /oncalls that do not
+        accept service_ids[] — this bypasses the service_ids dimension entirely
+        (both instance scope and user-supplied values) without mutating
+        shared pd_config state.
+
+        Returns (query_with_filters_appended, optional_note_string).
+        """
+        assert self.pd_config is not None
+        note_parts: list[str] = []
+
+        def _merge(field_name: str, instance_values: Optional[List[str]]) -> None:
+            user_raw = params.get(field_name)
+            user_values: Optional[List[str]] = None
+            if user_raw:
+                user_values = [v.strip() for v in user_raw.split(",") if v.strip()]
+
+            if instance_values is not None:
+                if user_values is None:
+                    final = list(instance_values)
+                else:
+                    final = [v for v in user_values if v in instance_values]
+                    dropped = [v for v in user_values if v not in instance_values]
+                    if dropped:
+                        note_parts.append(
+                            f"Filter narrowed to project scope: "
+                            f"{field_name} allowed={instance_values} "
+                            f"applied={final} "
+                            f"(dropped out-of-scope IDs: {dropped})"
+                        )
+                query[f"{field_name}[]"] = final
+            elif user_values is not None:
+                # No instance scope — user filter passes through unchanged.
+                query[f"{field_name}[]"] = user_values
+
+        if not skip_service_ids:
+            _merge("service_ids", self.pd_config.service_ids)
+        _merge("team_ids", self.pd_config.team_ids)
+
+        note = "; ".join(note_parts) if note_parts else None
+        return query, note
+
+    def _check_service_in_scope(
+        self, incident: dict, incident_id: str, params: dict
+    ) -> Optional[StructuredToolResult]:
+        """Return an ERROR StructuredToolResult if the incident's service
+        is not in the instance's service_ids scope; otherwise return None.
+
+        A None return means 'allow' — either no scope is configured or the
+        incident's service is within scope.
+        """
+        assert self.pd_config is not None
+        instance_service_ids = self.pd_config.service_ids
+        if not instance_service_ids:
+            return None
+
+        incident_service_id = (incident.get("service") or {}).get("id")
+        if incident_service_id in instance_service_ids:
+            return None
+
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR,
+            error=(
+                f"Incident {incident_id} is not in this project's scope "
+                f"(service={incident_service_id}, allowed services={instance_service_ids})"
+            ),
+            params=params,
+        )
+
+    @staticmethod
+    def _format_payload(data: dict, scope_note: Optional[str]) -> str:
+        """Serialize PagerDuty API response, optionally embedding a scope note.
+
+        The note is emitted as a top-level key `_scope_note` so the payload
+        remains valid JSON and any downstream parser can access the note.
+        """
+        if scope_note:
+            merged = {"_scope_note": scope_note, **data}
+            return json.dumps(merged, indent=2)
+        return json.dumps(data, indent=2)
 
 
 class BasePagerDutyTool(Tool):
@@ -166,20 +297,18 @@ class ListPagerDutyIncidents(BasePagerDutyTool):
                 "limit": params.get("limit", self.toolset.pd_config.default_limit),
                 "sort_by": "created_at:desc",
             }
-            for s in statuses:
-                query.setdefault("statuses[]", []).append(s)  # type: ignore[attr-defined]
-
-            if params.get("service_ids"):
-                for sid in params["service_ids"].split(","):
-                    query.setdefault("service_ids[]", []).append(sid.strip())  # type: ignore[attr-defined]
+            query["statuses[]"] = statuses
 
             if params.get("urgency"):
-                query["urgencies[]"] = [params["urgency"]]  # type: ignore[assignment]
+                query["urgencies[]"] = [params["urgency"]]
+
+            query, scope_note = self.toolset._apply_scope_filters(query, params)
 
             data = self.toolset.get("/incidents", params=query)
+            payload = self.toolset._format_payload(data, scope_note)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(data, indent=2),
+                data=payload,
                 params=params,
                 url="https://app.pagerduty.com/incidents",
             )
@@ -225,6 +354,13 @@ class GetPagerDutyIncident(BasePagerDutyTool):
         try:
             data = self.toolset.get(f"/incidents/{incident_id}")
             incident = data.get("incident", data)
+
+            scope_error = self.toolset._check_service_in_scope(
+                incident, incident_id, params
+            )
+            if scope_error is not None:
+                return scope_error
+
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=json.dumps(incident, indent=2),
@@ -285,10 +421,14 @@ class ListPagerDutyServices(BasePagerDutyTool):
             }
             if params.get("query"):
                 query["query"] = params["query"]
+
+            query, scope_note = self.toolset._apply_scope_filters(query, params)
+
             data = self.toolset.get("/services", params=query)
+            payload = self.toolset._format_payload(data, scope_note)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(data, indent=2),
+                data=payload,
                 params=params,
                 url="https://app.pagerduty.com/services",
             )
@@ -332,6 +472,17 @@ class ListPagerDutyAlerts(BasePagerDutyTool):
                 params=params,
             )
         try:
+            # Project-scope guard: if instance has service_ids set, fetch the
+            # parent incident first and verify its service is in scope.
+            if self.toolset.pd_config.service_ids:
+                parent = self.toolset.get(f"/incidents/{incident_id}")
+                parent_incident = parent.get("incident", parent)
+                scope_error = self.toolset._check_service_in_scope(
+                    parent_incident, incident_id, params
+                )
+                if scope_error is not None:
+                    return scope_error
+
             data = self.toolset.get(f"/incidents/{incident_id}/alerts")
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -380,15 +531,24 @@ class GetPagerDutyOnCall(BasePagerDutyTool):
             if params.get("escalation_policy_ids"):
                 query["escalation_policy_ids[]"] = [
                     p.strip() for p in params["escalation_policy_ids"].split(",")
-                ]  # type: ignore[assignment]
+                ]
             if params.get("schedule_ids"):
                 query["schedule_ids[]"] = [
                     s.strip() for s in params["schedule_ids"].split(",")
-                ]  # type: ignore[assignment]
+                ]
+
+            # /oncalls does not support service_ids. Drop user-supplied service_ids
+            # from params and tell the helper to skip that dimension.
+            filtered_params = {k: v for k, v in params.items() if k != "service_ids"}
+            query, scope_note = self.toolset._apply_scope_filters(
+                query, filtered_params, skip_service_ids=True
+            )
+
             data = self.toolset.get("/oncalls", params=query)
+            payload = self.toolset._format_payload(data, scope_note)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
-                data=json.dumps(data, indent=2),
+                data=payload,
                 params=params,
                 url="https://app.pagerduty.com/on-call-coverage",
             )

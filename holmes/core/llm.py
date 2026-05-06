@@ -449,6 +449,14 @@ class DefaultLLM(LLM):
             for m in messages
         ]
 
+        # Fix LiteLLM bug: tool_calls with arguments="null" cause Anthropic API
+        # "internal error". Replace with "{}" for tools that take no parameters.
+        for msg in sanitized_messages:
+            for tc in msg.get("tool_calls") or []:
+                func = tc.get("function") or {}
+                if func.get("arguments") in ("null", None):
+                    func["arguments"] = "{}"
+
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
         result = litellm_to_use.completion(
             model=litellm_model_name,

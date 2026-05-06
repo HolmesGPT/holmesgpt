@@ -7,16 +7,12 @@ Security: ALL routes require authentication except /auth/login, /healthz, /ready
 This includes /api/* endpoints — no unauthenticated access.
 """
 
-import hashlib
 import hmac
 import json
 import logging
 import os
 import queue
-import secrets
 import threading
-import time
-from collections import defaultdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -28,91 +24,114 @@ from fastapi.responses import (
 )
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from okta_jwt import validate_okta_token, OKTA_ISSUER, OKTA_CLIENT_ID
+from rbac import ensure_user_exists, UserPermissions
+
 STATIC_DIR = Path("/app/static")
-SESSION_COOKIE = "holmes_session"
-SESSION_MAX_AGE = 86400  # 24 hours
-
-# In-memory session store (sufficient for single-pod deployment)
-_sessions: dict[str, str] = {}
-
-# Brute-force protection: track failed login attempts per IP
-_login_failures: dict[str, list[float]] = defaultdict(list)
-_LOGIN_WINDOW = 300  # 5-minute sliding window
-_LOGIN_MAX_ATTEMPTS = 10  # max failures before lockout
 
 
-def _check_login_rate_limit(ip: str) -> bool:
-    """Return True if the IP is allowed to attempt login, False if locked out."""
-    now = time.time()
-    attempts = _login_failures[ip]
-    # Purge attempts outside the window
-    _login_failures[ip] = [t for t in attempts if now - t < _LOGIN_WINDOW]
-    return len(_login_failures[ip]) < _LOGIN_MAX_ATTEMPTS
+class OktaAuthMiddleware(BaseHTTPMiddleware):
+    """Authenticate requests via Okta JWT or API key."""
 
-
-def _record_login_failure(ip: str) -> None:
-    _login_failures[ip].append(time.time())
-
-
-def get_credentials() -> tuple[str, str]:
-    username = os.environ.get("HOLMES_UI_USERNAME", "admin")
-    password = os.environ.get("HOLMES_UI_PASSWORD", "")
-    return username, password
-
-
-def verify_session(session_id: str | None) -> bool:
-    if not session_id:
-        return False
-    return session_id in _sessions
-
-
-def verify_api_key(request: Request) -> bool:
-    """Check for API key in Authorization header (for programmatic access)."""
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        _, expected_password = get_credentials()
-        if expected_password and hmac.compare_digest(token, expected_password):
-            return True
-    return False
-
-
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Protect ALL routes with session cookie or API key auth."""
-
-    # Only these paths are exempt from auth
-    EXEMPT_PATHS = ("/healthz", "/readyz", "/auth/login", "/auth/check", "/login")
-    # Webhook paths are exempt — they use their own HMAC signature verification
+    EXEMPT_PATHS = ("/healthz", "/readyz", "/login/callback", "/docs", "/openapi.json", "/redoc")
     EXEMPT_PREFIXES = ("/assets/", "/favicon", "/api/webhook/")
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Health/readiness probes and login page are always accessible
         if path in self.EXEMPT_PATHS:
             return await call_next(request)
 
-        # Static assets must be accessible for the login page to render
         if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
             return await call_next(request)
 
-        # Check session cookie (browser access)
-        session_id = request.cookies.get(SESSION_COOKIE)
-        if verify_session(session_id):
-            return await call_next(request)
+        # Extract Authorization header
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            # No auth header -> serve SPA for browser requests, 401 for API
+            if request.headers.get("accept", "").startswith("text/html"):
+                index = STATIC_DIR / "index.html"
+                if index.exists():
+                    return FileResponse(index, media_type="text/html")
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
 
-        # Check API key in Authorization header (programmatic access)
-        if verify_api_key(request):
-            return await call_next(request)
+        token = auth_header[7:]
 
-        # Unauthenticated: redirect browsers to login, return 401 for API calls
-        if request.headers.get("accept", "").startswith("text/html"):
-            return HTMLResponse(
-                content='<html><head><meta http-equiv="refresh" content="0;url=/auth/login"></head></html>',
-                status_code=200,
-            )
+        # Detect token type: JWT has 2+ dots, API key is a plain string
+        if token.count(".") >= 2:
+            # JWT token -> validate with Okta
+            try:
+                claims = validate_okta_token(token)
+                permissions = ensure_user_exists(
+                    sub=claims["sub"],
+                    email=claims["email"],
+                    name=claims["name"],
+                )
+                request.state.user = claims
+                request.state.permissions = permissions
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.error("JWT validation error: %s", e)
+                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        else:
+            # API key authentication
+            if token.startswith("hgpt_"):
+                # Per-client API key -> DynamoDB lookup
+                from api_keys import ApiKeyStore
 
-        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+                record = ApiKeyStore().lookup(token)
+                if not record:
+                    return JSONResponse({"detail": "Invalid or revoked API key"}, status_code=401)
+
+                # Fire-and-forget last_used update
+                threading.Thread(
+                    target=ApiKeyStore().touch_last_used,
+                    args=(record.key_hash,),
+                    daemon=True,
+                ).start()
+
+                from rbac import UserRecord, UserPermissions as UP
+                synthetic_user = {
+                    "sub": f"apikey-{record.key_prefix}",
+                    "email": f"{record.name}@apikey.holmesgpt.internal",
+                    "name": record.name,
+                    "groups": [],
+                }
+                synthetic_record = UserRecord(
+                    sub=f"apikey-{record.key_prefix}",
+                    email=f"{record.name}@apikey.holmesgpt.internal",
+                    name=record.name,
+                    global_role=None,
+                    status="active",
+                )
+                perms = UP(user=synthetic_record, project_roles={}, api_key_project_ids=record.project_ids)
+                request.state.user = synthetic_user
+                request.state.permissions = perms
+            else:
+                # Legacy shared API key -> check against HOLMES_API_KEY env var
+                api_key = os.environ.get("HOLMES_API_KEY", "")
+                if not api_key or not hmac.compare_digest(token, api_key):
+                    return JSONResponse({"detail": "Invalid API key"}, status_code=401)
+
+                from rbac import UserRecord, UserPermissions as UP
+                synthetic_user = {
+                    "sub": "api-key",
+                    "email": "api@holmesgpt.internal",
+                    "name": "API Key",
+                    "groups": [],
+                }
+                synthetic_record = UserRecord(
+                    sub="api-key",
+                    email="api@holmesgpt.internal",
+                    name="API Key",
+                    global_role="super-admin",
+                    status="active",
+                )
+                request.state.user = synthetic_user
+                request.state.permissions = UP(user=synthetic_record, project_roles={})
+
+        return await call_next(request)
 
 
 def _restore_llm_overrides_from_dynamodb(config) -> None:
@@ -127,22 +146,23 @@ def _restore_llm_overrides_from_dynamodb(config) -> None:
 
         overrides = get_llm_store().load_all()
         for toolset_name, instructions in overrides.items():
-            # Determine whether this is an MCP server or a regular toolset
-            is_mcp = False
-            if config.mcp_servers and toolset_name in config.mcp_servers:
-                is_mcp = True
+            is_mcp = bool(config.mcp_servers and toolset_name in config.mcp_servers)
             if is_mcp:
-                if config.mcp_servers is None:
-                    config.mcp_servers = {}
-                config.mcp_servers.setdefault(toolset_name, {})["llm_instructions"] = (
-                    instructions
-                )
+                if config.mcp_servers is None or toolset_name not in config.mcp_servers:
+                    logging.debug(
+                        "Ignoring DynamoDB LLM override for unknown MCP server '%s'",
+                        toolset_name,
+                    )
+                    continue
+                config.mcp_servers[toolset_name]["llm_instructions"] = instructions
             else:
-                if config.toolsets is None:
-                    config.toolsets = {}
-                config.toolsets.setdefault(toolset_name, {})["llm_instructions"] = (
-                    instructions
-                )
+                if config.toolsets is None or toolset_name not in config.toolsets:
+                    logging.debug(
+                        "Ignoring DynamoDB LLM override for unknown toolset '%s'",
+                        toolset_name,
+                    )
+                    continue
+                config.toolsets[toolset_name]["llm_instructions"] = instructions
         if overrides:
             logging.info(
                 "Restored %d LLM instruction override(s) from DynamoDB", len(overrides)
@@ -163,13 +183,60 @@ def _restore_toolset_state_from_dynamodb(config) -> None:
 
         states = get_toolset_state_store().load_all()
         for toolset_name, enabled in states.items():
-            if config.toolsets is None:
-                config.toolsets = {}
-            config.toolsets.setdefault(toolset_name, {})["enabled"] = enabled
+            if config.toolsets is None or toolset_name not in config.toolsets:
+                logging.debug(
+                    "Ignoring DynamoDB state for unknown toolset '%s'",
+                    toolset_name,
+                )
+                continue
+            config.toolsets[toolset_name]["enabled"] = enabled
         if states:
             logging.info("Restored %d toolset state(s) from DynamoDB", len(states))
     except Exception:
         logging.warning("Failed to restore toolset states from DynamoDB", exc_info=True)
+
+
+def _restore_toolset_config_from_dynamodb(config) -> None:
+    """Load persisted toolset config overrides from DynamoDB into the in-memory config.
+
+    Performs a shallow merge: DynamoDB keys override Helm keys.
+    Keys containing {{ env.* }} in the Helm config are never overridden.
+    """
+    if config is None:
+        return
+    table_name = os.environ.get("HOLMES_DYNAMODB_TABLE", "")
+    if not table_name:
+        return
+    try:
+        from projects import get_toolset_config_store  # noqa: PLC0415
+
+        overrides = get_toolset_config_store().load_all()
+        restored = 0
+        for toolset_name, config_override in overrides.items():
+            if config.toolsets is None or toolset_name not in config.toolsets:
+                logging.debug(
+                    "Ignoring DynamoDB config override for unknown toolset '%s'",
+                    toolset_name,
+                )
+                continue
+            if "config" not in config.toolsets[toolset_name]:
+                config.toolsets[toolset_name]["config"] = {}
+
+            helm_config = config.toolsets[toolset_name]["config"]
+            for key, value in config_override.items():
+                # Never override {{ env.* }} secret references from Helm
+                helm_value = helm_config.get(key, "")
+                if isinstance(helm_value, str) and "{{ env." in helm_value:
+                    continue
+                helm_config[key] = value
+            restored += 1
+
+        if restored:
+            logging.info(
+                "Restored %d toolset config override(s) from DynamoDB", restored
+            )
+    except Exception:
+        logging.warning("Failed to restore toolset config from DynamoDB", exc_info=True)
 
 
 # In-memory flag for webhook development mode (auth bypass).
@@ -227,6 +294,9 @@ _SOURCE_TOOLSET_PRIORITY: dict[str, list[str]] = {
     "grafana": ["grafana"],
     "kubernetes": ["kubernetes"],
     "aws": ["aws_api"],
+    "dbdash": ["dbdash"],
+    "dbadash": ["dbdash"],
+    "sql_server": ["dbdash"],
 }
 
 # Toolsets that are always included regardless of source
@@ -235,6 +305,11 @@ _CORE_TOOLSET_PREFIXES = [
     "runbook",
     "internet",
     "connectivity_check",
+]
+
+# Heavy toolsets excluded from focused mode (when source is specified) to reduce prompt size.
+# core_investigation adds ~14K chars of TodoWrite instructions — irrelevant for source-scoped queries.
+_UNFOCUSED_ONLY_PREFIXES = [
     "core_investigation",
 ]
 
@@ -262,9 +337,10 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
     def _toolset_tool_count(ts) -> int:
         return len(ts.tools) if ts.tools else 0
 
-    # Bucket toolsets into three groups (preserving order within each group)
+    # Bucket toolsets into groups (preserving order within each group)
     source_ts: list = []
     core_ts: list = []
+    unfocused_ts: list = []  # heavy toolsets only included when no source specified
     other_ts: list = []
 
     for ts in all_toolsets:
@@ -279,13 +355,27 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
             for p in _CORE_TOOLSET_PREFIXES
         ):
             core_ts.append(ts)
+        elif any(
+            name == p or name.startswith(p + "/") or name.startswith(p + "_")
+            for p in _UNFOCUSED_ONLY_PREFIXES
+        ):
+            unfocused_ts.append(ts)
         else:
             other_ts.append(ts)
 
     selected: list = []
     total_tools = 0
 
-    for ts in source_ts + core_ts + other_ts:
+    # When a specific source is provided, use focused mode: only source + core toolsets.
+    # Excludes heavy toolsets (core_investigation ~14K instructions) and all other toolsets.
+    # This reduces system prompt from ~53K to ~33K chars, avoiding AI gateway errors.
+    # When no source is provided, include all toolsets up to the cap (original behavior).
+    if priority_prefixes:
+        toolsets_to_include = source_ts + core_ts
+    else:
+        toolsets_to_include = source_ts + core_ts + unfocused_ts + other_ts
+
+    for ts in toolsets_to_include:
         count = _toolset_tool_count(ts)
         if total_tools + count > MAX_TOOLS_PER_CALL:
             logging.info(
@@ -316,109 +406,274 @@ def _create_scoped_toolcalling_llm(config, source: str, model: str = None):
     )
 
 
+async def _test_aws_instance_connection(store, inst):
+    """Attempt STS AssumeRole against the instance's cross-account role.
+
+    Returns a dict payload suitable for JSONResponse: {"ok": bool, "status": str, ...}.
+    """
+    import boto3 as _boto3  # noqa: PLC0415
+
+    if not inst.aws_role_arn:
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "Instance has no Role ARN",
+        }
+    sts = _boto3.client(
+        "sts", region_name=os.environ.get("AWS_REGION", "us-east-1")
+    )
+    try:
+        resp = sts.assume_role(
+            RoleArn=inst.aws_role_arn,
+            RoleSessionName="holmesgpt-connection-test",
+            DurationSeconds=900,
+        )
+        caller = resp["AssumedRoleUser"]["Arn"]
+        store.update(
+            inst.id,
+            aws_connection_status="success",
+            aws_connection_error=None,
+        )
+        return {"ok": True, "status": "success", "assumed_role": caller}
+    except Exception as assume_err:
+        error_msg = str(assume_err)
+        store.update(
+            inst.id,
+            aws_connection_status="error",
+            aws_connection_error=error_msg,
+        )
+        return {"ok": False, "status": "error", "error": error_msg}
+
+
+async def _test_pagerduty_instance_connection(store, inst):
+    """Run the PagerDuty toolset prerequisites callable with instance config.
+
+    Returns a dict payload suitable for JSONResponse.
+    """
+    from projects import _fetch_secret  # noqa: PLC0415
+    from holmes.plugins.toolsets.pagerduty.toolset_pagerduty import (  # noqa: PLC0415
+        PagerDutyToolset,
+    )
+
+    cfg: dict = dict(inst.config or {})
+    if inst.secret_arn:
+        try:
+            creds = _fetch_secret(inst.secret_arn)
+        except Exception as e:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": f"Failed to fetch secret: {e}",
+            }
+        if "api_key" not in creds:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": "Secret has no 'api_key' field",
+            }
+        cfg["api_key"] = creds["api_key"]
+
+    if not cfg.get("api_key"):
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "PagerDuty instance has no credential source",
+        }
+
+    ts = PagerDutyToolset()
+    ok, msg = ts.prerequisites_callable(cfg)
+    if ok:
+        return {"ok": True, "status": "success"}
+    return {"ok": False, "status": "error", "error": msg}
+
+
+async def _test_bitbucket_instance_connection(store, inst):
+    """Test a Bitbucket instance by fetching the workspace via prerequisites_callable.
+
+    Returns dict payload for JSONResponse.
+    """
+    from projects import _fetch_secret  # noqa: PLC0415
+    from holmes.plugins.toolsets.bitbucket.toolset_bitbucket import (  # noqa: PLC0415
+        BitbucketToolset,
+    )
+
+    if not inst.secret_arn:
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "Bitbucket instance has no credential source (secret_arn required)",
+        }
+    try:
+        creds = _fetch_secret(inst.secret_arn)
+    except Exception as e:
+        return {"ok": False, "status": "error", "error": f"Failed to fetch secret: {e}"}
+    if "api_token" not in creds or "workspace" not in creds:
+        return {
+            "ok": False,
+            "status": "error",
+            "error": "Secret must contain `api_token` and `workspace` fields",
+        }
+
+    cfg = {**creds, **(inst.config or {})}
+    ts = BitbucketToolset()
+    ok, msg = ts.prerequisites_callable(cfg)
+    if ok:
+        return {"ok": True, "status": "success"}
+    # Defensively strip the token from the error before returning.
+    token = creds.get("api_token", "")
+    if msg and token and token in msg:
+        msg = msg.replace(token, "<redacted>")
+    return {"ok": False, "status": "error", "error": msg}
+
+
+
+async def _test_mcp_instance_connection(store, inst):
+    """Test an MCP instance by building a RemoteMCPToolset and running
+    check_prerequisites. Returns dict payload for JSONResponse.
+    """
+    from projects import (  # noqa: PLC0415
+        _build_mcp_toolset,
+        _fetch_secret,
+        _instance_to_toolset_instance,
+    )
+
+    # Resolve api_key.
+    if inst.secret_arn:
+        try:
+            creds = _fetch_secret(inst.secret_arn)
+        except Exception as e:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": f"Failed to fetch secret: {e}",
+            }
+        api_key = creds.get("api_key") or creds.get("x-api-key") or ""
+        if not api_key:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": "Secret has no 'api_key' field",
+            }
+    else:
+        env_var = f"MCP_{inst.type.upper()}_API_KEY"
+        api_key = os.environ.get(env_var, "")
+        if not api_key:
+            return {
+                "ok": False,
+                "status": "error",
+                "error": (
+                    f"No credential source: set secret_arn on the instance or "
+                    f"populate {env_var} in the pod environment"
+                ),
+            }
+
+    # Convert Instance → ToolsetInstance (what _build_mcp_toolset expects).
+    tsi = _instance_to_toolset_instance(inst)
+    try:
+        ts = _build_mcp_toolset(tsi, api_key)
+    except ValueError as e:
+        return {"ok": False, "status": "error", "error": str(e)}
+
+    # MCP toolsets use the Toolset base-class check which sets self.status
+    # and self.error instead of returning (ok, msg). The check_prerequisites
+    # implementation internally runs asyncio.run() for MCP handshakes, which
+    # can't execute inside our already-running FastAPI event loop, so we
+    # dispatch it to a worker thread.
+    import asyncio  # noqa: PLC0415
+
+    from holmes.core.tools import ToolsetStatusEnum  # noqa: PLC0415
+
+    await asyncio.to_thread(ts.check_prerequisites)
+    ok = ts.status == ToolsetStatusEnum.ENABLED
+    msg = getattr(ts, "error", "") or ""
+
+    # Defensive: strip api_key variants from any error message before returning.
+    # Covers verbatim, stripped, and URL-encoded forms (some libraries echo headers).
+    if msg and api_key:
+        import urllib.parse  # noqa: PLC0415
+
+        variants = {
+            api_key,
+            api_key.strip(),
+            urllib.parse.quote(api_key, safe=""),
+            urllib.parse.quote_plus(api_key),
+        }
+        for v in variants:
+            if v and v in msg:
+                msg = msg.replace(v, "<redacted>")
+
+    if ok:
+        return {
+            "ok": True,
+            "status": "success",
+            "tool_count": len(getattr(ts, "tools", [])),
+        }
+    return {"ok": False, "status": "error", "error": msg or "Connection failed"}
+
+
 def mount_frontend(app: FastAPI, config=None) -> None:
     """Add auth endpoints, integrations API, and static file serving to the FastAPI app."""
 
-    _, password = get_credentials()
-    if not password:
-        logging.warning(
-            "HOLMES_UI_PASSWORD not set - frontend auth is DISABLED. "
-            "Set HOLMES_UI_PASSWORD to secure all endpoints."
-        )
+    # Add Okta auth middleware
+    if OKTA_ISSUER and OKTA_CLIENT_ID:
+        app.add_middleware(OktaAuthMiddleware)
+        logging.info("Okta auth middleware enabled")
     else:
-        # Add auth middleware - protects ALL routes
-        app.add_middleware(AuthMiddleware)
-        logging.info("Auth middleware enabled - all routes require authentication")
+        logging.warning(
+            "OKTA_ISSUER or OKTA_CLIENT_ID not set - Okta auth is DISABLED. "
+            "Set both environment variables to enable authentication."
+        )
+
+    # Mount public API v1 router
+    from api_v1 import router as v1_router
+    app.include_router(v1_router)
 
     # ── DynamoDB persistence: restore state on startup ────────────────────────
     _restore_llm_overrides_from_dynamodb(config)
     _restore_toolset_state_from_dynamodb(config)
+    _restore_toolset_config_from_dynamodb(config)
     _restore_app_settings_from_dynamodb()
 
-    @app.get("/auth/check")
-    async def auth_check(request: Request):
-        session_id = request.cookies.get(SESSION_COOKIE)
-        if not password or verify_session(session_id):
-            return {"authenticated": True}
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    @app.get("/api/auth/me")
+    async def auth_me(request: Request):
+        """Return the current user's profile and permissions."""
+        perms: UserPermissions = request.state.permissions
+        user = perms.user
 
-    @app.post("/auth/login")
-    async def auth_login(request: Request):
-        # Brute-force protection: check rate limit before processing credentials
-        client_ip = (
-            request.headers.get(
-                "x-forwarded-for", request.client.host if request.client else "unknown"
-            )
-            .split(",")[0]
-            .strip()
-        )
-        if not _check_login_rate_limit(client_ip):
-            raise HTTPException(
-                status_code=429,
-                detail="Too many login attempts. Try again in 5 minutes.",
-            )
+        project_roles = {}
+        for pid, pr in perms.project_roles.items():
+            project_roles[pid] = pr.role
 
-        body = await request.json()
-        username = body.get("username", "")
-        password_input = body.get("password", "")
+        return JSONResponse({
+            "sub": user.sub,
+            "email": user.email,
+            "name": user.name or "",
+            "globalRole": user.global_role,
+            "projectRoles": project_roles,
+            "status": user.status,
+        })
 
-        expected_username, expected_password = get_credentials()
+    def _require_super_admin(request: Request):
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
 
-        if not expected_password:
-            # Auth disabled - allow any login
-            session_id = secrets.token_urlsafe(32)
-            _sessions[session_id] = username
-            response = JSONResponse({"ok": True})
-            response.set_cookie(
-                SESSION_COOKIE,
-                session_id,
-                max_age=SESSION_MAX_AGE,
-                httponly=True,
-                secure=True,
-                samesite="lax",
-            )
-            return response
+    def _require_project_access(request: Request, project_id: str, min_role: str = "read-only"):
+        perms = request.state.permissions
+        if perms.user.global_role == "super-admin":
+            return
+        project_role = perms.project_roles.get(project_id)
+        if not project_role:
+            raise HTTPException(403, "No access to this project")
+        if min_role == "project-admin" and project_role.role != "project-admin":
+            raise HTTPException(403, "Project-admin required")
 
-        # Constant-time comparison to prevent timing attacks
-        username_match = hmac.compare_digest(username, expected_username)
-        password_match = hmac.compare_digest(
-            hashlib.sha256(password_input.encode()).hexdigest(),
-            hashlib.sha256(expected_password.encode()).hexdigest(),
-        )
-
-        if username_match and password_match:
-            session_id = secrets.token_urlsafe(32)
-            _sessions[session_id] = username
-            response = JSONResponse({"ok": True})
-            response.set_cookie(
-                SESSION_COOKIE,
-                session_id,
-                max_age=SESSION_MAX_AGE,
-                httponly=True,
-                secure=True,
-                samesite="lax",
-            )
-            return response
-
-        _record_login_failure(client_ip)
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    @app.post("/auth/logout")
-    async def auth_logout(request: Request):
-        session_id = request.cookies.get(SESSION_COOKIE)
-        if session_id and session_id in _sessions:
-            del _sessions[session_id]
-        response = JSONResponse({"ok": True})
-        response.delete_cookie(SESSION_COOKIE)
-        return response
-
-    @app.get("/auth/login")
-    async def auth_login_page():
-        """Serve the SPA for the login page."""
-        index = STATIC_DIR / "index.html"
-        if index.exists():
-            return FileResponse(index, media_type="text/html")
-        return HTMLResponse("<h1>Frontend not built</h1>", status_code=404)
+    def _get_accessible_project_ids(request: Request) -> list[str] | None:
+        """Return list of project IDs user can access, or None for super-admin (all)."""
+        perms = request.state.permissions
+        if perms.user.global_role == "super-admin":
+            return None
+        return list(perms.project_roles.keys())
 
     def _ensure_tool_executor():
         """Lazily initialize the tool executor if not yet created."""
@@ -609,6 +864,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             config.toolsets[name]["config"] = {}
         config.toolsets[name]["config"].update(new_config)
 
+        # Persist config overrides to DynamoDB (exclude {{ env.* }} secret refs)
+        if new_config:
+            try:
+                from projects import get_toolset_config_store  # noqa: PLC0415
+
+                # Only persist non-secret config values
+                persistable = {
+                    k: v
+                    for k, v in config.toolsets[name]["config"].items()
+                    if not (isinstance(v, str) and "{{ env." in v)
+                }
+                if persistable:
+                    get_toolset_config_store().save(name, persistable)
+            except Exception:
+                logging.warning(
+                    "Failed to persist toolset config to DynamoDB", exc_info=True
+                )
+
         if enabled is not None:
             config.toolsets[name]["enabled"] = enabled
             # Persist enabled state to DynamoDB so it survives pod restarts
@@ -638,8 +911,12 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         return JSONResponse({"ok": True, "name": name})
 
     @app.get("/api/aws/accounts")
-    async def get_aws_accounts():
-        """Return configured AWS accounts for the multi-account MCP setup."""
+    async def get_aws_accounts(project_id: str = ""):
+        """Return configured AWS accounts for the multi-account MCP setup.
+
+        When *project_id* is provided, only accounts that belong to ``aws_api``
+        instances resolved for that project are returned.
+        """
         import json as _json
 
         raw = os.environ.get("AWS_MCP_ACCOUNTS", "[]")
@@ -647,10 +924,41 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             accounts = _json.loads(raw)
         except Exception:
             accounts = []
+
+        # Filter to project-scoped accounts when a project is selected
+        if project_id and accounts:
+            try:
+                from projects import (  # noqa: PLC0415
+                    get_instances_store,
+                    get_store,
+                    resolve_instances_for_project,
+                )
+
+                project = get_store().get(project_id)
+                if project:
+                    all_instances = get_instances_store().list()
+                    resolved = resolve_instances_for_project(project, all_instances)
+                    # Collect allowed account profile names from aws_api instances
+                    allowed_names: set[str] = set()
+                    for inst in resolved:
+                        if inst.type == "aws_api" and inst.aws_accounts:
+                            allowed_names.update(inst.aws_accounts)
+                    if allowed_names:
+                        accounts = [
+                            a for a in accounts if a.get("name") in allowed_names
+                        ]
+            except Exception:
+                logging.warning(
+                    "Failed to filter AWS accounts for project %s",
+                    project_id,
+                    exc_info=True,
+                )
+
         return JSONResponse(
             {
                 "accounts": accounts,
                 "irsa_role": os.environ.get("AWS_MCP_IRSA_ROLE", ""),
+                "eks_oidc_url": os.environ.get("EKS_OIDC_PROVIDER_URL", ""),
             }
         )
 
@@ -793,6 +1101,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.put("/api/app-settings")
     async def update_app_settings(request: Request):
         """Update global application settings and persist to DynamoDB."""
+        _require_super_admin(request)
         global _webhook_dev_mode, _system_prompt_additions
         body = await request.json()
 
@@ -959,13 +1268,17 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     # ── Projects endpoints ────────────────────────────────────────────────────
 
     @app.get("/api/projects")
-    async def list_projects():
+    async def list_projects(request: Request):
         """Return all projects."""
         try:
             from projects import get_store  # noqa: PLC0415
 
+            all_projects = get_store().list()
+            accessible = _get_accessible_project_ids(request)
+            if accessible is not None:
+                all_projects = [p for p in all_projects if p.id in accessible]
             return JSONResponse(
-                {"projects": [p.model_dump() for p in get_store().list()]}
+                {"projects": [p.model_dump() for p in all_projects]}
             )
         except Exception as e:
             logging.error("Failed to list projects: %s", e)
@@ -974,6 +1287,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.post("/api/projects")
     async def create_project(request: Request):
         """Create a new project."""
+        _require_super_admin(request)
         try:
             from projects import get_store  # noqa: PLC0415
 
@@ -982,17 +1296,21 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 name=body["name"],
                 description=body.get("description", ""),
                 tag_filter=body.get("tag_filter"),
+                webhook_routing=body.get("webhook_routing"),
             )
             return JSONResponse(p.model_dump(), status_code=201)
         except KeyError as e:
             raise HTTPException(status_code=400, detail=f"Missing required field: {e}")
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except Exception as e:
             logging.error("Failed to create project: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/api/projects/{project_id}")
-    async def get_project(project_id: str):
+    async def get_project(project_id: str, request: Request):
         """Return a single project by ID."""
+        _require_project_access(request, project_id)
         try:
             from projects import get_store  # noqa: PLC0415
 
@@ -1009,6 +1327,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.put("/api/projects/{project_id}")
     async def update_project(project_id: str, request: Request):
         """Update an existing project."""
+        _require_project_access(request, project_id, min_role="project-admin")
         try:
             from projects import get_store  # noqa: PLC0415
 
@@ -1019,18 +1338,28 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             return JSONResponse(p.model_dump())
         except HTTPException:
             raise
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except Exception as e:
             logging.error("Failed to update project %s: %s", project_id, e)
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.delete("/api/projects/{project_id}")
-    async def delete_project(project_id: str):
+    async def delete_project(project_id: str, request: Request):
         """Delete a project."""
+        _require_super_admin(request)
         try:
             from projects import get_store  # noqa: PLC0415
+            from rbac import delete_project_roles  # noqa: PLC0415
 
             if not get_store().delete(project_id):
                 raise HTTPException(status_code=404, detail="Project not found")
+            try:
+                delete_project_roles(project_id)
+            except Exception:
+                logging.warning(
+                    "Failed to clean up project roles for project %s", project_id, exc_info=True
+                )
             return JSONResponse({"ok": True})
         except HTTPException:
             raise
@@ -1125,6 +1454,11 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.post("/api/instances")
     async def create_instance(request: Request):
         """Create a new instance."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            has_admin = any(pr.role == "project-admin" for pr in perms.project_roles.values())
+            if not has_admin:
+                raise HTTPException(403, "Project-admin required to create instances")
         try:
             from projects import get_instances_store  # noqa: PLC0415
 
@@ -1134,8 +1468,10 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 name=body["name"],
                 tags=body.get("tags", {}),
                 secret_arn=body.get("secret_arn"),
+                config=body.get("config"),
                 mcp_url=body.get("mcp_url"),
                 aws_accounts=body.get("aws_accounts"),
+                aws_regions=body.get("aws_regions"),
                 aws_account_name=body.get("aws_account_name"),
                 aws_account_id=body.get("aws_account_id"),
                 aws_role_arn=body.get("aws_role_arn"),
@@ -1166,6 +1502,11 @@ def mount_frontend(app: FastAPI, config=None) -> None:
     @app.put("/api/instances/{instance_id}")
     async def update_instance(instance_id: str, request: Request):
         """Update an existing instance."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            has_admin = any(pr.role == "project-admin" for pr in perms.project_roles.values())
+            if not has_admin:
+                raise HTTPException(403, "Project-admin required to create instances")
         try:
             from projects import get_instances_store  # noqa: PLC0415
 
@@ -1181,8 +1522,13 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.delete("/api/instances/{instance_id}")
-    async def delete_instance(instance_id: str):
+    async def delete_instance(instance_id: str, request: Request):
         """Delete an instance."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            has_admin = any(pr.role == "project-admin" for pr in perms.project_roles.values())
+            if not has_admin:
+                raise HTTPException(403, "Project-admin required to create instances")
         try:
             from projects import get_instances_store  # noqa: PLC0415
 
@@ -1197,51 +1543,38 @@ def mount_frontend(app: FastAPI, config=None) -> None:
 
     @app.post("/api/instances/{instance_id}/test-connection")
     async def test_instance_connection(instance_id: str):
-        """Test AWS cross-account connection by attempting STS AssumeRole."""
+        """Test the external connection for an instance.
+
+        Supports: aws_api (AssumeRole), pagerduty (REST /services), mcp toolsets
+        (ado, atlassian, salesforce, jenkins - via RemoteMCPToolset.check_prerequisites).
+        """
         try:
-            import boto3 as _boto3  # noqa: PLC0415
             from projects import get_instances_store  # noqa: PLC0415
 
             store = get_instances_store()
             inst = store.get(instance_id)
             if not inst:
                 raise HTTPException(status_code=404, detail="Instance not found")
-            if inst.type != "aws_api" or not inst.aws_role_arn:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Instance is not an AWS type or has no Role ARN",
-                )
 
-            # Attempt AssumeRole to validate the cross-account trust
-            sts = _boto3.client(
-                "sts", region_name=os.environ.get("AWS_REGION", "us-east-1")
+            if inst.type == "aws_api":
+                body = await _test_aws_instance_connection(store, inst)
+                return JSONResponse(body)
+            if inst.type == "pagerduty":
+                body = await _test_pagerduty_instance_connection(store, inst)
+                return JSONResponse(body)
+            if inst.type == "bitbucket":
+                body = await _test_bitbucket_instance_connection(store, inst)
+                return JSONResponse(body)
+
+            from projects import _MCP_TOOLSET_TYPES  # noqa: PLC0415
+            if inst.type in _MCP_TOOLSET_TYPES:
+                body = await _test_mcp_instance_connection(store, inst)
+                return JSONResponse(body)
+
+            raise HTTPException(
+                status_code=400,
+                detail=f"test-connection not supported for type '{inst.type}'",
             )
-            try:
-                resp = sts.assume_role(
-                    RoleArn=inst.aws_role_arn,
-                    RoleSessionName="holmesgpt-connection-test",
-                    DurationSeconds=900,
-                )
-                caller = resp["AssumedRoleUser"]["Arn"]
-                # Update instance with success status
-                store.update(
-                    instance_id,
-                    aws_connection_status="success",
-                    aws_connection_error=None,
-                )
-                return JSONResponse(
-                    {"ok": True, "status": "success", "assumed_role": caller}
-                )
-            except Exception as assume_err:
-                error_msg = str(assume_err)
-                store.update(
-                    instance_id,
-                    aws_connection_status="error",
-                    aws_connection_error=error_msg,
-                )
-                return JSONResponse(
-                    {"ok": False, "status": "error", "error": error_msg}
-                )
         except HTTPException:
             raise
         except Exception as e:
@@ -1288,6 +1621,28 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             logging.error("Failed to list investigations: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
 
+    @app.get("/api/investigations/similar")
+    async def similar_investigations(
+        q: str = "",
+        project_id: str = "",
+        limit: int = 5,
+    ):
+        """Find past investigations similar to the given query text."""
+        if not q.strip():
+            return JSONResponse([])
+        try:
+            from projects import get_investigation_store  # noqa: PLC0415
+
+            results = get_investigation_store().search_similar(
+                query=q,
+                project_id=project_id or None,
+                limit=limit,
+            )
+            return JSONResponse(results)
+        except Exception as e:
+            logging.error("Failed to search similar investigations: %s", e)
+            raise HTTPException(status_code=500, detail=str(e))
+
     @app.get("/api/investigations/{investigation_id}")
     async def get_investigation(investigation_id: str):
         """Get a single investigation by ID."""
@@ -1317,28 +1672,6 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             raise
         except Exception as e:
             logging.error("Failed to delete investigation %s: %s", investigation_id, e)
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @app.get("/api/investigations/similar")
-    async def similar_investigations(
-        q: str = "",
-        project_id: str = "",
-        limit: int = 5,
-    ):
-        """Find past investigations similar to the given query text."""
-        if not q.strip():
-            return JSONResponse([])
-        try:
-            from projects import get_investigation_store  # noqa: PLC0415
-
-            results = get_investigation_store().search_similar(
-                query=q,
-                project_id=project_id or None,
-                limit=limit,
-            )
-            return JSONResponse(results)
-        except Exception as e:
-            logging.error("Failed to search similar investigations: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.put("/api/investigations/{investigation_id}/feedback")
@@ -1782,6 +2115,21 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             incident_url = data.get("self", "") or data.get("html_url", "")
             incident_body = (data.get("body") or {}).get("details", "")
 
+            # ── Resolve project from PD service name ────────────────────
+            pd_service = (data.get("service") or {}).get("summary", "") or (
+                data.get("service") or {}
+            ).get("id", "")
+            from projects import resolve_project_for_webhook  # noqa: PLC0415
+
+            matched_project = resolve_project_for_webhook("pagerduty", pd_service)
+            matched_project_id = matched_project.id if matched_project else ""
+            if matched_project:
+                logging.info(
+                    "PagerDuty webhook: matched project '%s' for service '%s'",
+                    matched_project.name,
+                    pd_service,
+                )
+
             if not incident_id:
                 logging.warning("PagerDuty webhook: missing incident id in payload")
                 continue
@@ -1798,6 +2146,8 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                 inc_title=incident_title,
                 inc_url=incident_url,
                 inc_body=incident_body,
+                project_id=matched_project_id,
+                resolved_project=matched_project,
             ):
                 investigation_id = _uuid.uuid4().hex
                 started_at = datetime.now(timezone.utc).isoformat()
@@ -1817,7 +2167,29 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                         logging.error("PagerDuty webhook: config not available")
                         return
 
-                    ai = config.create_toolcalling_llm(dal=config.dal)
+                    if resolved_project is not None:
+                        from projects import build_project_tool_executor  # noqa: PLC0415
+                        from projects import (
+                            get_instances_store as _get_instances_store_inv,
+                        )  # noqa: PLC0415
+                        from holmes.core.tool_calling_llm import (
+                            ToolCallingLLM as _ToolCallingLLM,
+                        )  # noqa: PLC0415
+
+                        _project_executor = build_project_tool_executor(
+                            resolved_project,
+                            config,
+                            config.dal,
+                            _get_instances_store_inv(),
+                        )
+                        ai = _ToolCallingLLM(
+                            _project_executor,
+                            config.max_steps,
+                            config._get_llm(),
+                            tool_results_dir=None,
+                        )
+                    else:
+                        ai = _create_scoped_toolcalling_llm(config, "pagerduty")
                     global_instructions = (
                         config.dal.get_global_instructions_for_account()
                     )
@@ -1894,7 +2266,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                         question=question,
                         answer=answer,
                         tool_calls=[ToolCallRecord(**tc) for tc in tool_calls_data],
-                        project_id="",
+                        project_id=project_id,
                         status=status,
                         error=error_msg,
                     )
@@ -2029,20 +2401,50 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         resource = payload.get("resource") or {}
         fields = resource.get("fields") or {}
         work_item_id = str(resource.get("id", ""))
-        work_item_title = (
-            (fields.get("System.Title") or {}).get("newValue", "")
-            or fields.get("System.Title", "")
-            or resource.get("url", "")
+
+        def _ado_field(val):
+            """Extract field value: handles both str and {newValue: ...} dict formats."""
+            if isinstance(val, str):
+                return val
+            if isinstance(val, dict):
+                return val.get("newValue", "")
+            return ""
+
+        work_item_title = _ado_field(fields.get("System.Title")) or resource.get(
+            "url", ""
         )
-        work_item_type = (fields.get("System.WorkItemType") or {}).get(
-            "newValue", ""
-        ) or fields.get("System.WorkItemType", "")
+        work_item_type = _ado_field(fields.get("System.WorkItemType"))
         work_item_url = resource.get("url", "") or resource.get("_links", {}).get(
             "html", {}
         ).get("href", "")
-        work_item_description = (fields.get("System.Description") or {}).get(
-            "newValue", ""
-        ) or fields.get("System.Description", "")
+        work_item_description = _ado_field(fields.get("System.Description"))
+        work_item_area = _ado_field(fields.get("System.AreaPath"))
+        work_item_iteration = _ado_field(fields.get("System.IterationPath"))
+        work_item_state = _ado_field(fields.get("System.State"))
+        work_item_severity = _ado_field(fields.get("Microsoft.VSTS.Common.Severity"))
+        work_item_assigned = ""
+        assigned_raw = fields.get("System.AssignedTo")
+        if isinstance(assigned_raw, dict):
+            work_item_assigned = assigned_raw.get(
+                "displayName", ""
+            ) or assigned_raw.get("newValue", "")
+        elif isinstance(assigned_raw, str):
+            work_item_assigned = assigned_raw
+        work_item_reason = _ado_field(fields.get("System.Reason"))
+
+        # ── 2b. Resolve project from ADO team project name ──────────────
+        ado_team_project = _ado_field(fields.get("System.TeamProject"))
+        from projects import resolve_project_for_webhook  # noqa: PLC0415
+
+        matched_project = resolve_project_for_webhook("ado", ado_team_project)
+        matched_project_id = matched_project.id if matched_project else ""
+        if matched_project:
+            logging.info(
+                "ADO webhook: matched project '%s' (%s) for ADO team project '%s'",
+                matched_project.name,
+                matched_project.id,
+                ado_team_project,
+            )
 
         if not work_item_id:
             logging.warning("ADO webhook: missing work item id in payload")
@@ -2061,14 +2463,52 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             wi_type=work_item_type,
             wi_url=work_item_url,
             wi_description=work_item_description,
+            wi_area=work_item_area,
+            wi_iteration=work_item_iteration,
+            wi_state=work_item_state,
+            wi_severity=work_item_severity,
+            wi_assigned=work_item_assigned,
+            wi_reason=work_item_reason,
+            wi_project=ado_team_project,
+            project_id=matched_project_id,
+            resolved_project=matched_project,
         ):
             investigation_id = _uuid.uuid4().hex
             started_at = datetime.now(timezone.utc).isoformat()
+
+            # Build a rich context block from available fields
+            context_lines = []
+            if wi_project:
+                context_lines.append(f"- Project: {wi_project}")
+            if wi_area:
+                context_lines.append(f"- Area: {wi_area}")
+            if wi_iteration:
+                context_lines.append(f"- Iteration: {wi_iteration}")
+            if wi_state:
+                context_lines.append(f"- State: {wi_state}")
+            if wi_severity:
+                context_lines.append(f"- Severity: {wi_severity}")
+            if wi_assigned:
+                context_lines.append(f"- Assigned to: {wi_assigned}")
+            if wi_reason:
+                context_lines.append(f"- Reason: {wi_reason}")
+            if wi_url:
+                context_lines.append(f"- URL: {wi_url}")
+            context_block = "\n".join(context_lines)
+
             question = (
-                f"Azure DevOps work item created: [{wi_type}] {wi_title}\n\n"
-                + (f"Description: {wi_description}\n\n" if wi_description else "")
-                + "Please investigate this work item and provide relevant context, "
-                "potential impact analysis, and recommended next steps."
+                f"Azure DevOps {wi_type or 'work item'} #{wi_id}: {wi_title}\n\n"
+                + (f"**Description:**\n{wi_description}\n\n" if wi_description else "")
+                + (
+                    f"**Work Item Details:**\n{context_block}\n\n"
+                    if context_block
+                    else ""
+                )
+                + "Investigate this work item using all available tools. "
+                "Check for related recent incidents, deployments, code changes, "
+                "logs, and metrics that could provide context. "
+                "Provide a root cause analysis if applicable, potential impact, "
+                "and recommended next steps."
             )
             answer = ""
             tool_calls_data: list = []
@@ -2080,7 +2520,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     logging.error("ADO webhook: config not available")
                     return
 
-                ai = config.create_toolcalling_llm(dal=config.dal)
+                if resolved_project is not None:
+                    from projects import build_project_tool_executor  # noqa: PLC0415
+                    from projects import get_instances_store as _get_instances_store_inv  # noqa: PLC0415
+                    from holmes.core.tool_calling_llm import (
+                        ToolCallingLLM as _ToolCallingLLM,
+                    )  # noqa: PLC0415
+
+                    _project_executor = build_project_tool_executor(
+                        resolved_project, config, config.dal, _get_instances_store_inv()
+                    )
+                    ai = _ToolCallingLLM(
+                        _project_executor,
+                        config.max_steps,
+                        config._get_llm(),
+                        tool_results_dir=None,
+                    )
+                else:
+                    ai = _create_scoped_toolcalling_llm(config, "ado")
                 global_instructions = config.dal.get_global_instructions_for_account()
 
                 from holmes.core.conversations import (  # noqa: PLC0415
@@ -2155,7 +2612,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     question=question,
                     answer=answer,
                     tool_calls=[ToolCallRecord(**tc) for tc in tool_calls_data],
-                    project_id="",
+                    project_id=project_id,
                     status=status,
                     error=error_msg,
                 )
@@ -2264,6 +2721,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
         case_subject = ""
         case_description = ""
         case_url = ""
+        sf_account = ""
 
         if "xml" in content_type or raw_body.lstrip().startswith(b"<"):
             # SOAP outbound message — extract fields with basic string parsing
@@ -2284,6 +2742,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             case_description = _soap_field("Description")
             sf_instance = os.environ.get("SALESFORCE_INSTANCE_URL", "").rstrip("/")
             case_url = f"{sf_instance}/{case_id}" if sf_instance and case_id else ""
+            sf_account = _soap_field("AccountName") or _soap_field("Account")
         else:
             # JSON payload (Flow HTTP callout or custom webhook)
             try:
@@ -2302,6 +2761,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             case_url = payload.get("url") or (
                 f"{sf_instance}/{case_id}" if sf_instance and case_id else ""
             )
+            sf_account = payload.get("AccountName") or payload.get("Account", "")
 
         if not case_id:
             logging.warning("Salesforce webhook: missing case id in payload")
@@ -2313,6 +2773,17 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             case_subject,
         )
 
+        from projects import resolve_project_for_webhook  # noqa: PLC0415
+
+        matched_project = resolve_project_for_webhook("salesforce", sf_account)
+        matched_project_id = matched_project.id if matched_project else ""
+        if matched_project:
+            logging.info(
+                "Salesforce webhook: matched project '%s' for account '%s'",
+                matched_project.name,
+                sf_account,
+            )
+
         # ── 3. Run investigation in background thread ─────────────────────────
         def _run_sf_investigation(
             c_id=case_id,
@@ -2320,6 +2791,8 @@ def mount_frontend(app: FastAPI, config=None) -> None:
             c_subject=case_subject,
             c_description=case_description,
             c_url=case_url,
+            project_id=matched_project_id,
+            resolved_project=matched_project,
         ):
             investigation_id = _uuid.uuid4().hex
             started_at = datetime.now(timezone.utc).isoformat()
@@ -2340,7 +2813,24 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     logging.error("Salesforce webhook: config not available")
                     return
 
-                ai = config.create_toolcalling_llm(dal=config.dal)
+                if resolved_project is not None:
+                    from projects import build_project_tool_executor  # noqa: PLC0415
+                    from projects import get_instances_store as _get_instances_store_inv  # noqa: PLC0415
+                    from holmes.core.tool_calling_llm import (
+                        ToolCallingLLM as _ToolCallingLLM,
+                    )  # noqa: PLC0415
+
+                    _project_executor = build_project_tool_executor(
+                        resolved_project, config, config.dal, _get_instances_store_inv()
+                    )
+                    ai = _ToolCallingLLM(
+                        _project_executor,
+                        config.max_steps,
+                        config._get_llm(),
+                        tool_results_dir=None,
+                    )
+                else:
+                    ai = _create_scoped_toolcalling_llm(config, "salesforce")
                 global_instructions = config.dal.get_global_instructions_for_account()
 
                 from holmes.core.conversations import (  # noqa: PLC0415
@@ -2415,7 +2905,7 @@ def mount_frontend(app: FastAPI, config=None) -> None:
                     question=question,
                     answer=answer,
                     tool_calls=[ToolCallRecord(**tc) for tc in tool_calls_data],
-                    project_id="",
+                    project_id=project_id,
                     status=status,
                     error=error_msg,
                 )
@@ -2494,10 +2984,62 @@ def mount_frontend(app: FastAPI, config=None) -> None:
 
         return JSONResponse({"ok": True})
 
+    from users_api import mount_users_api
+    mount_users_api(app)
+
+    # ── API Key Management (super-admin only) ─────────────────────────────────
+    from api_keys import ApiKeyStore
+
+    @app.get("/api/api-keys")
+    async def list_api_keys(request: Request):
+        """List all API keys (metadata only, never the raw key)."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
+        keys = ApiKeyStore().list()
+        return JSONResponse([k.model_dump() for k in keys])
+
+    @app.post("/api/api-keys")
+    async def create_api_key(request: Request):
+        """Create a new API key. Returns the full key ONCE."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if not name:
+            raise HTTPException(400, "name is required")
+        project_ids = body.get("project_ids", [])
+        result = ApiKeyStore().create(
+            name=name,
+            project_ids=project_ids,
+            created_by=request.state.user.get("email", "unknown"),
+        )
+        return JSONResponse(result, status_code=201)
+
+    @app.delete("/api/api-keys/{key_prefix:path}")
+    async def revoke_api_key(key_prefix: str, request: Request):
+        """Revoke an API key by its display prefix."""
+        perms = request.state.permissions
+        if perms.user.global_role != "super-admin":
+            raise HTTPException(403, "Super-admin required")
+        try:
+            ApiKeyStore().revoke(key_prefix)
+            return JSONResponse({"status": "revoked"})
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+
     # Static file serving - must be registered last (catch-all)
+    # Exclude FastAPI built-in docs paths so Swagger UI works
+    _FASTAPI_BUILTIN_PATHS = {"docs", "openapi.json", "redoc"}
+
     @app.get("/{path:path}")
     async def serve_frontend(path: str):
         """Serve React SPA static files with fallback to index.html."""
+        # Let FastAPI handle its built-in docs routes
+        if path in _FASTAPI_BUILTIN_PATHS:
+            raise HTTPException(status_code=404, detail="Not found")
+
         if not STATIC_DIR.exists():
             raise HTTPException(status_code=404, detail="Frontend not built")
 

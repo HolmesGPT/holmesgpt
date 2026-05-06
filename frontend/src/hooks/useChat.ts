@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { type ChatMessage as ApiChatMessage } from '../lib/api'
+import { getIdToken } from '../lib/okta'
 
 interface ToolCall {
   tool_name: string
@@ -91,10 +92,15 @@ export function useChat(projectId: string | null = null) {
       let currentTool: Partial<ToolCall> | null = null
 
       try {
+        const token = await getIdToken()
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`
+        }
+
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
+          headers,
           body: JSON.stringify({
             ask: text,
             // Only send history if we have server-managed history (starts with system message).
@@ -112,7 +118,7 @@ export function useChat(projectId: string | null = null) {
         })
 
         if (res.status === 401) {
-          window.location.href = '/login'
+          window.location.href = '/'
           return
         }
         if (!res.ok) {

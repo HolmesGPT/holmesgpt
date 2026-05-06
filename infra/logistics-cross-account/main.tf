@@ -9,9 +9,8 @@
 #   terraform init
 #   terraform apply \
 #     -var="aws_profile=<LOGISTICS_AWS_PROFILE>" \
-#     -var="holmes_mcp_role_arn=arn:aws:iam::<PLATFORM_ACCOUNT_ID>:role/holmesgpt-dev-aws-mcp" \
-#     -var="eks_oidc_provider_arn=arn:aws:iam::<PLATFORM_ACCOUNT_ID>:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/<OIDC_ID>" \
-#     -var="eks_oidc_provider_url=oidc.eks.us-east-1.amazonaws.com/id/<OIDC_ID>"
+#     -var='holmes_mcp_role_arns=["arn:aws:iam::717423812395:role/holmesgpt-dev-aws-mcp","arn:aws:iam::827852520868:role/holmesgpt-prod-aws-mcp"]' \
+#     -var='eks_oidc_providers=["oidc.eks.us-east-1.amazonaws.com/id/067D7295FD86C99EE25FE9F026B73ABE","oidc.eks.us-east-1.amazonaws.com/id/5532725EB6AD249CA444DB2140B80A6B"]'
 #
 # Repeat for each account, changing aws_profile each time.
 
@@ -42,16 +41,40 @@ variable "aws_profile" {
   type        = string
 }
 
+variable "holmes_mcp_role_arns" {
+  description = "ARNs of HolmesGPT AWS MCP IRSA roles allowed to assume this role (dev + prod)"
+  type        = list(string)
+  default     = []
+  # Example: ["arn:aws:iam::717423812395:role/holmesgpt-dev-aws-mcp", "arn:aws:iam::827852520868:role/holmesgpt-prod-aws-mcp"]
+}
+
 variable "holmes_mcp_role_arn" {
-  description = "ARN of the HolmesGPT AWS MCP IRSA role in the platform account (allowed to assume this role)"
+  description = "Deprecated: use holmes_mcp_role_arns instead. Kept for backwards compatibility."
   type        = string
-  # Example: arn:aws:iam::<PLATFORM_ACCOUNT_ID>:role/holmesgpt-dev-aws-mcp
+  default     = ""
+}
+
+variable "eks_oidc_providers" {
+  description = "OIDC provider URLs (without https://) for each EKS cluster that should have direct web identity access"
+  type        = list(string)
+  default     = []
 }
 
 variable "eks_oidc_provider_url" {
-  description = "URL of the EKS OIDC provider (without https://), e.g. oidc.eks.us-east-1.amazonaws.com/id/067D7295FD86C99EE25FE9F026B73ABE"
+  description = "Deprecated: use eks_oidc_providers instead. Kept for backwards compatibility."
   type        = string
   default     = ""
+}
+
+locals {
+  all_role_arns = compact(concat(
+    var.holmes_mcp_role_arns,
+    var.holmes_mcp_role_arn != "" ? [var.holmes_mcp_role_arn] : []
+  ))
+  all_oidc_providers = compact(concat(
+    var.eks_oidc_providers,
+    var.eks_oidc_provider_url != "" ? [var.eks_oidc_provider_url] : []
+  ))
 }
 
 variable "eks_service_account" {
@@ -80,14 +103,14 @@ variable "tags" {
 
 data "aws_caller_identity" "current" {}
 
-# ── OIDC Provider ─────────────────────────────────────────────────────────────
-# Register the platform account's EKS OIDC provider in this account so that
-# the AWS MCP server pod can call AssumeRoleWithWebIdentity directly.
+# ── OIDC Providers ────────────────────────────────────────────────────────────
+# Register each platform EKS OIDC provider in this account so that
+# the AWS MCP server pods can call AssumeRoleWithWebIdentity directly.
 
 resource "aws_iam_openid_connect_provider" "eks" {
-  count = var.eks_oidc_provider_url != "" ? 1 : 0
+  for_each = toset(local.all_oidc_providers)
 
-  url             = "https://${var.eks_oidc_provider_url}"
+  url             = "https://${each.value}"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["06b25927c42a721631c1efd9431e648fa62e1e39"]
   tags            = var.tags
@@ -103,33 +126,30 @@ resource "aws_iam_role" "holmes_readonly" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = concat(
-      [
+      length(local.all_role_arns) > 0 ? [
         {
           Sid    = "AllowHolmesMCPAssumeRole"
           Effect = "Allow"
           Principal = {
-            AWS = var.holmes_mcp_role_arn
+            AWS = local.all_role_arns
           }
           Action = "sts:AssumeRole"
         }
-      ],
-      var.eks_oidc_provider_url != "" ? [
-        {
-          Sid    = "AllowHolmesMCPWebIdentity"
-          Effect = "Allow"
-          Principal = {
-            # Use the OIDC provider registered in THIS account (not the platform account)
-            Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${var.eks_oidc_provider_url}"
-          }
-          Action = "sts:AssumeRoleWithWebIdentity"
-          Condition = {
-            StringEquals = {
-              "${var.eks_oidc_provider_url}:aud" = "sts.amazonaws.com"
-              "${var.eks_oidc_provider_url}:sub" = "system:serviceaccount:${var.eks_service_account}"
-            }
+      ] : [],
+      [for oidc_url in local.all_oidc_providers : {
+        Sid    = "AllowHolmesMCPWebIdentity${replace(substr(oidc_url, length(oidc_url) - 8, 8), "/", "")}"
+        Effect = "Allow"
+        Principal = {
+          Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${oidc_url}"
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${oidc_url}:aud" = "sts.amazonaws.com"
+            "${oidc_url}:sub" = "system:serviceaccount:${var.eks_service_account}"
           }
         }
-      ] : []
+      }]
     )
   })
 }
@@ -207,7 +227,10 @@ resource "aws_iam_policy" "holmes_triage" {
           "s3:GetEncryptionConfiguration",
           "s3:GetLifecycleConfiguration",
           "s3:ListAllMyBuckets",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:GetObjectTagging"
         ]
         Resource = "*"
       },
@@ -218,6 +241,49 @@ resource "aws_iam_policy" "holmes_triage" {
         Action = [
           "rds:Describe*",
           "rds:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DynamoDBRead"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:DescribeTable",
+          "dynamodb:DescribeContinuousBackups",
+          "dynamodb:DescribeTimeToLive",
+          "dynamodb:DescribeGlobalTable",
+          "dynamodb:ListTables",
+          "dynamodb:ListTagsOfResource",
+          "dynamodb:GetItem",
+          "dynamodb:BatchGetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:DescribeStream",
+          "dynamodb:ListStreams"
+        ]
+        Resource = "*"
+      },
+      # ── Cache ────────────────────────────────────────────────────────────
+      {
+        Sid    = "ElastiCacheRead"
+        Effect = "Allow"
+        Action = [
+          "elasticache:Describe*",
+          "elasticache:List*"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DAXRead"
+        Effect = "Allow"
+        Action = [
+          "dax:DescribeClusters",
+          "dax:DescribeDefaultParameters",
+          "dax:DescribeEvents",
+          "dax:DescribeParameterGroups",
+          "dax:DescribeParameters",
+          "dax:DescribeSubnetGroups",
+          "dax:ListTags"
         ]
         Resource = "*"
       },

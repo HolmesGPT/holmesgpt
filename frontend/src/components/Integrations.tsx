@@ -117,8 +117,10 @@ function InstanceForm({
   const [tags, setTags] = useState<Record<string, string>>(instance?.tags ?? {})
   const [fields, setFields] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {}
+    const instanceConfig = (instance as unknown as Record<string, unknown>)?.config as Record<string, unknown> | undefined
     for (const field of schema) {
       const currentVal = (instance as unknown as Record<string, unknown>)?.[field.name]
+        ?? instanceConfig?.[field.name]
         ?? (instance?.secret_arn && field.name === 'secret_arn' ? instance.secret_arn : undefined)
       if (currentVal !== undefined && currentVal !== null) {
         initial[field.name] = typeof currentVal === 'object' ? JSON.stringify(currentVal) : String(currentVal)
@@ -138,6 +140,7 @@ function InstanceForm({
   const [awsAccountName, setAwsAccountName] = useState(instance?.aws_account_name ?? '')
   const [awsAccountId, setAwsAccountId] = useState(instance?.aws_account_id ?? '')
   const [awsRoleArn, setAwsRoleArn] = useState(instance?.aws_role_arn ?? '')
+  const [awsRegions, setAwsRegions] = useState<string[]>(instance?.aws_regions ?? [])
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<string | null>(instance?.aws_connection_status ?? null)
@@ -167,7 +170,7 @@ function InstanceForm({
       setError('Instance name is required')
       return
     }
-    if (isAws) {
+    if (isAws && !instance) {
       if (!awsAccountName.trim()) { setError('Account Name is required'); return }
       if (!awsAccountId.trim()) { setError('Account Number is required'); return }
       if (!awsRoleArn.trim()) { setError('Role ARN is required'); return }
@@ -189,6 +192,7 @@ function InstanceForm({
           aws_account_name: awsAccountName.trim() || null,
           aws_account_id: awsAccountId.trim() || null,
           aws_role_arn: awsRoleArn.trim() || null,
+          aws_regions: awsRegions.length > 0 ? awsRegions : null,
         }
         if (instance) {
           await api.updateInstance(instance.id, payload)
@@ -212,17 +216,21 @@ function InstanceForm({
           }
         }
 
+        // Extract fields that go to top-level Instance fields, rest goes to config
+        const { secret_arn, mcp_url, aws_accounts, ...instanceConfig } = config as Record<string, unknown>
+
         const payload = {
           type: integrationType,
           name: name.trim(),
           tags,
-          secret_arn: (config['secret_arn'] as string | null) ?? null,
-          mcp_url: (config['mcp_url'] as string | null) ?? null,
-          aws_accounts: config['aws_accounts']
-            ? (typeof config['aws_accounts'] === 'string'
-                ? (config['aws_accounts'] as string).split(',').map((s) => s.trim()).filter(Boolean)
-                : config['aws_accounts'] as string[])
+          secret_arn: (secret_arn as string | null) ?? null,
+          mcp_url: (mcp_url as string | null) ?? null,
+          aws_accounts: aws_accounts
+            ? (typeof aws_accounts === 'string'
+                ? (aws_accounts as string).split(',').map((s) => s.trim()).filter(Boolean)
+                : aws_accounts as string[])
             : null,
+          config: Object.keys(instanceConfig).length > 0 ? instanceConfig : null,
         }
 
         if (instance) {
@@ -271,7 +279,7 @@ function InstanceForm({
         <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-pdi-cool-gray">
           <p className="text-xs font-semibold text-pdi-granite uppercase tracking-wide">AWS Account Details</p>
           <div>
-            <label className="text-xs font-medium text-pdi-granite">Account Name <span className="text-pdi-orange">*</span></label>
+            <label className="text-xs font-medium text-pdi-granite">Account Name {!instance && <span className="text-pdi-orange">*</span>}</label>
             <input
               type="text"
               value={awsAccountName}
@@ -281,7 +289,7 @@ function InstanceForm({
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-pdi-granite">Account Number <span className="text-pdi-orange">*</span></label>
+            <label className="text-xs font-medium text-pdi-granite">Account Number {!instance && <span className="text-pdi-orange">*</span>}</label>
             <input
               type="text"
               value={awsAccountId}
@@ -292,7 +300,7 @@ function InstanceForm({
             <p className="text-[11px] text-pdi-slate mt-1">12-digit AWS account ID</p>
           </div>
           <div>
-            <label className="text-xs font-medium text-pdi-granite">Role ARN <span className="text-pdi-orange">*</span></label>
+            <label className="text-xs font-medium text-pdi-granite">Role ARN {!instance && <span className="text-pdi-orange">*</span>}</label>
             <input
               type="text"
               value={awsRoleArn}
@@ -301,6 +309,34 @@ function InstanceForm({
               className="w-full mt-1 px-3 py-2 border border-pdi-cool-gray rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-pdi-sky"
             />
             <p className="text-[11px] text-pdi-slate mt-1">IAM role ARN created by the setup script. See Docs &gt; AWS Account tab.</p>
+          </div>
+
+          {/* AWS Regions */}
+          <div>
+            <label className="text-xs font-medium text-pdi-granite">Regions</label>
+            <div className="flex flex-wrap gap-1.5 mt-1 mb-2">
+              {awsRegions.map((r) => (
+                <span key={r} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono bg-pdi-sky/10 text-pdi-sky border border-pdi-sky/20 rounded-md">
+                  {r}
+                  <button type="button" onClick={() => setAwsRegions(awsRegions.filter((x) => x !== r))} className="hover:text-pdi-orange">&times;</button>
+                </span>
+              ))}
+            </div>
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value && !awsRegions.includes(e.target.value)) {
+                  setAwsRegions([...awsRegions, e.target.value])
+                }
+              }}
+              className="w-full px-3 py-2 border border-pdi-cool-gray rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pdi-sky"
+            >
+              <option value="">Add a region...</option>
+              {['us-east-1', 'us-east-2', 'us-west-2', 'eu-central-1', 'eu-west-1', 'eu-west-2', 'ap-southeast-1', 'ap-northeast-1'].filter((r) => !awsRegions.includes(r)).map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-pdi-slate mt-1">Restrict investigations to these AWS regions. Leave empty to allow all regions.</p>
           </div>
 
           {connectionStatus && (
@@ -464,17 +500,19 @@ function InstancesTab({
     setMigrateError(null)
     try {
       const config = integration.config as Record<string, unknown>
+      const { secret_arn, mcp_url, aws_accounts, ...instanceConfig } = config
       await api.createInstance({
         type: integration.name,
         name: `${integration.name}-default`,
         tags: {},
-        secret_arn: (config['secret_arn'] as string | null) ?? null,
-        mcp_url: (config['mcp_url'] as string | null) ?? null,
-        aws_accounts: config['aws_accounts']
-          ? (Array.isArray(config['aws_accounts'])
-              ? config['aws_accounts'] as string[]
-              : String(config['aws_accounts']).split(',').map((s) => s.trim()).filter(Boolean))
+        secret_arn: (secret_arn as string | null) ?? null,
+        mcp_url: (mcp_url as string | null) ?? null,
+        aws_accounts: aws_accounts
+          ? (Array.isArray(aws_accounts)
+              ? aws_accounts as string[]
+              : String(aws_accounts).split(',').map((s) => s.trim()).filter(Boolean))
           : null,
+        config: Object.keys(instanceConfig).length > 0 ? instanceConfig : null,
       })
       load()
     } catch (e) {

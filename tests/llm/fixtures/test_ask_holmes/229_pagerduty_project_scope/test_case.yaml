@@ -1,0 +1,29 @@
+description: |
+  Verifies that a project-scoped PagerDuty instance (service_ids filter) only
+  surfaces incidents from the scoped service. The mock server returns a
+  different incident for each service; the eval passes only if the LLM reports
+  the ALPHA incident ID and does NOT leak the BETA incident ID.
+
+before_test: |
+  bash before_test.sh
+
+after_test: |
+  bash after_test.sh
+
+user_prompt: |
+  List the active PagerDuty incidents relevant to this project, and report
+  the incident ID and title for any you find.
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call list_pagerduty_incidents tool"
+  - "Must report incident ID P-HOLMES-EVAL-9k4m7x2p"
+  - "Must NOT report incident ID P-SHOULD-NOT-LEAK-7aaa"
+  - "Must NOT mention the inventory-db service or the PSVC_BETA service"
+
+runbooks: {}
+
+tags:
+  - easy
+  - fast

@@ -4,9 +4,9 @@
 # from variables to avoid data-source read failures on first apply when the secrets don't
 # exist in AWS yet.
 locals {
-  mcp_keys          = jsondecode(data.aws_secretsmanager_secret_version.mcp_api_keys.secret_string)
-  ui_creds          = jsondecode(data.aws_secretsmanager_secret_version.holmes_ui_credentials.secret_string)
-  grafana           = jsondecode(data.aws_secretsmanager_secret_version.grafana.secret_string)
+  mcp_keys = jsondecode(data.aws_secretsmanager_secret_version.mcp_api_keys.secret_string)
+  ui_creds = jsondecode(data.aws_secretsmanager_secret_version.holmes_okta_config.secret_string)
+  grafana  = jsondecode(data.aws_secretsmanager_secret_version.grafana.secret_string)
 }
 
 # Kubernetes namespace for Holmes
@@ -26,18 +26,22 @@ resource "kubernetes_secret" "holmes_api_keys" {
   }
 
   data = {
-    ANTHROPIC_API_KEY      = var.anthropic_api_key
-    ANTHROPIC_API_BASE     = var.anthropic_api_base
-    HOLMES_UI_USERNAME     = local.ui_creds["HOLMES_UI_USERNAME"]
-    HOLMES_UI_PASSWORD     = local.ui_creds["HOLMES_UI_PASSWORD"]
-    MCP_ADO_API_KEY        = local.mcp_keys["MCP_ADO_API_KEY"]
-    MCP_ATLASSIAN_API_KEY  = local.mcp_keys["MCP_ATLASSIAN_API_KEY"]
-    MCP_SALESFORCE_API_KEY = local.mcp_keys["MCP_SALESFORCE_API_KEY"]
-    GRAFANA_API_KEY        = local.grafana["GRAFANA_API_KEY"]
-    GRAFANA_URL            = local.grafana["GRAFANA_URL"]
-    DATADOG_API_KEY        = var.datadog_api_key
-    DATADOG_APP_KEY        = var.datadog_app_key
-    DATADOG_API_URL        = var.datadog_api_url
+    ANTHROPIC_API_KEY        = var.anthropic_api_key
+    ANTHROPIC_API_BASE       = var.anthropic_api_base
+    OKTA_ISSUER              = local.ui_creds["OKTA_ISSUER"]
+    OKTA_CLIENT_ID           = local.ui_creds["OKTA_CLIENT_ID"]
+    HOLMES_SUPER_ADMIN_EMAIL = local.ui_creds["HOLMES_SUPER_ADMIN_EMAIL"]
+    OKTA_API_TOKEN           = local.ui_creds["OKTA_API_TOKEN"]
+    OKTA_GROUP_ID            = local.ui_creds["OKTA_GROUP_ID"]
+    MCP_ADO_API_KEY          = local.mcp_keys["MCP_ADO_API_KEY"]
+    MCP_ATLASSIAN_API_KEY    = local.mcp_keys["MCP_ATLASSIAN_API_KEY"]
+    MCP_SALESFORCE_API_KEY   = local.mcp_keys["MCP_SALESFORCE_API_KEY"]
+    MCP_JENKINS_API_KEY      = local.mcp_keys["MCP_JENKINS_API_KEY"]
+    GRAFANA_API_KEY          = local.grafana["GRAFANA_API_KEY"]
+    GRAFANA_URL              = local.grafana["GRAFANA_URL"]
+    DATADOG_API_KEY          = var.datadog_api_key
+    DATADOG_APP_KEY          = var.datadog_app_key
+    DATADOG_API_URL          = var.datadog_api_url
     PAGERDUTY_API_KEY        = var.pagerduty_api_key
     PAGERDUTY_USER_EMAIL     = var.pagerduty_user_email
     PAGERDUTY_WEBHOOK_SECRET = var.pagerduty_webhook_secret
@@ -55,15 +59,15 @@ resource "kubernetes_secret" "holmes_api_keys" {
 
 # Holmes Helm release
 resource "helm_release" "holmes" {
-  name       = "holmes"
-  chart      = "${path.module}/../helm/holmes"
-  namespace  = kubernetes_namespace.holmesgpt.metadata[0].name
+  name      = "holmes"
+  chart     = "${path.module}/../helm/holmes"
+  namespace = kubernetes_namespace.holmesgpt.metadata[0].name
 
   values = [
     yamlencode({
-      image    = "holmesgpt:${var.holmes_image_tag}"
-      registry = split("/", aws_ecr_repository.holmesgpt.repository_url)[0]
-      command  = ["python3", "-u", "server_with_frontend.py"]
+      image           = "holmesgpt:${var.holmes_image_tag}"
+      registry        = split("/", aws_ecr_repository.holmesgpt.repository_url)[0]
+      command         = ["python3", "-u", "server_with_frontend.py"]
       imagePullPolicy = "Always"
 
       replicas = var.holmes_replicas
@@ -99,20 +103,47 @@ resource "helm_release" "holmes" {
           value = var.holmes_model
         },
         {
-          name = "HOLMES_UI_USERNAME"
+          name = "OKTA_ISSUER"
           valueFrom = {
             secretKeyRef = {
               name = kubernetes_secret.holmes_api_keys.metadata[0].name
-              key  = "HOLMES_UI_USERNAME"
+              key  = "OKTA_ISSUER"
             }
           }
         },
         {
-          name = "HOLMES_UI_PASSWORD"
+          name = "OKTA_CLIENT_ID"
           valueFrom = {
             secretKeyRef = {
               name = kubernetes_secret.holmes_api_keys.metadata[0].name
-              key  = "HOLMES_UI_PASSWORD"
+              key  = "OKTA_CLIENT_ID"
+            }
+          }
+        },
+        {
+          name = "HOLMES_SUPER_ADMIN_EMAIL"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "HOLMES_SUPER_ADMIN_EMAIL"
+            }
+          }
+        },
+        {
+          name = "OKTA_API_TOKEN"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "OKTA_API_TOKEN"
+            }
+          }
+        },
+        {
+          name = "OKTA_GROUP_ID"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "OKTA_GROUP_ID"
             }
           }
         },
@@ -140,6 +171,15 @@ resource "helm_release" "holmes" {
             secretKeyRef = {
               name = kubernetes_secret.holmes_api_keys.metadata[0].name
               key  = "MCP_SALESFORCE_API_KEY"
+            }
+          }
+        },
+        {
+          name = "MCP_JENKINS_API_KEY"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "MCP_JENKINS_API_KEY"
             }
           }
         },
@@ -279,7 +319,7 @@ resource "helm_release" "holmes" {
           }
         },
         {
-          name  = "AWS_MCP_ACCOUNTS"
+          name = "AWS_MCP_ACCOUNTS"
           value = jsonencode([
             for name, cfg in var.logistics_accounts : {
               name       = name
@@ -292,6 +332,10 @@ resource "helm_release" "holmes" {
         {
           name  = "AWS_MCP_IRSA_ROLE"
           value = var.aws_mcp_enabled ? module.aws_mcp_irsa[0].iam_role_arn : ""
+        },
+        {
+          name  = "EKS_OIDC_PROVIDER_URL"
+          value = module.eks.oidc_provider
         },
         {
           name  = "HOLMES_DYNAMODB_TABLE"
@@ -310,19 +354,19 @@ resource "helm_release" "holmes" {
       }
 
       toolsets = {
-        "kubernetes/core" = { enabled = true }
-        "kubernetes/logs" = { enabled = true }
+        "kubernetes/core"    = { enabled = true }
+        "kubernetes/logs"    = { enabled = true }
         "prometheus/metrics" = { enabled = true }
         "grafana/dashboards" = {
           enabled = true
-          config  = {
+          config = {
             api_url = "{{ env.GRAFANA_URL }}"
             api_key = "{{ env.GRAFANA_API_KEY }}"
           }
         }
         "datadog/metrics" = {
           enabled = true
-          config  = {
+          config = {
             api_url = "{{ env.DATADOG_API_URL }}"
             api_key = "{{ env.DATADOG_API_KEY }}"
             app_key = "{{ env.DATADOG_APP_KEY }}"
@@ -330,7 +374,7 @@ resource "helm_release" "holmes" {
         }
         "datadog/logs" = {
           enabled = true
-          config  = {
+          config = {
             api_url = "{{ env.DATADOG_API_URL }}"
             api_key = "{{ env.DATADOG_API_KEY }}"
             app_key = "{{ env.DATADOG_APP_KEY }}"
@@ -338,7 +382,7 @@ resource "helm_release" "holmes" {
         }
         "datadog/monitors" = {
           enabled = true
-          config  = {
+          config = {
             api_url = "{{ env.DATADOG_API_URL }}"
             api_key = "{{ env.DATADOG_API_KEY }}"
             app_key = "{{ env.DATADOG_APP_KEY }}"
@@ -346,7 +390,7 @@ resource "helm_release" "holmes" {
         }
         "datadog/events" = {
           enabled = true
-          config  = {
+          config = {
             api_url = "{{ env.DATADOG_API_URL }}"
             api_key = "{{ env.DATADOG_API_KEY }}"
             app_key = "{{ env.DATADOG_APP_KEY }}"
@@ -354,7 +398,7 @@ resource "helm_release" "holmes" {
         }
         "datadog/general" = {
           enabled = true
-          config  = {
+          config = {
             api_url = "{{ env.DATADOG_API_URL }}"
             api_key = "{{ env.DATADOG_API_KEY }}"
             app_key = "{{ env.DATADOG_APP_KEY }}"
@@ -362,10 +406,16 @@ resource "helm_release" "holmes" {
         }
         "datadog/traces" = {
           enabled = true
-          config  = {
+          config = {
             api_url = "{{ env.DATADOG_API_URL }}"
             api_key = "{{ env.DATADOG_API_KEY }}"
             app_key = "{{ env.DATADOG_APP_KEY }}"
+          }
+        }
+        "pagerduty" = {
+          enabled = true
+          config = {
+            api_key = "{{ env.PAGERDUTY_API_KEY }}"
           }
         }
         "bash" = {
@@ -375,9 +425,19 @@ resource "helm_release" "holmes" {
         "runbook"            = { enabled = true }
         "connectivity_check" = { enabled = true }
         "internet"           = { enabled = true }
+        "dbdash" = {
+          enabled = var.dbdash_secrets_manager_arn != ""
+          config = {
+            api_url             = var.dbdash_api_url
+            secrets_manager_arn = var.dbdash_secrets_manager_arn
+          }
+        }
       }
 
-      mcp_servers = local.mcp_keys["MCP_ADO_API_KEY"] != "" || local.mcp_keys["MCP_ATLASSIAN_API_KEY"] != "" || local.mcp_keys["MCP_SALESFORCE_API_KEY"] != "" ? merge(
+      mcp_servers = (local.mcp_keys["MCP_ADO_API_KEY"] != "" ||
+        local.mcp_keys["MCP_ATLASSIAN_API_KEY"] != "" ||
+        local.mcp_keys["MCP_SALESFORCE_API_KEY"] != "" ||
+        local.mcp_keys["MCP_JENKINS_API_KEY"] != "") ? merge(
         local.mcp_keys["MCP_ADO_API_KEY"] != "" ? {
           ado = {
             description = "Azure DevOps - work items, repositories, pipelines, and boards"
@@ -419,6 +479,20 @@ resource "helm_release" "holmes" {
             }
             llm_instructions = "Use this toolset to query Salesforce CRM data including accounts, contacts, opportunities, cases, and custom objects. Prefer SOQL queries for data retrieval."
           }
+        } : {},
+        local.mcp_keys["MCP_JENKINS_API_KEY"] != "" ? {
+          jenkins = {
+            description = "Jenkins - CI/CD jobs, builds, pipelines, and build history"
+            config = {
+              url  = "https://mcp-api.platform.pditechnologies.com/v1/jenkins-sse/mcp"
+              mode = "streamable-http"
+              headers = {
+                "x-api-key" = "{{ env.MCP_JENKINS_API_KEY }}"
+              }
+              icon_url = "https://cdn.simpleicons.org/jenkins/D24939"
+            }
+            llm_instructions = "Use this toolset to query Jenkins CI/CD data: jobs, builds, pipeline runs, and build console logs. Prefer specific job/build references over broad queries."
+          }
         } : {}
       ) : {}
 
@@ -437,7 +511,7 @@ resource "helm_release" "holmes" {
             readOnlyMode = true
           }
           multiAccount = {
-            enabled  = length(var.logistics_accounts) > 0
+            enabled = length(var.logistics_accounts) > 0
             profiles = {
               for name, cfg in var.logistics_accounts : name => {
                 account_id = cfg.account_id
@@ -449,13 +523,14 @@ resource "helm_release" "holmes" {
               [
                 "ALWAYS use --profile <account-name> in every AWS CLI command to target the correct account.",
                 "NEVER run AWS commands without --profile — the default profile is the platform account, not a logistics account.",
-                "When the user mentions a specific account, use --profile <that-account-name>.",
-                "When the user says 'all accounts', run the command once per account with the appropriate --profile.",
-                "Example: aws ec2 describe-instances --region us-east-1 --profile logistics-prod",
+                "ALWAYS use --region <primary-region> from the account list below. Each account has a specific primary region — use it.",
+                "When the user mentions a specific account, use --profile <that-account-name> --region <its-primary-region>.",
+                "When the user says 'all accounts', run the command once per account with the appropriate --profile and --region.",
+                "Example: aws rds describe-db-instances --region eu-central-1 --profile pdi-pos-prod",
                 "",
-                "IMPORTANT: Each account has a primary region listed below. If a query returns empty results in that region,",
-                "scan other regions (us-east-1, us-east-2, eu-west-1, eu-central-1, ap-southeast-1, etc.) before concluding",
-                "there are no resources. Workloads may be deployed in regions other than the primary.",
+                "IMPORTANT: ALWAYS query the primary region listed below FIRST. If a query returns empty results in the primary region,",
+                "also scan other common regions (us-east-1, us-east-2, eu-west-1, eu-central-1, ap-southeast-1) before concluding",
+                "there are no resources. But ALWAYS start with the primary region.",
                 "",
                 "Available accounts (use exact profile name):",
               ],
@@ -482,16 +557,17 @@ resource "kubernetes_ingress_v1" "holmes" {
     name      = "holmes-ingress"
     namespace = kubernetes_namespace.holmesgpt.metadata[0].name
     annotations = {
-      "kubernetes.io/ingress.class"                    = "alb"
-      "alb.ingress.kubernetes.io/scheme"               = "internet-facing"
-      "alb.ingress.kubernetes.io/target-type"           = "ip"
-      "alb.ingress.kubernetes.io/certificate-arn"       = var.acm_certificate_arn
-      "alb.ingress.kubernetes.io/listen-ports"          = jsonencode([{ HTTPS = 443 }])
-      "alb.ingress.kubernetes.io/ssl-redirect"          = "443"
-      "alb.ingress.kubernetes.io/subnets"               = join(",", var.public_subnet_ids)
-      "alb.ingress.kubernetes.io/healthcheck-path"      = "/healthz"
+      "kubernetes.io/ingress.class"                            = "alb"
+      "alb.ingress.kubernetes.io/scheme"                       = "internet-facing"
+      "alb.ingress.kubernetes.io/target-type"                  = "ip"
+      "alb.ingress.kubernetes.io/certificate-arn"              = var.acm_certificate_arn
+      "alb.ingress.kubernetes.io/listen-ports"                 = jsonencode([{ HTTPS = 443 }])
+      "alb.ingress.kubernetes.io/ssl-redirect"                 = "443"
+      "alb.ingress.kubernetes.io/subnets"                      = join(",", var.public_subnet_ids)
+      "alb.ingress.kubernetes.io/healthcheck-path"             = "/healthz"
       "alb.ingress.kubernetes.io/healthcheck-interval-seconds" = "30"
-      "alb.ingress.kubernetes.io/load-balancer-attributes" = "idle_timeout.timeout_seconds=300"
+      "alb.ingress.kubernetes.io/load-balancer-attributes"     = "idle_timeout.timeout_seconds=300"
+      "alb.ingress.kubernetes.io/wafv2-acl-arn"                = aws_wafv2_web_acl.api_rate_limit.arn
     }
   }
 

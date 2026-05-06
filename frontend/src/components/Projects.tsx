@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { api, type Project, type Instance, type TagFilter, type WebhookInfo } from '../lib/api'
+import { api, type Project, type Instance, type TagFilter, type WebhookInfo, type WebhookRouting } from '../lib/api'
 
 interface ProjectsProps {
   projects: Project[]
@@ -193,6 +193,9 @@ function ProjectModal({
     project?.webhook_write_back ?? {}
   )
   const [webhooks, setWebhooks] = useState<WebhookInfo[]>([])
+  const [webhookRouting, setWebhookRouting] = useState<WebhookRouting>(
+    project?.webhook_routing ?? { ado: [], pagerduty: [], salesforce: [] }
+  )
 
   useEffect(() => {
     api.listInstances().then(setAllInstances).catch(() => {})
@@ -212,6 +215,9 @@ function ProjectModal({
         description: description.trim(),
         tag_filter: tagFilter,
         webhook_write_back: Object.keys(webhookWriteBack).length > 0 ? webhookWriteBack : null,
+        webhook_routing: (webhookRouting.ado.length || webhookRouting.pagerduty.length || webhookRouting.salesforce.length)
+          ? webhookRouting
+          : null,
       }
       if (project) {
         await api.updateProject(project.id, payload)
@@ -334,6 +340,62 @@ function ProjectModal({
               </div>
             </div>
           )}
+          {/* Webhook Routing */}
+          <div>
+            <label className="block text-sm font-medium text-pdi-granite mb-1">
+              Webhook Routing
+            </label>
+            <p className="text-xs text-pdi-slate mb-3">
+              Map incoming webhook events to this project. Events that don't match any project use global integrations.
+            </p>
+            <div className="space-y-3">
+              {([
+                { key: 'ado' as const, label: 'ADO Projects', placeholder: 'e.g. PDI Dispatch' },
+                { key: 'pagerduty' as const, label: 'PagerDuty Services', placeholder: 'e.g. checkout-api' },
+                { key: 'salesforce' as const, label: 'Salesforce Accounts', placeholder: 'e.g. Acme Corp' },
+              ]).map(({ key, label, placeholder }) => (
+                <div key={key} className="py-2 px-3 bg-gray-50 rounded-lg">
+                  <span className="text-xs font-medium text-pdi-slate block mb-1.5">{label}</span>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {webhookRouting[key].map((val, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-pdi-sky/10 text-pdi-indigo border border-pdi-sky/30 rounded-full"
+                      >
+                        {val}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = { ...webhookRouting, [key]: webhookRouting[key].filter((_: string, i: number) => i !== idx) }
+                            setWebhookRouting(next)
+                          }}
+                          className="text-pdi-slate hover:text-pdi-orange ml-0.5"
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder={placeholder}
+                    className="w-full text-xs border border-pdi-cool-gray rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-pdi-sky"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const input = e.currentTarget
+                        const value = input.value.trim()
+                        if (value && !webhookRouting[key].includes(value)) {
+                          setWebhookRouting({ ...webhookRouting, [key]: [...webhookRouting[key], value] })
+                          input.value = ''
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
           {error && <p className="text-sm text-pdi-orange">{error}</p>}
         </div>
         <div className="px-6 py-4 border-t border-pdi-cool-gray flex justify-end gap-3">

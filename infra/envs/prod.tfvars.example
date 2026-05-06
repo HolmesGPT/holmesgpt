@@ -45,8 +45,10 @@ holmes_ui_username = "admin"
 holmes_ui_password = "" # Set via TF_VAR_holmes_ui_password or -var flag
 
 # MCP Integration API Keys
-mcp_ado_api_key       = "" # Set via TF_VAR_mcp_ado_api_key or -var flag
-mcp_atlassian_api_key = "" # Set via TF_VAR_mcp_atlassian_api_key or -var flag
+mcp_ado_api_key        = "" # Set via TF_VAR_mcp_ado_api_key or -var flag
+mcp_atlassian_api_key  = "" # Set via TF_VAR_mcp_atlassian_api_key or -var flag
+mcp_salesforce_api_key = "" # Set via TF_VAR_mcp_salesforce_api_key or -var flag
+mcp_jenkins_api_key    = "" # Set via TF_VAR_mcp_jenkins_api_key or -var flag
 
 # Tags
 tags = {

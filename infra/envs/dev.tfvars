@@ -33,15 +33,19 @@ hostname            = "holmesgpt.dev.platform.pditechnologies.com"
 # LLM
 anthropic_api_base = "https://ai-gateway.platform.pditechnologies.com"
 anthropic_api_key  = "" # Set via TF_VAR_anthropic_api_key or -var flag
-holmes_model       = "anthropic/claude-sonnet-4-5-20250929"
+holmes_model       = "anthropic/claude-sonnet-4-6"
 
 # Holmes
 holmes_replicas  = 1
 holmes_image_tag = "latest"
 
-# UI Auth
-holmes_ui_username = "admin"
-holmes_ui_password = "" # Stored in Secrets Manager after first apply; set via TF_VAR_holmes_ui_password on first run
+# UI Auth — Okta OIDC (PKCE)
+okta_issuer              = "https://pdisoftware.okta.com/oauth2/default"
+okta_client_id           = "0oa1ae04lowCIDE9B2p8"
+holmes_super_admin_email = "srinivasreddy.v@pditechnologies.com"
+okta_group_id             = "00g1ae0b43fuHGUXw2p8"
+okta_api_token            = "" # Read from Secrets Manager via okta_api_token_secret_arn
+okta_api_token_secret_arn = "arn:aws:secretsmanager:us-east-1:717423812395:secret:holmesgpt-dev/okta-api-token-32cDY1"
 
 # MCP Integration API Keys
 mcp_ado_api_key        = "" # Set via TF_VAR_mcp_ado_api_key or -var flag
@@ -50,8 +54,8 @@ mcp_salesforce_api_key = "" # Set via TF_VAR_mcp_salesforce_api_key or -var flag
 
 # Tags
 tags = {
-  Team        = "platform"
-  CostCenter  = "engineering"
+  Team        = "Tool COE"
+  CostCenter  = "Cloud Engineering"
   Application = "holmesgpt"
 }
 
@@ -84,7 +88,245 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::342706430250:role/HolmesReadOnly"
     region     = "eu-central-1"
   }
+  pdi-pos-dev = {
+    account_id = "689863073433"
+    role_arn   = "arn:aws:iam::689863073433:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-prod = {
+    account_id = "803964703583"
+    role_arn   = "arn:aws:iam::803964703583:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-stage = {
+    account_id = "415641701024"
+    role_arn   = "arn:aws:iam::415641701024:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-legacy-prod = {
+    account_id = "100161908138"
+    role_arn   = "arn:aws:iam::100161908138:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-legacy-uat = {
+    account_id = "294818304262"
+    role_arn   = "arn:aws:iam::294818304262:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  pdi-pos-legacy-demo = {
+    account_id = "226168396949"
+    role_arn   = "arn:aws:iam::226168396949:role/HolmesReadOnly"
+    region     = "eu-central-1"
+  }
+  gasbuddy = {
+    account_id = "896521799855"
+    role_arn   = "arn:aws:iam::896521799855:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  gasbuddy-staging = {
+    account_id = "267230788984"
+    role_arn   = "arn:aws:iam::267230788984:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  gasbuddy-marketing = {
+    account_id = "773223718586"
+    role_arn   = "arn:aws:iam::773223718586:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  gb-bp-client = {
+    account_id = "607378507561"
+    role_arn   = "arn:aws:iam::607378507561:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── C-Store Essentials ──────────────────────────────────────────────────
+  ce-cstore-essentials-prod = {
+    account_id = "386397235394"
+    role_arn   = "arn:aws:iam::386397235394:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  ce-cstore-essentials-staging = {
+    account_id = "179669678732"
+    role_arn   = "arn:aws:iam::179669678732:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  ce-koupon-prod = {
+    account_id = "185077157484"
+    role_arn   = "arn:aws:iam::185077157484:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  ce-skupos-legacy-prod = {
+    account_id = "025524405457"
+    role_arn   = "arn:aws:iam::025524405457:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── CI POS ──────────────────────────────────────────────────────────────
+  pdi-cipos-prod = {
+    account_id = "271593336501"
+    role_arn   = "arn:aws:iam::271593336501:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-cipos-stage = {
+    account_id = "436020120639"
+    role_arn   = "arn:aws:iam::436020120639:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Transpac / Comdata / Data Services ──────────────────────────────────
+  pdi-transpac-prod = {
+    account_id = "903333983563"
+    role_arn   = "arn:aws:iam::903333983563:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-comdata-petroleader-prod = {
+    account_id = "711387130277"
+    role_arn   = "arn:aws:iam::711387130277:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-data-services-prod = {
+    account_id = "090790636866"
+    role_arn   = "arn:aws:iam::090790636866:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── ERP ─────────────────────────────────────────────────────────────────
+  pdi-erp-prod = {
+    account_id = "077614951579"
+    role_arn   = "arn:aws:iam::077614951579:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-erp-stage = {
+    account_id = "929611976443"
+    role_arn   = "arn:aws:iam::929611976443:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── LMP Elevate ─────────────────────────────────────────────────────────
+  pdi-lmp-elevate-prod = {
+    account_id = "510376924091"
+    role_arn   = "arn:aws:iam::510376924091:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-lmp-elevate-staging = {
+    account_id = "008048648984"
+    role_arn   = "arn:aws:iam::008048648984:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── MCS Payments ────────────────────────────────────────────────────────
+  pdi-mcs-payments-prod = {
+    account_id = "179616421945"
+    role_arn   = "arn:aws:iam::179616421945:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-mcs-payments-staging = {
+    account_id = "856536366562"
+    role_arn   = "arn:aws:iam::856536366562:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Operations ──────────────────────────────────────────────────────────
+  pdi-operations-prod = {
+    account_id = "211125545481"
+    role_arn   = "arn:aws:iam::211125545481:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-operations-stage = {
+    account_id = "211125652818"
+    role_arn   = "arn:aws:iam::211125652818:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Platform ────────────────────────────────────────────────────────────
+  pdi-platform-prod = {
+    account_id = "921714353219"
+    role_arn   = "arn:aws:iam::921714353219:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-platform-stage = {
+    account_id = "019652197448"
+    role_arn   = "arn:aws:iam::019652197448:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── POS (additional stage account) ──────────────────────────────────────
+  pdi-pos-stage-2 = {
+    account_id = "974458387942"
+    role_arn   = "arn:aws:iam::974458387942:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── RM Loyalty ──────────────────────────────────────────────────────────
+  pdi-rm-loyalty-prod = {
+    account_id = "651006557025"
+    role_arn   = "arn:aws:iam::651006557025:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-rm-loyalty-staging = {
+    account_id = "506628524632"
+    role_arn   = "arn:aws:iam::506628524632:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-rm-loyalty-pci-prod = {
+    account_id = "473106049869"
+    role_arn   = "arn:aws:iam::473106049869:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-rm-loyalty-pci-staging = {
+    account_id = "582802577213"
+    role_arn   = "arn:aws:iam::582802577213:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── EP Payments ─────────────────────────────────────────────────────────
+  aws-pdi-ep-payments-prod = {
+    account_id = "198386896451"
+    role_arn   = "arn:aws:iam::198386896451:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  aws-pdi-ep-payments-stage = {
+    account_id = "003480668535"
+    role_arn   = "arn:aws:iam::003480668535:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── ERP Skupos Retail Integrations ──────────────────────────────────────
+  erp-skupos-retail-integrations-prod = {
+    account_id = "640131422250"
+    role_arn   = "arn:aws:iam::640131422250:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  erp-skupos-retail-integrations-stage = {
+    account_id = "566348778577"
+    role_arn   = "arn:aws:iam::566348778577:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Cybera ──────────────────────────────────────────────────────────────
+  pdi-cybera-prod = {
+    account_id = "483271369038"
+    role_arn   = "arn:aws:iam::483271369038:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-cybera-stage = {
+    account_id = "923510870796"
+    role_arn   = "arn:aws:iam::923510870796:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Telapoint ───────────────────────────────────────────────────────────
+  pdi-telapoint-prod = {
+    account_id = "516716174645"
+    role_arn   = "arn:aws:iam::516716174645:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Data Services (additional stage account) ────────────────────────────
+  pdi-data-services-stage = {
+    account_id = "445971787817"
+    role_arn   = "arn:aws:iam::445971787817:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
 aws_mcp_enabled = true
+
+
+
+# ADO Webhook — set via TF_VAR_ environment variables, not here (secrets!)
+# TF_VAR_ado_pat, TF_VAR_ado_organization, TF_VAR_ado_webhook_username, TF_VAR_ado_webhook_password
+ado_organization       = "pdidev"
+ado_webhook_username   = "holmesgpt"
+
+
+
+# DBADash Web integration — credentials stored in Secrets Manager (fetched at runtime by the pod)
+dbdash_api_url             = "https://db-monitor.shared.platform.pditechnologies.com"
+dbdash_secrets_manager_arn = "arn:aws:secretsmanager:us-east-1:717423812395:secret:holmesgpt-dev/dbdash-web-credentials-g3D5at"

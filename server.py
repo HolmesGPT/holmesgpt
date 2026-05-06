@@ -369,7 +369,12 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             "Skipping sentry initialization - not an official release and DEVELOPMENT_MODE not enabled"
         )
 
-app = FastAPI()
+app = FastAPI(
+    title="HolmesGPT API",
+    description="AI-powered infrastructure investigation API",
+    version="1.0.0",
+    swagger_ui_parameters={"persistAuthorization": True},
+)
 
 if LOG_PERFORMANCE:
 
@@ -591,6 +596,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                         "Using project-scoped tool executor for project '%s'",
                         project.name,
                     )
+                    # Inject project context so the LLM knows which project the user is asking about
                 else:
                     logging.warning(
                         "Project '%s' not found, falling back to scoped executor",
@@ -647,6 +653,22 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 logging.warning(
                     "Failed to inject similar investigations into chat: %s", e
                 )
+
+        # ── Inject project context so the LLM knows which project the user is in ──
+        if chat_request.project_id:
+            try:
+                from projects import get_store as _get_proj_store  # noqa: PLC0415
+
+                _proj = _get_proj_store().get(chat_request.project_id)
+                if _proj:
+                    enriched_ask = (
+                        f"[Project context: The user is working in the '{_proj.name}' project. "
+                        f"When they say 'this project' or ask about project-specific resources, "
+                        f"they mean '{_proj.name}'.]\n\n"
+                        + enriched_ask
+                    )
+            except Exception:
+                pass
 
         # Merge global system prompt additions (from Settings page) with
         # any per-request additional_system_prompt.

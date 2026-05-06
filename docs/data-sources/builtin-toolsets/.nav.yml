@@ -2,11 +2,13 @@ nav:
   - index.md
   - AKS Node Health: aks-node-health.md
   - ArgoCD: argocd.md
+  - Atlassian (MCP): atlassian-mcp.md
   - AWS (MCP): aws.md
   - Azure (MCP): azure-mcp.md
   - Azure Kubernetes Service: aks.md
   - Azure SQL Database: azure-sql.md
   - Bash: bash.md
+  - Bitbucket: bitbucket.md
   - Cilium: cilium.md
   - ClickHouse: database-clickhouse.md
   - Confluence: confluence.md
@@ -24,6 +26,7 @@ nav:
   - Helm: helm.md
   - Inspektor Gadget: inspektor-gadget.md
   - Internet: internet.md
+  - Jenkins (MCP): jenkins-mcp.md
   - Kafka: kafka.md
   - Kubernetes: kubernetes.md
   - KubeVela: kubevela.md
@@ -34,6 +37,7 @@ nav:
   - New Relic: newrelic.md
   - Notion: notion.md
   - OpenShift: openshift.md
+  - PagerDuty: pagerduty.md
   - PostgreSQL: database-postgresql.md
   - Prometheus: prometheus.md
   - RabbitMQ: rabbitmq.md

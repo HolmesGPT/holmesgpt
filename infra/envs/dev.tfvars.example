@@ -48,6 +48,7 @@ holmes_ui_password = "" # Stored in Secrets Manager after first apply; set via T
 mcp_ado_api_key        = "" # Set via TF_VAR_mcp_ado_api_key or -var flag
 mcp_atlassian_api_key  = "" # Set via TF_VAR_mcp_atlassian_api_key or -var flag
 mcp_salesforce_api_key = "" # Set via TF_VAR_mcp_salesforce_api_key or -var flag
+mcp_jenkins_api_key    = "" # Set via TF_VAR_mcp_jenkins_api_key or -var flag
 
 # Tags
 tags = {

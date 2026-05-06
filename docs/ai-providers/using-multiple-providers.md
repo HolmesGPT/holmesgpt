@@ -124,25 +124,25 @@ Define multiple model configurations and switch between them by name. This is us
         temperature: 1 # only 1 is supported for gpt-5 models
 
       # Anthropic Models
-      claude-sonnet-4:
+      claude-sonnet-4-5:
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: claude-sonnet-4-20250514
+        model: anthropic/claude-sonnet-4-5-20250929
         temperature: 1
         thinking:
           budget_tokens: 10000
           type: enabled
 
-      claude-opus-4-1:
+      claude-opus-4-5:
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: claude-opus-4-1-20250805
-        temperature: 0
+        model: anthropic/claude-opus-4-5-20251101
+        temperature: 1
 
       # AWS Bedrock
       bedrock-claude:
         aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
         aws_region_name: us-east-1
         aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-        model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+        model: bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0
         temperature: 1
         thinking:
           budget_tokens: 10000
@@ -231,25 +231,25 @@ Define multiple model configurations and switch between them by name. This is us
           temperature: 1 # only 1 is supported for gpt-5 models
 
         # Anthropic Models
-        claude-sonnet-4:
+        claude-sonnet-4-5:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: claude-sonnet-4-20250514
+          model: anthropic/claude-sonnet-4-5-20250929
           temperature: 1
           thinking:
             budget_tokens: 10000
             type: enabled
 
-        claude-opus-4-1:
+        claude-opus-4-5:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: claude-opus-4-1-20250805
-          temperature: 0
+          model: anthropic/claude-opus-4-5-20251101
+          temperature: 1
 
         # AWS Bedrock
         bedrock-claude:
           aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
           aws_region_name: us-east-1
           aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-          model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+          model: bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0
           temperature: 1
           thinking:
             budget_tokens: 10000
@@ -288,7 +288,7 @@ When multiple models are configured:
 
 ### Robusta UI
 1. Users see a **model selector dropdown** in the Robusta UI
-2. Each model appears with its configured name (e.g., "azure-4o", "claude-sonnet-4")
+2. Each model appears with its configured name (e.g., "azure-41", "claude-sonnet-4-5")
 3. Users can switch between models for different investigations
 
 ### HTTP API
@@ -296,7 +296,7 @@ Clients can specify the model in their API requests:
 ```json
 {
   "ask": "What pods are failing?",
-  "model": "claude-sonnet-4"
+  "model": "claude-sonnet-4-5"
 }
 ```
 

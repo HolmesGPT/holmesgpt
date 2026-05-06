@@ -15,43 +15,50 @@ docker push $ECR_REGISTRY/holmesgpt:latest
 
 3. Apply OpenTofu (use `~/.local/bin/tofu`, NOT `terraform`).
 
-   **Key sourcing rules** — each key has one authoritative source:
-   - `ANTHROPIC_API_KEY` → k8s secret (Secrets Manager copy may be stale)
-   - `MCP_ATLASSIAN_API_KEY`, `MCP_ADO_API_KEY`, `MCP_SALESFORCE_API_KEY` → **Secrets Manager** (`holmesgpt-dev/mcp-api-keys`), NOT k8s secret
-     - The k8s secret for these is populated BY tofu FROM Secrets Manager, so reading them from k8s creates a destructive loop that zeros them out on every deploy.
+   **All secrets are read from AWS Secrets Manager** (single source of truth).
+   The secret names follow the pattern `holmesgpt-dev/<name>`.
+   On Windows use PowerShell to parse JSON; on Linux/Mac use jq or python3.
 
 ```bash
 cd infra
+PROFILE="pdi-platform-dev"
+REGION="us-east-1"
 
-# ANTHROPIC: read from k8s (authoritative — Secrets Manager copy may be empty)
-ANTHROPIC_API_KEY=$(kubectl get secret holmes-api-keys -n holmesgpt -o jsonpath='{.data.ANTHROPIC_API_KEY}' | base64 -d)
+# Helper: read a JSON secret from Secrets Manager and extract a key
+# Usage: sm_get <secret-name> <json-key>
+sm_get() {
+  local raw=$(aws secretsmanager get-secret-value \
+    --secret-id "holmesgpt-dev/$1" \
+    --region "$REGION" --profile "$PROFILE" \
+    --query SecretString --output text 2>/dev/null)
+  if [ -z "$raw" ]; then echo ""; return; fi
+  # Windows (Git Bash) — use PowerShell for JSON parsing
+  powershell -Command "\$s = '$raw'; (\$s | ConvertFrom-Json).'$2'"
+}
 
-# MCP KEYS: read from Secrets Manager (authoritative — k8s is populated FROM here)
-# On Windows use PowerShell to parse JSON; on Linux/Mac use jq or python3
-SM_MCP=$(aws secretsmanager get-secret-value \
-  --secret-id "holmesgpt-dev/mcp-api-keys" \
-  --region us-east-1 \
-  --profile <AWS_PROFILE> \
-  --query SecretString \
-  --output text)
+# ── Read all secrets from Secrets Manager ────────────────────────────
+ANTHROPIC_API_KEY=$(sm_get "anthropic-api-key" "ANTHROPIC_API_KEY")
 
-# Windows (Git Bash):
-MCP_ADO=$(powershell -Command "\$sm = '$SM_MCP'; (\$sm | ConvertFrom-Json).MCP_ADO_API_KEY")
-MCP_ATLASSIAN=$(powershell -Command "\$sm = '$SM_MCP'; (\$sm | ConvertFrom-Json).MCP_ATLASSIAN_API_KEY")
-MCP_SALESFORCE=$(powershell -Command "\$sm = '$SM_MCP'; (\$sm | ConvertFrom-Json).MCP_SALESFORCE_API_KEY")
+MCP_ADO=$(sm_get "mcp-api-keys" "MCP_ADO_API_KEY")
+MCP_ATLASSIAN=$(sm_get "mcp-api-keys" "MCP_ATLASSIAN_API_KEY")
+MCP_SALESFORCE=$(sm_get "mcp-api-keys" "MCP_SALESFORCE_API_KEY")
+MCP_JENKINS=$(sm_get "mcp-api-keys" "MCP_JENKINS_API_KEY")
 
-# Linux/Mac alternative:
-# MCP_ADO=$(echo "$SM_MCP" | python3 -c "import sys,json; print(json.load(sys.stdin)['MCP_ADO_API_KEY'])")
-# MCP_ATLASSIAN=$(echo "$SM_MCP" | python3 -c "import sys,json; print(json.load(sys.stdin)['MCP_ATLASSIAN_API_KEY'])")
-# MCP_SALESFORCE=$(echo "$SM_MCP" | python3 -c "import sys,json; print(json.load(sys.stdin)['MCP_SALESFORCE_API_KEY'])")
-
+# ── Apply ────────────────────────────────────────────────────────────
 ~/.local/bin/tofu apply -var-file=envs/dev.tfvars \
   -var="anthropic_api_key=$ANTHROPIC_API_KEY" \
   -var="mcp_ado_api_key=$MCP_ADO" \
   -var="mcp_atlassian_api_key=$MCP_ATLASSIAN" \
   -var="mcp_salesforce_api_key=$MCP_SALESFORCE" \
+  -var="mcp_jenkins_api_key=$MCP_JENKINS" \
   -auto-approve
 ```
+
+**Note:** Secrets for PagerDuty, Datadog, ADO webhook, Salesforce webhook, Grafana, and
+UI credentials are also in Secrets Manager (`holmesgpt-dev/pagerduty`, etc.) but are
+currently passed via tfvars variables or set directly in the K8s secret. These will be
+migrated to the SM-first pattern as part of the secrets-from-ARN architecture work
+(see `docs/superpowers/specs/2026-03-23-secrets-and-ui-config-architecture.md`).
 
 This also creates/updates the DynamoDB table `holmesgpt-dev-config` (defined in `infra/dynamodb.tf`) which stores Projects and LLM instruction overrides. The table name is injected into the pod as `HOLMES_DYNAMODB_TABLE`.
 

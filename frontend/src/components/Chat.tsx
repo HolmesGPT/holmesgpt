@@ -37,7 +37,7 @@ export default function Chat({ projectId }: ChatProps) {
   }, [messages])
 
   useEffect(() => {
-    api.getAwsAccounts().then((data) => setAwsAccounts(data.accounts)).catch(() => {})
+    api.getAwsAccounts(projectId).then((data) => setAwsAccounts(data.accounts)).catch(() => {})
   }, [])
 
   useEffect(() => {

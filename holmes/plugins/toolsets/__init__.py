@@ -53,9 +53,11 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.outlook.toolset_outlook import OutlookToolset
 from holmes.plugins.toolsets.pagerduty.toolset_pagerduty import PagerDutyToolset
+from holmes.plugins.toolsets.bitbucket.toolset_bitbucket import BitbucketToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
 from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
+from holmes.plugins.toolsets.dbdash.dbdash_toolset import DBADashToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
@@ -118,10 +120,12 @@ def load_python_toolsets(
         RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        DBADashToolset(),
         DatabaseToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
         PagerDutyToolset(),
+        BitbucketToolset(),
         TeamsToolset(),
         OutlookToolset(),
     ]
@@ -228,9 +232,10 @@ def load_toolsets_from_config(
                 factory = PYTHON_TOOLSET_FACTORIES.get(base_name)
                 if factory:
                     validated_toolset = factory(name=instance_name)
-                    # Apply config overrides if present
+                    # Apply config overrides — set directly on the toolset's config field
+                    # (override_with expects a Toolset object, not a dict)
                     if "config" in config and validated_toolset is not None:
-                        validated_toolset.override_with({"config": config["config"]})
+                        validated_toolset.config = config["config"]
                     if "enabled" in config and validated_toolset is not None:
                         validated_toolset.enabled = config["enabled"]
                 else:
@@ -269,6 +274,13 @@ PYTHON_TOOLSET_FACTORIES: dict[str, type] = {
     "grafana/dashboards": GrafanaToolset,
     "grafana/loki": GrafanaLokiToolset,
     "grafana/tempo": GrafanaTempoToolset,
+    "dbdash": DBADashToolset,
+    "datadog/general": DatadogGeneralToolset,
+    "datadog/logs": DatadogLogsToolset,
+    "datadog/metrics": DatadogMetricsToolset,
+    "datadog/traces": DatadogTracesToolset,
+    "pagerduty": PagerDutyToolset,
+    "bitbucket": BitbucketToolset,
 }
 
 # PrometheusToolset is conditionally imported, so add it only when available

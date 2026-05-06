@@ -15,7 +15,7 @@ resource "aws_secretsmanager_secret_version" "anthropic_api_key" {
 # MCP API Keys secret — groups all three MCP keys in one secret
 resource "aws_secretsmanager_secret" "mcp_api_keys" {
   name                    = "${local.cluster_name}/mcp-api-keys"
-  description             = "API keys for MCP integrations (ADO, Atlassian, Salesforce)"
+  description             = "API keys for MCP integrations (ADO, Atlassian, Salesforce, Jenkins)"
   recovery_window_in_days = var.environment == "dev" ? 0 : 30
 }
 
@@ -25,6 +25,7 @@ resource "aws_secretsmanager_secret_version" "mcp_api_keys" {
     MCP_ADO_API_KEY        = var.mcp_ado_api_key
     MCP_ATLASSIAN_API_KEY  = var.mcp_atlassian_api_key
     MCP_SALESFORCE_API_KEY = var.mcp_salesforce_api_key
+    MCP_JENKINS_API_KEY    = var.mcp_jenkins_api_key
   })
 }
 
@@ -48,18 +49,35 @@ data "aws_secretsmanager_secret_version" "grafana" {
   depends_on = [aws_secretsmanager_secret_version.grafana]
 }
 
-# Holmes UI credentials secret
-resource "aws_secretsmanager_secret" "holmes_ui_credentials" {
-  name                    = "${local.cluster_name}/holmes-ui-credentials"
-  description             = "Holmes UI login credentials"
+# Okta auth config secret
+resource "aws_secretsmanager_secret" "holmes_okta_config" {
+  name                    = "${local.cluster_name}/holmes-okta-config"
+  description             = "Okta OIDC configuration for Holmes UI"
   recovery_window_in_days = var.environment == "dev" ? 0 : 30
 }
 
-resource "aws_secretsmanager_secret_version" "holmes_ui_credentials" {
-  secret_id = aws_secretsmanager_secret.holmes_ui_credentials.id
+# Read the manually-created Okta API token secret
+data "aws_secretsmanager_secret_version" "okta_api_token" {
+  count     = var.okta_api_token_secret_arn != "" ? 1 : 0
+  secret_id = var.okta_api_token_secret_arn
+}
+
+locals {
+  okta_api_token_from_sm = (
+    var.okta_api_token_secret_arn != ""
+    ? jsondecode(data.aws_secretsmanager_secret_version.okta_api_token[0].secret_string)["OKTA_API_TOKEN"]
+    : var.okta_api_token
+  )
+}
+
+resource "aws_secretsmanager_secret_version" "holmes_okta_config" {
+  secret_id = aws_secretsmanager_secret.holmes_okta_config.id
   secret_string = jsonencode({
-    HOLMES_UI_USERNAME = var.holmes_ui_username
-    HOLMES_UI_PASSWORD = var.holmes_ui_password
+    OKTA_ISSUER              = var.okta_issuer
+    OKTA_CLIENT_ID           = var.okta_client_id
+    HOLMES_SUPER_ADMIN_EMAIL = var.holmes_super_admin_email
+    OKTA_API_TOKEN           = local.okta_api_token_from_sm
+    OKTA_GROUP_ID            = var.okta_group_id
   })
 }
 
@@ -69,9 +87,9 @@ data "aws_secretsmanager_secret_version" "mcp_api_keys" {
   depends_on = [aws_secretsmanager_secret_version.mcp_api_keys]
 }
 
-data "aws_secretsmanager_secret_version" "holmes_ui_credentials" {
-  secret_id  = aws_secretsmanager_secret.holmes_ui_credentials.id
-  depends_on = [aws_secretsmanager_secret_version.holmes_ui_credentials]
+data "aws_secretsmanager_secret_version" "holmes_okta_config" {
+  secret_id  = aws_secretsmanager_secret.holmes_okta_config.id
+  depends_on = [aws_secretsmanager_secret_version.holmes_okta_config]
 }
 
 # Datadog secret — managed by OpenTofu; values set via variables (default empty)

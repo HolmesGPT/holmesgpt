@@ -7,6 +7,7 @@ Table schema (single-table design):
   INSTANCE#<id>         | META            | JSON-serialised Instance
   LLM_OVERRIDE          | <toolset_name>  | instructions string
   TOOLSET_STATE         | <toolset_name>  | enabled bool
+  TOOLSET_CONFIG        | <toolset_name>  | config_json (JSON dict of config overrides)
   INVESTIGATION#<id>    | META            | JSON-serialised Investigation
 """
 
@@ -36,10 +37,13 @@ class ToolsetInstance(BaseModel):
     type: str  # base toolset type: "grafana/dashboards", "aws_api", "salesforce", "ado", "atlassian"
     name: str  # unique instance name: "grafana-logistics", "aws_api"
     secret_arn: Optional[str] = None  # Secrets Manager ARN for per-instance credentials
+    config: Optional[dict] = None  # Per-instance toolset config (api_key, api_url, etc.)
     # For MCP toolsets: override the MCP server URL (leave None to use global URL)
     mcp_url: Optional[str] = None
     # For aws_api: restrict to these account profile names (None = all configured accounts)
     aws_accounts: Optional[list[str]] = None
+    # For aws_api: restrict to these AWS regions (None = no restriction)
+    aws_regions: Optional[list[str]] = None
 
 
 class TagFilter(BaseModel):
@@ -60,7 +64,9 @@ class Instance(BaseModel):
     ] = {}  # free-form key-value tags; empty = global (always included)
     secret_arn: Optional[str] = None
     mcp_url: Optional[str] = None
+    config: Optional[dict] = None  # Per-instance toolset config (api_key, api_url, etc.)
     aws_accounts: Optional[list[str]] = None
+    aws_regions: Optional[list[str]] = None  # e.g. ["eu-central-1", "us-east-1"]
     # AWS cross-account fields
     aws_account_name: Optional[str] = None
     aws_account_id: Optional[str] = None
@@ -72,6 +78,14 @@ class Instance(BaseModel):
     created_at: str = ""
 
 
+class WebhookRouting(BaseModel):
+    """Webhook routing rules: maps external source identifiers to this project."""
+
+    ado: list[str] = []  # ADO team project names (System.TeamProject)
+    pagerduty: list[str] = []  # PagerDuty service names or IDs
+    salesforce: list[str] = []  # Salesforce account names or IDs
+
+
 class Project(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     name: str
@@ -80,6 +94,7 @@ class Project(BaseModel):
     webhook_write_back: Optional[dict[str, bool]] = (
         None  # per-webhook write-back overrides; None/missing key = inherit global
     )
+    webhook_routing: Optional[WebhookRouting] = None
     created_at: str = ""
 
 
@@ -120,6 +135,29 @@ def resolve_instances_for_project(
     return [i for i in all_instances if match_instance(i, project.tag_filter)]
 
 
+def resolve_project_for_webhook(source: str, identifier: str) -> Optional["Project"]:
+    """Find the project whose webhook_routing matches the given source and identifier.
+
+    Args:
+        source: Webhook source type ("ado", "pagerduty", "salesforce")
+        identifier: The extracted identifier from the webhook payload
+
+    Returns:
+        Matching Project, or None (use global instances)
+    """
+    if not identifier:
+        return None
+    identifier_lower = identifier.strip().lower()
+    for project in get_store().list():
+        routing = project.webhook_routing
+        if not routing:
+            continue
+        candidates = getattr(routing, source, [])
+        if any(c.strip().lower() == identifier_lower for c in candidates):
+            return project
+    return None
+
+
 # ── DynamoDB helpers ───────────────────────────────────────────────────────────
 
 
@@ -137,8 +175,10 @@ class InstancesStore:
         name: str,
         tags: dict[str, str] = {},
         secret_arn: Optional[str] = None,
+        config: Optional[dict] = None,
         mcp_url: Optional[str] = None,
         aws_accounts: Optional[list[str]] = None,
+        aws_regions: Optional[list[str]] = None,
         aws_account_name: Optional[str] = None,
         aws_account_id: Optional[str] = None,
         aws_role_arn: Optional[str] = None,
@@ -148,8 +188,10 @@ class InstancesStore:
             name=name,
             tags=tags,
             secret_arn=secret_arn,
+            config=config,
             mcp_url=mcp_url,
             aws_accounts=aws_accounts,
+            aws_regions=aws_regions,
             aws_account_name=aws_account_name,
             aws_account_id=aws_account_id,
             aws_role_arn=aws_role_arn,
@@ -220,6 +262,33 @@ def get_instances_store() -> InstancesStore:
     return _instances_store
 
 
+# ── Duplicate routing validation ───────────────────────────────────────────────
+
+
+def _check_duplicate_routing(
+    webhook_routing: Optional[WebhookRouting],
+    exclude_project_id: Optional[str] = None,
+) -> None:
+    """Raise ValueError if any routing value is already claimed by another project."""
+    if not webhook_routing:
+        return
+    for project in get_store().list():
+        if exclude_project_id and project.id == exclude_project_id:
+            continue
+        if not project.webhook_routing:
+            continue
+        for source in ("ado", "pagerduty", "salesforce"):
+            existing = {
+                v.strip().lower() for v in getattr(project.webhook_routing, source, [])
+            }
+            incoming = {v.strip().lower() for v in getattr(webhook_routing, source, [])}
+            overlap = existing & incoming
+            if overlap:
+                raise ValueError(
+                    f"{source} routing value(s) {overlap} already claimed by project '{project.name}'"
+                )
+
+
 # ── Projects store ─────────────────────────────────────────────────────────────
 
 
@@ -229,11 +298,18 @@ class ProjectsStore:
         name: str,
         description: str,
         tag_filter: Optional[dict] = None,
+        webhook_routing: Optional[dict] = None,
     ) -> Project:
+        _check_duplicate_routing(
+            WebhookRouting(**webhook_routing) if webhook_routing else None
+        )
         p = Project(
             name=name,
             description=description,
             tag_filter=TagFilter(**tag_filter) if tag_filter else None,
+            webhook_routing=WebhookRouting(**webhook_routing)
+            if webhook_routing
+            else None,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         _get_table().put_item(
@@ -248,7 +324,10 @@ class ProjectsStore:
         for k, v in kwargs.items():
             if k == "tag_filter":
                 v = TagFilter(**v) if v else None
+            elif k == "webhook_routing":
+                v = WebhookRouting(**v) if v else None
             setattr(p, k, v)
+        _check_duplicate_routing(p.webhook_routing, exclude_project_id=project_id)
         _get_table().put_item(
             Item={"pk": f"PROJECT#{p.id}", "sk": "META", "data": p.model_dump_json()}
         )
@@ -352,6 +431,49 @@ _toolset_state_store = ToolsetStateStore()
 
 def get_toolset_state_store() -> ToolsetStateStore:
     return _toolset_state_store
+
+
+# ── Toolset config override store ─────────────────────────────────────────
+
+
+class ToolsetConfigStore:
+    """Persist toolset config overrides (api_url, etc.) across pod restarts.
+
+    Stores a JSON dict of config key-value pairs per toolset.
+    These override the Helm-provided base config on startup.
+    """
+
+    def load_all(self) -> dict[str, dict]:
+        """Return {toolset_name: {config_key: value}} for all stored overrides."""
+        resp = _get_table().query(
+            KeyConditionExpression=Key("pk").eq("TOOLSET_CONFIG"),
+        )
+        result = {}
+        for item in resp.get("Items", []):
+            try:
+                result[item["sk"]] = json.loads(item["config_json"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return result
+
+    def save(self, toolset_name: str, config_override: dict) -> None:
+        _get_table().put_item(
+            Item={
+                "pk": "TOOLSET_CONFIG",
+                "sk": toolset_name,
+                "config_json": json.dumps(config_override),
+            }
+        )
+
+    def delete(self, toolset_name: str) -> None:
+        _get_table().delete_item(Key={"pk": "TOOLSET_CONFIG", "sk": toolset_name})
+
+
+_toolset_config_store = ToolsetConfigStore()
+
+
+def get_toolset_config_store() -> ToolsetConfigStore:
+    return _toolset_config_store
 
 
 # ── Webhook settings store ─────────────────────────────────────────────────────
@@ -706,25 +828,28 @@ def _fetch_secret(secret_arn: str) -> dict:
 
 
 # MCP toolset types that can be scoped per-project via a per-project API key
-_MCP_TOOLSET_TYPES = {"ado", "atlassian", "salesforce"}
+_MCP_TOOLSET_TYPES = {"ado", "atlassian", "salesforce", "jenkins"}
 
 # Default MCP server URLs (mirrors helm.tf configuration)
 _MCP_DEFAULT_URLS = {
     "ado": "https://mcp-api.platform.pditechnologies.com/v1/ado-sse/mcp",
     "atlassian": "https://mcp-api.platform.pditechnologies.com/v1/atlassian-sse/mcp",
     "salesforce": "https://mcp-api.platform.pditechnologies.com/v1/salesforce-sse/mcp",
+    "jenkins": "https://mcp-api.platform.pditechnologies.com/v1/jenkins-sse/mcp",
 }
 
 _MCP_ICONS = {
     "ado": "https://cdn.simpleicons.org/azuredevops/0078D7",
     "atlassian": "https://cdn.simpleicons.org/atlassian/0052CC",
     "salesforce": "https://cdn.simpleicons.org/salesforce/00A1E0",
+    "jenkins": "https://cdn.simpleicons.org/jenkins/D24939",
 }
 
 _MCP_DESCRIPTIONS = {
     "ado": "Azure DevOps - work items, repositories, pipelines, and boards",
     "atlassian": "Atlassian - Jira issues, Confluence pages, and project boards",
     "salesforce": "Salesforce - accounts, contacts, opportunities, cases, and CRM data",
+    "jenkins": "Jenkins - CI/CD jobs, builds, pipelines, and build history",
 }
 
 _MCP_INSTRUCTIONS_DIR = os.path.join(os.path.dirname(__file__), "mcp_instructions")
@@ -765,16 +890,18 @@ def _build_mcp_toolset(instance: ToolsetInstance, api_key: str) -> object:
     )
 
 
-def _build_aws_toolset_with_account_filter(
-    global_toolset: object, allowed_accounts: list[str]
+def _build_aws_toolset_with_filters(
+    global_toolset: object,
+    allowed_accounts: list[str],
+    allowed_regions: list[str] | None = None,
 ) -> object:
     """
     Return a copy of the global AWS MCP toolset with LLM instructions restricted
-    to only the allowed account profiles.
+    to only the allowed account profiles and (optionally) specific regions.
 
     We do this by cloning the toolset and overriding its llm_instructions to
-    list only the permitted --profile values, so the LLM won't attempt to use
-    accounts outside the project's scope.
+    list only the permitted --profile values and --region values, so the LLM
+    won't attempt to use accounts or regions outside the project's scope.
     """
     import copy
 
@@ -790,6 +917,23 @@ def _build_aws_toolset_with_account_filter(
     for acct in allowed_accounts:
         account_lines.append(f"  --profile {acct}")
 
+    # Add region restrictions if configured
+    if allowed_regions:
+        account_lines.append("")
+        account_lines.append(
+            "IMPORTANT: This project is deployed in the following regions ONLY:"
+        )
+        for region in allowed_regions:
+            account_lines.append(f"  --region {region}")
+        account_lines.append("")
+        account_lines.append(
+            "ALWAYS specify --region in every AWS CLI command. "
+            f"Query {allowed_regions[0]} FIRST, then check the other regions listed above."
+        )
+        account_lines.append(
+            "Do NOT query regions outside this list unless the user explicitly asks."
+        )
+
     ts.llm_instructions = "\n".join(account_lines)
     return ts
 
@@ -800,8 +944,10 @@ def _instance_to_toolset_instance(instance: Instance) -> ToolsetInstance:
         type=instance.type,
         name=instance.name,
         secret_arn=instance.secret_arn,
+        config=instance.config,
         mcp_url=instance.mcp_url,
         aws_accounts=instance.aws_accounts,
+        aws_regions=instance.aws_regions,
     )
 
 
@@ -873,15 +1019,15 @@ def build_project_tool_executor(
                 project_toolsets.append(ts)
                 continue
 
-            # ── AWS toolset with account filter ───────────────────────────────
+            # ── AWS toolset with account/region filter ────────────────────────
             if instance.type == "aws_api":
                 if instance.aws_accounts:
                     global_ts = global_by_name.get(instance.name) or global_by_name.get(
                         "aws_api"
                     )
                     if global_ts is not None:
-                        ts = _build_aws_toolset_with_account_filter(
-                            global_ts, instance.aws_accounts
+                        ts = _build_aws_toolset_with_filters(
+                            global_ts, instance.aws_accounts, instance.aws_regions
                         )
                         project_toolsets.append(ts)
                     else:
@@ -907,22 +1053,40 @@ def build_project_tool_executor(
             # ── Global toolset reuse (no per-project overrides) ───────────────
             # Match by instance name first, then by instance type (which IS the toolset name
             # for built-in toolsets like datadog/general, datadog/logs, grafana/dashboards, etc.)
-            if instance.name in global_by_name:
-                project_toolsets.append(global_by_name[instance.name])
-                continue
-            if instance.type in global_by_name:
-                project_toolsets.append(global_by_name[instance.type])
-                continue
+            # Skip global reuse if instance has a secret_arn or config — it needs dynamic
+            # instantiation with per-project credentials.
+            if not instance.secret_arn and not instance.config:
+                if instance.name in global_by_name:
+                    project_toolsets.append(global_by_name[instance.name])
+                    continue
+                if instance.type in global_by_name:
+                    project_toolsets.append(global_by_name[instance.type])
+                    continue
 
-            # ── Dynamically instantiate Python toolset with Secrets Manager creds ──
-            creds = _fetch_secret(instance.secret_arn) if instance.secret_arn else {}
-            synthetic_config = {instance.name: {"enabled": True, "config": creds}}
+            # ── Dynamically instantiate Python toolset with per-project creds ──
+            # Merge secret (credentials) with instance.config (non-secret scoping fields
+            # like repositories, service_ids, team_ids). Config overrides secret for
+            # same-named keys so instance-level overrides win.
+            creds: dict = {}
+            if instance.secret_arn:
+                creds.update(_fetch_secret(instance.secret_arn))
+            if instance.config:
+                creds.update(instance.config)
+            # For toolsets registered in PYTHON_TOOLSET_FACTORIES (e.g. "dbdash"),
+            # inject _python_base so load_toolsets_from_config uses the factory.
+            from holmes.plugins.toolsets import PYTHON_TOOLSET_FACTORIES
+
+            synthetic_config: dict = {"enabled": True, "config": creds}
+            if instance.type in PYTHON_TOOLSET_FACTORIES:
+                synthetic_config["_python_base"] = instance.type
+                synthetic_config["_instance_name"] = instance.name
+
             from holmes.plugins.toolsets import (
                 load_toolsets_from_config,  # type: ignore
             )
 
             new_toolsets = load_toolsets_from_config(
-                synthetic_config, strict_check=False
+                {instance.name: synthetic_config}, strict_check=False
             )
             if new_toolsets:
                 ts = new_toolsets[0]

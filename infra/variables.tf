@@ -105,7 +105,7 @@ variable "anthropic_api_key" {
 variable "holmes_model" {
   description = "LLM model to use"
   type        = string
-  default     = "anthropic/claude-sonnet-4-5-20250929"
+  default     = "anthropic/claude-sonnet-4-6"
 }
 
 # Holmes
@@ -121,17 +121,39 @@ variable "holmes_image_tag" {
   default     = "latest"
 }
 
-# UI Authentication
-variable "holmes_ui_username" {
-  description = "Username for Holmes UI login"
+# Okta Authentication
+variable "okta_issuer" {
+  description = "Okta OIDC issuer URL (e.g., https://your-org.okta.com/oauth2/default)"
   type        = string
-  default     = "admin"
 }
 
-variable "holmes_ui_password" {
-  description = "Password for Holmes UI login"
+variable "okta_client_id" {
+  description = "Okta SPA application client ID (public, no secret needed)"
+  type        = string
+}
+
+variable "holmes_super_admin_email" {
+  description = "Email of the first super-admin user (auto-granted on first login)"
+  type        = string
+  default     = ""
+}
+
+variable "okta_api_token" {
+  description = "Okta API token for syncing group members — read from Secrets Manager at runtime"
   type        = string
   sensitive   = true
+  default     = ""
+}
+
+variable "okta_group_id" {
+  description = "Okta group ID for HolmesGPT-Users group"
+  type        = string
+  default     = ""
+}
+
+variable "okta_api_token_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing the Okta API token (created manually)"
+  type        = string
   default     = ""
 }
 
@@ -152,6 +174,13 @@ variable "mcp_atlassian_api_key" {
 
 variable "mcp_salesforce_api_key" {
   description = "API key for Salesforce MCP server"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "mcp_jenkins_api_key" {
+  description = "API key for Jenkins MCP server"
   type        = string
   sensitive   = true
   default     = ""
@@ -287,4 +316,17 @@ variable "aws_mcp_enabled" {
   description = "Enable the AWS MCP server addon (requires real logistics_accounts values)"
   type        = bool
   default     = false
+}
+
+# DBADash Web integration
+variable "dbdash_api_url" {
+  description = "Base URL of the dbdash-web instance"
+  type        = string
+  default     = "https://db-monitor.shared.platform.pditechnologies.com"
+}
+
+variable "dbdash_secrets_manager_arn" {
+  description = "ARN of the Secrets Manager secret containing dbdash-web Cognito credentials (username, password, cognito_user_pool_id, cognito_client_id)"
+  type        = string
+  default     = ""
 }

@@ -9,29 +9,35 @@ import Projects from './components/Projects'
 import Instances from './components/Instances'
 import Analytics from './components/Analytics'
 import Docs from './components/Docs'
-import LoginPage from './components/LoginPage'
-import { api } from './lib/api'
+import Users from './components/Users'
+import OktaLoginPage from './components/OktaLoginPage'
+import OktaCallback from './components/OktaCallback'
+import PendingAccess from './components/PendingAccess'
+import { AuthProvider, useAuth } from './lib/auth'
+import { hasAnyProjectAccess, isSuperAdmin, getAccessibleProjectIds } from './lib/permissions'
 import { useProject } from './hooks/useProject'
 
-export type Page = 'chat' | 'investigate' | 'history' | 'analytics' | 'integrations' | 'instances' | 'settings' | 'projects' | 'docs'
+export type Page = 'chat' | 'investigate' | 'history' | 'analytics' | 'integrations' | 'instances' | 'settings' | 'projects' | 'docs' | 'users'
 
-export default function App() {
+function AppContent() {
   const [page, setPage] = useState<Page>('chat')
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
+  const { user, isLoading, isAuthenticated, logout } = useAuth()
   const { projects, selectedProjectId, selectedProject, selectProject, reloadProjects } = useProject()
-
-  useEffect(() => {
-    api.checkAuth().then(setAuthenticated)
-  }, [])
 
   // Load projects once authentication is confirmed
   useEffect(() => {
-    if (authenticated === true) {
+    if (isAuthenticated) {
       reloadProjects()
     }
-  }, [authenticated]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (authenticated === null) {
+  // Handle callback route
+  if (window.location.pathname === '/login/callback') {
+    return <OktaCallback />
+  }
+
+  // Loading state
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="animate-pulse text-pdi-slate text-lg">Loading...</div>
@@ -39,34 +45,55 @@ export default function App() {
     )
   }
 
-  if (!authenticated) {
-    return <LoginPage onLogin={() => setAuthenticated(true)} />
+  // Not authenticated -- show Okta login
+  if (!isAuthenticated || !user) {
+    return <OktaLoginPage />
   }
+
+  // Authenticated but no roles -- show pending access
+  if (!hasAnyProjectAccess(user)) {
+    return <PendingAccess />
+  }
+
+  // Filter projects based on user permissions
+  const accessibleProjectIds = getAccessibleProjectIds(user)
+  const filteredProjects = isSuperAdmin(user)
+    ? projects
+    : projects.filter((p) => accessibleProjectIds.includes(p.id))
 
   return (
     <Layout
       currentPage={page}
       onNavigate={setPage}
       onLogout={async () => {
-        await api.logout()
-        setAuthenticated(false)
+        await logout()
       }}
-      projects={projects}
+      user={user}
+      projects={filteredProjects}
       selectedProjectId={selectedProjectId}
       selectedProject={selectedProject}
       onSelectProject={selectProject}
     >
       <div key={page} className="page-transition h-full">
-        {page === 'chat' && <Chat projectId={selectedProjectId} />}
-        {page === 'investigate' && <Investigate projectId={selectedProjectId} selectedProject={selectedProject} />}
+        {page === 'chat' && <Chat key={selectedProjectId ?? 'global'} projectId={selectedProjectId} />}
+        {page === 'investigate' && <Investigate key={selectedProjectId ?? 'global'} projectId={selectedProjectId} selectedProject={selectedProject} />}
         {page === 'history' && <InvestigationHistory />}
         {page === 'analytics' && <Analytics />}
         {page === 'integrations' && <Integrations />}
         {page === 'settings' && <Settings />}
-        {page === 'projects' && <Projects projects={projects} onReload={reloadProjects} />}
+        {page === 'projects' && <Projects projects={filteredProjects} onReload={reloadProjects} />}
         {page === 'instances' && <Instances selectedProjectId={selectedProjectId} />}
         {page === 'docs' && <Docs />}
+        {page === 'users' && <Users />}
       </div>
     </Layout>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }

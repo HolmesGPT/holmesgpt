@@ -1,0 +1,22 @@
+Use this toolset to investigate CI/CD issues via Jenkins.
+
+**Jobs and builds:**
+- Fetch a specific build by job name + build number when a user references one.
+- List recent builds for a job to find the last failure or regression point.
+- Check build duration trends to spot performance regressions.
+
+**Console logs:**
+- When a build fails, fetch the console log and search for common failure signatures:
+  - Compilation errors: `error:`, `cannot find symbol`, `undefined reference`
+  - Test failures: `FAIL`, `FAILED`, `AssertionError`, `expected: ... actual:`
+  - Resource issues: `OutOfMemoryError`, `No space left on device`, `timeout`
+- Quote the specific log lines that identify the root cause; don't dump the whole log.
+
+**Pipelines:**
+- For pipeline jobs, identify which stage failed (setup, build, test, deploy).
+- Cross-reference a failed pipeline with any upstream dependency changes.
+
+**Best practices:**
+- Scope queries to a specific job name when possible; avoid listing all jobs on a busy instance.
+- When a user asks "why did X break?", fetch the last successful build AND the first failing build to narrow the change window.
+- If the user mentions a commit SHA or PR number, check whether the matching build exists before scanning broader history.

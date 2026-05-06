@@ -64,9 +64,9 @@ class DatadogLogsToolset(Toolset):
 
     dd_config: Optional[DatadogLogsConfig] = None
 
-    def __init__(self):
+    def __init__(self, name: str = "datadog/logs"):
         super().__init__(
-            name="datadog/logs",
+            name=name,
             description="Toolset for fetching logs from Datadog, including historical data for pods no longer in the cluster",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
             icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",
