@@ -86,10 +86,10 @@ holmes ask "what is the health of my environment?"
 
 ## Next Steps
 
-Add these integrations to get the most value from Holmes:
+If they apply to your stack, these are the next most impactful integrations to add:
 
-- **[GitHub](builtin-toolsets/github-mcp.md)** - Investigate CI/CD failures and correlate incidents with recent code changes
-- **[ArgoCD](builtin-toolsets/argocd.md)** or **[Helm](builtin-toolsets/helm.md)** - Tie incidents to recent deployments
-- **[Confluence](builtin-toolsets/confluence.md)** - Let Holmes read your runbooks and internal docs
+- **Traces** - [Grafana Tempo](builtin-toolsets/grafanatempo.md), [Datadog](builtin-toolsets/datadog.md), or [New Relic](builtin-toolsets/newrelic.md) for distributed tracing
+- **Source control** - [GitHub](builtin-toolsets/github-mcp.md) to correlate incidents with recent code changes and CI/CD failures
+- **ServiceNow** - [ServiceNow](builtin-toolsets/servicenow.md) if you use it for incident or change management
 
 Browse [all built-in toolsets](builtin-toolsets/index.md) for the full list.
