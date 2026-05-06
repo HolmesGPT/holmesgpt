@@ -454,11 +454,22 @@ class CheckRunner:
                         slack_token.get_secret_value() if slack_token else ""
                     )
 
-                    slack = SlackDestination(token_str, slack_channel)
+                    slack = SlackDestination(
+                        token_str,
+                        slack_channel,
+                        thread_ts=slack_dest_config.thread_ts
+                        if slack_dest_config and slack_dest_config.thread_ts
+                        else None,
+                    )
                     slack.send_issue(issue, llm_result)
 
+                    dest_hint = (
+                        f"{slack_channel} (thread)"
+                        if slack_dest_config and slack_dest_config.thread_ts
+                        else slack_channel
+                    )
                     self.console.print(
-                        f"  [green]Alert sent to Slack channel {slack_channel}[/green]"
+                        f"  [green]Alert sent to Slack channel {dest_hint}[/green]"
                     )
                 except Exception as e:
                     self.console.print(
