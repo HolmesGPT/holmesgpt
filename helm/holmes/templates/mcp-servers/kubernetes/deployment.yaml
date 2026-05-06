@@ -13,6 +13,7 @@
   {{- $configSecretName = printf "%s-k8s-mcp-server-config" .Release.Name -}}
 {{- end -}}
 {{- $useConfigFile := ne $configSecretName "" -}}
+{{- $configSecretKey := ternary "config.toml" (.Values.mcpAddons.kubernetes.config.configSecret.secretKey | default "config.toml") (ne $serverConfig "") -}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -156,12 +157,18 @@ spec:
         secret:
           secretName: {{ .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
           defaultMode: 420
+          items:
+          - key: {{ .Values.mcpAddons.kubernetes.config.kubeconfig.secretKey | default "kubeconfig" }}
+            path: kubeconfig
       {{- end }}
       {{- if $useConfigFile }}
       - name: mcp-config
         secret:
           secretName: {{ $configSecretName }}
           defaultMode: 420
+          items:
+          - key: {{ $configSecretKey }}
+            path: config.toml
       {{- end }}
       {{- end }}
 ---
