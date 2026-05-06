@@ -144,12 +144,16 @@ def test_late_completion_does_not_overwrite_failed_status():
     """A worker that finishes after the timeout must not flip the toolset back to ENABLED."""
     started = threading.Event()
     release = threading.Event()
+    finished = threading.Event()
 
     def slow_then_succeed(_config: Dict[str, Any]) -> Tuple[bool, str]:
         started.set()
         # Wait for the timeout handler to mark us FAILED and set _prereq_aborted.
         release.wait(timeout=5)
-        return True, ""
+        try:
+            return True, ""
+        finally:
+            finished.set()
 
     ts = _make_toolset("eventually_ok", slow_then_succeed)
 
@@ -163,8 +167,11 @@ def test_late_completion_does_not_overwrite_failed_status():
         assert started.wait(timeout=2)
         assert ts.status == ToolsetStatusEnum.FAILED
         release.set()
-        # Give the worker a moment to attempt its commit.
-        time.sleep(0.2)
+        # Block until the worker has actually returned, instead of sleeping.
+        # check_prerequisites runs after the callable returns and re-checks
+        # the abort flag before any commit, so once `finished` is set we know
+        # the post-release write window has elapsed.
+        assert finished.wait(timeout=5), "worker did not return after release"
         # Status must remain FAILED; the abort guard blocks the late write.
         assert ts.status == ToolsetStatusEnum.FAILED
         assert ts.error and "did not complete" in ts.error
@@ -175,13 +182,13 @@ def test_late_completion_does_not_overwrite_failed_status():
 def test_default_timeout_picked_up_from_env(monkeypatch):
     """The timeout default is read from HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS."""
     monkeypatch.setenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", "7.5")
-    assert tm._get_prereq_timeout_seconds() == pytest.approx(7.5)
+    assert tm.get_prereq_timeout_seconds() == pytest.approx(7.5)
 
     monkeypatch.setenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", "not-a-number")
-    assert tm._get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    assert tm.get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
 
     monkeypatch.setenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", "0")
-    assert tm._get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    assert tm.get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
 
     monkeypatch.delenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", raising=False)
-    assert tm._get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    assert tm.get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS

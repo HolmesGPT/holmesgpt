@@ -6,6 +6,20 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
+from benedict import benedict
+from pydantic import FilePath
+
+from holmes.core.config import config_path_dir
+from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, ToolsetStatus
+from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
+from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
+from holmes.utils.config_hash import check_and_update_config_hashes
+from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
+
+if TYPE_CHECKING:
+    pass
+
 display_logger = logging.getLogger("holmes.display.toolset_manager")
 
 # Default per-prerequisite-check timeout. Datasources that fail to respond
@@ -14,7 +28,8 @@ display_logger = logging.getLogger("holmes.display.toolset_manager")
 DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS = 20.0
 
 
-def _get_prereq_timeout_seconds() -> float:
+def get_prereq_timeout_seconds() -> float:
+    """Resolve the prerequisite-check timeout from env or fall back to default."""
     raw = os.environ.get("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS")
     if not raw:
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
@@ -30,19 +45,6 @@ def _get_prereq_timeout_seconds() -> float:
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
     return value
 
-from benedict import benedict
-from pydantic import FilePath
-
-from holmes.core.config import config_path_dir
-from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, ToolsetStatus
-from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
-from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
-from holmes.utils.config_hash import check_and_update_config_hashes
-from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
-
-if TYPE_CHECKING:
-    pass
 
 DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status.json")
 
@@ -238,7 +240,7 @@ class ToolsetManager:
         the underlying call returns.
         """
         if timeout_seconds is None:
-            timeout_seconds = _get_prereq_timeout_seconds()
+            timeout_seconds = get_prereq_timeout_seconds()
 
         if not toolsets:
             return
@@ -284,7 +286,7 @@ class ToolsetManager:
                     # otherwise leave ts in a stale state.
                     try:
                         future.result()
-                    except BaseException as exc:  # noqa: BLE001
+                    except Exception as exc:
                         logging.exception(
                             "Toolset %s prerequisite worker crashed", ts.name
                         )

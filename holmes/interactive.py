@@ -51,7 +51,7 @@ from rich.text import Text
 from holmes.config import Config
 from holmes.core.config import config_path_dir
 from holmes.core.init_event import StatusEvent, StatusEventKind, ToolsetStatus
-from holmes.core.toolset_manager import _get_prereq_timeout_seconds
+from holmes.core.toolset_manager import get_prereq_timeout_seconds
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
     Feedback,
@@ -176,7 +176,7 @@ class InitProgressRenderer:
         self._timer_stop = threading.Event()
         # Read once — _build_display() runs every frame, and the env-var
         # parser also logs a warning when the value is invalid.
-        self._prereq_timeout_secs = _get_prereq_timeout_seconds()
+        self._prereq_timeout_secs = get_prereq_timeout_seconds()
 
     def _build_display(self) -> "Text":
         """Build the Rich renderable for the current state."""
