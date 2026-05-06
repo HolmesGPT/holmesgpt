@@ -240,7 +240,19 @@ class ToolsetManager:
         if timeout_seconds is None:
             timeout_seconds = _get_prereq_timeout_seconds()
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+        if not toolsets:
+            return
+
+        # Size the pool to the batch so no toolset has to wait in the queue.
+        # A queued toolset would inherit whatever time is left on the deadline
+        # and could be reported as "timed out" without ever having run.
+        max_workers = max(1, len(toolsets))
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+
+        # Reset any abort flag from a previous call so we don't no-op the check.
+        for toolset in toolsets:
+            toolset._prereq_aborted = False
+
         try:
             future_to_toolset: dict[concurrent.futures.Future, Toolset] = {}
             for toolset in toolsets:
@@ -248,6 +260,9 @@ class ToolsetManager:
                     on_event(StatusEvent(kind=StatusEventKind.TOOLSET_CHECKING, name=toolset.name))
                 future_to_toolset[executor.submit(toolset.check_prerequisites, silent)] = toolset
 
+            # Single deadline shared across the batch. With max_workers ==
+            # len(toolsets) every check starts immediately, so this functions
+            # as a per-toolset wall-clock budget too.
             deadline = time.monotonic() + timeout_seconds
             pending = set(future_to_toolset.keys())
             while pending:
@@ -275,6 +290,11 @@ class ToolsetManager:
 
             for future in pending:
                 ts = future_to_toolset[future]
+                # Tell the still-running worker to stop mutating ts.status /
+                # ts.error before we write our own FAILED state. Toolset.
+                # check_prerequisites accumulates results in locals and only
+                # commits once at the end after re-checking this flag.
+                ts._prereq_aborted = True
                 ts.status = ToolsetStatusEnum.FAILED
                 ts.error = (
                     f"Prerequisite check did not complete within "

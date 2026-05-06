@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 
 import pytest
 
+from holmes.core import toolset_manager as tm
 from holmes.core.init_event import StatusEvent, StatusEventKind, ToolsetStatus
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -115,10 +116,40 @@ def test_check_toolset_prerequisites_no_timeout_when_all_fast():
     assert all(e.status == ToolsetStatus.ENABLED for e in ready_events)
 
 
+def test_late_completion_does_not_overwrite_failed_status():
+    """A worker that finishes after the timeout must not flip the toolset back to ENABLED."""
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_then_succeed(_config: Dict[str, Any]) -> Tuple[bool, str]:
+        started.set()
+        # Wait for the timeout handler to mark us FAILED and set _prereq_aborted.
+        release.wait(timeout=5)
+        return True, ""
+
+    ts = _make_toolset("eventually_ok", slow_then_succeed)
+
+    try:
+        ToolsetManager.check_toolset_prerequisites(
+            [ts],
+            silent=True,
+            timeout_seconds=0.3,
+        )
+        # The worker is still running; let it finish so it tries to commit.
+        assert started.wait(timeout=2)
+        assert ts.status == ToolsetStatusEnum.FAILED
+        release.set()
+        # Give the worker a moment to attempt its commit.
+        time.sleep(0.2)
+        # Status must remain FAILED; the abort guard blocks the late write.
+        assert ts.status == ToolsetStatusEnum.FAILED
+        assert ts.error and "did not complete" in ts.error
+    finally:
+        release.set()
+
+
 def test_default_timeout_picked_up_from_env(monkeypatch):
     """The timeout default is read from HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS."""
-    from holmes.core import toolset_manager as tm
-
     monkeypatch.setenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", "7.5")
     assert tm._get_prereq_timeout_seconds() == pytest.approx(7.5)
 

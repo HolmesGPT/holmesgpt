@@ -174,6 +174,9 @@ class InitProgressRenderer:
         self._start_time: float = 0.0
         self._live: Optional[Any] = None  # Rich Live
         self._timer_stop = threading.Event()
+        # Read once — _build_display() runs every frame, and the env-var
+        # parser also logs a warning when the value is invalid.
+        self._prereq_timeout_secs = _get_prereq_timeout_seconds()
 
     def _build_display(self) -> "Text":
         """Build the Rich renderable for the current state."""
@@ -210,7 +213,7 @@ class InitProgressRenderer:
         # Show in-flight toolsets that are taking more than 1 second.
         # Color escalates as the duration approaches the prerequisite timeout
         # so the user can see at a glance which datasource is the culprit.
-        timeout_secs = _get_prereq_timeout_seconds()
+        timeout_secs = self._prereq_timeout_secs
         slow: List[tuple[str, float]] = []
         for name, started_at in self._in_flight.items():
             duration = now - started_at
