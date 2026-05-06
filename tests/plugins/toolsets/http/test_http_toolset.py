@@ -158,6 +158,36 @@ class TestHttpToolsetHostMatching:
         assert "api.github.com" in endpoint.hosts
 
 
+    def test_path_traversal_dotdot_rejected(self, toolset):
+        # CWE-22 / CWE-918: '..' in path must not bypass the whitelist;
+        # urllib3 normalises '..' before sending.
+        endpoint, error = toolset.match_endpoint(
+            "https://example.com/api/../admin"
+        )
+        assert endpoint is None
+        assert error is not None and "traversal" in error
+
+    def test_path_traversal_encoded_rejected(self, toolset):
+        endpoint, error = toolset.match_endpoint(
+            "https://example.com/api/%2e%2e/admin"
+        )
+        assert endpoint is None
+        assert error is not None and "traversal" in error
+
+    def test_path_single_dot_segment_rejected(self, toolset):
+        endpoint, error = toolset.match_endpoint(
+            "https://example.com/api/./users"
+        )
+        assert endpoint is None
+        assert error is not None and "traversal" in error
+
+    def test_non_http_scheme_rejected(self, toolset):
+        # file:// and similar schemes must not be honoured by the HTTP toolset.
+        endpoint, error = toolset.match_endpoint("file:///etc/passwd")
+        assert endpoint is None
+        assert error is not None
+
+
 class TestHttpToolsetMethodCheck:
     @pytest.fixture
     def toolset(self):
