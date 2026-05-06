@@ -267,6 +267,51 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::582802577213:role/HolmesReadOnly"
     region     = "us-east-1"
   }
+  # ── EP Payments ─────────────────────────────────────────────────────────
+  aws-pdi-ep-payments-prod = {
+    account_id = "198386896451"
+    role_arn   = "arn:aws:iam::198386896451:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  aws-pdi-ep-payments-stage = {
+    account_id = "003480668535"
+    role_arn   = "arn:aws:iam::003480668535:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── ERP Skupos Retail Integrations ──────────────────────────────────────
+  erp-skupos-retail-integrations-prod = {
+    account_id = "640131422250"
+    role_arn   = "arn:aws:iam::640131422250:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  erp-skupos-retail-integrations-stage = {
+    account_id = "566348778577"
+    role_arn   = "arn:aws:iam::566348778577:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Cybera ──────────────────────────────────────────────────────────────
+  pdi-cybera-prod = {
+    account_id = "483271369038"
+    role_arn   = "arn:aws:iam::483271369038:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-cybera-stage = {
+    account_id = "923510870796"
+    role_arn   = "arn:aws:iam::923510870796:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Telapoint ───────────────────────────────────────────────────────────
+  pdi-telapoint-prod = {
+    account_id = "516716174645"
+    role_arn   = "arn:aws:iam::516716174645:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Data Services (additional stage account) ────────────────────────────
+  pdi-data-services-stage = {
+    account_id = "445971787817"
+    role_arn   = "arn:aws:iam::445971787817:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
