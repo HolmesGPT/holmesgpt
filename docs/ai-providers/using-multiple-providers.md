@@ -6,10 +6,9 @@ Define multiple model configurations and switch between them by name. This is us
 
 === "Holmes CLI"
 
-    **1. Create a model list file:**
+    **1. Create `~/.holmes/model_list.yaml`:**
 
     ```yaml
-    # model_list.yaml
     sonnet:
         aws_access_key_id: "your-access-key"
         aws_region_name: us-east-1
@@ -28,13 +27,7 @@ Define multiple model configurations and switch between them by name. This is us
         temperature: 0
     ```
 
-    **2. Set the environment variable:**
-
-    ```bash
-    export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
-    ```
-
-    **3. Use models by name:**
+    **2. Use models by name:**
 
     ```bash
     holmes ask "what pods are failing?" --model=sonnet --no-interactive
@@ -44,6 +37,8 @@ Define multiple model configurations and switch between them by name. This is us
     When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
 
     **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
+
+    **Custom path:** To load the model list from a different location, set `MODEL_LIST_FILE_LOCATION=/path/to/model_list.yaml`.
 
 === "Holmes Helm Chart"
 
