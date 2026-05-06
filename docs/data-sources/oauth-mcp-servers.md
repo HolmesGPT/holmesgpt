@@ -1,8 +1,5 @@
 # OAuth MCP Servers
 
-!!! warning "Alpha Feature"
-    OAuth MCP server support is a new feature and will experience rapid improvements. Configuration and behavior may change between releases.
-
 Some MCP servers support OAuth-based authentication natively — you only need to set `oauth.enabled: true` and Holmes handles the rest. When Holmes connects to an OAuth-enabled MCP server, it automatically discovers the server's OAuth endpoints, opens a browser for login, and persists the token for future use.
 
 ## Setup
