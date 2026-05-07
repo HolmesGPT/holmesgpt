@@ -26,6 +26,10 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-confluence-mcp-server
   namespace: {{ .Release.Namespace }}
+  {{- with .Values.mcpAddons.confluenceMcp.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   labels:
     app: {{ .Release.Name }}-confluence-mcp
     app.kubernetes.io/name: confluence-mcp-server

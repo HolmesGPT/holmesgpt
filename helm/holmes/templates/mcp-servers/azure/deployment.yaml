@@ -43,6 +43,10 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-azure-mcp-server
   namespace: {{ .Values.mcpAddons.azure.config.namespace | default .Release.Namespace }}
+  {{- with .Values.mcpAddons.azure.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   labels:
     app: {{ .Release.Name }}-azure-mcp
     app.kubernetes.io/name: azure-mcp-server
