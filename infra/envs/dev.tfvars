@@ -313,6 +313,29 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::445971787817:role/HolmesReadOnly"
     region     = "us-east-1"
   }
+  # ── Fuel Pricing ────────────────────────────────────────────────────────
+  pdi-fuelpricing-prod = {
+    account_id = "498623468443"
+    role_arn   = "arn:aws:iam::498623468443:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-fuelpricing-stage = {
+    account_id = "118187397259"
+    role_arn   = "arn:aws:iam::118187397259:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── Platform myPDI ──────────────────────────────────────────────────────
+  pdi-platform-mypdi-prod = {
+    account_id = "208790448711"
+    role_arn   = "arn:aws:iam::208790448711:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  # ── WebCAT ──────────────────────────────────────────────────────────────
+  pdi-webcat-prod = {
+    account_id = "374902171948"
+    role_arn   = "arn:aws:iam::374902171948:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
 }
 
 # Enable the AWS MCP server addon now that real account IDs are set
