@@ -1575,10 +1575,6 @@ def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
 
         app.run()
 
-        # Erase residual blank lines left behind by the full-screen modal
-        sys.stdout.write("\033[J")
-        sys.stdout.flush()
-
     except Exception as e:
         # Fallback to regular display
         console.print(f"[bold red]Error showing modal: {e}[/bold red]")
