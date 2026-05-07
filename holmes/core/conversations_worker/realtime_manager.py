@@ -488,7 +488,7 @@ class RealtimeManager:
         topic = pg_changes_topic(self.dal.account_id)
         self._channel = self._client.channel(
             topic,
-            {"config": {"private": False}},
+            {"config": {"private": True, "presence": {"enabled": False}}},
         )
 
         def _on_pg_change(payload: Dict[str, Any]) -> None:
@@ -565,7 +565,7 @@ class RealtimeManager:
         topic = broadcast_submit_topic(self.dal.account_id, self.dal.cluster)
         self._channel = self._client.channel(
             topic,
-            {"config": {"private": False}},
+            {"config": {"private": True, "presence": {"enabled": False}}},
         )
 
         def _on_broadcast(payload: Dict[str, Any]) -> None:
