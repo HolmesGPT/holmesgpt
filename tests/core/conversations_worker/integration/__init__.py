@@ -145,7 +145,7 @@ class SupabaseFixture:
                     url=ws_url, token=self._api_key, auto_reconnect=True
                 )
                 await rt.connect()
-                ch = rt.channel(topic, {"config": {"private": False}})
+                ch = rt.channel(topic, {"config": {"private": True}})
                 subscribed = asyncio.Event()
 
                 def _on_sub(status: Any, err: Any = None) -> None:
