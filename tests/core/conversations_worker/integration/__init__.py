@@ -145,7 +145,17 @@ class SupabaseFixture:
                     url=ws_url, token=self._api_key, auto_reconnect=True
                 )
                 await rt.connect()
-                ch = rt.channel(topic, {"config": {"private": False}})
+                # Authenticate as the logged-in test user so the realtime.messages
+                # RLS policies (which gate on is_account_user_role / cluster perms)
+                # can resolve. Without this, the channel runs as anon and the join
+                # is rejected — Supabase drops the WS with code 1006.
+                session = self.client.auth.get_session()
+                if session and session.access_token:
+                    await rt.set_auth(session.access_token)
+                ch = rt.channel(
+                    topic,
+                    {"config": {"private": True, "presence": {"enabled": False}}},
+                )
                 subscribed = asyncio.Event()
 
                 def _on_sub(status: Any, err: Any = None) -> None:
