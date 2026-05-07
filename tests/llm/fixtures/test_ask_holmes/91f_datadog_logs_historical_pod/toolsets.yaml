@@ -12,7 +12,6 @@ toolsets:
       api_url: "https://api.us5.datadoghq.com"
       indexes:
         - "*"
-      storage_tiers:
-        - "indexes"
+      storage_tier: indexes
       page_size: 300
       default_limit: 1000

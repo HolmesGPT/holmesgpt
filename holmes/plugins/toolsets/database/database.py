@@ -18,6 +18,7 @@ from holmes.core.tools import (
     ToolParameter,
     Toolset,
     ToolsetTag,
+    ToolsetType,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -59,6 +60,7 @@ class DatabaseSubtype(str, Enum):
 @dataclass
 class DatabaseDriverInfo:
     """Holds the database subtype and the preferred SQLAlchemy driver override."""
+
     subtype: DatabaseSubtype
     driver: Optional[str]  # SQLAlchemy driver string, None = use URL as-is
 
@@ -195,8 +197,9 @@ class DatabaseToolset(Toolset):
             name=name,
             enabled=enabled,
             description=description,
+            type=ToolsetType.DATABASE,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/database/",
-            icon_url="https://www.postgresql.org/favicon.ico",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/postgresql.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],
             tags=[ToolsetTag.CORE],
@@ -212,13 +215,22 @@ class DatabaseToolset(Toolset):
             os.path.dirname(__file__), "instructions.jinja2"
         )
 
-        # Resolve subtype: explicit config > auto-detect later from connection URL
+        # Resolve subtype: explicit config > auto-detect later from connection URL.
+        # Unknown subtypes are user typos with no legitimate interpretation —
+        # raise so they surface as a visible failed toolset in the UI rather
+        # than silently falling back to UNKNOWN (which would then auto-detect
+        # from the URL, making the typo completely invisible).
         self._subtype: DatabaseSubtype = DatabaseSubtype.UNKNOWN
         if subtype_str:
             try:
                 self._subtype = DatabaseSubtype(subtype_str)
-            except ValueError:
-                logger.warning(f"Unknown database subtype '{subtype_str}', using UNKNOWN")
+            except ValueError as exc:
+                valid = ", ".join(s.value for s in DatabaseSubtype)
+                raise ValueError(
+                    f"Unknown database subtype '{subtype_str}'. "
+                    f"Valid values: {valid}. "
+                    "Omit `subtype` to auto-detect from the connection URL."
+                ) from exc
 
         # Set initial meta — updated with detected subtype in prerequisites_callable
         self.meta = {"type": "database", "subtype": self._subtype.value}
@@ -232,7 +244,6 @@ class DatabaseToolset(Toolset):
                 + self._user_llm_instructions
             )
 
-
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
             self.config = DatabaseConfig(**config)
@@ -242,7 +253,7 @@ class DatabaseToolset(Toolset):
             self.meta = {"type": "database", "subtype": self._subtype.value}
             return self._perform_health_check()
         except Exception as e:
-            return False, f"Failed to validate database configuration: {e}"
+            return False, f"Invalid database configuration: {e}"
 
     def _perform_health_check(self) -> Tuple[bool, str]:
         try:
@@ -287,9 +298,7 @@ class DatabaseToolset(Toolset):
                 connect_args["TrustServerCertificate"] = "yes"
 
         return sqlalchemy.create_engine(
-            url,
-            pool_pre_ping=True,
-            connect_args=connect_args
+            url, pool_pre_ping=True, connect_args=connect_args
         )
 
     @property
@@ -323,7 +332,9 @@ class DatabaseToolset(Toolset):
                     f"Received: {sql[:80]}"
                 )
 
-        effective_limit = min(limit or self.database_config.max_rows, self.database_config.max_rows)
+        effective_limit = min(
+            limit or self.database_config.max_rows, self.database_config.max_rows
+        )
         url = _normalise_url(self.database_config.connection_url)
         engine = self._create_engine(url)
         try:
@@ -359,7 +370,9 @@ class DatabaseToolset(Toolset):
                         "rows": [],
                         "row_count": 0,
                         "truncated": False,
-                        "rows_affected": result.rowcount if result.rowcount >= 0 else None,
+                        "rows_affected": result.rowcount
+                        if result.rowcount >= 0
+                        else None,
                     }
         finally:
             engine.dispose()

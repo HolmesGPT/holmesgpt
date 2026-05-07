@@ -13,21 +13,26 @@ import json
 import logging
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 import colorlog
 import litellm
+from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
+from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
+from holmes.core.oauth_utils import _get_token_manager
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from litellm.exceptions import AuthenticationError
 
 from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
     DEVELOPMENT_MODE,
     ENABLE_CONNECTION_KEEPALIVE,
+    ENABLE_CONVERSATION_WORKER,
     ENABLE_TELEMETRY,
     ENABLED_SCHEDULED_PROMPTS,
     HOLMES_HOST,
@@ -37,6 +42,7 @@ from holmes.common.env_vars import (
     SENTRY_DSN,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+    TRACE_TOKEN_USAGE,
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.conversations import (
@@ -46,6 +52,8 @@ from holmes.core.models import (
     ChatRequest,
     ChatResponse,
     FollowUpAction,
+    OAuthCallbackRequest,
+    OAuthCallbackResponse,
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
@@ -53,15 +61,16 @@ from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
+from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
-from holmes.core.models import FrontendToolMode
-from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool, build_frontend_pause_tool
+from holmes.core.tools_utils.frontend_tools import (
+    FrontendToolCollisionError,
+    inject_frontend_tools,
+)
 from holmes.core.tracing import TracingFactory
 from holmes.utils.stream import stream_chat_formatter
-
-# removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
@@ -137,6 +146,11 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
+    if conversation_worker is not None:
+        try:
+            conversation_worker.start()
+        except Exception:
+            logging.error("Failed to start conversation worker", exc_info=True)
     if not ENABLED_SCHEDULED_PROMPTS:
         return
     # No need to check if dal is enabled again, done at the start of this function
@@ -251,6 +265,27 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
 
 app = FastAPI()
 
+HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
+
+if HOLMES_API_KEY:
+    logging.info("API key authentication enabled (HOLMES_API_KEY is set)")
+
+    @app.middleware("http")
+    async def api_key_auth(request: Request, call_next):
+        """Reject requests missing a valid API key (X-API-Key or Bearer token)."""
+        if request.url.path in AUTH_EXEMPT_PATHS:
+            return await call_next(request)
+
+        key = extract_api_key(request)
+
+        if key != HOLMES_API_KEY:
+            logging.warning("Unauthorized request: %s %s", request.method, request.url.path)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or missing API key"},
+            )
+        return await call_next(request)
+
 if LOG_PERFORMANCE:
 
     @app.middleware("http")
@@ -272,6 +307,27 @@ if LOG_PERFORMANCE:
 
 
 init_checks_app(app, config)
+
+
+@app.post("/api/oauth/callback")
+def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
+    logging.info(
+        "OAuth callback: toolset=%s client_id=%s client_secret_present=%s code_present=%s code_verifier_present=%s redirect_uri=%s",
+        request.toolset_name, request.client_id, bool(request.client_secret), bool(request.code),
+        bool(request.code_verifier), request.redirect_uri,
+    )
+    try:
+        executor = config.create_tool_executor(dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED)
+        return process_oauth_callback(request, executor.toolsets, _get_token_manager(), executor=executor)
+    except OAuthConfigLookupError as e:
+        logging.error("OAuth config error for '%s': %s", request.toolset_name, e.detail)
+        raise HTTPException(status_code=400, detail=e.detail)
+    except OAuthTokenExchangeError as e:
+        logging.error("OAuth token exchange failed for '%s': %s", request.toolset_name, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logging.error(f"OAuth callback failed for '{request.toolset_name}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def already_answered(conversation_history: Optional[List[dict]]) -> bool:
@@ -349,7 +405,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             f"streaming={chat_request.stream}"
         )
 
-        runbooks = config.get_runbook_catalog()
+        skills = config.get_skill_catalog()
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -387,9 +443,13 @@ def chat(chat_request: ChatRequest, http_request: Request):
             ]
 
         request_context = extract_passthrough_headers(http_request)
+        if chat_request.user_id:
+            request_context.setdefault("headers", {})
+            request_context["user_id"] = chat_request.user_id
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
+
         ai = config.create_toolcalling_llm(
             dal=dal,
             toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
@@ -400,60 +460,50 @@ def chat(chat_request: ChatRequest, http_request: Request):
             tracer=server_tracer,
             tool_results_dir=tool_results_dir,
         )
+
         global_instructions = dal.get_global_instructions_for_account()
-        messages = build_chat_messages(
-            chat_request.ask,
-            chat_request.conversation_history,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            additional_system_prompt=chat_request.additional_system_prompt,
-            runbooks=runbooks,
-            images=chat_request.images,
-            prompt_component_overrides=prompt_component_overrides,
+
+        # A follow-up may carry only tool_decisions / frontend_tool_results
+        # (no new user question). In that case, resume from the existing
+        # conversation_history without appending an empty user message —
+        # otherwise the LLM sees a content-less user turn and responds with
+        # something like "looks like your question is empty, how can I help?".
+        resume_only = bool(
+            not chat_request.ask
+            and chat_request.conversation_history
+            and (chat_request.tool_decisions or chat_request.frontend_tool_results)
         )
+        if resume_only:
+            messages = list(chat_request.conversation_history)
+        else:
+            messages = build_chat_messages(
+                chat_request.ask,
+                chat_request.conversation_history,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+                additional_system_prompt=chat_request.additional_system_prompt,
+                skills=skills,
+                images=chat_request.images,
+                prompt_component_overrides=prompt_component_overrides,
+            )
 
-        # Build a per-request AI instance with frontend tools injected into the executor
-        request_ai = ai
-        has_pause_tools = False
-        if chat_request.frontend_tools:
-            # Validate no name collisions with backend tools
-            backend_tool_names = set(ai.tool_executor.tools_by_name.keys())
-            frontend_tool_instances = []
-            for ft in chat_request.frontend_tools:
-                if ft.name in backend_tool_names:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Frontend tool name '{ft.name}' conflicts with a built-in Holmes tool. Use a different name.",
-                    )
-                if ft.mode == FrontendToolMode.NOOP:
-                    frontend_tool_instances.append(
-                        build_frontend_noop_tool(
-                            name=ft.name,
-                            description=ft.description,
-                            parameters=ft.parameters,
-                            canned_response=ft.noop_response,
-                        )
-                    )
-                else:
-                    has_pause_tools = True
-                    frontend_tool_instances.append(
-                        build_frontend_pause_tool(
-                            name=ft.name,
-                            description=ft.description,
-                            parameters=ft.parameters,
-                        )
-                    )
+        try:
+            request_ai, has_pause_tools = inject_frontend_tools(
+                ai, chat_request.frontend_tools
+            )
+        except FrontendToolCollisionError as e:
+            # Storage was opened above; the streaming/non-streaming branches
+            # below own its cleanup, but early validation failures bypass them.
+            storage.__exit__(None, None, None)
+            raise HTTPException(status_code=400, detail=str(e))
 
-            # Pause-mode tools require streaming (the pause/resume flow needs SSE)
-            if has_pause_tools and not chat_request.stream:
-                raise HTTPException(
-                    status_code=400,
-                    detail="frontend_tools with mode='pause' requires stream=true (the pause/resume flow needs SSE)",
-                )
-
-            cloned_executor = ai.tool_executor.clone_with_extra_tools(frontend_tool_instances)
-            request_ai = ai.with_executor(cloned_executor)
+        if has_pause_tools and not chat_request.stream:
+            storage.__exit__(None, None, None)
+            raise HTTPException(
+                status_code=400,
+                detail="frontend_tools with mode='pause' requires stream=true (the pause/resume flow needs SSE)",
+            )
 
         if chat_request.stream:
             # Create root investigation span for streaming (same as non-streaming)
@@ -478,6 +528,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span=trace_span,
                 ),
                 [f.model_dump() for f in follow_up_actions],
+                model=chat_request.model or config.model,
             )
             return StreamingResponse(
                 _stream_with_trace_cleanup(storage, stream, req_info, trace_span),
@@ -496,7 +547,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     })
 
                 _inv_start = time.time()
-                llm_call = ai.call(
+                llm_call = request_ai.call(
                     messages=messages,
                     trace_span=trace_span,
                     response_format=chat_request.response_format,
@@ -512,7 +563,15 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     if hasattr(llm_call, "num_llm_calls") and llm_call.num_llm_calls:
                         otel_metrics.investigation_iterations.record(llm_call.num_llm_calls, inv_attrs)
 
-                logging.info(f"Completed {req_info}")
+                if TRACE_TOKEN_USAGE:
+                    logging.info(
+                        f"Completed {req_info} | model={chat_request.model or config.model}, "
+                        f"input={llm_call.prompt_tokens}, output={llm_call.completion_tokens}, "
+                        f"cached={llm_call.cached_tokens}, total={llm_call.total_tokens}, "
+                        f"cost=${llm_call.total_cost:.4f}"
+                    )
+                else:
+                    logging.info(f"Completed {req_info}")
                 response = ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
@@ -525,6 +584,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 if trace_span is not None:
                     trace_span.end()
                 storage.__exit__(None, None, None)
+    except HTTPException:
+        # The generic ``except Exception`` below would otherwise rewrite these as 500.
+        raise
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:
@@ -537,6 +599,14 @@ def chat(chat_request: ChatRequest, http_request: Request):
 scheduled_prompts_executor = ScheduledPromptsExecutor(
     dal=dal, config=config, chat_function=chat
 )
+
+conversation_worker = None
+if ENABLE_CONVERSATION_WORKER:
+    from holmes.core.conversations_worker import ConversationWorker
+
+    conversation_worker = ConversationWorker(
+        dal=dal, config=config, chat_function=chat
+    )
 
 
 @app.get("/api/model")

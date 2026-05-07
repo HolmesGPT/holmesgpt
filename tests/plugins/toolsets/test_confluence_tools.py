@@ -3,18 +3,23 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+from pydantic import ValidationError
+
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.plugins.toolsets.confluence.confluence import (
     ATLASSIAN_GATEWAY_BASE,
-    ConfluenceConfig,
+    ConfluenceCloudConfig,
+    ConfluenceDataCenterBasicConfig,
+    ConfluenceDataCenterPATConfig,
     ConfluenceToolset,
+    determine_confluence_class,
 )
 
 
 @pytest.fixture()
 def toolset():
     ts = ConfluenceToolset()
-    ts.config = ConfluenceConfig(
+    ts.config = ConfluenceCloudConfig(
         api_url="https://test.atlassian.net",
         user="user@test.com",
         api_key="fake-token",
@@ -96,7 +101,7 @@ class TestGatewayAutoDetection:
     def test_gateway_url_used_when_activated(self):
         """Once gateway is activated, effective base uses the gateway URL."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceCloudConfig(
             api_url="https://mycompany.atlassian.net",
             user="user@test.com",
             api_key="token",
@@ -202,7 +207,7 @@ class TestHttpToolsetDelegation:
     def test_builds_basic_auth_endpoint(self):
         """Basic auth config produces an endpoint with basic auth."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceCloudConfig(
             api_url="https://mycompany.atlassian.net",
             user="user@test.com",
             api_key="api-token",
@@ -217,11 +222,9 @@ class TestHttpToolsetDelegation:
     def test_builds_bearer_auth_endpoint(self):
         """Bearer auth config produces an endpoint with bearer auth."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceDataCenterPATConfig(
             api_url="https://confluence.internal.com",
             api_key="pat-token",
-            auth_type="bearer",
-            api_path_prefix="",
         )
         endpoint = ts._build_endpoint_config()
 
@@ -232,7 +235,7 @@ class TestHttpToolsetDelegation:
     def test_gateway_produces_bearer_endpoint(self):
         """When gateway is active, endpoint uses bearer auth and gateway host."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceCloudConfig(
             api_url="https://mycompany.atlassian.net",
             user="user@test.com",
             api_key="scoped-token",
@@ -249,7 +252,7 @@ class TestHttpToolsetDelegation:
     def test_setup_http_tools_registers_tool(self):
         """After setup, the toolset has exactly one HTTP request tool."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceCloudConfig(
             api_url="https://mycompany.atlassian.net",
             user="user@test.com",
             api_key="api-token",
@@ -269,7 +272,7 @@ class TestHttpToolsetDelegation:
     def test_llm_instructions_contain_base_url(self):
         """LLM instructions include the effective base URL for the LLM to use."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceCloudConfig(
             api_url="https://mycompany.atlassian.net",
             user="user@test.com",
             api_key="api-token",
@@ -283,7 +286,7 @@ class TestHttpToolsetDelegation:
     def test_llm_instructions_use_gateway_url(self):
         """When gateway is active, LLM instructions use the gateway base URL."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceCloudConfig(
             api_url="https://mycompany.atlassian.net",
             user="user@test.com",
             api_key="api-token",
@@ -298,14 +301,199 @@ class TestHttpToolsetDelegation:
     def test_data_center_empty_prefix(self):
         """Data Center with empty prefix produces correct paths."""
         ts = ConfluenceToolset()
-        ts.config = ConfluenceConfig(
+        ts.config = ConfluenceDataCenterPATConfig(
             api_url="https://confluence.internal.com",
             api_key="pat-token",
-            auth_type="bearer",
-            api_path_prefix="",
         )
         endpoint = ts._build_endpoint_config()
 
         assert "/rest/api/*" in endpoint.paths[0]
         # Should NOT have /wiki prefix
         assert "/wiki" not in endpoint.paths[0]
+
+
+# ---------------------------------------------------------------------------
+# Variant ClassVars and field surface
+# ---------------------------------------------------------------------------
+
+
+class TestVariantClassVars:
+    """Each variant declares auth_type and api_path_prefix as class-level
+    facts, not user-config fields."""
+
+    def test_cloud_classvars(self):
+        cfg = ConfluenceCloudConfig(
+            api_url="https://x.atlassian.net",
+            user="u@x.com",
+            api_key="k",
+        )
+        assert cfg.auth_type == "basic"
+        assert cfg.api_path_prefix == "/wiki"
+
+    def test_dc_pat_classvars(self):
+        cfg = ConfluenceDataCenterPATConfig(
+            api_url="https://confluence.x.com",
+            api_key="pat",
+        )
+        assert cfg.auth_type == "bearer"
+        assert cfg.api_path_prefix == ""
+
+    def test_dc_basic_classvars(self):
+        cfg = ConfluenceDataCenterBasicConfig(
+            api_url="https://confluence.x.com",
+            user="u",
+            api_key="pw",
+        )
+        assert cfg.auth_type == "basic"
+        assert cfg.api_path_prefix == ""
+
+    def test_classvars_not_pydantic_fields(self):
+        """auth_type and api_path_prefix are ClassVars, not model fields."""
+        for cls in (
+            ConfluenceCloudConfig,
+            ConfluenceDataCenterPATConfig,
+            ConfluenceDataCenterBasicConfig,
+        ):
+            assert "auth_type" not in cls.model_fields
+            assert "api_path_prefix" not in cls.model_fields
+
+    def test_cloud_id_only_on_cloud(self):
+        """cloud_id is a real field on Cloud; not declared on DC variants."""
+        assert "cloud_id" in ConfluenceCloudConfig.model_fields
+        assert "cloud_id" not in ConfluenceDataCenterPATConfig.model_fields
+        assert "cloud_id" not in ConfluenceDataCenterBasicConfig.model_fields
+
+
+class TestVariantFieldRequirements:
+    """Each variant enforces required fields via Pydantic directly — no
+    hand-rolled validate_auth needed."""
+
+    def test_cloud_requires_user(self):
+        with pytest.raises(ValidationError):
+            ConfluenceCloudConfig(
+                api_url="https://x.atlassian.net",
+                api_key="k",
+            )
+
+    def test_dc_basic_requires_user(self):
+        with pytest.raises(ValidationError):
+            ConfluenceDataCenterBasicConfig(
+                api_url="https://confluence.x.com",
+                api_key="pw",
+            )
+
+    def test_dc_pat_does_not_require_user(self):
+        # Should not raise — DC PAT doesn't declare `user` at all (the PAT
+        # itself identifies the owning user server-side).
+        ConfluenceDataCenterPATConfig(
+            api_url="https://confluence.x.com",
+            api_key="pat",
+        )
+        assert "user" not in ConfluenceDataCenterPATConfig.model_fields
+
+
+class TestVariantSchema:
+    """The frontend reads each variant's JSON schema; verify hidden fields
+    are stripped and ClassVars don't appear at all."""
+
+    def _schema_for(self, variant_cls):
+        ts = ConfluenceToolset()
+        schemas = ts.get_config_schema()
+        assert schemas is not None
+        return schemas[variant_cls.__name__]["schema"]
+
+    def test_cloud_schema_omits_classvars_and_hidden_fields(self):
+        schema = self._schema_for(ConfluenceCloudConfig)
+        props = set(schema.get("properties", {}).keys())
+        assert "auth_type" not in props  # ClassVar, not a field
+        assert "api_path_prefix" not in props  # ClassVar
+        assert "cloud_id" not in props  # in _hidden_fields
+        # User-facing fields remain.
+        assert {"api_url", "user", "api_key"}.issubset(props)
+
+    def test_dc_pat_schema_omits_classvars_and_user(self):
+        schema = self._schema_for(ConfluenceDataCenterPATConfig)
+        props = set(schema.get("properties", {}).keys())
+        assert "auth_type" not in props
+        assert "api_path_prefix" not in props
+        assert "cloud_id" not in props  # not declared at all on DC
+        assert "user" not in props  # not declared on DC PAT (PAT carries the identity)
+        assert {"api_url", "api_key"}.issubset(props)
+
+    def test_dc_basic_schema_omits_classvars(self):
+        schema = self._schema_for(ConfluenceDataCenterBasicConfig)
+        props = set(schema.get("properties", {}).keys())
+        assert "auth_type" not in props
+        assert "api_path_prefix" not in props
+        assert "cloud_id" not in props
+        assert {"api_url", "user", "api_key"}.issubset(props)
+
+
+class TestPreSubtypeBackwardsCompat:
+    """Pre-subtype YAML configs (no `subtype:` field, may include
+    auth_type/api_path_prefix/cloud_id keys at the top level) must still
+    route correctly via field-shape detection and the routed variant must
+    expose the same runtime contract."""
+
+    def test_pre_subtype_cloud_yaml_with_cloud_id(self):
+        config = {
+            "api_url": "https://acme.atlassian.net",
+            "user": "alice@acme.com",
+            "api_key": "token",
+            "cloud_id": "abc-123",
+        }
+        cls = determine_confluence_class(config)
+        assert cls is ConfluenceCloudConfig
+
+        cfg = cls(**config)
+        assert cfg.cloud_id == "abc-123"
+        assert cfg.auth_type == "basic"
+        assert cfg.api_path_prefix == "/wiki"
+
+    def test_pre_subtype_dc_pat_yaml(self):
+        # Pre-subtype DC PAT users wrote auth_type and api_path_prefix in YAML.
+        config = {
+            "api_url": "https://confluence.acme.com",
+            "api_key": "pat-token",
+            "auth_type": "bearer",
+            "api_path_prefix": "",
+        }
+        cls = determine_confluence_class(config)
+        assert cls is ConfluenceDataCenterPATConfig
+
+        cfg = cls(**config)
+        # ClassVar values, not the YAML values, but they happen to match.
+        assert cfg.auth_type == "bearer"
+        assert cfg.api_path_prefix == ""
+
+    def test_pre_subtype_dc_basic_yaml(self):
+        config = {
+            "api_url": "https://confluence.acme.com",
+            "user": "alice",
+            "api_key": "password",
+            "auth_type": "basic",
+        }
+        cls = determine_confluence_class(config)
+        assert cls is ConfluenceDataCenterBasicConfig
+
+        cfg = cls(**config)
+        assert cfg.auth_type == "basic"
+        assert cfg.api_path_prefix == ""
+
+    def test_pre_subtype_dc_with_stray_cloud_id_is_ignored(self):
+        """A DC config that somehow has a cloud_id key (e.g. from a saved UI
+        record before the field moved) must not raise — extras are allowed."""
+        config = {
+            "api_url": "https://confluence.acme.com",
+            "user": "alice",
+            "api_key": "password",
+            "cloud_id": "leftover-value",
+        }
+        cls = determine_confluence_class(config)
+        assert cls is ConfluenceDataCenterBasicConfig
+
+        # Should not raise — `extra="allow"` on ToolsetConfig.
+        cfg = cls(**config)
+        # cloud_id is not declared on DC variants, so accessing it as a
+        # model attribute returns nothing (lands in model_extra).
+        assert "cloud_id" not in cls.model_fields

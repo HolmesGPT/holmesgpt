@@ -15,9 +15,9 @@ This page documents all environment variables that can be used to configure Holm
 - `GEMINI_API_KEY` - API key for Google Gemini models
 - `GOOGLE_API_KEY` - Alternative API key for Google services
 
-### Azure OpenAI
-- `AZURE_API_KEY` - API key for Azure OpenAI service
-- `AZURE_API_BASE` - Base URL for Azure OpenAI endpoint
+### Azure AI Foundry
+- `AZURE_API_KEY` - API key for Azure AI Foundry service
+- `AZURE_API_BASE` - Base URL for Azure AI Foundry endpoint
 - `AZURE_API_VERSION` - API version to use (e.g., "2024-02-15-preview")
 
 ### AWS Bedrock
@@ -55,6 +55,39 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 ```
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
+
+## Server Security
+
+### HOLMES_API_KEY
+**Default:** not set (authentication disabled)
+
+When set, all API requests must include this key via either:
+
+- `X-API-Key: <key>` header, or
+- `Authorization: Bearer <key>` header
+
+Health check endpoints (`/healthz`, `/readyz`) are always exempt.
+
+**Generating a key:**
+```bash
+# Generate a random key with 32 bytes of entropy
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Or use openssl
+openssl rand -base64 32
+```
+
+**Example:**
+```bash
+export HOLMES_API_KEY=my-secret-key-here
+```
+
+**Docker example:**
+```bash
+docker run -d \
+  -e HOLMES_API_KEY=your-generated-key \
+  ...
+```
 
 ## SSL/TLS
 
@@ -135,6 +168,11 @@ export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
 ### MODEL_LIST_FILE_LOCATION
 Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
 
+If unset, HolmesGPT looks for the model list file in this order:
+
+1. `/etc/holmes/config/model_list.yaml` (server / Helm default)
+2. `~/.holmes/model_list.yaml` (CLI default)
+
 **Example:**
 ```bash
 export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
@@ -159,6 +197,21 @@ Controls the logging verbosity of HolmesGPT.
 **Example:**
 ```bash
 export HOLMES_LOG_LEVEL="DEBUG"
+```
+
+### TRACE_TOKEN_USAGE
+When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed `/api/chat` request at `INFO` level. Useful for debugging token consumption and cost issues.
+
+**Default:** `false`
+
+**Example:**
+```bash
+export TRACE_TOKEN_USAGE="true"
+```
+
+**Sample output:**
+```
+Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
 ```
 
 ### HOLMES_CACHE_DIR

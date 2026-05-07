@@ -7,13 +7,16 @@ import pytest
 import yaml
 
 from holmes.core.tools import (
+    CallablePrerequisite,
     Toolset,
     ToolsetStatusEnum,
     ToolsetTag,
     ToolsetType,
+    ToolsetYamlFromConfig,
     YAMLToolset,
 )
 from holmes.core.toolset_manager import ToolsetManager
+from holmes.plugins.toolsets import load_toolsets_from_config
 
 
 @pytest.fixture
@@ -272,6 +275,11 @@ def test_load_custom_toolsets_valid(tmp_path, toolset_manager):
 
 
 def test_load_custom_toolsets_missing_field_invalid(tmp_path, toolset_manager):
+    """Toolsets whose YAML fails Pydantic validation (e.g. missing required
+    `description`) now produce a visible FAILED placeholder in the list instead
+    of silently disappearing. The placeholder carries the Pydantic error in its
+    `error` attribute so the frontend can surface "Toolset X: <why>".
+    """
     custom_file = tmp_path / "custom_toolset.yaml"
     data = {"toolsets": {"dummy_tool": {"enabled": True, "config": {"key": "value"}}}}
     custom_file.write_text(yaml.dump(data))
@@ -280,7 +288,14 @@ def test_load_custom_toolsets_missing_field_invalid(tmp_path, toolset_manager):
     result = toolset_manager.load_custom_toolsets(builtin_toolsets_names=[])
 
     assert isinstance(result, list)
-    assert len(result) == 0
+    assert len(result) == 1
+    placeholder = result[0]
+    assert placeholder.name == "dummy_tool"
+    assert placeholder.status == ToolsetStatusEnum.FAILED
+    assert placeholder.error is not None
+    # The raised Pydantic error should mention the missing field (`description`)
+    # so the user knows what to fix.
+    assert "description" in placeholder.error
 
 
 def test_load_custom_toolsets_invalid_yaml(tmp_path, toolset_manager):
@@ -378,133 +393,209 @@ def test_per_instance_fast_model_overrides_default():
         LLMSummarizeTransformer._default_fast_model = original
 
 
-@patch("holmes.core.toolset_manager.load_builtin_toolsets")
-def test_custom_runbook_catalogs_passed_to_builtin_toolsets(
-    mock_load_builtin_toolsets, tmp_path
-):
-    """Test that custom_runbook_catalogs paths are correctly passed to load_builtin_toolsets."""
-    # Create a dummy custom catalog file
-    custom_catalog_dir = tmp_path / "custom_catalog"
-    custom_catalog_dir.mkdir()
-    custom_catalog_file = custom_catalog_dir / "catalog.json"
 
-    catalog_data = {
-        "catalog": [
+@pytest.mark.parametrize(
+    "name, config, expected_type",
+    [
+        ("my-mcp", {"type": "mcp", "url": "http://example.com:8000/sse", "description": "MCP server"}, ToolsetType.MCP),
+        ("my-http", {"type": "http", "config": {"endpoints": [{"hosts": ["httpbin.org"], "auth": {"type": "none"}}]}}, ToolsetType.HTTP),
+        ("my-db", {"type": "database", "config": {"connection_url": "postgresql://localhost/test"}}, ToolsetType.DATABASE),
+        ("my-mongo", {"type": "mongodb", "config": {"connection_url": "mongodb://localhost/test"}}, ToolsetType.MONGODB),
+    ],
+)
+def test_custom_toolset_has_type_set(name, config, expected_type):
+    """Custom toolsets must have their type field set after loading."""
+    toolsets = load_toolsets_from_config({name: config}, strict_check=False)
+    assert len(toolsets) == 1
+    assert toolsets[0].type == expected_type
+
+
+@patch("holmes.core.toolset_manager.ToolsetManager._list_all_toolsets")
+def test_load_toolset_with_status_null_type_in_cache(mock_list_all_toolsets, toolset_manager):
+    """Loading cached status with type=null must preserve the toolset's resolved type."""
+    toolset = MagicMock(spec=Toolset)
+    toolset.name = "test-mcp"
+    toolset.tags = [ToolsetTag.CORE]
+    toolset.enabled = True
+    toolset.status = ToolsetStatusEnum.ENABLED
+    toolset.type = ToolsetType.MCP
+    toolset.path = None
+    toolset.error = None
+    mock_list_all_toolsets.return_value = [toolset]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache_path = os.path.join(tmpdir, "toolsets_status.json")
+        # Simulate the corrupted cache: type is explicitly null
+        cache_data = [
             {
-                "id": "custom-runbook",
-                "update_date": "2023-01-01",
-                "description": "A custom runbook",
-                "link": "custom_runbook.md",
+                "name": "test-mcp",
+                "status": "enabled",
+                "enabled": True,
+                "type": None,
+                "path": None,
+                "error": None,
             }
         ]
-    }
-    custom_catalog_file.write_text(json.dumps(catalog_data))
+        with open(cache_path, "w") as f:
+            json.dump(cache_data, f)
 
-    # Mock load_builtin_toolsets to return a dummy toolset
-    builtin_toolset = MagicMock(spec=Toolset)
-    builtin_toolset.name = "builtin"
-    builtin_toolset.tags = [ToolsetTag.CORE]
-    builtin_toolset.check_prerequisites = MagicMock()
-    mock_load_builtin_toolsets.return_value = [builtin_toolset]
-
-    # Initialize ToolsetManager with custom_runbook_catalogs
-    toolset_manager = ToolsetManager(custom_runbook_catalogs=[custom_catalog_file])
-
-    # Call _list_all_toolsets
-    toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-    # Verify load_builtin_toolsets was called with the correct additional_search_paths
-    # It should contain the directory of the custom catalog file
-    expected_search_path = str(custom_catalog_dir)
-
-    # Check the arguments passed to load_builtin_toolsets
-    args, _ = mock_load_builtin_toolsets.call_args
-    # args[0] is dal, args[1] is additional_search_paths
-    assert args[1] is not None
-    assert expected_search_path in args[1]
+        toolset_manager.toolset_status_location = cache_path
+        # This must NOT raise ValueError and must preserve the resolved type
+        result = toolset_manager.load_toolset_with_status()
+        assert result[0].type == ToolsetType.MCP
 
 
-@patch("holmes.core.toolset_manager.load_builtin_toolsets")
-def test_custom_runbook_catalogs_multiple_paths(mock_load_builtin_toolsets, tmp_path):
-    """Test that multiple custom_runbook_catalogs paths are all passed correctly."""
-    # Create multiple custom catalog files
-    catalog_dirs = []
-    catalog_files = []
 
-    for i in range(3):
-        catalog_dir = tmp_path / f"catalog_{i}"
-        catalog_dir.mkdir()
-        catalog_file = catalog_dir / "catalog.json"
-
-        catalog_data = {
-            "catalog": [
-                {
-                    "id": f"runbook-{i}",
-                    "update_date": "2023-01-01",
-                    "description": f"Runbook {i}",
-                    "link": f"runbook_{i}.md",
-                }
-            ]
-        }
-        catalog_file.write_text(json.dumps(catalog_data))
-        catalog_dirs.append(catalog_dir)
-        catalog_files.append(catalog_file)
-
-    # Mock load_builtin_toolsets
-    builtin_toolset = MagicMock(spec=Toolset)
-    builtin_toolset.name = "builtin"
-    builtin_toolset.tags = [ToolsetTag.CORE]
-    builtin_toolset.check_prerequisites = MagicMock()
-    mock_load_builtin_toolsets.return_value = [builtin_toolset]
-
-    # Initialize ToolsetManager with multiple custom_runbook_catalogs
-    toolset_manager = ToolsetManager(custom_runbook_catalogs=catalog_files)
-
-    # Call _list_all_toolsets
-    toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-    # Verify all directories are passed to load_builtin_toolsets
-    args, _ = mock_load_builtin_toolsets.call_args
-    additional_search_paths = args[1]
-
-    assert additional_search_paths is not None
-    for catalog_dir in catalog_dirs:
-        assert str(catalog_dir) in additional_search_paths
+# ---- Tests for Toolset.override_with ----------------------------------------
 
 
-def test_custom_runbook_catalogs_empty_list(tmp_path):
-    """Test that an empty custom_runbook_catalogs list is handled correctly."""
-    toolset_manager = ToolsetManager(custom_runbook_catalogs=[])
+def _builtin_like_toolset(name: str = "builtin") -> YAMLToolset:
+    return YAMLToolset(
+        name=name,
+        description="builtin",
+        tags=[ToolsetTag.CORE],
+        tools=[],
+    )
 
+
+def test_override_with_copies_set_fields():
+    target = _builtin_like_toolset()
+    override = ToolsetYamlFromConfig(
+        name="builtin",
+        enabled=True,
+        config={"foo": "bar"},
+    )
+
+    target.override_with(override)
+
+    assert target.enabled is True
+    assert target.config == {"foo": "bar"}
+
+
+def test_override_with_does_not_override_name():
+    target = _builtin_like_toolset(name="builtin")
+    override = ToolsetYamlFromConfig(name="different", enabled=True)
+
+    target.override_with(override)
+
+    assert target.name == "builtin"
+
+
+def test_override_with_enabled_false_propagates():
+    """enabled=False must propagate — False must not be filtered as 'empty'."""
+    target = _builtin_like_toolset()
+    target.enabled = True
+    override = ToolsetYamlFromConfig(name="builtin", enabled=False)
+
+    target.override_with(override)
+
+    assert target.enabled is False
+
+
+def test_override_with_does_not_touch_unset_fields():
+    """Fields not explicitly set on the override must leave the target's
+    existing value alone."""
+    target = _builtin_like_toolset()
+    target.enabled = True
+    target.description = "original description"
+    target.config = {"kept": "value"}
+
+    # Only 'enabled' is explicitly set on the override
+    override = ToolsetYamlFromConfig(name="builtin", enabled=False)
+
+    target.override_with(override)
+
+    assert target.enabled is False
+    assert target.description == "original description"
+    assert target.config == {"kept": "value"}
+
+
+def test_override_with_skips_empty_values():
+    target = _builtin_like_toolset()
+    target.description = "keep me"
+    override = ToolsetYamlFromConfig(
+        name="builtin",
+        description="",  # empty — should be ignored
+        config={},  # empty — should be ignored
+    )
+
+    target.override_with(override)
+
+    assert target.description == "keep me"
+    assert target.config is None
+
+
+def test_override_with_preserves_env_var_resolution_from_yaml_file(
+    tmp_path, monkeypatch
+):
+    """Regression: env-var substitution done by replace_env_vars_values
+    must survive override_with. Previously the model_dump path round-tripped
+    through benedict's serializer and reintroduced the original {{ env.X }}
+    template strings."""
+    monkeypatch.setenv("TEST_RESOLVED_VALUE", "RESOLVED_XX")
+
+    yaml_file = tmp_path / "custom.yaml"
+    yaml_file.write_text(
+        "toolsets:\n"
+        "  builtin:\n"
+        "    enabled: true\n"
+        "    config:\n"
+        '      secret: "{{ env.TEST_RESOLVED_VALUE }}"\n'
+        "      nested:\n"
+        '        deep: "{{ env.TEST_RESOLVED_VALUE }}"\n'
+    )
+
+    manager = ToolsetManager(custom_toolsets=[yaml_file])
+    custom = manager.load_custom_toolsets(["builtin"])
+    assert len(custom) == 1
+    override = custom[0]
+
+    target = _builtin_like_toolset()
+    target.override_with(override)
+
+    assert target.config["secret"] == "RESOLVED_XX"
+    assert target.config["nested"]["deep"] == "RESOLVED_XX"
+
+
+def test_override_with_handles_toolset_with_callable_prerequisites():
+    """Regression: override_with must not fail when the override carries
+    CallablePrerequisite entries whose bound methods reference a toolset
+    containing an unpicklable threading.Lock (e.g. MCP toolsets)."""
+    target = _builtin_like_toolset()
+
+    override = _builtin_like_toolset()
+    override.config = {"k": "v"}
+    override.prerequisites = [
+        CallablePrerequisite(callable=override.check_prerequisites)
+    ]
+    # Mark as explicitly set so override_with picks them up
+    override.__pydantic_fields_set__.update({"config", "prerequisites"})
+
+    target.override_with(override)  # must not raise
+
+    assert target.config == {"k": "v"}
+    assert len(target.prerequisites) == 1
+
+
+def test_override_with_full_flow_through_toolset_manager(tmp_path, monkeypatch):
+    """End-to-end: a builtin toolset overridden from a custom YAML file that
+    uses {{ env.X }} must end up with resolved values after the full
+    ToolsetManager load."""
+    monkeypatch.setenv("TEST_END_TO_END", "E2E_XX")
+
+    yaml_file = tmp_path / "custom.yaml"
+    yaml_file.write_text(
+        "toolsets:\n"
+        "  builtin:\n"
+        "    enabled: true\n"
+        "    config:\n"
+        '      secret: "{{ env.TEST_END_TO_END }}"\n'
+    )
+
+    manager = ToolsetManager(custom_toolsets=[yaml_file])
     with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:
-        builtin_toolset = MagicMock(spec=Toolset)
-        builtin_toolset.name = "builtin"
-        builtin_toolset.tags = [ToolsetTag.CORE]
-        builtin_toolset.check_prerequisites = MagicMock()
-        mock_load.return_value = [builtin_toolset]
+        mock_load.return_value = [_builtin_like_toolset()]
+        toolsets = manager._list_all_toolsets(check_prerequisites=False)
 
-        toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-        # Verify load_builtin_toolsets was called with None or empty additional_search_paths
-        args, _ = mock_load.call_args
-        additional_search_paths = args[1]
-        assert additional_search_paths is None or additional_search_paths == []
-
-
-def test_custom_runbook_catalogs_none(tmp_path):
-    """Test that None custom_runbook_catalogs is handled correctly."""
-    toolset_manager = ToolsetManager(custom_runbook_catalogs=None)
-
-    with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:
-        builtin_toolset = MagicMock(spec=Toolset)
-        builtin_toolset.name = "builtin"
-        builtin_toolset.tags = [ToolsetTag.CORE]
-        builtin_toolset.check_prerequisites = MagicMock()
-        mock_load.return_value = [builtin_toolset]
-
-        toolset_manager._list_all_toolsets(check_prerequisites=False)
-
-        # Verify load_builtin_toolsets was called with None additional_search_paths
-        args, _ = mock_load.call_args
-        additional_search_paths = args[1]
-        assert additional_search_paths is None
+    assert len(toolsets) == 1
+    assert toolsets[0].config["secret"] == "E2E_XX"

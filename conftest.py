@@ -293,3 +293,14 @@ def responses():
         rsps.add_passthru("https://www.google.com")
         rsps.add_passthru("https://www.burgergooglenetworkspam.co.uk")
         yield rsps
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip tests marked with @pytest.mark.manual unless explicitly requested."""
+    markexpr = config.getoption("-m", default="")
+    if "manual" in markexpr:
+        return  # User explicitly requested manual tests
+    skip_manual = pytest.mark.skip(reason="Manual test — run with: pytest -m manual")
+    for item in items:
+        if "manual" in item.keywords:
+            item.add_marker(skip_manual)

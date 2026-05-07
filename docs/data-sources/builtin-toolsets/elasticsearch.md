@@ -49,8 +49,11 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 
     ```bash
     kubectl create secret generic elasticsearch-credentials \
-      --from-literal=api-key=your-api-key
+      --from-literal=api-key=your-api-key \
+      -n holmes
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Holmes Helm values:
 
@@ -89,8 +92,11 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 
     ```bash
     kubectl create secret generic elasticsearch-credentials \
-      --from-literal=api-key=your-api-key
+      --from-literal=api-key=your-api-key \
+      -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -162,8 +168,11 @@ For Elasticsearch clusters that require client certificate authentication (commo
     ```bash
     kubectl create secret generic elasticsearch-client-certs \
       --from-file=tls.crt=/path/to/client.crt \
-      --from-file=tls.key=/path/to/client.key
+      --from-file=tls.key=/path/to/client.key \
+      -n holmes
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then mount the secret into the Holmes container using `additionalVolumes` and `additionalVolumeMounts`:
 
@@ -198,8 +207,11 @@ For Elasticsearch clusters that require client certificate authentication (commo
     ```bash
     kubectl create secret generic elasticsearch-client-certs \
       --from-file=tls.crt=/path/to/client.crt \
-      --from-file=tls.key=/path/to/client.key
+      --from-file=tls.key=/path/to/client.key \
+      -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

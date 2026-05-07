@@ -36,20 +36,73 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
     holmes ask "Show me all dashboards tagged with 'kubernetes'"
     ```
 
+=== "Holmes Helm Chart"
+
+    First, create a Kubernetes secret with your Grafana service account token:
+
+    ```bash
+    kubectl create secret generic grafana-api-key \
+      --from-literal=api-key=your-grafana-service-account-token \
+      -n holmes
+    ```
+
+    --8<-- "snippets/secret_namespace_note.md"
+
+    Then add to your Holmes Helm values:
+
+    ```yaml
+    additionalEnvVars:
+      - name: GRAFANA_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: grafana-api-key
+            key: api-key
+
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_key: "{{ env.GRAFANA_API_KEY }}"
+          api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
+          # Optional: Additional headers for all requests
+          # additional_headers:
+          #   X-Custom-Header: "custom-value"
+    ```
+
 === "Robusta Helm Chart"
+
+    First, create a Kubernetes secret with your Grafana service account token:
+
+    ```bash
+    kubectl create secret generic grafana-api-key \
+      --from-literal=api-key=your-grafana-service-account-token \
+      -n default
+    ```
+
+    --8<-- "snippets/secret_namespace_note.md"
+
+    Then add to your Robusta Helm values:
 
     ```yaml
     holmes:
+      additionalEnvVars:
+        - name: GRAFANA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: grafana-api-key
+              key: api-key
       toolsets:
         grafana/dashboards:
           enabled: true
           config:
-            api_key: <your grafana API key>
+            api_key: "{{ env.GRAFANA_API_KEY }}"
             api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
             # Optional: Additional headers for all requests
             # additional_headers:
             #   X-Custom-Header: "custom-value"
     ```
+
+    --8<-- "snippets/helm_upgrade_command.md"
 
 ## Visual Rendering
 
@@ -77,17 +130,21 @@ Rendering is **disabled by default**. To enable it, add `enable_rendering: true`
 
 === "Holmes Helm Chart"
 
+    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
+
     ```yaml
     toolsets:
       grafana/dashboards:
         enabled: true
         config:
           api_url: <your grafana url>
-          api_key: <your api key>
+          api_key: "{{ env.GRAFANA_API_KEY }}"
           enable_rendering: true
     ```
 
 === "Robusta Helm Chart"
+
+    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
 
     ```yaml
     holmes:
@@ -96,7 +153,7 @@ Rendering is **disabled by default**. To enable it, add `enable_rendering: true`
           enabled: true
           config:
             api_url: <your grafana url>
-            api_key: <your api key>
+            api_key: "{{ env.GRAFANA_API_KEY }}"
             enable_rendering: true
     ```
 
@@ -122,17 +179,21 @@ For self-signed certificates, you can disable SSL verification:
 
 === "Holmes Helm Chart"
 
+    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
+
     ```yaml
     toolsets:
       grafana/dashboards:
         enabled: true
         config:
           api_url: https://grafana.internal
-          api_key: <your api key>
+          api_key: "{{ env.GRAFANA_API_KEY }}"
           verify_ssl: false
     ```
 
 === "Robusta Helm Chart"
+
+    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
 
     ```yaml
     holmes:
@@ -141,7 +202,7 @@ For self-signed certificates, you can disable SSL verification:
           enabled: true
           config:
             api_url: https://grafana.internal
-            api_key: <your api key>
+            api_key: "{{ env.GRAFANA_API_KEY }}"
             verify_ssl: false
     ```
 
@@ -163,6 +224,8 @@ If HolmesGPT accesses Grafana through an internal URL but you want clickable lin
 
 === "Holmes Helm Chart"
 
+    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
+
     ```yaml
     toolsets:
       grafana/dashboards:
@@ -170,10 +233,12 @@ If HolmesGPT accesses Grafana through an internal URL but you want clickable lin
         config:
           api_url: http://grafana.internal:3000
           external_url: https://grafana.example.com
-          api_key: <your api key>
+          api_key: "{{ env.GRAFANA_API_KEY }}"
     ```
 
 === "Robusta Helm Chart"
+
+    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
 
     ```yaml
     holmes:
@@ -183,7 +248,7 @@ If HolmesGPT accesses Grafana through an internal URL but you want clickable lin
           config:
             api_url: http://grafana.internal:3000
             external_url: https://grafana.example.com
-            api_key: <your api key>
+            api_key: "{{ env.GRAFANA_API_KEY }}"
     ```
 
 ## Common Use Cases

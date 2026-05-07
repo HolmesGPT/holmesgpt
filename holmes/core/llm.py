@@ -28,6 +28,7 @@ from holmes.common.env_vars import (
     AZURE_AD_TOKEN_AUTH,
     EXTRA_HEADERS,
     FALLBACK_CONTEXT_WINDOW_SIZE,
+    LLM_EXTRA_STRIP_MESSAGE_FIELDS,
     LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
     REASONING_EFFORT,
@@ -84,7 +85,7 @@ class ModelEntry(BaseModel):
     is_robusta_model: Optional[bool] = None
     custom_args: Optional[Dict[str, Any]] = None
 
-    # LLM configurations used services like Azure OpenAI Service
+    # LLM configuration fields used by services like Azure AI Foundry
     api_base: Optional[str] = None
     api_version: Optional[str] = None
 
@@ -347,6 +348,11 @@ class DefaultLLM(LLM):
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
+        elif provider == "github_copilot":
+            # GitHub Copilot uses OAuth device flow for authentication, not
+            # traditional API keys.  LiteLLM handles the token lifecycle
+            # internally, so skip the standard key validation.
+            model_requirements = {"keys_in_environment": True, "missing_keys": []}
         elif provider == "azure":
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base, api_version=api_version
@@ -368,19 +374,6 @@ class DefaultLLM(LLM):
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base
             )
-            # validate_environment does not accept api_version, and as a special case for Azure OpenAI Service,
-            # when all the other AZURE environments are set expect AZURE_API_VERSION, validate_environment complains
-            # the missing of it even after the api_version is set.
-            # TODO: There's an open PR in litellm to accept api_version in validate_environment, we can leverage this
-            # change if accepted to ignore the following check.
-            # https://github.com/BerriAI/litellm/pull/13808
-            if (
-                provider == "azure"
-                and ["AZURE_API_VERSION"] == model_requirements["missing_keys"]
-                and api_version is not None
-            ):
-                model_requirements["missing_keys"] = []
-                model_requirements["keys_in_environment"] = True
 
         if not model_requirements["keys_in_environment"]:
             raise Exception(
@@ -573,7 +566,15 @@ class DefaultLLM(LLM):
                 allowed_openai_params = []
             allowed_openai_params.extend(existing_allowed)
 
-        self.args.setdefault("temperature", temperature)
+        # Strip a pre-existing `temperature: None` (e.g. from `temperature: null` in
+        # modelList) before applying the caller's value, so setdefault() is not blocked
+        # by a null sentinel and so no `temperature=None` leaks to providers that reject
+        # it (e.g. Bedrock Anthropic Opus 4.7). Preserves PR #698: when args holds a real
+        # temperature, setdefault is a no-op and the persisted value survives.
+        if self.args.get("temperature", ...) is None:
+            self.args.pop("temperature", None)
+        if temperature is not None:
+            self.args.setdefault("temperature", temperature)
 
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
@@ -581,7 +582,9 @@ class DefaultLLM(LLM):
         # Strip internal fields (e.g. token_count cache) so provider APIs only
         # receive valid message schema fields.  Shallow-copy only when needed to
         # avoid mutating the caller's dicts (which would invalidate the cache).
-        _INTERNAL_FIELDS = {"token_count"}
+        # Extra fields can be added via LLM_EXTRA_STRIP_MESSAGE_FIELDS env var
+        # (e.g. "provider_specific_fields") when a provider rejects them.
+        _INTERNAL_FIELDS = {"token_count"} | LLM_EXTRA_STRIP_MESSAGE_FIELDS
         sanitized_messages: List[Dict[str, Any]] = [
             {k: v for k, v in m.items() if k not in _INTERNAL_FIELDS}
             if m.keys() & _INTERNAL_FIELDS
@@ -676,7 +679,17 @@ class LLMModelRegistry:
         return self._default_robusta_model
 
     def _init_models(self):
-        self._llms = self._parse_models_file(MODEL_LIST_FILE_LOCATION)
+        # Precedence for the model list file:
+        # 1. MODEL_LIST_FILE_LOCATION (env var, or its server default when the
+        #    file exists -- covers Helm deployments mounting /etc/holmes/...)
+        # 2. ~/.holmes/model_list.yaml (CLI default)
+        from holmes.core.config import config_path_dir
+
+        if os.path.exists(MODEL_LIST_FILE_LOCATION):
+            path = MODEL_LIST_FILE_LOCATION
+        else:
+            path = os.path.join(config_path_dir, "model_list.yaml")
+        self._llms = self._parse_models_file(path)
 
         if self._should_load_robusta_ai():
             self.configure_robusta_ai_model()

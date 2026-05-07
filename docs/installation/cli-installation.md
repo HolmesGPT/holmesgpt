@@ -144,7 +144,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 
     See [OpenAI Configuration](../ai-providers/openai.md) for more details.
 
-=== "Azure OpenAI"
+=== "Azure AI Foundry"
 
     1. **Set up API key**:
         ```bash
@@ -163,7 +163,7 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
         holmes ask "what is wrong with the user-profile-import pod?" --model="azure/<your-model-name>"
         ```
 
-    See [Azure OpenAI Configuration](../ai-providers/azure-openai.md) for more details.
+    See [Azure AI Foundry Configuration](../ai-providers/azure-ai-foundry.md) for more details.
 
 === "AWS Bedrock"
 

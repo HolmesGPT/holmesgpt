@@ -12,7 +12,13 @@ from holmes.common.env_vars import (
     USE_LEGACY_KUBERNETES_LOGS,
 )
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import Toolset, ToolsetType, ToolsetYamlFromConfig, YAMLToolset
+from holmes.core.tools import (
+    Toolset,
+    ToolsetStatusEnum,
+    ToolsetType,
+    ToolsetYamlFromConfig,
+    YAMLToolset,
+)
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
@@ -54,10 +60,11 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
-from holmes.plugins.toolsets.runbook.runbook_fetcher import RunbookToolset
+from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
+from holmes.plugins.toolsets.victorialogs.victorialogs import VictoriaLogsToolset
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -113,9 +120,10 @@ def load_python_toolsets(
         KubectlRunToolset(),
         ConfluenceToolset(),
         MongoDBAtlasToolset(),
-        RunbookToolset(dal=dal, additional_search_paths=additional_search_paths),
+        SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),
         ServiceNowTablesToolset(),
+        VictoriaLogsToolset(),
         DatabaseToolset(),
         ElasticsearchDataToolset(),
         ElasticsearchClusterToolset(),
@@ -173,6 +181,40 @@ def is_old_toolset_config(
     return False
 
 
+def _make_invalid_toolset_placeholder(
+    name: str, error: str, type_hint: Optional[str] = None
+) -> Toolset:
+    """Build a minimal Toolset whose prerequisite check fails with the given error.
+
+    Used when a user-supplied toolset entry can't be constructed (unknown field,
+    wrong type, invalid enum value, etc.). Without this placeholder the toolset
+    would silently disappear from the frontend; with it the user sees a clear
+    "failed" entry carrying the Pydantic/ValueError message so they know what
+    to fix in their YAML.
+    """
+    from holmes.core.tools import StaticPrerequisite
+
+    description = (
+        f"Invalid toolset configuration ({type_hint})"
+        if type_hint
+        else "Invalid toolset configuration"
+    )
+    placeholder = Toolset(
+        name=name,
+        description=description,
+        tools=[],
+        enabled=True,  # must be True so check_prerequisites runs and keeps it FAILED
+        prerequisites=[
+            StaticPrerequisite(enabled=False, disabled_reason=error)
+        ],
+    )
+    # Set FAILED status + error up front so the sync layer sees them even if
+    # check_prerequisites is skipped (e.g. on cached startup paths).
+    placeholder.status = ToolsetStatusEnum.FAILED
+    placeholder.error = error
+    return placeholder
+
+
 def load_toolsets_from_config(
     toolsets: dict[str, dict[str, Any]],
     strict_check: bool = True,
@@ -194,6 +236,7 @@ def load_toolsets_from_config(
         raise ValueError(message)
 
     for name, config in toolsets.items():
+        toolset_type: Optional[str] = None
         try:
             toolset_type = config.get("type", ToolsetType.BUILTIN.value)
 
@@ -235,8 +278,18 @@ def load_toolsets_from_config(
             loaded_toolsets.append(validated_toolset)
         except ValidationError as e:
             logging.warning(f"Toolset '{name}' is invalid: {e}")
+            loaded_toolsets.append(
+                _make_invalid_toolset_placeholder(
+                    name=name, error=str(e), type_hint=toolset_type
+                )
+            )
 
-        except Exception:
+        except Exception as e:
             logging.warning("Failed to load toolset: %s", name, exc_info=True)
+            loaded_toolsets.append(
+                _make_invalid_toolset_placeholder(
+                    name=name, error=str(e), type_hint=toolset_type
+                )
+            )
 
     return loaded_toolsets

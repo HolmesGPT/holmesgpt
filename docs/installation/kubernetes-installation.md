@@ -71,7 +71,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
             temperature: 0
         ```
 
-    === "Azure OpenAI"
+    === "Azure AI Foundry"
         ```yaml
         # values.yaml
         additionalEnvVars:

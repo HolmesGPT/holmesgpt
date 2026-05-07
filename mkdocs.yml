@@ -37,7 +37,7 @@ nav:
           - "Overview": ai-providers/index.md
           - Anthropic: ai-providers/anthropic.md
           - "AWS Bedrock": ai-providers/aws-bedrock.md
-          - "Azure OpenAI": ai-providers/azure-openai.md
+          - "Azure AI Foundry": ai-providers/azure-ai-foundry.md
           - Gemini: ai-providers/gemini.md
           - "Google Vertex AI": ai-providers/google-vertex-ai.md
           - Ollama: ai-providers/ollama.md

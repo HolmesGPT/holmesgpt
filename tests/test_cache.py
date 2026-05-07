@@ -76,7 +76,7 @@ def test_cached_output(model: str, request):
             test_dal = load_test_dal(
                 Path(temp_dir.name), initialize_base=False
             )
-            runbooks = config.get_runbook_catalog()
+            skills = config.get_skill_catalog()
 
             asks = [
                 "how many pods are running?",
@@ -95,7 +95,7 @@ def test_cached_output(model: str, request):
                     config=config,
                     global_instructions=global_instructions,
                     additional_system_prompt=None,
-                    runbooks=runbooks,
+                    skills=skills,
                 )
                 result = ai.call(messages=messages, trace_span=None)
                 assert result is not None

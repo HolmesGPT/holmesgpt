@@ -14,14 +14,15 @@ python = "^3.10"
 openai = "^2.8.0"
 jiter = "!=0.13.0"  # Exclude 0.13.0 due to corrupted Windows wheel (RECORD file issue)
 jinja2 = "^3.1.2"
-typer = "^0.21.0"
+typer = "^0.22.0"
+typer-slim = "^0.22.0"
 python-benedict = "^0.33.1"
 humanize = "^4.9.0"
 rich = "^13.7.1"
 fastapi = "^0.121.1"
 uvicorn = "^0.40"
 pydantic = "^2.7"
-supabase = "^2.5"
+supabase = "2.28.0"
 colorlog = "^6.8.2"
 strenum = "^0.4.15"
 markdown = "^3.6"
@@ -33,7 +34,7 @@ markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
-litellm = "1.81.0"
+litellm = "1.83.7"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
@@ -51,13 +52,11 @@ azure-mgmt-monitor = "^7.0.0b1"
 azure-mgmt-alertsmanagement = "^1.0.0"
 azure-mgmt-resource = "^23.3.0"
 tenacity = "^9.1.2"
-# Due to a bug in the postgrest package, we need to pin the version to 0.16.8 until we will upgrade selfhost supabase versions.
-postgrest = "0.16.8"
 requests-aws4auth = "^1.3.1"
 prometrix = "0.2.12"
-httpx = {version = "<0.28", extras = ["socks"]}
+httpx = {extras = ["socks"], version = "^0.28.1"}
 ag-ui-protocol = "^0.1.9"
-google-cloud-aiplatform = ">=1.38"
+google-cloud-aiplatform = ">=1.133.0"
 slack-sdk = "^3.39.0"
 
 jq = "^1.10.0"
@@ -139,7 +138,7 @@ markers = [
     "metrics: Tests involving metrics processing",
     "context_window: Tests involving context window handling",
     "network: Tests requiring network connectivity",
-    "runbooks: Tests involving runbook functionality",
+    "skills: Tests involving skill functionality",
     "chain-of-causation: Tests involving chain-of-causation analysis",
     "slackbot: Tests involving Slack bot functionality",
     "numerical: Tests involving numerical calculations or data",
@@ -171,6 +170,7 @@ markers = [
     "grafana: Tests involving Grafana dashboard interactions",
     "images: Tests involving multimodal image content (vision, rendering, MCP ImageContent)",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",
+    "victorialogs: Tests for VictoriaLogs toolset functionality",
     "integration: Integration tests requiring external services (e.g., running server, real APIs)",
     "confluence: Tests for Confluence page fetching toolset",
     # REGRESSION TEST SELECTION CRITERIA:
@@ -182,6 +182,8 @@ markers = [
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
+    "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
+    "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
     "token-limit: Tests that enforce a maximum token usage budget"
 ]
 

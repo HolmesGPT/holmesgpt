@@ -143,6 +143,11 @@ Benefits of `extra="allow"` approach:
 
 See `prometheus/prometheus.py` PrometheusConfig for a complete example.
 
+**Class Hierarchy Placement**:
+- When adding new config fields, methods, or behavior, always check the class hierarchy and place the change at the most general level that applies
+- Don't scope a fix to a specific subclass just because the issue/request mentions it by name — check if sibling classes share the same need
+- Example: `timeout_seconds` and `max_retries` belong on `GrafanaConfig`, not `GrafanaTempoConfig`, because all Grafana toolsets (Tempo, Loki, Dashboards) make HTTP requests
+
 **LLM Integration**:
 - Uses LiteLLM for multi-provider support (OpenAI, Anthropic, Azure, etc.)
 - Structured tool calling with automatic retry and error handling
@@ -227,6 +232,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - Complex investigations should have LLM evaluation tests
 - Maintain 40% minimum test coverage
 - **Live execution is now enabled by default** to ensure tests match real-world behavior
+- **Use `responses` library for HTTP mocking**, not `@patch("requests.get")`. The `responses` library intercepts at the transport/adapter level, giving more realistic test behavior. Use `responses.RequestsMock()` with `rsps.add()` for mock responses.
 
 **Pull Request Process**:
 - PRs require maintainer approval
