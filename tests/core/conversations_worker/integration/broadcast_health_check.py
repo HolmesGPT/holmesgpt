@@ -84,7 +84,10 @@ def _setup_broadcast():
         topic = broadcast_submit_topic(account_id, cluster_id)
         rt = AsyncRealtimeClient(url=ws_url, token=decoded["api_key"], auto_reconnect=True)
         await rt.connect()
-        ch = rt.channel(topic, {"config": {"private": True}})
+        ch = rt.channel(
+            topic,
+            {"config": {"private": True, "presence": {"enabled": False}}},
+        )
         subscribed = asyncio.Event()
 
         def _on_sub(status, err=None):
