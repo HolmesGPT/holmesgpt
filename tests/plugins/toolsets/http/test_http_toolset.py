@@ -186,6 +186,7 @@ class TestHttpToolsetHostMatching:
         endpoint, error = toolset.match_endpoint("file:///etc/passwd")
         assert endpoint is None
         assert error is not None
+        assert "Unsupported URL scheme" in error
 
 
 class TestHttpToolsetMethodCheck:
