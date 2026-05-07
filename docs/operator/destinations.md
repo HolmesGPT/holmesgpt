@@ -277,15 +277,15 @@ Use `url_env` to name a specific environment variable, allowing different checks
 ```yaml
 # values.yaml
 additionalEnvVars:
-  - name: SERVICENOW_WEBHOOK_URL
+  - name: SAMPLE1_WEBHOOK_URL
     valueFrom:
       secretKeyRef:
-        name: servicenow-webhook
+        name: sample1-webhook
         key: url
-  - name: TEAMS_WEBHOOK_URL
+  - name: SAMPLE2_WEBHOOK_URL
     valueFrom:
       secretKeyRef:
-        name: teams-webhook
+        name: sample2-webhook
         key: url
 ```
 

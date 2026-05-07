@@ -15,7 +15,7 @@ def _substitute(value: Any, context: dict) -> Any:
     """Recursively replace {{key}} placeholders in strings within a dict/list/str."""
     if isinstance(value, str):
         for k, v in context.items():
-            value = re.sub(r"\{\{" + re.escape(k) + r"\}\}", str(v), value)
+            value = re.sub(r"\{\{" + re.escape(k) + r"\}\}", lambda _m, _v=str(v): _v, value)
         return value
     elif isinstance(value, dict):
         return {k: _substitute(v, context) for k, v in value.items()}
