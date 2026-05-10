@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
@@ -26,6 +26,22 @@ if TYPE_CHECKING:
     from holmes.core.models import ChatRequest
     from holmes.core.supabase_dal import SupabaseDal
     from holmes.core.tool_calling_llm import LLMResult
+
+
+# Bounded thread pool for recorder DB writes. Caps concurrent supabase-py
+# connection acquisitions from telemetry so a slow Supabase / connection
+# leak in the recorder can't starve foreground writes (HolmesStatus,
+# ToolStatus). max_workers=4 is enough for Holmes' single-pod-per-customer
+# load — one Supabase write is ~50–200ms, so 4 workers handle ~80 events/sec
+# sustained, well above current request rate. Process-exit semantics: the
+# stdlib's atexit handler drains live executors, which is *better* than the
+# previous daemon-thread fire-and-forget — we lose fewer rows on graceful
+# shutdown. Threads are spawned lazily on first submit; importing this
+# module doesn't start any.
+_RECORDER_EXECUTOR = ThreadPoolExecutor(
+    max_workers=4,
+    thread_name_prefix="usage-recorder",
+)
 
 
 # Slack auto-detection: the Robusta runner's Slack handler currently prepends
@@ -404,19 +420,31 @@ class UsageRecorderState:
         )
 
     def _fire(self) -> None:
-        """Background-thread the dal write so the response path never blocks."""
+        """Submit the dal write to the shared recorder thread pool.
+
+        Fire-and-forget — the response path never waits on this. The
+        executor caps concurrent writes (see ``_RECORDER_EXECUTOR`` at
+        module top); under burst load, additional submissions queue
+        inside the executor rather than spawning unbounded fresh threads.
+
+        ``executor.submit`` raises ``RuntimeError`` if the executor has
+        already been shut down (process exiting). Treat that as accepted
+        loss — same fate as in-flight rows on the previous daemon-thread
+        fire-and-forget shape.
+        """
         if self.dal is None or not getattr(self.dal, "enabled", False):
             return
         try:
-            threading.Thread(
-                target=self.dal.record_usage_event,
-                args=(self,),
-                daemon=True,
-                name="usage-recorder",
-            ).start()
+            _RECORDER_EXECUTOR.submit(self.dal.record_usage_event, self)
+        except RuntimeError:
+            # Executor was shut down — accept the loss.
+            logging.debug(
+                "Usage recorder executor is shut down; dropping row",
+                exc_info=True,
+            )
         except Exception:
             # Defense in depth — record_usage_event has its own try/except too.
-            logging.exception("Failed to spawn usage recorder thread")
+            logging.exception("Failed to submit usage recorder write")
 
 
 def stream_with_usage_recording(

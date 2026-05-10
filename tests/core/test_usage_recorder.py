@@ -67,24 +67,34 @@ def _terminal_data(costs: dict, num_llm_calls: int = 1, finish_reason: str = "st
 
 
 def _patch_inline_thread(monkeypatch):
-    """Replace threading.Thread inside usage_recorder so target() runs inline.
+    """Replace the recorder's ThreadPoolExecutor with an inline stub so
+    target(state) runs synchronously in the test, letting us assert
+    against state.dal.record_usage_event right after _fire returns.
 
-    _fire spawns the recorder thread with ``args=(state,)`` (positional
-    state arg, since the DAL takes a single state object now). Mirror that
-    exactly — pass through both args and kwargs to be tolerant of either.
+    The stub mimics ``ThreadPoolExecutor.submit`` semantics: if the
+    callable raises, the exception is captured (not propagated) — the
+    real executor would put it on the returned Future, which production
+    code never awaits. Without this, the inline path would bubble
+    target exceptions that the production path never would, breaking
+    "fire-and-forget never propagates" tests.
+
+    Kept under the historical name (_patch_inline_thread) so existing
+    test bodies don't churn — the underlying mechanism is now the
+    bounded executor at module-level rather than a fresh Thread per call.
     """
     import holmes.core.usage_recorder as mod
 
-    class _InlineThread:
-        def __init__(self, target=None, args=None, kwargs=None, daemon=None, name=None):
-            self._target = target
-            self._args = args or ()
-            self._kwargs = kwargs or {}
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):
+            try:
+                fn(*args, **kwargs)
+            except Exception:
+                # Real executor stashes the exception on the Future. We
+                # don't return one, so just swallow — the test doesn't
+                # await results.
+                pass
 
-        def start(self):
-            self._target(*self._args, **self._kwargs)
-
-    monkeypatch.setattr(mod.threading, "Thread", _InlineThread)
+    monkeypatch.setattr(mod, "_RECORDER_EXECUTOR", _InlineExecutor())
 
 
 def _state_arg(state: UsageRecorderState) -> UsageRecorderState:
@@ -505,18 +515,20 @@ class TestDisabledDalNoop:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Real Thread mode (no inline patching) — verifies fire-and-forget
+# Real executor mode (no inline patching) — verifies fire-and-forget
 # ──────────────────────────────────────────────────────────────────
 
 
 class TestFireAndForgetThreadMode:
-    def test_record_calls_dal_in_background_thread(self):
+    def test_record_runs_dal_in_background_via_executor(self):
+        """The shared ThreadPoolExecutor runs record_usage_event off the
+        caller's thread. The caller returns before the dal write completes."""
         import threading
         import time
 
         called = threading.Event()
 
-        # Real thread → state arrives positionally (one arg). Match the
+        # Real executor → state arrives positionally. Match the
         # production call signature.
         def slow_record(state):
             time.sleep(0.05)
@@ -526,21 +538,41 @@ class TestFireAndForgetThreadMode:
         dal.record_usage_event = slow_record
         state = _make_state(dal=dal)
         record_error(state, RuntimeError("x"))
-        # Caller returns immediately; the thread is still running.
+        # Caller returns immediately; the executor worker is still running.
         # Wait briefly for it to finish.
-        assert called.wait(timeout=2.0), "background thread did not run record_usage_event"
+        assert called.wait(timeout=2.0), (
+            "executor worker did not run record_usage_event in the background"
+        )
 
     def test_dal_exception_does_not_propagate(self, monkeypatch):
-        # _fire wraps Thread.start() in a try/except so even with inline-thread
-        # patching (where target runs synchronously in start()) downstream
-        # exceptions don't bubble out to the caller. Logged via
-        # logging.exception(), but the caller is unaffected. This is the
-        # defense-in-depth contract — telemetry must never break the response.
+        """If record_usage_event raises, the caller of _fire must not see it.
+        In production the real ThreadPoolExecutor parks the exception on the
+        returned Future (which we never await), so nothing bubbles. The
+        inline stub mimics that swallow semantic for deterministic testing."""
         _patch_inline_thread(monkeypatch)
 
         dal = MagicMock(enabled=True)
         dal.record_usage_event.side_effect = RuntimeError("supabase down")
         state = _make_state(dal=dal)
 
-        # Should NOT raise. The inner try/except in _fire swallows it.
+        # Should NOT raise — fire-and-forget contract.
+        record_error(state, RuntimeError("x"))
+
+    def test_executor_shutdown_is_silently_handled(self, monkeypatch):
+        """If the executor was shut down (process exiting), submit raises
+        RuntimeError. _fire catches that and accepts the loss — same fate
+        as in-flight rows on the previous daemon-thread shape during
+        process shutdown."""
+        import holmes.core.usage_recorder as mod
+
+        class _ShutdownExecutor:
+            def submit(self, fn, *args, **kwargs):
+                raise RuntimeError("cannot schedule new futures after shutdown")
+
+        monkeypatch.setattr(mod, "_RECORDER_EXECUTOR", _ShutdownExecutor())
+
+        dal = MagicMock(enabled=True)
+        state = _make_state(dal=dal)
+
+        # Should NOT raise — _fire's `except RuntimeError` accepts the loss.
         record_error(state, RuntimeError("x"))
