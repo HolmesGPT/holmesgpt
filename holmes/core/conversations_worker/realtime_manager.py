@@ -68,6 +68,61 @@ def broadcast_submit_topic(account_id: str, cluster_id: str) -> str:
     return f"holmes:submit:{account_id}:{cluster_id}"
 
 
+def _build_ssl_context() -> ssl.SSLContext:
+    """Build the SSL context used for outbound Realtime WebSocket connections.
+
+    The ``CERTIFICATE`` env var (handled by ``holmes.utils.cert_utils``) sets
+    ``REQUESTS_CA_BUNDLE`` / ``WEBSOCKET_CLIENT_CA_BUNDLE`` and patches
+    ``certifi.where()``, but the ``websockets`` stdlib client ignores all of
+    those and falls back to the OS trust store — so a custom CA never makes
+    it into the WS handshake. Honor the env vars here so the realtime
+    connection trusts the same bundle the rest of the app does.
+    """
+    cafile = (
+        os.environ.get("REQUESTS_CA_BUNDLE")
+        or os.environ.get("WEBSOCKET_CLIENT_CA_BUNDLE")
+    )
+    if cafile and os.path.exists(cafile):
+        return ssl.create_default_context(cafile=cafile)
+    return ssl.create_default_context()
+
+
+def _install_ssl_patch_if_needed() -> None:
+    """
+    Monkey-patch ``realtime._async.client.connect`` to inject an SSL context
+    that trusts the custom CA bundle (``CERTIFICATE`` env var) for ``wss://``
+    targets. The websockets stdlib client otherwise uses only the OS trust
+    store, breaking deployments behind a corporate / private CA.
+
+    Idempotent. If the proxy patch is already installed, it composes on top
+    of it (proxy patch checks ``"ssl" in kwargs`` and respects ours).
+    """
+    cafile = (
+        os.environ.get("REQUESTS_CA_BUNDLE")
+        or os.environ.get("WEBSOCKET_CLIENT_CA_BUNDLE")
+    )
+    if not cafile or not os.path.exists(cafile):
+        return
+
+    if getattr(rt_client, "_holmes_ssl_patched", False):
+        return
+
+    ctx = _build_ssl_context()
+    original_connect = rt_client.connect
+
+    async def _ssl_connect(url: str, *args: Any, **kwargs: Any) -> Any:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme == "wss" and "ssl" not in kwargs:
+            kwargs["ssl"] = ctx
+        return await original_connect(url, *args, **kwargs)
+
+    rt_client.connect = _ssl_connect  # type: ignore[attr-defined]
+    rt_client._holmes_ssl_patched = True  # type: ignore[attr-defined]
+    logging.info(
+        "Installed WebSocket SSL patch for realtime client (cafile=%s)", cafile
+    )
+
+
 def _install_proxy_patch_if_needed() -> None:
     """
     If an ``https_proxy`` env var is set, monkey-patch ``realtime._async.client.connect``
@@ -118,7 +173,7 @@ def _install_proxy_patch_if_needed() -> None:
         sock = await proxy.connect(dest_host=parsed.hostname, dest_port=port)
         kwargs.setdefault("server_hostname", parsed.hostname)
         if parsed.scheme == "wss" and "ssl" not in kwargs:
-            kwargs["ssl"] = ssl.create_default_context()
+            kwargs["ssl"] = _build_ssl_context()
         return await ws_connect(url, *args, sock=sock, **kwargs)
 
     rt_client.connect = _proxied_connect  # type: ignore[attr-defined]
@@ -424,7 +479,11 @@ class RealtimeManager:
     # ---- connect + subscribe ----
 
     async def _connect_and_subscribe(self) -> None:
+        # Order matters: install proxy patch first so the SSL patch wraps it.
+        # The SSL patch sets the ``ssl`` kwarg, and the proxy wrapper then
+        # respects ``"ssl" in kwargs`` instead of creating its own context.
         _install_proxy_patch_if_needed()
+        _install_ssl_patch_if_needed()
 
         # Supabase Realtime URL
         store_url = self.dal.url.rstrip("/")

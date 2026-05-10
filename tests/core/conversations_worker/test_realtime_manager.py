@@ -9,7 +9,9 @@ from realtime._async.channel import ChannelStates
 
 from holmes.core.conversations_worker.realtime_manager import (
     RealtimeManager,
+    _build_ssl_context,
     _install_proxy_patch_if_needed,
+    _install_ssl_patch_if_needed,
     broadcast_submit_topic,
     pg_changes_topic,
 )
@@ -88,6 +90,170 @@ def test_install_proxy_patch_is_idempotent(monkeypatch):
     # Cleanup: restore the original connect fn
     rt_client.connect = original_connect
     rt_client._holmes_proxy_patched = False
+
+
+# ---- SSL / custom CA patching ----
+
+
+def test_install_ssl_patch_does_nothing_without_ca_bundle(monkeypatch):
+    """No CA env var → no patch."""
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("WEBSOCKET_CLIENT_CA_BUNDLE", raising=False)
+
+    rt_client._holmes_ssl_patched = False
+    original_connect = rt_client.connect
+    _install_ssl_patch_if_needed()
+    assert rt_client.connect is original_connect
+    assert not getattr(rt_client, "_holmes_ssl_patched", False)
+
+
+def test_install_ssl_patch_does_nothing_when_ca_bundle_missing(
+    monkeypatch, tmp_path
+):
+    """CA env var pointing at a non-existent path is a no-op (don't crash)."""
+    monkeypatch.setenv(
+        "REQUESTS_CA_BUNDLE", str(tmp_path / "does-not-exist.pem")
+    )
+    monkeypatch.delenv("WEBSOCKET_CLIENT_CA_BUNDLE", raising=False)
+
+    rt_client._holmes_ssl_patched = False
+    original_connect = rt_client.connect
+    _install_ssl_patch_if_needed()
+    assert rt_client.connect is original_connect
+    assert not getattr(rt_client, "_holmes_ssl_patched", False)
+
+
+def test_install_ssl_patch_injects_ssl_for_wss(monkeypatch, tmp_path):
+    """When a CA bundle is configured, wss:// connects must get ssl kwarg."""
+    import certifi
+
+    # Use the system certifi bundle as our "custom CA" — it's a real,
+    # parseable PEM file, which is all create_default_context(cafile=...) needs.
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
+    monkeypatch.delenv("WEBSOCKET_CLIENT_CA_BUNDLE", raising=False)
+
+    rt_client._holmes_ssl_patched = False
+    original_connect = rt_client.connect
+
+    captured_kwargs = {}
+
+    async def fake_connect(url, *args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return MagicMock()
+
+    rt_client.connect = fake_connect
+
+    try:
+        _install_ssl_patch_if_needed()
+        assert getattr(rt_client, "_holmes_ssl_patched", False) is True
+
+        asyncio.run(rt_client.connect("wss://realtime.example/realtime/v1"))
+        assert "ssl" in captured_kwargs, "wss:// must get an ssl context"
+        import ssl as _ssl
+
+        assert isinstance(captured_kwargs["ssl"], _ssl.SSLContext)
+    finally:
+        rt_client.connect = original_connect
+        rt_client._holmes_ssl_patched = False
+
+
+def test_install_ssl_patch_does_not_clobber_existing_ssl(monkeypatch):
+    """Caller-supplied ssl kwarg must win — don't overwrite proxy patch's ctx."""
+    import certifi
+    import ssl as _ssl
+
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
+
+    rt_client._holmes_ssl_patched = False
+    original_connect = rt_client.connect
+
+    captured_kwargs = {}
+
+    async def fake_connect(url, *args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return MagicMock()
+
+    rt_client.connect = fake_connect
+    sentinel_ctx = _ssl.create_default_context()
+
+    try:
+        _install_ssl_patch_if_needed()
+        asyncio.run(
+            rt_client.connect(
+                "wss://realtime.example/realtime/v1", ssl=sentinel_ctx
+            )
+        )
+        assert captured_kwargs["ssl"] is sentinel_ctx
+    finally:
+        rt_client.connect = original_connect
+        rt_client._holmes_ssl_patched = False
+
+
+def test_install_ssl_patch_skips_non_wss(monkeypatch):
+    """Plain ws:// (or non-WS schemes) must not get a forced ssl kwarg."""
+    import certifi
+
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
+
+    rt_client._holmes_ssl_patched = False
+    original_connect = rt_client.connect
+
+    captured_kwargs = {}
+
+    async def fake_connect(url, *args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return MagicMock()
+
+    rt_client.connect = fake_connect
+
+    try:
+        _install_ssl_patch_if_needed()
+        asyncio.run(rt_client.connect("ws://localhost:54321/realtime/v1"))
+        assert "ssl" not in captured_kwargs
+    finally:
+        rt_client.connect = original_connect
+        rt_client._holmes_ssl_patched = False
+
+
+def test_install_ssl_patch_is_idempotent(monkeypatch):
+    import certifi
+
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
+
+    rt_client._holmes_ssl_patched = False
+    original_connect = rt_client.connect
+    try:
+        _install_ssl_patch_if_needed()
+        first_patched = rt_client.connect
+        assert first_patched is not original_connect
+
+        _install_ssl_patch_if_needed()
+        assert rt_client.connect is first_patched
+    finally:
+        rt_client.connect = original_connect
+        rt_client._holmes_ssl_patched = False
+
+
+def test_build_ssl_context_uses_custom_ca(monkeypatch):
+    import certifi
+    import ssl as _ssl
+
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
+    ctx = _build_ssl_context()
+    assert isinstance(ctx, _ssl.SSLContext)
+    # Default context verifies the cert chain — if the cafile didn't load,
+    # SSLContext construction wouldn't have raised, but we'd be back on the
+    # OS store. Sanity-check via verify_mode.
+    assert ctx.verify_mode == _ssl.CERT_REQUIRED
+
+
+def test_build_ssl_context_falls_back_to_default(monkeypatch):
+    import ssl as _ssl
+
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("WEBSOCKET_CLIENT_CA_BUNDLE", raising=False)
+    ctx = _build_ssl_context()
+    assert isinstance(ctx, _ssl.SSLContext)
 
 
 # ---- _channel_unhealthy ----
