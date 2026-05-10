@@ -82,8 +82,13 @@ def _build_ssl_context() -> ssl.SSLContext:
         os.environ.get("REQUESTS_CA_BUNDLE")
         or os.environ.get("WEBSOCKET_CLIENT_CA_BUNDLE")
     )
-    if cafile and os.path.exists(cafile):
-        return ssl.create_default_context(cafile=cafile)
+    if cafile:
+        if os.path.exists(cafile):
+            return ssl.create_default_context(cafile=cafile)
+        logging.warning(
+            "CA bundle %s does not exist; falling back to OS trust store",
+            cafile,
+        )
     return ssl.create_default_context()
 
 
@@ -101,7 +106,13 @@ def _install_ssl_patch_if_needed() -> None:
         os.environ.get("REQUESTS_CA_BUNDLE")
         or os.environ.get("WEBSOCKET_CLIENT_CA_BUNDLE")
     )
-    if not cafile or not os.path.exists(cafile):
+    if not cafile:
+        return
+    if not os.path.exists(cafile):
+        logging.warning(
+            "CA bundle %s does not exist; falling back to OS trust store",
+            cafile,
+        )
         return
 
     if getattr(rt_client, "_holmes_ssl_patched", False):

@@ -1,8 +1,10 @@
 """Unit tests for RealtimeManager's testable (non-async) surface."""
 import asyncio
 import os
+import ssl as _ssl
 from unittest.mock import MagicMock
 
+import certifi
 import pytest
 import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
@@ -125,8 +127,6 @@ def test_install_ssl_patch_does_nothing_when_ca_bundle_missing(
 
 def test_install_ssl_patch_injects_ssl_for_wss(monkeypatch, tmp_path):
     """When a CA bundle is configured, wss:// connects must get ssl kwarg."""
-    import certifi
-
     # Use the system certifi bundle as our "custom CA" — it's a real,
     # parseable PEM file, which is all create_default_context(cafile=...) needs.
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
@@ -149,8 +149,6 @@ def test_install_ssl_patch_injects_ssl_for_wss(monkeypatch, tmp_path):
 
         asyncio.run(rt_client.connect("wss://realtime.example/realtime/v1"))
         assert "ssl" in captured_kwargs, "wss:// must get an ssl context"
-        import ssl as _ssl
-
         assert isinstance(captured_kwargs["ssl"], _ssl.SSLContext)
     finally:
         rt_client.connect = original_connect
@@ -159,9 +157,6 @@ def test_install_ssl_patch_injects_ssl_for_wss(monkeypatch, tmp_path):
 
 def test_install_ssl_patch_does_not_clobber_existing_ssl(monkeypatch):
     """Caller-supplied ssl kwarg must win — don't overwrite proxy patch's ctx."""
-    import certifi
-    import ssl as _ssl
-
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
 
     rt_client._holmes_ssl_patched = False
@@ -191,8 +186,6 @@ def test_install_ssl_patch_does_not_clobber_existing_ssl(monkeypatch):
 
 def test_install_ssl_patch_skips_non_wss(monkeypatch):
     """Plain ws:// (or non-WS schemes) must not get a forced ssl kwarg."""
-    import certifi
-
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
 
     rt_client._holmes_ssl_patched = False
@@ -216,8 +209,6 @@ def test_install_ssl_patch_skips_non_wss(monkeypatch):
 
 
 def test_install_ssl_patch_is_idempotent(monkeypatch):
-    import certifi
-
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
 
     rt_client._holmes_ssl_patched = False
@@ -235,9 +226,6 @@ def test_install_ssl_patch_is_idempotent(monkeypatch):
 
 
 def test_build_ssl_context_uses_custom_ca(monkeypatch):
-    import certifi
-    import ssl as _ssl
-
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", certifi.where())
     ctx = _build_ssl_context()
     assert isinstance(ctx, _ssl.SSLContext)
@@ -248,8 +236,6 @@ def test_build_ssl_context_uses_custom_ca(monkeypatch):
 
 
 def test_build_ssl_context_falls_back_to_default(monkeypatch):
-    import ssl as _ssl
-
     monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
     monkeypatch.delenv("WEBSOCKET_CLIENT_CA_BUNDLE", raising=False)
     ctx = _build_ssl_context()
