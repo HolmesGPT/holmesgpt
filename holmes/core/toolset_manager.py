@@ -2,10 +2,9 @@ import concurrent.futures
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Union
-
-display_logger = logging.getLogger("holmes.display.toolset_manager")
 
 from benedict import benedict
 from pydantic import FilePath
@@ -20,6 +19,36 @@ from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
 
 if TYPE_CHECKING:
     pass
+
+display_logger = logging.getLogger("holmes.display.toolset_manager")
+
+# Default per-prerequisite-check timeout. Datasources that fail to respond
+# within this many seconds are marked failed so startup can proceed.
+# Override with the HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS env var.
+DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS = 20.0
+
+
+def get_prereq_timeout_seconds() -> float:
+    """Resolve the prerequisite-check timeout from env or fall back to default."""
+    raw = os.environ.get("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS")
+    if not raw:
+        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logging.warning(
+            f"Invalid HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r}; "
+            f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
+        )
+        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    if value <= 0:
+        logging.warning(
+            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} is non-positive; "
+            f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
+        )
+        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    return value
+
 
 DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status.json")
 
@@ -203,25 +232,116 @@ class ToolsetManager:
         toolsets: list[Toolset],
         silent: bool = False,
         on_event: EventCallback = None,
+        timeout_seconds: Optional[float] = None,
     ):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_toolset = {}
+        """Run prerequisite checks for each toolset in parallel with a timeout.
+
+        Toolsets whose checks don't return within ``timeout_seconds`` are
+        marked FAILED so a hung datasource can't block startup. The timeout
+        defaults to ``HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS`` (or 20s).
+
+        Note: the timeout bounds *reporting latency*, not worker lifetime.
+        Python cannot interrupt a thread blocked in C code (e.g.
+        ``subprocess.run`` without its own ``timeout=``, a socket connect
+        with no timeout). ``executor.shutdown(wait=False)`` lets us return
+        early, but the interpreter's atexit handler still joins all pool
+        threads on process exit, so a permanently stuck worker delays
+        shutdown. ``_prereq_aborted`` only stops the worker between
+        prerequisites, not mid-call. Toolset authors should set explicit
+        timeouts on the I/O calls they make from prerequisite callables.
+        """
+        if timeout_seconds is None:
+            timeout_seconds = get_prereq_timeout_seconds()
+
+        if not toolsets:
+            return
+
+        # Size the pool to the batch so no toolset has to wait in the queue.
+        # A queued toolset would inherit whatever time is left on the deadline
+        # and could be reported as "timed out" without ever having run.
+        max_workers = max(1, len(toolsets))
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+
+        # Reset any abort flag from a previous call so we don't no-op the check.
+        for toolset in toolsets:
+            toolset._prereq_aborted = False
+
+        try:
+            future_to_toolset: dict[concurrent.futures.Future, Toolset] = {}
             for toolset in toolsets:
                 if on_event is not None:
                     on_event(StatusEvent(kind=StatusEventKind.TOOLSET_CHECKING, name=toolset.name))
                 future_to_toolset[executor.submit(toolset.check_prerequisites, silent)] = toolset
 
-            for future in concurrent.futures.as_completed(future_to_toolset):
-                if on_event is not None:
+            # Single deadline shared across the batch. With max_workers ==
+            # len(toolsets) every check starts immediately, so this functions
+            # as a per-toolset wall-clock budget too.
+            deadline = time.monotonic() + timeout_seconds
+            pending = set(future_to_toolset.keys())
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                done, pending = concurrent.futures.wait(
+                    pending,
+                    timeout=remaining,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                if not done:
+                    break
+                for future in done:
                     ts = future_to_toolset[future]
+                    # Surface unexpected exceptions from the worker —
+                    # check_prerequisites catches the common ones, but a
+                    # crash in interpolate_command, subprocess, etc. would
+                    # otherwise leave ts in a stale state.
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        logging.exception(
+                            "Toolset %s prerequisite worker crashed", ts.name
+                        )
+                        ts.status = ToolsetStatusEnum.FAILED
+                        ts.error = f"Prerequisite check failed unexpectedly: {exc!s}"
+                    if on_event is not None:
+                        on_event(
+                            StatusEvent(
+                                kind=StatusEventKind.TOOLSET_READY,
+                                name=ts.name,
+                                status=ToolsetStatus(ts.status.value),
+                                error=ts.error or "",
+                            )
+                        )
+
+            for future in pending:
+                ts = future_to_toolset[future]
+                # Tell the still-running worker to stop mutating ts.status /
+                # ts.error before we write our own FAILED state. Toolset.
+                # check_prerequisites accumulates results in locals and only
+                # commits once at the end after re-checking this flag.
+                ts._prereq_aborted = True
+                ts.status = ToolsetStatusEnum.FAILED
+                ts.error = (
+                    f"Prerequisite check did not complete within "
+                    f"{timeout_seconds:g}s (datasource unreachable or too slow). "
+                    f"Increase the limit with HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS."
+                )
+                future.cancel()
+                if not silent:
+                    display_logger.warning(
+                        f"⏱  Toolset {ts.name}: timed out after {timeout_seconds:g}s"
+                    )
+                if on_event is not None:
                     on_event(
                         StatusEvent(
                             kind=StatusEventKind.TOOLSET_READY,
                             name=ts.name,
-                            status=ToolsetStatus(ts.status.value),
-                            error=ts.error or "",
+                            status=ToolsetStatus.FAILED,
+                            error=ts.error,
                         )
                     )
+        finally:
+            executor.shutdown(wait=False)
 
     @staticmethod
     def _check_config_prerequisites(toolsets: list[Toolset]) -> None:

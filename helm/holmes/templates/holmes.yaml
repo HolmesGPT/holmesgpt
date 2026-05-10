@@ -46,6 +46,32 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.dnsConfig.enabled }}
+      {{- $policy := .Values.dnsConfig.policy }}
+      {{- $hasConfig := or .Values.dnsConfig.nameservers .Values.dnsConfig.searches .Values.dnsConfig.options }}
+
+      {{- if and (eq $policy "None") (not $hasConfig) }}
+        {{- fail "dnsConfig: when dnsPolicy is 'None', you must set at least one of nameservers, searches, or options" }}
+      {{- end }}
+      dnsPolicy: {{ $policy | quote }}
+      {{- if $hasConfig }}
+      dnsConfig:
+        {{- with .Values.dnsConfig.nameservers }}
+        nameservers:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.dnsConfig.searches }}
+        searches:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.dnsConfig.options }}
+        options:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}
+      {{ else }}
+      dnsPolicy: ClusterFirst
+      {{- end }}
       {{- if .Values.initContainers }}
       initContainers:
       {{- toYaml .Values.initContainers | nindent 6 }}
