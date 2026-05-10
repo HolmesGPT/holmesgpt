@@ -1,8 +1,12 @@
 # Skills
 
-!!! warning "Breaking Change — Holmes 0.25.0+"
+!!! note "Requires Holmes 0.26.0+"
 
-    Skills replace the previous runbook system. If you are upgrading from Holmes 0.24.x or older, you must migrate your runbooks to the new SKILL.md format. See [Migrating from Runbooks](#migrating-from-runbooks) below.
+    Skills are supported starting in Holmes 0.26.0. Earlier versions use the legacy runbook system.
+
+!!! warning "Breaking Change — Holmes 0.26.0+"
+
+    Skills replace the previous runbook system. If you are upgrading from Holmes 0.25.x or older, you must migrate your runbooks to the new SKILL.md format. See [Migrating from Runbooks](#migrating-from-runbooks) below.
 
 Skills are step-by-step troubleshooting guides that Holmes follows when investigating issues. When a user asks a question or an alert fires, Holmes automatically matches relevant skills from its catalog and fetches them using the `fetch_skill` tool. It then follows the skill instructions step-by-step, calling tools to gather data and reporting results for each step.
 
@@ -101,15 +105,6 @@ The key sections in a skill's markdown body are:
       - /path/to/team-skills/
     ```
 
-=== "Helm Chart"
-
-    Mount your skill directories and reference them in values:
-
-    ```yaml
-    custom_skill_paths:
-      - /etc/holmes/skills/
-    ```
-
 === "Python SDK"
 
     ```python
@@ -125,20 +120,6 @@ The key sections in a skill's markdown body are:
     ```
 
 Holmes scans each directory (up to 2 levels deep) for `SKILL.md` files. Multiple paths are merged — skills from all paths are combined with built-in skills.
-
-## Common Use Cases
-
-```
-Why is my PostgreSQL database connection timing out?
-```
-
-```
-Investigate the OOMKilled alert on the payments service
-```
-
-```
-Help me troubleshoot DNS resolution failures in the staging cluster
-```
 
 ## Migrating from Runbooks
 
@@ -173,20 +154,3 @@ If you are upgrading from Holmes 0.24.x or older, your existing runbooks need to
    ```
 
 The `catalog.json` file is no longer needed — Holmes discovers skills automatically by scanning for `SKILL.md` files.
-
-## Troubleshooting
-
-```bash
-# Check Holmes logs for skill loading errors
-# Look for "Failed to parse" or "missing required 'description' field"
-holmes ask "test question" -v
-
-# Verify your SKILL.md has valid YAML frontmatter
-python3 -c "
-import yaml
-with open('my-skill/SKILL.md') as f:
-    content = f.read()
-    parts = content.split('---', 2)
-    print(yaml.safe_load(parts[1]))
-"
-```

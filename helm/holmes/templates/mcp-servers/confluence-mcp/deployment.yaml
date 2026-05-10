@@ -62,6 +62,32 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.confluenceMcp.affinity | nindent 8 }}
       {{- end }}
+      {{- if .Values.mcpAddons.confluenceMcp.dnsConfig.enabled }}
+      {{- $policy := .Values.mcpAddons.confluenceMcp.dnsConfig.policy }}
+      {{- $hasConfig := or .Values.mcpAddons.confluenceMcp.dnsConfig.nameservers .Values.mcpAddons.confluenceMcp.dnsConfig.searches .Values.mcpAddons.confluenceMcp.dnsConfig.options }}
+
+      {{- if and (eq $policy "None") (not $hasConfig) }}
+        {{- fail "dnsConfig: when dnsPolicy is 'None', you must set at least one of nameservers, searches, or options for confluenceMcp" }}
+      {{- end }}
+      dnsPolicy: {{ $policy | quote }}
+      {{- if $hasConfig }}
+      dnsConfig:
+        {{- with .Values.mcpAddons.confluenceMcp.dnsConfig.nameservers }}
+        nameservers:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.mcpAddons.confluenceMcp.dnsConfig.searches }}
+        searches:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.mcpAddons.confluenceMcp.dnsConfig.options }}
+        options:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}
+      {{ else }}
+      dnsPolicy: ClusterFirst
+      {{- end }}
       containers:
       - name: confluence-mcp
         image: "{{ .Values.mcpAddons.confluenceMcp.registry }}/{{ .Values.mcpAddons.confluenceMcp.image }}"
