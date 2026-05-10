@@ -101,21 +101,88 @@ The key sections in a skill's markdown body are:
 
     **Mode 1 — paths only (you mount skill files yourself):**
 
-    Mount a directory containing `SKILL.md` files into the Holmes pod via
-    `additionalVolumes` / `additionalVolumeMounts` (or an `initContainer`),
-    then register the path with `customSkillPaths`:
+    Use this when you want to manage skill content outside Helm — e.g.
+    keep skills in a Secret (good for content you don't want in plain
+    values), pull them at start-up via an `initContainer`, or mount them
+    from a pre-existing ConfigMap. You ship the files; the chart only
+    registers the path.
+
+    Holmes expects each skill to live in its own directory containing a
+    `SKILL.md` file:
+
+    ```
+    /etc/holmes/my-skills/
+    ├── dns-troubleshooting/SKILL.md
+    └── pod-restart-quickcheck/SKILL.md
+    ```
+
+    Kubernetes ConfigMap and Secret keys cannot contain `/`, so use the
+    `items:` projection on the volume to map flat keys (e.g.
+    `dns-troubleshooting.SKILL.md`) to the directory layout above.
+
+    **Example with a Secret:**
+
+    Create the Secret:
+
+    ```yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: holmes-custom-skills
+      namespace: <holmes-namespace>
+    type: Opaque
+    stringData:
+      dns-troubleshooting.SKILL.md: |
+        ---
+        description: Troubleshoot DNS resolution failures
+        ---
+
+        ## Goal
+        Diagnose DNS issues in the cluster.
+
+        ## Workflow
+        1. Check CoreDNS pods
+        2. Test DNS resolution from an affected pod
+        3. Check NetworkPolicies for blocked egress to kube-system
+      pod-restart-quickcheck.SKILL.md: |
+        ---
+        description: Quick diagnosis for CrashLoopBackOff / restarting pods
+        ---
+
+        ## Goal
+        Identify why a pod is restarting.
+
+        ## Workflow
+        1. Inspect pod status (restartCount, lastState.terminated.reason)
+        2. Pull `--previous` container logs
+        3. Check namespace events
+    ```
+
+    Wire it into the Holmes pod through the chart's existing
+    `additionalVolumes` / `additionalVolumeMounts` knobs:
 
     ```yaml
     additionalVolumes:
-      - name: my-skills
-        configMap:
-          name: my-skills
+      - name: custom-skills
+        secret:
+          secretName: holmes-custom-skills
+          items:
+            - key: dns-troubleshooting.SKILL.md
+              path: dns-troubleshooting/SKILL.md
+            - key: pod-restart-quickcheck.SKILL.md
+              path: pod-restart-quickcheck/SKILL.md
     additionalVolumeMounts:
-      - name: my-skills
+      - name: custom-skills
         mountPath: /etc/holmes/my-skills
+        readOnly: true
     customSkillPaths:
       - /etc/holmes/my-skills
     ```
+
+    Swap `secret:` for `configMap:` (with the same `items:` projection)
+    if you'd rather use a ConfigMap. Updates to the underlying
+    Secret/ConfigMap are picked up by the kubelet within ~60 seconds; the
+    skill catalog is rebuilt on the next investigation.
 
     **Mode 2 — inline skills (chart-managed):**
 
