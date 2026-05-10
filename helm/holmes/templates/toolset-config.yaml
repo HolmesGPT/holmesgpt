@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.confluenceMcp.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,7 +6,12 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   custom_toolset.yaml: |-
-    toolsets: {{ toYaml .Values.toolsets | nindent 6 }}
+    {{- $toolsets := .Values.toolsets }}
+    {{- if .Values.k8sRBAC }}
+    {{- $rbacOverrides := dict "kubernetes/core" (dict "enabled" false) "kubernetes/logs" (dict "enabled" false) "bash" (dict "enabled" false) }}
+    {{- $toolsets = mergeOverwrite $toolsets $rbacOverrides }}
+    {{- end }}
+    toolsets: {{ toYaml $toolsets | nindent 6 }}
     {{- $mcpServers := .Values.mcp_servers }}
     {{- if .Values.mcpAddons.aws.enabled }}
     {{- $awsMcpServers := dict "aws_api" (dict
@@ -156,6 +161,25 @@ data:
       )
     }}
     {{- $mcpServers = merge $mcpServers $k8sRemediationMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.kubernetes.enabled }}
+    {{- $k8sMcpConfig := dict
+          "url" (printf "http://%s-k8s-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
+          "mode" "streamable-http"
+          "icon_url" "https://cdn.simpleicons.org/kubernetes/326CE5"
+    }}
+    {{- with .Values.mcpAddons.kubernetes.config.oauth }}
+    {{- if . }}
+    {{- $_ := set $k8sMcpConfig "oauth" . }}
+    {{- end }}
+    {{- end }}
+    {{- $k8sMcpServers := dict "kubernetes" (dict
+        "description" "Kubernetes cluster access - pods, events, logs, resources, nodes, and namespaces"
+        "config" $k8sMcpConfig
+        "llm_instructions" (include "holmes.kubernetesMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $k8sMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.confluenceMcp.enabled }}
     {{- $confluenceMcpServers := dict "confluence_mcp" (dict
