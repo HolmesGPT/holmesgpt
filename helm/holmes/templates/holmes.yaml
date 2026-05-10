@@ -23,7 +23,7 @@ spec:
         app: holmes
       annotations:
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
+        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills | toYaml | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -128,6 +128,14 @@ spec:
           - name: IS_OPENSHIFT
             value: "True"
           {{- end }}
+          {{- $skillPaths := .Values.customSkillPaths | default list }}
+          {{- if .Values.customSkills }}
+          {{- $skillPaths = append $skillPaths "/etc/holmes/skills" }}
+          {{- end }}
+          {{- if $skillPaths }}
+          - name: CUSTOM_SKILL_PATHS
+            value: {{ join "," $skillPaths | quote }}
+          {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
           {{- end }}
@@ -145,6 +153,11 @@ spec:
             mountPath: /etc/robusta/config
           - name: custom-toolsets-configmap
             mountPath: /etc/holmes/config
+          {{- if .Values.customSkills }}
+          - name: holmes-skills
+            mountPath: /etc/holmes/skills
+            readOnly: true
+          {{- end }}
           {{- if .Values.additionalVolumeMounts -}}
           {{ toYaml .Values.additionalVolumeMounts | nindent 10 }}
           {{- end }}
@@ -170,6 +183,16 @@ spec:
           configMap:
             name: custom-toolsets-configmap
             optional: true
+        {{- if .Values.customSkills }}
+        - name: holmes-skills
+          configMap:
+            name: {{ .Release.Name }}-holmes-skills
+            items:
+              {{- range $name, $skill := .Values.customSkills }}
+              - key: {{ $name }}.SKILL.md
+                path: {{ $name }}/SKILL.md
+              {{- end }}
+        {{- end }}
         {{- if .Values.additionalVolumes -}}
         {{ toYaml .Values.additionalVolumes | nindent 8 }}
         {{- end }}

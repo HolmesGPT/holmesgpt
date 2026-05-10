@@ -95,6 +95,54 @@ The key sections in a skill's markdown body are:
 
 ### Configuring Custom Skill Paths
 
+=== "Helm"
+
+    Two modes are supported, and they can be combined.
+
+    **Mode 1 — paths only (you mount skill files yourself):**
+
+    Mount a directory containing `SKILL.md` files into the Holmes pod via
+    `additionalVolumes` / `additionalVolumeMounts` (or an `initContainer`),
+    then register the path with `customSkillPaths`:
+
+    ```yaml
+    additionalVolumes:
+      - name: my-skills
+        configMap:
+          name: my-skills
+    additionalVolumeMounts:
+      - name: my-skills
+        mountPath: /etc/holmes/my-skills
+    customSkillPaths:
+      - /etc/holmes/my-skills
+    ```
+
+    **Mode 2 — inline skills (chart-managed):**
+
+    Define skill contents directly in `values.yaml`. The chart creates a
+    ConfigMap, mounts it at `/etc/holmes/skills/<name>/SKILL.md`, and adds
+    that path to `custom_skill_paths` automatically:
+
+    ```yaml
+    customSkills:
+      dns-troubleshooting:
+        content: |
+          ---
+          description: Troubleshooting DNS resolution failures
+          ---
+
+          ## Goal
+          Diagnose and resolve DNS resolution issues in the cluster.
+
+          ## Workflow
+          1. Check CoreDNS pods
+          2. Test DNS resolution from an affected pod
+          3. Check for NetworkPolicies blocking DNS
+    ```
+
+    Under the hood the chart sets the `CUSTOM_SKILL_PATHS` environment
+    variable on the Holmes pod (comma-separated list).
+
 === "Config File"
 
     Add skill directory paths to `~/.holmes/config.yaml`:
