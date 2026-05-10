@@ -104,7 +104,7 @@ toolsets:
     enabled: true
   prometheus/metrics:
     enabled: true
-  runbook:
+  skills:
     enabled: true
   connectivity_check:
     enabled: true
