@@ -22,6 +22,7 @@ import litellm
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
 from holmes.core.oauth_utils import _get_token_manager
+from opentelemetry import context as otel_context, propagate
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -269,6 +270,21 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+
+
+@app.middleware("http")
+async def propagate_trace_context(request: Request, call_next):
+    """Continue inbound distributed traces from standard HTTP trace headers."""
+    extracted_context = propagate.extract(
+        request.headers,
+        context=otel_context.Context(),
+    )
+    token = otel_context.attach(extracted_context)
+    try:
+        return await call_next(request)
+    finally:
+        otel_context.detach(token)
+
 
 HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
 
