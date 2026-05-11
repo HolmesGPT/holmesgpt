@@ -277,6 +277,41 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Multiple Tempo Instances
+
+To query several Tempo / Grafana servers from one Holmes deployment, set `instances` instead of single-instance fields. The LLM selects an instance per tool call via the `grafana_instance` parameter (or omits it when only one is configured).
+
+Top-level credentials (`username`/`password` or `api_key`) act as **global defaults**; per-instance values override them. Auth is mutually exclusive per instance: use either `api_key` *or* `username` + `password`.
+
+```yaml
+toolsets:
+  grafana/tempo:
+    enabled: true
+    config:
+      # Global default basic-auth credentials
+      username: holmes
+      password: "{{ env.GRAFANA_PASSWORD }}"
+      # `labels` stays at the top level — global only for v1
+      labels:
+        pod: k8s.pod.name
+        namespace: k8s.namespace.name
+
+      instances:
+        - name: prod-eu
+          api_url: http://grafana.eu-west-1.svc.cluster.local
+          grafana_datasource_uid: tempo
+        - name: prod-us
+          api_url: http://grafana.us-east-1.svc.cluster.local
+          grafana_datasource_uid: tempo
+        - name: tenant-a-direct
+          # Direct Tempo (no Grafana proxy)
+          api_url: http://tempo.tenant-a.svc.cluster.local:3200
+          additional_headers:
+            X-Scope-OrgID: tenant-a
+```
+
+The `labels` mapping is currently global only — per-instance label overrides are not supported in this release.
+
 ## Advanced Configuration
 
 ### SSL Verification

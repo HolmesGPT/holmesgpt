@@ -14,10 +14,14 @@ from holmes.core.tools import (
     ToolParameter,
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
-from holmes.plugins.toolsets.grafana.base_grafana_toolset import BaseGrafanaToolset
+from holmes.plugins.toolsets.grafana.base_grafana_toolset import (
+    GRAFANA_INSTANCE_PARAM_DESCRIPTION,
+    BaseGrafanaToolset,
+)
 from holmes.plugins.toolsets.grafana.common import (
     DirectTempoConfig,
     GrafanaCloudTempoConfig,
+    GrafanaInstance,
     GrafanaTempoConfig,
     GrafanaTempoProxyConfig,
 )
@@ -34,11 +38,17 @@ from holmes.plugins.toolsets.utils import (
     toolset_name_for_one_liner,
 )
 
+GRAFANA_INSTANCE_PARAM = ToolParameter(
+    type="string",
+    description=GRAFANA_INSTANCE_PARAM_DESCRIPTION,
+    required=False,
+)
+
 TEMPO_LABELS_ADD_PREFIX = load_bool("TEMPO_LABELS_ADD_PREFIX", True)
 
 
 def _build_grafana_explore_tempo_url(
-    config: GrafanaTempoConfig,
+    instance: GrafanaInstance,
     query: Optional[str] = None,
     start: Optional[int] = None,
     end: Optional[int] = None,
@@ -47,11 +57,11 @@ def _build_grafana_explore_tempo_url(
     filters: Optional[List[Dict[str, Any]]] = None,
     tags: Optional[str] = None,
 ) -> Optional[str]:
-    if not config.grafana_datasource_uid:
+    if not instance.grafana_datasource_uid:
         return None
     try:
-        base_url = config.external_url or config.api_url
-        datasource_uid = config.grafana_datasource_uid
+        base_url = instance.external_url or instance.api_url
+        datasource_uid = instance.grafana_datasource_uid
         now_s = int(time.time())
         start_ts = start if start else now_s - 3600
         end_ts = end if end else now_s
@@ -151,16 +161,17 @@ class BaseGrafanaTempoToolset(BaseGrafanaToolset):
         return cast(GrafanaTempoConfig, self._grafana_config)
 
     def health_check(self) -> Tuple[bool, str]:
-        """Test a dummy query to check if service available."""
-        try:
-            _ = GrafanaTempoAPI(self.grafana_config).search_traces_by_query(
-                q='{ .service.name = "test-endpoint" }',
-                limit=1,
-            )
-        except Exception as e:
-            return False, f"Unable to connect to Tempo.\n{str(e)}"
-
-        return True, ""
+        """Test a dummy query against every configured instance."""
+        failures: List[str] = []
+        for instance in self._instances.values():
+            try:
+                _ = GrafanaTempoAPI(instance).search_traces_by_query(
+                    q='{ .service.name = "test-endpoint" }',
+                    limit=1,
+                )
+            except Exception as e:
+                failures.append(f"[{instance.name}] Unable to connect to Tempo: {e}")
+        return self._aggregate_health_results(failures, len(self._instances))
 
     def build_k8s_filters(
         self, params: Dict[str, Any], use_exact_match: bool
@@ -230,6 +241,7 @@ Examples:
 - For namespace issues: namespace_name="production"
 - Combined: service_name="auth", namespace_name="staging\"""",
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "service_name": ToolParameter(
                     description="Service to analyze (partial match supported)",
                     type="string",
@@ -295,6 +307,12 @@ Examples:
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        try:
             # Build query
             if params.get("base_query"):
                 base_query = params["base_query"]
@@ -327,7 +345,7 @@ Examples:
             start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
             # Create API instance
-            api = GrafanaTempoAPI(self._toolset.grafana_config)
+            api = GrafanaTempoAPI(instance)
 
             # Step 1: Get all trace summaries
             stats_query = f"{{{base_query}}}"
@@ -434,7 +452,7 @@ Examples:
             }
 
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 query=f"{{{base_query}}}",
                 start=start,
                 end=end,
@@ -482,6 +500,7 @@ class SearchTracesByQuery(Tool):
                 "- With aggregates: { status = error } | by(resource.service.name) | count() > 1"
             ),
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "q": ToolParameter(
                     description=(
                         "TraceQL query. Supports filtering by span/resource attributes, "
@@ -521,7 +540,13 @@ class SearchTracesByQuery(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
-        api = GrafanaTempoAPI(self._toolset.grafana_config)
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        api = GrafanaTempoAPI(instance)
 
         start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
@@ -535,7 +560,7 @@ class SearchTracesByQuery(Tool):
             )
 
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 query=params["q"],
                 start=start,
                 end=end,
@@ -569,6 +594,7 @@ class SearchTracesByTags(Tool):
                 'Example: service.name="api" http.status_code="500"'
             ),
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "tags": ToolParameter(
                     description='Logfmt-encoded span/process attributes (e.g., \'service.name="api" http.status_code="500"\')',
                     type="string",
@@ -611,7 +637,13 @@ class SearchTracesByTags(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
-        api = GrafanaTempoAPI(self._toolset.grafana_config)
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        api = GrafanaTempoAPI(instance)
 
         start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
@@ -628,7 +660,7 @@ class SearchTracesByTags(Tool):
 
             tag_filters = params["tags"].replace(" ", " && ")
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 query=f"{{{tag_filters}}}",
                 start=start,
                 end=end,
@@ -662,6 +694,7 @@ class QueryTraceById(Tool):
                 "Returns the full trace data in OpenTelemetry format."
             ),
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "trace_id": ToolParameter(
                     description="The unique trace ID to fetch",
                     type="string",
@@ -684,7 +717,13 @@ class QueryTraceById(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
-        api = GrafanaTempoAPI(self._toolset.grafana_config)
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        api = GrafanaTempoAPI(instance)
 
         start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
@@ -696,7 +735,7 @@ class QueryTraceById(Tool):
             )
 
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 trace_id=params["trace_id"],
                 start=start,
                 end=end,
@@ -729,6 +768,7 @@ class SearchTagNames(Tool):
                 "Returns tags organized by scope (resource, span, intrinsic)."
             ),
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "scope": ToolParameter(
                     description="Filter by scope: 'resource', 'span', or 'intrinsic'",
                     type="string",
@@ -766,7 +806,13 @@ class SearchTagNames(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
-        api = GrafanaTempoAPI(self._toolset.grafana_config)
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        api = GrafanaTempoAPI(instance)
 
         start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
@@ -782,7 +828,7 @@ class SearchTagNames(Tool):
 
             query_filter = params.get("q") or "{}"
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 query=query_filter,
                 start=start,
                 end=end,
@@ -815,6 +861,7 @@ class SearchTagValues(Tool):
                 "Useful for discovering what values exist for a given tag."
             ),
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "tag": ToolParameter(
                     description="The tag name to get values for (e.g., 'resource.service.name', 'http.status_code')",
                     type="string",
@@ -852,7 +899,13 @@ class SearchTagValues(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
-        api = GrafanaTempoAPI(self._toolset.grafana_config)
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        api = GrafanaTempoAPI(instance)
 
         start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
@@ -867,7 +920,7 @@ class SearchTagValues(Tool):
             )
 
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 start=start,
                 end=end,
                 tags=params["tag"],
@@ -910,6 +963,7 @@ class QueryMetricsInstant(Tool):
                 "a total sum or single value computed across the whole time range."
             ),
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "q": ToolParameter(
                     description=(
                         "TraceQL metrics query. Supported functions: rate, count_over_time, "
@@ -939,7 +993,13 @@ class QueryMetricsInstant(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
-        api = GrafanaTempoAPI(self._toolset.grafana_config)
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        api = GrafanaTempoAPI(instance)
 
         start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
@@ -951,7 +1011,7 @@ class QueryMetricsInstant(Tool):
             )
 
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 query=params["q"],
                 start=start,
                 end=end,
@@ -993,6 +1053,7 @@ class QueryMetricsRange(Tool):
                 "TraceQL metrics help you answer these questions by parsing your traces in aggregate."
             ),
             parameters={
+                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "q": ToolParameter(
                     description=(
                         "TraceQL metrics query. Supported functions: rate, count_over_time, "
@@ -1032,7 +1093,13 @@ class QueryMetricsRange(Tool):
         self._toolset = toolset
 
     def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
-        api = GrafanaTempoAPI(self._toolset.grafana_config)
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
+            )
+        api = GrafanaTempoAPI(instance)
 
         start, end = BaseGrafanaTempoToolset.adjust_start_end_time(params)
 
@@ -1056,7 +1123,7 @@ class QueryMetricsRange(Tool):
             )
 
             explore_url = _build_grafana_explore_tempo_url(
-                self._toolset.grafana_config,
+                instance,
                 query=params["q"],
                 start=start,
                 end=end,

@@ -10,8 +10,9 @@ from holmes.plugins.toolsets.json_filter_mixin import _truncate_to_depth
 def _build_tool(data):
     toolset = GrafanaToolset()
     toolset._grafana_config = GrafanaDashboardConfig(url="http://example.com")
+    toolset._instances = {i.name: i for i in toolset._grafana_config.instances}
     tool = GetDashboardByUID(toolset)
-    tool._make_grafana_request = lambda endpoint, params: StructuredToolResult(
+    tool._make_grafana_request = lambda instance, endpoint, params: StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS,
         data=data,
         params=params,
@@ -87,9 +88,10 @@ def test_max_depth_zero_preserves_upstream_error():
     """If upstream already failed, the guard must not clobber the original error field."""
     toolset = GrafanaToolset()
     toolset._grafana_config = GrafanaDashboardConfig(url="http://example.com")
+    toolset._instances = {i.name: i for i in toolset._grafana_config.instances}
     tool = GetDashboardByUID(toolset)
     upstream_error = "HTTP 503: Elasticsearch cluster unreachable"
-    tool._make_grafana_request = lambda endpoint, params: StructuredToolResult(
+    tool._make_grafana_request = lambda instance, endpoint, params: StructuredToolResult(
         status=StructuredToolResultStatus.ERROR,
         error=upstream_error,
         data={"status_code": 503, "body": "unreachable"},
