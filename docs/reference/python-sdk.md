@@ -382,7 +382,7 @@ export OPENAI_API_KEY="your-openai-key"
 
 # Optional
 export HOLMES_CONFIG_PATH="/path/to/config.yaml"
-export HOLMES_LOG_LEVEL="INFO"
+export LOG_LEVEL="INFO"
 ```
 
 See the [Environment Variables Reference](environment-variables.md) for complete documentation.
