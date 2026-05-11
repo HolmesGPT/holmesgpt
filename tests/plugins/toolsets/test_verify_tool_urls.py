@@ -228,6 +228,7 @@ class TestTempoURLs:
     def toolset(self, config):
         toolset = GrafanaTempoToolset()
         toolset._grafana_config = config
+        toolset._instances = {i.name: i for i in config.instances}
         return toolset
 
     TEST_CASES = [
@@ -373,6 +374,7 @@ class TestLokiURLs:
     def toolset(self, config):
         toolset = GrafanaLokiToolset()
         toolset._grafana_config = config
+        toolset._instances = {i.name: i for i in config.instances}
         return toolset
 
     TEST_CASES = [
@@ -418,7 +420,7 @@ class TestDashboardURLs:
 
     @staticmethod
     def setup_mocks():
-        def mock_make_request(endpoint, params, query_params=None, timeout=30):
+        def mock_make_request(instance, endpoint, params, query_params=None, timeout=30):
             if "home" in endpoint:
                 data = get_mock_home_dashboard()
             elif "tags" in endpoint:
@@ -452,6 +454,7 @@ class TestDashboardURLs:
     def toolset(self, config):
         toolset = GrafanaToolset()
         toolset._grafana_config = config
+        toolset._instances = {i.name: i for i in config.instances}
         return toolset
 
     TEST_CASES = [

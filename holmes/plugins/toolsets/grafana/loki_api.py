@@ -2,6 +2,7 @@ from typing import Dict, List, Optional, Union
 
 import backoff
 import requests  # type: ignore
+from requests.auth import HTTPBasicAuth
 
 from holmes.plugins.toolsets.grafana.common import build_headers
 
@@ -38,6 +39,7 @@ def execute_loki_query(
     verify_ssl: bool = True,
     timeout: Optional[int] = None,
     max_retries: Optional[int] = None,
+    auth: Optional[HTTPBasicAuth] = None,
 ) -> List[Dict]:
     params = {"query": query, "limit": limit, "start": start, "end": end}
     effective_timeout = timeout if timeout is not None else 30
@@ -56,6 +58,7 @@ def execute_loki_query(
         response = requests.get(
             url,
             headers=build_headers(api_key=api_key, additional_headers=headers),
+            auth=auth,
             params=params,  # type: ignore
             verify=verify_ssl,
             timeout=effective_timeout,

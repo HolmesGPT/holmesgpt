@@ -65,7 +65,7 @@ class TestTempoConfigurableTimeoutRetries:
             grafana_datasource_uid="tempo-uid",
             max_retries=5,
         )
-        api = GrafanaTempoAPI(config)
+        api = GrafanaTempoAPI(config.instances[0])
 
         with responses.RequestsMock() as rsps:
             rsps.add(
@@ -85,7 +85,7 @@ class TestTempoConfigurableTimeoutRetries:
             api_url="http://localhost:3000",
             grafana_datasource_uid="tempo-uid",
         )
-        api = GrafanaTempoAPI(config)
+        api = GrafanaTempoAPI(config.instances[0])
 
         with responses.RequestsMock() as rsps:
             rsps.add(
@@ -107,7 +107,7 @@ class TestTempoConfigurableTimeoutRetries:
             timeout_seconds=90,
             max_retries=5,
         )
-        api = GrafanaTempoAPI(config)
+        api = GrafanaTempoAPI(config.instances[0])
 
         with responses.RequestsMock() as rsps:
             rsps.add(
@@ -129,7 +129,7 @@ class TestTempoConfigurableTimeoutRetries:
             grafana_datasource_uid="uid",
             timeout_seconds=120,
         )
-        api = GrafanaTempoAPI(config)
+        api = GrafanaTempoAPI(config.instances[0])
 
         with responses.RequestsMock() as rsps:
             rsps.add(

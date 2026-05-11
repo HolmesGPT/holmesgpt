@@ -33,6 +33,7 @@ def tempo_toolset(tempo_config):
     """Create a GrafanaTempoToolset instance with test config."""
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = tempo_config
+    toolset._instances = {inst.name: inst for inst in tempo_config.instances}
     return toolset
 
 

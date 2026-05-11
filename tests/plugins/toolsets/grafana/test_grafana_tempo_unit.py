@@ -39,6 +39,7 @@ def test_fetch_traces_simple_comparison_validation():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
     tool = FetchTracesSimpleComparison(toolset)
 
     # Test with no parameters - should fail validation
@@ -57,6 +58,7 @@ def test_fetch_traces_simple_comparison_with_mocked_data():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
     tool = FetchTracesSimpleComparison(toolset)
 
     # Mock trace data
@@ -187,6 +189,7 @@ def test_fetch_traces_simple_comparison_with_multiple_filters():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
     tool = FetchTracesSimpleComparison(toolset)
 
     mock_traces = {"traces": []}
@@ -232,6 +235,7 @@ def test_fetch_traces_simple_comparison_with_base_query():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
     tool = FetchTracesSimpleComparison(toolset)
 
     mock_traces = {
@@ -273,6 +277,7 @@ def test_fetch_traces_simple_comparison_error_handling():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
     tool = FetchTracesSimpleComparison(toolset)
 
     with patch(
@@ -298,6 +303,7 @@ def test_fetch_traces_simple_comparison_percentile_calculations():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
     tool = FetchTracesSimpleComparison(toolset)
 
     # Test with exactly 3 traces (edge case for percentiles)
@@ -352,6 +358,7 @@ def test_build_k8s_filters():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
 
     # Test exact match filters
     params = {
@@ -389,6 +396,7 @@ def test_fetch_traces_simple_comparison_with_negative_start_time():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
     tool = FetchTracesSimpleComparison(toolset)
 
     mock_traces = {"traces": [{"traceID": "trace-1", "durationMs": 100}]}
@@ -429,6 +437,7 @@ def test_build_k8s_filters_with_special_characters():
     )
     toolset = GrafanaTempoToolset()
     toolset._grafana_config = config
+    toolset._instances = {inst.name: inst for inst in config.instances}
 
     # Test with special regex characters
     params = {
