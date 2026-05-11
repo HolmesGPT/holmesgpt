@@ -88,7 +88,12 @@ kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=k8s-mcp-server
 
 Use OAuth/OIDC when cluster access is managed through Microsoft Entra ID (Azure AD) — for example, enterprise environments with centralized SSO.
 
-In this mode, the MCP server validates OAuth tokens and passes them through to the Kubernetes API server. The ServiceAccount RBAC binding is not needed — permissions come from the OAuth token.
+In this mode the MCP server validates OAuth tokens and passes them through to the Kubernetes API server, so each user's calls hit the API with their own identity. The ServiceAccount ClusterRoleBinding is not needed — permissions come from the OAuth token.
+
+Two pieces of config drive the flow:
+
+- **Server-side** (`mcpAddons.kubernetes.config.serverConfig`) — TOML that the MCP server itself uses to validate incoming bearer tokens.
+- **Holmes-side** (`mcpAddons.kubernetes.config.oauth`) — tells Holmes which OAuth endpoints to send users to. Without this, Holmes can't drive the browser login flow.
 
 ### Step 1: Enable Azure AD on your AKS cluster
 
@@ -106,33 +111,32 @@ Your AKS cluster must be configured for Azure AD authentication. Follow the [Mic
 6. Under **Certificates & Secrets**, create a new client secret and copy the value
 7. From the **Overview** page, note your **Application (client) ID** and **Directory (tenant) ID**
 
-### Step 3: Create the config.toml
+### Step 3: Store the client secret
 
-Create a `config.toml` file:
-
-```toml
-require_oauth = true
-authorization_url = "https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0"
-oauth_audience = "6dae42f8-4368-4678-94ff-3960e28e3630"
-oauth_scopes = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
-issuer_url = "https://sts.windows.net/YOUR_TENANT_ID/"
-```
-
-### Step 4: Create the Kubernetes Secret
+Create a Kubernetes Secret with the Entra ID client secret you copied in Step 2.6, then expose it on the Holmes pod as `MCP_OAUTH_CLIENT_SECRET`. The Helm values in Step 4 reference it via `{{ env.MCP_OAUTH_CLIENT_SECRET }}` so the secret never appears in your values file.
 
 ```bash
-kubectl create secret generic k8s-mcp-oauth-config \
-  --from-file=config.toml=/path/to/config.toml \
-  -n YOUR_NAMESPACE
+kubectl create secret generic mcp-oauth-credentials \
+  --from-literal=client-secret='<CLIENT_SECRET>' \
+  -n YOUR_NAMESPACE \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### Step 5: Deploy
+### Step 4: Deploy
 
 === "Holmes Helm Chart"
 
-    Add the following to your `values.yaml`:
+    Add the following to your `values.yaml` (replace `<TENANT_ID>` and `<CLIENT_ID>`):
 
     ```yaml
+    # Inject the OAuth client secret as an env var that the chart reads via Jinja.
+    additionalEnvVars:
+      - name: MCP_OAUTH_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: mcp-oauth-credentials
+            key: client-secret
+
     # Disable built-in k8s toolsets to avoid overlap
     toolsets:
       kubernetes/core:
@@ -153,8 +157,21 @@ kubectl create secret generic k8s-mcp-oauth-config \
 
         config:
           readOnly: true
-          configSecret:
-            secretName: "k8s-mcp-oauth-config"
+
+          # Server-side: how the MCP server validates incoming JWTs.
+          # The chart bakes this into a Secret mounted at /etc/kubernetes-mcp/config.toml.
+          serverConfig: |
+            require_oauth = true
+            authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
+            oauth_audience    = "6dae42f8-4368-4678-94ff-3960e28e3630"
+            oauth_scopes      = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
+            issuer_url        = "https://sts.windows.net/<TENANT_ID>/"
+
+          # Holmes-side: how Holmes drives the browser OAuth flow for end users.
+          oauth:
+            enabled: true
+            client_id:     "<CLIENT_ID>"
+            client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
     ```
 
     ```bash
@@ -163,10 +180,17 @@ kubectl create secret generic k8s-mcp-oauth-config \
 
 === "Robusta Helm Chart"
 
-    Add the following to your `generated_values.yaml`:
+    Add the following to your `generated_values.yaml` (replace `<TENANT_ID>` and `<CLIENT_ID>`):
 
     ```yaml
     holmes:
+      additionalEnvVars:
+        - name: MCP_OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mcp-oauth-credentials
+              key: client-secret
+
       # Disable built-in k8s toolsets to avoid overlap
       toolsets:
         kubernetes/core:
@@ -187,44 +211,32 @@ kubectl create secret generic k8s-mcp-oauth-config \
 
           config:
             readOnly: true
-            configSecret:
-              secretName: "k8s-mcp-oauth-config"
+
+            serverConfig: |
+              require_oauth = true
+              authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
+              oauth_audience    = "6dae42f8-4368-4678-94ff-3960e28e3630"
+              oauth_scopes      = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
+              issuer_url        = "https://sts.windows.net/<TENANT_ID>/"
+
+            oauth:
+              enabled: true
+              client_id:     "<CLIENT_ID>"
+              client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
+
     ```
 
     ```bash
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-### Step 6: Verify
+### Step 5: Verify
 
 ```bash
 kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=k8s-mcp-server
 ```
 
-## Configuration Reference
-
-| Value | Description | Default |
-|-------|-------------|---------|
-| `enabled` | Enable the Kubernetes MCP addon | `false` |
-| `image` | Container image | `kubernetes-mcp-server:0.0.60-oauth` |
-| `registry` | Container registry | `us-central1-docker.pkg.dev/genuine-flight-317411/mcp` |
-| `serviceAccount.create` | Create a ServiceAccount | `true` |
-| `serviceAccount.name` | ServiceAccount name | `k8s-mcp-sa` |
-| `serviceAccount.annotations` | ServiceAccount annotations | `{}` |
-| `serviceAccount.createClusterRoleBinding` | Bind a ClusterRole to the SA | `true` |
-| `serviceAccount.clusterRole` | ClusterRole to bind | `view` |
-| `config.readOnly` | Disable all write operations | `true` |
-| `config.disableDestructive` | Disable only destructive operations | `false` |
-| `config.toolsets` | Comma-separated toolsets to enable (empty = `config,core`) | `""` |
-| `config.logLevel` | Log verbosity (0-9, like kubectl) | `""` |
-| `config.extraArgs` | Extra CLI arguments | `[]` |
-| `config.configSecret.secretName` | Secret containing config.toml (for OAuth) | `""` |
-| `config.configSecret.secretKey` | Key in the config secret | `config.toml` |
-| `resources` | CPU/memory requests and limits | 128Mi/512Mi |
-| `networkPolicy.enabled` | Create a NetworkPolicy | `false` |
-| `llmInstructions` | Custom LLM instructions (overrides default) | `""` |
-
-All values are under `mcpAddons.kubernetes` (Holmes chart) or `holmes.mcpAddons.kubernetes` (Robusta chart).
+When you ask Holmes a Kubernetes question for the first time, the Robusta UI will open a Microsoft login window. After signing in, Holmes uses your Azure-issued token for every `kubernetes_*` call — RBAC is enforced per user on the API server.
 
 ## Common Use Cases
 

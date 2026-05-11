@@ -93,6 +93,36 @@ class TestMCPOAuthConfig:
         )
         assert oauth.scopes is None
 
+    def test_client_secret_env_template_rendered(self, monkeypatch):
+        monkeypatch.setenv("MCP_OAUTH_CLIENT_SECRET", "secret-from-env-123")
+        oauth = MCPOAuthConfig(
+            enabled=True,
+            client_id="cid",
+            client_secret="{{ env.MCP_OAUTH_CLIENT_SECRET }}",
+        )
+        assert oauth.client_secret == "secret-from-env-123"
+
+    def test_client_secret_literal_passes_through(self):
+        oauth = MCPOAuthConfig(
+            enabled=True,
+            client_id="cid",
+            client_secret="literal-secret-value",
+        )
+        assert oauth.client_secret == "literal-secret-value"
+
+    def test_client_secret_missing_env_renders_empty(self, monkeypatch):
+        monkeypatch.delenv("MCP_OAUTH_UNSET_VAR", raising=False)
+        oauth = MCPOAuthConfig(
+            enabled=True,
+            client_id="cid",
+            client_secret="{{ env.MCP_OAUTH_UNSET_VAR }}",
+        )
+        assert oauth.client_secret == ""
+
+    def test_client_secret_none_stays_none(self):
+        oauth = MCPOAuthConfig(enabled=True, client_id="cid")
+        assert oauth.client_secret is None
+
 
 class TestPKCE:
     def test_generate_pkce(self):
