@@ -222,7 +222,7 @@
     },
     {
       "id": "grafana/loki",
-      "name": "Grafana Loki",
+      "name": "Loki",
       "description": "Search and query Grafana Loki logs",
       "categories": ["logs"],
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",
@@ -294,7 +294,7 @@
     },
     {
       "id": "grafana/tempo",
-      "name": "Grafana Tempo",
+      "name": "Tempo",
       "description": "Search and query Grafana Tempo traces",
       "categories": ["traces"],
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",

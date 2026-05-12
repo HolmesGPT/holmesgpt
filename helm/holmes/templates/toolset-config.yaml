@@ -4,6 +4,14 @@ kind: ConfigMap
 metadata:
   name: custom-toolsets-configmap
   namespace: {{ .Release.Namespace }}
+  {{- with (include "holmes.commonLabels" .) }}
+  labels:
+    {{- . | nindent 4 }}
+  {{- end }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   custom_toolset.yaml: |-
     {{- $toolsets := .Values.toolsets }}

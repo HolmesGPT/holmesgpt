@@ -13,6 +13,7 @@ from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
+from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
 from holmes.plugins.destinations.slack.plugin import SlackDestination
 
 checks_app = FastAPI()
@@ -110,12 +111,32 @@ def execute_health_check(
             destinations=destination_names,
         )
 
+        # Build the recorder state so the operator-driven check shows up in
+        # HolmesUsageEvents with request_type='health_check' and source_ref
+        # set to the check name (per-check cost reporting key).
+        ai_model = getattr(ai.llm, "model", None) or request.model or "unknown"
+        recorder_state = UsageRecorderState(
+            dal=_CONFIG.dal,
+            request_type="health_check",
+            request_source="operator",
+            source_ref=request.name or "api-check",
+            conversation_id=None,
+            conversation_source=None,
+            user_id=None,
+            is_streaming=False,
+            model=ai_model,
+            provider=resolve_provider(ai_model),
+            is_robusta_model=getattr(ai.llm, "is_robusta_model", False),
+            meta={"check_mode": request.mode.value, "timeout": request.timeout},
+        )
+
         # Execute the check using the shared function
         result: CheckResult = execute_check(
             check=check,
             ai=ai,
             verbose=False,
             console=None,
+            recorder_state=recorder_state,
         )
 
         # Track notification statuses

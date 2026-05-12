@@ -5,6 +5,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   {{- if (not .Values.autoscaling.enabled) }}
   replicas: {{ .Values.replicas }}
@@ -21,12 +26,16 @@ spec:
     metadata:
       labels:
         app: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
-        # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
+        {{- with (include "holmes.commonAnnotations" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
+        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers | toYaml | sha256sum }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
@@ -181,6 +190,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: holmes
