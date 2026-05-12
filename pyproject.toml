@@ -73,6 +73,9 @@ pymysql = "^1.1.2"
 clickhouse-sqlalchemy = "^0.3.2"
 pymssql = "^2.3.0"
 pymongo = "^4.7.0"
+# Required for HTTP CONNECT proxy support in the websockets stdlib client
+# (used by the conversation worker's Supabase Realtime subscription).
+python-socks = {version = "^2.8.1", extras = ["asyncio"]}
 
 [tool.poetry.group.otel]
 optional = true
