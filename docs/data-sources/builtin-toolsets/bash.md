@@ -95,6 +95,25 @@ Do you want to proceed?
 - **Option 2**: Run and add the prefix to your allow list (saved to `~/.holmes/bash_approved_prefixes.yaml`)
 - **Option 3**: Reject and provide feedback to Holmes
 
+### Importing Claude Code Permissions
+
+If you already maintain allowed Bash commands in Claude Code, import them into Holmes:
+
+```bash
+holmes toolset bash import-from-claude-code
+```
+
+The command reads `~/.claude/settings.json`, extracts `Bash(...)` entries from `permissions.allow`, and merges them into `~/.holmes/bash_approved_prefixes.yaml`.
+
+Useful options:
+
+| Option | Description |
+|--------|-------------|
+| `--input PATH` | Read a custom Claude Code settings file |
+| `--output PATH` | Write a custom Holmes approved-prefixes file |
+| `--replace` | Replace the Holmes file instead of merging |
+| `--dry-run` | Print the resulting YAML without writing |
+
 ## Prefix Matching
 
 Commands are matched by prefix. For example, if `kubectl get` is in your allow list:
