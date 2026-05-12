@@ -3,6 +3,7 @@ tmp/
 config.yaml
 checks.yaml
 .claude/skills/dev-skills/
+.claude/worktrees/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

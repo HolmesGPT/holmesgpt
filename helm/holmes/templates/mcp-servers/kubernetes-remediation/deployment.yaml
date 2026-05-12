@@ -11,6 +11,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   KUBECTL_ALLOWED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowedCommands | quote }}
   KUBECTL_DANGEROUS_FLAGS: {{ .Values.mcpAddons.kubernetesRemediation.config.dangerousFlags | quote }}
@@ -31,6 +36,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -46,7 +56,11 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
+        {{- with (include "holmes.commonAnnotations" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
         checksum/config: {{ .Values.mcpAddons.kubernetesRemediation | toYaml | sha256sum }}
     spec:
       {{- if .Values.mcpAddons.kubernetesRemediation.serviceAccount.create }}
@@ -132,6 +146,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: {{ .Release.Name }}-k8s-remediation-mcp
@@ -155,9 +174,17 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
-  {{- with .Values.mcpAddons.kubernetesRemediation.serviceAccount.annotations }}
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- $ann := dict -}}
+  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- with .Values.mcpAddons.kubernetesRemediation.serviceAccount.annotations -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- if $ann }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- toYaml $ann | nindent 4 }}
   {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -170,6 +197,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
