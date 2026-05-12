@@ -610,6 +610,7 @@ class Config(RobustaBaseConfig):
         return AlertManagerSource(
             url=self.alertmanager_url,  # type: ignore
             username=self.alertmanager_username,
+            password=self.alertmanager_password,
             alertname_filter=self.alertmanager_alertname,  # type: ignore
             label_filter=self.alertmanager_label,  # type: ignore
             filepath=self.alertmanager_file,
