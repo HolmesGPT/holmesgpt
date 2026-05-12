@@ -263,7 +263,6 @@ jobs:
             -var-file="${{ env.TF_VARFILE }}" \
             -var="aws_profile=" \
             -var="anthropic_api_key=${{ env.ANTHROPIC_API_KEY }}" \
-            -var="holmes_ui_password=${{ env.HOLMES_UI_PASSWORD }}" \
             -var="mcp_ado_api_key=${{ env.MCP_ADO_API_KEY }}" \
             -var="mcp_atlassian_api_key=${{ env.MCP_ATLASSIAN_API_KEY }}" \
             -var="mcp_salesforce_api_key=${{ env.MCP_SALESFORCE_API_KEY }}" \
@@ -363,7 +362,6 @@ jobs:
             -var-file="${{ env.TF_VARFILE }}" \
             -var="aws_profile=" \
             -var="anthropic_api_key=${{ env.ANTHROPIC_API_KEY }}" \
-            -var="holmes_ui_password=${{ env.HOLMES_UI_PASSWORD }}" \
             -var="mcp_ado_api_key=${{ env.MCP_ADO_API_KEY }}" \
             -var="mcp_atlassian_api_key=${{ env.MCP_ATLASSIAN_API_KEY }}" \
             -var="mcp_salesforce_api_key=${{ env.MCP_SALESFORCE_API_KEY }}" \
