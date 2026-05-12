@@ -10,6 +10,8 @@ additional_env_vars: []
 additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
+commonLabels: {}
+commonAnnotations: {}
 
 replicas: 1
 imagePullPolicy: IfNotPresent
