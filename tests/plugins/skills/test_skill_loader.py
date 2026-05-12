@@ -1,7 +1,11 @@
 import os
 from pathlib import Path
 
-from holmes.plugins.skills.skill_loader import SkillSource, scan_skill_directory
+from holmes.plugins.skills.skill_loader import (
+    SkillSource,
+    load_skill_catalog,
+    scan_skill_directory,
+)
 
 
 SKILL_BODY = (
@@ -74,3 +78,60 @@ def test_scan_skill_directory_respects_max_depth(tmp_path: Path):
 
     skills = scan_skill_directory(tmp_path, source=SkillSource.USER)
     assert skills == []
+
+
+def test_load_skill_catalog_merges_multiple_custom_paths(tmp_path: Path):
+    """Skills from every entry in custom_skill_paths should be aggregated.
+
+    This is what the helm `customSkillPaths` list relies on — the chart joins
+    entries with commas into CUSTOM_SKILL_PATHS, the Python side splits them,
+    and load_skill_catalog must load skills from each directory.
+    """
+    path_a = tmp_path / "team-a"
+    path_b = tmp_path / "team-b"
+    path_c = tmp_path / "team-c"
+    _write_skill(path_a / "alpha", "alpha")
+    _write_skill(path_b / "beta", "beta")
+    _write_skill(path_c / "gamma", "gamma")
+
+    catalog = load_skill_catalog(custom_skill_paths=[path_a, path_b, path_c])
+
+    assert catalog is not None
+    user_skill_names = sorted(
+        s.name for s in catalog.skills if s.source == SkillSource.USER
+    )
+    assert user_skill_names == ["alpha", "beta", "gamma"]
+
+
+def test_load_skill_catalog_mixed_dir_and_skill_file(tmp_path: Path):
+    """Each custom_skill_paths entry can be a directory OR a single SKILL.md file."""
+    dir_path = tmp_path / "dir-skills"
+    _write_skill(dir_path / "alpha", "alpha")
+
+    single_file_dir = tmp_path / "loose"
+    _write_skill(single_file_dir, "loose-skill")
+    single_skill_file = single_file_dir / "SKILL.md"
+
+    catalog = load_skill_catalog(custom_skill_paths=[dir_path, single_skill_file])
+
+    assert catalog is not None
+    user_skill_names = sorted(
+        s.name for s in catalog.skills if s.source == SkillSource.USER
+    )
+    assert user_skill_names == ["alpha", "loose"]
+
+
+def test_load_skill_catalog_later_path_overrides_earlier(tmp_path: Path):
+    """When two custom paths define the same skill name, the later one wins."""
+    path_a = tmp_path / "a"
+    path_b = tmp_path / "b"
+    _write_skill(path_a / "shared", "from-a")
+    _write_skill(path_b / "shared", "from-b")
+
+    catalog = load_skill_catalog(custom_skill_paths=[path_a, path_b])
+
+    assert catalog is not None
+    shared = [s for s in catalog.skills if s.name == "shared"]
+    assert len(shared) == 1
+    assert shared[0].source_path is not None
+    assert str(path_b) in shared[0].source_path
