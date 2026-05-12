@@ -13,22 +13,17 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.consts import (
     STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION,
 )
-from holmes.plugins.toolsets.grafana.base_grafana_toolset import (
-    GRAFANA_INSTANCE_PARAM_DESCRIPTION,
-    BaseGrafanaToolset,
-)
 from holmes.plugins.toolsets.grafana.common import (
     DirectLokiConfig,
     GrafanaCloudLokiConfig,
     GrafanaConfig,
-    GrafanaInstance,
     GrafanaLokiProxyConfig,
-    build_auth,
     get_base_url,
 )
 from holmes.plugins.toolsets.grafana.loki_api import (
     execute_loki_query,
 )
+from holmes.plugins.toolsets.grafana.toolset_grafana import BaseGrafanaToolset
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_LOG_LIMIT,
     DEFAULT_TIME_SPAN_SECONDS,
@@ -39,21 +34,15 @@ from holmes.plugins.toolsets.utils import (
     toolset_name_for_one_liner,
 )
 
-GRAFANA_INSTANCE_PARAM = ToolParameter(
-    type="string",
-    description=GRAFANA_INSTANCE_PARAM_DESCRIPTION,
-    required=False,
-)
-
 
 def _build_grafana_loki_explore_url(
-    instance: GrafanaInstance, query: str, start: str, end: str, limit: int = 100
+    config: GrafanaConfig, query: str, start: str, end: str, limit: int = 100
 ) -> Optional[str]:
-    if not instance.grafana_datasource_uid:
+    if not config.grafana_datasource_uid:
         return None
     try:
-        base_url = instance.external_url or instance.api_url
-        datasource_uid = instance.grafana_datasource_uid or "loki"
+        base_url = config.external_url or config.api_url
+        datasource_uid = config.grafana_datasource_uid or "loki"
 
         from_str = start if start else "now-1h"
         to_str = end if end else "now"
@@ -96,31 +85,30 @@ class GrafanaLokiToolset(BaseGrafanaToolset):
     ]
 
     def health_check(self) -> Tuple[bool, str]:
-        """Test a dummy query against every configured Loki instance."""
+        """Test a dummy query to check if service available."""
         (start, end) = process_timestamps_to_rfc3339(
             start_timestamp=-1,
             end_timestamp=None,
             default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
         )
-        failures: List[str] = []
-        for instance in self._instances.values():
-            try:
-                _ = execute_loki_query(
-                    base_url=get_base_url(instance),
-                    api_key=instance.api_key,
-                    headers=instance.additional_headers,
-                    auth=build_auth(instance),
-                    query='{job="test_endpoint"}',
-                    start=start,
-                    end=end,
-                    limit=1,
-                    verify_ssl=bool(instance.verify_ssl),
-                    timeout=instance.timeout_seconds,
-                    max_retries=instance.max_retries,
-                )
-            except Exception as e:
-                failures.append(f"[{instance.name}] Unable to connect to Loki: {e}")
-        return self._aggregate_health_results(failures, len(self._instances))
+
+        c = self._grafana_config
+        try:
+            _ = execute_loki_query(
+                base_url=get_base_url(c),
+                api_key=c.api_key,
+                headers=c.additional_headers,
+                query='{job="test_endpoint"}',
+                start=start,
+                end=end,
+                limit=1,
+                verify_ssl=c.verify_ssl,
+                timeout=c.timeout_seconds,
+                max_retries=c.max_retries,
+            )
+        except Exception as e:
+            return False, f"Unable to connect to Loki.\n{str(e)}"
+        return True, ""
 
     def __init__(self):
         super().__init__(
@@ -143,7 +131,6 @@ class LokiQuery(Tool):
     name: str = "grafana_loki_query"
     description: str = "Run a query against Grafana Loki using LogQL query language."
     parameters: Dict[str, ToolParameter] = {
-        "grafana_instance": GRAFANA_INSTANCE_PARAM,
         "query": ToolParameter(
             description="LogQL query string.",
             type="string",
@@ -172,38 +159,34 @@ class LokiQuery(Tool):
         return f"{toolset_name_for_one_liner(self.toolset.name)}: loki query {params}"
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        try:
-            instance = self.toolset._get_instance(params)
-        except ValueError as e:
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR, error=str(e), params=params
-            )
-
         (start, end) = process_timestamps_to_rfc3339(
             start_timestamp=params.get("start"),
             end_timestamp=params.get("end"),
             default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
         )
 
+        config = self.toolset._grafana_config
         query_str = params.get("query", '{query="no_query_fallback"}')
-        limit = params.get("limit") or DEFAULT_LOG_LIMIT
         try:
             data = execute_loki_query(
-                base_url=get_base_url(instance),
-                api_key=instance.api_key,
-                headers=instance.additional_headers,
-                auth=build_auth(instance),
+                base_url=get_base_url(config),
+                api_key=config.api_key,
+                headers=config.additional_headers,
                 query=query_str,
                 start=start,
                 end=end,
-                limit=limit,
-                verify_ssl=bool(instance.verify_ssl),
-                timeout=instance.timeout_seconds,
-                max_retries=instance.max_retries,
+                limit=params.get("limit") or DEFAULT_LOG_LIMIT,
+                verify_ssl=config.verify_ssl,
+                timeout=config.timeout_seconds,
+                max_retries=config.max_retries,
             )
 
             explore_url = _build_grafana_loki_explore_url(
-                instance, query_str, start, end, limit=limit,
+                config,
+                query_str,
+                start,
+                end,
+                limit=params.get("limit") or DEFAULT_LOG_LIMIT,
             )
 
             if data:
@@ -224,5 +207,5 @@ class LokiQuery(Tool):
                 status=StructuredToolResultStatus.ERROR,
                 params=params,
                 error=str(e),
-                url=f"{get_base_url(instance)}/loki/api/v1/query_range",
+                url=f"{get_base_url(config)}/loki/api/v1/query_range",
             )

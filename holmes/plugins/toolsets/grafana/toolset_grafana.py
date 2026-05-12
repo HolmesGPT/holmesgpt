@@ -2,7 +2,7 @@ import base64
 import logging
 import os
 from abc import ABC
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, cast
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, cast
 from urllib.parse import urlencode, urljoin
 
 import backoff
@@ -16,14 +16,9 @@ from holmes.core.tools import (
     ToolInvokeContext,
     ToolParameter,
 )
-from holmes.plugins.toolsets.grafana.base_grafana_toolset import (
-    GRAFANA_INSTANCE_PARAM_DESCRIPTION,
-    BaseGrafanaToolset,
-)
+from holmes.plugins.toolsets.grafana.base_grafana_toolset import BaseGrafanaToolset
 from holmes.plugins.toolsets.grafana.common import (
     GrafanaConfig,
-    GrafanaInstance,
-    build_auth,
     build_headers,
     get_base_url,
 )
@@ -31,13 +26,6 @@ from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 logger = logging.getLogger(__name__)
-
-
-GRAFANA_INSTANCE_PARAM = ToolParameter(
-    type="string",
-    description=GRAFANA_INSTANCE_PARAM_DESCRIPTION,
-    required=False,
-)
 
 
 class GrafanaDashboardConfig(GrafanaConfig):
@@ -69,12 +57,12 @@ class GrafanaDashboardConfig(GrafanaConfig):
 
 
 def _build_grafana_dashboard_url(
-    instance: GrafanaInstance,
+    config: GrafanaDashboardConfig,
     uid: Optional[str] = None,
     query_params: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     try:
-        base_url = instance.external_url or instance.api_url
+        base_url = config.external_url or config.api_url
         if uid:
             return f"{base_url.rstrip('/')}/d/{uid}"
         else:
@@ -111,41 +99,43 @@ class GrafanaToolset(BaseGrafanaToolset):
         )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
+        # Base class validates config and calls health_check()
         ok, msg = super().prerequisites_callable(config)
         if not ok:
             logger.info(f"Grafana health check failed: {msg}")
             return ok, msg
 
-        # Render-tool registration probes the first configured instance (rendering
-        # is a Grafana-server feature; assume homogeneous deployments).
+        # After health check passes, conditionally add render tools
         if self.grafana_config.enable_rendering:
-            first_instance = next(iter(self._instances.values()), None)
-            if first_instance is not None:
-                logger.info(
-                    f"Rendering enabled, probing for image renderer at {get_base_url(first_instance)}..."
-                )
-                self._try_add_render_tools(first_instance)
-                tool_names = [t.name for t in self.tools]
-                logger.info(f"Grafana toolset tools after renderer probe: {tool_names}")
+            logger.info(
+                f"Rendering enabled, probing for image renderer at {get_base_url(self.grafana_config)}..."
+            )
+            self._try_add_render_tools()
+            tool_names = [t.name for t in self.tools]
+            logger.info(f"Grafana toolset tools after renderer probe: {tool_names}")
         return ok, msg
 
-    def _try_add_render_tools(self, instance: GrafanaInstance) -> None:
+    def _try_add_render_tools(self) -> None:
         """Check if Grafana Image Renderer is available and add render tools."""
+        # Skip re-probing if render tools are already registered
         if any(isinstance(t, RenderPanel) for t in self.tools):
             return
 
-        base_url = get_base_url(instance)
-        headers = build_headers(instance.api_key, instance.additional_headers)
-        auth = build_auth(instance)
+        config = self.grafana_config
+        base_url = get_base_url(config)
+        headers = build_headers(
+            api_key=config.api_key,
+            additional_headers=config.additional_headers,
+        )
 
         renderer_detected = False
         try:
+            # Try the rendering version API first
             resp = requests.get(
                 f"{base_url}/api/rendering/version",
                 headers=headers,
-                auth=auth,
                 timeout=10,
-                verify=bool(instance.verify_ssl),
+                verify=config.verify_ssl,
             )
             if resp.status_code == 200:
                 logger.info(
@@ -160,15 +150,19 @@ class GrafanaToolset(BaseGrafanaToolset):
         except Exception as e:
             logger.debug(f"Failed to check renderer version API: {e}")
 
+        # Fallback: try a small render request. Some Grafana versions don't expose the version API
+        # but still support rendering.
         if not renderer_detected:
             try:
                 resp = requests.get(
                     f"{base_url}/render/d-solo/nonexistent/_?panelId=1&width=100&height=100",
                     headers=headers,
-                    auth=auth,
                     timeout=10,
-                    verify=bool(instance.verify_ssl),
+                    verify=config.verify_ssl,
                 )
+                # If renderer is configured, we get a 200 (rendered image) or
+                # 500 (dashboard not found but renderer is present).
+                # If not configured, we get 404 (route not found).
                 if resp.status_code in (200, 500):
                     logger.info(
                         f"Grafana Image Renderer detected (render probe returned {resp.status_code}). "
@@ -193,25 +187,17 @@ class GrafanaToolset(BaseGrafanaToolset):
                 self.tools.append(RenderDashboard(self))
 
     def health_check(self) -> Tuple[bool, str]:
-        """Probe `/api/dashboards/tags` on each configured instance."""
+        """Test connectivity by invoking GetDashboardTags tool."""
         tool = GetDashboardTags(self)
-        failures: List[str] = []
-        for instance in self._instances.values():
-            try:
-                tool._make_grafana_request(instance, "api/dashboards/tags", {})
-            except Exception as e:
-                failures.append(f"[{instance.name}] Failed to connect to Grafana {e}")
-        return self._aggregate_health_results(failures, len(self._instances))
+        try:
+            _ = tool._make_grafana_request("api/dashboards/tags", {})
+            return True, ""
+        except Exception as e:
+            return False, f"Failed to connect to Grafana {str(e)}"
 
     @property
     def grafana_config(self) -> GrafanaDashboardConfig:
         return cast(GrafanaDashboardConfig, self._grafana_config)
-
-
-def _instance_error_result(params: dict, err: Exception) -> StructuredToolResult:
-    return StructuredToolResult(
-        status=StructuredToolResultStatus.ERROR, error=str(err), params=params
-    )
 
 
 class BaseGrafanaTool(Tool, ABC):
@@ -223,20 +209,33 @@ class BaseGrafanaTool(Tool, ABC):
 
     def _make_grafana_request(
         self,
-        instance: GrafanaInstance,
         endpoint: str,
         params: dict,
         query_params: Optional[Dict] = None,
         timeout: Optional[int] = None,
     ) -> StructuredToolResult:
-        effective_timeout = timeout if timeout is not None else instance.timeout_seconds
-        retries = instance.max_retries or 3
-        base_url = get_base_url(instance)
+        """Make a GET request to Grafana API and return structured result.
+
+        Args:
+            endpoint: API endpoint path (e.g., "/api/search")
+            params: Original parameters passed to the tool
+            query_params: Optional query parameters for the request
+            timeout: Request timeout in seconds (defaults to config.timeout_seconds)
+
+        Returns:
+            StructuredToolResult with the API response data
+        """
+        config = self._toolset.grafana_config
+        timeout = timeout if timeout is not None else config.timeout_seconds
+        retries = config.max_retries
+        base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"
         url = urljoin(base_url, endpoint)
-        headers = build_headers(instance.api_key, instance.additional_headers)
-        auth = build_auth(instance)
+        headers = build_headers(
+            api_key=config.api_key,
+            additional_headers=config.additional_headers,
+        )
 
         @backoff.on_exception(
             backoff.expo,
@@ -250,10 +249,9 @@ class BaseGrafanaTool(Tool, ABC):
             response = requests.get(
                 url,
                 headers=headers,
-                auth=auth,
                 params=query_params,
-                timeout=effective_timeout,
-                verify=bool(instance.verify_ssl),
+                timeout=timeout,
+                verify=config.verify_ssl,
             )
             response.raise_for_status()
             return response
@@ -276,7 +274,6 @@ class SearchDashboards(BaseGrafanaTool):
             name="grafana_search_dashboards",
             description="Search for Grafana dashboards and folders using the /api/search endpoint",
             parameters={
-                "grafana_instance": GRAFANA_INSTANCE_PARAM,
                 "query": ToolParameter(
                     description="Search text to filter dashboards",
                     type="string",
@@ -326,11 +323,6 @@ class SearchDashboards(BaseGrafanaTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        try:
-            instance = self._toolset._get_instance(params)
-        except ValueError as e:
-            return _instance_error_result(params, e)
-
         query_params = {}
         if params.get("query"):
             query_params["query"] = params["query"]
@@ -339,6 +331,7 @@ class SearchDashboards(BaseGrafanaTool):
         if params.get("type"):
             query_params["type"] = params["type"]
         if params.get("dashboardIds"):
+            # Check if dashboardIds also needs to be passed as multiple params
             dashboard_ids = params["dashboardIds"].split(",")
             query_params["dashboardIds"] = [
                 dashboard_id.strip()
@@ -346,11 +339,13 @@ class SearchDashboards(BaseGrafanaTool):
                 if dashboard_id.strip()
             ]
         if params.get("dashboardUIDs"):
+            # Handle dashboardUIDs as a list - split comma-separated values
             dashboard_uids = params["dashboardUIDs"].split(",")
             query_params["dashboardUIDs"] = [
                 uid.strip() for uid in dashboard_uids if uid.strip()
             ]
         if params.get("folderUIDs"):
+            # Check if folderUIDs also needs to be passed as multiple params
             folder_uids = params["folderUIDs"].split(",")
             query_params["folderUIDs"] = [
                 uid.strip() for uid in folder_uids if uid.strip()
@@ -362,16 +357,17 @@ class SearchDashboards(BaseGrafanaTool):
         if params.get("page"):
             query_params["page"] = params["page"]
 
-        result = self._make_grafana_request(instance, "api/search", params, query_params)
+        result = self._make_grafana_request("api/search", params, query_params)
 
-        search_url = _build_grafana_dashboard_url(instance, query_params=query_params)
+        config = self._toolset.grafana_config
+        search_url = _build_grafana_dashboard_url(config, query_params=query_params)
 
         if params.get("dashboardUIDs"):
             uids = [
                 uid.strip() for uid in params["dashboardUIDs"].split(",") if uid.strip()
             ]
             if len(uids) == 1:
-                search_url = _build_grafana_dashboard_url(instance, uid=uids[0])
+                search_url = _build_grafana_dashboard_url(config, uid=uids[0])
 
         return StructuredToolResult(
             status=result.status,
@@ -392,26 +388,22 @@ class GetDashboardByUID(JsonFilterMixin, BaseGrafanaTool):
             description="Get a dashboard by its UID using the /api/dashboards/uid/:uid endpoint",
             parameters=self.extend_parameters(
                 {
-                    "grafana_instance": GRAFANA_INSTANCE_PARAM,
                     "uid": ToolParameter(
                         description="The unique identifier of the dashboard",
                         type="string",
                         required=True,
-                    ),
+                    )
                 }
             ),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        try:
-            instance = self._toolset._get_instance(params)
-        except ValueError as e:
-            return _instance_error_result(params, e)
-
         uid = params["uid"]
-        result = self._make_grafana_request(instance, f"api/dashboards/uid/{uid}", params)
+        result = self._make_grafana_request(f"api/dashboards/uid/{uid}", params)
 
-        dashboard_url = _build_grafana_dashboard_url(instance, uid=uid)
+        dashboard_url = _build_grafana_dashboard_url(
+            self._toolset.grafana_config, uid=uid
+        )
 
         filtered_result = self.filter_result(result, params)
         filtered_result.url = dashboard_url if dashboard_url else result.url
@@ -427,23 +419,17 @@ class GetHomeDashboard(JsonFilterMixin, BaseGrafanaTool):
             toolset=toolset,
             name="grafana_get_home_dashboard",
             description="Get the home dashboard using the /api/dashboards/home endpoint",
-            parameters=self.extend_parameters(
-                {"grafana_instance": GRAFANA_INSTANCE_PARAM}
-            ),
+            parameters=self.extend_parameters({}),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        try:
-            instance = self._toolset._get_instance(params)
-        except ValueError as e:
-            return _instance_error_result(params, e)
-
-        result = self._make_grafana_request(instance, "api/dashboards/home", params)
+        result = self._make_grafana_request("api/dashboards/home", params)
+        config = self._toolset.grafana_config
         dashboard_url = None
         if isinstance(result.data, dict):
             uid = result.data.get("dashboard", {}).get("uid")
             if uid:
-                dashboard_url = _build_grafana_dashboard_url(instance, uid=uid)
+                dashboard_url = _build_grafana_dashboard_url(config, uid=uid)
 
         filtered_result = self.filter_result(result, params)
         filtered_result.url = dashboard_url if dashboard_url else None
@@ -459,18 +445,14 @@ class GetDashboardTags(BaseGrafanaTool):
             toolset=toolset,
             name="grafana_get_dashboard_tags",
             description="Get all tags used across dashboards using the /api/dashboards/tags endpoint",
-            parameters={"grafana_instance": GRAFANA_INSTANCE_PARAM},
+            parameters={},
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        try:
-            instance = self._toolset._get_instance(params)
-        except ValueError as e:
-            return _instance_error_result(params, e)
+        result = self._make_grafana_request("api/dashboards/tags", params)
 
-        result = self._make_grafana_request(instance, "api/dashboards/tags", params)
-
-        tags_url = _build_grafana_dashboard_url(instance)
+        config = self._toolset.grafana_config
+        tags_url = _build_grafana_dashboard_url(config)
 
         return StructuredToolResult(
             status=result.status,
@@ -573,20 +555,37 @@ class BaseGrafanaRenderTool(Tool, ABC):
 
     def _make_render_request(
         self,
-        instance: GrafanaInstance,
         render_path: str,
         query_params: Dict[str, Any],
         timeout: Optional[int] = None,
     ) -> bytes:
+        """Make a GET request to Grafana render API and return PNG bytes.
+
+        Args:
+            render_path: Render URL path (e.g. "render/d-solo/uid/slug")
+            query_params: Query parameters for the render request
+            timeout: Request timeout in seconds. Defaults to config.timeout_seconds
+                (60s by default on GrafanaDashboardConfig — rendering can be slow).
+
+        Returns:
+            PNG image bytes
+
+        Raises:
+            requests.HTTPError: If the request fails
+        """
+        config = self._toolset.grafana_config
         if timeout is None:
-            timeout = instance.timeout_seconds or self._toolset.grafana_config.timeout_seconds
-        retries = instance.max_retries or self._toolset.grafana_config.max_retries
-        base_url = get_base_url(instance)
+            timeout = config.timeout_seconds
+        retries = config.max_retries
+        base_url = get_base_url(config)
         if not base_url.endswith("/"):
             base_url += "/"
         url = urljoin(base_url, render_path)
-        headers = build_headers(instance.api_key, instance.additional_headers)
-        auth = build_auth(instance)
+        headers = build_headers(
+            api_key=config.api_key,
+            additional_headers=config.additional_headers,
+        )
+        # Render API returns PNG, not JSON
         headers["Accept"] = "image/png"
 
         @backoff.on_exception(
@@ -601,10 +600,9 @@ class BaseGrafanaRenderTool(Tool, ABC):
             response = requests.get(
                 url,
                 headers=headers,
-                auth=auth,
                 params=query_params,
                 timeout=timeout,
-                verify=bool(instance.verify_ssl),
+                verify=config.verify_ssl,
             )
             response.raise_for_status()
             return response
@@ -614,15 +612,15 @@ class BaseGrafanaRenderTool(Tool, ABC):
 
     def _render_to_result(
         self,
-        instance: GrafanaInstance,
         render_path: str,
         params: dict,
         query_params: Dict[str, Any],
         description: str,
         dashboard_url: Optional[str] = None,
     ) -> StructuredToolResult:
+        """Render a panel/dashboard and return a StructuredToolResult with the image."""
         try:
-            png_bytes = self._make_render_request(instance, render_path, query_params)
+            png_bytes = self._make_render_request(render_path, query_params)
         except requests.HTTPError as e:
             status_code = (
                 e.response.status_code if e.response is not None else "unknown"
@@ -664,7 +662,6 @@ class BaseGrafanaRenderTool(Tool, ABC):
 class RenderPanel(BaseGrafanaRenderTool):
     def __init__(self, toolset: "GrafanaToolset"):
         panel_params: Dict[str, ToolParameter] = {
-            "grafana_instance": GRAFANA_INSTANCE_PARAM,
             "dashboard_uid": ToolParameter(
                 description="The UID of the dashboard containing the panel",
                 type="string",
@@ -687,11 +684,6 @@ class RenderPanel(BaseGrafanaRenderTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        try:
-            instance = self._toolset._get_instance(params)
-        except ValueError as e:
-            return _instance_error_result(params, e)
-
         config = self._toolset.grafana_config
         dashboard_uid = params["dashboard_uid"]
         panel_id = params["panel_id"]
@@ -704,7 +696,7 @@ class RenderPanel(BaseGrafanaRenderTool):
         query_params["panelId"] = panel_id
 
         render_path = f"render/d-solo/{dashboard_uid}/_"
-        dashboard_url = _build_grafana_dashboard_url(instance, uid=dashboard_uid)
+        dashboard_url = _build_grafana_dashboard_url(config, uid=dashboard_uid)
 
         description = (
             f"Rendered screenshot of panel {panel_id} from dashboard {dashboard_uid}. "
@@ -713,7 +705,6 @@ class RenderPanel(BaseGrafanaRenderTool):
         )
 
         return self._render_to_result(
-            instance=instance,
             render_path=render_path,
             params=params,
             query_params=query_params,
@@ -731,7 +722,6 @@ class RenderPanel(BaseGrafanaRenderTool):
 class RenderDashboard(BaseGrafanaRenderTool):
     def __init__(self, toolset: "GrafanaToolset"):
         dashboard_params: Dict[str, ToolParameter] = {
-            "grafana_instance": GRAFANA_INSTANCE_PARAM,
             "dashboard_uid": ToolParameter(
                 description="The UID of the dashboard to render",
                 type="string",
@@ -750,11 +740,6 @@ class RenderDashboard(BaseGrafanaRenderTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        try:
-            instance = self._toolset._get_instance(params)
-        except ValueError as e:
-            return _instance_error_result(params, e)
-
         config = self._toolset.grafana_config
         dashboard_uid = params["dashboard_uid"]
 
@@ -764,7 +749,7 @@ class RenderDashboard(BaseGrafanaRenderTool):
             default_height=config.default_render_height,
         )
         render_path = f"render/d/{dashboard_uid}/_"
-        dashboard_url = _build_grafana_dashboard_url(instance, uid=dashboard_uid)
+        dashboard_url = _build_grafana_dashboard_url(config, uid=dashboard_uid)
 
         height_desc = f"{query_params['height']}px"
         description = (
@@ -774,7 +759,6 @@ class RenderDashboard(BaseGrafanaRenderTool):
         )
 
         return self._render_to_result(
-            instance=instance,
             render_path=render_path,
             params=params,
             query_params=query_params,

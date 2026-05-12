@@ -28,20 +28,18 @@ class TestGrafanaTempoAPI:
     @pytest.fixture
     def api(self, config):
         """Create API instance."""
-        return GrafanaTempoAPI(config.instances[0])
+        return GrafanaTempoAPI(config)
 
     def test_initialization(self, config):
         """Test API initialization with config."""
-        api = GrafanaTempoAPI(config.instances[0])
-        # The API now holds the resolved GrafanaInstance (not the top-level config)
-        assert api.instance is config.instances[0]
+        api = GrafanaTempoAPI(config)
+        assert api.config == config
         assert (
             api.base_url
             == "https://grafana.example.com/api/datasources/proxy/uid/tempo-uid"
         )
         assert "Authorization" in api.headers
         assert api.headers["Authorization"] == "Bearer test-api-key"
-        assert api.auth is None  # no basic auth configured
 
     @patch("requests.get")
     def test_query_echo_endpoint(self, mock_get, api):
@@ -56,7 +54,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/echo",
             headers=api.headers,
-            auth=None,
             timeout=30,
             verify=True,
         )
@@ -86,7 +83,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/v2/traces/123abc",
             headers=api.headers,
-            auth=None,
             params={"start": "1000", "end": "2000"},
             timeout=30,
             verify=True,
@@ -106,7 +102,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/v2/traces/123abc",
             headers=api.headers,
-            auth=None,
             params={},
             timeout=30,
             verify=True,
@@ -143,7 +138,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/search",
             headers=api.headers,
-            auth=None,
             params=expected_params,
             timeout=30,
             verify=True,
@@ -176,7 +170,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/search",
             headers=api.headers,
-            auth=None,
             params=expected_params,
             timeout=30,
             verify=True,
@@ -211,7 +204,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/v2/search/tags",
             headers=api.headers,
-            auth=None,
             params=expected_params,
             timeout=30,
             verify=True,
@@ -247,7 +239,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/v2/search/tag/resource.service.name/values",
             headers=api.headers,
-            auth=None,
             params=expected_params,
             timeout=30,
             verify=True,
@@ -278,7 +269,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/metrics/query",
             headers=api.headers,
-            auth=None,
             params=expected_params,
             timeout=30,
             verify=True,
@@ -315,7 +305,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/metrics/query_range",
             headers=api.headers,
-            auth=None,
             params=expected_params,
             timeout=30,
             verify=True,
@@ -340,7 +329,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/metrics/query",
             headers=api.headers,
-            auth=None,
             params=expected_params,
             timeout=30,
             verify=True,
@@ -389,7 +377,6 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             expected_url,
             headers=api.headers,
-            auth=None,
             params={},
             timeout=30,
             verify=True,
@@ -413,13 +400,13 @@ class TestGrafanaTempoAPIIntegration:
 
     def test_echo_endpoint_integration(self, config):
         """Test echo endpoint against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         result = api.query_echo_endpoint()
         assert result is True
 
     def test_search_traces_by_tags_integration(self, config):
         """Test tag-based trace search against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         result = api.search_traces_by_tags(
             tags=f"resource.service.name={TEST_SERVICE_NAME}", limit=10
         )
@@ -427,7 +414,7 @@ class TestGrafanaTempoAPIIntegration:
 
     def test_search_traces_by_query_integration(self, config):
         """Test TraceQL trace search against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         result = api.search_traces_by_query(
             q=f'{{resource.service.name="{TEST_SERVICE_NAME}"}}', limit=10
         )
@@ -435,13 +422,13 @@ class TestGrafanaTempoAPIIntegration:
 
     def test_search_tag_names_integration(self, config):
         """Test tag name search against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         result = api.search_tag_names_v2()
         assert "scopes" in result or "tagNames" in result
 
     def test_query_trace_by_id_v2_integration(self, config):
         """Test trace retrieval by ID against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         # First, find a trace
         search_result = api.search_traces_by_tags(
             tags=f"resource.service.name={TEST_SERVICE_NAME}", limit=1
@@ -453,13 +440,13 @@ class TestGrafanaTempoAPIIntegration:
 
     def test_search_tag_values_v2_integration(self, config):
         """Test tag value search against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         result = api.search_tag_values_v2(tag="resource.service.name")
         assert "tagValues" in result
 
     def test_query_metrics_instant_integration(self, config):
         """Test instant metrics query against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         result = api.query_metrics_instant(
             q='{span.http.status_code="error"} | count_over_time()'
         )
@@ -467,7 +454,7 @@ class TestGrafanaTempoAPIIntegration:
 
     def test_query_metrics_range_integration(self, config):
         """Test range metrics query against real Tempo."""
-        api = GrafanaTempoAPI(config.instances[0])
+        api = GrafanaTempoAPI(config)
         result = api.query_metrics_range(
             q=f'{{resource.service.name="{TEST_SERVICE_NAME}"}} | rate()',
             step="5m",
