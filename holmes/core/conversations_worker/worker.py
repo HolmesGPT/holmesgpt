@@ -41,6 +41,10 @@ from holmes.core.tools_utils.frontend_tools import (
     inject_frontend_tools,
 )
 from holmes.core.tracing import TracingFactory
+from holmes.core.usage_recorder import (
+    build_chat_recorder_state,
+    stream_with_usage_recording,
+)
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.stream import StreamEvents
 
@@ -483,6 +487,11 @@ class ConversationWorker:
                 request_sequence=int(conv.get("request_sequence", 1)),
                 metadata=conv.get("metadata") or {},
                 title=conv.get("title"),
+                # Conversations.user_id (set by the FE when it created the row)
+                # — surfaced on the task so per-turn ChatRequest construction
+                # can use it as a fallback when the user_message event's data
+                # doesn't carry user_id explicitly.
+                user_id=conv.get("user_id"),
             )
         except Exception:
             logging.exception(
@@ -617,6 +626,20 @@ class ConversationWorker:
         if data.get("tool_decisions"):
             enable_tool_approval = True
 
+        # AI usage tracking (HolmesUsageEvents) — resolve user_id and
+        # request_source with row-level fallbacks. The FE writes both onto
+        # the Conversations row when it creates the chat (user_id as a
+        # column, request_source under metadata) but doesn't necessarily
+        # repeat them in every user_message event's data. Without this
+        # fallback, follow-up turns produce HolmesUsageEvents rows with
+        # NULL user_id / request_source even though the values are known.
+        # Per-event data still wins so the FE can override per-turn (e.g.
+        # an alert-investigation chat that pivots to a freeform question).
+        resolved_user_id = data.get("user_id") or task.user_id
+        resolved_request_source = data.get("request_source") or (
+            task.metadata.get("request_source") if task.metadata else None
+        )
+
         chat_request = ChatRequest(
             ask=ask,
             images=data.get("images"),
@@ -630,7 +653,27 @@ class ConversationWorker:
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
             behavior_controls=data.get("behavior_controls"),
-            user_id=data.get("user_id"),
+            # source_ref / meta / is_internal still come from the per-event
+            # blob only — they're per-turn signals (which alert this
+            # follow-up question was about, etc.), not Conversation-level
+            # state. user_id / request_source fall back to the Conversations
+            # row when the FE didn't repeat them in the event.
+            user_id=resolved_user_id,
+            # request_type: pass through whatever the FE sent (None if absent)
+            # rather than hard-coding 'user_chat' here. The recorder helper
+            # (build_chat_recorder_state) handles the default and runs Slack
+            # auto-detection — hard-coding 'user_chat' would defeat the
+            # auto-detection because the helper bails out if request_type is
+            # already truthy. Today only /api/chat hits the Slack-prefix
+            # path, but the runner could route Slack through Conversations
+            # at any time without a code change here.
+            request_type=data.get("request_type"),
+            request_source=resolved_request_source,
+            source_ref=data.get("source_ref"),
+            conversation_id=task.conversation_id,
+            conversation_source="conversations",
+            meta=data.get("meta"),
+            is_internal=data.get("is_internal"),
         )
 
         self._run_chat_and_publish(
@@ -787,7 +830,19 @@ class ConversationWorker:
                 request_context = {"user_id": chat_request.user_id}
 
             try:
-                stream = request_ai.call_stream(
+                # Wrap the raw stream with the usage recorder BEFORE the
+                # publisher consumes it, so the recorder sees Holmes' native
+                # StreamMessage events (TOOL_RESULT / ANSWER_END / etc.) and
+                # can fire one HolmesUsageEvents row per worker-driven turn.
+                # Mirrors the wiring in server.py::chat() for the streaming
+                # path; without this the worker bypasses the recorder entirely.
+                recorder_state = build_chat_recorder_state(
+                    chat_request,
+                    request_ai,
+                    dal=self.dal,
+                    is_streaming=True,
+                )
+                raw_stream = request_ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
                     tool_decisions=chat_request.tool_decisions,
@@ -796,6 +851,7 @@ class ConversationWorker:
                     request_context=request_context,
                     trace_span=trace_span,
                 )
+                stream = stream_with_usage_recording(raw_stream, recorder_state)
 
                 terminal = publisher.consume(stream)
                 if terminal is None:
