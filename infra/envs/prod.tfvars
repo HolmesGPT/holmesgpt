@@ -323,6 +323,26 @@ logistics_accounts = {
     role_arn   = "arn:aws:iam::118187397259:role/HolmesReadOnly"
     region     = "us-east-1"
   }
+  pdi-fuelpricing-dev = {
+    account_id = "758290227074"
+    role_arn   = "arn:aws:iam::758290227074:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-fuelpricing-network = {
+    account_id = "424429786528"
+    role_arn   = "arn:aws:iam::424429786528:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-fuelpricing-shared = {
+    account_id = "110678717330"
+    role_arn   = "arn:aws:iam::110678717330:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
+  pdi-fuelpricing-test = {
+    account_id = "875827703213"
+    role_arn   = "arn:aws:iam::875827703213:role/HolmesReadOnly"
+    region     = "us-east-1"
+  }
   # ── Platform myPDI ──────────────────────────────────────────────────────
   pdi-platform-mypdi-prod = {
     account_id = "208790448711"
