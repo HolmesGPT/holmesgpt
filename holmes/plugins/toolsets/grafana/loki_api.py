@@ -65,19 +65,19 @@ def execute_loki_query(
 
     try:
         response = _make_request()
-        try:
-            result = response.json()
-        except ValueError as parse_err:
-            raw = response.text
-            raise Exception(
-                f"Failed to parse Loki response as JSON: {parse_err}\n"
-                f"--- raw response ({len(raw)} chars, content-type={response.headers.get('Content-Type', 'unknown')}) ---\n"
-                f"{raw}\n"
-                f"--- end raw response ---"
-            )
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Failed to query Loki logs: {str(e)}")
+
+    try:
+        result = response.json()
         if "data" in result and "result" in result["data"]:
             return parse_loki_response(result["data"]["result"])
         return []
-
-    except requests.exceptions.RequestException as e:
-        raise Exception(f"Failed to query Loki logs: {str(e)}")
+    except Exception as e:
+        raw = response.text
+        raise Exception(
+            f"Failed to process Loki response: {e}\n"
+            f"--- raw response ({len(raw)} chars, content-type={response.headers.get('Content-Type', 'unknown')}) ---\n"
+            f"{raw}\n"
+            f"--- end raw response ---"
+        )
