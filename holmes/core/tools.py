@@ -775,6 +775,11 @@ class Toolset(BaseModel):
     _initialized: bool = PrivateAttr(default=True)
     _init_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
+    # Set by the prerequisite-check timeout handler to tell a still-running
+    # background worker to stop mutating self.status / self.error after the
+    # main thread has already marked this toolset FAILED.
+    _prereq_aborted: bool = PrivateAttr(default=False)
+
     # status fields that be cached
     type: Optional[ToolsetType] = None
     path: Optional[FilePath] = None
@@ -917,7 +922,9 @@ class Toolset(BaseModel):
         return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
-        self.status = ToolsetStatusEnum.ENABLED
+        if self._prereq_aborted:
+            # Timeout handler has already finalized status; don't touch it.
+            return
 
         # Sort prerequisites by type to fail fast on missing env vars before
         # running slow commands (e.g., ArgoCD checks that timeout):
@@ -927,7 +934,15 @@ class Toolset(BaseModel):
         # 4. Command checks (slowest - may timeout or hang)
         sorted_prereqs = sorted(self.prerequisites, key=_prereq_priority)
 
+        # Accumulate results in locals so we can commit atomically at the end
+        # — a concurrent timeout-handler may declare this toolset FAILED while
+        # we're mid-check, and we must not overwrite that decision.
+        local_status: ToolsetStatusEnum = ToolsetStatusEnum.ENABLED
+        local_error: Optional[str] = None
+
         for prereq in sorted_prereqs:
+            if self._prereq_aborted:
+                return
             if isinstance(prereq, ToolsetCommandPrerequisite):
                 try:
                     command = self.interpolate_command(prereq.command)
@@ -943,47 +958,53 @@ class Toolset(BaseModel):
                         prereq.expected_output
                         and prereq.expected_output not in result.stdout
                     ):
-                        self.status = ToolsetStatusEnum.FAILED
-                        self.error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
+                        local_status = ToolsetStatusEnum.FAILED
+                        local_error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
                 except subprocess.CalledProcessError as e:
-                    self.status = ToolsetStatusEnum.FAILED
+                    local_status = ToolsetStatusEnum.FAILED
                     stderr = (e.stderr or "").strip()
                     detail = f": {stderr}" if stderr else ""
-                    self.error = (
+                    local_error = (
                         f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
                     )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
                 for env_var in prereq.env:
                     if env_var not in os.environ:
-                        self.status = ToolsetStatusEnum.FAILED
-                        self.error = f"Environment variable {env_var} was not set"
+                        local_status = ToolsetStatusEnum.FAILED
+                        local_error = f"Environment variable {env_var} was not set"
 
             elif isinstance(prereq, StaticPrerequisite):
                 if not prereq.enabled:
-                    self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"{prereq.disabled_reason}"
+                    local_status = ToolsetStatusEnum.FAILED
+                    local_error = f"{prereq.disabled_reason}"
 
             elif isinstance(prereq, CallablePrerequisite):
                 try:
                     (enabled, error_message) = prereq.callable(self.config or {})
                     if not enabled:
-                        self.status = ToolsetStatusEnum.FAILED
+                        local_status = ToolsetStatusEnum.FAILED
                     if error_message:
-                        self.error = f"{error_message}"
+                        local_error = f"{error_message}"
                 except Exception as e:
                     logger.exception(f"Toolset {self.name} prerequisite check failed")
-                    self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"Prerequisite call failed unexpectedly: {str(e)}"
+                    local_status = ToolsetStatusEnum.FAILED
+                    local_error = f"Prerequisite call failed unexpectedly: {str(e)}"
 
-            if (
-                self.status == ToolsetStatusEnum.DISABLED
-                or self.status == ToolsetStatusEnum.FAILED
-            ):
-                if not silent:
-                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
+            if local_status in (ToolsetStatusEnum.DISABLED, ToolsetStatusEnum.FAILED):
                 # no point checking further prerequisites if one failed
-                return
+                break
+
+        if self._prereq_aborted:
+            # Timeout handler claimed this toolset while we were running; honor it.
+            return
+
+        self.status = local_status
+        self.error = local_error
+        if local_status in (ToolsetStatusEnum.DISABLED, ToolsetStatusEnum.FAILED):
+            if not silent:
+                display_logger.info(f"❌ Toolset {self.name}: {self.error}")
+            return
 
         if not silent:
             display_logger.info(f"✅ Toolset {self.name}")

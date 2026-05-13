@@ -188,7 +188,7 @@ Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holme
 export HOLMES_CONFIG_PATH="/path/to/custom/config.yaml"
 ```
 
-### HOLMES_LOG_LEVEL
+### LOG_LEVEL
 Controls the logging verbosity of HolmesGPT.
 
 **Values:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
@@ -196,7 +196,7 @@ Controls the logging verbosity of HolmesGPT.
 
 **Example:**
 ```bash
-export HOLMES_LOG_LEVEL="DEBUG"
+export LOG_LEVEL="DEBUG"
 ```
 
 ### TRACE_TOKEN_USAGE

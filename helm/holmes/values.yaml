@@ -33,6 +33,14 @@ registry: robustadev
 
 sentryDSN: ""
 
+#Enabled custom DNS configuration for runner
+dnsConfig:
+  enabled: false
+  policy: ClusterFirst
+  nameservers: []
+  searches: []
+  options: []
+
 enableAccountsCreate: true
 revisionHistoryLimit: 10
 
@@ -707,6 +715,14 @@ mcpAddons:
     image: "mcp-atlassian:v0.21.2"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
+
+    #Enabled custom DNS configuration for confluenceMcp
+    dnsConfig:
+      enabled: false
+      policy: ClusterFirst
+      nameservers: [ ]
+      searches: [ ]
+      options: [ ]
 
     auth:
       secretName: ""         # Required: name of K8s secret containing Confluence credentials
