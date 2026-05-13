@@ -23,6 +23,10 @@ def test_parse_claude_code_bash_permission_strips_trailing_wildcard_only():
     )
 
 
+def test_parse_claude_code_bash_permission_strips_space_star_wildcard():
+    assert parse_claude_code_bash_permission("Bash(kubectl get *)") == "kubectl get"
+
+
 def test_extract_claude_code_bash_prefixes_warns_on_unsupported_entries():
     prefixes, ignored = extract_claude_code_bash_prefixes(
         {
@@ -43,8 +47,29 @@ def test_extract_claude_code_bash_prefixes_warns_on_unsupported_entries():
 
 
 def test_extract_claude_code_bash_prefixes_requires_allow_list():
-    with pytest.raises(ValueError, match="'permissions.allow' must be a list"):
+    with pytest.raises(ValueError, match=r"'permissions\.allow' must be a list"):
         extract_claude_code_bash_prefixes({"permissions": {"allow": "Bash(ls:*)"}})
+
+
+def test_extract_claude_code_bash_prefixes_ignores_allows_overlapping_denies():
+    prefixes, ignored = extract_claude_code_bash_prefixes(
+        {
+            "permissions": {
+                "allow": [
+                    "Bash(kubectl:*)",
+                    "Bash(helm list:*)",
+                    "Bash(git status)",
+                ],
+                "deny": [
+                    "Bash(kubectl delete:*)",
+                    "Bash(helm:*)",
+                ],
+            }
+        }
+    )
+
+    assert prefixes == ["git status"]
+    assert ignored == ["Bash(kubectl:*)", "Bash(helm list:*)"]
 
 
 def test_import_from_claude_code_merges_with_existing_prefixes(tmp_path):

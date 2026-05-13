@@ -98,8 +98,15 @@ def parse_claude_code_bash_permission(entry: str) -> Optional[str]:
     prefix = match.group(1).strip()
     if prefix.endswith(":*"):
         prefix = prefix[:-2].strip()
+    elif prefix.endswith(" *"):
+        prefix = prefix[:-2].strip()
 
     return prefix or None
+
+
+def _prefixes_overlap(left: str, right: str) -> bool:
+    """Return True when two command prefixes can match the same command."""
+    return left == right or left.startswith(f"{right} ") or right.startswith(f"{left} ")
 
 
 def extract_claude_code_bash_prefixes(
@@ -116,6 +123,20 @@ def extract_claude_code_bash_prefixes(
     if not isinstance(allow_entries, list):
         raise ValueError("'permissions.allow' must be a list")
 
+    deny_entries = permissions.get("deny", [])
+    if deny_entries is None:
+        deny_entries = []
+    if not isinstance(deny_entries, list):
+        raise ValueError("'permissions.deny' must be a list")
+
+    deny_prefixes = [
+        prefix
+        for entry in deny_entries
+        if isinstance(entry, str)
+        for prefix in [parse_claude_code_bash_permission(entry)]
+        if prefix is not None
+    ]
+
     prefixes: List[str] = []
     ignored_entries: List[str] = []
     seen: set[str] = set()
@@ -127,6 +148,10 @@ def extract_claude_code_bash_prefixes(
 
         prefix = parse_claude_code_bash_permission(entry)
         if prefix is None:
+            ignored_entries.append(entry)
+            continue
+
+        if any(_prefixes_overlap(prefix, deny_prefix) for deny_prefix in deny_prefixes):
             ignored_entries.append(entry)
             continue
 
