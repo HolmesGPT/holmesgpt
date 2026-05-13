@@ -166,9 +166,7 @@ def execute_health_check(
                             slack_channel = dest_config.get(
                                 "channel"
                             ) or os.environ.get("SLACK_CHANNEL")
-                            slack_thread_ts = dest_config.get("thread_ts") or dest_config.get(
-                                "threadTs"
-                            )
+                            slack_thread_ts = dest_config.get("thread_ts")
                             if slack_token and slack_channel:
                                 notification.channel = slack_channel
                                 slack_dest = SlackDestination(
