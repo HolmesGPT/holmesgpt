@@ -1,47 +1,60 @@
 # Skills
 
-Skills folder contains operational skills for the HolmesGPT project. Skills provide step-by-step instructions for common tasks, troubleshooting, and maintenance procedures related to the plugins in this directory.
-
-## Purpose
-
-- Standardize operational processes
-- Enable quick onboarding for new team members
-- Reduce downtime by providing clear troubleshooting steps
+Skills are troubleshooting guides that Holmes can load into its skill catalog. Holmes matches a skill by its description; when a skill clearly applies to a question or alert, Holmes fetches the skill content with the `fetch_skill` tool and follows its instructions.
 
 ## Structure
 
-### Structured Skill
+Each local skill is a directory containing a `SKILL.md` file with YAML frontmatter and a markdown body.
 
-Structured skills are designed for specific issues when conditions like issue name, id or source match, the corresponding instructions will be returned for investigation.
-For example, the investigation in [kube-prometheus-stack.yaml](kube-prometheus-stack.yaml) will be returned when the issue to be investigated match either KubeSchedulerDown or KubeControllerManagerDown.
-This skill is mainly used for `holmes investigate`
+```text
+holmes/plugins/skills/builtin/
+  dns-troubleshooting/
+    SKILL.md
+```
 
-### Skills Directory
+Built-in skills live under `holmes/plugins/skills/builtin/`. Custom skills can live in any directory, or be provided as direct `SKILL.md` file paths, through `custom_skill_paths`.
 
-Each skill is a directory containing a `SKILL.md` file with YAML frontmatter (name, description) and markdown body (the instructions).
-Skills are placed under `holmes/plugins/skills/builtin/` for builtin skills, or in any directory configured via `custom_skill_paths`.
-During runtime, the LLM will compare the skill description with the user question and fetch the most matched skill for investigation. It's possible no skill is fetched for no match.
+## SKILL.md Format
 
-## Generating Skills
+```markdown
+---
+name: dns-troubleshooting
+description: Troubleshooting DNS resolution failures in Kubernetes clusters
+---
 
-To ensure all skills follow a consistent format and improve troubleshooting accuracy, contributors should use the standardized [skill format prompt](skill-format.prompt.md) when creating new skills.
+## Goal
+...
 
-### Using the Skill Format Prompt
+## Workflow
+...
 
-1. **Start with the Template**: Use `prompt.md` as your guide when creating new skills
-2. **Follow the Structure**: Ensure your skill includes all required sections:
-   - **Goal**: Clear definition of issues addressed and agent mandate
-   - **Workflow**: Sequential diagnostic steps with detailed function descriptions
-   - **Synthesize Findings**: Logic for combining outputs and identifying root causes
-   - **Recommended Remediation Steps**: Both immediate and permanent solutions
+## Synthesize Findings
+...
 
-### Benefits of Using the Standard Format
+## Recommended Remediation Steps
+...
+```
 
-- **Consistency**: All skills follow the same structure and terminology
-- **AI Agent Compatibility**: Ensures skills are machine-readable and executable by AI agents
-- **Improved Accuracy**: Standardized format reduces ambiguity and improves diagnostic success rates
-- **Maintainability**: Easier to update and maintain skills across the project
+`description` is required and is used for matching. `name` is optional; if omitted, Holmes uses the parent directory name and normalizes it to lowercase hyphenated form.
 
-### Example Usage
+## Loading
 
-When creating a skill for a new issue category (e.g., storage problems, authentication failures), provide the issue description to an LLM along with the prompt template to generate a properly formatted skill that follows the established patterns.
+Holmes scans built-in and custom skill directories up to two levels deep for `SKILL.md` files. If multiple skills use the same name, the higher-priority source wins:
+
+1. Remote Robusta skills
+2. Custom/user skills from `custom_skill_paths`
+3. Built-in skills
+
+Configure custom skill paths in Holmes config:
+
+```yaml
+custom_skill_paths:
+  - /path/to/my-skills/
+  - /path/to/team-skill/SKILL.md
+```
+
+## Authoring Guidance
+
+Write skills as procedural, evidence-driven troubleshooting instructions. Include the goal and scope, sequential diagnostic steps, guidance for synthesizing findings, and remediation plus verification steps.
+
+For user-facing configuration and migration details, see [Skills](../../../docs/reference/skills.md).
