@@ -5,6 +5,8 @@ additionalEnvVars: []
 additional_env_vars: []
 imagePullSecrets: []
 podAnnotations: {}
+commonLabels: {}
+commonAnnotations: {}
 
 replicas: 1
 imagePullPolicy: IfNotPresent
@@ -104,7 +106,7 @@ toolsets:
     enabled: true
   prometheus/metrics:
     enabled: true
-  runbook:
+  skills:
     enabled: true
   connectivity_check:
     enabled: true
@@ -113,6 +115,28 @@ toolsets:
     config:
       builtin_allowlist: "extended"
 mcp_servers: {}
+
+# Paths inside the Holmes container to scan for custom skills (SKILL.md files).
+# Use this when you mount skill files yourself via `additionalVolumes` /
+# `initContainers`. Each path may be a directory (scanned for SKILL.md files
+# up to 2 levels deep) or an individual SKILL.md file. The chart sets
+# CUSTOM_SKILL_PATHS in the Holmes pod from this list (joined with `customSkills`).
+customSkillPaths: []
+  # - /etc/holmes/my-skills
+
+# Inline skill definitions. When non-empty, the chart creates a ConfigMap
+# named `<release>-holmes-skills` and mounts it at /etc/holmes/skills/, with
+# each entry projected to /etc/holmes/skills/<name>/SKILL.md. The mount path
+# is automatically appended to CUSTOM_SKILL_PATHS, so you do not need to add
+# /etc/holmes/skills to customSkillPaths.
+customSkills: {}
+  # my-skill:
+  #   content: |
+  #     ---
+  #     description: My custom skill description
+  #     ---
+  #     ## Goal
+  #     ...
 
 resources:
   requests:
