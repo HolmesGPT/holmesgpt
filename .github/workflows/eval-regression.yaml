@@ -535,9 +535,7 @@ jobs:
             }
 
             // Apply defaults
-            // Default to opus-4.6: a model present in the weekly ci-benchmark
-            // experiment, so the PR-vs-benchmark comparison populates.
-            if (!model) model = ${{ toJSON(vars.MODEL) }} || 'opus-4.6';
+            if (!model) model = ${{ toJSON(vars.MODEL) }} || '';
             // Only apply regression default for automatic triggers, not for manual /eval or workflow_dispatch
             // Note: markers may be '' (explicitly cleared by evals-id-* label parsing to broaden to all LLM tests)
             if (markers == null && !isManual) markers = 'regression';
