@@ -391,6 +391,9 @@ def compare_with_benchmark(
         Dict mapping "test_id:model" to HistoricalComparison
     """
     comparisons: Dict[str, HistoricalComparison] = {}
+    matched = 0
+    current_keys_sample: List[str] = []
+    skipped_no_model_or_id = 0
 
     for result in current_results:
         if result is None:
@@ -399,10 +402,15 @@ def compare_with_benchmark(
         model = result.get("model", "")
 
         if not test_id or not model:
+            skipped_no_model_or_id += 1
             continue
 
         key = f"{test_id}:{model}"
+        if len(current_keys_sample) < 5:
+            current_keys_sample.append(key)
         baseline = benchmark.get(key)
+        if baseline:
+            matched += 1
 
         comparison = HistoricalComparison(
             test_id=test_id,
@@ -431,5 +439,24 @@ def compare_with_benchmark(
                 )
 
         comparisons[key] = comparison
+
+    if benchmark and current_keys_sample and matched == 0:
+        baseline_sample = list(benchmark.keys())[:5]
+        logging.warning(
+            "compare_with_benchmark: 0 of %d current results matched any of %d "
+            "baseline metrics. Sample current keys=%s, sample baseline keys=%s. "
+            "Check that test_case_name and model names use the same format in both runs.",
+            len(comparisons),
+            len(benchmark),
+            current_keys_sample,
+            baseline_sample,
+        )
+    elif benchmark:
+        logging.info(
+            "compare_with_benchmark: matched %d of %d current results against %d baseline metrics",
+            matched,
+            len(comparisons),
+            len(benchmark),
+        )
 
     return comparisons

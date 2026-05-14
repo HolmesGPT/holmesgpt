@@ -142,7 +142,22 @@ def _generate_comparison_tables(
         lines.append("")
 
     if not lines:
+        current_models = sorted(
+            {r.get("model", "") for r in sorted_results if r.get("model")}
+        )
+        baseline_models = sorted(
+            {b.model for b in benchmark.values() if b.model}
+        )
+        overlap = set(current_models) & set(baseline_models)
         lines.append("\n_No benchmark data available for comparison._\n")
+        if current_models and baseline_models and not overlap:
+            lines.append(
+                f"_Model mismatch: current run uses {current_models} but the "
+                f"benchmark experiment was run against {baseline_models}. "
+                "Update the benchmark model list (or the PR eval model) so they "
+                "share at least one model to enable comparison._\n"
+            )
+            return "\n".join(lines)
 
     # Note missing tables
     missing = []
