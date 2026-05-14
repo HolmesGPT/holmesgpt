@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 from realtime._async.client import AsyncRealtimeClient
 from supabase import create_client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import SyncClientOptions as ClientOptions
 
 from holmes.core.conversations_worker.realtime_manager import broadcast_submit_topic
 
@@ -84,7 +84,14 @@ def _setup_broadcast():
         topic = broadcast_submit_topic(account_id, cluster_id)
         rt = AsyncRealtimeClient(url=ws_url, token=decoded["api_key"], auto_reconnect=True)
         await rt.connect()
-        ch = rt.channel(topic, {"config": {"private": False}})
+        # Authenticate as the signed-in user so the realtime.messages RLS
+        # policies on the private channel resolve. Without this the join
+        # runs as anon and Supabase rejects it (WS close 1006).
+        await rt.set_auth(res.session.access_token)
+        ch = rt.channel(
+            topic,
+            {"config": {"private": True, "presence": {"enabled": False}}},
+        )
         subscribed = asyncio.Event()
 
         def _on_sub(status, err=None):

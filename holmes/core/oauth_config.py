@@ -117,6 +117,7 @@ class OAuthEndpoints:
     authorization_url: Optional[str] = None
     token_url: Optional[str] = None
     client_id: Optional[str] = None
+    client_secret: Optional[str] = None
     scopes: Optional[List[str]] = None
     registration_endpoint: Optional[str] = None
 
@@ -134,7 +135,7 @@ class MCPOAuthConfig(BaseModel):
     authorization_url: Optional[str] = Field(default=None, description="IdP authorization endpoint URL. Auto-discovered if omitted.")
     token_url: Optional[str] = Field(default=None, description="IdP token endpoint URL. Auto-discovered if omitted.")
     client_id: Optional[str] = Field(default=None, description="OAuth public client ID. Auto-registered via DCR if omitted.")
-    client_secret: Optional[str] = Field(default=None, description="OAuth client secret for confidential clients (e.g. Azure AD). Used as fallback when the frontend does not provide one.")
+    client_secret: Optional[str] = Field(default=None, description="OAuth client secret for confidential clients.")
     scopes: Optional[List[str]] = Field(default=None, description="OAuth scopes to request.")
     registration_endpoint: Optional[str] = Field(default=None, description="DCR endpoint (auto-populated during discovery, sent to frontend for client registration).")
 
