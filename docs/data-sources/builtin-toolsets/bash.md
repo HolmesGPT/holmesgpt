@@ -99,9 +99,7 @@ Do you want to proceed?
 
 If you already maintain allowed Bash commands in Claude Code, import them into Holmes:
 
-```bash
-holmes toolset bash import-from-claude-code
-```
+    holmes toolset bash import-from-claude-code
 
 The command reads `~/.claude/settings.json`, extracts `Bash(...)` entries from `permissions.allow`, and merges them into `~/.holmes/bash_approved_prefixes.yaml`.
 
@@ -112,6 +110,7 @@ Useful options:
 | `--input PATH` | Read a custom Claude Code settings file |
 | `--output PATH` | Write a custom Holmes approved-prefixes file |
 | `--replace` | Replace the Holmes file instead of merging |
+| `--merge` | Merge imported prefixes with the Holmes file (default) |
 | `--dry-run` | Print the resulting YAML without writing |
 
 ## Prefix Matching

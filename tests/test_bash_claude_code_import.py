@@ -1,10 +1,12 @@
 import json
+import logging
 
 import pytest
 import yaml
 from typer.testing import CliRunner
 
 from holmes.main import app
+from holmes.plugins.toolsets.bash.common import cli_prefixes
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
     extract_claude_code_bash_prefixes,
     parse_claude_code_bash_permission,
@@ -176,3 +178,26 @@ def test_import_from_claude_code_dry_run_does_not_write(tmp_path):
     assert result.exit_code == 0, result.output
     assert not output_file.exists()
     assert yaml.safe_load(result.output) == {"approved_prefixes": ["helm list"]}
+
+
+def test_save_cli_bash_tools_approved_prefixes_does_not_clobber_load_errors(
+    tmp_path, monkeypatch, caplog
+):
+    prefixes_file = tmp_path / "bash_approved_prefixes.yaml"
+    original_content = "approved_prefixes: kubectl get\n"
+    prefixes_file.write_text(original_content, encoding="utf-8")
+
+    monkeypatch.setattr(
+        cli_prefixes,
+        "get_default_bash_approved_prefixes_file",
+        lambda: prefixes_file,
+    )
+
+    with caplog.at_level(logging.ERROR):
+        cli_prefixes.save_cli_bash_tools_approved_prefixes(["kubectl logs"])
+
+    assert prefixes_file.read_text(encoding="utf-8") == original_content
+    assert (
+        f"Failed to load existing approved prefixes from {prefixes_file}" in caplog.text
+    )
+    assert "'approved_prefixes' must be a list" in caplog.text

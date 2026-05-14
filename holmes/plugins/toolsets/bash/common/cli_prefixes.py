@@ -203,8 +203,11 @@ def save_cli_bash_tools_approved_prefixes(prefixes: List[str]) -> None:
     # Load existing prefixes and merge (bypass CLI mode check for internal use)
     try:
         existing = load_approved_prefixes_file(prefixes_file)
-    except Exception:
-        existing = []
+    except Exception as e:
+        logging.error(
+            f"Failed to load existing approved prefixes from {prefixes_file}: {e}"
+        )
+        return
 
     try:
         save_approved_prefixes_file(prefixes_file, prefixes + existing)
