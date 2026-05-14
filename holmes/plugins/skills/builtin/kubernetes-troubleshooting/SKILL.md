@@ -3,11 +3,7 @@ name: kubernetes-troubleshooting
 description: Troubleshoot Kubernetes issues.
 ---
 
-# Kubernetes Investigation
-
-Follow this skill whenever troubleshooting an issue on Kubernetes, or when the user's question requires kubectl.
-
-## Workflow
+# If investigating Kubernetes problems
 
 * run as many kubectl commands as you need to gather more information, then respond.
 * if possible, do so repeatedly on different Kubernetes objects.
@@ -22,19 +18,15 @@ Follow this skill whenever troubleshooting an issue on Kubernetes, or when the u
 ** look for misconfigured ingresses/services etc
 ** check the application logs because there may be runtime issues
 
-## Special cases
+** For example, if asked to port forward, find out the app or pod port (kubectl describe) and provide a port forward command specific to the user's question
 
-* If asked to port forward, find out the app or pod port (kubectl describe) and provide a port forward command specific to the user's question.
+- Example: If tasks 1,2,3 are in_progress, call kubectl_logs + kubectl_describe + kubectl_get simultaneously
 
-## Parallel tool calls
-
-When multiple kubectl investigations are independent, issue them in parallel — e.g. `kubectl_logs` + `kubectl_describe` + `kubectl_get` simultaneously rather than sequentially.
-
-## Worked Example
+## Examples
 
 User: Why did the webserver-example app crash?
-(Call tool `kubectl_find_resource kind=pod keyword=webserver`)
-(Call tool `kubectl_previous_logs namespace=demos pod=webserver-example-1299492-d9g9d`  # this pod name was found from the previous tool call)
+(Call tool kubectl_find_resource kind=pod keyword=webserver`)
+(Call tool kubectl_previous_logs namespace=demos pod=webserver-example-1299492-d9g9d # this pod name was found from the previous tool call)
 
 AI: `webserver-example-1299492-d9g9d` crashed due to email validation error during HTTP request for /api/create_user
 Relevant logs:
