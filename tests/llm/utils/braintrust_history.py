@@ -182,8 +182,8 @@ def _find_recent_benchmark_run_ids(limit: int = BENCHMARK_RUN_LOOKBACK) -> List[
             return []
 
         runs = response.json().get("workflow_runs", [])
-        return [run["id"] for run in runs]
-    except requests.exceptions.RequestException as e:
+        return [run["id"] for run in runs if "id" in run]
+    except (requests.exceptions.RequestException, ValueError, KeyError) as e:
         logging.warning(f"GitHub Actions API request failed: {e}")
         return []
 
