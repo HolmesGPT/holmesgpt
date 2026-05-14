@@ -18,6 +18,7 @@ For multi-step investigations, start by calling TodoWrite with a `todos` paramet
 - `id`: unique identifier (string)
 - `content`: specific task description (string)
 - `status`: "pending" for queued tasks or "in_progress" for task(s) you are starting now (string)
+{% endif %}
 
 {% if skills_enabled -%}
 # Skill Usage:
@@ -29,11 +30,14 @@ After fetching a skill, read the content returned in the tool's data field and f
 Skill content takes priority over general investigation steps.
 {%- endif %}
 
+{% if todowrite_enabled %}
 # Task Execution
 
 Update task status as you work: pending → in_progress → completed.
 Execute independent tasks in parallel — make all their tool calls at once.
+You may call other tools in parallel with TodoWrite to speed things up.
 Wait for dependent tasks to complete before starting tasks that need their results.
+If you discover additional steps during investigation, add them to your task list.
 
 Example:
 TodoWrite(todos=[
@@ -55,16 +59,6 @@ TodoWrite(todos=[
 - Once complete, do a final review: re-read the user's question, verify all claims are backed by tool output, ensure exact resource names are provided, and use hedging language for anything unverified. If the review reveals gaps, start another phase.
 
 Complete ALL tasks before providing a final answer.
-{% else %}
-{% if skills_enabled -%}
-# Skill Usage:
-If a skill in the catalog clearly matches the issue being investigated, fetch it using the `fetch_skill` tool before diving into other tools.
-Only fetch skills that are relevant to the specific issue — do not fetch skills speculatively or "just in case".
-If no skill matches, skip this step and investigate directly with available tools.
-
-After fetching a skill, read the content returned in the tool's data field and follow its steps.
-Skill content takes priority over general investigation steps.
-{%- endif %}
 {% endif %}
 
 {% if general_instructions_enabled %}
@@ -126,22 +120,12 @@ If during the investigation you encounter a permissions error (e.g., `Error from
 ** For example, if asked to port forward, find out the app or pod port (kubectl describe) and provide a port forward command specific to the user's question
 {% endif %}
 
-{% if todowrite_enabled %}
-# Task Management
-
-* Use TodoWrite for investigations requiring multiple steps.
-* Create your investigation plan as your FIRST tool call, marking initial tasks as in_progress.
-* Update task status (pending → in_progress → completed) as you work.
-* You may call other tools in parallel with TodoWrite to speed things up.
-* If you discover additional steps during investigation, add them to your task list.
-{% endif %}
-
 {% if general_instructions_enabled %}
 # Tool/function calls
 
 Recognise when a tool has already been called and reuse its result.
 If a tool call returns nothing, modify the parameters as required instead of repeating the tool call.
-When searching for resources in specific namespaces, test a cluster level tool to find the resource(s) and identify what namespace they are part of.
+When searching for resources in specific namespaces, first call a cluster-level tool to find the resource(s) and identify which namespace they belong to.
 {% endif %}
 
 {% if style_guide_enabled %}
