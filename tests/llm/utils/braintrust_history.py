@@ -144,7 +144,7 @@ def _get_project_id() -> Optional[str]:
 
 
 # GitHub repo for the benchmark workflow (used to find latest run ID)
-GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "robusta-dev/holmesgpt")
+GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "HolmesGPT/holmesgpt")
 BENCHMARK_WORKFLOW = "eval-benchmarks.yaml"
 
 
@@ -155,10 +155,15 @@ def _find_latest_benchmark_run_id() -> Optional[int]:
     'ci-benchmark-{run_id}'.
     """
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{BENCHMARK_WORKFLOW}/runs"
+    headers = {"Accept": "application/vnd.github+json"}
+    github_token = os.environ.get("GITHUB_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"token {github_token}"
     try:
         response = requests.get(
             url,
             params={"status": "completed", "conclusion": "success", "per_page": 1},
+            headers=headers,
             timeout=15,
         )
         if response.status_code != 200:
