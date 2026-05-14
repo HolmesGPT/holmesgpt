@@ -64,13 +64,31 @@ Cloud provider access lets Holmes investigate infrastructure-level causes — mi
 | **GCP** | [Setup](builtin-toolsets/gcp.md) | Logging, monitoring, traces, gcloud CLI, and storage via MCP server |
 | **Azure** | [Setup](builtin-toolsets/azure-mcp.md) | Azure resource management via MCP server |
 
-## 4. Connect Grafana Dashboards (Bonus)
+## 4. Connect Distributed Tracing (if applicable)
 
-If you use Grafana, connecting the dashboards toolset lets Holmes see what you're already monitoring — it can find relevant dashboards, extract PromQL queries from panels, and use them during investigations.
+If your applications emit traces, connecting a tracing backend lets Holmes follow requests across services, pinpoint slow spans, and correlate latency spikes with specific upstream or downstream calls.
+
+| Platform | Setup Guide | Notes |
+|----------|-------------|-------|
+| **Grafana Tempo** | [Setup](builtin-toolsets/grafanatempo.md) | Connect via Grafana or directly |
+| **Datadog Traces** | [Setup](builtin-toolsets/datadog.md) | Enable `datadog/traces` alongside metrics and logs |
+| **New Relic** | [Setup](builtin-toolsets/newrelic.md) | NRQL covers traces, metrics, and logs in one toolset |
+
+## 5. Connect Source Control
+
+Source control access lets Holmes correlate incidents with recent code changes, investigate CI/CD failures, and read PR context when diagnosing regressions.
+
+| Platform | Setup Guide | Notes |
+|----------|-------------|-------|
+| **GitHub** | [Setup](builtin-toolsets/github-mcp.md) | Personal Access Token or GitHub App. Supports GitHub.com and GitHub Enterprise Server |
+
+## 6. Connect ServiceNow (if applicable)
+
+If you use ServiceNow for incident or change management, connecting it lets Holmes pull related tickets, recent changes, and CMDB context into investigations.
 
 | Platform | Setup Guide |
 |----------|-------------|
-| **Grafana Dashboards** | [Setup](builtin-toolsets/grafanadashboards.md) |
+| **ServiceNow** | [Setup](builtin-toolsets/servicenow.md) |
 
 ## Verify Your Setup
 
@@ -86,7 +104,4 @@ holmes ask "what is the health of my environment?"
 
 ## Next Steps
 
-- **[Interactive Mode](../walkthrough/interactive-mode.md)** - Use Holmes interactively for follow-up questions
-- **[Investigating Prometheus Alerts](../walkthrough/investigating-prometheus-alerts.md)** - Automate alert investigation
-- **[All Built-in Toolsets](builtin-toolsets/index.md)** - Browse the full list of integrations
-- **[Custom Toolsets](custom-toolsets.md)** - Create integrations for proprietary tools
+Browse [all built-in toolsets](builtin-toolsets/index.md) for the full list of integrations, or see [custom toolsets](custom-toolsets.md) to add your own.
