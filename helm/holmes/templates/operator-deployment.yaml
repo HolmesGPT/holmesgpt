@@ -9,6 +9,11 @@ metadata:
     app.kubernetes.io/name: holmes-operator
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -22,6 +27,11 @@ spec:
         app: holmes-operator
         app.kubernetes.io/name: holmes-operator
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "holmes.commonLabels" . | nindent 8 }}
+      {{- with (include "holmes.commonAnnotations" .) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ .Release.Name }}-operator
       securityContext:

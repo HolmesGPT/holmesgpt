@@ -51,6 +51,7 @@ from rich.text import Text
 from holmes.config import Config
 from holmes.core.config import config_path_dir
 from holmes.core.init_event import StatusEvent, StatusEventKind, ToolsetStatus
+from holmes.core.toolset_manager import get_prereq_timeout_seconds
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
     Feedback,
@@ -173,6 +174,9 @@ class InitProgressRenderer:
         self._start_time: float = 0.0
         self._live: Optional[Any] = None  # Rich Live
         self._timer_stop = threading.Event()
+        # Read once — _build_display() runs every frame, and the env-var
+        # parser also logs a warning when the value is invalid.
+        self._prereq_timeout_secs = get_prereq_timeout_seconds()
 
     def _build_display(self) -> "Text":
         """Build the Rich renderable for the current state."""
@@ -206,17 +210,32 @@ class InitProgressRenderer:
             display.append("\n  ")
             display.append(f"  ready: {names}", style="green")
 
-        # Show in-flight toolsets that are taking more than 1 second
+        # Show in-flight toolsets that are taking more than 1 second.
+        # Color escalates as the duration approaches the prerequisite timeout
+        # so the user can see at a glance which datasource is the culprit.
+        timeout_secs = self._prereq_timeout_secs
+        # Scale the "show as slow" threshold so it fires before the timeout
+        # even when HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS is set very low.
+        slow_threshold = min(_SLOW_THRESHOLD_SECS, timeout_secs * 0.5)
         slow: List[tuple[str, float]] = []
         for name, started_at in self._in_flight.items():
             duration = now - started_at
-            if duration >= _SLOW_THRESHOLD_SECS:
+            if duration >= slow_threshold:
                 slow.append((name, duration))
         if slow:
             slow.sort(key=lambda x: -x[1])  # longest first
-            parts = [f"{name} ({dur:.0f}s)" for name, dur in slow]
             display.append("\n  ")
-            display.append(f"  checking: {', '.join(parts)}", style="yellow")
+            display.append("  checking: ", style="yellow")
+            for i, (name, dur) in enumerate(slow):
+                if i > 0:
+                    display.append(", ", style="yellow")
+                if dur >= timeout_secs:
+                    style = "bold red"
+                elif dur >= timeout_secs * 0.5:
+                    style = "bold yellow"
+                else:
+                    style = "yellow"
+                display.append(f"{name} ({dur:.0f}s)", style=style)
 
         if self._toolsets_failed:
             failed_names = ", ".join(name for name, _ in self._toolsets_failed[-4:])
@@ -1805,8 +1824,9 @@ def _run_inline_menu(
     )
     app.run()
 
-    # erase_when_done clears the menu; also erase the Rich header above it
-    if header_lines > 0:
+    # erase_when_done clears the menu; also erase the Rich header above it.
+    # Only emit ANSI escapes on interactive terminals.
+    if header_lines > 0 and sys.stdout.isatty():
         sys.stdout.write(f"\x1b[{header_lines}A\x1b[0J")
         sys.stdout.flush()
 

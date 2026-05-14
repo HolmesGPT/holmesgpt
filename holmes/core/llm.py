@@ -348,6 +348,11 @@ class DefaultLLM(LLM):
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
+        elif provider == "github_copilot":
+            # GitHub Copilot uses OAuth device flow for authentication, not
+            # traditional API keys.  LiteLLM handles the token lifecycle
+            # internally, so skip the standard key validation.
+            model_requirements = {"keys_in_environment": True, "missing_keys": []}
         elif provider == "azure":
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base, api_version=api_version
@@ -561,7 +566,15 @@ class DefaultLLM(LLM):
                 allowed_openai_params = []
             allowed_openai_params.extend(existing_allowed)
 
-        self.args.setdefault("temperature", temperature)
+        # Strip a pre-existing `temperature: None` (e.g. from `temperature: null` in
+        # modelList) before applying the caller's value, so setdefault() is not blocked
+        # by a null sentinel and so no `temperature=None` leaks to providers that reject
+        # it (e.g. Bedrock Anthropic Opus 4.7). Preserves PR #698: when args holds a real
+        # temperature, setdefault is a no-op and the persisted value survives.
+        if self.args.get("temperature", ...) is None:
+            self.args.pop("temperature", None)
+        if temperature is not None:
+            self.args.setdefault("temperature", temperature)
 
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
@@ -666,7 +679,17 @@ class LLMModelRegistry:
         return self._default_robusta_model
 
     def _init_models(self):
-        self._llms = self._parse_models_file(MODEL_LIST_FILE_LOCATION)
+        # Precedence for the model list file:
+        # 1. MODEL_LIST_FILE_LOCATION (env var, or its server default when the
+        #    file exists -- covers Helm deployments mounting /etc/holmes/...)
+        # 2. ~/.holmes/model_list.yaml (CLI default)
+        from holmes.core.config import config_path_dir
+
+        if os.path.exists(MODEL_LIST_FILE_LOCATION):
+            path = MODEL_LIST_FILE_LOCATION
+        else:
+            path = os.path.join(config_path_dir, "model_list.yaml")
+        self._llms = self._parse_models_file(path)
 
         if self._should_load_robusta_ai():
             self.configure_robusta_ai_model()
