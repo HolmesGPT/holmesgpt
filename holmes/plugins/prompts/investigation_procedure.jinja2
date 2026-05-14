@@ -51,7 +51,7 @@ Execution Order: Perform both tasks together
 
 MAXIMIZE PARALLEL TOOL CALLS:
 - When executing multiple in_progress tasks, make ALL their tool calls at once
-- Example: If tasks 1,2,3 are in_progress, call kubectl_logs + kubectl_describe + kubectl_get simultaneously
+- Example: If tasks 1,2,3 are in_progress, issue every independent tool call in the same turn rather than sequentially
 
 # CRITICAL: TASK COMPLETION ENFORCEMENT
 
