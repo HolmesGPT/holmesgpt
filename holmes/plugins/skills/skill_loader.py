@@ -116,14 +116,24 @@ def scan_skill_directory(
         logging.warning(f"Skill directory does not exist: {directory}")
         return skills
 
-    for root, dirs, files in os.walk(directory):
-        depth = len(Path(root).resolve().relative_to(directory).parts)
+    # followlinks=True so we traverse Kubernetes ConfigMap mounts, which
+    # surface each key as `<dir>/<name>` -> `..data/<name>` -> a real file
+    # under a timestamped `..NNN/` directory. Depth is computed against the
+    # walked (unresolved) path so the symlink-traversed path is at depth 1,
+    # not depth 2 from the resolved `..NNN/` real dir.
+    seen_paths: set[str] = set()
+    for root, dirs, files in os.walk(directory, followlinks=True):
+        depth = len(Path(root).relative_to(directory).parts)
         if depth >= max_depth:
             dirs.clear()
             continue
 
         if SKILL_FILENAME in files:
             skill_path = Path(root) / SKILL_FILENAME
+            resolved = str(skill_path.resolve())
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
             try:
                 skill = parse_skill_file(skill_path, source=source)
                 skills.append(skill)

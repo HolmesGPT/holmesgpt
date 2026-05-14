@@ -1,25 +1,20 @@
-{{- if and .Values.mcpAddons.github.enabled .Values.mcpAddons.github.networkPolicy.enabled }}
+{{- if and .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.kubernetes.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ .Release.Name }}-github-mcp-network-policy
+  name: {{ .Release.Name }}-k8s-mcp-network-policy
   namespace: {{ .Release.Namespace }}
   labels:
-    app: {{ .Release.Name }}-github-mcp
-    app.kubernetes.io/name: github-mcp-server
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
-    {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
-  annotations:
-    {{- . | nindent 4 }}
-  {{- end }}
 spec:
   podSelector:
     matchLabels:
-      app: {{ .Release.Name }}-github-mcp
-      app.kubernetes.io/name: github-mcp-server
+      app: {{ .Release.Name }}-k8s-mcp
+      app.kubernetes.io/name: k8s-mcp-server
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes:
   - Ingress

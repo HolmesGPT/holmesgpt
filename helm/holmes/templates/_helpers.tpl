@@ -42,3 +42,37 @@ true
 false
 {{- end -}}
 {{- end -}}
+
+{{/*
+Common annotations to apply to all objects created by this chart.
+Usage: {{- include "holmes.commonAnnotations" . | nindent 4 }}
+*/}}
+{{- define "holmes.commonAnnotations" -}}
+{{- range $key, $val := .Values.commonAnnotations }}
+{{ $key | toYaml }}: {{ $val | toString | toYaml }}
+{{- end }}
+{{- end }}
+
+{{/*
+Common labels to apply to all objects created by this chart.
+Reserved keys used in selector.matchLabels are rejected to prevent
+Deployment reconciliation failures caused by label divergence.
+Usage: {{- include "holmes.commonLabels" . | nindent 4 }}
+*/}}
+{{- define "holmes.commonLabels" -}}
+{{- $reserved := list
+    "app"
+    "app.kubernetes.io/name"
+    "app.kubernetes.io/instance"
+    "app.kubernetes.io/component"
+    "app.kubernetes.io/part-of"
+    "app.kubernetes.io/managed-by" -}}
+{{- with .Values.commonLabels }}
+{{- range $key, $val := . }}
+{{- if has $key $reserved }}
+{{- fail (printf "commonLabels: key %q is reserved and cannot be overridden" $key) }}
+{{- end }}
+{{ $key | toYaml }}: {{ $val | toString | toYaml }}
+{{- end }}
+{{- end }}
+{{- end }}
