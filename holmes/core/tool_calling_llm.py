@@ -178,6 +178,7 @@ class LLMResult(RequestStats):
     instructions: List[str] = Field(default_factory=list)
     messages: Optional[List[dict]] = None
     metadata: Optional[Dict[Any, Any]] = None
+    finish_reason: Optional[str] = None  # Last LLM iteration's finish_reason (stop / length / tool_calls / content_filter)
 
 
 class ToolCallWithDecision(BaseModel):
@@ -323,6 +324,26 @@ class ToolCallingLLM:
                         )
 
                 if not tool_result:
+                    if tool_decision.edit_command is not None:
+                        try:
+                            edited_params = json.loads(tool_call.function.arguments or "{}")
+                        except json.JSONDecodeError:
+                            edited_params = {}
+                        edited_params["command"] = tool_decision.edit_command
+                        edited_arguments = json.dumps(edited_params)
+                        tool_call.function.arguments = edited_arguments
+                        # Persist the edited command in the conversation history so
+                        # subsequent turns see the command that was actually executed.
+                        msg_tool_calls = messages[
+                            tool_call_with_decision.message_index
+                        ].get("tool_calls", [])
+                        for original_tool_call in msg_tool_calls:
+                            if original_tool_call.get("id") == tool_call.id:
+                                original_function = original_tool_call.get("function") or {}
+                                original_function["arguments"] = edited_arguments
+                                original_tool_call["function"] = original_function
+                                break
+
                     tool_result = self._invoke_llm_tool_call(
                         tool_to_call=tool_call,
                         previous_tool_calls=[],
@@ -577,6 +598,7 @@ class ToolCallingLLM:
                         num_llm_calls=total_num_llm_calls,
                         messages=terminal_data.get("messages"),
                         metadata=terminal_data.get("metadata"),
+                        finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
                         **accumulated_stats.model_dump(),
                     )
 
@@ -598,6 +620,7 @@ class ToolCallingLLM:
                 num_llm_calls=total_num_llm_calls,
                 messages=terminal_data["messages"],
                 metadata=terminal_data.get("metadata"),
+                finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
                 **accumulated_stats.model_dump(),
             )
 
@@ -1154,6 +1177,18 @@ class ToolCallingLLM:
 
             tools_to_call = getattr(response_message, "tool_calls", None)
             if not tools_to_call:
+                # Capture the final iteration's finish_reason for usage tracking
+                # (HolmesUsageEvents.finish_reason). Earlier iterations always end
+                # with 'tool_calls'; this last one tells us why the loop terminated
+                # (stop / length / content_filter / etc.). Skip if the value isn't
+                # a real string (e.g. MagicMock in tests), so pydantic validation
+                # of LLMResult below doesn't blow up.
+                try:
+                    fr = full_response.choices[0].finish_reason  # type: ignore
+                    if isinstance(fr, str):
+                        metadata["finish_reason"] = fr
+                except (AttributeError, IndexError, TypeError):
+                    pass
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={

@@ -50,6 +50,13 @@ from holmes.utils.pydantic_utils import RobustaBaseConfig, load_model_from_file
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
 
 
+def _parse_custom_skill_paths_env() -> List[str]:
+    raw = os.environ.get("CUSTOM_SKILL_PATHS")
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
 class SupportedTicketSources(str, Enum):
     JIRA_SERVICE_MANAGEMENT = "jira-service-management"
     PAGERDUTY = "pagerduty"
@@ -219,6 +226,11 @@ class Config(RobustaBaseConfig):
                 result.model = model_from_env
                 result._model_source = "via $MODEL"
 
+        if not result.custom_skill_paths:
+            skill_paths = _parse_custom_skill_paths_env()
+            if skill_paths:
+                result.custom_skill_paths = skill_paths
+
         result.log_useful_info()
         return result
 
@@ -250,6 +262,9 @@ class Config(RobustaBaseConfig):
             val = os.getenv(field_name.upper(), None)
             if val is not None:
                 kwargs[field_name] = val
+        skill_paths = _parse_custom_skill_paths_env()
+        if skill_paths:
+            kwargs["custom_skill_paths"] = skill_paths
         kwargs["cluster_name"] = Config.__get_cluster_name()
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
@@ -610,6 +625,7 @@ class Config(RobustaBaseConfig):
         return AlertManagerSource(
             url=self.alertmanager_url,  # type: ignore
             username=self.alertmanager_username,
+            password=self.alertmanager_password,
             alertname_filter=self.alertmanager_alertname,  # type: ignore
             label_filter=self.alertmanager_label,  # type: ignore
             filepath=self.alertmanager_file,

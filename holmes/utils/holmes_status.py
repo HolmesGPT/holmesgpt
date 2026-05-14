@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Optional
 
 from holmes import get_version  # type: ignore
+from holmes.common.env_vars import (
+    ENABLE_CONVERSATION_WORKER,
+    CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
+)
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
 
@@ -54,13 +58,25 @@ def _detect_runner_namespace() -> Optional[str]:
 class HolmesMetadata:
     is_robusta_ai_enabled: bool
     supports_additional_system_prompt: bool = True
-    # Namespace where the Holmes runner Pod itself is running. Populated via
-    # the Kubernetes downward API or the service-account namespace file.
-    # ``None`` outside Kubernetes (CLI / local dev).
+    supports_realtime_conversations: bool = False
+    requires_realtime_broadcast: bool = False
     namespace: Optional[str] = None
 
 
-def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
+def update_holmes_status_in_db(
+    dal: SupabaseDal,
+    config: Config,
+    realtime_available: bool = False,
+):
+    """
+    Upsert the Holmes status row.
+
+    The conversation-related metadata fields default to ``False`` on
+    startup and only flip to their env-var-driven values once Supabase
+    has explicitly confirmed Realtime is enabled (``realtime_available=True``).
+    This avoids advertising realtime support before we've verified the
+    project actually has it turned on.
+    """
     logging.info("Updating status of holmes")
 
     if not config.cluster_name:
@@ -69,8 +85,17 @@ def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
             "or verify that a cluster name is provided in the Robusta configuration file."
         )
 
+    if realtime_available:
+        supports_realtime = bool(ENABLE_CONVERSATION_WORKER)
+        requires_broadcast = bool(CONVERSATION_WORKER_USE_REALTIME_BROADCAST)
+    else:
+        supports_realtime = False
+        requires_broadcast = False
+
     metadata = HolmesMetadata(
         is_robusta_ai_enabled=config.should_try_robusta_ai,
+        supports_realtime_conversations=supports_realtime,
+        requires_realtime_broadcast=requires_broadcast,
         namespace=_detect_runner_namespace(),
     )
 

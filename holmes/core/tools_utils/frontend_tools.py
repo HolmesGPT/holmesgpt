@@ -15,7 +15,7 @@ the tool itself declares its behavior via its return status, and call_stream
 handles it generically like it handles APPROVAL_REQUIRED.
 """
 
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from holmes.common.env_vars import STRICT_TOOL_CALLS_ENABLED
 from holmes.core.openai_formatting import apply_strict_mode
@@ -25,6 +25,10 @@ from holmes.core.tools import (
     Tool,
     ToolInvokeContext,
 )
+
+if TYPE_CHECKING:
+    from holmes.core.models import FrontendToolDefinition
+    from holmes.core.tool_calling_llm import ToolCallingLLM
 
 DEFAULT_NOOP_RESPONSE = "The action was performed successfully in the user's browser."
 
@@ -142,3 +146,62 @@ def build_frontend_noop_tool(
         raw_json_schema=parameters,
         canned_response=canned_response or DEFAULT_NOOP_RESPONSE,
     )
+
+
+class FrontendToolCollisionError(ValueError):
+    """A frontend tool name collides with a backend tool or another frontend tool."""
+
+    def __init__(self, tool_name: str):
+        self.tool_name = tool_name
+        super().__init__(
+            f"Frontend tool name '{tool_name}' conflicts with either a "
+            "built-in Holmes tool or another frontend tool in the same "
+            "request. Use a different name."
+        )
+
+
+def inject_frontend_tools(
+    ai: "ToolCallingLLM",
+    frontend_tools: Optional[List["FrontendToolDefinition"]],
+) -> Tuple["ToolCallingLLM", bool]:
+    """Build per-request frontend tool instances and return ``(request_ai, has_pause_tools)``.
+
+    ``request_ai`` is a clone of ``ai`` with the new tools registered, or
+    ``ai`` itself when ``frontend_tools`` is empty. Raises
+    ``FrontendToolCollisionError`` on backend or duplicate-frontend name
+    conflicts.
+    """
+    from holmes.core.models import FrontendToolMode  # avoid circular import
+
+    if not frontend_tools:
+        return ai, False
+
+    backend_tool_names = set(ai.tool_executor.tools_by_name.keys())
+    seen_frontend_names: set = set()
+    instances: List[Tool] = []
+    has_pause = False
+    for ft in frontend_tools:
+        if ft.name in backend_tool_names or ft.name in seen_frontend_names:
+            raise FrontendToolCollisionError(ft.name)
+        seen_frontend_names.add(ft.name)
+        if ft.mode == FrontendToolMode.NOOP:
+            instances.append(
+                build_frontend_noop_tool(
+                    name=ft.name,
+                    description=ft.description,
+                    parameters=ft.parameters,
+                    canned_response=ft.noop_response,
+                )
+            )
+        else:
+            has_pause = True
+            instances.append(
+                build_frontend_pause_tool(
+                    name=ft.name,
+                    description=ft.description,
+                    parameters=ft.parameters,
+                )
+            )
+
+    cloned_executor = ai.tool_executor.clone_with_extra_tools(instances)
+    return ai.with_executor(cloned_executor), has_pause

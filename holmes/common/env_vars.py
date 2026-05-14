@@ -170,6 +170,9 @@ SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
 SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
     os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
 )
+# Disables TodoWrite for scheduled prompts so the report ends up in ChatResponse.analysis
+# rather than being buried in conversation_history behind a trailing TodoWrite call.
+ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",
@@ -187,4 +190,62 @@ MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
 # Filesystem storage for large tool results
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
     "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
+)
+
+# Conversation Worker (M2)
+ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
+CONVERSATION_WORKER_MAX_CONCURRENT = int(
+    os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
+)
+# Only used when realtime is disabled or disconnected. When realtime is enabled
+# and connected, Holmes relies on Postgres Changes notifications and does not
+# poll.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 60)
+)
+# Safety-net poll interval when realtime IS connected. Supabase Realtime
+# has at-most-once delivery, so this caps the maximum latency for a missed
+# broadcast/pgchanges notification.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME", 300)
+)
+CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS", 1.0)
+)
+CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS = int(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS", 120)
+)
+CONVERSATION_WORKER_REALTIME_ENABLED = load_bool(
+    "CONVERSATION_WORKER_REALTIME_ENABLED", True
+)
+CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS", 60)
+)
+# Upper bound on how long a silently-dead realtime WebSocket can go undetected.
+# The realtime library can leave a stale connection in place when the server
+# closes the socket cleanly (ConnectionClosedOK) — _listen_task exits, no
+# auto-reconnect fires, and is_connected still reports True. We re-evaluate
+# liveness every tick and trigger a full reconnect on any failure signal.
+CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS", 5)
+)
+# When True (default), Holmes subscribes to a Broadcast channel
+# (holmes:submit:{account_id}:{cluster_id}) to detect new pending
+# conversations — the initiator (Frontend/Relay) must send a broadcast
+# after creating the conversation.  Avoids WAL replication overhead at scale.
+# When False, Holmes subscribes to Postgres Changes on the
+# Conversations table instead (no initiator action needed beyond the RPC).
+CONVERSATION_WORKER_USE_REALTIME_BROADCAST = load_bool(
+    "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", True
+)
+# Initial backoff (seconds) when checking is_realtime_enabled() RPC fails
+# due to connectivity issues. The verifier doubles this on each retry up
+# to CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS.
+CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS = float(
+    os.environ.get(
+        "CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS", 5.0
+    )
+)
+CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS", 120.0)
 )
