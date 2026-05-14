@@ -148,7 +148,7 @@ GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "HolmesGPT/holmesgpt")
 BENCHMARK_WORKFLOW = "eval-benchmarks.yaml"
 # Number of recent successful benchmark runs to consider when looking for a
 # matching Braintrust experiment. The latest successful workflow run may not
-# have a corresponding experiment (e.g., the eval step failed or didn't log),
+# have a corresponding experiment (e.g. the eval step failed or didn't log),
 # so we walk back through recent runs until we find one that does.
 BENCHMARK_RUN_LOOKBACK = 20
 
