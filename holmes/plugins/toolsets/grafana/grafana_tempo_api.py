@@ -8,8 +8,7 @@ import backoff
 import requests  # type: ignore
 
 from holmes.plugins.toolsets.grafana.common import (
-    GrafanaInstance,
-    build_auth,
+    GrafanaTempoConfig,
     build_headers,
     get_base_url,
 )
@@ -49,15 +48,15 @@ class GrafanaTempoAPI:
     This class provides a clean interface to all Tempo API endpoints.
     """
 
-    def __init__(self, instance: GrafanaInstance):
-        """Initialize the Tempo API wrapper for a single resolved Grafana instance."""
-        self.instance = instance
-        self.base_url = get_base_url(instance)
-        self.headers = build_headers(instance.api_key, instance.additional_headers)
-        self.auth = build_auth(instance)
-        self.verify_ssl: bool = bool(instance.verify_ssl)
-        self._default_timeout: int = int(instance.timeout_seconds or 30)
-        self._default_max_retries: int = int(instance.max_retries or 3)
+    def __init__(self, config: GrafanaTempoConfig):
+        """Initialize the Tempo API wrapper.
+
+        Args:
+            config: GrafanaTempoConfig instance with connection details
+        """
+        self.config = config
+        self.base_url = get_base_url(config)
+        self.headers = build_headers(config.api_key, config.additional_headers)
 
     def _make_request(
         self,
@@ -82,8 +81,8 @@ class GrafanaTempoAPI:
         Raises:
             Exception: If the request fails after all retries
         """
-        timeout = timeout if timeout is not None else self._default_timeout
-        retries = retries if retries is not None else self._default_max_retries
+        timeout = timeout if timeout is not None else self.config.timeout_seconds
+        retries = retries if retries is not None else self.config.max_retries
 
         # Format endpoint with path parameters
         if path_params:
@@ -105,10 +104,9 @@ class GrafanaTempoAPI:
             response = requests.get(
                 url,
                 headers=self.headers,
-                auth=self.auth,
                 params=params,
                 timeout=timeout,
-                verify=self.verify_ssl,
+                verify=self.config.verify_ssl,
             )
             response.raise_for_status()
             return response.json()
@@ -144,7 +142,7 @@ class GrafanaTempoAPI:
             bool: True if endpoint returns 200 status code, False otherwise
         """
         url = f"{self.base_url}/api/echo"
-        retries = self._default_max_retries
+        retries = self.config.max_retries
 
         @backoff.on_exception(
             backoff.expo,
@@ -158,9 +156,8 @@ class GrafanaTempoAPI:
             response = requests.get(
                 url,
                 headers=self.headers,
-                auth=self.auth,
-                timeout=self._default_timeout,
-                verify=self.verify_ssl,
+                timeout=self.config.timeout_seconds,
+                verify=self.config.verify_ssl,
             )
             response.raise_for_status()
             return response

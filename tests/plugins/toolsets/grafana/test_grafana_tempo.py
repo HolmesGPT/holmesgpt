@@ -81,9 +81,8 @@ def test_tempo_datasource_toolset_wrong_url_health_check():
     }
     toolset.check_prerequisites()
 
-    assert "Unable to connect to Tempo" in toolset.error
     assert (
-        "HTTPConnectionPool(host='localhost', port=2000): Max retries exceeded with url: /api/datasources/proxy/uid/tempo-streaming-enabled/api/search"
+        "Unable to connect to Tempo.\nHTTPConnectionPool(host='localhost', port=2000): Max retries exceeded with url: /api/datasources/proxy/uid/tempo-streaming-enabled/api/search"
         in toolset.error
     )
     assert toolset.status == ToolsetStatusEnum.FAILED

@@ -228,7 +228,6 @@ class TestTempoURLs:
     def toolset(self, config):
         toolset = GrafanaTempoToolset()
         toolset._grafana_config = config
-        toolset._instances = {i.name: i for i in config.instances}
         return toolset
 
     TEST_CASES = [
@@ -374,7 +373,6 @@ class TestLokiURLs:
     def toolset(self, config):
         toolset = GrafanaLokiToolset()
         toolset._grafana_config = config
-        toolset._instances = {i.name: i for i in config.instances}
         return toolset
 
     TEST_CASES = [

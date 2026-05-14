@@ -12,8 +12,8 @@ from requests.auth import HTTPBasicAuth
 from holmes.core.llm import LLM
 from holmes.core.tools import StructuredToolResultStatus, ToolInvokeContext
 from holmes.plugins.toolsets.grafana.common import (
-    GrafanaConfig,
     GrafanaInstance,
+    MultiInstanceGrafanaConfig as GrafanaConfig,
     build_auth,
     build_headers,
 )

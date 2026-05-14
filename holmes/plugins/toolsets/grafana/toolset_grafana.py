@@ -18,11 +18,12 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.grafana.base_grafana_toolset import (
     GRAFANA_INSTANCE_PARAM_DESCRIPTION,
-    BaseGrafanaToolset,
+    BaseGrafanaToolset,  # noqa: F401 — re-exported for legacy loki import path
+    BaseMultiInstanceGrafanaToolset,
 )
 from holmes.plugins.toolsets.grafana.common import (
-    GrafanaConfig,
     GrafanaInstance,
+    MultiInstanceGrafanaConfig,
     build_auth,
     build_headers,
     get_base_url,
@@ -40,7 +41,7 @@ GRAFANA_INSTANCE_PARAM = ToolParameter(
 )
 
 
-class GrafanaDashboardConfig(GrafanaConfig):
+class GrafanaDashboardConfig(MultiInstanceGrafanaConfig):
     """Configuration specific to Grafana Dashboard toolset."""
 
     timeout_seconds: int = Field(
@@ -87,7 +88,7 @@ def _build_grafana_dashboard_url(
         return None
 
 
-class GrafanaToolset(BaseGrafanaToolset):
+class GrafanaToolset(BaseMultiInstanceGrafanaToolset):
     config_classes: ClassVar[list[Type[GrafanaDashboardConfig]]] = [
         GrafanaDashboardConfig
     ]
