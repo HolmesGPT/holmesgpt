@@ -146,13 +146,18 @@ def _get_project_id() -> Optional[str]:
 # GitHub repo for the benchmark workflow (used to find latest run ID)
 GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "HolmesGPT/holmesgpt")
 BENCHMARK_WORKFLOW = "eval-benchmarks.yaml"
+# Number of recent successful benchmark runs to consider when looking for a
+# matching Braintrust experiment. The latest successful workflow run may not
+# have a corresponding experiment (e.g., the eval step failed or didn't log),
+# so we walk back through recent runs until we find one that does.
+BENCHMARK_RUN_LOOKBACK = 20
 
 
-def _find_latest_benchmark_run_id() -> Optional[int]:
-    """Query GitHub Actions API for the latest successful benchmark workflow run.
+def _find_recent_benchmark_run_ids(limit: int = BENCHMARK_RUN_LOOKBACK) -> List[int]:
+    """Query GitHub Actions API for recent successful benchmark workflow run IDs.
 
-    Returns the run_id which maps to the Braintrust experiment name
-    'ci-benchmark-{run_id}'.
+    Returns run IDs in newest-first order. Each maps to a Braintrust experiment
+    name 'ci-benchmark-{run_id}'.
     """
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{BENCHMARK_WORKFLOW}/runs"
     headers = {"Accept": "application/vnd.github+json"}
@@ -162,7 +167,11 @@ def _find_latest_benchmark_run_id() -> Optional[int]:
     try:
         response = requests.get(
             url,
-            params={"status": "completed", "conclusion": "success", "per_page": 1},
+            params={
+                "status": "completed",
+                "conclusion": "success",
+                "per_page": limit,
+            },
             headers=headers,
             timeout=15,
         )
@@ -170,16 +179,13 @@ def _find_latest_benchmark_run_id() -> Optional[int]:
             logging.warning(
                 f"GitHub Actions API returned {response.status_code}: {response.text[:200]}"
             )
-            return None
+            return []
 
         runs = response.json().get("workflow_runs", [])
-        if not runs:
-            return None
-
-        return runs[0]["id"]
+        return [run["id"] for run in runs]
     except requests.exceptions.RequestException as e:
         logging.warning(f"GitHub Actions API request failed: {e}")
-        return None
+        return []
 
 
 def _find_latest_benchmark_experiment(
@@ -187,31 +193,43 @@ def _find_latest_benchmark_experiment(
 ) -> Optional[Dict[str, Any]]:
     """Find the most recent ci-benchmark root experiment.
 
-    Queries GitHub Actions API for the latest successful benchmark workflow run ID,
-    then does an exact name lookup in Braintrust via experiment_name filter.
-    Total: 1 GitHub API call + 1 Braintrust API call.
+    Queries GitHub Actions API for recent successful benchmark workflow run IDs,
+    then for each run does an exact name lookup in Braintrust via experiment_name
+    filter, returning the first match. Walks back through up to
+    BENCHMARK_RUN_LOOKBACK runs since the latest successful workflow run may not
+    have produced an experiment (e.g., eval step failed before logging).
     """
-    run_id = _find_latest_benchmark_run_id()
-    if not run_id:
+    run_ids = _find_recent_benchmark_run_ids()
+    if not run_ids:
+        logging.warning(
+            f"No recent successful runs found for workflow '{BENCHMARK_WORKFLOW}' in {GITHUB_REPO}"
+        )
         return None
 
-    experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
-    result = _make_api_request(
-        "/experiment",
-        params={
-            "project_id": project_id,
-            "experiment_name": experiment_name,
-        },
+    tried: List[str] = []
+    for run_id in run_ids:
+        experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
+        tried.append(experiment_name)
+        result = _make_api_request(
+            "/experiment",
+            params={
+                "project_id": project_id,
+                "experiment_name": experiment_name,
+            },
+        )
+        if not result:
+            continue
+
+        objects = result.get("objects", [])
+        if objects:
+            logging.info(f"Found benchmark experiment: {experiment_name}")
+            return objects[0]
+
+    logging.warning(
+        f"No ci-benchmark experiment found in Braintrust for the last "
+        f"{len(run_ids)} successful workflow runs (tried: {', '.join(tried[:5])}"
+        f"{'...' if len(tried) > 5 else ''})"
     )
-    if not result:
-        return None
-
-    objects = result.get("objects", [])
-    if objects:
-        logging.info(f"Found benchmark experiment: {experiment_name}")
-        return objects[0]
-
-    logging.warning(f"Benchmark experiment '{experiment_name}' not found in Braintrust")
     return None
 
 
