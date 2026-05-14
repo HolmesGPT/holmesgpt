@@ -168,8 +168,7 @@ def _find_recent_benchmark_run_ids(limit: int = BENCHMARK_RUN_LOOKBACK) -> List[
         response = requests.get(
             url,
             params={
-                "status": "completed",
-                "conclusion": "success",
+                "status": "success",
                 "per_page": limit,
             },
             headers=headers,
@@ -444,19 +443,22 @@ def compare_with_benchmark(
         baseline_sample = list(benchmark.keys())[:5]
         logging.warning(
             "compare_with_benchmark: 0 of %d current results matched any of %d "
-            "baseline metrics. Sample current keys=%s, sample baseline keys=%s. "
+            "baseline metrics (skipped %d entries missing test_id/model). "
+            "Sample current keys=%s, sample baseline keys=%s. "
             "Check that test_case_name and model names use the same format in both runs.",
             len(comparisons),
             len(benchmark),
+            skipped_no_model_or_id,
             current_keys_sample,
             baseline_sample,
         )
     elif benchmark:
         logging.info(
-            "compare_with_benchmark: matched %d of %d current results against %d baseline metrics",
+            "compare_with_benchmark: matched %d of %d current results against %d baseline metrics (skipped %d missing test_id/model)",
             matched,
             len(comparisons),
             len(benchmark),
+            skipped_no_model_or_id,
         )
 
     return comparisons
