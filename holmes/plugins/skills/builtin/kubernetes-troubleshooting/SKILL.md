@@ -1,6 +1,6 @@
 ---
 name: kubernetes-troubleshooting
-description: Investigate Kubernetes issues — pod crashes, pending/CrashLoopBackOff pods, deployment/replicaset/statefulset problems, ingress/service misconfigurations, node issues, application runtime errors, or any question that requires kubectl. Fetch this skill whenever the user mentions kubectl, pods, deployments, replicasets, namespaces, services, ingresses, nodes, or otherwise refers to a Kubernetes cluster.
+description: Troubleshoot Kubernetes issues.
 ---
 
 # Kubernetes Investigation
