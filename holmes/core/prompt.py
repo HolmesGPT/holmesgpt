@@ -18,7 +18,6 @@ class PromptComponent(str, Enum):
     INTRO = "intro"
     ASK_USER = "ask_user"
     TODOWRITE_INSTRUCTIONS = "todowrite_instructions"
-    AI_SAFETY = "ai_safety"
     TOOLSET_INSTRUCTIONS = "toolset_instructions"
     PERMISSION_ERRORS = "permission_errors"
     GENERAL_INSTRUCTIONS = "general_instructions"
@@ -28,7 +27,7 @@ class PromptComponent(str, Enum):
 
 
 # Components that are disabled by default (can be explicitly enabled via overrides or env var)
-DISABLED_BY_DEFAULT = {PromptComponent.AI_SAFETY}
+DISABLED_BY_DEFAULT: set = set()
 
 
 class InvalidImageDictError(ValueError):
@@ -82,7 +81,7 @@ def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     Environment variable: ENABLED_PROMPTS
     - If not set: all prompts are ENABLED (production default)
     - If set to "none": all prompts are disabled
-    - Comma-separated names (e.g., "files,ai_safety,time_skills")
+    - Comma-separated names (e.g., "files,time_skills")
     """
     enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
 
@@ -198,7 +197,6 @@ def build_system_prompt(
         "intro_enabled": is_enabled(PromptComponent.INTRO),
         "ask_user_enabled": ask_user_enabled and is_enabled(PromptComponent.ASK_USER),
         "todowrite_enabled": is_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
-        "ai_safety_enabled": is_enabled(PromptComponent.AI_SAFETY),
         "toolset_instructions_enabled": toolset_instructions_enabled,
         "permission_errors_enabled": is_enabled(PromptComponent.PERMISSION_ERRORS),
         "general_instructions_enabled": is_enabled(

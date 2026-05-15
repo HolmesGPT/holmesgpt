@@ -7,7 +7,7 @@ import os
 import threading
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import sentry_sdk
@@ -49,6 +49,12 @@ from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
 from holmes.utils.krr_utils import calculate_krr_savings
 
+if TYPE_CHECKING:
+    # Forward reference only — `usage_recorder` already TYPE_CHECKING-imports
+    # this module, so importing the other direction at runtime would close
+    # the cycle. We just need the name for the parameter annotation.
+    from holmes.core.usage_recorder import UsageRecorderState
+
 SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 60))
 
 # Maximum total rows to fetch from KRR scans, regardless of number of clusters
@@ -69,6 +75,7 @@ HOLMES_RESULTS_TABLE = "HolmesResults"
 CONVERSATIONS_TABLE = "Conversations"
 CONVERSATION_EVENTS_TABLE = "ConversationEvents"
 OAUTH_TOKENS_TABLE = "OAuthTokens"
+HOLMES_USAGE_EVENTS_TABLE = "HolmesUsageEvents"
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
@@ -819,6 +826,70 @@ class SupabaseDal:
             logging.exception(
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
             )
+
+    def record_usage_event(self, state: "UsageRecorderState") -> None:
+        """Record one HolmesUsageEvents row. Best-effort: swallows DB errors.
+
+        Called from UsageRecorderState._fire on a daemon thread, so
+        errors here only affect the telemetry row, never the request
+        response. Takes a ``UsageRecorderState`` and reads only the fields
+        that map to columns — this is the single place that knows the
+        column shape, so adding a new field is "add it on the state, read
+        it here, write the migration." The DAL doesn't import the state
+        class at runtime (TYPE_CHECKING-only); attribute access is duck-
+        typed, so any object with the right shape works (handy for tests).
+        """
+        if not self.enabled:
+            return
+        try:
+            stats = state.stats  # may be None on aborted/error rows
+            self.client.table(HOLMES_USAGE_EVENTS_TABLE).insert({
+                "account_id": self.account_id,
+                "cluster_id": state.cluster_id or self.cluster,
+                "user_id": state.user_id,
+                "conversation_id": state.conversation_id,
+                "conversation_source": state.conversation_source,
+                "request_id": state.request_id,
+                "request_type": state.request_type,
+                "request_source": state.request_source,
+                "source_ref": state.source_ref,
+                "status": state.status,
+                "model": state.model,
+                "provider": state.provider,
+                "is_robusta_model": state.is_robusta_model,
+                # Stats may be None when the request never reached a terminal
+                # event with cost data (aborted / pre-LLM error). The getattr
+                # default keeps the row writable in those cases.
+                "prompt_tokens": getattr(stats, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(stats, "completion_tokens", 0) or 0,
+                "cached_tokens": getattr(stats, "cached_tokens", None),
+                "reasoning_tokens": getattr(stats, "reasoning_tokens", 0) or 0,
+                "total_tokens": getattr(stats, "total_tokens", 0) or 0,
+                "total_cost": float(getattr(stats, "total_cost", 0.0) or 0.0),
+                "num_compactions": getattr(stats, "num_compactions", 0) or 0,
+                "iterations": state.iterations,
+                "max_prompt_tokens_per_call": getattr(
+                    stats, "max_prompt_tokens_per_call", 0
+                ) or 0,
+                "max_completion_tokens_per_call": getattr(
+                    stats, "max_completion_tokens_per_call", 0
+                ) or 0,
+                "tool_call_count": state.tool_call_count,
+                "duration_ms": state.duration_ms,
+                "is_streaming": state.is_streaming,
+                "is_internal": state.is_internal,
+                "finish_reason": state.finish_reason,
+                "meta": state.meta or {},
+            }).execute()
+        except Exception:
+            logging.exception("Failed to record usage event")
+
+    # NOTE: feedback writes (thumbs up/down + category + comment) do NOT go
+    # through Holmes. The frontend calls the public.record_feedback() Postgres
+    # function directly via supabase.rpc('record_feedback', ...). The function
+    # runs `security invoker` and scopes by `auth.uid()`, which is a stricter
+    # user-scoping than any FE-supplied user_id we could pass through here.
+    # See plan section G and the migration script for the function body.
 
     def has_scheduled_prompt_definitions(self) -> bool:
         """

@@ -45,6 +45,7 @@ def test_build_task_from_conversation_row_parses_required_fields():
         "request_sequence": 3,
         "metadata": {"foo": "bar"},
         "title": "hello",
+        "user_id": "u-42",
     }
     task = w._build_task_from_conversation_row(row)
     assert task is not None
@@ -52,6 +53,10 @@ def test_build_task_from_conversation_row_parses_required_fields():
     assert task.request_sequence == 3
     assert task.metadata == {"foo": "bar"}
     assert task.title == "hello"
+    # user_id from the Conversations row is surfaced on the task so the
+    # ChatRequest construction can fall back to it when the per-event
+    # data doesn't carry user_id.
+    assert task.user_id == "u-42"
 
 
 def test_build_task_from_conversation_row_tolerates_missing_fields():
@@ -61,6 +66,9 @@ def test_build_task_from_conversation_row_tolerates_missing_fields():
     assert task is not None
     assert task.request_sequence == 1
     assert task.origin == "chat"
+    # user_id is optional on the Conversations row (e.g. older rows that
+    # predate the column); the task should still build cleanly.
+    assert task.user_id is None
 
 
 def test_build_task_from_conversation_row_returns_none_on_bad_input():

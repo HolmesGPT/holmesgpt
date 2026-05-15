@@ -24,6 +24,11 @@ from holmes.checks.models import (
 from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
+from holmes.core.usage_recorder import (
+    UsageRecorderState,
+    record_error,
+    record_from_llm_result,
+)
 from holmes.plugins.destinations.pagerduty.plugin import PagerDutyDestination
 from holmes.plugins.destinations.slack.plugin import SlackDestination
 
@@ -89,6 +94,7 @@ def execute_check(
     ai: ToolCallingLLM,
     verbose: bool = False,
     console: Optional[Console] = None,
+    recorder_state: Optional[UsageRecorderState] = None,
 ) -> CheckResult:
     """
     Execute a single health check.
@@ -101,6 +107,10 @@ def execute_check(
         ai: The LLM instance to use for evaluation
         verbose: Whether to print verbose output
         console: Optional console for output (only used if verbose=True)
+        recorder_state: Optional UsageRecorderState. When supplied (e.g. by the
+            /api/checks/execute endpoint) a usage event is recorded for this
+            LLM call. The CLI runner doesn't pass one and is therefore not
+            tracked, by design.
 
     Returns:
         CheckResult with status, message, and metadata
@@ -114,6 +124,10 @@ def execute_check(
     start_time = time.time()
     try:
         response = _execute_ai_check(check, ai)
+        if recorder_state is not None:
+            # Fire the usage recorder. response IS-A LLMResult (RequestStats
+            # subclass) so cost/token fields come straight off it.
+            record_from_llm_result(recorder_state, response)
         check_response = _parse_check_response(response)
         if verbose and console:
             status_str = "PASS" if check_response.passed else "FAIL"
@@ -142,6 +156,8 @@ def execute_check(
             )
 
     except Exception as e:
+        if recorder_state is not None:
+            record_error(recorder_state, e)
         duration = time.time() - start_time
         result = CheckResult(
             check_name=check.name,
