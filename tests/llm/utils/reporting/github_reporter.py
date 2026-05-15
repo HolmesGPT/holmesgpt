@@ -350,8 +350,8 @@ def generate_markdown_report(
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions | Src |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
@@ -382,16 +382,12 @@ def generate_markdown_report(
         if braintrust_url:
             test_case_name = f"[{test_case_name}]({braintrust_url})"
 
-        # Add 📄 link to the eval's test_case.yaml on the branch this run ran from
+        # Link to the eval's test_case.yaml on the branch this run ran from
+        # (rendered as its own "Src" column at the end of the row).
         source_url = _get_eval_source_url(
             result.get("test_type", ""), result["test_case_name"]
         )
-        if source_url:
-            test_case_name = f"[📄]({source_url}) {test_case_name}"
-
-        # Prevent long test case names from wrapping across multiple lines in
-        # the GitHub-rendered table.
-        test_case_name = f"<nobr>{test_case_name}</nobr>"
+        source_str = f"[src]({source_url})" if source_url else "—"
 
         status = TestStatus(result)
 
@@ -472,7 +468,7 @@ def generate_markdown_report(
         max_prompt_str = _fmt_tokens(max_prompt)
         compactions_str = str(num_compactions) if num_compactions > 0 else "—"
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} |\n"
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} | {source_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
@@ -488,7 +484,7 @@ def generate_markdown_report(
     max_completion_max_str = _fmt_tokens(max_completion_per_call_max)
     max_prompt_max_str = _fmt_tokens(max_prompt_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** |\n"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** | |\n"
 
     # Add footer explaining benchmark comparison status
     if not benchmark and historical_details and historical_details.status:
