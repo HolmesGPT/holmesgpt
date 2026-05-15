@@ -13,6 +13,7 @@ from tests.llm.utils.braintrust_history import (
     HistoricalComparisonDetails,
     compare_with_benchmark,
     get_benchmark_baseline,
+    get_master_baseline,
 )
 from tests.llm.utils.test_results import TestStatus
 
@@ -43,220 +44,227 @@ def _calc_diff_pct(current: Optional[float], baseline: Optional[float]) -> Optio
     return (current - baseline) / baseline * 100
 
 
+def _diff_cell(cur, base) -> str:
+    if cur is None or cur == 0 or base is None or base == 0:
+        return "—"
+    return _format_diff_pct(_calc_diff_pct(float(cur), float(base)))
+
+
 def _render_metric_table(
     title: str,
     rows: List[dict],
     current_key: str,
-    baseline_key: str,
+    master_key: str,
+    benchmark_key: str,
     formatter,
+    master_label: str,
+    benchmark_label: str,
 ) -> List[str]:
-    """Render one comparison table with a footer Average row over matched rows.
+    """Render a six-column comparison table with two baselines and average row.
 
-    Returns [] when no row has a baseline value (the table would be empty).
-    The Average is computed only over rows where both current and baseline are
-    present, so it directly answers "what is the avg diff on the filtered set
-    that also exists on master".
+    Columns: Test case | This branch | master (abs) | Δ vs master | benchmark (abs) | Δ vs benchmark
+
+    Skips the table entirely when no row has either master or benchmark data.
+    Per-baseline averages are computed only over rows where both this-branch
+    AND that-specific baseline have values.
     """
-    if not any(r[baseline_key] is not None for r in rows):
+    has_master = any(r[master_key] is not None for r in rows)
+    has_bench = any(r[benchmark_key] is not None for r in rows)
+    if not has_master and not has_bench:
         return []
 
     out: List[str] = [
         f"\n**{title}:**\n",
-        "| Test case | This branch | master | Diff |",
-        "| --- | --- | --- | --- |",
+        f"| Test case | This branch | {master_label} | Δ vs master | {benchmark_label} | Δ vs benchmark |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
-    cur_sum = 0.0
-    base_sum = 0.0
-    matched = 0
-    for r in rows:
-        cur_val = r[current_key]
-        base_val = r[baseline_key]
-        cur_str = formatter(cur_val) if cur_val else "—"
-        base_str = formatter(base_val) if base_val else "—"
-        diff = _format_diff_pct(
-            _calc_diff_pct(
-                float(cur_val) if cur_val is not None and cur_val != 0 else None,
-                float(base_val) if base_val is not None and base_val != 0 else None,
-            )
-        )
-        out.append(f"| {r['name']} | {cur_str} | {base_str} | {diff} |")
-        if cur_val and base_val:
-            cur_sum += float(cur_val)
-            base_sum += float(base_val)
-            matched += 1
+    cur_sum_m = base_sum_m = 0.0
+    matched_m = 0
+    cur_sum_b = base_sum_b = 0.0
+    matched_b = 0
 
-    if matched > 0:
-        avg_cur = cur_sum / matched
-        avg_base = base_sum / matched
-        avg_diff = _format_diff_pct(_calc_diff_pct(avg_cur, avg_base))
+    for r in rows:
+        cur = r[current_key]
+        mast = r[master_key]
+        bench = r[benchmark_key]
+        cur_s = formatter(cur) if cur else "—"
+        mast_s = formatter(mast) if mast else "—"
+        bench_s = formatter(bench) if bench else "—"
         out.append(
-            f"| **Average ({matched} matched)** | **{formatter(avg_cur)}** "
-            f"| **{formatter(avg_base)}** | **{avg_diff}** |"
+            f"| {r['name']} | {cur_s} | {mast_s} | {_diff_cell(cur, mast)} "
+            f"| {bench_s} | {_diff_cell(cur, bench)} |"
+        )
+        if cur and mast:
+            cur_sum_m += float(cur); base_sum_m += float(mast); matched_m += 1
+        if cur and bench:
+            cur_sum_b += float(cur); base_sum_b += float(bench); matched_b += 1
+
+    if matched_m or matched_b:
+        avg_cur_m = (cur_sum_m / matched_m) if matched_m else None
+        avg_mast = (base_sum_m / matched_m) if matched_m else None
+        avg_cur_b = (cur_sum_b / matched_b) if matched_b else None
+        avg_bench = (base_sum_b / matched_b) if matched_b else None
+        # Show whichever current-mean we have; prefer master's matched set for the
+        # "This branch" column when both exist (it's the more recent comparison).
+        avg_cur = avg_cur_m if avg_cur_m is not None else avg_cur_b
+        out.append(
+            f"| **Average (m={matched_m}, b={matched_b})** "
+            f"| **{formatter(avg_cur) if avg_cur is not None else '—'}** "
+            f"| **{formatter(avg_mast) if avg_mast is not None else '—'}** "
+            f"| **{_diff_cell(avg_cur_m, avg_mast)}** "
+            f"| **{formatter(avg_bench) if avg_bench is not None else '—'}** "
+            f"| **{_diff_cell(avg_cur_b, avg_bench)}** |"
         )
     out.append("")
     return out
 
 
+def _format_age(created: Optional[str]) -> str:
+    """Format an ISO date string into a short '(N days ago)' style label."""
+    if not created:
+        return ""
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        delta = datetime.now(timezone.utc) - dt
+        days = delta.total_seconds() / 86400
+        if days < 1:
+            hours = max(1, int(delta.total_seconds() // 3600))
+            return f"{hours}h ago"
+        return f"{int(days)}d ago"
+    except Exception:
+        return ""
+
+
 def _generate_comparison_tables(
     sorted_results: List[dict],
-    comparison_map: Dict[str, HistoricalComparison],
     benchmark: Dict[str, BenchmarkMetrics],
+    master: Dict[str, BenchmarkMetrics],
+    benchmark_age: str = "",
+    master_age: str = "",
 ) -> str:
-    """Generate separate comparison tables for time, cost, tokens, turns, tool calls.
-
-    Each table has columns: Test case | This branch | master | Diff
-    and ends with an Average row computed over matched rows (rows where the
-    test exists on both this branch and master).
-    """
+    """Generate six-column comparison tables (master + benchmark)."""
     lines: List[str] = []
+    master_label = f"master ({master_age})" if master_age else "master"
+    benchmark_label = f"benchmark ({benchmark_age})" if benchmark_age else "benchmark"
 
     rows: List[dict] = []
     for result in sorted_results:
         test_name = result.get("test_case_name", "")
         model = result.get("model", "")
         key = f"{test_name}:{model}"
-        baseline = benchmark.get(key)
-
+        m = master.get(key)
+        b = benchmark.get(key)
         rows.append({
             "name": f"{test_name} ({model})" if model else test_name,
             "current_time": result.get("holmes_duration"),
-            "baseline_time": baseline.duration if baseline else None,
+            "master_time": m.duration if m else None,
+            "benchmark_time": b.duration if b else None,
             "current_cost": result.get("cost"),
-            "baseline_cost": baseline.cost if baseline else None,
+            "master_cost": m.cost if m else None,
+            "benchmark_cost": b.cost if b else None,
             "current_total_tokens": result.get("total_tokens", 0) or 0,
-            "baseline_total_tokens": baseline.total_tokens if baseline else None,
+            "master_total_tokens": m.total_tokens if m else None,
+            "benchmark_total_tokens": b.total_tokens if b else None,
             "current_cached_tokens": result.get("cached_tokens"),
-            "baseline_cached_tokens": baseline.cached_tokens if baseline else None,
+            "master_cached_tokens": m.cached_tokens if m else None,
+            "benchmark_cached_tokens": b.cached_tokens if b else None,
             "current_turns": result.get("num_llm_calls"),
-            "baseline_turns": baseline.num_llm_calls if baseline else None,
+            "master_turns": m.num_llm_calls if m else None,
+            "benchmark_turns": b.num_llm_calls if b else None,
             "current_tool_calls": result.get("tool_call_count"),
-            "baseline_tool_calls": baseline.tool_call_count if baseline else None,
+            "master_tool_calls": m.tool_call_count if m else None,
+            "benchmark_tool_calls": b.tool_call_count if b else None,
         })
 
-    lines += _render_metric_table(
-        "Time comparison (seconds)", rows, "current_time", "baseline_time",
-        lambda v: f"{v:.1f}s",
-    )
-    lines += _render_metric_table(
-        "Cost comparison", rows, "current_cost", "baseline_cost",
-        lambda v: f"${v:.4f}",
-    )
-    lines += _render_metric_table(
-        "Total tokens comparison", rows, "current_total_tokens", "baseline_total_tokens",
-        lambda v: f"{int(round(v)):,}",
-    )
-    lines += _render_metric_table(
-        "Cached tokens comparison", rows, "current_cached_tokens", "baseline_cached_tokens",
-        lambda v: f"{int(round(v)):,}",
-    )
-    lines += _render_metric_table(
-        "Turns comparison", rows, "current_turns", "baseline_turns",
-        lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)),
-    )
-    lines += _render_metric_table(
-        "Tool calls comparison", rows, "current_tool_calls", "baseline_tool_calls",
-        lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)),
-    )
+    def render(title, ckey, mkey, bkey, fmt):
+        return _render_metric_table(title, rows, ckey, mkey, bkey, fmt, master_label, benchmark_label)
 
-    has_cost_data = any(r["baseline_cost"] is not None for r in rows)
-    has_token_data = any(r["baseline_total_tokens"] is not None for r in rows)
-    has_cached_data = any(r["baseline_cached_tokens"] is not None for r in rows)
-    has_turns_data = any(r["baseline_turns"] is not None for r in rows)
-    has_tool_calls_data = any(r["baseline_tool_calls"] is not None for r in rows)
+    lines += render("Time comparison (seconds)", "current_time", "master_time", "benchmark_time", lambda v: f"{v:.1f}s")
+    lines += render("Cost comparison", "current_cost", "master_cost", "benchmark_cost", lambda v: f"${v:.4f}")
+    lines += render("Total tokens comparison", "current_total_tokens", "master_total_tokens", "benchmark_total_tokens", lambda v: f"{int(round(v)):,}")
+    lines += render("Cached tokens comparison", "current_cached_tokens", "master_cached_tokens", "benchmark_cached_tokens", lambda v: f"{int(round(v)):,}")
+    lines += render("Turns comparison", "current_turns", "master_turns", "benchmark_turns", lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)))
+    lines += render("Tool calls comparison", "current_tool_calls", "master_tool_calls", "benchmark_tool_calls", lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)))
 
     if not lines:
-        current_models = sorted(
-            {r.get("model", "") for r in sorted_results if r.get("model")}
-        )
-        baseline_models = sorted(
-            {b.model for b in benchmark.values() if b.model}
-        )
-        overlap = set(current_models) & set(baseline_models)
-        lines.append("\n_No benchmark data available for comparison._\n")
-        if current_models and baseline_models and not overlap:
+        current_models = sorted({r.get("model", "") for r in sorted_results if r.get("model")})
+        all_baseline = {b.model for b in benchmark.values() if b.model} | {m.model for m in master.values() if m.model}
+        overlap = set(current_models) & all_baseline
+        lines.append("\n_No baseline data available for comparison._\n")
+        if current_models and all_baseline and not overlap:
             lines.append(
                 f"_Model mismatch: current run uses {current_models} but the "
-                f"benchmark experiment was run against {baseline_models}. "
-                "Update the benchmark model list (or the PR eval model) so they "
-                "share at least one model to enable comparison._\n"
+                f"master/benchmark experiments were run against {sorted(all_baseline)}. "
+                "Align the model lists so at least one model is shared._\n"
             )
-            return "\n".join(lines)
-
-    missing = []
-    if not has_cost_data:
-        missing.append("cost")
-    if not has_token_data:
-        missing.append("total tokens")
-    if not has_cached_data:
-        missing.append("cached tokens")
-    if not has_turns_data:
-        missing.append("turns")
-    if not has_tool_calls_data:
-        missing.append("tool calls")
-    if missing:
-        lines.append(
-            f"_Benchmark has no {', '.join(missing)} data. "
-            "Will appear after the next weekly benchmark run._\n"
-        )
 
     return "\n".join(lines)
 
 
 def _generate_historical_details_section(
-    details: HistoricalComparisonDetails,
+    benchmark_details: HistoricalComparisonDetails,
+    master_details: Optional[HistoricalComparisonDetails],
     sorted_results: Optional[List[dict]] = None,
-    comparison_map: Optional[Dict[str, HistoricalComparison]] = None,
     benchmark: Optional[Dict[str, BenchmarkMetrics]] = None,
+    master: Optional[Dict[str, BenchmarkMetrics]] = None,
 ) -> str:
-    """Generate a collapsible details section with benchmark comparison tables.
+    """Render the collapsible "Benchmark Comparison Details" section.
 
-    Args:
-        details: HistoricalComparisonDetails with experiment info
-        sorted_results: Current test results for comparison tables
-        comparison_map: Map of test:model to comparison data
-        benchmark: Map of test:model to benchmark metrics
-
-    Returns:
-        Markdown string with collapsible details section
+    Shows status + experiment links for both the master post-merge experiment
+    and the weekly ci-benchmark, then renders six-column metric tables.
     """
     lines = ["<details>", "<summary><b>Benchmark Comparison Details</b></summary>\n"]
 
-    # Filter description
-    if details.filter_description:
-        lines.append(f"**Baseline:** {details.filter_description}\n")
-
-    # Status
-    if details.status:
-        lines.append(f"**Status:** {details.status}\n")
-    else:
-        lines.append(
-            f"**Status:** Success - {details.metrics_count} test/model combinations loaded\n"
-        )
-
-    # Experiments used
-    if details.experiments:
-        lines.append(f"\n**Benchmark experiment{'s' if len(details.experiments) > 1 else ''}:**\n")
-        for exp in details.experiments:
-            exp_url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{exp.id}"
-            created_info = f" (created: {exp.created[:10]})" if exp.created else ""
-            lines.append(f"- [{exp.name}]({exp_url}){created_info}")
+    def render_source(label: str, d: Optional[HistoricalComparisonDetails]):
+        if d is None:
+            return
+        lines.append(f"**{label}:** {d.filter_description}")
+        if d.status:
+            lines.append(f"_Status: {d.status}_")
+        else:
+            lines.append(f"_Status: {d.metrics_count} test/model combinations loaded_")
+        if d.experiments:
+            for exp in d.experiments:
+                exp_url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{exp.id}"
+                created_info = f" (created: {exp.created[:10]})" if exp.created else ""
+                lines.append(f"- [{exp.name}]({exp_url}){created_info}")
         lines.append("")
 
-    # Comparison tables
-    if sorted_results and comparison_map and benchmark:
+    render_source("Master baseline", master_details)
+    render_source("Benchmark baseline", benchmark_details)
+
+    # Comparison tables — only render if we have at least one baseline with data
+    if sorted_results and (benchmark or master):
+        bench_age = ""
+        master_age = ""
+        if benchmark_details and benchmark_details.experiments:
+            bench_age = _format_age(benchmark_details.experiments[0].created)
+        if master_details and master_details.experiments:
+            master_age = _format_age(master_details.experiments[0].created)
         lines.append(
-            _generate_comparison_tables(sorted_results, comparison_map, benchmark)
+            _generate_comparison_tables(
+                sorted_results,
+                benchmark or {},
+                master or {},
+                benchmark_age=bench_age,
+                master_age=master_age,
+            )
         )
 
-    # Errors
-    if details.errors:
+    # Errors from either source
+    errors: List[str] = []
+    if benchmark_details and benchmark_details.errors:
+        errors.extend(benchmark_details.errors)
+    if master_details and master_details.errors:
+        errors.extend(master_details.errors)
+    if errors:
         lines.append("\n**Errors:**\n")
         lines.append("```")
-        for error in details.errors:
+        for error in errors:
             lines.append(error)
         lines.append("```\n")
 
-    # Document comparison thresholds
     lines.append("**Comparison indicators:**")
     lines.append("- `±0%` — diff under 10% (within noise threshold)")
     lines.append("- `↑N%`/`↓N%` — diff 10-25%")
@@ -300,21 +308,28 @@ def generate_markdown_report(
     else:
         markdown = "## Results of HolmesGPT evals\n\n"
 
-    # Fetch benchmark baseline for comparison (latest weekly ci-benchmark run)
+    # Fetch both baselines: post-merge master eval (recent) + weekly ci-benchmark (stable)
     benchmark: Dict[str, BenchmarkMetrics] = {}
+    master: Dict[str, BenchmarkMetrics] = {}
     comparison_map: Dict[str, HistoricalComparison] = {}
-    historical_details: Optional[HistoricalComparisonDetails] = None
+    benchmark_details: Optional[HistoricalComparisonDetails] = None
+    master_details: Optional[HistoricalComparisonDetails] = None
     if include_historical:
         try:
-            benchmark, historical_details = get_benchmark_baseline()
+            benchmark, benchmark_details = get_benchmark_baseline()
             if benchmark:
                 comparison_map = compare_with_benchmark(sorted_results, benchmark)
-                logging.info(
-                    f"Loaded benchmark baseline: {len(benchmark)} test/model combinations"
-                )
+                logging.info(f"Loaded benchmark baseline: {len(benchmark)} test/model combinations")
         except Exception as e:
-            historical_details = HistoricalComparisonDetails(status=f"API error: {e}")
+            benchmark_details = HistoricalComparisonDetails(status=f"API error: {e}")
             logging.warning(f"Failed to fetch benchmark baseline: {e}")
+        try:
+            master, master_details = get_master_baseline()
+            if master:
+                logging.info(f"Loaded master baseline: {len(master)} test/model combinations")
+        except Exception as e:
+            master_details = HistoricalComparisonDetails(status=f"API error: {e}")
+            logging.warning(f"Failed to fetch master baseline: {e}")
 
     # Count results by test type and status
     ask_holmes_total = 0
@@ -479,19 +494,24 @@ def generate_markdown_report(
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
     markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** |\n"
 
-    # Add footer explaining benchmark comparison status
-    if not benchmark and historical_details and historical_details.status:
-        markdown += (
-            f"\n_Benchmark comparison unavailable: {historical_details.status}_\n"
-        )
+    # Add footer explaining when no baseline available
+    if not benchmark and not master:
+        msgs = []
+        if benchmark_details and benchmark_details.status:
+            msgs.append(f"benchmark: {benchmark_details.status}")
+        if master_details and master_details.status:
+            msgs.append(f"master: {master_details.status}")
+        if msgs:
+            markdown += f"\n_No baseline available for comparison ({'; '.join(msgs)})_\n"
 
     # Add collapsible details section with comparison tables
-    if historical_details:
+    if benchmark_details or master_details:
         markdown += _generate_historical_details_section(
-            historical_details,
-            sorted_results=sorted_results if comparison_map else None,
-            comparison_map=comparison_map or None,
+            benchmark_details or HistoricalComparisonDetails(),
+            master_details=master_details,
+            sorted_results=sorted_results if (benchmark or master) else None,
             benchmark=benchmark or None,
+            master=master or None,
         )
 
     return (
