@@ -522,6 +522,72 @@ toolsets:
 2. `poetry run pytest -k "test_name" --no-cov` — run full test
 3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
 
+## Running Kubernetes Evals in the Claude Code Sandbox
+
+The sandbox does not ship with a running Kubernetes cluster. To run k8s-based evals
+(e.g. `tests/llm/fixtures/test_ask_holmes/227_count_configmaps_per_namespace/test_case.yaml`,
+which uses `kubectl create namespace` / `kubectl create configmap` in `before_test`), bring up
+a cluster manually using **k3s in a container**. KIND does NOT work here because the inner
+node's systemd cannot mount `/sys/fs/cgroup/systemd` under the sandbox's cgroup v1 — the
+container restart-loops with "Failed to mount API filesystems".
+
+**Working setup (k3s-in-docker):**
+
+```bash
+# 1. Docker daemon is not running by default — start it
+sudo dockerd > /tmp/dockerd.log 2>&1 &
+
+# 2. Run k3s as a privileged container (do NOT use kind here)
+docker run -d --privileged --name k3s-server -p 6443:6443 \
+  -e K3S_KUBECONFIG_OUTPUT=/output/kubeconfig.yaml -e K3S_KUBECONFIG_MODE=666 \
+  -v /tmp/k3s-output:/output \
+  rancher/k3s:v1.30.6-k3s1 server --disable=traefik --disable=metrics-server
+
+# 3. Wire up kubeconfig
+mkdir -p ~/.kube && cp /tmp/k3s-output/kubeconfig.yaml ~/.kube/config
+sed -i 's|127.0.0.1|localhost|' ~/.kube/config && chmod 600 ~/.kube/config
+
+# 4. helm is not preinstalled
+curl -fsSL https://get.helm.sh/helm-v3.16.0-linux-amd64.tar.gz | tar xz -C /tmp/
+sudo cp /tmp/linux-amd64/helm /usr/local/bin/
+```
+
+`kubectl` is also not preinstalled — grab it from `https://dl.k8s.io/release/$(curl -L -s
+https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl` if needed.
+
+**LLM provider env for evals in the sandbox:**
+
+Anthropic / OpenAI keys are not in the environment; OpenRouter is the working provider.
+
+```bash
+cat > /tmp/model_list.yaml << 'EOF'
+opus-4.6:
+  model: openrouter/anthropic/claude-opus-4.6
+  api_key: "{{ env.OPENROUTER_API_KEY }}"
+gpt-4.1:
+  model: openrouter/openai/gpt-4.1
+  api_key: "{{ env.OPENROUTER_API_KEY }}"
+EOF
+
+# BRAINTRUST_API_KEY must be UNSET — the read-only service token refuses to
+# create experiments and that crashes the test.
+unset BRAINTRUST_API_KEY
+export MODEL=opus-4.6 MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
+export CLASSIFIER_MODEL=gpt-4.1 RUN_LIVE=true OPENAI_API_KEY=dummy
+
+poetry run pytest tests/llm/test_ask_holmes.py -k "24_misconfigured_pvc-opus-4.6" \
+  --no-cov -n0 -p no:cacheprovider
+```
+
+Report lands in `./evals_report.md` with Time / Turns / Tools per test. Each run is
+roughly $0.30 of OpenRouter spend and ~75s wall time — budget accordingly when looping.
+
+**What does NOT work in the sandbox:**
+
+- `kind create cluster` — inner container restart-loops on cgroup v1 (systemd mount fails)
+- Relying on `BRAINTRUST_API_KEY` being set — unset it or the test crashes
+- Assuming Anthropic / OpenAI keys are present — only `OPENROUTER_API_KEY` is available
+
 ## Reading CodeRabbit Review Comments
 
 In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:
