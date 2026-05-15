@@ -15,7 +15,7 @@ from tests.llm.utils.braintrust_history import (
     compare_with_benchmark,
     get_benchmark_baseline,
 )
-from tests.llm.utils.test_env_vars import BUILDKITE_BRANCH, GITHUB_REF_NAME
+from tests.llm.utils.test_env_vars import GITHUB_REF_NAME
 from tests.llm.utils.test_results import TestStatus
 
 
@@ -35,8 +35,7 @@ def _get_eval_source_url(test_type: str, test_case_name: str) -> Optional[str]:
       2. GITHUB_HEAD_REF — PR head branch (only set on pull_request events;
          GITHUB_REF_NAME on PRs is the virtual "<num>/merge" ref which is not browsable)
       3. GITHUB_REF_NAME — branch name on push events
-      4. BUILDKITE_BRANCH
-      5. "master"
+      4. "master"
     """
     fixture_dir = _TEST_TYPE_TO_FIXTURE_DIR.get(test_type)
     if not fixture_dir or not test_case_name:
@@ -45,7 +44,6 @@ def _get_eval_source_url(test_type: str, test_case_name: str) -> Optional[str]:
         os.environ.get("EVAL_BRANCH")
         or os.environ.get("GITHUB_HEAD_REF")
         or GITHUB_REF_NAME
-        or BUILDKITE_BRANCH
         or "master"
     )
     encoded_ref = quote(ref, safe="")
