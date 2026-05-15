@@ -238,6 +238,20 @@ def parse_args():
     return parser.parse_args()
 
 
+def get_eval_source_url(eval_case: str, ref: Optional[str] = None) -> str:
+    """Get GitHub URL to eval test_case.yaml on a specific git ref (branch/tag/sha).
+
+    Defaults to the branch the eval ran from (GITHUB_REF_NAME or BUILDKITE_BRANCH),
+    falling back to "master" when no ref is available.
+    """
+    ref = ref or GITHUB_REF_NAME or BUILDKITE_BRANCH or "master"
+    encoded_ref = quote(ref, safe="")
+    return (
+        f"https://github.com/HolmesGPT/holmesgpt/blob/{encoded_ref}"
+        f"/tests/llm/fixtures/test_ask_holmes/{eval_case}/test_case.yaml"
+    )
+
+
 def _get_braintrust_base_url(
     experiment_name: Optional[str] = None,
 ) -> Optional[tuple[str, str]]:
@@ -705,6 +719,7 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
     lines.append("- ⚠️ Setup failure (environment/infrastructure issue)")
     lines.append("- ⏱️ Timeout or rate limit error")
     lines.append("- ⏭️ Test skipped (e.g., known issue or precondition not met)")
+    lines.append("- 📄 Link to eval source (test_case.yaml) on the branch this run was executed from")
     lines.append("")
 
     # Sort evals alphabetically by name
@@ -755,17 +770,19 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
 
     # Data rows (one per eval)
     for eval_case in sorted_evals:
-        # Create absolute GitHub URL to test_case.yaml file
+        # Create absolute GitHub URL to test_case.yaml file (on master, canonical)
         github_url = f"https://github.com/HolmesGPT/holmesgpt/blob/master/tests/llm/fixtures/test_ask_holmes/{eval_case}/test_case.yaml"
+        # URL to the eval source on the branch this run was executed from
+        branch_source_url = get_eval_source_url(eval_case)
 
         # Create link for Braintrust
         eval_filter_url = get_braintrust_eval_filter_url(eval_case, experiment_name)
 
-        # Create cell with both GitHub link and Braintrust link
+        # Create cell with GitHub link, branch-source link, and Braintrust link
+        name_cell = f"[**{eval_case}**]({github_url}) [📄]({branch_source_url})"
         if eval_filter_url:
-            row = [f"[**{eval_case}**]({github_url}) [🔗]({eval_filter_url})"]
-        else:
-            row = [f"[**{eval_case}**]({github_url})"]
+            name_cell += f" [🔗]({eval_filter_url})"
+        row = [name_cell]
 
         for model in sorted_models:
             stats = eval_model_stats[eval_case][model]
@@ -864,17 +881,19 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
     lines.append("|---------|" + "|".join(["-------"] * len(sorted_models)) + "|")
 
     for eval_case in sorted_evals:
-        # Create absolute GitHub URL to test_case.yaml file
+        # Create absolute GitHub URL to test_case.yaml file (on master, canonical)
         github_url = f"https://github.com/HolmesGPT/holmesgpt/blob/master/tests/llm/fixtures/test_ask_holmes/{eval_case}/test_case.yaml"
+        # URL to the eval source on the branch this run was executed from
+        branch_source_url = get_eval_source_url(eval_case)
 
         # Create link for Braintrust in detailed breakdown
         eval_filter_url = get_braintrust_eval_filter_url(eval_case, experiment_name)
 
-        # Create cell with both GitHub link and Braintrust link
+        # Create cell with GitHub link, branch-source link, and Braintrust link
+        name_cell = f"[{eval_case}]({github_url}) [📄]({branch_source_url})"
         if eval_filter_url:
-            row = [f"[{eval_case}]({github_url}) [🔗]({eval_filter_url})"]
-        else:
-            row = [f"[{eval_case}]({github_url})"]
+            name_cell += f" [🔗]({eval_filter_url})"
+        row = [name_cell]
 
         for model in sorted_models:
             stats = eval_model_stats[eval_case][model]
