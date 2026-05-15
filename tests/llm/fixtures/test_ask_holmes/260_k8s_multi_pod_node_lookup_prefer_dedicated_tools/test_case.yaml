@@ -33,6 +33,7 @@ expected_output:
 
 tags:
   - kubernetes
+  - kubernetes-no-bash-approval
   - question-answer
   - hard
 

@@ -29,6 +29,7 @@ expected_output:
 
 tags:
   - kubernetes
+  - kubernetes-no-bash-approval
   - counting
   - hard
 
