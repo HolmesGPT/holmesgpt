@@ -524,68 +524,98 @@ toolsets:
 
 ## Running Kubernetes Evals in the Claude Code Sandbox
 
-The sandbox does not ship with a running Kubernetes cluster. To run k8s-based evals
-(e.g. `tests/llm/fixtures/test_ask_holmes/227_count_configmaps_per_namespace/test_case.yaml`,
-which uses `kubectl create namespace` / `kubectl create configmap` in `before_test`), bring up
-a cluster manually using **k3s in a container**. KIND does NOT work here because the inner
-node's systemd cannot mount `/sys/fs/cgroup/systemd` under the sandbox's cgroup v1 — the
-container restart-loops with "Failed to mount API filesystems".
+The sandbox does not ship with a running Kubernetes cluster, kubectl, helm, or a
+running docker daemon. To run k8s-based evals (e.g.
+`tests/llm/fixtures/test_ask_holmes/227_count_configmaps_per_namespace/test_case.yaml`,
+which uses `kubectl create namespace` / `kubectl create configmap` in `before_test`),
+bring up a cluster manually using **k3s in a container**. KIND does NOT work here
+because the inner node's systemd cannot mount `/sys/fs/cgroup/systemd` under the
+sandbox's cgroup v1 — the container restart-loops with "Failed to mount API filesystems".
 
-**Working setup (k3s-in-docker):**
+The full recipe below was verified end-to-end on 2026-05-15 by running eval
+`227_count_configmaps_per_namespace` against a freshly-created cluster (setup
+created 644 ConfigMaps, gpt-4.1-mini queried via tools, classifier scored the
+answer, teardown deleted namespaces — 65s wall, $0.029 OpenRouter spend).
+
+**1. Bring up the cluster and CLI tooling:**
 
 ```bash
-# 1. Docker daemon is not running by default — start it
+# Docker daemon is not running by default
 sudo dockerd > /tmp/dockerd.log 2>&1 &
 
-# 2. Run k3s as a privileged container (do NOT use kind here)
+# k3s-in-docker (do NOT use kind here)
 docker run -d --privileged --name k3s-server -p 6443:6443 \
   -e K3S_KUBECONFIG_OUTPUT=/output/kubeconfig.yaml -e K3S_KUBECONFIG_MODE=666 \
   -v /tmp/k3s-output:/output \
   rancher/k3s:v1.30.6-k3s1 server --disable=traefik --disable=metrics-server
 
-# 3. Wire up kubeconfig
+# kubeconfig
 mkdir -p ~/.kube && cp /tmp/k3s-output/kubeconfig.yaml ~/.kube/config
 sed -i 's|127.0.0.1|localhost|' ~/.kube/config && chmod 600 ~/.kube/config
 
-# 4. helm is not preinstalled
+# kubectl (not preinstalled)
+curl -sLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+# helm (not preinstalled; required — toolset prerequisites check fails the eval otherwise)
 curl -fsSL https://get.helm.sh/helm-v3.16.0-linux-amd64.tar.gz | tar xz -C /tmp/
 sudo cp /tmp/linux-amd64/helm /usr/local/bin/
+
+# Verify
+kubectl get nodes  # should show one Ready node within ~15s
 ```
 
-`kubectl` is also not preinstalled — grab it from `https://dl.k8s.io/release/$(curl -L -s
-https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl` if needed.
+**2. LLM provider env (OpenRouter — Anthropic / OpenAI keys are not in env):**
 
-**LLM provider env for evals in the sandbox:**
+Two non-obvious requirements for the classifier scoring step:
 
-Anthropic / OpenAI keys are not in the environment; OpenRouter is the working provider.
+- `api_base: https://openrouter.ai/api/v1` is **required** on every `model_list.yaml`
+  entry. The autoevals/braintrust correctness classifier bypasses litellm and calls
+  the raw OpenAI SDK — without `api_base` it hits `api.openai.com` and 401s with the
+  OpenRouter key.
+- Use the `openai/<model>` prefix in the `model:` field (not `openrouter/openai/<model>`).
+  The classifier passes that string straight to OpenRouter as the model ID, and
+  OpenRouter rejects `openrouter/openai/gpt-4.1` as "not a valid model ID". The
+  `openai/<model>` form works for both litellm (Holmes's main call) and the raw
+  OpenAI client (the classifier).
 
 ```bash
 cat > /tmp/model_list.yaml << 'EOF'
 opus-4.6:
-  model: openrouter/anthropic/claude-opus-4.6
+  model: anthropic/claude-opus-4.6
   api_key: "{{ env.OPENROUTER_API_KEY }}"
+  api_base: https://openrouter.ai/api/v1
 gpt-4.1:
-  model: openrouter/openai/gpt-4.1
+  model: openai/gpt-4.1
   api_key: "{{ env.OPENROUTER_API_KEY }}"
+  api_base: https://openrouter.ai/api/v1
+gpt-4.1-mini:
+  model: openai/gpt-4.1-mini
+  api_key: "{{ env.OPENROUTER_API_KEY }}"
+  api_base: https://openrouter.ai/api/v1
 EOF
 
-# BRAINTRUST_API_KEY must be UNSET — the read-only service token refuses to
-# create experiments and that crashes the test.
+# BRAINTRUST_API_KEY / BRAINTRUST_SERVICE_TOKEN must be UNSET — the read-only
+# service token in this env refuses to create experiments and crashes the test.
 unset BRAINTRUST_API_KEY
-export MODEL=opus-4.6 MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
+unset BRAINTRUST_SERVICE_TOKEN
+
+export MODEL=gpt-4.1-mini MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
 export CLASSIFIER_MODEL=gpt-4.1 RUN_LIVE=true OPENAI_API_KEY=dummy
 
-poetry run pytest tests/llm/test_ask_holmes.py -k "24_misconfigured_pvc-opus-4.6" \
+poetry run pytest tests/llm/test_ask_holmes.py -k "227_count_configmaps_per_namespace" \
   --no-cov -n0 -p no:cacheprovider
 ```
 
-Report lands in `./evals_report.md` with Time / Turns / Tools per test. Each run is
-roughly $0.30 of OpenRouter spend and ~75s wall time — budget accordingly when looping.
+Wall time is ~65s for a single k8s eval with gpt-4.1-mini (~$0.03 OpenRouter spend);
+opus-4.6 is roughly $0.30 / 75s per run. Budget accordingly when looping.
 
 **What does NOT work in the sandbox:**
 
 - `kind create cluster` — inner container restart-loops on cgroup v1 (systemd mount fails)
-- Relying on `BRAINTRUST_API_KEY` being set — unset it or the test crashes
+- `BRAINTRUST_API_KEY` / `BRAINTRUST_SERVICE_TOKEN` set — unset both or the test crashes
+- `model_list.yaml` entries without `api_base` — classifier 401s against `api.openai.com`
+- `openrouter/openai/<model>` prefix in `model:` — OpenRouter rejects as invalid model ID
 - Assuming Anthropic / OpenAI keys are present — only `OPENROUTER_API_KEY` is available
 
 ## Reading CodeRabbit Review Comments
