@@ -28,14 +28,22 @@ _TEST_TYPE_TO_FIXTURE_DIR = {
 def _get_eval_source_url(test_type: str, test_case_name: str) -> Optional[str]:
     """Build a GitHub URL to an eval's test_case.yaml on the branch this run executed from.
 
-    Falls back to EVAL_BRANCH / GITHUB_REF_NAME / BUILDKITE_BRANCH / "master".
     Returns None if the test_type is not a known fixture-backed test (e.g. "unknown").
+
+    Ref resolution (first non-empty wins):
+      1. EVAL_BRANCH — explicit override
+      2. GITHUB_HEAD_REF — PR head branch (only set on pull_request events;
+         GITHUB_REF_NAME on PRs is the virtual "<num>/merge" ref which is not browsable)
+      3. GITHUB_REF_NAME — branch name on push events
+      4. BUILDKITE_BRANCH
+      5. "master"
     """
     fixture_dir = _TEST_TYPE_TO_FIXTURE_DIR.get(test_type)
     if not fixture_dir or not test_case_name:
         return None
     ref = (
         os.environ.get("EVAL_BRANCH")
+        or os.environ.get("GITHUB_HEAD_REF")
         or GITHUB_REF_NAME
         or BUILDKITE_BRANCH
         or "master"
@@ -381,7 +389,7 @@ def generate_markdown_report(
             result.get("test_type", ""), result["test_case_name"]
         )
         if source_url:
-            test_case_name = f"{test_case_name} [📄]({source_url})"
+            test_case_name = f"[📄]({source_url}) {test_case_name}"
 
         status = TestStatus(result)
 
