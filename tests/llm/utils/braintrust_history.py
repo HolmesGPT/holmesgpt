@@ -53,6 +53,7 @@ class BenchmarkMetrics:
     duration: Optional[float] = None
     cost: Optional[float] = None
     tool_call_count: Optional[int] = None
+    num_llm_calls: Optional[int] = None
     total_tokens: Optional[int] = None
     cached_tokens: Optional[int] = None
 
@@ -237,8 +238,12 @@ def _fetch_all_eval_spans(experiment_id: str) -> List[Dict[str, Any]]:
     all_eval_spans: List[Dict[str, Any]] = []
     cursor = None
 
-    for _ in range(20):  # Safety limit on pagination
-        body: Dict[str, Any] = {"limit": 100}
+    # Braintrust returns all span types (eval, llm, tool, score, task) interleaved;
+    # we filter for eval client-side. A weekly benchmark across ~7 models generates
+    # 4000+ total events, so use a large page size to avoid stopping before all
+    # eval spans have been seen (was limit=100 -> truncated baseline at ~2000 events).
+    for _ in range(50):  # Safety limit on pagination
+        body: Dict[str, Any] = {"limit": 1000}
         if cursor:
             body["cursor"] = cursor
 
@@ -281,6 +286,7 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
 
     duration = metadata.get("holmes_duration")
     tool_calls = metadata.get("tool_call_count")
+    num_llm_calls = metadata.get("num_llm_calls")
     correctness = scores.get("correctness")
     passed = int(correctness) == 1 if correctness is not None else False
 
@@ -298,6 +304,7 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
         duration=float(duration) if duration is not None else None,
         cost=float(cost) if cost is not None else None,
         tool_call_count=int(tool_calls) if tool_calls is not None else None,
+        num_llm_calls=int(num_llm_calls) if num_llm_calls is not None else None,
         total_tokens=int(total_tokens) if total_tokens is not None else None,
         cached_tokens=int(cached_tokens) if cached_tokens is not None else None,
     )

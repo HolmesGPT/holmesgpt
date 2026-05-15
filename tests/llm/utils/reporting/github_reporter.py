@@ -43,24 +43,78 @@ def _calc_diff_pct(current: Optional[float], baseline: Optional[float]) -> Optio
     return (current - baseline) / baseline * 100
 
 
+def _render_metric_table(
+    title: str,
+    rows: List[dict],
+    current_key: str,
+    baseline_key: str,
+    formatter,
+) -> List[str]:
+    """Render one comparison table with a footer Average row over matched rows.
+
+    Returns [] when no row has a baseline value (the table would be empty).
+    The Average is computed only over rows where both current and baseline are
+    present, so it directly answers "what is the avg diff on the filtered set
+    that also exists on master".
+    """
+    if not any(r[baseline_key] is not None for r in rows):
+        return []
+
+    out: List[str] = [
+        f"\n**{title}:**\n",
+        "| Test case | This branch | master | Diff |",
+        "| --- | --- | --- | --- |",
+    ]
+    cur_sum = 0.0
+    base_sum = 0.0
+    matched = 0
+    for r in rows:
+        cur_val = r[current_key]
+        base_val = r[baseline_key]
+        cur_str = formatter(cur_val) if cur_val else "—"
+        base_str = formatter(base_val) if base_val else "—"
+        diff = _format_diff_pct(
+            _calc_diff_pct(
+                float(cur_val) if cur_val is not None and cur_val != 0 else None,
+                float(base_val) if base_val is not None and base_val != 0 else None,
+            )
+        )
+        out.append(f"| {r['name']} | {cur_str} | {base_str} | {diff} |")
+        if cur_val and base_val:
+            cur_sum += float(cur_val)
+            base_sum += float(base_val)
+            matched += 1
+
+    if matched > 0:
+        avg_cur = cur_sum / matched
+        avg_base = base_sum / matched
+        avg_diff = _format_diff_pct(_calc_diff_pct(avg_cur, avg_base))
+        out.append(
+            f"| **Average ({matched} matched)** | **{formatter(avg_cur)}** "
+            f"| **{formatter(avg_base)}** | **{avg_diff}** |"
+        )
+    out.append("")
+    return out
+
+
 def _generate_comparison_tables(
     sorted_results: List[dict],
     comparison_map: Dict[str, HistoricalComparison],
     benchmark: Dict[str, BenchmarkMetrics],
 ) -> str:
-    """Generate separate comparison tables for time, cost, tokens, and cached tokens.
+    """Generate separate comparison tables for time, cost, tokens, turns, tool calls.
 
     Each table has columns: Test case | This branch | master | Diff
+    and ends with an Average row computed over matched rows (rows where the
+    test exists on both this branch and master).
     """
     lines: List[str] = []
 
-    # Build rows with data for all metrics
     rows: List[dict] = []
     for result in sorted_results:
         test_name = result.get("test_case_name", "")
         model = result.get("model", "")
         key = f"{test_name}:{model}"
-        comparison = comparison_map.get(key)
         baseline = benchmark.get(key)
 
         rows.append({
@@ -73,73 +127,42 @@ def _generate_comparison_tables(
             "baseline_total_tokens": baseline.total_tokens if baseline else None,
             "current_cached_tokens": result.get("cached_tokens"),
             "baseline_cached_tokens": baseline.cached_tokens if baseline else None,
+            "current_turns": result.get("num_llm_calls"),
+            "baseline_turns": baseline.num_llm_calls if baseline else None,
+            "current_tool_calls": result.get("tool_call_count"),
+            "baseline_tool_calls": baseline.tool_call_count if baseline else None,
         })
 
-    # --- Time comparison table ---
-    has_time_data = any(r["baseline_time"] is not None for r in rows)
-    if has_time_data:
-        lines.append("\n**Time comparison (seconds):**\n")
-        lines.append("| Test case | This branch | master | Diff |")
-        lines.append("| --- | --- | --- | --- |")
-        for r in rows:
-            cur = f"{r['current_time']:.1f}s" if r["current_time"] else "—"
-            base = f"{r['baseline_time']:.1f}s" if r["baseline_time"] else "—"
-            diff = _format_diff_pct(_calc_diff_pct(r["current_time"], r["baseline_time"]))
-            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
-        lines.append("")
+    lines += _render_metric_table(
+        "Time comparison (seconds)", rows, "current_time", "baseline_time",
+        lambda v: f"{v:.1f}s",
+    )
+    lines += _render_metric_table(
+        "Cost comparison", rows, "current_cost", "baseline_cost",
+        lambda v: f"${v:.4f}",
+    )
+    lines += _render_metric_table(
+        "Total tokens comparison", rows, "current_total_tokens", "baseline_total_tokens",
+        lambda v: f"{int(round(v)):,}",
+    )
+    lines += _render_metric_table(
+        "Cached tokens comparison", rows, "current_cached_tokens", "baseline_cached_tokens",
+        lambda v: f"{int(round(v)):,}",
+    )
+    lines += _render_metric_table(
+        "Turns comparison", rows, "current_turns", "baseline_turns",
+        lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)),
+    )
+    lines += _render_metric_table(
+        "Tool calls comparison", rows, "current_tool_calls", "baseline_tool_calls",
+        lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)),
+    )
 
-    # --- Cost comparison table ---
     has_cost_data = any(r["baseline_cost"] is not None for r in rows)
-    if has_cost_data:
-        lines.append("\n**Cost comparison:**\n")
-        lines.append("| Test case | This branch | master | Diff |")
-        lines.append("| --- | --- | --- | --- |")
-        for r in rows:
-            cur = f"${r['current_cost']:.4f}" if r["current_cost"] else "—"
-            base = f"${r['baseline_cost']:.4f}" if r["baseline_cost"] else "—"
-            diff = _format_diff_pct(_calc_diff_pct(r["current_cost"], r["baseline_cost"]))
-            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
-        lines.append("")
-
-    # --- Total tokens comparison table ---
     has_token_data = any(r["baseline_total_tokens"] is not None for r in rows)
-    if has_token_data:
-        lines.append("\n**Total tokens comparison:**\n")
-        lines.append("| Test case | This branch | master | Diff |")
-        lines.append("| --- | --- | --- | --- |")
-        for r in rows:
-            cur_val = r["current_total_tokens"]
-            cur = f"{cur_val:,}" if cur_val else "—"
-            base_val = r["baseline_total_tokens"]
-            base = f"{base_val:,}" if base_val else "—"
-            diff = _format_diff_pct(
-                _calc_diff_pct(
-                    float(cur_val) if cur_val else None,
-                    float(base_val) if base_val else None,
-                )
-            )
-            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
-        lines.append("")
-
-    # --- Cached tokens comparison table ---
     has_cached_data = any(r["baseline_cached_tokens"] is not None for r in rows)
-    if has_cached_data:
-        lines.append("\n**Cached tokens comparison:**\n")
-        lines.append("| Test case | This branch | master | Diff |")
-        lines.append("| --- | --- | --- | --- |")
-        for r in rows:
-            cur_val = r["current_cached_tokens"]
-            cur = f"{cur_val:,}" if cur_val is not None else "—"
-            base_val = r["baseline_cached_tokens"]
-            base = f"{base_val:,}" if base_val is not None else "—"
-            diff = _format_diff_pct(
-                _calc_diff_pct(
-                    float(cur_val) if cur_val is not None else None,
-                    float(base_val) if base_val is not None else None,
-                )
-            )
-            lines.append(f"| {r['name']} | {cur} | {base} | {diff} |")
-        lines.append("")
+    has_turns_data = any(r["baseline_turns"] is not None for r in rows)
+    has_tool_calls_data = any(r["baseline_tool_calls"] is not None for r in rows)
 
     if not lines:
         current_models = sorted(
@@ -159,7 +182,6 @@ def _generate_comparison_tables(
             )
             return "\n".join(lines)
 
-    # Note missing tables
     missing = []
     if not has_cost_data:
         missing.append("cost")
@@ -167,6 +189,10 @@ def _generate_comparison_tables(
         missing.append("total tokens")
     if not has_cached_data:
         missing.append("cached tokens")
+    if not has_turns_data:
+        missing.append("turns")
+    if not has_tool_calls_data:
+        missing.append("tool calls")
     if missing:
         lines.append(
             f"_Benchmark has no {', '.join(missing)} data. "
