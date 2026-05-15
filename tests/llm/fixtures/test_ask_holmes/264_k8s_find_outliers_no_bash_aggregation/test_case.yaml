@@ -1,0 +1,46 @@
+user_prompt: >
+  Across app-264-frontend, app-264-backend, app-264-data, and app-264-control, find every pod whose tier label is something other than 'worker', and tell me the namespace and the tier value of each one.
+
+# Both criteria matter:
+# 1. Holmes must arrive at the correct answer.
+# 2. Holmes must do this using dedicated Kubernetes tools (or simple per-
+#    namespace kubectl calls), NOT bash pipelines with awk/sort/uniq/wc.
+#    The pipeline pattern is the exact anti-pattern this test rejects.
+include_tool_calls: true
+expected_output:
+  - "Must report edge-cache-v6q8 in app-264-frontend with tier=edge"
+  - "Must report queue-broker-v6q8 in app-264-backend with tier=messaging"
+  - "Must report api-gateway-v6q8 in app-264-backend with tier=gateway"
+  - "Must report warehouse-loader-v6q8 in app-264-data with tier=batch"
+  - "Must report audit-logger-v6q8 in app-264-control with tier=observability"
+  - "Must answer using one or more of the dedicated Kubernetes tools (kubernetes_jq_query, kubernetes_tabular_query, kubernetes_count), OR by issuing direct 'kubectl get' calls through the bash tool — one call per namespace or one call with -A is acceptable."
+  - "Must NOT use the bash tool with shell pipelines that aggregate or group results (for example: piping kubectl output through awk, sort, uniq -c, wc -l, cut, or grep -c to compute grouped counts or unique values). The grouping must be done by a dedicated Kubernetes tool or by reading the kubectl output directly, not by composing a shell pipeline."
+  - "Must NOT use shell loops (for/while/do/done) to iterate over namespaces or pods."
+
+tags:
+  - kubernetes
+  - kubernetes-no-bash-approval
+  - hard
+
+before_test: |
+  set -e
+  kubectl apply -f manifest.yaml
+
+  READY=false
+  for i in $(seq 1 60); do
+    TOTAL=$(kubectl get pods -A -o json | jq '
+      [.items[] | select(.metadata.namespace | startswith("app-264-"))] | length')
+    if [ "$TOTAL" -eq 15 ]; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "ERROR: expected 15 pods across app-264-*, got $TOTAL"
+    kubectl get pods -A | grep app-264- || true
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-264-frontend app-264-backend app-264-data app-264-control --ignore-not-found
