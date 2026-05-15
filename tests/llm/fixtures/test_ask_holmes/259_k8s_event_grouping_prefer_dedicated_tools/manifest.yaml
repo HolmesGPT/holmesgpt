@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-259-frontend
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-259-backend
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-259-data
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-259-control
+---
+# app-259-frontend: 3 pods stuck on ImagePullBackOff
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-renderer-h4p2
+  namespace: app-259-frontend
+  labels:
+    app: web-renderer
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/web-renderer:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: asset-cdn-h4p2
+  namespace: app-259-frontend
+  labels:
+    app: asset-cdn
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/asset-cdn:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: session-router-h4p2
+  namespace: app-259-frontend
+  labels:
+    app: session-router
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/session-router:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+# app-259-backend: 1 pod stuck on ImagePullBackOff
+apiVersion: v1
+kind: Pod
+metadata:
+  name: order-processor-h4p2
+  namespace: app-259-backend
+  labels:
+    app: order-processor
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/order-processor:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+# app-259-data: 2 pods stuck on ImagePullBackOff
+apiVersion: v1
+kind: Pod
+metadata:
+  name: stream-ingester-h4p2
+  namespace: app-259-data
+  labels:
+    app: stream-ingester
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/stream-ingester:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: feature-compactor-h4p2
+  namespace: app-259-data
+  labels:
+    app: feature-compactor
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/feature-compactor:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+# app-259-control: 4 pods stuck on ImagePullBackOff (the most)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scheduler-shim-h4p2
+  namespace: app-259-control
+  labels:
+    app: scheduler-shim
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/scheduler-shim:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: policy-evaluator-h4p2
+  namespace: app-259-control
+  labels:
+    app: policy-evaluator
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/policy-evaluator:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: workload-binder-h4p2
+  namespace: app-259-control
+  labels:
+    app: workload-binder
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/workload-binder:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lease-coordinator-h4p2
+  namespace: app-259-control
+  labels:
+    app: lease-coordinator
+spec:
+  containers:
+    - name: app
+      image: registry.invalid.example/nonexistent/lease-coordinator:v1.0.0
+      imagePullPolicy: Always
+  restartPolicy: Always

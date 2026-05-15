@@ -1,0 +1,66 @@
+user_prompt: >
+  I have a list of pods scattered across several namespaces and I want to know
+  which node each one is running on. Please report the nodeName for each of
+  these (namespace/pod) pairs:
+
+    - app-260-alpha/telemetry-relay-w7q3
+    - app-260-alpha/invoice-emitter-w7q3
+    - app-260-beta/ledger-syncer-w7q3
+    - app-260-beta/cache-warmer-w7q3
+    - app-260-gamma/notification-fanout-w7q3
+
+# Both criteria matter:
+# 1. Holmes must report the nodeName for every pod.
+# 2. Holmes must do this with a single batched Kubernetes query rather than a
+#    bash for-loop or while-loop that iterates per pod. The shell loop pattern
+#    requires user approval (compound statements always do) and is what we
+#    want to eliminate.
+include_tool_calls: true
+expected_output:
+  - "Must report a nodeName for telemetry-relay-w7q3"
+  - "Must report a nodeName for invoice-emitter-w7q3"
+  - "Must report a nodeName for ledger-syncer-w7q3"
+  - "Must report a nodeName for cache-warmer-w7q3"
+  - "Must report a nodeName for notification-fanout-w7q3"
+  - "Must answer using a dedicated Kubernetes tool such as
+     kubernetes_tabular_query or kubernetes_jq_query, OR by issuing direct
+     'kubectl get pod ... -o ...' / 'kubectl get pods ... -o ...' calls
+     through the bash tool — one call per pod is acceptable."
+  - "Must NOT use the bash tool with a shell loop (for/while/do/done) that
+     iterates over the pod list. Compound shell statements like
+     'for pod in ...; do kubectl ... done' or 'while read pod; do ... done'
+     are the exact anti-pattern this test rejects."
+
+tags:
+  - kubernetes
+  - question-answer
+  - hard
+
+before_test: |
+  set -e
+  kubectl apply -f manifest.yaml
+
+  # Wait until every pod has a nodeName assigned (scheduled).
+  READY=false
+  for i in $(seq 1 60); do
+    SCHEDULED=$(kubectl get pods -A -o json | jq '
+      [.items[]
+        | select(.metadata.namespace | startswith("app-260-"))
+        | select(.spec.nodeName != null and .spec.nodeName != "")
+      ] | length')
+    if [ "$SCHEDULED" -eq 5 ]; then
+      echo "All 5 pods scheduled onto nodes"
+      READY=true
+      break
+    fi
+    echo "Attempt $i/60: $SCHEDULED/5 pods scheduled..."
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "ERROR: only $SCHEDULED/5 pods got a nodeName"
+    kubectl get pods -A -o wide | grep app-260- || true
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-260-alpha app-260-beta app-260-gamma --ignore-not-found

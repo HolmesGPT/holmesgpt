@@ -1,0 +1,86 @@
+user_prompt: >
+  Across the namespaces app-259-frontend, app-259-backend, app-259-data and
+  app-259-control, there are pods that cannot start because their container
+  images cannot be pulled. For each of those four namespaces, tell me how many
+  pods are currently stuck on image pull failures, and which namespace has the
+  most.
+
+# Both criteria matter:
+# 1. Holmes must arrive at the correct per-namespace counts and winner.
+# 2. Holmes must do this using dedicated Kubernetes tools, not a bash pipeline
+#    with awk/sort/uniq/for-loops, because that pattern requires user approval
+#    and is the slower, less reliable path.
+include_tool_calls: true
+expected_output:
+  - "Must report app-259-frontend has 3 pods stuck on image pull failures"
+  - "Must report app-259-backend has 1 pod stuck on image pull failures"
+  - "Must report app-259-data has 2 pods stuck on image pull failures"
+  - "Must report app-259-control has 4 pods stuck on image pull failures"
+  - "Must identify app-259-control as the namespace with the most stuck pods"
+  - "Must answer using the dedicated Kubernetes tools (one or more of
+     kubernetes_jq_query, kubernetes_tabular_query, kubernetes_count, or
+     kubectl_find_resource). Counting via simple per-namespace kubectl get
+     calls through the bash tool is acceptable."
+  - "Must NOT use the bash tool with shell pipelines that aggregate or group
+     results (for example: piping kubectl output through awk, sort, uniq -c,
+     or wc to compute grouped counts). The grouping/aggregation must be done
+     by a dedicated Kubernetes tool or by reading the kubectl output directly,
+     not by composing a shell pipeline."
+
+tags:
+  - kubernetes
+  - counting
+  - hard
+
+before_test: |
+  set -e
+  kubectl apply -f manifest.yaml
+
+  # Give the kubelet time to try the pulls and surface ErrImagePull /
+  # ImagePullBackOff on the container statuses. We don't need every pod to
+  # have reached ImagePullBackOff specifically; ErrImagePull is also a valid
+  # "stuck on image pull" signal.
+  STUCK_COUNT=0
+  for i in $(seq 1 90); do
+    STUCK_COUNT=$(kubectl get pods -A -o json 2>/dev/null | jq '
+      [.items[]
+        | select(.metadata.namespace | startswith("app-259-"))
+        | select(.status.containerStatuses // []
+            | map(.state.waiting.reason // "")
+            | map(test("ImagePullBackOff|ErrImagePull"))
+            | any)
+      ] | length')
+    if [ "$STUCK_COUNT" -ge 10 ]; then
+      echo "All 10 pods stuck on image pull (frontend=3, backend=1, data=2, control=4)"
+      break
+    fi
+    echo "Attempt $i/90: $STUCK_COUNT/10 pods stuck so far..."
+    sleep 2
+  done
+
+  if [ "$STUCK_COUNT" -lt 10 ]; then
+    echo "ERROR: only $STUCK_COUNT/10 pods reached an image-pull failure state"
+    kubectl get pods -A -l app -o wide | grep app-259- || true
+    exit 1
+  fi
+
+  # Verify the per-namespace counts before letting the test ask Holmes.
+  for NS_EXPECT in "app-259-frontend:3" "app-259-backend:1" "app-259-data:2" "app-259-control:4"; do
+    NS="${NS_EXPECT%:*}"
+    EXPECT="${NS_EXPECT##*:}"
+    ACTUAL=$(kubectl get pods -n "$NS" -o json | jq '
+      [.items[]
+        | select(.status.containerStatuses // []
+            | map(.state.waiting.reason // "")
+            | map(test("ImagePullBackOff|ErrImagePull"))
+            | any)
+      ] | length')
+    if [ "$ACTUAL" -ne "$EXPECT" ]; then
+      echo "ERROR: $NS expected $EXPECT stuck pods, got $ACTUAL"
+      exit 1
+    fi
+    echo "$NS: $ACTUAL stuck pods"
+  done
+
+after_test: |
+  kubectl delete namespace app-259-frontend app-259-backend app-259-data app-259-control --ignore-not-found
