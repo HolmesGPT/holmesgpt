@@ -40,6 +40,10 @@ def _get_eval_source_url(test_type: str, test_case_name: str) -> Optional[str]:
     fixture_dir = _TEST_TYPE_TO_FIXTURE_DIR.get(test_type)
     if not fixture_dir or not test_case_name:
         return None
+    # Strip pytest parametrize suffix (e.g. "227_count_configmaps_per_namespace[0]"
+    # → "227_count_configmaps_per_namespace"); the fixture directory on disk
+    # does not include the "[…]" portion.
+    fixture_name = test_case_name.split("[", 1)[0]
     ref = (
         os.environ.get("EVAL_BRANCH")
         or os.environ.get("GITHUB_HEAD_REF")
@@ -49,7 +53,7 @@ def _get_eval_source_url(test_type: str, test_case_name: str) -> Optional[str]:
     encoded_ref = quote(ref, safe="")
     return (
         f"https://github.com/HolmesGPT/holmesgpt/blob/{encoded_ref}"
-        f"/tests/llm/fixtures/{fixture_dir}/{test_case_name}/test_case.yaml"
+        f"/tests/llm/fixtures/{fixture_dir}/{fixture_name}/test_case.yaml"
     )
 
 
