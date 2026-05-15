@@ -389,6 +389,10 @@ def generate_markdown_report(
         if source_url:
             test_case_name = f"[📄]({source_url}) {test_case_name}"
 
+        # Prevent long test case names from wrapping across multiple lines in
+        # the GitHub-rendered table.
+        test_case_name = f"<nobr>{test_case_name}</nobr>"
+
         status = TestStatus(result)
 
         # Format time (plain, no inline comparison)
