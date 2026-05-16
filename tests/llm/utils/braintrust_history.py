@@ -20,6 +20,10 @@ BRAINTRUST_API_URL = "https://api.braintrust.dev/v1"
 
 # CI benchmark experiment name prefix (set by eval-benchmarks.yaml workflow)
 BENCHMARK_EXPERIMENT_PREFIX = "ci-benchmark-"
+# Post-merge eval that runs the regression set on every master push.
+# Workflow: .github/workflows/eval-master.yaml. Experiment name pattern: master-<run_id>.
+MASTER_EXPERIMENT_PREFIX = "master-"
+MASTER_WORKFLOW = "eval-master.yaml"
 
 __all__ = [
     "BRAINTRUST_ORG",
@@ -29,6 +33,7 @@ __all__ = [
     "HistoricalComparisonDetails",
     "ExperimentInfo",
     "get_benchmark_baseline",
+    "get_master_baseline",
     "compare_with_benchmark",
 ]
 
@@ -53,6 +58,7 @@ class BenchmarkMetrics:
     duration: Optional[float] = None
     cost: Optional[float] = None
     tool_call_count: Optional[int] = None
+    num_llm_calls: Optional[int] = None
     total_tokens: Optional[int] = None
     cached_tokens: Optional[int] = None
 
@@ -144,37 +150,53 @@ def _get_project_id() -> Optional[str]:
 
 
 # GitHub repo for the benchmark workflow (used to find latest run ID)
-GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "robusta-dev/holmesgpt")
+GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "HolmesGPT/holmesgpt")
 BENCHMARK_WORKFLOW = "eval-benchmarks.yaml"
+# Number of recent successful benchmark runs to consider when looking for a
+# matching Braintrust experiment. The latest successful workflow run may not
+# have a corresponding experiment (e.g. the eval step failed or didn't log),
+# so we walk back through recent runs until we find one that does.
+BENCHMARK_RUN_LOOKBACK = 20
 
 
-def _find_latest_benchmark_run_id() -> Optional[int]:
-    """Query GitHub Actions API for the latest successful benchmark workflow run.
+def _find_recent_workflow_run_ids(
+    workflow_file: str, limit: int = BENCHMARK_RUN_LOOKBACK
+) -> List[int]:
+    """Query GitHub Actions API for recent successful run IDs of a workflow.
 
-    Returns the run_id which maps to the Braintrust experiment name
-    'ci-benchmark-{run_id}'.
+    Returns run IDs in newest-first order. Each maps to a Braintrust experiment
+    name like '<prefix>{run_id}'.
     """
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{BENCHMARK_WORKFLOW}/runs"
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{workflow_file}/runs"
+    headers = {"Accept": "application/vnd.github+json"}
+    github_token = os.environ.get("GITHUB_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"token {github_token}"
     try:
         response = requests.get(
             url,
-            params={"status": "completed", "conclusion": "success", "per_page": 1},
+            params={
+                "status": "success",
+                "per_page": limit,
+            },
+            headers=headers,
             timeout=15,
         )
         if response.status_code != 200:
             logging.warning(
                 f"GitHub Actions API returned {response.status_code}: {response.text[:200]}"
             )
-            return None
+            return []
 
         runs = response.json().get("workflow_runs", [])
-        if not runs:
-            return None
-
-        return runs[0]["id"]
-    except requests.exceptions.RequestException as e:
+        return [run["id"] for run in runs if "id" in run]
+    except (requests.exceptions.RequestException, ValueError, KeyError) as e:
         logging.warning(f"GitHub Actions API request failed: {e}")
-        return None
+        return []
+
+
+def _find_recent_benchmark_run_ids(limit: int = BENCHMARK_RUN_LOOKBACK) -> List[int]:
+    return _find_recent_workflow_run_ids(BENCHMARK_WORKFLOW, limit)
 
 
 def _find_latest_benchmark_experiment(
@@ -182,31 +204,85 @@ def _find_latest_benchmark_experiment(
 ) -> Optional[Dict[str, Any]]:
     """Find the most recent ci-benchmark root experiment.
 
-    Queries GitHub Actions API for the latest successful benchmark workflow run ID,
-    then does an exact name lookup in Braintrust via experiment_name filter.
-    Total: 1 GitHub API call + 1 Braintrust API call.
+    Queries GitHub Actions API for recent successful benchmark workflow run IDs,
+    then for each run does an exact name lookup in Braintrust via experiment_name
+    filter, returning the first match. Walks back through up to
+    BENCHMARK_RUN_LOOKBACK runs since the latest successful workflow run may not
+    have produced an experiment (e.g., eval step failed before logging).
     """
-    run_id = _find_latest_benchmark_run_id()
-    if not run_id:
+    run_ids = _find_recent_benchmark_run_ids()
+    if not run_ids:
+        logging.warning(
+            f"No recent successful runs found for workflow '{BENCHMARK_WORKFLOW}' in {GITHUB_REPO}"
+        )
         return None
 
-    experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
-    result = _make_api_request(
-        "/experiment",
-        params={
-            "project_id": project_id,
-            "experiment_name": experiment_name,
-        },
+    tried: List[str] = []
+    for run_id in run_ids:
+        experiment_name = f"{BENCHMARK_EXPERIMENT_PREFIX}{run_id}"
+        tried.append(experiment_name)
+        result = _make_api_request(
+            "/experiment",
+            params={
+                "project_id": project_id,
+                "experiment_name": experiment_name,
+            },
+        )
+        if not result:
+            continue
+
+        objects = result.get("objects", [])
+        if objects:
+            logging.info(f"Found benchmark experiment: {experiment_name}")
+            return objects[0]
+
+    logging.warning(
+        f"No ci-benchmark experiment found in Braintrust for the last "
+        f"{len(run_ids)} successful workflow runs (tried: {', '.join(tried[:5])}"
+        f"{'...' if len(tried) > 5 else ''})"
     )
-    if not result:
+    return None
+
+
+def _find_latest_master_experiment(
+    project_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Find the most recent master-* experiment from the post-merge workflow.
+
+    Mirrors _find_latest_benchmark_experiment but against eval-master.yaml, which
+    runs the regression set on every push to master. Falls back to None if the
+    workflow has never run successfully (e.g. before the workflow was deployed).
+    """
+    run_ids = _find_recent_workflow_run_ids(MASTER_WORKFLOW)
+    if not run_ids:
+        logging.info(
+            f"No recent successful runs for workflow '{MASTER_WORKFLOW}' in {GITHUB_REPO}"
+        )
         return None
 
-    objects = result.get("objects", [])
-    if objects:
-        logging.info(f"Found benchmark experiment: {experiment_name}")
-        return objects[0]
+    tried: List[str] = []
+    for run_id in run_ids:
+        experiment_name = f"{MASTER_EXPERIMENT_PREFIX}{run_id}"
+        tried.append(experiment_name)
+        result = _make_api_request(
+            "/experiment",
+            params={
+                "project_id": project_id,
+                "experiment_name": experiment_name,
+            },
+        )
+        if not result:
+            continue
+        objects = result.get("objects", [])
+        if objects:
+            logging.info(f"Found master experiment: {experiment_name}")
+            return objects[0]
 
-    logging.warning(f"Benchmark experiment '{experiment_name}' not found in Braintrust")
+    logging.warning(
+        f"No master experiment found in Braintrust for the last "
+        f"{len(run_ids)} successful master runs (tried: {', '.join(tried[:5])}"
+        f"{'...' if len(tried) > 5 else ''})"
+    )
     return None
 
 
@@ -215,8 +291,12 @@ def _fetch_all_eval_spans(experiment_id: str) -> List[Dict[str, Any]]:
     all_eval_spans: List[Dict[str, Any]] = []
     cursor = None
 
-    for _ in range(20):  # Safety limit on pagination
-        body: Dict[str, Any] = {"limit": 100}
+    # Braintrust returns all span types (eval, llm, tool, score, task) interleaved;
+    # we filter for eval client-side. A weekly benchmark across ~7 models generates
+    # 4000+ total events, so use a large page size to avoid stopping before all
+    # eval spans have been seen (was limit=100 -> truncated baseline at ~2000 events).
+    for _ in range(50):  # Safety limit on pagination
+        body: Dict[str, Any] = {"limit": 1000}
         if cursor:
             body["cursor"] = cursor
 
@@ -259,6 +339,7 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
 
     duration = metadata.get("holmes_duration")
     tool_calls = metadata.get("tool_call_count")
+    num_llm_calls = metadata.get("num_llm_calls")
     correctness = scores.get("correctness")
     passed = int(correctness) == 1 if correctness is not None else False
 
@@ -276,25 +357,17 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
         duration=float(duration) if duration is not None else None,
         cost=float(cost) if cost is not None else None,
         tool_call_count=int(tool_calls) if tool_calls is not None else None,
+        num_llm_calls=int(num_llm_calls) if num_llm_calls is not None else None,
         total_tokens=int(total_tokens) if total_tokens is not None else None,
         cached_tokens=int(cached_tokens) if cached_tokens is not None else None,
     )
 
 
-def get_benchmark_baseline() -> (
-    Tuple[Dict[str, BenchmarkMetrics], HistoricalComparisonDetails]
-):
-    """Fetch metrics from the latest weekly benchmark run.
-
-    Returns:
-        Tuple of (metrics_dict, details)
-        - metrics_dict: Maps "test_id:model" to BenchmarkMetrics
-        - details: HistoricalComparisonDetails with experiment info
-    """
-    details = HistoricalComparisonDetails(
-        filter_description="latest ci-benchmark experiment on master"
-    )
-
+def _load_baseline_from_experiment(
+    finder, filter_description: str, missing_status: str
+) -> Tuple[Dict[str, BenchmarkMetrics], HistoricalComparisonDetails]:
+    """Shared loader: resolve project, find experiment via `finder(project_id)`, extract metrics."""
+    details = HistoricalComparisonDetails(filter_description=filter_description)
     try:
         api_key = _get_api_key()
         if not api_key:
@@ -307,51 +380,73 @@ def get_benchmark_baseline() -> (
             return {}, details
         details.project_id = project_id
 
-        benchmark_exp = _find_latest_benchmark_experiment(project_id)
-        if not benchmark_exp:
-            details.status = "No ci-benchmark experiments found"
+        exp = finder(project_id)
+        if not exp:
+            details.status = missing_status
             return {}, details
 
-        exp_metadata = benchmark_exp.get("metadata") or {}
+        exp_metadata = exp.get("metadata") or {}
         exp_info = ExperimentInfo(
-            id=benchmark_exp.get("id", ""),
-            name=benchmark_exp.get("name", ""),
+            id=exp.get("id", ""),
+            name=exp.get("name", ""),
             branch=exp_metadata.get("branch", "unknown"),
-            created=benchmark_exp.get("created"),
+            created=exp.get("created"),
         )
         details.experiments.append(exp_info)
+        logging.info(f"Using baseline experiment: {exp_info.name} (created {exp_info.created})")
 
-        logging.info(
-            f"Using benchmark baseline: {exp_info.name} (created {exp_info.created})"
-        )
-
-        # Fetch all eval spans from this experiment
-        eval_spans = _fetch_all_eval_spans(benchmark_exp["id"])
+        eval_spans = _fetch_all_eval_spans(exp["id"])
         if not eval_spans:
             details.status = f"No eval spans found in experiment '{exp_info.name}'"
             return {}, details
 
-        # Build metrics map
         metrics_map: Dict[str, BenchmarkMetrics] = {}
         for span in eval_spans:
-            metrics = _extract_metrics(span)
-            if metrics is None:
+            m = _extract_metrics(span)
+            if m is None:
                 continue
-            key = f"{metrics.test_id}:{metrics.model}"
-            metrics_map[key] = metrics
+            metrics_map[f"{m.test_id}:{m.model}"] = m
 
         details.metrics_count = len(metrics_map)
         logging.info(
-            f"Loaded {len(metrics_map)} test/model results from benchmark '{exp_info.name}'"
+            f"Loaded {len(metrics_map)} test/model results from '{exp_info.name}'"
         )
         return metrics_map, details
 
     except Exception as e:
         tb = traceback.format_exc()
-        logging.error(f"Error fetching benchmark baseline: {e}\n{tb}")
+        logging.error(f"Error fetching baseline: {e}\n{tb}")
         details.status = f"Error: {e}"
         details.errors.append(f"{e}\n{tb}")
         return {}, details
+
+
+def get_benchmark_baseline() -> (
+    Tuple[Dict[str, BenchmarkMetrics], HistoricalComparisonDetails]
+):
+    """Fetch metrics from the latest weekly ci-benchmark experiment."""
+    return _load_baseline_from_experiment(
+        finder=_find_latest_benchmark_experiment,
+        filter_description="latest ci-benchmark experiment on master",
+        missing_status="No ci-benchmark experiments found",
+    )
+
+
+def get_master_baseline() -> (
+    Tuple[Dict[str, BenchmarkMetrics], HistoricalComparisonDetails]
+):
+    """Fetch metrics from the latest master-* experiment (post-merge eval).
+
+    Populated by .github/workflows/eval-master.yaml, which runs the regression
+    set on every push to master and logs as `master-<run_id>`. Returns an empty
+    map with a populated `details.status` if no such experiment exists yet
+    (e.g. before the workflow is deployed).
+    """
+    return _load_baseline_from_experiment(
+        finder=_find_latest_master_experiment,
+        filter_description="latest master-* experiment (post-merge regression eval)",
+        missing_status="No master-* experiments found (eval-master.yaml may not have run yet)",
+    )
 
 
 def compare_with_benchmark(
@@ -368,6 +463,9 @@ def compare_with_benchmark(
         Dict mapping "test_id:model" to HistoricalComparison
     """
     comparisons: Dict[str, HistoricalComparison] = {}
+    matched = 0
+    current_keys_sample: List[str] = []
+    skipped_no_model_or_id = 0
 
     for result in current_results:
         if result is None:
@@ -376,10 +474,15 @@ def compare_with_benchmark(
         model = result.get("model", "")
 
         if not test_id or not model:
+            skipped_no_model_or_id += 1
             continue
 
         key = f"{test_id}:{model}"
+        if len(current_keys_sample) < 5:
+            current_keys_sample.append(key)
         baseline = benchmark.get(key)
+        if baseline:
+            matched += 1
 
         comparison = HistoricalComparison(
             test_id=test_id,
@@ -408,5 +511,27 @@ def compare_with_benchmark(
                 )
 
         comparisons[key] = comparison
+
+    if benchmark and current_keys_sample and matched == 0:
+        baseline_sample = list(benchmark.keys())[:5]
+        logging.warning(
+            "compare_with_benchmark: 0 of %d current results matched any of %d "
+            "baseline metrics (skipped %d entries missing test_id/model). "
+            "Sample current keys=%s, sample baseline keys=%s. "
+            "Check that test_case_name and model names use the same format in both runs.",
+            len(comparisons),
+            len(benchmark),
+            skipped_no_model_or_id,
+            current_keys_sample,
+            baseline_sample,
+        )
+    elif benchmark:
+        logging.info(
+            "compare_with_benchmark: matched %d of %d current results against %d baseline metrics (skipped %d missing test_id/model)",
+            matched,
+            len(comparisons),
+            len(benchmark),
+            skipped_no_model_or_id,
+        )
 
     return comparisons
