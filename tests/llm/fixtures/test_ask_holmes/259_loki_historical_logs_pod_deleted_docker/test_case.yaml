@@ -1,10 +1,10 @@
-user_prompt: "The payment-api pod in namespace app-101 had issues on August 2, 2025 around 13:45 UTC. What happened?"
+user_prompt: "The payment-api pod in namespace app-259 had issues on August 2, 2025 around 13:45 UTC. What happened?"
 
 description: |
   Docker-only variant of 101_loki_historical_logs_pod_deleted.
 
-  Stands up a Loki container locally (no Kubernetes), pushes the same historical
-  log timeline as test 101 directly to Loki's HTTP API, and lets Holmes investigate
+  Stands up a Loki container locally (no Kubernetes), pushes a historical
+  log timeline directly to Loki's HTTP API, and lets Holmes investigate
   using only the grafana/loki toolset. The "pod was deleted" framing is preserved
   by simply never running the pod — Holmes only has Loki to work with.
 
@@ -12,7 +12,10 @@ description: |
   environment where Kubernetes is unavailable (e.g. cgroup-v1 sandboxes).
 
 expected_output:
-  - The payment-api pod experienced failures caused by database connection pool exhaustion
+  - Between 2025-08-02 13:45 UTC and 14:45 UTC, the payment-api pod logged the ERROR "Failed to acquire database connection - pool exhausted"
+  - The root cause is database connection pool exhaustion
+
+include_tool_calls: true
 
 tags:
   - logs
@@ -56,7 +59,7 @@ before_test: |
   # Verify the incident logs landed in Loki
   for i in $(seq 1 30); do
     ERROR_COUNT=$(curl -sG "http://localhost:$PORT/loki/api/v1/query_range" \
-      --data-urlencode 'query={namespace="app-101",level="ERROR"}' \
+      --data-urlencode 'query={namespace="app-259",level="ERROR"}' \
       --data-urlencode 'start=2025-08-02T13:00:00Z' \
       --data-urlencode 'end=2025-08-02T15:00:00Z' \
       --data-urlencode 'limit=1' 2>/dev/null | grep -o '"values"' | wc -l)

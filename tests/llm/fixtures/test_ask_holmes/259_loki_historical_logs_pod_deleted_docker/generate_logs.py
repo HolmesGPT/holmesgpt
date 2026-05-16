@@ -17,8 +17,8 @@ from datetime import datetime, timedelta
 
 random.seed(100)
 
-NAMESPACE = "app-101"
-POD_NAME = "payment-api-101-d8f7b9c4-abc12"
+NAMESPACE = "app-259"
+POD_NAME = "payment-api-259-d8f7b9c4-abc12"
 SERVICE = "payment-api"
 BATCH_SIZE = 200
 
