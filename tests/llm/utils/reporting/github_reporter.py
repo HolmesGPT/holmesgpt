@@ -98,13 +98,21 @@ def _render_metric_table(
     master_label: str,
     benchmark_label: str,
 ) -> List[str]:
-    """Render a six-column comparison table with two baselines and average row.
+    """Render a six-column comparison table with two baselines and average rows.
 
     Columns: Test case | This branch | master (abs) | Δ vs master | benchmark (abs) | Δ vs benchmark
 
     Skips the table entirely when no row has either master or benchmark data.
-    Per-baseline averages are computed only over rows where both this-branch
-    AND that-specific baseline have values.
+
+    Emits two summary rows:
+    - **Total (all)** — each column averages over its own non-null subset.
+      Δ cells are intentionally empty because the subsets may differ
+      (e.g. a test missing from master vs present in benchmark) and the
+      delta would be apples-to-oranges.
+    - **Comparable (m=N, b=N)** — per-baseline matched subsets only:
+      Δ vs master and the master column are computed across rows where
+      both this-branch and master have a value; same for benchmark.
+      Use this row to read deltas; use the Total row to read absolutes.
     """
     has_master = any(r[master_key] is not None for r in rows)
     has_bench = any(r[benchmark_key] is not None for r in rows)
@@ -120,6 +128,9 @@ def _render_metric_table(
     matched_m = 0
     cur_sum_b = base_sum_b = 0.0
     matched_b = 0
+    cur_all: List[float] = []
+    mast_all: List[float] = []
+    bench_all: List[float] = []
 
     for r in rows:
         cur = r[current_key]
@@ -132,11 +143,34 @@ def _render_metric_table(
             f"| {r['name']} | {cur_s} | {mast_s} | {_diff_cell(cur, mast)} "
             f"| {bench_s} | {_diff_cell(cur, bench)} |"
         )
+        if cur is not None:
+            cur_all.append(float(cur))
+        if mast is not None:
+            mast_all.append(float(mast))
+        if bench is not None:
+            bench_all.append(float(bench))
         if cur and mast:
             cur_sum_m += float(cur); base_sum_m += float(mast); matched_m += 1
         if cur and bench:
             cur_sum_b += float(cur); base_sum_b += float(bench); matched_b += 1
 
+    # Total (all): each column averaged over its own non-null subset.
+    # Δ cells stay empty — the subsets may differ, so a delta would compare
+    # different sets of tests.
+    if cur_all or mast_all or bench_all:
+        all_cur_avg = sum(cur_all) / len(cur_all) if cur_all else None
+        all_mast_avg = sum(mast_all) / len(mast_all) if mast_all else None
+        all_bench_avg = sum(bench_all) / len(bench_all) if bench_all else None
+        out.append(
+            f"| **Total (all, n={len(cur_all)})** "
+            f"| **{formatter(all_cur_avg) if all_cur_avg is not None else '—'}** "
+            f"| **{formatter(all_mast_avg) if all_mast_avg is not None else '—'}** "
+            f"| **—** "
+            f"| **{formatter(all_bench_avg) if all_bench_avg is not None else '—'}** "
+            f"| **—** |"
+        )
+
+    # Comparable: per-baseline matched subsets only. Apples-to-apples deltas.
     if matched_m or matched_b:
         avg_cur_m = (cur_sum_m / matched_m) if matched_m else None
         avg_mast = (base_sum_m / matched_m) if matched_m else None
@@ -146,7 +180,7 @@ def _render_metric_table(
         # "This branch" column when both exist (it's the more recent comparison).
         avg_cur = avg_cur_m if avg_cur_m is not None else avg_cur_b
         out.append(
-            f"| **Average (m={matched_m}, b={matched_b})** "
+            f"| **Comparable (m={matched_m}, b={matched_b})** "
             f"| **{formatter(avg_cur) if avg_cur is not None else '—'}** "
             f"| **{formatter(avg_mast) if avg_mast is not None else '—'}** "
             f"| **{_diff_cell(avg_cur_m, avg_mast)}** "
