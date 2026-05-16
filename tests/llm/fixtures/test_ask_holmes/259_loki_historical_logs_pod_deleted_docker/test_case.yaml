@@ -18,9 +18,7 @@ tags:
   - logs
   - easy
   - loki
-  - regression
   - fast
-  - no-cicd
 
 setup_timeout: 180
 
