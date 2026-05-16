@@ -532,10 +532,12 @@ bring up a cluster manually using **k3s in a container**. KIND does NOT work her
 because the inner node's systemd cannot mount `/sys/fs/cgroup/systemd` under the
 sandbox's cgroup v1 — the container restart-loops with "Failed to mount API filesystems".
 
-The full recipe below was verified end-to-end on 2026-05-15 by running eval
-`227_count_configmaps_per_namespace` against a freshly-created cluster (setup
-created 644 ConfigMaps, gpt-4.1-mini queried via tools, classifier scored the
-answer, teardown deleted namespaces — 65s wall, $0.029 OpenRouter spend).
+The full recipe below was verified end-to-end on 2026-05-16 by running eval
+`227_count_configmaps_per_namespace` against a freshly-created cluster with
+opus-4.6: setup created 644 ConfigMaps, the model queried them via tools and
+returned correct per-namespace counts, the classifier scored 100%, and
+teardown deleted the namespaces — 90s wall total (setup 16s / call 41s /
+teardown 28s).
 
 **1. Bring up the cluster and CLI tooling:**
 
@@ -573,16 +575,20 @@ Two non-obvious requirements for the classifier scoring step:
   entry. The autoevals/braintrust correctness classifier bypasses litellm and calls
   the raw OpenAI SDK — without `api_base` it hits `api.openai.com` and 401s with the
   OpenRouter key.
-- Use the `openai/<model>` prefix in the `model:` field (not `openrouter/openai/<model>`).
-  The classifier passes that string straight to OpenRouter as the model ID, and
-  OpenRouter rejects `openrouter/openai/gpt-4.1` as "not a valid model ID". The
-  `openai/<model>` form works for both litellm (Holmes's main call) and the raw
-  OpenAI client (the classifier).
+- Always use the `openai/<provider>/<model>` prefix in the `model:` field — including
+  for Anthropic models routed through OpenRouter. Two problems get solved at once:
+  - litellm's native Anthropic provider appends `/v1/messages` to `api_base`, which
+    doubles the path to `/api/v1/v1/messages` and 404s. Forcing the `openai/` prefix
+    routes through litellm's OpenAI-compatible path (`/chat/completions`) instead,
+    which OpenRouter speaks fine for all models.
+  - The autoevals classifier passes the post-prefix string straight to OpenRouter as
+    a model ID, and `openrouter/openai/gpt-4.1` is rejected as "not a valid model ID";
+    `openai/gpt-4.1` is accepted.
 
 ```bash
 cat > /tmp/model_list.yaml << 'EOF'
 opus-4.6:
-  model: anthropic/claude-opus-4.6
+  model: openai/anthropic/claude-opus-4.6
   api_key: "{{ env.OPENROUTER_API_KEY }}"
   api_base: https://openrouter.ai/api/v1
 gpt-4.1:
@@ -608,7 +614,7 @@ poetry run pytest tests/llm/test_ask_holmes.py -k "227_count_configmaps_per_name
 ```
 
 Wall time is ~65s for a single k8s eval with gpt-4.1-mini (~$0.03 OpenRouter spend);
-opus-4.6 is roughly $0.30 / 75s per run. Budget accordingly when looping.
+opus-4.6 is ~90s per run. Budget accordingly when looping.
 
 **What does NOT work in the sandbox:**
 
@@ -616,6 +622,8 @@ opus-4.6 is roughly $0.30 / 75s per run. Budget accordingly when looping.
 - `BRAINTRUST_API_KEY` / `BRAINTRUST_SERVICE_TOKEN` set — unset both or the test crashes
 - `model_list.yaml` entries without `api_base` — classifier 401s against `api.openai.com`
 - `openrouter/openai/<model>` prefix in `model:` — OpenRouter rejects as invalid model ID
+- `anthropic/<model>` prefix in `model:` — litellm's Anthropic provider hits
+  `/api/v1/v1/messages` (doubled path) and 404s; use `openai/anthropic/<model>` instead
 - Assuming Anthropic / OpenAI keys are present — only `OPENROUTER_API_KEY` is available
 
 ## Reading CodeRabbit Review Comments
