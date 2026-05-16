@@ -307,47 +307,9 @@ raw = buf.getvalue()  # Contains full ANSI escape sequences
 
 ## Investigating Eval Regressions / Holmes Behavior Changes
 
-When evals get slower, more expensive, or behave differently between two commits, follow these rules in order. **Don't theorise from file diffs alone — they will mislead you.**
+**Understand the behavior from trace data before designing a fix.** Braintrust (or the local evals_report.md) holds the rendered prompts, per-LLM-call metrics, and tool-call sequences for each iter. Pull traces for one baseline run and one current run for the same `(test, model)` before reading any source diffs — file-level diffs (prompts, code, config) routinely mislead about what actually changed at runtime (e.g. a jinja2 template can grow in source lines and shrink in rendered output). Look at individual runs first; aggregate statistics over n iters can hide deterministic per-iter differences under variance.
 
-### Rule 1: Pull raw trace data BEFORE forming a hypothesis
-
-Braintrust (or the local evals_report.md) holds the rendered prompts, per-LLM-call token counts, and tool-call sequences for each iter. Pull traces for one baseline run and one current run for the same `(test_id, model)` BEFORE reading any source diffs. File-level diffs (prompts, code) lie about behavior in two common ways:
-
-- A jinja2 template can grow in source lines and shrink in rendered output (un-rendered branches, deleted includes).
-- Per-call token cost is usually flat between versions — regressions almost always come from the **number** of LLM calls, not the size of each call.
-
-If you don't have trace data, get it before doing anything else. Theories built without trace data have a ~50% rate of being directionally wrong (observed firsthand).
-
-### Rule 2: Compare per-iter behavior shape, not aggregate means
-
-`Counter(tool_name)` per iteration, and the ordered list of tool calls. Look for:
-
-- Tools that fire in every iter of one version and never in the other (deterministic behavior change — these are the big signal).
-- Reorderings of the first 2-3 calls (turn-1 behavior tells you whether the model's planning phase changed).
-
-n=5 means/sd hide deterministic +1/-1 patterns under variance. A single trace pair often tells you the answer; the means come later to size the impact, not to discover it.
-
-### Rule 3: When bisecting a suspect PR, look at the FULL diff
-
-A PR can have multiple effects (a prompt edit AND a new skill file, a config refactor AND a default change). `git show --stat <commit>` lists every file the PR touched — read it before designing a revert. A "half-revert" of one file is a common time-sink: it only partially fixes the regression because the other side of the PR (registered fixture, default config, generated artifact) is still triggering the new behavior.
-
-### Rule 4: Deterministic behavior needs trigger removal, not prompt softening
-
-If a trace shows the model does X in 5/5 iters (or 0/5 iters), the fix has to remove what's *triggering* X, not weaken the prompt that nudges toward X. Trying to soften a deterministic nudge with counter-nudges is a losing game: prompts have multiple competing signals and counter-nudges rarely override a strong trigger.
-
-Common triggers (more likely than prompt wording):
-- A registered skill in the catalog (renders into the user prompt and asks the model to fetch it)
-- A toolset whose mere presence the model interprets as "use me"
-- A jinja2 conditional that toggles a whole block on/off
-- Default values in config that get serialized into the prompt
-
-### Diagnostic sequence (do these in order)
-
-1. Pull one baseline trace + one current trace for the same `(test, model)`.
-2. Diff per-LLM-call token counts. If flat → regression is in number of calls, stop looking at prompt size.
-3. Diff per-iter tool-call sequences (`Counter` + ordered list). Identify any deterministic difference.
-4. For each suspect PR, run `git show --stat <commit>` to see all changed files, not just the one you noticed.
-5. **Only then** run n=5 sweeps to quantify a fix. Sweeps confirm; traces discover.
+When reverting or fixing a suspect PR, read its full diff (`git show --stat <commit>`) before deciding what to change — a PR often has multiple effects, and reverting only the file you noticed leaves the others still acting on the model.
 
 ## Security Notes
 
