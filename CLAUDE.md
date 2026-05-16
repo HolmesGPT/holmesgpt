@@ -532,12 +532,27 @@ bring up a cluster manually using **k3s in a container**. KIND does NOT work her
 because the inner node's systemd cannot mount `/sys/fs/cgroup/systemd` under the
 sandbox's cgroup v1 — the container restart-loops with "Failed to mount API filesystems".
 
-The full recipe below was verified end-to-end on 2026-05-16 by running eval
-`227_count_configmaps_per_namespace` against a freshly-created cluster with
-opus-4.6: setup created 644 ConfigMaps, the model queried them via tools and
-returned correct per-namespace counts, the classifier scored 100%, and
-teardown deleted the namespaces — 90s wall total (setup 16s / call 41s /
-teardown 28s).
+The full recipe below was verified end-to-end on 2026-05-16 by running the
+`llm and regression` test suite against a freshly-bootstrapped k3s cluster
+with opus-4.6: **10 of 11 regression evals pass** in 256s wall, 4-way
+parallel. The eleventh (`176_network_policy_blocking_traffic_no_skills`)
+cannot pass here — see the limitations section.
+
+Two non-obvious things have to be patched for k3s pods to actually start
+in this sandbox:
+
+- The sandbox MITMs HTTPS to public registries with an internal CA
+  (`egress-gateway-ca-*.crt`, `swp-ca-*.crt`). k3s's containerd doesn't
+  trust those, so the inner cluster can't pull `rancher/mirrored-pause`
+  and every pod sandbox fails. Fix: bind-mount the host CA bundle into
+  k3s and write a `registries.yaml` pointing containerd at it.
+- The sandbox strips `CAP_SYS_RESOURCE` from our user. K3s's pause
+  container has `oomScoreAdj: -998`; setting a negative `oom_score_adj`
+  requires CAP_SYS_RESOURCE. runc's `nsexec` fails with `failed to
+  update /proc/self/oom_score_adj: Permission denied`, the child dies,
+  the parent gets `can't get final child's PID from pipe: EOF`. Fix:
+  wrap `/bin/runc` inside the k3s container and rewrite negative
+  `oomScoreAdj` to `0` in the OCI config before `runc create` runs.
 
 **1. Bring up the cluster and CLI tooling:**
 
@@ -545,11 +560,55 @@ teardown 28s).
 # Docker daemon is not running by default
 sudo dockerd > /tmp/dockerd.log 2>&1 &
 
+# registries.yaml pointing containerd at the host CA bundle (mounted below)
+mkdir -p /tmp/k3s-registries /tmp/k3s-output
+cat > /tmp/k3s-registries/registries.yaml << 'EOF'
+configs:
+  "registry-1.docker.io":
+    tls:
+      ca_file: /etc/ssl/certs/ca-certificates.crt
+  "registry.k8s.io":
+    tls:
+      ca_file: /etc/ssl/certs/ca-certificates.crt
+  "quay.io":
+    tls:
+      ca_file: /etc/ssl/certs/ca-certificates.crt
+EOF
+
+# runc wrapper that strips negative oomScoreAdj — see preamble above
+cat > /tmp/runc-wrapper << 'WRAPPER'
+#!/bin/sh
+bundle=""; prev=""; action=""
+for a in "$@"; do
+  if [ "$prev" = "--bundle" ] || [ "$prev" = "-b" ]; then bundle="$a"; fi
+  case "$a" in create|run|exec) action="$a";; esac
+  prev="$a"
+done
+[ -z "$bundle" ] && bundle="$PWD"
+cfg="$bundle/config.json"
+if [ "$action" = "create" ] && [ -f "$cfg" ]; then
+  sed -i -E 's/"oomScoreAdj":-[0-9]+/"oomScoreAdj":0/g' "$cfg"
+fi
+exec /bin/runc.real "$@"
+WRAPPER
+chmod +x /tmp/runc-wrapper
+
 # k3s-in-docker (do NOT use kind here)
 docker run -d --privileged --name k3s-server -p 6443:6443 \
   -e K3S_KUBECONFIG_OUTPUT=/output/kubeconfig.yaml -e K3S_KUBECONFIG_MODE=666 \
   -v /tmp/k3s-output:/output \
+  -v /tmp/k3s-registries/registries.yaml:/etc/rancher/k3s/registries.yaml:ro \
+  -v /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro \
   rancher/k3s:v1.30.6-k3s1 server --disable=traefik --disable=metrics-server
+
+# Wait for /bin/runc to land in the container, then swap in the wrapper
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  docker exec k3s-server ls /bin/runc >/dev/null 2>&1 && break
+  sleep 1
+done
+docker exec k3s-server sh -c '[ -e /bin/runc.real ] || mv /bin/runc /bin/runc.real'
+docker cp /tmp/runc-wrapper k3s-server:/bin/runc
+docker exec k3s-server chmod +x /bin/runc
 
 # kubeconfig
 mkdir -p ~/.kube && cp /tmp/k3s-output/kubeconfig.yaml ~/.kube/config
@@ -563,8 +622,10 @@ chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 curl -fsSL https://get.helm.sh/helm-v3.16.0-linux-amd64.tar.gz | tar xz -C /tmp/
 sudo cp /tmp/linux-amd64/helm /usr/local/bin/
 
-# Verify
-kubectl get nodes  # should show one Ready node within ~15s
+# Smoke-test: kube-system pods should be Running within ~10s, user pods should work
+kubectl get nodes
+kubectl get pods -n kube-system
+kubectl run smoke --image=busybox:1.36 --restart=Never -i --rm --command -- echo HELLO
 ```
 
 **2. LLM provider env (OpenRouter — Anthropic / OpenAI keys are not in env):**
@@ -609,16 +670,36 @@ unset BRAINTRUST_SERVICE_TOKEN
 export MODEL=gpt-4.1-mini MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
 export CLASSIFIER_MODEL=gpt-4.1 RUN_LIVE=true OPENAI_API_KEY=dummy
 
+# Single eval
 poetry run pytest tests/llm/test_ask_holmes.py -k "227_count_configmaps_per_namespace" \
   --no-cov -n0 -p no:cacheprovider
+
+# Whole regression suite, 4-way parallel
+poetry run pytest tests/llm/test_ask_holmes.py -m "llm and regression" \
+  --no-cov -n 4 -p no:cacheprovider
 ```
 
 Wall time is ~65s for a single k8s eval with gpt-4.1-mini (~$0.03 OpenRouter spend);
-opus-4.6 is ~90s per run. Budget accordingly when looping.
+opus-4.6 is ~90s per run. The full 11-eval `llm and regression` suite under opus-4.6
+runs in ~256s wall at -n 4 (~$3.30). Budget accordingly when looping.
 
 **What does NOT work in the sandbox:**
 
 - `kind create cluster` — inner container restart-loops on cgroup v1 (systemd mount fails)
+- k3s without the `oomScoreAdj` runc wrapper — pod sandboxes never start; runc's
+  nsexec fails with `failed to update /proc/self/oom_score_adj: Permission denied`
+  because `CAP_SYS_RESOURCE` is stripped
+- k3s without the host-CA bind-mount + `registries.yaml` — image pulls fail because
+  the sandbox MITMs HTTPS with a CA the k3s container doesn't trust
+- NetworkPolicy enforcement, period — both k3s's built-in NP controller
+  (kube-router) and Calico's felix fail because `ipset` is restricted in this
+  kernel (`ipset list -name` returns "Kernel error received: Invalid argument").
+  Calico's eBPF dataplane also doesn't help: `/sys/fs` isn't a shared mount,
+  so the `mount-bpffs` init container can't run. The
+  `176_network_policy_blocking_traffic_no_skills` eval is the only regression
+  test affected — it asserts a NetworkPolicy actually blocks traffic, which we
+  cannot enforce here. Skip it via `-m "llm and regression and not network"`
+  or `--deselect`
 - `BRAINTRUST_API_KEY` / `BRAINTRUST_SERVICE_TOKEN` set — unset both or the test crashes
 - `model_list.yaml` entries without `api_base` — classifier 401s against `api.openai.com`
 - `openrouter/openai/<model>` prefix in `model:` — OpenRouter rejects as invalid model ID
