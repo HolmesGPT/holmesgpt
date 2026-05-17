@@ -40,6 +40,17 @@ def get_classifier_model_params() -> ClassifierModelParams:
         client_api_key = llm.api_key
         client_base_url = llm.api_base
         client_api_version = llm.api_version
+
+        # The classifier talks to OpenAI/OpenRouter directly via the openai SDK
+        # (autoevals doesn't go through litellm), so litellm-style provider
+        # prefixes in the model name must be stripped before we send the call.
+        if model_for_api and model_for_api.startswith("openrouter/"):
+            model_for_api = model_for_api.split("/", 1)[1]
+            # Fall back to OpenRouter's public endpoint if model_list didn't pin one.
+            if not client_base_url:
+                client_base_url = (
+                    OPENROUTER_API_BASE or "https://openrouter.ai/api/v1"
+                )
     else:
         if not OPENAI_API_KEY and not AZURE_API_KEY and not OPENROUTER_API_KEY:
             raise ValueError(

@@ -3,6 +3,11 @@ logLevel: INFO
 
 additionalEnvVars: []
 additional_env_vars: []
+# Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
+# configMapRef) loaded onto the Holmes pod. Use to share a Secret between the
+# runner and Holmes (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring
+# each key twice.
+additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
 commonLabels: {}
