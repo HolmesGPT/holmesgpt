@@ -25,6 +25,18 @@ IMPORTANT: After diagnosing an issue, always suggest how to fix it. If you can i
 - Find who made changes and when
 - Look for existing issues or MRs about the problem
 
+## Parameter Handling Notes
+
+When calling GitLab MCP tools:
+- For optional string parameters (e.g., `search`, `since`, `until`, `path`, `author`, `topic`),
+  pass an empty string `""` instead of `null` when you don't need to filter by that field.
+- For optional enum parameters (e.g., `visibility`, `state`, `scope`), only pass a valid enum
+  value — never pass `null`. Omit or use a broadly-inclusive value if you don't want to filter.
+- For optional numeric parameters (e.g., `min_access_level`), only pass a valid integer —
+  never pass `null`. Use the lowest valid value (e.g., `10` for Guest) if you want no filtering.
+- The `search_repositories` tool requires a non-empty `search` string — it does not support
+  listing all projects. Use `list_projects` with `membership: true` to list accessible repos.
+
 ## Investigation Scenarios
 
 ### Code Issues
