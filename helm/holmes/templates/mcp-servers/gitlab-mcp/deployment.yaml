@@ -106,7 +106,7 @@ spec:
           protocol: TCP
         args:
           - "--stdio"
-          - "npx -y @zereight/mcp-gitlab"
+          - "npx -y @zereight/mcp-gitlab@{{ .Values.mcpAddons.gitlabMcp.mcpGitlabVersion }}"
           - "--port"
           - "8000"
         env:

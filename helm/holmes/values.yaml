@@ -516,8 +516,11 @@ mcpAddons:
     enabled: false
 
     registry: docker.io
-    image: "supercorp/supergateway:latest"
+    image: "supercorp/supergateway:3.4.3"
     imagePullPolicy: IfNotPresent
+
+    # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
+    mcpGitlabVersion: "2.1.11"
 
     auth:
       # K8s secret holding the GitLab Personal Access Token.
