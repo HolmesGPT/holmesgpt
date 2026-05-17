@@ -198,8 +198,6 @@ additionalEnvVars:
     value: https://api.robusta.dev/litellm/model_prices_and_context_window.json
 ```
 
-If your self-hosted Robusta relay also cannot reach GitHub, point its `LITELLM_MODEL_COST_MAP_UPSTREAM_URL` at `https://api.robusta.dev/litellm/model_prices_and_context_window.json` and point HolmesGPT at your self-hosted relay's endpoint — the mirror chains through.
-
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.
 
