@@ -74,9 +74,20 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 ### Kubernetes & Containers
 
+**Core Kubernetes access** — pick one read-only toolset, plus the remediation MCP if you need write actions:
+
 <div class="grid cards" markdown>
 
--   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md) — default, read-only via `kubectl`
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes (MCP)**](kubernetes-mcp.md) — read-only with OAuth/OIDC
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes Remediation (MCP)**](kubernetes-remediation-mcp.md) — write actions (restart, scale, drain)
+
+</div>
+
+**Other container & Kubernetes tooling:**
+
+<div class="grid cards" markdown>
+
 -   [:simple-docker:{ .lg .middle } **Docker**](docker.md)
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
 -   [:simple-redhatopenshift:{ .lg .middle } **OpenShift**](openshift.md)
@@ -88,8 +99,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
--   [:simple-kubernetes:{ .lg .middle } **Kubernetes (MCP)**](kubernetes-mcp.md)
--   [:simple-kubernetes:{ .lg .middle } **Kubernetes Remediation (MCP)**](kubernetes-remediation-mcp.md)
 
 </div>
 
