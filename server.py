@@ -9,14 +9,16 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
+import asyncio
 import json
 import logging
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
+import anyio.from_thread as _anyio_from_thread
 import colorlog
 import litellm
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
@@ -448,6 +450,39 @@ def extract_passthrough_headers(request: Request) -> dict:
     return {"headers": passthrough_headers} if passthrough_headers else {}
 
 
+def _schedule_disconnect_watcher(
+    request: Request,
+    cancel_event: threading.Event,
+    label: str = "",
+) -> None:
+    """Schedule an async task on the event loop that polls for HTTP client
+    disconnect and sets cancel_event, capping orphaned-thread lifetime after
+    the client closes the connection.
+
+    No-op when called outside an anyio worker thread (e.g. unit tests).
+    """
+    async def _watch() -> None:
+        try:
+            while not cancel_event.is_set():
+                await asyncio.sleep(0.2)
+                if await request.is_disconnected():
+                    if not cancel_event.is_set():
+                        cancel_event.set()
+                        logging.info(
+                            "stream %s: HTTP client disconnected, cancelling", label
+                        )
+                    return
+        except asyncio.CancelledError:
+            pass
+
+    try:
+        _anyio_from_thread.run_sync(lambda: asyncio.ensure_future(_watch()))
+    except Exception:
+        logging.debug(
+            "Could not schedule disconnect watcher for stream %s", label, exc_info=True
+        )
+
+
 def _stream_with_storage_cleanup(storage, stream_generator, req_info):
     """Wrap a stream generator to clean up tool result files after streaming completes."""
     try:
@@ -457,18 +492,35 @@ def _stream_with_storage_cleanup(storage, stream_generator, req_info):
         storage.__exit__(None, None, None)
 
 
-def _stream_with_trace_cleanup(storage, stream_generator, req_info, trace_span):
+def _stream_with_trace_cleanup(
+    storage,
+    stream_generator,
+    req_info,
+    trace_span,
+    cancel_event: Optional[threading.Event] = None,
+):
     """Wrap a stream generator with both storage cleanup and OTel span lifecycle.
 
     The investigation span stays active throughout all yields so that httpx
     auto-instrumented calls made during streaming become children of it.
     The span is ended in the finally block so it always closes, even on error.
+    Sets cancel_event on exit so the disconnect watcher task exits promptly.
     """
+    _start = time.monotonic()
+    logging.info("Stream request start: %s", req_info)
     try:
         yield from stream_generator
     finally:
-        logging.info(f"Stream request end: {req_info}")
+        elapsed = time.monotonic() - _start
+        was_cancelled = cancel_event is not None and cancel_event.is_set()
+        logging.info(
+            "Stream request end: %s (elapsed=%.2fs, cancelled=%s)",
+            req_info, elapsed, was_cancelled,
+        )
         trace_span.end()
+        # Signal disconnect watcher (if any) that the stream has ended.
+        if cancel_event is not None:
+            cancel_event.set()
         storage.__exit__(None, None, None)
 
 
@@ -612,6 +664,17 @@ def chat(chat_request: ChatRequest, http_request: Request):
             recorder_state = build_chat_recorder_state(
                 chat_request, request_ai, dal=dal, is_streaming=True
             )
+
+            # Create a cancel event so the disconnect watcher can interrupt the LLM loop.
+            stream_cancel_event = threading.Event()
+
+            # Start a background async task that detects HTTP client disconnect
+            # and sets stream_cancel_event, preventing anyio thread starvation
+            # when callers repeatedly open and close streaming connections.
+            _schedule_disconnect_watcher(
+                http_request, stream_cancel_event, label=req_info
+            )
+
             recorded_stream = stream_with_usage_recording(
                 request_ai.call_stream(
                     msgs=messages,
@@ -621,6 +684,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     response_format=chat_request.response_format,
                     request_context=request_context,
                     trace_span=trace_span,
+                    cancel_event=stream_cancel_event,
                 ),
                 recorder_state,
             )
@@ -630,7 +694,13 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 model=chat_request.model or config.model,
             )
             return StreamingResponse(
-                _stream_with_trace_cleanup(storage, stream, req_info, trace_span),
+                _stream_with_trace_cleanup(
+                    storage,
+                    stream,
+                    req_info,
+                    trace_span,
+                    cancel_event=stream_cancel_event,
+                ),
                 media_type="text/event-stream",
             )
         else:

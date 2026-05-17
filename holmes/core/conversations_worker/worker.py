@@ -859,6 +859,9 @@ class ConversationWorker:
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
+
+        cancel_event = threading.Event()
+
         try:
             ai = self.config.create_toolcalling_llm(
                 dal=self.dal,
@@ -941,6 +944,7 @@ class ConversationWorker:
                     response_format=chat_request.response_format,
                     request_context=request_context,
                     trace_span=trace_span,
+                    cancel_event=cancel_event,
                 )
                 stream = stream_with_usage_recording(raw_stream, recorder_state)
 
