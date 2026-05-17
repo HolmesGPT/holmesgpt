@@ -707,6 +707,76 @@ runs in ~256s wall at -n 4 (~$3.30). Budget accordingly when looping.
   `/api/v1/v1/messages` (doubled path) and 404s; use `openai/anthropic/<model>` instead
 - Assuming Anthropic / OpenAI keys are present — only `OPENROUTER_API_KEY` is available
 
+**Caveats and gotchas (things that DO work but with strings attached):**
+
+- **`oomScoreAdj` rewrite is a behavioural fudge.** The wrapper rewrites
+  `oomScoreAdj: -998` (set by k3s on the pause container and a few system pods like
+  coredns/local-path-provisioner) to `0`. User pods are unaffected — kubelet derives
+  their `oomScoreAdj` from QoS class (0 for Guaranteed, ~999 Burstable, ~1000
+  BestEffort), all non-negative so the `s/:-[0-9]+/0/` regex never matches them.
+  In practice this means: under sustained memory pressure on the k3s container,
+  the kernel OOM killer may pick a pause/coredns container before a user
+  container that it would normally protect, which can tear the pod sandbox out
+  from under a workload. Doesn't happen at the ~20-pod scale the regression
+  suite hits here, but be aware if you write a memory-stress eval, or an eval
+  that asserts directly on `/proc/<pid>/oom_score_adj` of a system pod.
+- **The runc wrapper survives `docker restart k3s-server` but NOT
+  `docker rm`.** The wrapper lives on the container's writable layer at
+  `/bin/runc` (with the original at `/bin/runc.real`). A fresh container starts
+  with stock runc and pods get stuck again — re-run the "wait for /bin/runc /
+  swap in wrapper" block from the recipe. To verify the wrapper is active:
+  `docker exec k3s-server head -3 /bin/runc` should show the shebang + comment,
+  not a binary.
+- **The sandbox itself is reclaimed after a period of inactivity.** dockerd,
+  the k3s container, kubectl, and helm all disappear when the session container
+  is reclaimed. Re-run the full bring-up. Anything you didn't commit and push
+  is also gone — including local kubeconfigs, model_list.yaml, runc-wrapper,
+  registries.yaml. Keep the recipe scriptable.
+- **`CAP_SYS_RESOURCE` removal blocks more than just `oomScoreAdj`.** Anything
+  that tries to raise rlimits (`RLIMIT_NOFILE`, `RLIMIT_NPROC`) also fails. The
+  hard ulimit for open files is pinned at 4096 and not even root can raise it;
+  `prlimit --pid $$ --nofile=65536:65536` returns "Operation not permitted".
+  In practice this is fine for the regression suite (small workloads), but a
+  test that spins up a process requiring tens of thousands of fds (a DB under
+  load, an HTTP load-generator, etc.) will hit it. Do NOT pass `--ulimit
+  nofile=65536:65536` to the k3s `docker run` line — it will fail the container
+  start with `error setting rlimit type 7: operation not permitted`.
+- **Parallel pytest workers cause image-pull contention.** With `-n 4` the first
+  setup wave creates ~25 pods simultaneously and containerd pulls all the
+  unique images in parallel through the sandbox proxy. The first parallel
+  regression run takes ~80s of setup (mostly image pull) per worker; a second
+  run on the same cluster reuses the image cache and is much faster. If you're
+  iterating, **do NOT** delete the k3s container between runs.
+- **Sandbox network policy controls outbound access.** All recipe pulls
+  (`get.helm.sh`, `dl.k8s.io`, `kind.sigs.k8s.io`, `openrouter.ai`,
+  `registry-1.docker.io`, `ghcr.io` Calico images, etc.) succeed under the
+  default policy that was active during verification, but if a future
+  environment uses a stricter policy some installs may fail. The k3s
+  `registries.yaml` only covers `docker.io`, `registry.k8s.io`, and `quay.io`;
+  if a workload pulls from another registry (e.g. `ghcr.io`) extend
+  `registries.yaml` with the same `ca_file:` block for it.
+- **Eval `before_test` scripts can `kubectl exec` pods you just created.** If
+  your test_case.yaml does that, the inner pod has to actually run — make
+  sure the wrapper is in place before launching pytest, not after.
+- **`docker save` / `ctr images import` for side-loading images is unreliable**
+  in this combination. Some images import cleanly, others fail with
+  `content digest ...: not found` (saw this with the multi-image tar bundle).
+  If you need to pre-seed an image, save and import one at a time. Pulling
+  through containerd with the registries.yaml fix is more reliable than
+  side-loading.
+- **kubeconfig regenerates if the k3s container is removed and recreated.**
+  Refresh `~/.kube/config` from `/tmp/k3s-output/kubeconfig.yaml` (or via
+  `docker cp k3s-server:/output/kubeconfig.yaml ~/.kube/config`) after any
+  container recreation, or kubectl will fail with "x509: certificate signed
+  by unknown authority".
+- **NetworkPolicy enforcement isn't recoverable in this sandbox.** Both
+  approaches I tried bottom out on `ipset`: k3s's kube-router skips its NP
+  controller at startup, and Calico's felix logs the same kernel error
+  continuously. Calico's eBPF dataplane is blocked separately by `/sys/fs`
+  not being a shared mount, so the `mount-bpffs` init container can't run.
+  Don't waste cycles installing another CNI for NP support — it won't work
+  until the sandbox kernel allows ipset/netlink-NFNL_SUBSYS_IPSET operations.
+
 ## Reading CodeRabbit Review Comments
 
 In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:
