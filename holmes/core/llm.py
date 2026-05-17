@@ -55,6 +55,8 @@ MODEL_LIST_FILE_LOCATION = os.environ.get(
 OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
 
+_warned_missing_model_lookups: set[tuple[str, str]] = set()
+
 
 def get_context_window_compaction_threshold_pct() -> int:
     """Get the compaction threshold percentage at runtime to support test overrides."""
@@ -412,12 +414,15 @@ class DefaultLLM(LLM):
             except Exception:
                 continue
 
-        # Log which lookups we tried
-        logging.warning(
-            f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-            f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
-            f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
-        )
+        # Log which lookups we tried (once per model to avoid log spam)
+        warn_key = (self.model, "max_input_tokens")
+        if warn_key not in _warned_missing_model_lookups:
+            _warned_missing_model_lookups.add(warn_key)
+            logging.warning(
+                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
+                f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
+                f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
+            )
         return FALLBACK_CONTEXT_WINDOW_SIZE
 
     def _is_anthropic_model(self) -> bool:
@@ -655,12 +660,15 @@ class DefaultLLM(LLM):
             except Exception:
                 continue
 
-        # Log which lookups we tried
-        logging.warning(
-            f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-            f"using {max_output_tokens} tokens for max_output_tokens. "
-            f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
-        )
+        # Log which lookups we tried (once per model to avoid log spam)
+        warn_key = (self.model, "max_output_tokens")
+        if warn_key not in _warned_missing_model_lookups:
+            _warned_missing_model_lookups.add(warn_key)
+            logging.warning(
+                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
+                f"using {max_output_tokens} tokens for max_output_tokens. "
+                f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
+            )
         return max_output_tokens
 
 
