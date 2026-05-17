@@ -269,6 +269,10 @@ def log_to_braintrust(
         metadata["tools_used"] = list({tc.tool_name for tc in result.tool_calls})
         # Note: holmes_duration is logged separately directly to eval_span in ask_holmes()
 
+    # Number of LLM round trips (turns), used by the PR-vs-benchmark comparison
+    if result and getattr(result, "num_llm_calls", None) is not None:
+        metadata["num_llm_calls"] = result.num_llm_calls
+
     # Add token and cost data for benchmark comparison
     if result and hasattr(result, "total_tokens"):
         metadata["total_tokens"] = result.total_tokens
