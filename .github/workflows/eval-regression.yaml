@@ -1201,6 +1201,7 @@ jobs:
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
+          VICTORIALOGS_URL: ${{ secrets.VICTORIALOGS_URL }}
           CONFLUENCE_BASE_URL: ${{ vars.CONFLUENCE_BASE_URL }}
           CONFLUENCE_SA_USER: ${{ secrets.CONFLUENCE_SA_USER }}
           CONFLUENCE_SA_API_KEY: ${{ secrets.CONFLUENCE_SA_API_KEY }}
@@ -1211,6 +1212,12 @@ jobs:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          # Needed by tests/llm/utils/braintrust_history.py to authenticate the
+          # GitHub Actions API lookup that finds recent master-* / ci-benchmark-*
+          # workflow runs. Without it the unauthenticated 60 req/h rate limit is
+          # exhausted within minutes on shared runners and the "vs master" /
+          # "vs benchmark" columns silently come back empty.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}

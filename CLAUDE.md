@@ -143,6 +143,11 @@ Benefits of `extra="allow"` approach:
 
 See `prometheus/prometheus.py` PrometheusConfig for a complete example.
 
+**Class Hierarchy Placement**:
+- When adding new config fields, methods, or behavior, always check the class hierarchy and place the change at the most general level that applies
+- Don't scope a fix to a specific subclass just because the issue/request mentions it by name — check if sibling classes share the same need
+- Example: `timeout_seconds` and `max_retries` belong on `GrafanaConfig`, not `GrafanaTempoConfig`, because all Grafana toolsets (Tempo, Loki, Dashboards) make HTTP requests
+
 **LLM Integration**:
 - Uses LiteLLM for multi-provider support (OpenAI, Anthropic, Azure, etc.)
 - Structured tool calling with automatic retry and error handling
@@ -227,6 +232,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - Complex investigations should have LLM evaluation tests
 - Maintain 40% minimum test coverage
 - **Live execution is now enabled by default** to ensure tests match real-world behavior
+- **Use `responses` library for HTTP mocking**, not `@patch("requests.get")`. The `responses` library intercepts at the transport/adapter level, giving more realistic test behavior. Use `responses.RequestsMock()` with `rsps.add()` for mock responses.
 
 **Pull Request Process**:
 - PRs require maintainer approval
@@ -298,6 +304,12 @@ raw = buf.getvalue()  # Contains full ANSI escape sequences
 - Verify by counting: cursor-ups per transition should equal rendered lines per frame
 - Known Rich 13.9.4 bug: `Live.refresh()` calls `console.print(Control())` with default `end="\\n"`, adding a trailing newline not counted in `LiveRender._shape`. When the terminal has room below the display, each frame leaks 1 ghost line. When the display is at the bottom (common case), the `\\n` causes scrolling and `height-1` cursor-ups is correct.
 - Workaround: subclass `Live` and override `refresh()` to pass `end=""`. Do NOT patch `position_cursor` — that over-erases when the display is at the terminal bottom (the common case).
+
+## Investigating Eval Regressions / Holmes Behavior Changes
+
+**Understand the behavior from trace data before designing a fix.** Braintrust (or the local evals_report.md) holds the rendered prompts, per-LLM-call metrics, and tool-call sequences for each iter. Pull traces for one baseline run and one current run for the same `(test, model)` before reading any source diffs — file-level diffs (prompts, code, config) routinely mislead about what actually changed at runtime (e.g. a jinja2 template can grow in source lines and shrink in rendered output). Look at individual runs first; aggregate statistics over n iters can hide deterministic per-iter differences under variance.
+
+When reverting or fixing a suspect PR, read its full diff (`git show --stat <commit>`) before deciding what to change — a PR often has multiple effects, and reverting only the file you noticed leaves the others still acting on the model.
 
 ## Security Notes
 

@@ -66,6 +66,7 @@ class StructuredToolResultStatus(str, Enum):
     ERROR = "error"
     NO_DATA = "no_data"
     APPROVAL_REQUIRED = "approval_required"
+    FRONTEND_PAUSE = "frontend_pause"
 
     def to_color(self) -> str:
         if self == StructuredToolResultStatus.SUCCESS:
@@ -74,6 +75,8 @@ class StructuredToolResultStatus(str, Enum):
             return "red"
         elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
             return "yellow"
+        elif self == StructuredToolResultStatus.FRONTEND_PAUSE:
+            return "cyan"
         else:
             return "white"
 
@@ -84,6 +87,8 @@ class StructuredToolResultStatus(str, Enum):
             return "❌"
         elif self == StructuredToolResultStatus.APPROVAL_REQUIRED:
             return "⚠️"
+        elif self == StructuredToolResultStatus.FRONTEND_PAUSE:
+            return "⏸"
         else:
             return "⚪️"
 
@@ -100,6 +105,8 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
+    oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
@@ -154,6 +161,19 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
+class PrerequisiteCacheMode(str, Enum):
+    """Controls how prerequisite check results are cached.
+
+    DISABLED:      Run full prerequisite checks eagerly, no disk caching.
+    ENABLED:       Use cached results if available; fast config-validity checks on startup.
+    FORCE_REFRESH: Re-run all checks now and update the disk cache.
+    """
+
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    FORCE_REFRESH = "force_refresh"
+
+
 class ToolsetStatusEnum(str, Enum):
     ENABLED = "enabled"
     DISABLED = "disabled"
@@ -183,7 +203,7 @@ class ToolParameter(BaseModel):
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
-    enum: Optional[List[str]] = None  # For restricting to specific values
+    enum: Optional[List[Any]] = None  # For restricting to specific values (JSON Schema allows any type)
     # For object types: stores the additionalProperties JSON Schema value.
     # None = not specified, False = no additional properties allowed,
     # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
@@ -193,6 +213,10 @@ class ToolParameter(BaseModel):
     # These are passed through to the OpenAI-formatted schema so the LLM
     # knows about constraints.
     json_schema_extra: Optional[Dict[str, Any]] = None
+    # For union types with multiple non-null branches (anyOf in JSON Schema).
+    # When set, type_to_open_ai_schema emits {"anyOf": [...]} instead of a
+    # single type.  Each entry is a ToolParameter representing one branch.
+    any_of: Optional[List["ToolParameter"]] = None
 
     def is_strict_compatible(self) -> bool:
         """Check if this parameter (and all nested parameters) can be used in strict mode.
@@ -212,6 +236,11 @@ class ToolParameter(BaseModel):
         # Recursively check array items
         if self.items and not self.items.is_strict_compatible():
             return False
+        # Recursively check anyOf branches
+        if self.any_of:
+            for branch in self.any_of:
+                if not branch.is_strict_compatible():
+                    return False
         return True
 
     @property
@@ -266,7 +295,7 @@ class Tool(ABC, BaseModel):
     transformers: Optional[List[Transformer]] = None
     restricted: bool = Field(
         default=False,
-        description="If True, tool requires runbook authorization or restricted_tools=true to use",
+        description="If True, tool requires skill authorization or restricted_tools=true to use",
     )
 
     # Private attribute to store initialized transformer instances for performance
@@ -725,13 +754,13 @@ class Toolset(BaseModel):
         default_factory=lambda: [ToolsetTag.CORE],
     )
     config: Optional[Any] = None
-    is_default: bool = False
+
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
     restricted_tools: List[str] = Field(
         default_factory=list,
-        description="Tool names/patterns that require runbook authorization (use '*' for all tools)",
+        description="Tool names/patterns that require skill authorization (use '*' for all tools)",
     )
     approval_required_tools: List[str] = Field(
         default_factory=list,
@@ -746,23 +775,39 @@ class Toolset(BaseModel):
     _initialized: bool = PrivateAttr(default=True)
     _init_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
+    # Set by the prerequisite-check timeout handler to tell a still-running
+    # background worker to stop mutating self.status / self.error after the
+    # main thread has already marked this toolset FAILED.
+    _prereq_aborted: bool = PrivateAttr(default=False)
+
     # status fields that be cached
     type: Optional[ToolsetType] = None
     path: Optional[FilePath] = None
     status: ToolsetStatusEnum = ToolsetStatusEnum.DISABLED
     error: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
+
+    # Optional top-level YAML disambiguator for multi-variant toolsets
+    # (e.g. Database: `subtype: mysql`; Prometheus: `subtype: victoriametrics`).
+    # The value is toolset-specific; consult the toolset's documentation for
+    # accepted values. Toolsets that don't support variants ignore this field.
+    subtype: Optional[str] = None
 
     def override_with(self, override: "Toolset") -> None:
         """
         Overrides the current attributes with values from the Toolset loaded from custom config
         if they are not None.
         """
-        for field, value in override.model_dump(
-            exclude_unset=True,
-            exclude=("name"),  # type: ignore
-        ).items():
-            if field in self.__class__.model_fields and value not in (None, [], {}, ""):
-                setattr(self, field, value)
+        # Read values via getattr (not model_dump) so custom types like benedict
+        # don't round-trip through a serializer that loses in-place mutations
+        # such as env-var substitution.
+        for field in override.model_fields_set:
+            if field == "name" or field not in self.__class__.model_fields:
+                continue
+            value = getattr(override, field)
+            if value in (None, [], {}, ""):
+                continue
+            setattr(self, field, value)
 
     @model_validator(mode="before")
     def preprocess_tools(cls, values):
@@ -862,17 +907,7 @@ class Toolset(BaseModel):
 
     @property
     def missing_config(self) -> bool:
-        """True when this toolset requires user-supplied configuration that was not provided.
-
-        A toolset does NOT have missing config when any of these hold:
-        1. Already enabled or is_default
-        2. No config_classes (YAML toolsets, simple Python toolsets)
-        3. Config classes exist but all fields have defaults
-        4. Config is required AND was provided by user
-        """
-        if self.enabled or self.is_default:
-            return False
-
+        """True when this toolset has required config fields but no config was provided."""
         if not self.config_classes:
             return False
 
@@ -884,13 +919,12 @@ class Toolset(BaseModel):
         if not requires_config:
             return False
 
-        if self.config is not None:
-            return False
-
-        return True
+        return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
-        self.status = ToolsetStatusEnum.ENABLED
+        if self._prereq_aborted:
+            # Timeout handler has already finalized status; don't touch it.
+            return
 
         # Sort prerequisites by type to fail fast on missing env vars before
         # running slow commands (e.g., ArgoCD checks that timeout):
@@ -900,7 +934,15 @@ class Toolset(BaseModel):
         # 4. Command checks (slowest - may timeout or hang)
         sorted_prereqs = sorted(self.prerequisites, key=_prereq_priority)
 
+        # Accumulate results in locals so we can commit atomically at the end
+        # — a concurrent timeout-handler may declare this toolset FAILED while
+        # we're mid-check, and we must not overwrite that decision.
+        local_status: ToolsetStatusEnum = ToolsetStatusEnum.ENABLED
+        local_error: Optional[str] = None
+
         for prereq in sorted_prereqs:
+            if self._prereq_aborted:
+                return
             if isinstance(prereq, ToolsetCommandPrerequisite):
                 try:
                     command = self.interpolate_command(prereq.command)
@@ -916,43 +958,53 @@ class Toolset(BaseModel):
                         prereq.expected_output
                         and prereq.expected_output not in result.stdout
                     ):
-                        self.status = ToolsetStatusEnum.FAILED
-                        self.error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
+                        local_status = ToolsetStatusEnum.FAILED
+                        local_error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
                 except subprocess.CalledProcessError as e:
-                    self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"`{prereq.command}` returned {e.returncode}"
+                    local_status = ToolsetStatusEnum.FAILED
+                    stderr = (e.stderr or "").strip()
+                    detail = f": {stderr}" if stderr else ""
+                    local_error = (
+                        f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
+                    )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
                 for env_var in prereq.env:
                     if env_var not in os.environ:
-                        self.status = ToolsetStatusEnum.FAILED
-                        self.error = f"Environment variable {env_var} was not set"
+                        local_status = ToolsetStatusEnum.FAILED
+                        local_error = f"Environment variable {env_var} was not set"
 
             elif isinstance(prereq, StaticPrerequisite):
                 if not prereq.enabled:
-                    self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"{prereq.disabled_reason}"
+                    local_status = ToolsetStatusEnum.FAILED
+                    local_error = f"{prereq.disabled_reason}"
 
             elif isinstance(prereq, CallablePrerequisite):
                 try:
                     (enabled, error_message) = prereq.callable(self.config or {})
                     if not enabled:
-                        self.status = ToolsetStatusEnum.FAILED
+                        local_status = ToolsetStatusEnum.FAILED
                     if error_message:
-                        self.error = f"{error_message}"
+                        local_error = f"{error_message}"
                 except Exception as e:
                     logger.exception(f"Toolset {self.name} prerequisite check failed")
-                    self.status = ToolsetStatusEnum.FAILED
-                    self.error = f"Prerequisite call failed unexpectedly: {str(e)}"
+                    local_status = ToolsetStatusEnum.FAILED
+                    local_error = f"Prerequisite call failed unexpectedly: {str(e)}"
 
-            if (
-                self.status == ToolsetStatusEnum.DISABLED
-                or self.status == ToolsetStatusEnum.FAILED
-            ):
-                if not silent:
-                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
+            if local_status in (ToolsetStatusEnum.DISABLED, ToolsetStatusEnum.FAILED):
                 # no point checking further prerequisites if one failed
-                return
+                break
+
+        if self._prereq_aborted:
+            # Timeout handler claimed this toolset while we were running; honor it.
+            return
+
+        self.status = local_status
+        self.error = local_error
+        if local_status in (ToolsetStatusEnum.DISABLED, ToolsetStatusEnum.FAILED):
+            if not silent:
+                display_logger.info(f"❌ Toolset {self.name}: {self.error}")
+            return
 
         if not silent:
             display_logger.info(f"✅ Toolset {self.name}")
@@ -1036,16 +1088,15 @@ class Toolset(BaseModel):
         return None
 
     def get_config_schema(self) -> Optional[Dict[str, Any]]:
-        """Returns JSON Schema for the toolset's configuration.
+        """Returns the per-variant JSON Schema map for the toolset's configuration.
 
-        Returns a dict of { config_class_name: model_json_schema } (if any), otherwise returns None.
+        Returns `{ config_class_name: <schema entry> }` if `config_classes` is
+        set, otherwise None. Each entry's shape and the rules for hiding /
+        requiring fields are documented on `ToolsetConfig.build_schema_entry`.
         """
-        if self.config_classes:
-            return {
-                config_cls.__name__: config_cls.model_json_schema()
-                for config_cls in self.config_classes
-            }
-        return None
+        if not self.config_classes:
+            return None
+        return {cls.__name__: cls.build_schema_entry() for cls in self.config_classes}
 
     def _load_llm_instructions(self, jinja_template: str):
         tool_names = [t.name for t in self.tools]
@@ -1116,6 +1167,7 @@ class ToolsetDBModel(BaseModel):
     description: Optional[str] = None
     docs_url: Optional[str] = None
     installation_instructions: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
     updated_at: str = Field(default_factory=datetime.now().isoformat)
 
 

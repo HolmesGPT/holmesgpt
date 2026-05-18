@@ -260,14 +260,18 @@ def log_to_braintrust(
     # Add test configuration if present
     if hasattr(test_case, "conversation_history") and test_case.conversation_history:
         metadata["has_conversation_history"] = True
-    if hasattr(test_case, "runbooks") and test_case.runbooks is not None:
-        metadata["has_custom_runbooks"] = True
+    if hasattr(test_case, "skills") and test_case.skills is not None:
+        metadata["has_custom_skills"] = True
 
     # Add tool usage metrics if available
     if result and getattr(result, "tool_calls", None):
         metadata["tool_call_count"] = len(result.tool_calls)
         metadata["tools_used"] = list({tc.tool_name for tc in result.tool_calls})
         # Note: holmes_duration is logged separately directly to eval_span in ask_holmes()
+
+    # Number of LLM round trips (turns), used by the PR-vs-benchmark comparison
+    if result and getattr(result, "num_llm_calls", None) is not None:
+        metadata["num_llm_calls"] = result.num_llm_calls
 
     # Add token and cost data for benchmark comparison
     if result and hasattr(result, "total_tokens"):

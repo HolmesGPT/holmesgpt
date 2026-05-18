@@ -56,7 +56,7 @@ kind: HealthCheck
 metadata:
   name: production-check
 spec:
-  query: "Are all production pods healthy?"
+  query: "Is production healthy? Check pod status, error rates, resource pressure, and logs for anomalies."
   mode: alert
   destinations:
     - type: slack
@@ -74,7 +74,7 @@ kind: HealthCheck
 metadata:
   name: production-check
 spec:
-  query: "Are all production pods healthy?"
+  query: "Is production healthy? Check pod status, error rates, resource pressure, and logs for anomalies."
   mode: alert
   destinations:
     - type: slack
@@ -156,7 +156,7 @@ kind: HealthCheck
 metadata:
   name: critical-service-check
 spec:
-  query: "Is the payment service healthy and processing transactions?"
+  query: "Is the payment service healthy? Check transaction processing, error rates, latency, and logs for anomalies."
   mode: alert
   destinations:
     - type: pagerduty
@@ -173,7 +173,7 @@ kind: HealthCheck
 metadata:
   name: critical-service-check
 spec:
-  query: "Is the payment service healthy?"
+  query: "Is the payment service healthy? Check error rates, latency, and logs for anomalies."
   mode: alert
   destinations:
     - type: pagerduty

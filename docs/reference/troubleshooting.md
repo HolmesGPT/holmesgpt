@@ -18,26 +18,7 @@ HolmesGPT can't access logs, metrics, or traces from your observability stack.
 - Verify toolset configuration connects to Prometheus/Grafana/logs
 - Test connectivity: `kubectl exec -it <holmes-pod> -- curl http://prometheus:9090/api/v1/query?query=up`
 
-## 3. RBAC Permissions
-
-Service account lacks Kubernetes API permissions.
-
-**Error Example:**
-```
-pods is forbidden: User "system:serviceaccount:default:holmesgpt" cannot get resource "pods"
-```
-
-**Solution:**
-```yaml
-rbac:
-  create: true
-rbacRules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "events", "nodes"]
-    verbs: ["get", "list", "watch"]
-```
-
-## 4. Unclear Prompts
+## 3. Unclear Prompts
 
 Vague questions produce poor results.
 
@@ -73,6 +54,24 @@ config:
 - `gpt-4.1` - Good balance of speed/capability
 
 See [benchmark results](../development/evaluations/latest-results.md) for detailed model performance comparisons.
+
+## 6. `Extra inputs are not permitted` Errors From the LLM Provider
+
+Some providers reject messages that contain fields they don't recognize, producing errors like:
+
+```
+litellm.BadRequestError: OpenAIException - messages.1.provider_specific_fields: Extra inputs are not permitted
+```
+
+This happens when LiteLLM attaches provider-specific metadata (e.g. `provider_specific_fields`) to assistant messages and those messages are later sent back to a provider that doesn't accept the field.
+
+**Solution:** Set `LLM_EXTRA_STRIP_MESSAGE_FIELDS` to a comma-separated list of fields to strip before sending:
+
+```bash
+export LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields"
+```
+
+Replace the value with whichever field is named in your error message. Multiple fields can be passed, e.g. `"provider_specific_fields,reasoning_content"`.
 
 ---
 

@@ -15,9 +15,9 @@ This page documents all environment variables that can be used to configure Holm
 - `GEMINI_API_KEY` - API key for Google Gemini models
 - `GOOGLE_API_KEY` - Alternative API key for Google services
 
-### Azure OpenAI
-- `AZURE_API_KEY` - API key for Azure OpenAI service
-- `AZURE_API_BASE` - Base URL for Azure OpenAI endpoint
+### Azure AI Foundry
+- `AZURE_API_KEY` - API key for Azure AI Foundry service
+- `AZURE_API_BASE` - Base URL for Azure AI Foundry endpoint
 - `AZURE_API_VERSION` - API version to use (e.g., "2024-02-15-preview")
 
 ### AWS Bedrock
@@ -55,6 +55,39 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 ```
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
+
+## Server Security
+
+### HOLMES_API_KEY
+**Default:** not set (authentication disabled)
+
+When set, all API requests must include this key via either:
+
+- `X-API-Key: <key>` header, or
+- `Authorization: Bearer <key>` header
+
+Health check endpoints (`/healthz`, `/readyz`) are always exempt.
+
+**Generating a key:**
+```bash
+# Generate a random key with 32 bytes of entropy
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Or use openssl
+openssl rand -base64 32
+```
+
+**Example:**
+```bash
+export HOLMES_API_KEY=my-secret-key-here
+```
+
+**Docker example:**
+```bash
+docker run -d \
+  -e HOLMES_API_KEY=your-generated-key \
+  ...
+```
 
 ## SSL/TLS
 
@@ -135,6 +168,11 @@ export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
 ### MODEL_LIST_FILE_LOCATION
 Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
 
+If unset, HolmesGPT looks for the model list file in this order:
+
+1. `/etc/holmes/config/model_list.yaml` (server / Helm default)
+2. `~/.holmes/model_list.yaml` (CLI default)
+
 **Example:**
 ```bash
 export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
@@ -150,7 +188,7 @@ Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holme
 export HOLMES_CONFIG_PATH="/path/to/custom/config.yaml"
 ```
 
-### HOLMES_LOG_LEVEL
+### LOG_LEVEL
 Controls the logging verbosity of HolmesGPT.
 
 **Values:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
@@ -158,7 +196,22 @@ Controls the logging verbosity of HolmesGPT.
 
 **Example:**
 ```bash
-export HOLMES_LOG_LEVEL="DEBUG"
+export LOG_LEVEL="DEBUG"
+```
+
+### TRACE_TOKEN_USAGE
+When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed `/api/chat` request at `INFO` level. Useful for debugging token consumption and cost issues.
+
+**Default:** `false`
+
+**Example:**
+```bash
+export TRACE_TOKEN_USAGE="true"
+```
+
+**Sample output:**
+```
+Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
 ```
 
 ### HOLMES_CACHE_DIR
@@ -207,6 +260,20 @@ See [HTTP Header Propagation](../data-sources/header-propagation.md) for details
 
 ### Slab
 - `SLAB_API_KEY` - API key for Slab integration
+
+## Remote MCP Servers
+
+### MCP_TOOL_CALL_TIMEOUT_SEC
+**Default:** `120` (falls back to `SSE_READ_TIMEOUT`)
+
+Per-request timeout, in seconds, for MCP tool calls. Forwarded to the MCP SDK's `ClientSession.call_tool(read_timeout_seconds=...)`, which enforces it via `anyio.fail_after` around the response-stream receive. Without a bound here, streamable-http tool calls can hang indefinitely if the MCP server dies mid-response (the httpx/anyio stream EOF does not reliably wake pending response futures).
+
+On expiry the SDK raises `McpError(code=REQUEST_TIMEOUT)`, which Holmes surfaces as a `StructuredToolResultStatus.ERROR` result with the message `Timed out while waiting for response to ClientRequest. Waited N seconds.`
+
+**Example:**
+```bash
+export MCP_TOOL_CALL_TIMEOUT_SEC=60
+```
 
 ## Testing and Development
 

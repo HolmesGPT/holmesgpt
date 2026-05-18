@@ -1,0 +1,21 @@
+user_prompt: "What's wrong with the `finance` kafka topic?"
+tags:
+  - logs
+  - kafka
+  - skills
+  - medium # gpt-4o does not get to the root cause which is slower consumer due to email processing.
+
+skip: true
+skip_reason: this hangs when the port-forward is not set up correctly
+
+expected_output: |
+  `invoices-app` is slow to process messages because email sending is slow
+# Manual port-forward is required:
+#   kubectl port-forward svc/kafka 9092:9092 -n ask-holmes-namespace-55
+# and make sure the advertised hostname `kafka` is redirected to localhost:
+#   echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+before_test: |
+  kubectl apply -f ./app/kafka-manifest.yaml && sleep 30
+after_test: kubectl delete -f ./app/kafka-manifest.yaml
+include_files:
+  - kafka_lag_instructions.md

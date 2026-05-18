@@ -1,3 +1,4 @@
+import copy
 import re
 from typing import Any, Optional
 
@@ -11,6 +12,54 @@ from holmes.common.env_vars import (
 pattern = r"^(array\[(?P<inner_type>\w+)\])|(?P<simple_type>\w+)$"
 
 
+def _ensure_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Recursively enforce OpenAI strict-mode constraints on a JSON Schema dict.
+
+    - Sets ``additionalProperties: false`` on every object that has ``properties``.
+    - Ensures ``required`` lists all property names (strict mode requires it).
+    - Recurses into nested objects, array items, and anyOf/oneOf branches.
+
+    Returns a shallow-copied schema so the caller's original is not mutated.
+    """
+    schema = dict(schema)  # shallow copy top level
+
+    schema_type = schema.get("type")
+
+    if schema_type == "object" and "properties" in schema:
+        schema["additionalProperties"] = False
+        schema["required"] = list(schema["properties"].keys())
+        schema["properties"] = {
+            k: _ensure_strict_schema(v) for k, v in schema["properties"].items()
+        }
+
+    if "items" in schema and isinstance(schema["items"], dict):
+        schema["items"] = _ensure_strict_schema(schema["items"])
+
+    for keyword in ("anyOf", "oneOf"):
+        if keyword in schema and isinstance(schema[keyword], list):
+            schema[keyword] = [
+                _ensure_strict_schema(branch) if isinstance(branch, dict) else branch
+                for branch in schema[keyword]
+            ]
+
+    return schema
+
+
+def apply_strict_mode(result: dict[str, Any]) -> dict[str, Any]:
+    """Apply strict-mode envelope to a fully-built OpenAI tool definition.
+
+    Sets ``strict: true`` on the function and enforces
+    ``additionalProperties: false`` recursively on the parameters schema.
+    Shared by both the ToolParameter pipeline and the frontend raw-schema path.
+    """
+    result = copy.deepcopy(result)
+    func = result.get("function", {})
+    func["strict"] = True
+    if "parameters" in func:
+        func["parameters"] = _ensure_strict_schema(func["parameters"])
+    return result
+
+
 def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
     """Check if all parameters in a tool are compatible with strict mode."""
     for param in tool_parameters.values():
@@ -20,6 +69,13 @@ def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
+    # Handle union types (anyOf with multiple non-null branches) first.
+    if hasattr(param_attributes, "any_of") and param_attributes.any_of:
+        branches = [type_to_open_ai_schema(branch, strict_mode) for branch in param_attributes.any_of]
+        if not param_attributes.required:
+            branches.append({"type": "null"})
+        return {"anyOf": branches}
+
     # Normalize schema types: MCP servers may emit nullable lists (e.g., ["string", "null"])
     # per JSON Schema spec, while OpenAI expects a primary type with explicit nullability via anyOf.
     raw_type = param_attributes.type
@@ -142,9 +198,8 @@ def format_tool_to_open_ai_standard(
         },
     }
 
-    if strict_mode and result["function"]:
-        result["function"]["strict"] = True
-        result["function"]["parameters"]["additionalProperties"] = False
+    if strict_mode:
+        result = apply_strict_mode(result)
 
     # gemini doesnt have parameters object if it is without params
     if TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS and (

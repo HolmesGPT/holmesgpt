@@ -51,6 +51,7 @@ from rich.text import Text
 from holmes.config import Config
 from holmes.core.config import config_path_dir
 from holmes.core.init_event import StatusEvent, StatusEventKind, ToolsetStatus
+from holmes.core.toolset_manager import get_prereq_timeout_seconds
 from holmes.core.feedback import (
     PRIVACY_NOTICE_BANNER,
     Feedback,
@@ -173,6 +174,9 @@ class InitProgressRenderer:
         self._start_time: float = 0.0
         self._live: Optional[Any] = None  # Rich Live
         self._timer_stop = threading.Event()
+        # Read once — _build_display() runs every frame, and the env-var
+        # parser also logs a warning when the value is invalid.
+        self._prereq_timeout_secs = get_prereq_timeout_seconds()
 
     def _build_display(self) -> "Text":
         """Build the Rich renderable for the current state."""
@@ -206,17 +210,32 @@ class InitProgressRenderer:
             display.append("\n  ")
             display.append(f"  ready: {names}", style="green")
 
-        # Show in-flight toolsets that are taking more than 1 second
+        # Show in-flight toolsets that are taking more than 1 second.
+        # Color escalates as the duration approaches the prerequisite timeout
+        # so the user can see at a glance which datasource is the culprit.
+        timeout_secs = self._prereq_timeout_secs
+        # Scale the "show as slow" threshold so it fires before the timeout
+        # even when HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS is set very low.
+        slow_threshold = min(_SLOW_THRESHOLD_SECS, timeout_secs * 0.5)
         slow: List[tuple[str, float]] = []
         for name, started_at in self._in_flight.items():
             duration = now - started_at
-            if duration >= _SLOW_THRESHOLD_SECS:
+            if duration >= slow_threshold:
                 slow.append((name, duration))
         if slow:
             slow.sort(key=lambda x: -x[1])  # longest first
-            parts = [f"{name} ({dur:.0f}s)" for name, dur in slow]
             display.append("\n  ")
-            display.append(f"  checking: {', '.join(parts)}", style="yellow")
+            display.append("  checking: ", style="yellow")
+            for i, (name, dur) in enumerate(slow):
+                if i > 0:
+                    display.append(", ", style="yellow")
+                if dur >= timeout_secs:
+                    style = "bold red"
+                elif dur >= timeout_secs * 0.5:
+                    style = "bold yellow"
+                else:
+                    style = "yellow"
+                display.append(f"{name} ({dur:.0f}s)", style=style)
 
         if self._toolsets_failed:
             failed_names = ", ".join(name for name, _ in self._toolsets_failed[-4:])
@@ -235,7 +254,7 @@ class InitProgressRenderer:
         return display
 
     def on_event(self, event: StatusEvent) -> None:
-        """Callback passed as on_event to create_console_toolcalling_llm."""
+        """Callback passed as on_event to create_toolcalling_llm."""
         with self._lock:
             if event.kind == StatusEventKind.TOOLSET_CHECKING:
                 self._in_flight[event.name] = time.time()
@@ -268,7 +287,7 @@ class InitProgressRenderer:
                     self._live.update(self._build_display())
 
     def start(self) -> None:
-        """Start the live display. Call before create_console_toolcalling_llm."""
+        """Start the live display. Call before create_toolcalling_llm."""
         self._start_time = time.time()
         self._live = _make_live(
             self._build_display(),
@@ -1280,6 +1299,37 @@ class ShowCommandCompleter(Completer):
 
 WELCOME_BANNER = f"[dim]Type [bold]{SlashCommands.HELP.command}[/bold] for commands, [bold]{SlashCommands.CONFIG.command}[/bold] to configure, [bold]{SlashCommands.EXIT.command}[/bold] to quit[/dim]"
 
+SAMPLE_QUESTIONS = [
+    "Find surprising or unusual things in my Kubernetes cluster",
+    "Are any of my pods unhealthy? If so, why?",
+    "Check my cluster for security misconfigurations",
+    "Scan my cluster for resource issues (high CPU, memory, disk pressure)",
+    "What's running in my cluster and is anything misconfigured?",
+]
+
+_ASK_OWN_QUESTION_LABEL = "Ask my own question..."
+
+
+def _show_sample_questions_menu(console: Console) -> Optional[str]:
+    """Show sample questions menu on startup when no question is provided.
+
+    Returns the selected question text, or None if the user wants to type their own.
+    """
+    options = SAMPLE_QUESTIONS + [_ASK_OWN_QUESTION_LABEL]
+    default_index = len(options) - 1  # "Ask my own question" is the default
+
+    header = Panel(
+        "[bold]Try one of these questions to get started:[/bold]",
+        border_style="dim",
+        padding=(0, 1),
+    )
+
+    result = _run_inline_menu(options, console, header=header, default_index=default_index)
+
+    if result is None or result == default_index:
+        return None
+    return SAMPLE_QUESTIONS[result]
+
 
 def format_tool_call_output(
     tool_call: ToolCallResult, tool_index: Optional[int] = None
@@ -1688,7 +1738,10 @@ def prompt_for_llm_sharing(
 
 
 def _run_inline_menu(
-    options: list[str], console: Console, header: Any = None
+    options: list[str],
+    console: Console,
+    header: Any = None,
+    default_index: int = 0,
 ) -> Optional[int]:
     """Run an inline menu with arrow-key navigation using prompt_toolkit.
 
@@ -1702,11 +1755,12 @@ def _run_inline_menu(
         console: Rich console for output.
         header: Optional Rich renderable printed above the menu (erased
                 via ANSI codes after the menu exits).
+        default_index: Index of the initially selected option (0-based).
 
     Returns:
         Index of selected option (0-based), or ``None`` if cancelled.
     """
-    selected = [0]
+    selected = [default_index]
     result: List[Optional[int]] = [None]
 
     def get_menu_text():
@@ -1770,8 +1824,9 @@ def _run_inline_menu(
     )
     app.run()
 
-    # erase_when_done clears the menu; also erase the Rich header above it
-    if header_lines > 0:
+    # erase_when_done clears the menu; also erase the Rich header above it.
+    # Only emit ANSI escapes on interactive terminals.
+    if header_lines > 0 and sys.stdout.isatty():
         sys.stdout.write(f"\x1b[{header_lines}A\x1b[0J")
         sys.stdout.flush()
 
@@ -2223,7 +2278,7 @@ def run_interactive_loop(
     include_files: Optional[List[Path]],
     show_tool_output: bool,
     tracer=None,
-    runbooks=None,
+    skills=None,
     system_prompt_additions: Optional[str] = None,
     check_version: bool = True,
     feedback_callback: Optional[FeedbackCallback] = None,
@@ -2373,6 +2428,11 @@ def run_interactive_loop(
         welcome_banner += f", [bold]{SlashCommands.FEEDBACK.command}[/bold] for feedback"
     console.print(welcome_banner)
 
+    if not initial_user_input:
+        sample = _show_sample_questions_menu(console)
+        if sample:
+            initial_user_input = sample
+
     if initial_user_input:
         console.print(
             f"\n[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {initial_user_input}"
@@ -2514,7 +2574,7 @@ def run_interactive_loop(
                     user_input,
                     include_files,
                     ai.tool_executor,
-                    runbooks,
+                    skills,
                     system_prompt_additions,
                     prompt_component_overrides=prompt_component_overrides,
                 )

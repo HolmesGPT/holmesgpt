@@ -2,10 +2,9 @@ import concurrent.futures
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Union
-
-display_logger = logging.getLogger("holmes.display.toolset_manager")
 
 from benedict import benedict
 from pydantic import FilePath
@@ -13,7 +12,7 @@ from pydantic import FilePath
 from holmes.core.config import config_path_dir
 from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, ToolsetStatus
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
+from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
 from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
@@ -21,11 +20,42 @@ from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
 if TYPE_CHECKING:
     pass
 
+display_logger = logging.getLogger("holmes.display.toolset_manager")
+
+# Default per-prerequisite-check timeout. Datasources that fail to respond
+# within this many seconds are marked failed so startup can proceed.
+# Override with the HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS env var.
+DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS = 20.0
+
+
+def get_prereq_timeout_seconds() -> float:
+    """Resolve the prerequisite-check timeout from env or fall back to default."""
+    raw = os.environ.get("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS")
+    if not raw:
+        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logging.warning(
+            f"Invalid HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r}; "
+            f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
+        )
+        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    if value <= 0:
+        logging.warning(
+            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} is non-positive; "
+            f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
+        )
+        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+    return value
+
+
 DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status.json")
 
 # Mapping of deprecated toolset names to their new names
 DEPRECATED_TOOLSET_NAMES: dict[str, str] = {
     "coralogix/logs": "coralogix",
+    "runbook": "skills",
 }
 
 
@@ -58,14 +88,14 @@ class ToolsetManager:
         custom_toolsets: Optional[List[FilePath]] = None,
         custom_toolsets_from_cli: Optional[List[FilePath]] = None,
         toolset_status_location: Optional[FilePath] = None,
-        custom_runbook_catalogs: Optional[List[Union[str, FilePath]]] = None,
+        custom_skill_paths: Optional[List[Union[str, FilePath]]] = None,
         config_file_path: Optional[Path] = None,
         additional_toolsets: Optional[List[Toolset]] = None,
     ):
         self.toolsets = toolsets
         self.toolsets = toolsets or {}
         self.additional_toolsets = additional_toolsets or []
-        self.custom_runbook_catalogs = custom_runbook_catalogs
+        self.custom_skill_paths = custom_skill_paths
         if mcp_servers is not None:
             for _, mcp_server in mcp_servers.items():
                 mcp_server["type"] = ToolsetType.MCP.value
@@ -117,12 +147,12 @@ class ToolsetManager:
         3. custom toolset from config can override both built-in and add new custom toolsets # for backward compatibility
         """
         # Load built-in toolsets
-        # Extract search paths from custom catalog files
+        # Extract search paths from custom skill paths
         additional_search_paths = None
-        if self.custom_runbook_catalogs:
+        if self.custom_skill_paths:
             additional_search_paths = [
-                os.path.dirname(os.path.abspath(str(catalog_path)))
-                for catalog_path in self.custom_runbook_catalogs
+                str(Path(p).resolve()) if Path(p).is_dir() else os.path.dirname(os.path.abspath(str(p)))
+                for p in self.custom_skill_paths
             ]
 
         builtin_toolsets = load_builtin_toolsets(dal, additional_search_paths)
@@ -168,11 +198,17 @@ class ToolsetManager:
                 toolsets_by_name[toolset.name] = toolset
 
         if toolset_tags is not None:
-            toolsets_by_name = {
-                name: toolset
-                for name, toolset in toolsets_by_name.items()
-                if any(tag in toolset_tags for tag in toolset.tags)
-            }
+            filtered_toolsets_by_name = {}
+            for name, toolset in toolsets_by_name.items():
+                if any(tag in toolset_tags for tag in toolset.tags):
+                    filtered_toolsets_by_name[name] = toolset
+                elif toolset.enabled:
+                    logging.warning(
+                        f"Toolset '{name}' is enabled but was excluded because its tags "
+                        f"{[tag.value for tag in toolset.tags]} don't match the current "
+                        f"mode's tags {[tag.value for tag in toolset_tags]}"
+                    )
+            toolsets_by_name = filtered_toolsets_by_name
 
         final_toolsets = list(toolsets_by_name.values())
 
@@ -196,25 +232,116 @@ class ToolsetManager:
         toolsets: list[Toolset],
         silent: bool = False,
         on_event: EventCallback = None,
+        timeout_seconds: Optional[float] = None,
     ):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_toolset = {}
+        """Run prerequisite checks for each toolset in parallel with a timeout.
+
+        Toolsets whose checks don't return within ``timeout_seconds`` are
+        marked FAILED so a hung datasource can't block startup. The timeout
+        defaults to ``HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS`` (or 20s).
+
+        Note: the timeout bounds *reporting latency*, not worker lifetime.
+        Python cannot interrupt a thread blocked in C code (e.g.
+        ``subprocess.run`` without its own ``timeout=``, a socket connect
+        with no timeout). ``executor.shutdown(wait=False)`` lets us return
+        early, but the interpreter's atexit handler still joins all pool
+        threads on process exit, so a permanently stuck worker delays
+        shutdown. ``_prereq_aborted`` only stops the worker between
+        prerequisites, not mid-call. Toolset authors should set explicit
+        timeouts on the I/O calls they make from prerequisite callables.
+        """
+        if timeout_seconds is None:
+            timeout_seconds = get_prereq_timeout_seconds()
+
+        if not toolsets:
+            return
+
+        # Size the pool to the batch so no toolset has to wait in the queue.
+        # A queued toolset would inherit whatever time is left on the deadline
+        # and could be reported as "timed out" without ever having run.
+        max_workers = max(1, len(toolsets))
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+
+        # Reset any abort flag from a previous call so we don't no-op the check.
+        for toolset in toolsets:
+            toolset._prereq_aborted = False
+
+        try:
+            future_to_toolset: dict[concurrent.futures.Future, Toolset] = {}
             for toolset in toolsets:
                 if on_event is not None:
                     on_event(StatusEvent(kind=StatusEventKind.TOOLSET_CHECKING, name=toolset.name))
                 future_to_toolset[executor.submit(toolset.check_prerequisites, silent)] = toolset
 
-            for future in concurrent.futures.as_completed(future_to_toolset):
-                if on_event is not None:
+            # Single deadline shared across the batch. With max_workers ==
+            # len(toolsets) every check starts immediately, so this functions
+            # as a per-toolset wall-clock budget too.
+            deadline = time.monotonic() + timeout_seconds
+            pending = set(future_to_toolset.keys())
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                done, pending = concurrent.futures.wait(
+                    pending,
+                    timeout=remaining,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                if not done:
+                    break
+                for future in done:
                     ts = future_to_toolset[future]
+                    # Surface unexpected exceptions from the worker —
+                    # check_prerequisites catches the common ones, but a
+                    # crash in interpolate_command, subprocess, etc. would
+                    # otherwise leave ts in a stale state.
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        logging.exception(
+                            "Toolset %s prerequisite worker crashed", ts.name
+                        )
+                        ts.status = ToolsetStatusEnum.FAILED
+                        ts.error = f"Prerequisite check failed unexpectedly: {exc!s}"
+                    if on_event is not None:
+                        on_event(
+                            StatusEvent(
+                                kind=StatusEventKind.TOOLSET_READY,
+                                name=ts.name,
+                                status=ToolsetStatus(ts.status.value),
+                                error=ts.error or "",
+                            )
+                        )
+
+            for future in pending:
+                ts = future_to_toolset[future]
+                # Tell the still-running worker to stop mutating ts.status /
+                # ts.error before we write our own FAILED state. Toolset.
+                # check_prerequisites accumulates results in locals and only
+                # commits once at the end after re-checking this flag.
+                ts._prereq_aborted = True
+                ts.status = ToolsetStatusEnum.FAILED
+                ts.error = (
+                    f"Prerequisite check did not complete within "
+                    f"{timeout_seconds:g}s (datasource unreachable or too slow). "
+                    f"Increase the limit with HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS."
+                )
+                future.cancel()
+                if not silent:
+                    display_logger.warning(
+                        f"⏱  Toolset {ts.name}: timed out after {timeout_seconds:g}s"
+                    )
+                if on_event is not None:
                     on_event(
                         StatusEvent(
                             kind=StatusEventKind.TOOLSET_READY,
                             name=ts.name,
-                            status=ToolsetStatus(ts.status.value),
-                            error=ts.error or "",
+                            status=ToolsetStatus.FAILED,
+                            error=ts.error,
                         )
                     )
+        finally:
+            executor.shutdown(wait=False)
 
     @staticmethod
     def _check_config_prerequisites(toolsets: list[Toolset]) -> None:
@@ -378,9 +505,6 @@ class ToolsetManager:
                 toolset.status = ToolsetStatusEnum(cached_status["status"])
                 toolset.error = cached_status.get("error", None)
                 toolset.enabled = cached_status.get("enabled", True)
-                toolset.type = ToolsetType(
-                    cached_status.get("type", ToolsetType.BUILTIN.value)
-                )
                 toolset.path = cached_status.get("path", None)
             # check prerequisites for only enabled toolset when the toolset is loaded from cache. When the toolset is
             # not loaded from cache, the prerequisites are checked in the refresh_toolset_status method.
@@ -518,6 +642,72 @@ class ToolsetManager:
             check_prerequisites=True,
             enable_all_toolsets=False,
             toolset_tags=self.server_tool_tags,
+            silent=True,
+        )
+
+        changes: List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]] = []
+        for toolset in new_toolsets:
+            old_status = old_status_by_name.get(toolset.name)
+            if old_status is not None and old_status != toolset.status:
+                changes.append((toolset.name, old_status, toolset.status))
+
+        return new_toolsets, changes
+
+    # ── Unified API used by Config.create_tool_executor / refresh_tool_executor ──
+
+    def prepare_toolsets(
+        self,
+        dal: Optional[SupabaseDal] = None,
+        toolset_tag_filter: Optional[List[ToolsetTag]] = None,
+        enable_all_toolsets_possible: bool = True,
+        prerequisite_cache: PrerequisiteCacheMode = PrerequisiteCacheMode.ENABLED,
+        on_event: EventCallback = None,
+    ) -> List[Toolset]:
+        """Load and return toolsets using explicit behavioral controls.
+
+        Maps ``PrerequisiteCacheMode`` to the existing loading strategies:
+        - DISABLED  → ``_list_all_toolsets`` with live checks, no disk cache.
+        - ENABLED   → ``load_toolset_with_status`` with ``refresh_status=False``.
+        - FORCE_REFRESH → ``load_toolset_with_status`` with ``refresh_status=True``.
+        """
+        tags = toolset_tag_filter or [ToolsetTag.CORE]
+
+        if prerequisite_cache == PrerequisiteCacheMode.DISABLED:
+            return self._list_all_toolsets(
+                dal=dal,
+                check_prerequisites=True,
+                enable_all_toolsets=enable_all_toolsets_possible,
+                toolset_tags=tags,
+                on_event=on_event,
+            )
+
+        return self.load_toolset_with_status(
+            dal=dal,
+            refresh_status=(prerequisite_cache == PrerequisiteCacheMode.FORCE_REFRESH),
+            enable_all_toolsets=enable_all_toolsets_possible,
+            toolset_tags=tags,
+            on_event=on_event,
+        )
+
+    def refresh_toolsets_and_get_changes(
+        self,
+        current_toolsets: List[Toolset],
+        dal: Optional[SupabaseDal] = None,
+        toolset_tag_filter: Optional[List[ToolsetTag]] = None,
+        enable_all_toolsets_possible: bool = False,
+    ) -> tuple[List[Toolset], List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]]]:
+        """Refresh toolsets and return (new_toolsets, changes) with explicit controls."""
+        tags = toolset_tag_filter or [ToolsetTag.CORE]
+
+        old_status_by_name: dict[str, ToolsetStatusEnum] = {
+            toolset.name: toolset.status for toolset in current_toolsets
+        }
+
+        new_toolsets = self._list_all_toolsets(
+            dal,
+            check_prerequisites=True,
+            enable_all_toolsets=enable_all_toolsets_possible,
+            toolset_tags=tags,
             silent=True,
         )
 

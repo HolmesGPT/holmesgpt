@@ -7,7 +7,7 @@ import os
 import threading
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import sentry_sdk
@@ -20,7 +20,13 @@ from postgrest.exceptions import APIError as PGAPIError
 from postgrest.types import ReturnMethod
 from pydantic import BaseModel
 from supabase import create_client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import SyncClientOptions as ClientOptions
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from holmes.common.env_vars import (
     ROBUSTA_ACCOUNT_ID,
@@ -37,11 +43,17 @@ from holmes.core.resource_instruction import (
 from holmes.core.truncation.dal_truncation_utils import (
     truncate_evidences_entities_if_necessary,
 )
-from holmes.plugins.runbooks import RobustaRunbookInstruction
+from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
 from holmes.utils.krr_utils import calculate_krr_savings
+
+if TYPE_CHECKING:
+    # Forward reference only — `usage_recorder` already TYPE_CHECKING-imports
+    # this module, so importing the other direction at runtime would close
+    # the cycle. We just need the name for the parameter annotation.
+    from holmes.core.usage_recorder import UsageRecorderState
 
 SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 60))
 
@@ -60,6 +72,10 @@ SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
 SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
 HOLMES_RESULTS_TABLE = "HolmesResults"
+CONVERSATIONS_TABLE = "Conversations"
+CONVERSATION_EVENTS_TABLE = "ConversationEvents"
+OAUTH_TOKENS_TABLE = "OAuthTokens"
+HOLMES_USAGE_EVENTS_TABLE = "HolmesUsageEvents"
 
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
@@ -593,7 +609,7 @@ class SupabaseDal:
 
         return issue_data
 
-    def get_runbook_catalog(self) -> Optional[List[RobustaRunbookInstruction]]:
+    def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
         if not self.enabled:
             return None
 
@@ -603,6 +619,7 @@ class SupabaseDal:
                 .select("*")
                 .eq("account_id", self.account_id)
                 .eq("subject_type", "RunbookCatalog")
+                .eq("enabled", True)
                 .execute()
             )
             if not res.data:
@@ -613,20 +630,22 @@ class SupabaseDal:
                 id = row.get("runbook_id")
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
+                clusters = row.get("clusters")
                 if not symptom:
-                    logging.warning("Skipping runbook with empty symptom: %s", id)
+                    logging.warning("Skipping skill with empty symptom: %s", id)
+                    continue
+                # Filter by cluster: null means all clusters, otherwise check membership
+                if clusters is not None and self.cluster not in clusters:
                     continue
                 instructions.append(
-                    RobustaRunbookInstruction(id=id, symptom=symptom, title=title)
+                    RobustaSkillInstruction(id=id, symptom=symptom, title=title)
                 )
             return instructions
         except Exception:
-            logging.exception("Failed to fetch RunbookCatalog", exc_info=True)
+            logging.exception("Failed to fetch skill catalog", exc_info=True)
             return None
 
-    def get_runbook_content(
-        self, runbook_id: str
-    ) -> Optional[RobustaRunbookInstruction]:
+    def get_skill_content(self, skill_id: str) -> Optional[RobustaSkillInstruction]:
         if not self.enabled:
             return None
 
@@ -635,7 +654,7 @@ class SupabaseDal:
             .select("*")
             .eq("account_id", self.account_id)
             .eq("subject_type", "RunbookCatalog")
-            .eq("runbook_id", runbook_id)
+            .eq("runbook_id", skill_id)
             .execute()
         )
         if not res.data or len(res.data) != 1:
@@ -658,11 +677,11 @@ class SupabaseDal:
         else:
             # in case the format is unexpected, convert to string
             logging.error(
-                f"Unexpected runbook instruction format for runbook_id={runbook_id}: {raw_instruction}"
+                f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
             )
             instruction = str(raw_instruction)
 
-        return RobustaRunbookInstruction(
+        return RobustaSkillInstruction(
             id=id, symptom=symptom, instruction=instruction, title=title
         )
 
@@ -808,6 +827,70 @@ class SupabaseDal:
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
             )
 
+    def record_usage_event(self, state: "UsageRecorderState") -> None:
+        """Record one HolmesUsageEvents row. Best-effort: swallows DB errors.
+
+        Called from UsageRecorderState._fire on a daemon thread, so
+        errors here only affect the telemetry row, never the request
+        response. Takes a ``UsageRecorderState`` and reads only the fields
+        that map to columns — this is the single place that knows the
+        column shape, so adding a new field is "add it on the state, read
+        it here, write the migration." The DAL doesn't import the state
+        class at runtime (TYPE_CHECKING-only); attribute access is duck-
+        typed, so any object with the right shape works (handy for tests).
+        """
+        if not self.enabled:
+            return
+        try:
+            stats = state.stats  # may be None on aborted/error rows
+            self.client.table(HOLMES_USAGE_EVENTS_TABLE).insert({
+                "account_id": self.account_id,
+                "cluster_id": state.cluster_id or self.cluster,
+                "user_id": state.user_id,
+                "conversation_id": state.conversation_id,
+                "conversation_source": state.conversation_source,
+                "request_id": state.request_id,
+                "request_type": state.request_type,
+                "request_source": state.request_source,
+                "source_ref": state.source_ref,
+                "status": state.status,
+                "model": state.model,
+                "provider": state.provider,
+                "is_robusta_model": state.is_robusta_model,
+                # Stats may be None when the request never reached a terminal
+                # event with cost data (aborted / pre-LLM error). The getattr
+                # default keeps the row writable in those cases.
+                "prompt_tokens": getattr(stats, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(stats, "completion_tokens", 0) or 0,
+                "cached_tokens": getattr(stats, "cached_tokens", None),
+                "reasoning_tokens": getattr(stats, "reasoning_tokens", 0) or 0,
+                "total_tokens": getattr(stats, "total_tokens", 0) or 0,
+                "total_cost": float(getattr(stats, "total_cost", 0.0) or 0.0),
+                "num_compactions": getattr(stats, "num_compactions", 0) or 0,
+                "iterations": state.iterations,
+                "max_prompt_tokens_per_call": getattr(
+                    stats, "max_prompt_tokens_per_call", 0
+                ) or 0,
+                "max_completion_tokens_per_call": getattr(
+                    stats, "max_completion_tokens_per_call", 0
+                ) or 0,
+                "tool_call_count": state.tool_call_count,
+                "duration_ms": state.duration_ms,
+                "is_streaming": state.is_streaming,
+                "is_internal": state.is_internal,
+                "finish_reason": state.finish_reason,
+                "meta": state.meta or {},
+            }).execute()
+        except Exception:
+            logging.exception("Failed to record usage event")
+
+    # NOTE: feedback writes (thumbs up/down + category + comment) do NOT go
+    # through Holmes. The frontend calls the public.record_feedback() Postgres
+    # function directly via supabase.rpc('record_feedback', ...). The function
+    # runs `security invoker` and scopes by `auth.uid()`, which is a stricter
+    # user-scoping than any FE-supplied user_id we could pass through here.
+    # See plan section G and the migration script for the function body.
+
     def has_scheduled_prompt_definitions(self) -> bool:
         """
         Check if the account has any scheduled prompt definitions.
@@ -899,6 +982,267 @@ class SupabaseDal:
             )
             return False
 
+    # ---- M2: Conversations worker DAL methods ----
+
+    def is_realtime_enabled(self) -> Optional[bool]:
+        """
+        Check whether Supabase Realtime is enabled by calling the
+        ``public.is_realtime_enabled()`` RPC.
+
+        Returns:
+            ``True``  — RPC executed and reported realtime is enabled.
+            ``False`` — RPC executed and reported realtime is NOT enabled,
+                       OR the RPC does not exist (treated as not enabled).
+            ``None``  — Could not determine (connectivity error, auth failure,
+                       or any other transport-level issue). The caller should
+                       NOT take destructive action in this case.
+
+        We deliberately distinguish "definitive answer from server" from
+        "couldn't reach the server" so the conversation worker only disables
+        itself when Supabase has actually told us realtime is off.
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc("is_realtime_enabled", {}).execute()
+        except PGAPIError as exc:
+            # PostgREST returns PGRST202 ("Could not find the function ...")
+            # when the RPC does not exist. Treat that as a definitive "no".
+            code = getattr(exc, "code", None) or ""
+            message = (getattr(exc, "message", None) or "").lower()
+            if code == "PGRST202" or "could not find the function" in message:
+                logging.info(
+                    "is_realtime_enabled RPC does not exist — treating Supabase "
+                    "Realtime as disabled"
+                )
+                return False
+            logging.warning(
+                "Supabase API error while checking realtime status (code=%s): %s",
+                code,
+                exc,
+            )
+            return None
+        except Exception:
+            logging.warning(
+                "Connectivity/transport error while checking realtime status",
+                exc_info=True,
+            )
+            return None
+
+        data = res.data
+        if isinstance(data, list):
+            # An empty list means PostgREST returned no rows — there's no
+            # value to coerce, so we can't conclude anything. Treat it as
+            # inconclusive (None) rather than silently disabling the
+            # worker on a False fallback.
+            if not data:
+                logging.warning(
+                    "is_realtime_enabled returned an empty result set — "
+                    "treating as inconclusive"
+                )
+                return None
+            data = data[0]
+        if data is None:
+            return None
+        # PostgREST normally returns the scalar boolean directly, but a
+        # SQL function tweak could yield a row dict like {"enabled": ...}.
+        # Bail to inconclusive on anything else — naive bool() coercion
+        # would misclassify a non-empty dict as True.
+        if isinstance(data, bool):
+            return data
+        if isinstance(data, dict) and "enabled" in data:
+            return bool(data["enabled"])
+        logging.warning(
+            "is_realtime_enabled returned unexpected payload type %s — "
+            "treating as inconclusive",
+            type(data).__name__,
+        )
+        return None
+
+    def claim_conversations(self, holmes_id: str) -> List[Dict]:
+        """
+        Atomically claim all pending conversations for this cluster.
+        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
+        """
+        if not self.enabled:
+            return []
+
+        try:
+            res = self.client.rpc(
+                "claim_conversations",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_id": self.cluster,
+                    "_assignee": holmes_id,
+                },
+            ).execute()
+            if not res.data:
+                return []
+            if isinstance(res.data, list):
+                return res.data
+            return [res.data]
+        except Exception:
+            logging.exception(
+                "Supabase error while claiming conversations", exc_info=True
+            )
+            return []
+
+    def post_conversation_events(
+        self,
+        conversation_id: str,
+        assignee: str,
+        request_sequence: int,
+        events: list,
+        compact: bool = False,
+    ) -> Optional[int]:
+        """
+        Post a batch of events. Returns assigned seq number on success.
+        Raises an exception on errors including assignee / request_sequence mismatch.
+
+        When ``compact=True``, the ``post_conversation_events`` RPC marks all
+        previous events in the conversation with seq < new_seq as compacted=true
+        (global per conversation, not scoped to request_sequence).
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            res = self.client.rpc(
+                "post_conversation_events",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_assignee": assignee,
+                    "_request_sequence": request_sequence,
+                    "_events": events,
+                    "_compact": compact,
+                },
+            ).execute()
+            if res.data is None:
+                return None
+            if isinstance(res.data, list):
+                if not res.data:
+                    return None
+                return int(res.data[0]) if not isinstance(res.data[0], dict) else None
+            return int(res.data)
+        except Exception:
+            logging.exception(
+                "Supabase error while posting conversation events", exc_info=True
+            )
+            raise
+
+    def update_conversation_status(
+        self,
+        conversation_id: str,
+        request_sequence: int,
+        assignee: str,
+        status: str,
+    ) -> bool:
+        """
+        Transition a conversation between active states or to terminal states.
+
+        Accepted statuses: ``queued``, ``running``, ``completed``, ``failed``.
+        The RPC validates that the current status is ``queued`` or ``running``
+        and that assignee + request_sequence match the row.  On terminal states
+        (``completed``, ``failed``) the assignee is cleared by the RPC.
+        """
+        # Lazy imports avoid a circular import: conversations_worker pulls in
+        # conversations.py → config → llm → supabase_dal at module load time.
+        from holmes.core.conversations_worker.models import ConversationStatus
+
+        if not self.enabled:
+            return False
+
+        if status not in ConversationStatus.updatable_values():
+            logging.error(
+                "update_conversation_status received invalid status %s", status
+            )
+            return False
+
+        try:
+            res = self.client.rpc(
+                "update_conversation_status",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_request_sequence": request_sequence,
+                    "_assignee": assignee,
+                    "_status": status,
+                },
+            ).execute()
+            return bool(res.data)
+        except Exception as e:
+            # The RPC raises MISMATCH errors when assignee, request_sequence,
+            # or status guards fail — propagate these so the worker can exit
+            # cleanly rather than retrying a stale transition.
+            if "mismatch" in str(e).lower():
+                from holmes.core.conversations_worker.models import (
+                    ConversationReassignedError,
+                )
+
+                raise ConversationReassignedError(str(e)) from e
+            logging.exception(
+                "Supabase error while updating conversation status", exc_info=True
+            )
+            return False
+
+    def get_conversation_events(
+        self,
+        conversation_id: str,
+        include_compacted: bool = False,
+        min_seq: int = 1,
+    ) -> List[Dict]:
+        """
+        Fetch conversation events as a flat chronological list.
+
+        Calls the ``get_conversation_events`` RPC, which flattens all events
+        from all matching rows into a single array ordered by ``(seq, ord)``.
+        Each element is an event dict ``{"event": ..., "data": ..., "ts": ...}``.
+
+        When ``include_compacted=False`` (default), events from rows marked
+        ``compacted=true`` are excluded — those have been superseded by a later
+        ``conversation_history_compacted`` event whose ``messages`` array already
+        reflects the consolidated state.
+
+        Holmes does not have direct SELECT/UPDATE on ConversationEvents under
+        RLS — all reads go through this SECURITY DEFINER RPC.
+        """
+        if not self.enabled:
+            return []
+
+        # Retry a few times on transient infrastructure errors (DNS/cache
+        # overflows in the Supabase proxy, 5xx gateway errors, etc.).  The
+        # caller's fallback when this returns [] is to mark the conversation
+        # failed for lack of a user question, so a transient hiccup here
+        # would cause a spurious permanent failure.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _fetch() -> List[Dict]:
+            res = self.client.rpc(
+                "get_conversation_events",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_include_compacted": include_compacted,
+                    "_min_seq": min_seq,
+                },
+            ).execute()
+            return res.data or []
+
+        try:
+            return _fetch()
+        except Exception:
+            logging.exception(
+                "Supabase error while fetching conversation events (after retries)",
+                exc_info=True,
+            )
+            return []
+
     def finish_scheduled_prompt_run(
         self,
         status: RunStatus,
@@ -945,3 +1289,120 @@ class SupabaseDal:
                 exc_info=True,
             )
             return False
+
+    # --- OAuth Token Storage ---
+
+    def get_oauth_token(
+        self, provider_name: str, user_id: str, signing_key_hash: str
+    ) -> Optional[Dict]:
+        """Get the OAuth token for a provider in this account, scoped to a user and signing key.
+
+        When user_id is None, returns None — in server mode every token is stored
+        with a real user_id, so there are no unscoped tokens to find.
+        """
+        if not self.enabled:
+            return None
+        if not user_id:
+            return None
+        try:
+            query = (
+                self.client.table(OAUTH_TOKENS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("provider_name", provider_name)
+                .eq("user_id", user_id)
+            )
+            res = query.order("updated_at", desc=True).execute()
+            if not res.data:
+                return None
+            matched = None
+            # this logic could be simplified if we queried by signing_key_hash but it is deliberate to notify users on signing_key mismatches
+            for row in res.data:
+                stored_hash = row.get("signing_key_hash")
+                if stored_hash == signing_key_hash:
+                    matched = row
+                else:
+                    if signing_key_hash:
+                        logging.warning(
+                            "DB token signing_key_hash mismatch (stored=%s, current=%s)",
+                            stored_hash[:12],
+                            signing_key_hash[:12],
+                        )
+            return matched
+        except Exception:
+            logging.exception(
+                "Error fetching OAuth token for provider %s", provider_name
+            )
+            return None
+
+    def upsert_oauth_token(
+        self,
+        provider_name: str,
+        encrypted_token: str,
+        signing_key_hash: str,
+        token_expiry: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Store or update an OAuth token for a provider in this account, scoped to a user."""
+        if not self.enabled:
+            return False
+        if not user_id:
+            logging.warning(
+                "Cannot upsert OAuth token without user_id (provider=%s)", provider_name
+            )
+            return False
+        try:
+            row = {
+                "account_id": self.account_id,
+                "origin_cluster_id": self.cluster or "unknown",
+                "provider_name": provider_name,
+                "encrypted_token": encrypted_token,
+                "signing_key_hash": signing_key_hash,
+                "token_expiry": token_expiry,
+                "updated_at": "now()",
+                "user_id": user_id,
+            }
+            self.client.table(OAUTH_TOKENS_TABLE).upsert(
+                row,
+                on_conflict="account_id,provider_name,signing_key_hash,user_id",
+            ).execute()
+            return True
+        except Exception:
+            logging.exception(
+                "Error upserting OAuth token for provider %s", provider_name
+            )
+            return False
+
+    def delete_oauth_token(
+        self, provider_name: str, user_id: str, signing_key_hash: str
+    ) -> None:
+        """Delete an OAuth token (e.g. after a 401 proves it's revoked)."""
+        self.client.table(OAUTH_TOKENS_TABLE).delete().eq(
+            "account_id", self.account_id
+        ).eq("provider_name", provider_name).eq("user_id", user_id).eq(
+            "signing_key_hash", signing_key_hash
+        ).execute()
+
+    def get_all_oauth_tokens_for_cluster(self, signing_key_hash: str) -> list[Dict]:
+        """Get all OAuth tokens owned by this cluster that match the signing key.
+
+        Preloads tokens into the in-memory cache at startup so the background
+        sweep thread can keep them alive (refresh before expiry). Without this,
+        tokens only enter the cache on first user request and may expire in the
+        DB if no requests arrive within the token lifetime.
+        """
+        if not self.enabled:
+            return []
+        try:
+            res = (
+                self.client.table(OAUTH_TOKENS_TABLE)
+                .select("*")
+                .eq("account_id", self.account_id)
+                .eq("origin_cluster_id", self.cluster or "unknown")
+                .eq("signing_key_hash", signing_key_hash)
+                .execute()
+            )
+            return res.data or []
+        except Exception:
+            logging.exception("Error fetching OAuth tokens for cluster preload")
+            return []

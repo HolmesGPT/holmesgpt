@@ -1,0 +1,160 @@
+# Test: DR Test Log Check — Missing Service Data
+# Tests that Holmes recognizes when it has no log data for the specific service
+# the customer is asking about and avoids diagnosing based on unrelated services.
+#
+# Scenario: Customer asks about "companyopswebjob" failing with 500s during a DR test.
+# Elasticsearch only has logs for "Company.Ops" (main service) and
+# "Company.Ops.Radar.WebJob" (unrelated service). Both contain job processing
+# failures, but neither is the service the customer asked about.
+#
+# Holmes should recognize it has no data for "companyopswebjob" and state that
+# clearly, rather than assuming the errors in unrelated services explain the issue.
+#
+# TDD Red: Holmes currently finds errors in Company.Ops and Company.Ops.Radar.WebJob
+# and incorrectly attributes them to companyopswebjob's 500 errors. The test passes
+# (green) when Holmes correctly identifies that it has no data for companyopswebjob.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: |
+  Can you help me check recent logs? We had a DR test in prod starting 6 hours ago.
+  companyopswebjob seemed to have some issues while a user was performing a test to
+  create a new scheduled job. It failed with 500s.
+  Please search the app-254-prod-logs index for relevant logs.
+
+include_tool_calls: true
+
+expected_output:
+  - "Must state that no log data was found for companyopswebjob or CompanyOpsWebJob"
+  - "Must NOT claim that errors from Company.Ops or Company.Ops.Radar.WebJob explain the companyopswebjob 500 errors"
+  - "Must NOT provide a root cause diagnosis for the companyopswebjob 500s based on unrelated service logs"
+  - "Must recommend obtaining logs specifically from companyopswebjob to investigate further"
+
+tags:
+  - elasticsearch
+  - medium
+  - transparency
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  LOGS_INDEX="app-254-prod-logs"
+
+  # Compute relative timestamps (cross-platform)
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  T_1H=$(ts "hours=1")
+  T_2H=$(ts "hours=2")
+  T_3H=$(ts "hours=3")
+  T_4H=$(ts "hours=4")
+  T_5H=$(ts "hours=5")
+  T_6H=$(ts "hours=6")
+
+  # Clean up existing test index
+  echo "Cleaning up existing test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create logs index
+  echo "Creating prod logs index..."
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+      "mappings": {"properties": {
+        "timestamp": {"type": "date"},
+        "service": {"type": "keyword"},
+        "level": {"type": "keyword"},
+        "message": {"type": "text"},
+        "environment": {"type": "keyword"},
+        "correlation_id": {"type": "keyword"},
+        "host": {"type": "keyword"}
+      }}
+    }')
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create logs index: $CREATE_RESPONSE"
+    exit 1
+  fi
+  sleep 2
+
+  # Insert log data for Company.Ops (main platform service) and Company.Ops.Radar.WebJob
+  # Both have job processing failures but NEITHER is companyopswebjob
+  BULK_FILE=$(es_temp_file "logs" "254")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"timestamp":"${T_6H}","service":"Company.Ops","level":"INFO","message":"DR test initiated - switching to failover database","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_5H}","service":"Company.Ops","level":"ERROR","message":"Job scheduler failed to process batch: connection timeout to failover DB after 30s","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_5H}","service":"Company.Ops","level":"ERROR","message":"Scheduled job execution failed with status 500: unable to acquire database lock during failover","environment":"production","correlation_id":"job-8827","host":"ops-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_4H}","service":"Company.Ops","level":"WARN","message":"Job creation endpoint returning 503 - database failover in progress","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-02"}
+  {"index":{}}
+  {"timestamp":"${T_3H}","service":"Company.Ops","level":"ERROR","message":"Failed to create new scheduled job: HTTP 500 - transaction deadlock detected on jobs table","environment":"production","correlation_id":"job-8831","host":"ops-prod-02"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"Company.Ops","level":"INFO","message":"DR test failover completed - primary database restored","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_1H}","service":"Company.Ops","level":"INFO","message":"Job scheduler resumed normal operation","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_6H}","service":"Company.Ops.Radar.WebJob","level":"INFO","message":"Radar data collection job starting cycle","environment":"production","correlation_id":"radar-cycle-445","host":"radar-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_5H}","service":"Company.Ops.Radar.WebJob","level":"ERROR","message":"Radar batch processing failed: upstream dependency Company.Ops unavailable during failover","environment":"production","correlation_id":"radar-cycle-445","host":"radar-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_4H}","service":"Company.Ops.Radar.WebJob","level":"ERROR","message":"Job execution error: HTTP 500 from internal API - database connection pool exhausted","environment":"production","correlation_id":"radar-cycle-446","host":"radar-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_3H}","service":"Company.Ops.Radar.WebJob","level":"WARN","message":"Retrying failed radar collection job after backoff","environment":"production","correlation_id":"radar-cycle-446","host":"radar-prod-01"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"Company.Ops.Radar.WebJob","level":"INFO","message":"Radar data collection resumed successfully after failover recovery","environment":"production","correlation_id":"radar-cycle-447","host":"radar-prod-01"}
+  BULK_EOF
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
+
+  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+  rm -f "$BULK_FILE"
+
+  # Refresh index
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify document count
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  if [ "$DOC_COUNT" != "12" ]; then
+    echo "Expected 12 log records but found: $DOC_COUNT"
+    exit 1
+  fi
+
+  # Verify NO companyopswebjob data exists
+  WEBJOB_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_count" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"should":[{"term":{"service":"companyopswebjob"}},{"term":{"service":"CompanyOpsWebJob"}},{"term":{"service":"Company.Ops.WebJob"}}]}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  if [ "$WEBJOB_COUNT" != "0" ]; then
+    echo "Expected 0 companyopswebjob records but found: $WEBJOB_COUNT"
+    exit 1
+  fi
+
+  # Verify services present
+  echo "Test data ready: $DOC_COUNT log records"
+  echo "Services present: Company.Ops, Company.Ops.Radar.WebJob"
+  echo "Services NOT present: companyopswebjob, CompanyOpsWebJob, Company.Ops.WebJob"
+  echo "Both present services have job processing failures (red herrings)"
+
+after_test: |
+  # Indices use static test-ID-prefixed names (app-254-*). Parallel CI runs
+  # share the same ES cluster, so we skip deletion to avoid removing indices
+  # that another run's before_test just created (reentrancy-safe).
+  echo "Skipping index cleanup (reentrant - before_test handles idempotent setup)"

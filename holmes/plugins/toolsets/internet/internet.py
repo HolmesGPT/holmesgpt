@@ -178,7 +178,7 @@ class FetchWebpage(Tool):
     def __init__(self, toolset: "InternetToolset"):
         super().__init__(
             name="fetch_webpage",
-            description="Fetch a webpage. Use this to fetch runbooks if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
+            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
             parameters={
                 "url": ToolParameter(
                     description="The URL to fetch",
@@ -246,9 +246,9 @@ class InternetBaseToolset(Toolset):
         description: str,
         icon_url: str,
         tools: list[Tool],
-        is_default: bool,
         tags: List[ToolsetTag],
         docs_url: Optional[str] = None,
+        **kwargs: Any,
     ):
         super().__init__(
             name=name,
@@ -259,15 +259,15 @@ class InternetBaseToolset(Toolset):
             ],
             tools=tools,
             tags=tags,
-            is_default=is_default,
             docs_url=docs_url,
+            **kwargs,
         )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
             self.internet_config = InternetBaseToolsetConfig(**(config or {}))
         except Exception as e:
-            return False, f"Failed to parse config: {e}"
+            return False, f"Invalid {self.name} configuration: {e}"
         return True, ""
 
 
@@ -284,5 +284,5 @@ class InternetToolset(InternetBaseToolset):
             tags=[
                 ToolsetTag.CORE,
             ],
-            is_default=True,
+            enabled=True,
         )
