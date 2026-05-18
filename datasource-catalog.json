@@ -193,9 +193,9 @@
     {
       "id": "gitlab-mcp",
       "name": "GitLab",
-      "description": "Projects, merge requests, issues, pipelines, code",
+      "description": "Query GitLab projects, merge requests, issues, pipelines, and code",
       "categories": ["source-control-cicd"],
-      "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/gitlab.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/gitlab.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/gitlab-mcp/?tab=robusta-helm-chart",
       "configType": "native-mcp",
       "helmPath": "holmes.mcpAddons.gitlabMcp",
