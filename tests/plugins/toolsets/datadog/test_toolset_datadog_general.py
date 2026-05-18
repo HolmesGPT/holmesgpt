@@ -173,3 +173,75 @@ class TestDatadogGeneralToolset:
 
         assert result.status == StructuredToolResultStatus.ERROR
         assert "blacklisted operation" in result.error
+
+
+class TestDatadogGeneralAccountRouting:
+    """Verify the `account` parameter routes API calls to the right account."""
+
+    def setup_method(self):
+        from holmes.plugins.toolsets.datadog.datadog_models import DatadogGeneralConfig
+        from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
+            DatadogGeneralToolset,
+        )
+
+        self.toolset = DatadogGeneralToolset()
+        self.toolset.dd_config = DatadogGeneralConfig(
+            accounts=[
+                {
+                    "name": "staging",
+                    "api_key": "stg-key",
+                    "app_key": "stg-app",
+                    "api_url": "https://api.stg.datadoghq.eu",
+                },
+                {
+                    "name": "production",
+                    "api_key": "prd-key",
+                    "app_key": "prd-app",
+                    "api_url": "https://api.datadoghq.eu",
+                    "default": True,
+                },
+            ],
+            timeout_seconds=60,
+        )
+
+    @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
+    def test_account_param_routes_to_target(self, mock_get):
+        mock_get.return_value = Mock(
+            status_code=200, json=Mock(return_value={"data": []})
+        )
+        get_tool = self.toolset.tools[0]  # DatadogAPIGet
+        result = get_tool._invoke(
+            {"endpoint": "/api/v1/monitor", "account": "staging"},
+            context=create_mock_tool_invoke_context(),
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        call_args = mock_get.call_args
+        assert call_args[0][0].startswith("https://api.stg.datadoghq.eu")
+        assert call_args[1]["headers"]["DD-API-KEY"] == "stg-key"
+
+    @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
+    def test_omitted_account_uses_default(self, mock_get):
+        mock_get.return_value = Mock(
+            status_code=200, json=Mock(return_value={"data": []})
+        )
+        get_tool = self.toolset.tools[0]
+        get_tool._invoke(
+            {"endpoint": "/api/v1/monitor"},
+            context=create_mock_tool_invoke_context(),
+        )
+
+        call_args = mock_get.call_args
+        assert call_args[0][0].startswith("https://api.datadoghq.eu")
+        assert call_args[1]["headers"]["DD-API-KEY"] == "prd-key"
+
+    def test_unknown_account_returns_structured_error(self):
+        get_tool = self.toolset.tools[0]
+        result = get_tool._invoke(
+            {"endpoint": "/api/v1/monitor", "account": "nope"},
+            context=create_mock_tool_invoke_context(),
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "'staging'" in result.error
+        assert "'production'" in result.error

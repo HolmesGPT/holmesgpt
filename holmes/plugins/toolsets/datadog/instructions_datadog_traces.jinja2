@@ -1,3 +1,15 @@
+{%- if dd_config and dd_config.accounts and dd_config.accounts | length > 1 %}
+## Datadog accounts
+
+This toolset is configured against multiple Datadog accounts:
+{%- for account in dd_config.accounts %}
+- `{{ account.name }}`{% if account.default %} (default){% endif %} — {{ account.api_url }}
+{%- endfor %}
+
+Pass the `account` parameter on each tool call to target a specific account.
+Omit it to use the default ({{ (dd_config.accounts | selectattr('default') | first).name }}).
+
+{% endif -%}
 ## Datadog Traces Toolset
 
 Tools to search and analyze distributed traces from Datadog APM.

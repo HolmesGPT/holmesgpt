@@ -262,7 +262,9 @@ class TestDatadogMetricsToolset:
         response.json.return_value = {"valid": True}
         mock_get.return_value = response
 
-        success, error_msg = self.toolset._perform_healthcheck(self.config)
+        success, error_msg = self.toolset._perform_healthcheck(
+            self.config.accounts[0], self.config
+        )
 
         assert success is True
         assert error_msg == ""
@@ -277,10 +279,12 @@ class TestDatadogMetricsToolset:
         response.json.return_value = {"valid": False}
         mock_get.return_value = response
 
-        success, error_msg = self.toolset._perform_healthcheck(self.config)
+        success, error_msg = self.toolset._perform_healthcheck(
+            self.config.accounts[0], self.config
+        )
 
         assert success is False
-        assert "validation failed" in error_msg.lower()
+        assert "valid=false" in error_msg.lower()
 
     @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
     def test_prerequisites_callable_success(self, mock_get):
@@ -319,3 +323,72 @@ class TestDatadogMetricsToolset:
 
         assert success is False
         assert "Invalid Datadog Metrics configuration" in error_msg
+
+
+class TestDatadogMetricsAccountRouting:
+    """Verify the LLM-provided ``account`` parameter routes calls correctly."""
+
+    def setup_method(self):
+        self.toolset = DatadogMetricsToolset()
+        self.toolset.dd_config = DatadogMetricsConfig(
+            accounts=[
+                {
+                    "name": "staging",
+                    "api_key": "stg-key",
+                    "app_key": "stg-app",
+                    "api_url": "https://api.stg.datadoghq.eu",
+                },
+                {
+                    "name": "production",
+                    "api_key": "prd-key",
+                    "app_key": "prd-app",
+                    "api_url": "https://api.datadoghq.eu",
+                    "default": True,
+                },
+            ],
+            default_limit=1000,
+            timeout_seconds=60,
+        )
+
+    @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
+    def test_account_param_routes_to_target_url_and_keys(self, mock_get):
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"metrics": ["system.cpu.user"]}
+        mock_get.return_value = response
+
+        # tools[0] is ListActiveMetrics
+        tool = self.toolset.tools[0]
+        result = tool._invoke(
+            {"account": "staging"}, context=create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        call_args = mock_get.call_args
+        assert call_args[0][0].startswith("https://api.stg.datadoghq.eu")
+        assert call_args[1]["headers"]["DD-API-KEY"] == "stg-key"
+        assert call_args[1]["headers"]["DD-APPLICATION-KEY"] == "stg-app"
+
+    @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
+    def test_omitted_account_uses_default(self, mock_get):
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"metrics": []}
+        mock_get.return_value = response
+
+        tool = self.toolset.tools[0]
+        tool._invoke({}, context=create_mock_tool_invoke_context())
+
+        call_args = mock_get.call_args
+        assert call_args[0][0].startswith("https://api.datadoghq.eu")
+        assert call_args[1]["headers"]["DD-API-KEY"] == "prd-key"
+
+    def test_unknown_account_returns_structured_error(self):
+        tool = self.toolset.tools[0]
+        result = tool._invoke(
+            {"account": "nope"}, context=create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "'staging'" in result.error
+        assert "'production'" in result.error

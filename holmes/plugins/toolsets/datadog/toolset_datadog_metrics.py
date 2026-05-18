@@ -23,7 +23,9 @@ from holmes.plugins.toolsets.consts import (
     TOOLSET_CONFIG_MISSING_ERROR,
 )
 from holmes.plugins.toolsets.datadog.datadog_api import (
+    ACCOUNT_TOOL_PARAM_DESCRIPTION,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
+    DatadogAccount,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
@@ -48,6 +50,24 @@ from holmes.plugins.toolsets.utils import (
 
 class BaseDatadogMetricsTool(Tool):
     toolset: "DatadogMetricsToolset"
+
+    def _resolve_account(
+        self, params: dict
+    ) -> Tuple[Optional[DatadogAccount], Optional[StructuredToolResult]]:
+        """Resolve the target Datadog account from the ``account`` parameter.
+
+        Returns either (account, None) on success or (None, error_result)
+        when the account is unknown so the caller can short-circuit.
+        """
+        assert self.toolset.dd_config is not None
+        try:
+            return self.toolset.dd_config.get_account(params.get("account")), None
+        except KeyError as exc:
+            return None, StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(exc),
+                params=params,
+            )
 
 
 ACTIVE_METRICS_DEFAULT_LOOK_BACK_HOURS = 24
@@ -86,6 +106,11 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                     type="integer",
                     required=False,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -97,6 +122,11 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
+
+        account, error = self._resolve_account(params)
+        if error is not None:
+            return error
+        assert account is not None
 
         url = None
         query_params = None
@@ -110,8 +140,8 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                 default_time_span_seconds=ACTIVE_METRICS_DEFAULT_TIME_SPAN_SECONDS,
             )
 
-            url = f"{self.toolset.dd_config.api_url}/api/v1/metrics"
-            headers = get_headers(self.toolset.dd_config)
+            url = f"{account.api_url}/api/v1/metrics"
+            headers = get_headers(account)
 
             query_params = {
                 "from": from_time,
@@ -182,7 +212,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                 )
 
             url = generate_datadog_metrics_list_url(
-                self.toolset.dd_config,
+                account,
                 from_time,
                 params.get("host"),
                 params.get("tag_filter"),
@@ -293,6 +323,11 @@ class QueryMetrics(BaseDatadogMetricsTool):
                     type="string",
                     required=False,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -304,6 +339,11 @@ class QueryMetrics(BaseDatadogMetricsTool):
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
+
+        account, error = self._resolve_account(params)
+        if error is not None:
+            return error
+        assert account is not None
 
         url = None
         query_params = None
@@ -317,8 +357,8 @@ class QueryMetrics(BaseDatadogMetricsTool):
                 default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
             )
 
-            url = f"{self.toolset.dd_config.api_url}/api/v1/query"
-            headers = get_headers(self.toolset.dd_config)
+            url = f"{account.api_url}/api/v1/query"
+            headers = get_headers(account)
 
             query_params = {
                 "query": query,
@@ -413,7 +453,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
             }
 
             url = generate_datadog_metrics_explorer_url(
-                self.toolset.dd_config,
+                account,
                 query,
                 from_time,
                 to_time,
@@ -493,6 +533,11 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
                     type="string",
                     required=True,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -504,6 +549,11 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
+
+        account, error = self._resolve_account(params)
+        if error is not None:
+            return error
+        assert account is not None
 
         try:
             metric_names_str = get_param_or_raise(params, "metric_names")
@@ -521,14 +571,14 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
                     params=params,
                 )
 
-            headers = get_headers(self.toolset.dd_config)
+            headers = get_headers(account)
 
             results = {}
             errors = {}
 
             for metric_name in metric_names:
                 try:
-                    api_url = f"{self.toolset.dd_config.api_url}/api/v1/metrics/{metric_name}"
+                    api_url = f"{account.api_url}/api/v1/metrics/{metric_name}"
 
                     data = execute_datadog_http_request(
                         url=api_url,
@@ -563,7 +613,7 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
             # Generate URL for the first metric (or a general metrics page if multiple)
             if metric_names:
                 url = generate_datadog_metric_metadata_url(
-                    self.toolset.dd_config,
+                    account,
                     metric_names[0],
                 )
             else:
@@ -618,6 +668,11 @@ class ListMetricTags(BaseDatadogMetricsTool):
                     type="string",
                     required=True,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -630,14 +685,19 @@ class ListMetricTags(BaseDatadogMetricsTool):
                 params=params,
             )
 
+        account, error = self._resolve_account(params)
+        if error is not None:
+            return error
+        assert account is not None
+
         api_url = None
         query_params = None
 
         try:
             metric_name = get_param_or_raise(params, "metric_name")
 
-            api_url = f"{self.toolset.dd_config.api_url}/api/v2/metrics/{metric_name}/active-configurations"
-            headers = get_headers(self.toolset.dd_config)
+            api_url = f"{account.api_url}/api/v2/metrics/{metric_name}/active-configurations"
+            headers = get_headers(account)
 
             data = execute_datadog_http_request(
                 url=api_url,
@@ -648,7 +708,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
             )
 
             web_url = generate_datadog_metric_tags_url(
-                self.toolset.dd_config,
+                account,
                 metric_name,
             )
 
@@ -728,12 +788,17 @@ class DatadogMetricsToolset(Toolset):
         )
         self._reload_instructions()
 
-    def _perform_healthcheck(self, dd_config: DatadogMetricsConfig) -> Tuple[bool, str]:
+    def _perform_healthcheck(
+        self, account: DatadogAccount, dd_config: DatadogMetricsConfig
+    ) -> Tuple[bool, str]:
         try:
-            logging.debug("Performing Datadog metrics configuration healthcheck...")
+            logging.debug(
+                "Performing Datadog metrics healthcheck for account %r...",
+                account.name,
+            )
 
-            url = f"{dd_config.api_url}/api/v1/validate"
-            headers = get_headers(dd_config)
+            url = f"{account.api_url}/api/v1/validate"
+            headers = get_headers(account)
 
             data = execute_datadog_http_request(
                 url=url,
@@ -744,16 +809,26 @@ class DatadogMetricsToolset(Toolset):
             )
 
             if data.get("valid", False):
-                logging.info("Datadog metrics health check completed successfully")
+                logging.info(
+                    "Datadog metrics healthcheck succeeded for account %r",
+                    account.name,
+                )
                 return True, ""
-            else:
-                error_msg = "Datadog API key validation failed"
-                logging.error(f"Datadog Metrics health check failed: {error_msg}")
-                return False, f"Datadog Metrics health check failed: {error_msg}"
+            error_msg = (
+                f"Datadog Metrics healthcheck failed for account {account.name!r}: "
+                "API key validation returned valid=false."
+            )
+            logging.error(error_msg)
+            return False, error_msg
 
         except Exception as e:
-            logging.exception("Failed during Datadog metrics health check")
-            return False, f"Datadog Metrics health check failed: {e}"
+            logging.exception(
+                "Datadog metrics healthcheck failed for account %r", account.name
+            )
+            return False, (
+                f"Datadog Metrics healthcheck failed for account "
+                f"{account.name!r}: {e}"
+            )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         if not config:
@@ -766,18 +841,40 @@ class DatadogMetricsToolset(Toolset):
             dd_config = DatadogMetricsConfig(**config)
             self.dd_config = dd_config
 
-            success, error_msg = self._perform_healthcheck(dd_config)
-            return success, error_msg
+            for account in dd_config.accounts:
+                success, error_msg = self._perform_healthcheck(account, dd_config)
+                if not success:
+                    return False, error_msg
+
+            # Re-render the LLM instructions now that the validated config
+            # (with its account list) is bound on the toolset, so the LLM
+            # sees the available account names.
+            self._reload_instructions()
+            return True, ""
 
         except Exception as e:
             logging.exception("Failed to set up Datadog Metrics toolset")
             return (False, f"Invalid Datadog Metrics configuration: {e}")
 
     def _reload_instructions(self):
-        """Load Datadog metrics specific troubleshooting instructions."""
+        """Load Datadog metrics specific troubleshooting instructions.
+
+        Passes the validated ``dd_config`` (with its accounts list) to the
+        Jinja context so the template can surface the available account
+        names to the LLM. ``dd_config`` is None on first render (called
+        from ``__init__``) and the template guards against that.
+        """
+        from holmes.plugins.prompts import load_and_render_prompt
+
         template_file_path = os.path.abspath(
             os.path.join(
                 os.path.dirname(__file__), "datadog_metrics_instructions.jinja2"
             )
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+        self.llm_instructions = load_and_render_prompt(
+            prompt=f"file://{template_file_path}",
+            context={
+                "tool_names": [t.name for t in self.tools],
+                "dd_config": self.dd_config,
+            },
+        )

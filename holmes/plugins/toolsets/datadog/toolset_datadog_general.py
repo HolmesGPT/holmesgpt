@@ -21,7 +21,9 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
+    ACCOUNT_TOOL_PARAM_DESCRIPTION,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
+    DatadogAccount,
     DataDogRequestError,
     enhance_error_message,
     execute_datadog_http_request,
@@ -225,12 +227,7 @@ class DatadogGeneralToolset(Toolset):
             ],
             tags=[ToolsetTag.CORE],
         )
-        template_file_path = os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__), "datadog_general_instructions.jinja2"
-            )
-        )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+        self._reload_instructions()
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         """Check prerequisites with configuration."""
@@ -256,19 +253,28 @@ class DatadogGeneralToolset(Toolset):
                     "Could not fetch OpenAPI spec; enhanced error messages will be limited"
                 )
 
-            success, error_msg = self._perform_healthcheck(dd_config)
-            return success, error_msg
+            for account in dd_config.accounts:
+                success, error_msg = self._perform_healthcheck(account, dd_config)
+                if not success:
+                    return False, error_msg
+            self._reload_instructions()
+            return True, ""
         except Exception as e:
             logging.exception("Failed to set up Datadog general toolset")
             return False, f"Invalid Datadog General configuration: {e}"
 
-    def _perform_healthcheck(self, dd_config: DatadogGeneralConfig) -> Tuple[bool, str]:
-        """Perform health check on Datadog API."""
+    def _perform_healthcheck(
+        self, account: DatadogAccount, dd_config: DatadogGeneralConfig
+    ) -> Tuple[bool, str]:
+        """Perform health check on Datadog API for one account."""
         try:
-            logging.info("Performing Datadog general API configuration healthcheck...")
-            base_url = str(dd_config.api_url).rstrip("/")
+            logging.info(
+                "Performing Datadog general API healthcheck for account %r...",
+                account.name,
+            )
+            base_url = str(account.api_url).rstrip("/")
             url = f"{base_url}/api/v1/validate"
-            headers = get_headers(dd_config)
+            headers = get_headers(account)
 
             data = execute_datadog_http_request(
                 url=url,
@@ -279,16 +285,47 @@ class DatadogGeneralToolset(Toolset):
             )
 
             if data.get("valid", False):
-                logging.debug("Datadog general API health check completed successfully")
+                logging.debug(
+                    "Datadog general API healthcheck succeeded for account %r",
+                    account.name,
+                )
                 return True, ""
-            else:
-                error_msg = "Datadog API key validation failed"
-                logging.error(f"Datadog General health check failed: {error_msg}")
-                return False, f"Datadog General health check failed: {error_msg}"
+            error_msg = (
+                f"Datadog General healthcheck failed for account {account.name!r}: "
+                "API key validation returned valid=false."
+            )
+            logging.error(error_msg)
+            return False, error_msg
 
         except Exception as e:
-            logging.exception("Failed during Datadog general API health check")
-            return False, f"Datadog General health check failed: {e}"
+            logging.exception(
+                "Datadog general API healthcheck failed for account %r", account.name
+            )
+            return False, (
+                f"Datadog General healthcheck failed for account "
+                f"{account.name!r}: {e}"
+            )
+
+    def _reload_instructions(self):
+        """Load Datadog general specific troubleshooting instructions.
+
+        Passes the validated ``dd_config`` (with its accounts list) to the
+        Jinja context so the template can surface the available accounts.
+        """
+        from holmes.plugins.prompts import load_and_render_prompt
+
+        template_file_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__), "datadog_general_instructions.jinja2"
+            )
+        )
+        self.llm_instructions = load_and_render_prompt(
+            prompt=f"file://{template_file_path}",
+            context={
+                "tool_names": [t.name for t in self.tools],
+                "dd_config": self.dd_config,
+            },
+        )
 
 
 def is_endpoint_allowed(
@@ -385,6 +422,11 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                     type="string",
                     required=True,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -413,6 +455,14 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params_return,
             )
+        try:
+            account = self.toolset.dd_config.get_account(params.get("account"))
+        except KeyError as exc:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(exc),
+                params=params_return,
+            )
 
         endpoint = params.get("endpoint", "")
         query_params = params.get("query_params", {})
@@ -434,10 +484,10 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
         url = None
         try:
             # Build full URL (ensure no double slashes)
-            base_url = str(self.toolset.dd_config.api_url).rstrip("/")
+            base_url = str(account.api_url).rstrip("/")
             endpoint = endpoint.lstrip("/")
             url = f"{base_url}/{endpoint}"
-            headers = get_headers(self.toolset.dd_config)
+            headers = get_headers(account)
 
             logging.info(f"Full API URL: {url}")
 
@@ -466,7 +516,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                 )
 
             web_url = generate_datadog_general_url(
-                self.toolset.dd_config,
+                account,
                 endpoint,
                 query_params,
             )
@@ -492,7 +542,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
             elif e.status_code == 400:
                 # Use enhanced error message for 400 errors
                 error_msg = enhance_error_message(
-                    e, endpoint, "GET", str(self.toolset.dd_config.api_url)
+                    e, endpoint, "GET", str(account.api_url)
                 )
             else:
                 error_msg = f"API error {e.status_code}: {str(e)}"
@@ -560,6 +610,11 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                     type="string",
                     required=True,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -609,6 +664,14 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                 error=TOOLSET_CONFIG_MISSING_ERROR,
                 params=params,
             )
+        try:
+            account = self.toolset.dd_config.get_account(params.get("account"))
+        except KeyError as exc:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(exc),
+                params=params,
+            )
 
         endpoint = params.get("endpoint", "")
         body = params.get("body", {})
@@ -630,10 +693,10 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
         url = None
         try:
             # Build full URL (ensure no double slashes)
-            base_url = str(self.toolset.dd_config.api_url).rstrip("/")
+            base_url = str(account.api_url).rstrip("/")
             endpoint = endpoint.lstrip("/")
             url = f"{base_url}/{endpoint}"
-            headers = get_headers(self.toolset.dd_config)
+            headers = get_headers(account)
 
             logging.info(f"Full API URL: {url}")
 
@@ -663,7 +726,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
 
             body_query_params = self._body_to_query_params(body)
             web_url = generate_datadog_general_url(
-                self.toolset.dd_config,
+                account,
                 endpoint,
                 body_query_params,
             )
@@ -689,7 +752,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
             elif e.status_code == 400:
                 # Use enhanced error message for 400 errors
                 error_msg = enhance_error_message(
-                    e, endpoint, "POST", str(self.toolset.dd_config.api_url)
+                    e, endpoint, "POST", str(account.api_url)
                 )
             else:
                 error_msg = f"API error {e.status_code}: {str(e)}"

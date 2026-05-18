@@ -158,3 +158,68 @@ class TestFetchDatadogSpansByFilter:
         # When no data is found, the tool still returns success with empty data
         assert result.data == mock_execute.return_value
         assert len(result.data["data"]) == 0
+
+
+class TestDatadogTracesAccountRouting:
+    """Verify the `account` parameter routes span queries to the right account."""
+
+    def setup_method(self):
+        from holmes.plugins.toolsets.datadog.datadog_api import DatadogAccount
+        from holmes.plugins.toolsets.datadog.datadog_models import DatadogTracesConfig
+
+        self.toolset = DatadogTracesToolset()
+        self.toolset.dd_config = DatadogTracesConfig(
+            accounts=[
+                {
+                    "name": "staging",
+                    "api_key": "stg-key",
+                    "app_key": "stg-app",
+                    "api_url": "https://api.stg.datadoghq.eu",
+                },
+                {
+                    "name": "production",
+                    "api_key": "prd-key",
+                    "app_key": "prd-app",
+                    "api_url": "https://api.datadoghq.eu",
+                    "default": True,
+                },
+            ],
+            timeout_seconds=60,
+        )
+
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
+    )
+    def test_account_param_routes_to_target(self, mock_execute):
+        mock_execute.return_value = {"data": [], "meta": {"page": {}}}
+        tool = self.toolset.tools[0]  # GetSpans
+        result = tool._invoke(
+            {"account": "staging"}, context=create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["url"].startswith("https://api.stg.datadoghq.eu")
+        assert call_kwargs["headers"]["DD-API-KEY"] == "stg-key"
+
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
+    )
+    def test_omitted_account_uses_default(self, mock_execute):
+        mock_execute.return_value = {"data": [], "meta": {"page": {}}}
+        tool = self.toolset.tools[0]
+        tool._invoke({}, context=create_mock_tool_invoke_context())
+
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["url"].startswith("https://api.datadoghq.eu")
+        assert call_kwargs["headers"]["DD-API-KEY"] == "prd-key"
+
+    def test_unknown_account_returns_structured_error(self):
+        tool = self.toolset.tools[0]
+        result = tool._invoke(
+            {"account": "nope"}, context=create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "'staging'" in result.error
+        assert "'production'" in result.error

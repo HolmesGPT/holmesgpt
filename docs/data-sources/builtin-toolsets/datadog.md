@@ -186,6 +186,41 @@ holmes ask "list Datadog monitors"
 
 That's it! You're now connected to Datadog with all toolsets enabled.
 
+## Multiple Datadog accounts
+
+Each Datadog toolset can be configured against several Datadog accounts
+(organizations) at once. This is useful when, for example, staging and
+production live in separate Datadog orgs. The LLM picks the target account
+on a per-tool-call basis via an `account` parameter.
+
+Replace the single-account `api_key`/`app_key`/`api_url` block with an
+`accounts:` list. The two forms are mutually exclusive — supply one or the
+other.
+
+```yaml
+toolsets:
+  datadog/metrics:
+    enabled: true
+    config:
+      accounts:
+        - name: staging
+          api_key: "{{ env.DATADOG_API_KEY_STG }}"
+          app_key: "{{ env.DATADOG_APP_KEY_STG }}"
+          api_url: https://api.datadoghq.eu
+          default: true            # optional — first account wins otherwise
+        - name: production
+          api_key: "{{ env.DATADOG_API_KEY_PRD }}"
+          app_key: "{{ env.DATADOG_APP_KEY_PRD }}"
+          api_url: https://api.datadoghq.eu
+```
+
+When two or more accounts are configured, every tool exposed by that
+toolset accepts an optional `account` parameter whose value matches one of
+the configured account names. Omitting it routes the call to the account
+marked `default: true` (or to the first one if no default is set). The list
+of available accounts is injected into the toolset's system prompt so the
+LLM can pick the right one for each call.
+
 ## Available Toolsets
 
 HolmesGPT provides four specialized Datadog toolsets:

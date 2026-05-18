@@ -1,23 +1,20 @@
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode, urlparse
 
-from holmes.plugins.toolsets.datadog.datadog_api import convert_api_url_to_app_url
-from holmes.plugins.toolsets.datadog.datadog_models import (
-    DatadogGeneralConfig,
-    DatadogLogsConfig,
-    DatadogMetricsConfig,
-    DatadogTracesConfig,
+from holmes.plugins.toolsets.datadog.datadog_api import (
+    DatadogAccount,
+    convert_api_url_to_app_url,
 )
 
 
 def generate_datadog_metrics_explorer_url(
-    dd_config: DatadogMetricsConfig,
+    account: DatadogAccount,
     query: str,
     from_time: int,
     to_time: int,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
 
     params = {
         "query": query,
@@ -30,13 +27,13 @@ def generate_datadog_metrics_explorer_url(
 
 
 def generate_datadog_metrics_list_url(
-    dd_config: DatadogMetricsConfig,
+    account: DatadogAccount,
     from_time: int,
     host: Optional[str] = None,
     tag_filter: Optional[str] = None,
     metric_filter: Optional[str] = None,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
 
     params = {}
     if metric_filter:
@@ -52,30 +49,30 @@ def generate_datadog_metrics_list_url(
 
 
 def generate_datadog_metric_metadata_url(
-    dd_config: DatadogMetricsConfig,
+    account: DatadogAccount,
     metric_name: str,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
     params = {"metric": metric_name}
     return f"{base_url}/metric/summary?{urlencode(params)}"
 
 
 def generate_datadog_metric_tags_url(
-    dd_config: DatadogMetricsConfig,
+    account: DatadogAccount,
     metric_name: str,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
     params = {"metric": metric_name}
     return f"{base_url}/metric/summary?{urlencode(params)}"
 
 
 def generate_datadog_spans_url(
-    dd_config: DatadogTracesConfig,
+    account: DatadogAccount,
     query: str,
     from_time_ms: int,
     to_time_ms: int,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
 
     url_params = {
         "query": query,
@@ -88,12 +85,12 @@ def generate_datadog_spans_url(
 
 
 def generate_datadog_spans_analytics_url(
-    dd_config: DatadogTracesConfig,
+    account: DatadogAccount,
     query: str,
     from_time_ms: int,
     to_time_ms: int,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
 
     url_params = {
         "query": query,
@@ -106,10 +103,11 @@ def generate_datadog_spans_analytics_url(
 
 
 def generate_datadog_logs_url(
-    dd_config: DatadogLogsConfig,
+    account: DatadogAccount,
+    indexes: List[str],
     params: dict,
 ) -> str:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
     url_params = {
         "query": params["filter"]["query"],
         "from_ts": params["filter"]["from"],
@@ -118,8 +116,8 @@ def generate_datadog_logs_url(
         "storage": params["filter"]["storage_tier"],
     }
 
-    if dd_config.indexes != ["*"]:
-        url_params["index"] = ",".join(dd_config.indexes)
+    if indexes != ["*"]:
+        url_params["index"] = ",".join(indexes)
 
     # Construct the full URL
     return f"{base_url}/logs?{urlencode(url_params)}"
@@ -157,11 +155,11 @@ def _build_qs(
 
 
 def generate_datadog_general_url(
-    dd_config: DatadogGeneralConfig,
+    account: DatadogAccount,
     endpoint: str,
     query_params: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    base_url = convert_api_url_to_app_url(dd_config.api_url)
+    base_url = convert_api_url_to_app_url(account.api_url)
     path = urlparse(endpoint).path
 
     if "/logs" in path:
