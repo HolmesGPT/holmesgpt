@@ -2,6 +2,8 @@
 
 from unittest.mock import Mock, patch
 
+import responses
+
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
     DatadogGeneralToolset,
@@ -173,3 +175,77 @@ class TestDatadogGeneralToolset:
 
         assert result.status == StructuredToolResultStatus.ERROR
         assert "blacklisted operation" in result.error
+
+
+class TestDatadogGeneralAccountRouting:
+    """Verify the `account` parameter routes API calls to the right account."""
+
+    def setup_method(self):
+        from holmes.plugins.toolsets.datadog.datadog_models import DatadogGeneralConfig
+        from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
+            DatadogGeneralToolset,
+        )
+
+        self.toolset = DatadogGeneralToolset()
+        self.toolset.dd_config = DatadogGeneralConfig(
+            accounts=[
+                {
+                    "name": "staging",
+                    "api_key": "stg-key",
+                    "app_key": "stg-app",
+                    "api_url": "https://api.stg.datadoghq.eu",
+                },
+                {
+                    "name": "production",
+                    "api_key": "prd-key",
+                    "app_key": "prd-app",
+                    "api_url": "https://api.datadoghq.eu",
+                    "default": True,
+                },
+            ],
+            timeout_seconds=60,
+        )
+
+    def test_account_param_routes_to_target(self):
+        get_tool = self.toolset.tools[0]  # DatadogAPIGet
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                "https://api.stg.datadoghq.eu/api/v1/monitor",
+                json={"data": []},
+                status=200,
+            )
+            result = get_tool._invoke(
+                {"endpoint": "/api/v1/monitor", "account": "staging"},
+                context=create_mock_tool_invoke_context(),
+            )
+            assert result.status == StructuredToolResultStatus.SUCCESS
+            assert rsps.calls[0].request.url.startswith("https://api.stg.datadoghq.eu")
+            assert rsps.calls[0].request.headers["DD-API-KEY"] == "stg-key"
+
+    def test_omitted_account_uses_default(self):
+        get_tool = self.toolset.tools[0]
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                "https://api.datadoghq.eu/api/v1/monitor",
+                json={"data": []},
+                status=200,
+            )
+            get_tool._invoke(
+                {"endpoint": "/api/v1/monitor"},
+                context=create_mock_tool_invoke_context(),
+            )
+            assert rsps.calls[0].request.url.startswith("https://api.datadoghq.eu")
+            assert rsps.calls[0].request.headers["DD-API-KEY"] == "prd-key"
+
+    def test_unknown_account_returns_structured_error(self):
+        get_tool = self.toolset.tools[0]
+        result = get_tool._invoke(
+            {"endpoint": "/api/v1/monitor", "account": "nope"},
+            context=create_mock_tool_invoke_context(),
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "'staging'" in result.error
+        assert "'production'" in result.error

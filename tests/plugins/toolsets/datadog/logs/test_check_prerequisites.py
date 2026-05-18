@@ -4,10 +4,12 @@ from holmes.core.tools import StructuredToolResultStatus, ToolsetStatusEnum
 from holmes.plugins.toolsets.datadog.datadog_models import (
     DEFAULT_STORAGE_TIER,
     DataDogStorageTier,
+    DatadogLogsConfig,
 )
 from holmes.plugins.toolsets.datadog.toolset_datadog_logs import (
     DatadogLogsToolset,
 )
+from tests.conftest import create_mock_tool_invoke_context
 
 
 class TestDatadogToolsetCheckPrerequisites:
@@ -111,7 +113,10 @@ class TestDatadogToolsetCheckPrerequisites:
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.FAILED
-        assert toolset.error == 'Datadog API error: 401 - {"errors":["Unauthorized"]}'
+        assert (
+            toolset.error
+            == 'Datadog Logs healthcheck failed for account \'default\': API error 401 - {"errors":["Unauthorized"]}'
+        )
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
@@ -130,7 +135,10 @@ class TestDatadogToolsetCheckPrerequisites:
         toolset.check_prerequisites()
 
         assert toolset.status == ToolsetStatusEnum.FAILED
-        assert "Datadog Logs health check failed: Network error" in toolset.error
+        assert (
+            "Datadog Logs healthcheck failed for account 'default': Network error"
+            in toolset.error
+        )
 
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
@@ -217,3 +225,65 @@ class TestDatadogToolsetCheckPrerequisites:
         prerequisite = toolset.prerequisites[0]
         assert hasattr(prerequisite, "callable")
         assert prerequisite.callable == toolset.prerequisites_callable
+
+
+class TestDatadogLogsAccountRouting:
+    """Verify the `account` parameter routes log queries to the right account."""
+
+    def setup_method(self):
+        self.toolset = DatadogLogsToolset()
+        self.toolset.dd_config = DatadogLogsConfig(
+            accounts=[
+                {
+                    "name": "staging",
+                    "api_key": "stg-key",
+                    "app_key": "stg-app",
+                    "api_url": "https://api.stg.datadoghq.eu",
+                },
+                {
+                    "name": "production",
+                    "api_key": "prd-key",
+                    "app_key": "prd-app",
+                    "api_url": "https://api.datadoghq.eu",
+                    "default": True,
+                },
+            ],
+            timeout_seconds=60,
+        )
+
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_account_param_routes_to_target(self, mock_execute):
+        mock_execute.return_value = {"data": [], "meta": {}}
+        tool = self.toolset.tools[0]
+        result = tool._invoke(
+            {"account": "staging"}, context=create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["url"].startswith("https://api.stg.datadoghq.eu")
+        assert call_kwargs["headers"]["DD-API-KEY"] == "stg-key"
+
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_omitted_account_uses_default(self, mock_execute):
+        mock_execute.return_value = {"data": [], "meta": {}}
+        tool = self.toolset.tools[0]
+        tool._invoke({}, context=create_mock_tool_invoke_context())
+
+        call_kwargs = mock_execute.call_args[1]
+        assert call_kwargs["url"].startswith("https://api.datadoghq.eu")
+        assert call_kwargs["headers"]["DD-API-KEY"] == "prd-key"
+
+    def test_unknown_account_returns_structured_error(self):
+        tool = self.toolset.tools[0]
+        result = tool._invoke(
+            {"account": "nope"}, context=create_mock_tool_invoke_context()
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "'staging'" in result.error
+        assert "'production'" in result.error

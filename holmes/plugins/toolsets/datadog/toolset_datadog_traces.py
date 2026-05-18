@@ -22,7 +22,9 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.datadog.datadog_api import (
+    ACCOUNT_TOOL_PARAM_DESCRIPTION,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
+    DatadogAccount,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
@@ -65,9 +67,7 @@ class DatadogTracesToolset(Toolset):
             ],
             tags=[ToolsetTag.CORE],
         )
-        self._load_llm_instructions_from_file(
-            os.path.dirname(__file__), "instructions_datadog_traces.jinja2"
-        )
+        self._reload_instructions()
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         """Check prerequisites with configuration."""
@@ -76,18 +76,26 @@ class DatadogTracesToolset(Toolset):
 
         try:
             dd_config = DatadogTracesConfig(**config)
+            for account in dd_config.accounts:
+                success, error_msg = self._perform_healthcheck(account, dd_config)
+                if not success:
+                    return False, error_msg
             self.dd_config = dd_config
-            success, error_msg = self._perform_healthcheck(dd_config)
-            return success, error_msg
+            self._reload_instructions()
+            return True, ""
         except Exception as e:
             logging.exception("Failed to set up Datadog traces toolset")
             return False, f"Invalid Datadog Traces configuration: {e}"
 
-    def _perform_healthcheck(self, dd_config: DatadogTracesConfig) -> Tuple[bool, str]:
-        """Perform health check on Datadog traces API."""
+    def _perform_healthcheck(
+        self, account: DatadogAccount, dd_config: DatadogTracesConfig
+    ) -> Tuple[bool, str]:
+        """Perform health check on Datadog traces API for one account."""
         try:
-            logging.info("Performing Datadog traces configuration healthcheck...")
-            headers = get_headers(dd_config)
+            logging.info(
+                "Performing Datadog traces healthcheck for account %r...", account.name
+            )
+            headers = get_headers(account)
 
             # The spans API uses POST, not GET
             payload = {
@@ -105,8 +113,7 @@ class DatadogTracesToolset(Toolset):
                 }
             }
 
-            # Use search endpoint instead
-            search_url = f"{dd_config.api_url}/api/v2/spans/events/search"
+            search_url = f"{account.api_url}/api/v2/spans/events/search"
 
             execute_datadog_http_request(
                 url=search_url,
@@ -120,18 +127,37 @@ class DatadogTracesToolset(Toolset):
 
         except DataDogRequestError as e:
             logging.error(
-                f"Datadog API error during healthcheck: {e.status_code} - {e.response_text}"
+                "Datadog traces healthcheck failed for account %r: %s - %s",
+                account.name,
+                e.status_code,
+                e.response_text,
             )
             if e.status_code == 403:
                 return (
                     False,
-                    "API key lacks required permissions. Make sure your API key has 'apm_read' scope.",
+                    f"Datadog Traces healthcheck failed for account "
+                    f"{account.name!r}: API key lacks required permissions. "
+                    "Make sure your API key has 'apm_read' scope.",
                 )
-            else:
-                return False, f"Datadog API error: {e.status_code} - {e.response_text}"
+            return (
+                False,
+                f"Datadog Traces healthcheck failed for account "
+                f"{account.name!r}: API error {e.status_code} - {e.response_text}",
+            )
         except Exception as e:
-            logging.exception("Failed during Datadog traces health check")
-            return False, f"Datadog Traces health check failed: {e}"
+            logging.exception(
+                "Datadog traces healthcheck failed for account %r", account.name
+            )
+            return False, (
+                f"Datadog Traces healthcheck failed for account {account.name!r}: {e}"
+            )
+
+    def _reload_instructions(self):
+        self._load_llm_instructions_from_file(
+            os.path.dirname(__file__),
+            "instructions_datadog_traces.jinja2",
+            extra_context={"dd_config": self.dd_config},
+        )
 
 
 class BaseDatadogTracesTool(Tool):
@@ -212,6 +238,11 @@ class GetSpans(BaseDatadogTracesTool):
                     type="boolean",
                     required=True,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -226,6 +257,14 @@ class GetSpans(BaseDatadogTracesTool):
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error="Datadog configuration not initialized",
+                params=params,
+            )
+        try:
+            account = self.toolset.dd_config.get_account(params.get("account"))
+        except KeyError as exc:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(exc),
                 params=params,
             )
 
@@ -252,8 +291,8 @@ class GetSpans(BaseDatadogTracesTool):
                 sort = "-timestamp"
 
             # Use POST endpoint for more complex searches
-            url = f"{self.toolset.dd_config.api_url}/api/v2/spans/events/search"
-            headers = get_headers(self.toolset.dd_config)
+            url = f"{account.api_url}/api/v2/spans/events/search"
+            headers = get_headers(account)
 
             payload = {
                 "data": {
@@ -291,7 +330,7 @@ class GetSpans(BaseDatadogTracesTool):
                 ]
 
             web_url = generate_datadog_spans_url(
-                self.toolset.dd_config,
+                account,
                 query,
                 from_time_ms,
                 to_time_ms,
@@ -548,6 +587,11 @@ class AggregateSpans(BaseDatadogTracesTool):
                     type="string",
                     required=False,
                 ),
+                "account": ToolParameter(
+                    description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+                    type="string",
+                    required=False,
+                ),
             },
             toolset=toolset,
         )
@@ -594,6 +638,14 @@ class AggregateSpans(BaseDatadogTracesTool):
                 error="Datadog configuration not initialized",
                 params=params,
             )
+        try:
+            account = self.toolset.dd_config.get_account(params.get("account"))
+        except KeyError as exc:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(exc),
+                params=params,
+            )
 
         url = None
         payload = None
@@ -613,8 +665,8 @@ class AggregateSpans(BaseDatadogTracesTool):
             query = params.get("query", "*")
 
             # Build the request payload
-            url = f"{self.toolset.dd_config.api_url}/api/v2/spans/analytics/aggregate"
-            headers = get_headers(self.toolset.dd_config)
+            url = f"{account.api_url}/api/v2/spans/analytics/aggregate"
+            headers = get_headers(account)
 
             # Build payload attributes first
             # Process compute parameter to fix common p95->pc95 style mistakes
@@ -658,7 +710,7 @@ class AggregateSpans(BaseDatadogTracesTool):
             )
 
             web_url = generate_datadog_spans_analytics_url(
-                self.toolset.dd_config,
+                account,
                 query,
                 from_time_ms,
                 to_time_ms,

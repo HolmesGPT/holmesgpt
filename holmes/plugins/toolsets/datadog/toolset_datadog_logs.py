@@ -16,7 +16,9 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.datadog.datadog_api import (
+    ACCOUNT_TOOL_PARAM_DESCRIPTION,
     MAX_RETRY_COUNT_ON_RATE_LIMIT,
+    DatadogAccount,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
@@ -79,13 +81,15 @@ class DatadogLogsToolset(Toolset):
         self.tools = [GetLogs(toolset=self)]
         self._reload_instructions()
 
-    def _perform_healthcheck(self) -> Tuple[bool, str]:
-        """Perform health check on Datadog logs API."""
+    def _perform_healthcheck(self, account: DatadogAccount) -> Tuple[bool, str]:
+        """Perform health check on Datadog logs API for one account."""
         if not self.dd_config:
             return False, "Internal error: Datadog configuration not initialized"
         try:
-            logging.info("Performing Datadog logs configuration healthcheck...")
-            headers = get_headers(self.dd_config)
+            logging.info(
+                "Performing Datadog logs healthcheck for account %r...", account.name
+            )
+            headers = get_headers(account)
             payload = {
                 "filter": {
                     "from": "now-1m",
@@ -96,7 +100,7 @@ class DatadogLogsToolset(Toolset):
                 "page": {"limit": 1},
             }
 
-            search_url = f"{self.dd_config.api_url}/api/v2/logs/events/search"
+            search_url = f"{account.api_url}/api/v2/logs/events/search"
             execute_datadog_http_request(
                 url=search_url,
                 headers=headers,
@@ -109,18 +113,30 @@ class DatadogLogsToolset(Toolset):
 
         except DataDogRequestError as e:
             logging.error(
-                f"Datadog API error during healthcheck: {e.status_code} - {e.response_text}"
+                "Datadog logs healthcheck failed for account %r: %s - %s",
+                account.name,
+                e.status_code,
+                e.response_text,
             )
             if e.status_code == 403:
                 return (
                     False,
-                    "API key lacks required permissions. Make sure your API key has 'apm_read' scope.",
+                    f"Datadog Logs healthcheck failed for account "
+                    f"{account.name!r}: API key lacks required permissions. "
+                    "Make sure your API key has 'apm_read' scope.",
                 )
-            else:
-                return False, f"Datadog API error: {e.status_code} - {e.response_text}"
+            return (
+                False,
+                f"Datadog Logs healthcheck failed for account "
+                f"{account.name!r}: API error {e.status_code} - {e.response_text}",
+            )
         except Exception as e:
-            logging.exception("Failed during Datadog logs health check")
-            return False, f"Datadog Logs health check failed: {e}"
+            logging.exception(
+                "Datadog logs healthcheck failed for account %r", account.name
+            )
+            return False, (
+                f"Datadog Logs healthcheck failed for account {account.name!r}: {e}"
+            )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         if not config:
@@ -133,19 +149,23 @@ class DatadogLogsToolset(Toolset):
             dd_config = DatadogLogsConfig(**config)
             self.dd_config = dd_config
 
-            success, error_msg = self._perform_healthcheck()
-            return success, error_msg
+            for account in dd_config.accounts:
+                success, error_msg = self._perform_healthcheck(account)
+                if not success:
+                    return False, error_msg
+            self._reload_instructions()
+            return True, ""
 
         except Exception as e:
             logging.exception("Failed to set up Datadog Logs toolset")
             return (False, f"Invalid Datadog Logs configuration: {e}")
 
     def _reload_instructions(self):
-        """Load Datadog logs specific troubleshooting instructions."""
-        template_file_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "datadog_logs_instructions.jinja2")
+        self._load_llm_instructions_from_file(
+            os.path.dirname(__file__),
+            "datadog_logs_instructions.jinja2",
+            extra_context={"dd_config": self.dd_config},
         )
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
 
 
 class GetLogs(Tool):
@@ -188,6 +208,11 @@ class GetLogs(Tool):
             type="boolean",
             required=False,
         ),
+        "account": ToolParameter(
+            description=ACCOUNT_TOOL_PARAM_DESCRIPTION,
+            type="string",
+            required=False,
+        ),
     }
 
     def get_parameterized_one_liner(self, params: dict) -> str:
@@ -202,6 +227,15 @@ class GetLogs(Tool):
                 error="Datadog configuration not initialized",
                 params=params,
             )
+        try:
+            account = self.toolset.dd_config.get_account(params.get("account"))
+        except KeyError as exc:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(exc),
+                params=params,
+            )
+
         url = None
         payload: Optional[Dict[str, Any]] = None
         try:
@@ -221,8 +255,8 @@ class GetLogs(Tool):
             params["limit"] = limit
             sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 
-            url = f"{self.toolset.dd_config.api_url}/api/v2/logs/events/search"
-            headers = get_headers(self.toolset.dd_config)
+            url = f"{account.api_url}/api/v2/logs/events/search"
+            headers = get_headers(account)
 
             storage = self.toolset.dd_config.storage_tier
             payload = {
@@ -257,7 +291,9 @@ class GetLogs(Tool):
                 status=StructuredToolResultStatus.SUCCESS,
                 data=response,
                 params=params,
-                url=generate_datadog_logs_url(self.toolset.dd_config, payload),
+                url=generate_datadog_logs_url(
+                    account, self.toolset.dd_config.indexes, payload
+                ),
             )
 
         except DataDogRequestError as e:

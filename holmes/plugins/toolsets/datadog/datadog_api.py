@@ -3,11 +3,11 @@ import logging
 import re
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Any, ClassVar, Dict, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, urlunparse
 
 import requests  # type: ignore
-from pydantic import AnyUrl, Field
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, model_validator
 from requests.structures import CaseInsensitiveDict  # type: ignore
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_incrementing
 from tenacity.wait import wait_base
@@ -95,8 +95,78 @@ def convert_api_url_to_app_url(api_url: Union[str, AnyUrl]) -> str:
     return app_url
 
 
+class DatadogAccount(BaseModel):
+    """A single Datadog organization (account) the toolset can query.
+
+    Each account carries its own credentials and site URL so a single
+    Holmes deployment can target several Datadog organizations (e.g.
+    staging + production) from the same toolset.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        min_length=1,
+        title="Account name",
+        description=(
+            "Identifier used by the LLM to target this account from a tool "
+            "call (for example `staging` or `production`). Must be unique "
+            "within a toolset."
+        ),
+        examples=["default", "staging", "production"],
+    )
+    api_key: str = Field(
+        min_length=1,
+        title="API Key",
+        description="Datadog API key for authentication",
+        json_schema_extra={"format": "password"},
+    )
+    app_key: str = Field(
+        min_length=1,
+        title="Application Key",
+        description="Datadog application key for authentication",
+        json_schema_extra={"format": "password"},
+    )
+    api_url: AnyUrl = Field(
+        default="https://api.datadoghq.com",
+        title="API URL",
+        description=(
+            "Datadog site API base URL for this account. Defaults to the US1 "
+            "site (https://api.datadoghq.com). See "
+            "https://docs.datadoghq.com/getting_started/site/ for the full "
+            "list."
+        ),
+        examples=[
+            "https://api.datadoghq.com",
+            "https://api.datadoghq.eu",
+        ],
+    )
+    default: bool = Field(
+        default=False,
+        title="Default",
+        description=(
+            "When true, this account is used by tool calls that don't set "
+            "an explicit `account` parameter. At most one account may be "
+            "flagged default; if none is, the first account in the list "
+            "wins."
+        ),
+    )
+
+
 class DatadogBaseConfig(ToolsetConfig):
-    """Base configuration for all Datadog toolsets"""
+    """Base configuration for all Datadog toolsets.
+
+    Supports two interchangeable schemas:
+
+    - **Single-account shorthand** (legacy / common case): set `api_key`,
+      `app_key` and `api_url` directly on the config. Internally normalised
+      to a single :class:`DatadogAccount` named ``default``.
+    - **Multi-account**: populate the `accounts:` list to query several
+      Datadog organizations from the same toolset. Each tool call accepts
+      an optional `account` parameter to pick the target.
+
+    The two forms are mutually exclusive within one config block.
+    """
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
         "dd_api_key": "api_key",
@@ -104,24 +174,45 @@ class DatadogBaseConfig(ToolsetConfig):
         "site_api_url": "api_url",
         "request_timeout": "timeout_seconds",
     }
+    # The UI form guides users through the common single-account path, so mark
+    # the shorthand credential fields as required in the exported schema even
+    # though they are Optional at the Pydantic level (to allow the
+    # `accounts:` alternative).  The `accounts` list is hidden because nested
+    # complex objects don't render well in form UIs — advanced users supply it
+    # directly in their YAML/Helm values.
+    _ui_required_fields: ClassVar[List[str]] = ["api_key", "app_key"]
+    _hidden_fields: ClassVar[List[str]] = ["accounts"]
 
-    api_key: str = Field(
+    # Single-account shorthand. When `accounts:` below is populated, these
+    # fields must be omitted.
+    api_key: Optional[str] = Field(
+        default=None,
         title="API Key",
-        description="Datadog API key for authentication",
+        description=(
+            "Datadog API key. Single-account shorthand; for multi-account "
+            "setups, populate the `accounts:` list instead."
+        ),
         examples=["{{ env.DATADOG_API_KEY }}"],
         json_schema_extra={"format": "password"},
     )
-    app_key: str = Field(
+    app_key: Optional[str] = Field(
+        default=None,
         title="Application Key",
-        description="Datadog application key for authentication",
+        description=(
+            "Datadog application key. Single-account shorthand; for "
+            "multi-account setups, populate `accounts:` instead."
+        ),
         examples=["{{ env.DATADOG_APP_KEY }}"],
         json_schema_extra={"format": "password"},
     )
-    api_url: AnyUrl = Field(
+    api_url: Optional[AnyUrl] = Field(
+        default=None,
         title="API URL",
         description=(
-            "Datadog site API base URL. Pick the URL matching your Datadog region — "
-            "see https://docs.datadoghq.com/getting_started/site/ for the full list."
+            "Datadog site API base URL. Single-account shorthand; for "
+            "multi-account setups, populate `accounts:` instead. See "
+            "https://docs.datadoghq.com/getting_started/site/ for the "
+            "full list."
         ),
         examples=[
             "https://api.datadoghq.com",
@@ -132,11 +223,103 @@ class DatadogBaseConfig(ToolsetConfig):
             "https://api.ddog-gov.com",
         ],
     )
+    accounts: List[DatadogAccount] = Field(
+        default_factory=list,
+        title="Datadog accounts",
+        description=(
+            "Datadog accounts (organizations) the toolset can query. Leave "
+            "empty to use the single-account shorthand above; populate with "
+            "two or more entries to enable multi-account routing via the "
+            "`account` tool parameter."
+        ),
+    )
     timeout_seconds: int = Field(
         default=60,
         title="Timeout",
         description="HTTP request timeout in seconds",
     )
+
+    @model_validator(mode="after")
+    def _normalize_accounts(self) -> "DatadogBaseConfig":
+        """Coalesce the legacy single-account fields into ``self.accounts``."""
+        legacy_set = any(
+            v is not None for v in (self.api_key, self.app_key, self.api_url)
+        )
+        if self.accounts and legacy_set:
+            raise ValueError(
+                "Datadog config: provide either the top-level "
+                "api_key/app_key/api_url shorthand OR the `accounts:` list, "
+                "not both."
+            )
+        if not self.accounts:
+            if not legacy_set:
+                raise ValueError(
+                    "Datadog config: missing credentials. Provide either "
+                    "top-level api_key/app_key/api_url or an `accounts:` "
+                    "list."
+                )
+            missing = [
+                name
+                for name, value in (
+                    ("api_key", self.api_key),
+                    ("app_key", self.app_key),
+                )
+                if value is None
+            ]
+            if missing:
+                raise ValueError(
+                    f"Datadog config: missing required field(s) {missing}. "
+                    "api_key and app_key must be set when using the "
+                    "single-account shorthand."
+                )
+            account_kwargs: Dict[str, Any] = {
+                "name": "default",
+                "api_key": self.api_key,
+                "app_key": self.app_key,
+                "default": True,
+            }
+            if self.api_url is not None:
+                account_kwargs["api_url"] = self.api_url
+            self.accounts = [DatadogAccount(**account_kwargs)]
+        # `self.accounts` is now the source of truth. We keep the legacy
+        # top-level fields populated (when the shorthand was used) so that
+        # downstream code reading them stays backward-compatible — but new
+        # call sites should always read from `accounts` via `get_account()`.
+        names = [account.name for account in self.accounts]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(
+                f"Datadog config: duplicate account name(s): {duplicates}."
+            )
+        defaults = [account for account in self.accounts if account.default]
+        if len(defaults) > 1:
+            raise ValueError(
+                "Datadog config: at most one account may be flagged "
+                f"`default: true` (got {[a.name for a in defaults]})."
+            )
+        if not defaults:
+            self.accounts[0].default = True
+        return self
+
+    def get_account(self, name: Optional[str] = None) -> DatadogAccount:
+        """Resolve the named Datadog account, or the default when omitted.
+
+        Raises :class:`KeyError` with the list of valid account names when
+        ``name`` is unknown so the LLM can self-correct on retry.
+        """
+        if name is None:
+            for account in self.accounts:
+                if account.default:
+                    return account
+            return self.accounts[0]
+        for account in self.accounts:
+            if account.name == name:
+                return account
+        available = ", ".join(repr(account.name) for account in self.accounts)
+        raise KeyError(
+            f"unknown Datadog account {name!r}; available accounts: "
+            f"[{available}]"
+        )
 
 
 class DataDogRequestError(Exception):
@@ -159,19 +342,29 @@ class DataDogRequestError(Exception):
         self.response_headers = response_headers
 
 
-def get_headers(dd_config: DatadogBaseConfig) -> Dict[str, str]:
-    """Get standard headers for Datadog API requests.
+#: Shared description for the per-tool ``account`` parameter exposed by every
+#: Datadog tool. The exact list of available accounts is injected into the
+#: toolset's system instructions via Jinja so the LLM knows what's valid.
+ACCOUNT_TOOL_PARAM_DESCRIPTION = (
+    "Datadog account to query. Optional. If omitted, the configured default "
+    "account is used. The list of available accounts is in the toolset's "
+    "system instructions."
+)
+
+
+def get_headers(account: DatadogAccount) -> Dict[str, str]:
+    """Get standard headers for Datadog API requests for a given account.
 
     Args:
-        dd_config: Datadog configuration object
+        account: The Datadog account whose credentials should be used.
 
     Returns:
-        Dictionary of headers for Datadog API requests
+        Dictionary of headers for Datadog API requests.
     """
     return {
         "Content-Type": "application/json",
-        "DD-API-KEY": dd_config.api_key,
-        "DD-APPLICATION-KEY": dd_config.app_key,
+        "DD-API-KEY": account.api_key,
+        "DD-APPLICATION-KEY": account.app_key,
     }
 
 

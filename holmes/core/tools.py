@@ -1098,22 +1098,36 @@ class Toolset(BaseModel):
             return None
         return {cls.__name__: cls.build_schema_entry() for cls in self.config_classes}
 
-    def _load_llm_instructions(self, jinja_template: str):
+    def _load_llm_instructions(
+        self, jinja_template: str, extra_context: Optional[Dict[str, Any]] = None
+    ):
         tool_names = [t.name for t in self.tools]
+        context: Dict[str, Any] = {"tool_names": tool_names, "config": self.config}
+        if extra_context:
+            context.update(extra_context)
         self.llm_instructions = load_and_render_prompt(
             prompt=jinja_template,
-            context={"tool_names": tool_names, "config": self.config},
+            context=context,
         )
 
-    def _load_llm_instructions_from_file(self, file_dir: str, filename: str) -> None:
+    def _load_llm_instructions_from_file(
+        self,
+        file_dir: str,
+        filename: str,
+        extra_context: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Helper method to load LLM instructions from a jinja2 template file.
 
         Args:
             file_dir: Directory where the template file is located (typically os.path.dirname(__file__))
             filename: Name of the jinja2 template file (e.g., "toolset_grafana_dashboard.jinja2")
+            extra_context: Optional additional variables merged into the Jinja context.
         """
         template_file_path = os.path.abspath(os.path.join(file_dir, filename))
-        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+        self._load_llm_instructions(
+            jinja_template=f"file://{template_file_path}",
+            extra_context=extra_context,
+        )
 
 
 class YAMLToolset(Toolset):
