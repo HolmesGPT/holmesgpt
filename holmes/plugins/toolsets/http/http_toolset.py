@@ -2,8 +2,9 @@ import fnmatch
 import json
 import logging
 import os
+import posixpath
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import requests  # type: ignore
 from pydantic import BaseModel, Field, model_validator
@@ -330,16 +331,39 @@ class HttpToolset(Toolset):
         except Exception as e:
             return None, f"Invalid URL: {e}"
 
-        if not parsed.scheme or not parsed.netloc:
+        if parsed.scheme.lower() not in ("http", "https"):
+            return None, f"Unsupported URL scheme: {parsed.scheme!r}"
+
+        if not parsed.netloc:
             return None, f"Invalid URL format: {url}"
 
         host = parsed.hostname or parsed.netloc
         path = parsed.path or "/"
 
+        # Reject path-traversal segments. urllib3/requests normalise ".." in
+        # the URL before sending, which would otherwise let an LLM-supplied
+        # URL escape the configured path whitelist (CWE-22 / CWE-918).
+        # Check both the raw and percent-decoded path so encodings like
+        # "%2e%2e" cannot bypass the check.
+        for candidate in (path, unquote(path)):
+            segments = candidate.split("/")
+            if any(seg in ("..", ".") for seg in segments):
+                return (
+                    None,
+                    "URL rejected: path contains '.' or '..' traversal segments. "
+                    "Use a fully-resolved path that matches the configured whitelist.",
+                )
+
+        # Normalise the path for matching so that benign duplicate slashes
+        # behave as expected without changing semantics.
+        normalised_path = posixpath.normpath(path)
+        if path.endswith("/") and not normalised_path.endswith("/"):
+            normalised_path += "/"
+
         for endpoint in self.http_config.endpoints:
             for host_pattern in endpoint.hosts:
                 if self._match_host(host, host_pattern):
-                    if self._match_path(path, endpoint.paths):
+                    if self._match_path(normalised_path, endpoint.paths):
                         return endpoint, None
 
         return (
