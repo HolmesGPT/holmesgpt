@@ -131,6 +131,18 @@
       "backendToolsetNames": ["github", "github-mcp"]
     },
     {
+      "id": "gitlab-mcp",
+      "name": "GitLab",
+      "description": "Projects, merge requests, issues, pipelines, code",
+      "categories": ["source-control-cicd"],
+      "iconUrl": "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/gitlab.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/gitlab-mcp/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "helmPath": "holmes.mcpAddons.gitlabMcp",
+      "minRobustaVersion": "0.39.0",
+      "backendToolsetNames": ["gitlab", "gitlab-mcp"]
+    },
+    {
       "id": "argocd/core",
       "name": "ArgoCD",
       "description": "GitOps continuous delivery for Kubernetes",
