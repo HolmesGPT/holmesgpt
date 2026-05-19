@@ -646,6 +646,13 @@ class ConversationWorker:
         resolved_request_source = data.get("request_source") or (
             task.metadata.get("request_source") if task.metadata else None
         )
+        # source_ref is conversation-level for alert investigations (the
+        # whole chat is about one alert id), so the FE puts it on the
+        # Conversations row's metadata, not in each per-turn event. Same
+        # caller-wins / metadata-fallback pattern as request_source.
+        resolved_source_ref = data.get("source_ref") or (
+            task.metadata.get("source_ref") if task.metadata else None
+        )
 
         chat_request = ChatRequest(
             ask=ask,
@@ -660,11 +667,11 @@ class ConversationWorker:
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
             behavior_controls=data.get("behavior_controls"),
-            # source_ref / meta / is_internal still come from the per-event
-            # blob only — they're per-turn signals (which alert this
-            # follow-up question was about, etc.), not Conversation-level
-            # state. user_id / request_source fall back to the Conversations
-            # row when the FE didn't repeat them in the event.
+            # meta / is_internal still come from the per-event blob only —
+            # they're per-turn signals, not Conversation-level state.
+            # user_id / user_email / request_source / source_ref fall back
+            # to the Conversations row when the FE didn't repeat them in
+            # the per-turn event.
             user_id=resolved_user_id,
             user_email=resolved_user_email,
             # request_type: pass through whatever the FE sent (None if absent)
@@ -677,7 +684,7 @@ class ConversationWorker:
             # at any time without a code change here.
             request_type=data.get("request_type"),
             request_source=resolved_request_source,
-            source_ref=data.get("source_ref"),
+            source_ref=resolved_source_ref,
             conversation_id=task.conversation_id,
             conversation_source="conversations",
             meta=data.get("meta"),
