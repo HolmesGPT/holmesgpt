@@ -636,22 +636,28 @@ class ConversationWorker:
         # Per-event data still wins so the FE can override per-turn (e.g.
         # an alert-investigation chat that pivots to a freeform question).
         resolved_user_id = data.get("user_id") or task.user_id
-        # user_email lives under Conversations.metadata (same shape as
-        # request_source). Per-event value wins; fall back to the row-level
-        # metadata so follow-up turns still get the email when the FE
-        # didn't repeat it in the user_message event.
-        resolved_user_email = data.get("user_email") or (
-            task.metadata.get("user_email") if task.metadata else None
+        # Per-event presence wins, not truthiness — so an explicit empty
+        # value from the FE (e.g. "" to deliberately clear a field) keeps
+        # priority over the row-level metadata fallback and we don't
+        # reintroduce stale Conversation-row values. Only fall back to
+        # task.metadata when the per-turn event omits the key entirely.
+        resolved_user_email = (
+            data["user_email"]
+            if "user_email" in data
+            else (task.metadata.get("user_email") if task.metadata else None)
         )
-        resolved_request_source = data.get("request_source") or (
-            task.metadata.get("request_source") if task.metadata else None
+        resolved_request_source = (
+            data["request_source"]
+            if "request_source" in data
+            else (task.metadata.get("request_source") if task.metadata else None)
         )
         # source_ref is conversation-level for alert investigations (the
         # whole chat is about one alert id), so the FE puts it on the
-        # Conversations row's metadata, not in each per-turn event. Same
-        # caller-wins / metadata-fallback pattern as request_source.
-        resolved_source_ref = data.get("source_ref") or (
-            task.metadata.get("source_ref") if task.metadata else None
+        # Conversations row's metadata, not in each per-turn event.
+        resolved_source_ref = (
+            data["source_ref"]
+            if "source_ref" in data
+            else (task.metadata.get("source_ref") if task.metadata else None)
         )
 
         chat_request = ChatRequest(
