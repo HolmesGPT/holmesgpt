@@ -659,6 +659,16 @@ class ConversationWorker:
             if "source_ref" in data
             else (task.metadata.get("source_ref") if task.metadata else None)
         )
+        # request_type may also live under Conversations.metadata when the
+        # FE classifies a whole chat once at creation time. Same key-presence
+        # semantics — leaving the resolved value None when neither source
+        # supplies it preserves build_chat_recorder_state's auto-detection
+        # (Slack-prefix → 'slack_chat', fallback → 'user_chat').
+        resolved_request_type = (
+            data["request_type"]
+            if "request_type" in data
+            else (task.metadata.get("request_type") if task.metadata else None)
+        )
 
         chat_request = ChatRequest(
             ask=ask,
@@ -675,20 +685,14 @@ class ConversationWorker:
             behavior_controls=data.get("behavior_controls"),
             # meta / is_internal still come from the per-event blob only —
             # they're per-turn signals, not Conversation-level state.
-            # user_id / user_email / request_source / source_ref fall back
-            # to the Conversations row when the FE didn't repeat them in
-            # the per-turn event.
+            # user_id / user_email / request_type / request_source /
+            # source_ref fall back to the Conversations row when the FE
+            # didn't repeat them in the per-turn event. None for
+            # request_type still lets build_chat_recorder_state's Slack
+            # auto-detection and 'user_chat' default run.
             user_id=resolved_user_id,
             user_email=resolved_user_email,
-            # request_type: pass through whatever the FE sent (None if absent)
-            # rather than hard-coding 'user_chat' here. The recorder helper
-            # (build_chat_recorder_state) handles the default and runs Slack
-            # auto-detection — hard-coding 'user_chat' would defeat the
-            # auto-detection because the helper bails out if request_type is
-            # already truthy. Today only /api/chat hits the Slack-prefix
-            # path, but the runner could route Slack through Conversations
-            # at any time without a code change here.
-            request_type=data.get("request_type"),
+            request_type=resolved_request_type,
             request_source=resolved_request_source,
             source_ref=resolved_source_ref,
             conversation_id=task.conversation_id,
