@@ -636,6 +636,13 @@ class ConversationWorker:
         # Per-event data still wins so the FE can override per-turn (e.g.
         # an alert-investigation chat that pivots to a freeform question).
         resolved_user_id = data.get("user_id") or task.user_id
+        # user_email lives under Conversations.metadata (same shape as
+        # request_source). Per-event value wins; fall back to the row-level
+        # metadata so follow-up turns still get the email when the FE
+        # didn't repeat it in the user_message event.
+        resolved_user_email = data.get("user_email") or (
+            task.metadata.get("user_email") if task.metadata else None
+        )
         resolved_request_source = data.get("request_source") or (
             task.metadata.get("request_source") if task.metadata else None
         )
@@ -659,6 +666,7 @@ class ConversationWorker:
             # state. user_id / request_source fall back to the Conversations
             # row when the FE didn't repeat them in the event.
             user_id=resolved_user_id,
+            user_email=resolved_user_email,
             # request_type: pass through whatever the FE sent (None if absent)
             # rather than hard-coding 'user_chat' here. The recorder helper
             # (build_chat_recorder_state) handles the default and runs Slack
