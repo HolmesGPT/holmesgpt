@@ -1,11 +1,8 @@
 # Kubernetes (MCP)
 
-!!! note "Built-in Kubernetes toolsets are recommended for most users"
-    Holmes includes built-in Kubernetes toolsets ([`kubernetes/core`](kubernetes.md), `kubernetes/logs`) that provide comprehensive cluster access — it uses bash to run kubectl commands directly, no additional setup required when deployed in-cluster.
+--8<-- "snippets/kubernetes_toolset_picker.md"
 
-    The Kubernetes MCP addon is for **advanced scenarios**: enterprise environments requiring OAuth/OIDC authentication or centralized access control via identity providers.
-
-The [Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server) gives Holmes access to Kubernetes clusters via the MCP protocol, with support for OAuth/OIDC authentication.
+The [Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server) gives Holmes access to Kubernetes clusters via the MCP protocol, with support for OAuth/OIDC authentication. It is intended to **replace** the built-in `kubernetes/core` and `kubernetes/logs` toolsets — the Helm examples below disable those to avoid overlap.
 
 ## In-Cluster Setup (ServiceAccount)
 
