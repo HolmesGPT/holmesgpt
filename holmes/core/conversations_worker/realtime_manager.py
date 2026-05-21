@@ -27,8 +27,10 @@ import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 import realtime._async.client as rt_client
+from postgrest.exceptions import APIError as PGAPIError
 from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
+from websockets.exceptions import WebSocketException
 
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS,
@@ -36,10 +38,24 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
 )
-from holmes.core.supabase_dal import CONVERSATIONS_TABLE
+from holmes.core.supabase_dal import CONVERSATIONS_TABLE, SupabaseDnsException
 
 if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
+
+
+# Transient errors during sign-in / WS connect / channel join that the
+# reconnect backoff loop is designed to absorb. Anything outside this tuple
+# is treated as a real defect and surfaced.
+_TRANSIENT_RECONNECT_EXCEPTIONS: tuple = (
+    SupabaseDnsException,
+    PGAPIError,
+    WebSocketException,
+    asyncio.TimeoutError,
+    TimeoutError,
+    ConnectionError,
+    OSError,
+)
 
 
 # ---- channel topic helpers ----
@@ -433,18 +449,32 @@ class RealtimeManager:
         self._last_auth_jwt = None
         try:
             await asyncio.to_thread(self.dal.sign_in)
-        except Exception:
+        except _TRANSIENT_RECONNECT_EXCEPTIONS:
             logging.warning(
                 "Failed to re-sign-in to Supabase before reconnect; will retry",
                 exc_info=True,
             )
             return False
+        except Exception:
+            # Non-transient failure (auth misconfig, ValueError from
+            # sign_in's "no session" branches, programming bug). Don't
+            # silently retry forever — surface it so it's visible and let
+            # the main loop's exception handler tear the thread down.
+            logging.exception(
+                "Unexpected error during Supabase re-sign-in; not retrying",
+            )
+            raise
         try:
             await self._connect_and_subscribe()
             return True
-        except Exception:
+        except _TRANSIENT_RECONNECT_EXCEPTIONS:
             logging.warning("Failed to reconnect; will retry", exc_info=True)
             return False
+        except Exception:
+            # Non-transient failure during WS connect / channel subscribe.
+            # Surface rather than masking as connectivity noise.
+            logging.exception("Unexpected error during reconnect; not retrying")
+            raise
 
     async def _maybe_refresh_auth(self) -> None:
         """Re-push the Supabase JWT to the realtime client if it rotated."""
