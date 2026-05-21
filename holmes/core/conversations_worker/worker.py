@@ -183,7 +183,7 @@ class ConversationWorker:
                 )
                 self._realtime_manager.start()
             except Exception:
-                logging.exception(
+                logging.warning(
                     "Failed to start Realtime manager; continuing with polling only",
                     exc_info=True,
                 )
@@ -272,8 +272,9 @@ class ConversationWorker:
             try:
                 result = self.dal.is_realtime_enabled()
             except Exception:
-                logging.exception(
-                    "Unexpected error in realtime verify loop", exc_info=True
+                logging.warning(
+                    "Connectivity error in realtime verify loop; will retry with backoff",
+                    exc_info=True,
                 )
                 result = None
 

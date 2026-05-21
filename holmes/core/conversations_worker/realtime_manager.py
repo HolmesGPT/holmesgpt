@@ -130,6 +130,48 @@ def _install_ssl_patch_if_needed() -> None:
     )
 
 
+class _RealtimeConnectivityWarningFilter(logging.Filter):
+    """Downgrade transient realtime connectivity ERROR logs to WARNING.
+
+    The realtime library logs at ERROR for events that its own retry
+    machinery (rejoin timer, auto-reconnect) or our `_full_reconnect` loop
+    will recover from automatically — join push timeouts, WebSocket closes,
+    individual connect attempt failures. These are noisy alerts, not real
+    errors: if recovery ultimately fails the failure surfaces via raised
+    exceptions our code catches and logs at the appropriate level.
+    """
+
+    _DOWNGRADE_PATTERNS = (
+        "join push timeout",
+        "Connection attempt failed",
+        "Connection failed permanently",
+        "WebSocket connection closed",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno != logging.ERROR:
+            return True
+        msg = record.getMessage()
+        if any(p in msg for p in self._DOWNGRADE_PATTERNS):
+            record.levelno = logging.WARNING
+            record.levelname = "WARNING"
+        return True
+
+
+def _install_realtime_log_filter_if_needed() -> None:
+    """Attach the connectivity-warning filter to the realtime library loggers.
+
+    Idempotent.
+    """
+    for logger_name in ("realtime._async.channel", "realtime._async.client"):
+        lg = logging.getLogger(logger_name)
+        if any(
+            isinstance(f, _RealtimeConnectivityWarningFilter) for f in lg.filters
+        ):
+            continue
+        lg.addFilter(_RealtimeConnectivityWarningFilter())
+
+
 class RealtimeManager:
     def __init__(
         self,
@@ -392,8 +434,8 @@ class RealtimeManager:
         try:
             await asyncio.to_thread(self.dal.sign_in)
         except Exception:
-            logging.exception(
-                "Failed to re-sign-in to Supabase before reconnect",
+            logging.warning(
+                "Failed to re-sign-in to Supabase before reconnect; will retry",
                 exc_info=True,
             )
             return False
@@ -401,7 +443,7 @@ class RealtimeManager:
             await self._connect_and_subscribe()
             return True
         except Exception:
-            logging.exception("Failed to reconnect", exc_info=True)
+            logging.warning("Failed to reconnect; will retry", exc_info=True)
             return False
 
     async def _maybe_refresh_auth(self) -> None:
@@ -419,7 +461,10 @@ class RealtimeManager:
             self._last_auth_jwt = new_jwt
             logging.debug("Refreshed realtime client auth token")
         except Exception:
-            logging.exception("Failed to refresh realtime auth token", exc_info=True)
+            logging.warning(
+                "Failed to refresh realtime auth token; will retry next tick",
+                exc_info=True,
+            )
 
     # ---- connect + subscribe ----
 
@@ -430,6 +475,7 @@ class RealtimeManager:
         # realtime library calls connect(self.url) without an ssl= kwarg, so
         # we have to inject one to honor the custom CA bundle.
         _install_ssl_patch_if_needed()
+        _install_realtime_log_filter_if_needed()
 
         # Supabase Realtime URL
         store_url = self.dal.url.rstrip("/")
@@ -462,8 +508,10 @@ class RealtimeManager:
                     await self._client.set_auth(user_jwt)
                     self._last_auth_jwt = user_jwt
                 except Exception:
-                    logging.exception(
-                        "Failed to set_auth on realtime client", exc_info=True
+                    logging.warning(
+                        "Failed to set_auth on realtime client; "
+                        "subscription will fall back to anon key",
+                        exc_info=True,
                     )
 
             # Subscribe using the configured mode.
@@ -477,7 +525,7 @@ class RealtimeManager:
             try:
                 await self._client.close()
             except Exception:
-                logging.exception(
+                logging.warning(
                     "Error closing realtime client after failed connect",
                     exc_info=True,
                 )
