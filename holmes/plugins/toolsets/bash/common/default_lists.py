@@ -53,6 +53,8 @@ CORE_ALLOW_LIST: List[str] = [
     "date",
     "which",
     "type",
+    # Prints arguments to stdout — does not read files
+    "echo",
 ]
 
 # Extended allow list - adds filesystem access commands
@@ -61,7 +63,6 @@ CORE_ALLOW_LIST: List[str] = [
 EXTENDED_ALLOW_LIST: List[str] = CORE_ALLOW_LIST + [
     # File reading
     "cat",
-    "echo",
     "base64",
     # Filesystem traversal
     "ls",

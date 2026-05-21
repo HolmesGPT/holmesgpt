@@ -28,6 +28,12 @@ class ConversationTask(BaseModel):
     request_sequence: int
     metadata: Dict[str, Any] = Field(default_factory=dict)
     title: Optional[str] = None
+    # The Conversations row's user_id column (the human who started the
+    # chat). Used as a fallback for HolmesUsageEvents.user_id when the FE
+    # didn't include user_id in the user_message event's data — common
+    # because the runner-side Conversations row already has the value, so
+    # the FE has no reason to duplicate it into every per-turn event.
+    user_id: Optional[str] = None
 
     # Hydrated post-construction from events; not part of the validated row schema.
     _user_message_data: Dict[str, Any] = PrivateAttr(default_factory=dict)

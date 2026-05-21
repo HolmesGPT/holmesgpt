@@ -11,6 +11,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   AZURE_TENANT_ID: {{ .Values.mcpAddons.azure.config.tenantId | quote }}
   AZURE_SUBSCRIPTION_ID: {{ .Values.mcpAddons.azure.config.subscriptionId | quote }}
@@ -29,12 +34,20 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
     {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
     azure.workload.identity/use: "true"
     {{- end }}
-  {{- if .Values.mcpAddons.azure.serviceAccount.annotations }}
+  {{- $ann := dict -}}
+  {{- with (include "holmes.commonAnnotations" . | fromYaml) -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- with .Values.mcpAddons.azure.serviceAccount.annotations -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- if $ann }}
   annotations:
-    {{- toYaml .Values.mcpAddons.azure.serviceAccount.annotations | nindent 4 }}
+    {{- toYaml $ann | nindent 4 }}
   {{- end }}
 {{- end }}
 ---
@@ -49,6 +62,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -64,9 +82,15 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
         {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
         azure.workload.identity/use: "true"
         {{- end }}
+      annotations:
+        {{- with (include "holmes.commonAnnotations" .) }}
+          {{- . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ .Values.mcpAddons.azure | toYaml | sha256sum }}
     spec:
       {{- if or .Values.mcpAddons.azure.serviceAccount.create .Values.mcpAddons.azure.serviceAccount.name }}
       serviceAccountName: {{ .Values.mcpAddons.azure.serviceAccount.name }}
@@ -185,6 +209,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   type: ClusterIP
   selector:

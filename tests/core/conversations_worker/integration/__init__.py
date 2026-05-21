@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from realtime._async.client import AsyncRealtimeClient
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import SyncClientOptions as ClientOptions
 
 from holmes.core.conversations_worker.realtime_manager import (
     broadcast_submit_topic,
@@ -145,7 +145,17 @@ class SupabaseFixture:
                     url=ws_url, token=self._api_key, auto_reconnect=True
                 )
                 await rt.connect()
-                ch = rt.channel(topic, {"config": {"private": False}})
+                # Authenticate as the logged-in test user so the realtime.messages
+                # RLS policies (which gate on is_account_user_role / cluster perms)
+                # can resolve. Without this, the channel runs as anon and the join
+                # is rejected — Supabase drops the WS with code 1006.
+                session = self.client.auth.get_session()
+                if session and session.access_token:
+                    await rt.set_auth(session.access_token)
+                ch = rt.channel(
+                    topic,
+                    {"config": {"private": True, "presence": {"enabled": False}}},
+                )
                 subscribed = asyncio.Event()
 
                 def _on_sub(status: Any, err: Any = None) -> None:
@@ -299,11 +309,13 @@ class SupabaseFixture:
 
 
 @pytest.fixture(scope="session")
-def supabase_fx() -> SupabaseFixture:
+def supabase_fx(request) -> SupabaseFixture:
     """Session-scoped Supabase client fixture.
 
     Requires ROBUSTA_UI_TOKEN and CLUSTER_NAME environment variables.
-    Performs best-effort cleanup of created conversations after the session.
+    Performs best-effort cleanup of created conversations after the session,
+    unless ``--skip-cleanup`` is passed (useful for inspecting the rows that
+    a test left behind in the DB).
     """
     decoded = _decode_token()
     cluster_id = os.environ.get("CLUSTER_NAME")
@@ -332,6 +344,15 @@ def supabase_fx() -> SupabaseFixture:
         use_pgchanges=use_pgchanges,
     )
     yield fx
+
+    if request.config.getoption("--skip-cleanup"):
+        if fx._created_conversations:
+            logging.warning(
+                "--skip-cleanup set: leaving %d conversation(s) in the DB: %s",
+                len(fx._created_conversations),
+                fx._created_conversations,
+            )
+        return
 
     # Best-effort teardown: stop any still-active conversations and delete them
     for cid in fx._created_conversations:
