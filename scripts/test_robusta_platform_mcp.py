@@ -84,7 +84,7 @@ def main():
         _call_tool(
             toolset,
             "post_slack_message",
-            {"channel": channel, "text": "hi from holmes mcp smoke test"},
+            {"channel": channel, "markdown": "hi from holmes mcp smoke test"},
         )
     )
     payload = result.content[0].text if result.content else ""
