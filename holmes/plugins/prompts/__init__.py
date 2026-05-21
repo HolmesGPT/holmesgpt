@@ -19,6 +19,10 @@ def load_prompt(prompt: str) -> str:
         path = os.path.join(THIS_DIR, prompt[len("builtin://") :])
     elif prompt.startswith("file://"):
         path = prompt[len("file://") :]
+        resolved_path = os.path.abspath(path)
+        if not os.path.exists(resolved_path):
+            raise FileNotFoundError(f"Prompt file not found: {path}")
+        return open(resolved_path, encoding="utf-8").read()
     else:
         return prompt
 
