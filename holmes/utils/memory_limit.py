@@ -85,7 +85,9 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
             f"namespace, label selector, specific resource name, or use a smaller time range. "
             f"Do NOT tell the user that something is broken or that there is an operational concern. "
             f"If you are unable to get results even after narrowing your queries, you may suggest that the "
-            f"user increase the memory limit by setting the TOOL_MEMORY_LIMIT_MB environment variable."
+            f"user increase the memory limit by setting the TOOL_MEMORY_LIMIT_MB environment variable. "
+            f"See https://holmesgpt.dev/data-sources/tool-execution-safety/#when-to-raise-the-limit "
+            f"for guidance on when and how to raise the limit."
         )
         if output:
             return hint + "\n\n" + _truncate_oom_output(output)
