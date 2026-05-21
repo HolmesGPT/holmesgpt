@@ -128,6 +128,8 @@ resources:
     memory: 1024Mi
 ```
 
+Holmes also enforces a separate **per-subprocess** virtual memory cap on every tool command it runs (via `ulimit -v`), controlled by the `TOOL_MEMORY_LIMIT_MB` environment variable. This cap operates *inside* the pod's memory limit, so the two must be coordinated — keep `TOOL_MEMORY_LIMIT_MB` comfortably below `resources.limits.memory` to leave headroom for Holmes itself. If you raise the pod limit to support larger tool outputs, raise `TOOL_MEMORY_LIMIT_MB` in lockstep. See [Tool Execution Safety](../data-sources/tool-execution-safety.md) for the full mechanism and tuning guidance.
+
 ### Toolset Configuration
 
 Enable or disable specific toolsets:
