@@ -3,11 +3,29 @@ logLevel: INFO
 
 additionalEnvVars: []
 additional_env_vars: []
+# Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
+# configMapRef) loaded onto the Holmes pod. Use to share a Secret between the
+# runner and Holmes (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring
+# each key twice.
+additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
+commonLabels: {}
+commonAnnotations: {}
 
 replicas: 1
 imagePullPolicy: IfNotPresent
+
+# Deployment rollout strategy.
+# Leave unset (empty) to use the Kubernetes default (RollingUpdate with maxSurge=25%, maxUnavailable=25%).
+# Set maxSurge: 0 if you need zero extra capacity during upgrades (e.g. tight resource quotas).
+# Example:
+#   strategy:
+#     type: RollingUpdate
+#     rollingUpdate:
+#       maxSurge: 0
+#       maxUnavailable: 1
+strategy: {}
 
 autoscaling:
   enabled: false
@@ -22,11 +40,22 @@ registry: robustadev
 
 sentryDSN: ""
 
+#Enabled custom DNS configuration for runner
+dnsConfig:
+  enabled: false
+  policy: ClusterFirst
+  nameservers: []
+  searches: []
+  options: []
+
 enableAccountsCreate: true
 revisionHistoryLimit: 10
 
 createServiceAccount: true
 customServiceAccountName: ""
+
+
+k8sRBAC: false
 
 customClusterRoleRules: []
 
@@ -82,7 +111,7 @@ toolsets:
     enabled: true
   prometheus/metrics:
     enabled: true
-  runbook:
+  skills:
     enabled: true
   connectivity_check:
     enabled: true
@@ -91,6 +120,28 @@ toolsets:
     config:
       builtin_allowlist: "extended"
 mcp_servers: {}
+
+# Paths inside the Holmes container to scan for custom skills (SKILL.md files).
+# Use this when you mount skill files yourself via `additionalVolumes` /
+# `initContainers`. Each path may be a directory (scanned for SKILL.md files
+# up to 2 levels deep) or an individual SKILL.md file. The chart sets
+# CUSTOM_SKILL_PATHS in the Holmes pod from this list (joined with `customSkills`).
+customSkillPaths: []
+  # - /etc/holmes/my-skills
+
+# Inline skill definitions. When non-empty, the chart creates a ConfigMap
+# named `<release>-holmes-skills` and mounts it at /etc/holmes/skills/, with
+# each entry projected to /etc/holmes/skills/<name>/SKILL.md. The mount path
+# is automatically appended to CUSTOM_SKILL_PATHS, so you do not need to add
+# /etc/holmes/skills to customSkillPaths.
+customSkills: {}
+  # my-skill:
+  #   content: |
+  #     ---
+  #     description: My custom skill description
+  #     ---
+  #     ## Goal
+  #     ...
 
 resources:
   requests:
@@ -453,6 +504,85 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+  # GitLab MCP Server Configuration
+  # Provides access to GitLab projects, merge requests, issues, pipelines, and code.
+  # Supports both gitlab.com (cloud) and self-hosted GitLab instances.
+  #
+  # AUTHENTICATION:
+  # Create a GitLab Personal Access Token with scopes: api, read_repository (and write_repository if you
+  # want Holmes to create branches/MRs). Then store it in a Kubernetes secret:
+  #   kubectl create secret generic gitlab-mcp-token --from-literal=token=<YOUR_GITLAB_PAT> -n <NAMESPACE>
+  #
+  # SELF-HOSTED GITLAB:
+  # Set config.apiUrl to your instance API URL (e.g., "https://gitlab.mycompany.com/api/v4").
+  # For self-signed certificates, mount a CA bundle via config.caCert.secretName (preferred)
+  # or disable verification entirely with config.verifySsl: false (insecure).
+  gitlabMcp:
+    enabled: false
+
+    registry: docker.io
+    image: "supercorp/supergateway:3.4.3"
+    imagePullPolicy: IfNotPresent
+
+    # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
+    mcpGitlabVersion: "2.1.11"
+
+    auth:
+      # K8s secret holding the GitLab Personal Access Token.
+      # kubectl create secret generic gitlab-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
+      secretName: ""      # Required when enabled=true
+      secretKey: "token"
+
+    config:
+      # GitLab API URL — set to your self-hosted instance for on-prem GitLab.
+      # Examples: "https://gitlab.com/api/v4", "https://gitlab.mycompany.com/api/v4"
+      apiUrl: "https://gitlab.com/api/v4"
+
+      # When true, blocks all write operations (no MR/issue creation, no commits).
+      readOnly: false
+
+      # Optional feature toggles for the @zereight/mcp-gitlab server
+      useWiki: false        # USE_GITLAB_WIKI — enable wiki tools
+      useMilestone: false   # USE_MILESTONE — enable milestone tools
+      usePipeline: true     # USE_PIPELINE — enable pipeline/CI tools (recommended)
+
+      # Scope the MCP server to specific projects (optional)
+      projectId: ""           # GITLAB_PROJECT_ID — default project ID
+      allowedProjectIds: ""   # GITLAB_ALLOWED_PROJECT_IDS — comma-separated allowlist
+
+      # Tool exposure (optional). Mirrors the github addon pattern.
+      # `toolsets` enables groups of tools; `tools` is a hard allowlist that takes precedence.
+      toolsets: ""   # GITLAB_TOOLSETS — comma-separated toolset IDs (empty = all)
+      tools: ""      # GITLAB_TOOLS — comma-separated individual tool names
+
+      # SSL/TLS for self-hosted GitLab
+      # Preferred: mount a trusted CA bundle via the caCert block below.
+      # Last resort: set verifySsl: false (disables ALL TLS verification — insecure).
+      verifySsl: true
+      caCert:
+        secretName: ""      # K8s secret containing the CA bundle (sets GITLAB_CA_CERT_PATH)
+        secretKey: "ca.crt"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+    # Additional environment variables to inject into the gitlab-mcp container
+    additionalEnvVars: []
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
   # Sentry MCP Server Configuration
   # Provides access to Sentry error tracking and monitoring
   # Authentication: Create a Sentry Auth Token with appropriate scopes
@@ -584,6 +714,103 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+  # Kubernetes MCP Server Configuration
+  # Provides advanced Kubernetes cluster access via the containers/kubernetes-mcp-server
+  # Uses in-cluster ServiceAccount by default. For external clusters, provide a kubeconfig secret.
+  # Repository: https://github.com/containers/kubernetes-mcp-server
+  kubernetes:
+    enabled: false
+
+    image: "kubernetes-mcp-server:v0.0.61-oauth"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+    imagePullPolicy: IfNotPresent
+
+    serviceAccount:
+      create: true
+      name: "k8s-mcp-sa"
+      annotations: {}
+      # Create a ClusterRoleBinding for the ServiceAccount
+      # Set to false for OAuth mode (the OAuth token provides permissions instead)
+      createClusterRoleBinding: true
+      # ClusterRole to bind to the ServiceAccount
+      # Use "view" for read-only access or "cluster-admin" for full access
+      clusterRole: "view"
+
+    config:
+      # Enable read-only mode (disables all write operations)
+      readOnly: true
+      # Disable destructive operations (delete/update) while allowing other writes
+      disableDestructive: false
+      # Comma-separated list of toolsets to enable
+      # Available: config, core, helm, tekton, kubevirt, kiali, kcp
+      # Default (empty): enables "config" and "core" toolsets
+      toolsets: ""
+      # Log level (0-9, similar to kubectl verbosity)
+      logLevel: ""
+      # Extra CLI arguments to pass to the server
+      extraArgs: []
+      # Kubeconfig secret for connecting to external clusters
+      # Create a secret: kubectl create secret generic k8s-mcp-kubeconfig --from-file=kubeconfig=/path/to/kubeconfig -n <NAMESPACE>
+      kubeconfig:
+        secretName: ""    # Name of K8s secret containing the kubeconfig file
+        secretKey: "kubeconfig"  # Key in secret (default: "kubeconfig")
+      # Inline TOML server config. The chart creates a Secret containing this
+      # content and mounts it at /etc/kubernetes-mcp/config.toml. Use this for
+      # OAuth/OIDC settings — the kubernetes-mcp-server only accepts those via
+      # config.toml (no CLI flags or env vars exist for them).
+      # For OAuth mode also set serviceAccount.createClusterRoleBinding=false.
+      #
+      # Example (OpenShift OAuth, opaque-token passthrough):
+      #   serverConfig: |
+      #     require_oauth = true
+      #     accept_opaque_tokens = true
+      #     cluster_auth_mode = "passthrough"
+      #
+      # Example (Microsoft Entra ID / Azure AD):
+      #   serverConfig: |
+      #     require_oauth = true
+      #     authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
+      #     oauth_audience = "6dae42f8-4368-4678-94ff-3960e28e3630"
+      #     oauth_scopes = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
+      #     issuer_url = "https://sts.windows.net/<TENANT_ID>/"
+      #
+      # Mutually exclusive with `configSecret.secretName` below.
+      serverConfig: ""
+      # Reference an externally-managed Secret containing config.toml. Use this
+      # if you'd rather create the Secret out-of-band:
+      #   kubectl create secret generic k8s-mcp-config --from-file=config.toml=/path/to/config.toml -n <NAMESPACE>
+      configSecret:
+        secretName: ""         # Name of K8s secret containing config.toml
+        secretKey: "config.toml"  # Key in secret (default: "config.toml")
+      # OAuth settings for Holmes → k8s-mcp-server authentication.
+      # Passed as-is into the Holmes mcp_servers oauth config.
+      # Example for OpenShift OAuth (per-user RBAC):
+      #   oauth:
+      #     enabled: true
+      #     authorization_url: "https://oauth-openshift.apps.<cluster>/oauth/authorize"
+      #     token_url: "https://oauth-openshift.apps.<cluster>/oauth/token"
+      #     client_id: "mcp-openshift"
+      #     client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
+      #     callback_port: 10234
+      #     scopes: ["user:full"]
+      oauth: {}
+
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: false
+
+    llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
   # Confluence MCP Server Configuration
   # Provides access to Confluence documentation search and retrieval
   # Authentication: Create an Atlassian API token
@@ -593,9 +820,17 @@ mcpAddons:
   confluenceMcp:
     enabled: false
 
-    image: "mcp-atlassian:latest"
-    registry: "ghcr.io/sooperset"
+    image: "mcp-atlassian:v0.21.2"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
+
+    #Enabled custom DNS configuration for confluenceMcp
+    dnsConfig:
+      enabled: false
+      policy: ClusterFirst
+      nameservers: [ ]
+      searches: [ ]
+      options: [ ]
 
     auth:
       secretName: ""         # Required: name of K8s secret containing Confluence credentials
@@ -665,3 +900,9 @@ operator:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+
+
+
+
+       

@@ -24,6 +24,11 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from starlette.responses import PlainTextResponse
 
 from holmes.utils.stream import StreamMessage, StreamEvents
+from holmes.core.usage_recorder import (
+    UsageRecorderState,
+    resolve_provider,
+    stream_with_usage_recording,
+)
 from holmes.common.env_vars import (
     HOLMES_HOST,
     HOLMES_PORT,
@@ -139,9 +144,47 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     run_id=input_data.run_id,
                 )
             )
-            hgpt_chat_stream_response: StreamMessage = ai.call_stream(
-                msgs=message_history,
-                enable_tool_approval=chat_request.enable_tool_approval or False,
+            # Build the AI usage recorder state. AG-UI clients pass FE flags
+            # via input_data.context if they want to populate them; otherwise
+            # request_source / source_ref / user_id stay NULL.
+            ctx = input_data.context or {}
+            agui_user_id = None
+            try:
+                agui_user_id = getattr(input_data, "user_id", None) or (
+                    ctx.get("user_id") if isinstance(ctx, dict) else None
+                )
+            except (AttributeError, TypeError) as e:
+                # Telemetry-only fallback: if input_data shape changed and
+                # neither attribute nor mapping access works, log at debug
+                # so we notice during dev rather than silently dropping
+                # user attribution. Don't break the response path.
+                logging.debug(
+                    "agui_chat: failed to extract user_id (input_data=%r ctx=%r): %s",
+                    type(input_data).__name__,
+                    type(ctx).__name__,
+                    e,
+                )
+            ai_model = getattr(ai.llm, "model", None) or chat_request.model or "unknown"
+            ai_provider = resolve_provider(ai_model)
+            recorder_state = UsageRecorderState(
+                dal=dal,
+                request_type="agui_chat",
+                request_source=ctx.get("request_source") if isinstance(ctx, dict) else None,
+                source_ref=ctx.get("source_ref") if isinstance(ctx, dict) else None,
+                conversation_id=getattr(input_data, "thread_id", None),
+                conversation_source=None,  # AG-UI doesn't write Conversations or ChatHistory
+                user_id=agui_user_id,
+                is_streaming=True,
+                model=ai_model,
+                provider=ai_provider,
+                is_robusta_model=getattr(ai.llm, "is_robusta_model", False),
+            )
+            hgpt_chat_stream_response: StreamMessage = stream_with_usage_recording(
+                ai.call_stream(
+                    msgs=message_history,
+                    enable_tool_approval=chat_request.enable_tool_approval or False,
+                ),
+                recorder_state,
             )
             for chunk in hgpt_chat_stream_response:
                 if hasattr(chunk, "event"):

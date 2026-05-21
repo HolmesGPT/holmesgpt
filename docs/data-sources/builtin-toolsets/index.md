@@ -30,7 +30,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-grafana:{ .lg .middle } **Tempo**](grafanatempo.md)
 -   [:material-bug:{ .lg .middle } **Sentry (MCP)**](sentry-mcp.md)
 -   [:simple-victoriametrics:{ .lg .middle } **VictoriaLogs**](victorialogs.md)
--   <img src="../../images/integration_logos/zabbix-icon.png" alt="Zabbix" style="height: 32px; vertical-align: middle;"> **[Zabbix](zabbix.md)**
+-   [:material-monitor-dashboard:{ .lg .middle } **Zabbix**](zabbix.md)
 
 </div>
 
@@ -66,6 +66,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-confluence:{ .lg .middle } **Confluence**](confluence.md)
 -   [:simple-confluence:{ .lg .middle } **Confluence (MCP)**](confluence-mcp.md)
 -   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)
+-   [:simple-gitlab:{ .lg .middle } **GitLab (MCP)**](gitlab-mcp.md)
 -   [:simple-notion:{ .lg .middle } **Notion**](notion.md)
 -   [:material-forum:{ .lg .middle } **Slab**](slab.md)
 
@@ -73,9 +74,20 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 ### Kubernetes & Containers
 
+**Core Kubernetes access** — pick one read-only toolset, plus the remediation MCP if you need write actions:
+
 <div class="grid cards" markdown>
 
--   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes**](kubernetes.md) — default, read-only via `kubectl`
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes (MCP)**](kubernetes-mcp.md) — read-only with OAuth/OIDC
+-   [:simple-kubernetes:{ .lg .middle } **Kubernetes Remediation (MCP)**](kubernetes-remediation-mcp.md) — write actions (restart, scale, drain)
+
+</div>
+
+**Other container & Kubernetes tooling:**
+
+<div class="grid cards" markdown>
+
 -   [:simple-docker:{ .lg .middle } **Docker**](docker.md)
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
 -   [:simple-redhatopenshift:{ .lg .middle } **OpenShift**](openshift.md)
@@ -87,7 +99,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
 -   [:material-heart-pulse:{ .lg .middle } **AKS Node Health**](aks-node-health.md)
--   [:simple-kubernetes:{ .lg .middle } **Kubernetes Remediation (MCP)**](kubernetes-remediation-mcp.md)
 
 </div>
 
