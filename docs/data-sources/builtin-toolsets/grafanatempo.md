@@ -327,6 +327,21 @@ toolsets:
         service: "service.name"       # default
 ```
 
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| tempo_fetch_traces_comparative_sample | Fetches statistics and representative samples of fast, slow, and typical traces for performance analysis |
+| tempo_search_traces_by_query | Search for traces using TraceQL query language |
+| tempo_search_traces_by_tags | Search for traces using logfmt-encoded tags |
+| tempo_query_trace_by_id | Retrieve detailed trace information by trace ID |
+| tempo_search_tag_names | Discover available tag names across traces |
+| tempo_search_tag_values | Get all values for a specific tag |
+| tempo_query_metrics_instant | Compute a single TraceQL metric value across time range |
+| tempo_query_metrics_range | Get time series data from TraceQL metrics queries |
+
 ## Example Usage
 
 ### Finding Slow Traces
@@ -353,15 +368,3 @@ Holmes will search using:
 {resource.service.name="frontend" && span.http.status_code = 500}
 ```
 
-## Capabilities
-
-| Tool Name | Description |
-|-----------|-------------|
-| tempo_fetch_traces_comparative_sample | Fetches statistics and samples of fast/slow/typical traces for performance analysis |
-| tempo_search_traces_by_query | Search traces using TraceQL query language (recommended) |
-| tempo_search_traces_by_tags | Search traces using logfmt-encoded tags (legacy) |
-| tempo_query_trace_by_id | Retrieve detailed trace information by trace ID |
-| tempo_search_tag_names | Discover available tag names across traces |
-| tempo_search_tag_values | Get all values for a specific tag |
-| tempo_query_metrics_instant | Compute a single TraceQL metric value across time range |
-| tempo_query_metrics_range | Get time series data from TraceQL metrics queries |

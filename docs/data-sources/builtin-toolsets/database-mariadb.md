@@ -178,6 +178,18 @@ FLUSH PRIVILEGES;
 - **max_rows** (default: `200`): Maximum rows to return (1-10000)
 - **llm_instructions**: Context about this database
 
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+Tool names are prefixed with the toolset name (e.g., for a toolset named `app-mariadb`, tools are `app_mariadb_query`, `app_mariadb_list_tables`, etc.).
+
+| Tool Name | Description |
+|-----------|-------------|
+| `<toolset_name>_query` | Execute a SQL query against the database (read-only by default) |
+| `<toolset_name>_list_tables` | List all tables (and optionally views) in the database |
+| `<toolset_name>_describe_table` | Get column definitions, constraints, primary/foreign keys, and indexes for a table |
+
 ## Common Use Cases
 
 ```

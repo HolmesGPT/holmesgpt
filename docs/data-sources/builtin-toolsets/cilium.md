@@ -68,61 +68,6 @@ toolsets:
       timeout: 120      # Extended timeout for flow monitoring
 ```
 
-## Capabilities
-
-### Cilium/Core Toolset
-
-| Tool Name | Description |
-|-----------|-------------|
-| cilium_status | Display overall Cilium agent status and health |
-| cilium_status_verbose | Display detailed Cilium agent status with verbose output |
-| cilium_version | Show Cilium version information |
-| cilium_config | Display current Cilium configuration |
-| cilium_endpoint_list | List all Cilium endpoints (pods with networking) |
-| cilium_endpoint_get | Get detailed information about a specific endpoint by ID |
-| cilium_endpoint_health | Check health status of all endpoints |
-| cilium_endpoint_logs | Show logs for a specific endpoint |
-| cilium_service_list | List all Cilium services and load balancer mappings |
-| cilium_service_get | Get detailed information about a specific service by ID |
-| cilium_loadbalancer_list | List load balancer backend mappings |
-| cilium_policy_get | Get network policies applied to an endpoint |
-| cilium_policy_trace | Trace policy decisions for traffic between source and destination |
-| cilium_policy_trace_verbose | Detailed policy trace with verbose output |
-| cilium_monitor | Monitor Cilium datapath events in real-time |
-| cilium_monitor_verbose | Monitor datapath events with verbose output |
-| cilium_node_list | List all nodes in the Cilium cluster |
-| cilium_clustermesh_status | Display cluster mesh status for multi-cluster networking |
-| cilium_bpf_map_list | List all BPF maps used by Cilium |
-| cilium_bpf_endpoint_list | List endpoints from BPF maps |
-| cilium_debuginfo | Generate debug information bundle for troubleshooting |
-
-### Hubble/Observability Toolset
-
-| Tool Name | Description |
-|-----------|-------------|
-| hubble_observe | Observe network flows in real-time (last 1000 flows) |
-| hubble_observe_follow | Follow network flows in real-time as they happen |
-| hubble_observe_namespace | Observe flows for a specific namespace |
-| hubble_observe_pod | Observe flows to/from a specific pod |
-| hubble_observe_since | Observe flows since a specific time |
-| hubble_observe_http | Observe HTTP traffic flows |
-| hubble_observe_dns | Observe DNS queries and responses |
-| hubble_observe_kafka | Observe Kafka protocol traffic |
-| hubble_observe_grpc | Observe gRPC traffic flows |
-| hubble_observe_drops | Show only dropped network flows (policy denials, etc.) |
-| hubble_observe_denied | Show flows denied by network policies |
-| hubble_observe_service | Observe flows to/from a specific service |
-| hubble_observe_port | Observe flows on a specific port |
-| hubble_observe_from_pod | Observe flows originating from a specific pod |
-| hubble_observe_to_pod | Observe flows destined to a specific pod |
-| hubble_observe_between_namespaces | Observe flows between two specific namespaces |
-| hubble_observe_json | Output flow observations in JSON format for detailed analysis |
-| hubble_status | Display Hubble server status and configuration |
-| hubble_list_nodes | List nodes available for flow observation |
-| hubble_observe_flows_summary | Get a summary of recent network flows with basic statistics |
-| hubble_observe_security_events | Observe security-related network events and policy violations |
-| hubble_observe_l7_denied | Show L7 (application-layer) traffic that was denied |
-
 ## Use Cases
 
 ### Network Connectivity Troubleshooting
@@ -170,3 +115,46 @@ toolsets:
 1. Examine service backends: `cilium_service_get`
 2. Check BPF load balancer state: `cilium_loadbalancer_list`
 3. Monitor service traffic: `hubble_observe_service`
+
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| cilium_status | Display overall Cilium agent status and health |
+| cilium_status_verbose | Display detailed Cilium agent status with verbose output |
+| cilium_version | Show Cilium version information |
+| cilium_config | Display current Cilium configuration |
+| cilium_connectivity_test | Run comprehensive connectivity tests to validate network functionality (slow) |
+| cilium_connectivity_test_namespace | Run connectivity tests in a specific namespace (slow) |
+| cilium_clustermesh_status | Display cluster mesh status for multi-cluster networking |
+| cilium_features_status | Report which features are enabled in Cilium agents |
+| cilium_bgp_peers | List BGP peers for nodes running Cilium |
+| cilium_bgp_routes | List BGP routes for nodes running Cilium |
+| cilium_encryption_status | Show encryption status and configuration |
+| cilium_sysdump | Collect system information for troubleshooting Cilium issues |
+| cilium_install_status | Check Cilium installation status in the cluster |
+| cilium_context | Display the current Kubernetes context configuration |
+| cilium_multicast_groups | List multicast groups and their members |
+| hubble_observe | Observe network flows in real-time (last 100 flows) |
+| hubble_observe_namespace | Observe flows for a specific namespace |
+| hubble_observe_pod | Observe flows to/from a specific pod |
+| hubble_observe_since | Observe flows since a specific time |
+| hubble_observe_http | Observe HTTP traffic flows |
+| hubble_observe_dns | Observe DNS queries and responses |
+| hubble_observe_grpc | Observe gRPC traffic flows |
+| hubble_observe_drops | Show only dropped network flows |
+| hubble_observe_forwarded | Show flows that were successfully forwarded |
+| hubble_observe_service | Observe flows to/from a specific service |
+| hubble_observe_port | Observe flows on a specific port |
+| hubble_observe_from_pod | Observe flows originating from a specific pod |
+| hubble_observe_to_pod | Observe flows destined to a specific pod |
+| hubble_observe_between_namespaces | Observe flows between two specific namespaces |
+| hubble_observe_json | Output flow observations in JSON format |
+| hubble_status | Display Hubble server status and configuration |
+| hubble_list_nodes | List nodes available for flow observation |
+| hubble_observe_flows_summary | Get a summary of recent network flows |
+| hubble_observe_security_events | Observe security-related network events and policy violations |
+| hubble_observe_policy_verdicts | Show policy verdict events (allows and denies) |
+| hubble_observe_l7_traffic | Show L7 (application-layer) traffic flows |

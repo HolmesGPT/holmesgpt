@@ -116,12 +116,14 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
 | `is_eu_datacenter` | `false` | Set `true` for the EU region. Controls both the API endpoint (`api.eu.newrelic.com`) and the URL used in clickable links in Holmes's responses. |
 | `enable_multi_account` | `false` | Enable cross-account queries. When true, Holmes exposes an additional `newrelic_list_organization_accounts` tool and lets individual NRQL queries override the account ID. |
 
-## Capabilities
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| newrelic_execute_nrql_query | Execute NRQL queries for Traces, APM, Spans, Logs and more |
-| newrelic_list_organization_accounts | List all account IDs/names available to the API key (only enabled when `enable_multi_account: true`) |
+| newrelic_execute_nrql_query | Get Traces, APM, Spans, Logs and more by executing a NRQL query in New Relic |
+| newrelic_list_organization_accounts | List all account names and IDs accessible in the New Relic organization |
 
 ## Multi-Account Mode
 

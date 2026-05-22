@@ -447,15 +447,17 @@ These fields are only valid for specific `subtype` values:
 | `azure_use_managed_id` | `azure-managed-prometheus` | No (default `false`) | Set `true` to use Azure managed identity instead of a service principal |
 | `azure_resource` / `azure_metadata_endpoint` / `azure_token_endpoint` | `azure-managed-prometheus` | No | Azure AD endpoints — sensible defaults are applied automatically |
 
-## Capabilities
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| list_prometheus_rules | List all defined Prometheus rules with descriptions and annotations |
-| get_metric_names | Get list of metric names (fastest discovery method) - requires match filter |
-| get_label_values | Get all values for a specific label (e.g., pod names, namespaces) |
-| get_all_labels | Get list of all label names available in Prometheus |
-| get_series | Get time series matching a selector (returns full label sets) |
-| get_metric_metadata | Get metadata (type, description, unit) for metrics |
+| list_prometheus_rules | List Prometheus rules (api/v1/rules); returns rule names, expressions, and annotations |
+| get_metric_names | Get list of metric names using /api/v1/label/__name__/values (fastest discovery method) |
+| get_label_values | Get all values for a specific label using /api/v1/label/{label}/values |
+| get_all_labels | Get list of all label names using /api/v1/labels |
+| get_series | Get time series using /api/v1/series; returns full label sets matching the selector |
+| get_metric_metadata | Get metric metadata (type, help text, unit) using /api/v1/metadata |
 | execute_prometheus_instant_query | Execute an instant PromQL query (single point in time) |
-| execute_prometheus_range_query | Execute a range PromQL query for time series data with graph generation |
+| execute_prometheus_range_query | Generate a graph and execute a PromQL range query |

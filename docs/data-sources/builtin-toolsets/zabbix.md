@@ -161,6 +161,14 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
 holmes ask "List all monitored hosts in Zabbix"
 ```
 
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| zabbix_request | Make HTTP requests to the Zabbix JSON-RPC 2.0 API |
+
 ## Common Use Cases
 
 **Check active problems:**

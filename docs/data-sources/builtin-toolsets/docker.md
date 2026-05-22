@@ -19,7 +19,7 @@ Read access to Docker resources.
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-## Capabilities
+## Tools
 
 --8<-- "snippets/toolset_capabilities_intro.md"
 

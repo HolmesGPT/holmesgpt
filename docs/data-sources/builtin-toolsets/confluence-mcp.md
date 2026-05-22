@@ -215,7 +215,7 @@ You'll also need:
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-## Available Tools
+## Tools
 
 | Tool | Description |
 |------|-------------|

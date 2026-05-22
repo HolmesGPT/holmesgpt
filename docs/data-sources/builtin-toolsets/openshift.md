@@ -142,3 +142,46 @@ holmes:
 | oc_serviceaccounts | List service accounts in a namespace or cluster-wide |
 | oc_rolebindings | List role bindings in a namespace or cluster-wide |
 | oc_clusterrolebindings | List cluster role bindings |
+
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| oc_describe | Describe an OpenShift resource using `oc describe` |
+| oc_get_by_name | Run `oc get <kind> <name> --show-labels` |
+| oc_get_by_kind_in_namespace | Run `oc get <kind> -n <namespace> --show-labels` to list resources in a namespace |
+| oc_get_by_kind_in_cluster | Run `oc get -A <kind> --show-labels` to list resources cluster-wide |
+| oc_find_resource | Find a resource by substring of its name, IP, namespace, or labels |
+| oc_get_yaml | Run `oc get -o yaml` on a single OpenShift resource |
+| oc_events | Retrieve events for a specific OpenShift resource |
+| oc_projects | List all projects (namespaces) in the OpenShift cluster |
+| oc_project_current | Show the current project (namespace) context |
+| oc_routes | List all routes in a specific namespace or cluster-wide |
+| oc_route_describe | Describe a specific route to see its configuration and status |
+| oc_imagestreams | List image streams in a namespace or cluster-wide |
+| oc_deploymentconfigs | List deployment configs in a namespace or cluster-wide |
+| oc_buildconfigs | List build configs in a namespace or cluster-wide |
+| oc_builds | List builds in a namespace or cluster-wide |
+| oc_adm_openshift_audit_logs | Get OpenShift audit logs from a specified node |
+| oc_adm_openshift_audit_logs_with_filter | Get OpenShift audit logs from a specified node with an applied filter |
+| oc_build_logs | Get logs from a specific build |
+| openshift_jq_query | Run a jq query against OpenShift resources |
+| oc_previous_logs | Run `oc logs --previous` on a single pod |
+| oc_previous_logs_all_containers | Run `oc logs --previous` on all containers of a single pod |
+| oc_container_previous_logs | Run `oc logs --previous` on a single container of a pod |
+| oc_logs | Run `oc logs` on a single pod |
+| oc_logs_all_containers | Run `oc logs` on all containers within a single pod |
+| oc_container_logs | Run `oc logs` on a single container within a pod |
+| oc_logs_grep | Search for a specific term in the logs of a single pod |
+| oc_logs_all_containers_grep | Search for a specific term in the logs of a pod across all its containers |
+| oc_top_pods | Real-time CPU and memory usage for each pod in the cluster |
+| oc_top_nodes | Real-time CPU and memory usage for each node in the cluster |
+| oc_scc | List Security Context Constraints (SCCs) in the cluster |
+| oc_scc_describe | Describe a specific Security Context Constraint |
+| oc_policy_who_can | Check who can perform a specific action on a resource |
+| oc_policy_can_i | Check if the current user can perform a specific action |
+| oc_serviceaccounts | List service accounts in a namespace or cluster-wide |
+| oc_rolebindings | List role bindings in a namespace or cluster-wide |
+| oc_clusterrolebindings | List cluster role bindings |

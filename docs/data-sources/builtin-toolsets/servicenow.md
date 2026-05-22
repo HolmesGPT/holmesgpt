@@ -188,9 +188,11 @@ You should receive a JSON response. If you get an authentication error, check yo
 | `health_check_table` | `sys_user` | Table queried on startup to verify connectivity and permissions. Change this if your API key doesn't have access to the default table. |
 | `api_version` | `v2` | Table API version segment. Defaults to `v2` (`api/now/v2/table/...`). Set to empty string to use the unversioned path (`api/now/table/...`) if your instance doesn't support v2. |
 
-## Capabilities
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| servicenow_get_records | Query multiple records from any ServiceNow table with powerful filtering, sorting, and field selection capabilities |
-| servicenow_get_record | Retrieve a single record by its sys_id with full details from any accessible table |
+| servicenow_get_records | Retrieve multiple records from a ServiceNow table via the Table API (`/api/now/{api_version}/table/{tableName}`) with filtering, sorting, and pagination |
+| servicenow_get_record | Retrieve a single record by sys_id via the Table API (`/api/now/{api_version}/table/{tableName}/{sys_id}`) |

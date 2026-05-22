@@ -248,3 +248,15 @@ holmes ask "Which workers are currently active and what are they processing?"
 
 - [Prefect Cloud API Keys](https://docs.prefect.io/cloud/users/api-keys/)
 - [Prefect MCP Server setup guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/prefect)
+
+## Tools
+
+This toolset proxies tools from the upstream Prefect MCP server. The full set of tools (and their descriptions) is defined by the MCP server itself — see the [Prefect MCP server documentation](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/prefect) for the authoritative list.
+
+Common capabilities exposed to HolmesGPT include:
+
+- Flow and flow run inspection
+- Deployment and work pool status
+- Worker health checks
+- Run log retrieval
+- Investigation of failed or crashed workflows

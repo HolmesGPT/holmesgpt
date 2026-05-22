@@ -183,6 +183,18 @@ GRANT pg_read_all_stats TO holmes_readonly;
 - **max_rows** (default: `200`): Maximum rows to return (1-10000)
 - **llm_instructions**: Context about this database
 
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+Tool names are prefixed with the toolset name (e.g., for a toolset named `prod-postgres`, tools are `prod_postgres_query`, `prod_postgres_list_tables`, etc.).
+
+| Tool Name | Description |
+|-----------|-------------|
+| `<toolset_name>_query` | Execute a SQL query against the database (read-only by default) |
+| `<toolset_name>_list_tables` | List all tables (and optionally views) in the database |
+| `<toolset_name>_describe_table` | Get column definitions, constraints, primary/foreign keys, and indexes for a table |
+
 ## Common Use Cases
 
 ```

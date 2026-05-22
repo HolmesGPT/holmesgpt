@@ -79,6 +79,18 @@ toolsets:
       external_url: https://logs.example.com
 ```
 
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| victorialogs_query | Search VictoriaLogs using a LogsQL query; returns matching log entries as JSON |
+| victorialogs_streams | List log streams matching a LogsQL query, identified by their stream label set |
+| victorialogs_field_names | List field names present in logs matching a LogsQL query within a time range |
+| victorialogs_field_values | List unique values of a given field with hit counts for logs matching a LogsQL query |
+| victorialogs_hits | Return time-bucketed log counts for a LogsQL query |
+
 ## Common Use Cases
 
 ```text

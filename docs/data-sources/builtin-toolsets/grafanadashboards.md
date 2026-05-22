@@ -2,6 +2,13 @@
 
 Connect HolmesGPT to Grafana for dashboard analysis, visual rendering, query extraction, and understanding your monitoring setup. When the [Grafana Image Renderer](https://grafana.com/grafana/plugins/grafana-image-renderer/) is installed, HolmesGPT can visually render dashboards and panels to detect anomalies like spikes, trends, and outliers.
 
+!!! tip "Pair with your data sources"
+    If you use Grafana, you most likely also want to configure the data sources behind it so HolmesGPT can run queries — not just read dashboards. Consider also enabling:
+
+    - [Prometheus](prometheus.md) — for metrics queries
+    - [Grafana Loki](grafanaloki.md) — for log queries
+    - [Grafana Tempo](grafanatempo.md) — for distributed tracing
+
 ## Prerequisites
 
 A [Grafana service account token](https://grafana.com/docs/grafana/latest/administration/service-accounts/) with the following permissions:
@@ -250,6 +257,19 @@ If HolmesGPT accesses Grafana through an internal URL but you want clickable lin
             external_url: https://grafana.example.com
             api_key: "{{ env.GRAFANA_API_KEY }}"
     ```
+
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| grafana_search_dashboards | Search for Grafana dashboards and folders using the /api/search endpoint |
+| grafana_get_dashboard_by_uid | Get a dashboard by its UID using the /api/dashboards/uid/:uid endpoint |
+| grafana_get_home_dashboard | Get the home dashboard using the /api/dashboards/home endpoint |
+| grafana_get_dashboard_tags | Get all tags used across dashboards using the /api/dashboards/tags endpoint |
+| grafana_render_panel | Render a single Grafana dashboard panel as a PNG screenshot using the Grafana Image Renderer |
+| grafana_render_dashboard | Render an entire Grafana dashboard as a PNG screenshot using the Grafana Image Renderer |
 
 ## Common Use Cases
 

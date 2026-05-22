@@ -131,9 +131,17 @@ Before configuring Holmes to connect to Splunk MCP, you need to:
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-## Available Tools
+## Tools
 
 The Splunk MCP server provides tools for searching and analyzing data in Splunk. For the complete list of available tools and their parameters, see the [Splunk MCP Server Tools documentation](https://help.splunk.com/en/splunk-cloud-platform/mcp-server-for-splunk-platform/mcp-server-tools).
+
+Common capabilities exposed to HolmesGPT include:
+
+- Index discovery and listing
+- SPL search execution
+- Log and event investigation
+- Security and error event analysis
+- Trend and aggregation queries
 
 ## Testing the Connection
 

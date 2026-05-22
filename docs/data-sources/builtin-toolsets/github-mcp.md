@@ -443,7 +443,7 @@ Find the **App ID** on the App's settings page (under "About").
     3. Sets the token as `GITHUB_PERSONAL_ACCESS_TOKEN` for the underlying MCP server
     4. A background thread refreshes the token every 30 minutes
 
-## Available Tools
+## Tools
 
 By default, the GitHub MCP server enables 4 toolsets that provide comprehensive access to GitHub functionality:
 

@@ -42,10 +42,10 @@ To test, run:
 holmes ask "Why is my pod failing, if it's a crashloopbackoff use the runbooks from Slab"
 ```
 
-## Capabilities
+## Tools
 
 --8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| fetch_slab_document | Fetch a document from Slab. Use this to fetch runbooks if they are present before starting your investigation. |
+| fetch_slab_document | Fetch a document from Slab |

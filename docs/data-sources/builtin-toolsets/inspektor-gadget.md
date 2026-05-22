@@ -40,6 +40,17 @@ By enabling this toolset, HolmesGPT will be able to use [Inspektor Gadget](https
 
     --8<-- "snippets/helm_upgrade_command.md"
 
-## Capabilities
+## Tools
 
-Provides eBPF-based node-level observability via Inspektor Gadget, including process snapshots, socket inspection, execution tracing, and network packet capture.
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| ig_node_snapshot_process | Snapshot of running processes on a node |
+| ig_node_snapshot_socket | Snapshot of open sockets on a node |
+| ig_node_trace_exec | Trace process execution events on a node |
+| ig_node_traceloop | Capture system calls in real-time, acting as a flight recorder for applications |
+| ig_node_trace_open | Trace file open events on a node |
+| ig_node_trace_tcp | Trace TCP connection events on a node |
+| ig_node_trace_dns | Trace DNS query events on a node |
+| ig_node_tcpdump | Capture network packets on a node using tcpdump expressions |

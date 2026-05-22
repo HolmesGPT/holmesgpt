@@ -44,6 +44,17 @@ VictoriaMetrics implements the Prometheus query API, but a few less-common endpo
 
 For day-to-day metric investigations, Holmes works the same as with Prometheus. Advanced metric discovery (via the metadata API) and alert-rule listing (via `vmalert`) may be reduced or unavailable.
 
-## Capabilities
+## Tools
 
-Inherits every tool from the Prometheus toolset. See the [Prometheus capabilities](prometheus.md#capabilities) reference for the full list of tools Holmes can use against a VictoriaMetrics endpoint.
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| list_prometheus_rules | List Prometheus rules (api/v1/rules); returns rule names, expressions, and annotations |
+| get_metric_names | Get list of metric names using /api/v1/label/__name__/values (fastest discovery method) |
+| get_label_values | Get all values for a specific label using /api/v1/label/{label}/values |
+| get_all_labels | Get list of all label names using /api/v1/labels |
+| get_series | Get time series using /api/v1/series; returns full label sets matching the selector |
+| get_metric_metadata | Get metric metadata (type, help text, unit) using /api/v1/metadata |
+| execute_prometheus_instant_query | Execute an instant PromQL query (single point in time) |
+| execute_prometheus_range_query | Generate a graph and execute a PromQL range query |

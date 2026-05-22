@@ -335,3 +335,15 @@ kubectl exec -it HOLMES_POD -n YOUR_NAMESPACE -- \
 ```
 "Our Azure costs increased 50% last week"
 ```
+
+## Tools
+
+This toolset proxies tools from the upstream Azure API MCP server. The full set of tools (and their descriptions) is defined by the MCP server itself — see the [Azure API MCP server documentation](https://github.com/Azure/azure-api-mcp) for the authoritative list.
+
+Common capabilities exposed to HolmesGPT include:
+
+- Compute and AKS resource inspection (VMs, node pools, workloads)
+- Azure Monitor, Activity Log, and diagnostics queries
+- Networking, storage, and database service investigation
+- SQL / PostgreSQL and other managed data service lookups
+- Identity, RBAC, and subscription metadata access

@@ -61,6 +61,28 @@ HolmesGPT needs read access to Crossplane CRDs. If you use Kubernetes RBAC, ensu
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| crossplane_list_providers | List all installed Crossplane providers with health status, version, and package reference |
+| crossplane_get_provider | Get detailed status of a specific Crossplane provider including conditions and revision |
+| crossplane_list_provider_revisions | List provider revisions to check for version rollout issues or stuck upgrades |
+| crossplane_list_provider_configs | List ProviderConfigs of a specific type to check credential configurations |
+| crossplane_get_provider_config | Get detailed ProviderConfig including credential source and configuration |
+| crossplane_list_xrds | List all CompositeResourceDefinitions (XRDs) |
+| crossplane_get_xrd | Get details of a specific XRD including schema, claim names, and offered versions |
+| crossplane_list_compositions | List all Compositions which define how composite resources map to managed resources |
+| crossplane_get_composition | Get details of a specific Composition including resource templates and patch sets |
+| crossplane_get_claim | Get a Crossplane claim's full status including conditions and connection details |
+| crossplane_get_composite_resource | Get a composite resource (XR) including status, conditions, and composed references |
+| crossplane_list_managed_resources | List managed resources of a specific kind with sync and ready status |
+| crossplane_get_managed_resource | Get full details of a specific managed resource including conditions and external name |
+| crossplane_get_resource_events | Get Kubernetes events for a specific Crossplane resource |
+| crossplane_list_managed_by_composite | List all managed resources owned by a specific composite resource |
+
 ## Common Use Cases
 
 ```bash

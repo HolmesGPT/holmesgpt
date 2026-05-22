@@ -55,13 +55,11 @@ toolsets:
           verify_ssl: false  # Disable SSL verification (default: true)
 ```
 
-## Capabilities
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| get_rabbitmq_cluster_status | Get cluster status and partition information |
-| get_rabbitmq_node_info | Get detailed information about RabbitMQ nodes |
-| get_rabbitmq_queue_info | Get information about queues |
-| get_rabbitmq_exchange_info | Get information about exchanges |
-| get_rabbitmq_memory_usage | Get memory usage statistics |
-| get_rabbitmq_disk_usage | Get disk usage statistics |
+| list_configured_clusters | List all configured RabbitMQ clusters and their IDs |
+| get_rabbitmq_cluster_status | Fetch overall cluster status including nodes, listeners, and partitions (split-brain detection) |

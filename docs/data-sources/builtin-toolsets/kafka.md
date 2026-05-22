@@ -465,14 +465,19 @@ Below is a description of the configuration fields for each cluster entry:
 
 When both a path field and its inline base64 counterpart are set, the path field takes precedence.
 
-## Capabilities
+## Tools
 
 --8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| kafka_list_topics | List all Kafka topics |
-| kafka_describe_topic | Get detailed information about a specific topic |
-| kafka_list_consumers | List all consumer groups |
-| kafka_describe_consumer | Get detailed information about a consumer group |
-| kafka_consumer_lag | Check consumer lag for a consumer group |
+| list_kafka_clusters | List all available Kafka clusters configured in HolmesGPT |
+| list_kafka_consumers | List all Kafka consumer groups in the cluster |
+| describe_consumer_group | Describe a specific Kafka consumer group with optional offset and lag information |
+| list_topics | List all Kafka topics in the cluster |
+| describe_topic | Describe details of a specific Kafka topic |
+| find_consumer_groups_by_topic | Find all consumer groups consuming from a specific topic |
+| consume_messages | Consume messages from one or more Kafka topics from latest offsets |
+| list_brokers | List all Kafka brokers in the cluster with their metadata |
+| describe_configs | Describe configuration settings for Kafka topics or brokers |
+| cluster_overview | Provide a comprehensive health summary of the Kafka cluster |

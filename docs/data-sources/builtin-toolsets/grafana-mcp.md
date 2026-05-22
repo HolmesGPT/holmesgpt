@@ -330,9 +330,9 @@ Choose the setup that matches your Grafana version and deployment:
 !!! warning "MCP endpoint path"
     The Grafana MCP server serves on `/mcp`, not `/sse` or `/mcp/messages`. Make sure your Holmes config URL ends with `/mcp`.
 
-## Available Tools
+## Tools
 
-The Grafana MCP server exposes ~57 tools organized by category:
+The Grafana MCP server exposes ~57 tools organized by category. See the [Grafana MCP server documentation](https://github.com/grafana/mcp-grafana) for the authoritative list.
 
 | Category | Key Tools | Description |
 |----------|-----------|-------------|

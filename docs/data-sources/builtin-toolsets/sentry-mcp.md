@@ -206,7 +206,7 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-## Available Tools
+## Tools
 
 | Tool | Description |
 |------|-------------|
@@ -244,3 +244,4 @@ holmes ask "Are there any new error patterns that appeared in the last 24 hours?
 
 - [Sentry Auth Tokens](https://docs.sentry.io/account/auth-tokens/)
 - [Sentry MCP Server setup guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/sentry)
+

@@ -67,13 +67,24 @@ toolsets:
       timeout: 60  # Request timeout in seconds
 ```
 
-## Capabilities
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| aks_get_cluster_info | Get detailed information about the AKS cluster |
-| aks_get_node_pools | List and describe AKS node pools |
-| aks_get_cluster_credentials | Get cluster credentials for kubectl access |
-| aks_scale_node_pool | Scale a specific node pool |
-| aks_get_cluster_logs | Fetch AKS cluster logs |
-| aks_get_addon_status | Get status of AKS addons |
+| cloud_provider | Fetch the cloud provider of the Kubernetes cluster from node providerIDs |
+| aks_get_cluster | Get the configuration details of a specific AKS cluster |
+| aks_list_clusters_by_rg | List all AKS clusters under a specific resource group |
+| aks_list_node_pools | List node pools in an AKS cluster |
+| aks_show_node_pool | Show details of a specific node pool in an AKS cluster |
+| aks_list_versions | List supported Kubernetes versions in a region |
+| aks_get_credentials | Download kubeconfig file for an AKS cluster |
+| aks_list_addons | List all available AKS addons |
+| get_default_subscription | Retrieve the current Azure CLI default subscription ID |
+| get_cluster_name | Retrieve the active Kubernetes cluster name from kubeconfig |
+| get_cluster_resource_group | Retrieve the resource group name for the AKS cluster |
+| get_node_resource_group | Retrieve the node resource group name for the AKS cluster |
+| get_api_server_public_ip | Get the public IP of kube-apiserver for a public AKS cluster |
+| get_all_nsgs | Get all Network Security Group (NSG) instances in a subscription |
+| get_nsg_rules | Get all NSG rules associated with a specific NSG |

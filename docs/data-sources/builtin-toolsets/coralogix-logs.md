@@ -150,3 +150,11 @@ Custom Coralogix metrics:
 - payments_failures: tracks payment processing failures
 - api_latency_p95: 95th percentile API latency
 ```
+
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Tool Name | Description |
+|-----------|-------------|
+| coralogix_execute_dataprime_query | Execute a DataPrime query against Coralogix to fetch logs, traces, metrics, and other telemetry data |

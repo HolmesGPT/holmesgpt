@@ -212,7 +212,7 @@ The MCP server implements multiple security layers:
 | **RBAC enforcement** | Kubernetes RBAC restricts which resources can be accessed |
 | **Command timeout** | Commands are killed after a configurable timeout (default: 60s) |
 
-## Available Tools
+## Tools
 
 | Tool | Description |
 |------|-------------|

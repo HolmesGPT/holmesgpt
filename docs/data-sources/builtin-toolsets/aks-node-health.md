@@ -66,13 +66,18 @@ toolsets:
       max_unhealthy_nodes: 3  # Maximum number of unhealthy nodes to report
 ```
 
-## Capabilities
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
 
 | Tool Name | Description |
 |-----------|-------------|
-| aks_check_node_health | Perform comprehensive health checks on AKS nodes |
-| aks_get_node_metrics | Get detailed metrics for AKS nodes |
-| aks_diagnose_node_issues | Diagnose common node-level issues |
-| aks_check_node_readiness | Check if nodes are ready and schedulable |
-| aks_get_node_events | Get events related to specific nodes |
-| aks_check_node_resources | Check resource utilization on nodes |
+| check_node_status | Checks the status of all nodes in the AKS cluster. |
+| describe_node | Describes a specific node in the AKS cluster to inspect its conditions. |
+| get_node_events | Fetches recent events for a specific node to surface warnings and errors. |
+| check_node_resource_usage | Shows CPU/memory usage for a specific node (requires metrics-server). |
+| review_activity_log | Reviews the Azure Activity Log for recent changes affecting the node. |
+| check_top_resource_consuming_pods | Checks for the top resource-consuming pods on a specific node. |
+| check_network_outbound | Checks the outbound network connectivity for an AKS cluster. |
+| check_network_inbound | Checks the inbound network connectivity for an AKS cluster. |
+| list_vmss_names | Lists all VMSS names in the cluster node resource group. |

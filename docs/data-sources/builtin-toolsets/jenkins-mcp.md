@@ -205,6 +205,17 @@ holmes ask "Are there any builds waiting in the Jenkins queue?"
 holmes ask "Show me the build history and success rate for the integration-tests job"
 ```
 
+## Tools
+
+This toolset proxies tools from the upstream Jenkins MCP Server Plugin. The full set of tools (and their descriptions) is defined by the MCP server itself — see the [Jenkins MCP Server Plugin documentation](https://plugins.jenkins.io/mcp-server/) for the authoritative list.
+
+Common capabilities exposed to HolmesGPT include:
+
+- Listing and inspecting Jenkins jobs and pipelines
+- Retrieving build status, history, and success metrics
+- Fetching console output and stage-level logs for builds
+- Inspecting build queue and active executors
+
 ## Troubleshooting
 
 **Authentication Errors**

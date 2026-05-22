@@ -386,3 +386,20 @@ holmes ask "find recent incidents in Datadog"
 # Get synthetic test results
 holmes ask "show me the latest synthetic test results for our homepage"
 ```
+
+## Tools
+
+--8<-- "snippets/toolset_capabilities_intro.md"
+
+| Toolset | Tool Name | Description |
+|---------|-----------|-------------|
+| `datadog/logs` | fetch_datadog_logs | Search for logs in Datadog using search query syntax |
+| `datadog/metrics` | list_active_datadog_metrics | List active metrics from Datadog (including from pods no longer in the cluster) |
+| `datadog/metrics` | query_datadog_metrics | Query timeseries data from Datadog for a specific metric |
+| `datadog/metrics` | get_datadog_metric_metadata | Get metadata about one or more metrics (type, description, unit, etc.) |
+| `datadog/metrics` | list_datadog_metric_tags | List all available tags and aggregations for a specific metric |
+| `datadog/traces` | fetch_datadog_spans | Search for spans in Datadog using span search syntax |
+| `datadog/traces` | aggregate_datadog_spans | Aggregate spans into buckets and compute metrics and timeseries |
+| `datadog/general` | datadog_api_get | Make a GET request to a Datadog API endpoint for read-only operations |
+| `datadog/general` | datadog_api_post_search | Make a POST request to Datadog search/query endpoints for complex filtering |
+| `datadog/general` | list_datadog_api_resources | List available Datadog API resources and endpoints that can be accessed |
