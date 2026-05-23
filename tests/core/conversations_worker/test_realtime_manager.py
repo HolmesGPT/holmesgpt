@@ -1,5 +1,6 @@
 """Unit tests for RealtimeManager's testable (non-async) surface."""
 import asyncio
+import logging
 import os
 import ssl as _ssl
 from unittest.mock import MagicMock
@@ -7,12 +8,15 @@ from unittest.mock import MagicMock
 import certifi
 import pytest
 import realtime._async.client as rt_client
+import websockets.exceptions as ws_exc
 from realtime._async.channel import ChannelStates
+from websockets.frames import Close
 
 from holmes.core.conversations_worker.realtime_manager import (
     RealtimeManager,
     _build_ssl_context,
     _install_ssl_patch_if_needed,
+    _is_ws_abnormal_close,
     broadcast_submit_topic,
     pg_changes_topic,
 )
@@ -345,3 +349,68 @@ def test_run_loop_triggers_reconnect_on_dead_listen_task():
         assert len(reconnect_calls) >= 2
 
     asyncio.run(_scenario())
+
+
+# ---- _is_ws_abnormal_close + downgrade at log sites -----------------------
+#
+# WS 1006 is "no close frame received or sent" — the socket dropped without a
+# Close frame. The worker recovers via _channel_unhealthy + _full_reconnect,
+# so this doesn't merit a Sentry ERROR event.
+
+
+def _cc_1006() -> ws_exc.ConnectionClosedError:
+    """1006 abnormal close — synthesized locally, no Close frame received."""
+    return ws_exc.ConnectionClosedError(None, None)
+
+
+def test_is_ws_abnormal_close_true_for_1006():
+    assert _is_ws_abnormal_close(_cc_1006()) is True
+
+
+def test_is_ws_abnormal_close_false_for_other_close_codes():
+    # 1008 (policy violation) must NOT be suppressed — auth/RLS misconfig.
+    frame = Close(1008, "policy")
+    exc = ws_exc.ConnectionClosedError(frame, frame, True)
+    assert _is_ws_abnormal_close(exc) is False
+
+
+def test_is_ws_abnormal_close_false_for_non_ws_exception():
+    assert _is_ws_abnormal_close(ValueError("no close frame")) is False
+
+
+def test_shutdown_logs_warning_on_1006(caplog):
+    """End-to-end: a 1006 during _shutdown_async must log WARNING, not ERROR."""
+    async def _scenario():
+        m = _make_manager()
+        m._client = MagicMock()
+
+        async def _raise_1006():
+            raise _cc_1006()
+
+        m._client.close = _raise_1006
+        with caplog.at_level(logging.WARNING, logger="root"):
+            await m._shutdown_async()
+
+    asyncio.run(_scenario())
+    assert caplog.records, "expected a log record"
+    assert all(r.levelno == logging.WARNING for r in caplog.records), (
+        f"1006 must not log at ERROR; got {[r.levelname for r in caplog.records]}"
+    )
+
+
+def test_shutdown_still_logs_exception_on_real_error(caplog):
+    """A non-WS exception during shutdown must still log at ERROR."""
+    async def _scenario():
+        m = _make_manager()
+        m._client = MagicMock()
+
+        async def _raise_value_error():
+            raise ValueError("something actually wrong")
+
+        m._client.close = _raise_value_error
+        with caplog.at_level(logging.WARNING, logger="root"):
+            await m._shutdown_async()
+
+    asyncio.run(_scenario())
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error_records, "non-WS exception must still be logged at ERROR"

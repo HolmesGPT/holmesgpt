@@ -27,6 +27,7 @@ import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 import realtime._async.client as rt_client
+import websockets.exceptions as ws_exc
 from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
 
@@ -40,6 +41,24 @@ from holmes.core.supabase_dal import CONVERSATIONS_TABLE
 
 if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
+
+
+# ---- close-code classification ----
+#
+# WS close 1006 is "abnormal closure" — synthesized locally by the `websockets`
+# library when the TCP/TLS connection drops without a Close frame (NAT
+# idle-timeout, LB kill, network blip). The worker recovers from these
+# automatically via _channel_unhealthy + _full_reconnect, so they don't merit
+# a Sentry ERROR. The library's __str__ for 1006 is the stable phrase
+# "no close frame received or sent".
+
+
+def _is_ws_abnormal_close(exc: BaseException) -> bool:
+    """True if ``exc`` is a websockets abnormal close (code 1006)."""
+    return (
+        isinstance(exc, ws_exc.ConnectionClosed)
+        and "no close frame" in str(exc)
+    )
 
 
 # ---- channel topic helpers ----
@@ -211,8 +230,13 @@ class RealtimeManager:
     def _thread_entry(self) -> None:
         try:
             asyncio.run(self._run())
-        except Exception:
-            logging.exception("Realtime manager thread crashed", exc_info=True)
+        except Exception as exc:
+            if _is_ws_abnormal_close(exc):
+                logging.warning("Realtime manager thread exiting on WS 1006")
+            else:
+                logging.exception(
+                    "Realtime manager thread crashed", exc_info=True
+                )
 
     async def _run(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -319,8 +343,16 @@ class RealtimeManager:
                     break  # _async_stop was set → exit loop
                 except asyncio.TimeoutError:
                     pass  # normal wake — re-check health and refresh
-        except Exception:
-            logging.exception("Error in realtime manager main loop", exc_info=True)
+        except Exception as exc:
+            if _is_ws_abnormal_close(exc):
+                # A nested handler missed this WS close — the finally-block
+                # below will tear down and the outer _thread_entry will exit
+                # cleanly. Not a bug worth a Sentry event.
+                logging.warning("Realtime main loop exiting on WS 1006")
+            else:
+                logging.exception(
+                    "Error in realtime manager main loop", exc_info=True
+                )
         finally:
             self._connected = False
             try:
@@ -400,8 +432,13 @@ class RealtimeManager:
         try:
             await self._connect_and_subscribe()
             return True
-        except Exception:
-            logging.exception("Failed to reconnect", exc_info=True)
+        except Exception as exc:
+            if _is_ws_abnormal_close(exc):
+                # Server tore down the new socket before subscribe ack'd — the
+                # outer reconnect loop will back off and try again.
+                logging.warning("Realtime reconnect failed: WS 1006, will retry")
+            else:
+                logging.exception("Failed to reconnect", exc_info=True)
             return False
 
     async def _maybe_refresh_auth(self) -> None:
@@ -418,8 +455,17 @@ class RealtimeManager:
             await self._client.set_auth(new_jwt)
             self._last_auth_jwt = new_jwt
             logging.debug("Refreshed realtime client auth token")
-        except Exception:
-            logging.exception("Failed to refresh realtime auth token", exc_info=True)
+        except Exception as exc:
+            if _is_ws_abnormal_close(exc):
+                # Token-refresh raced with the socket teardown; the health
+                # check will detect the dead WS and reconnect next tick.
+                logging.warning(
+                    "Realtime auth refresh: WS 1006, reconnect pending"
+                )
+            else:
+                logging.exception(
+                    "Failed to refresh realtime auth token", exc_info=True
+                )
 
     # ---- connect + subscribe ----
 
@@ -461,10 +507,15 @@ class RealtimeManager:
                 try:
                     await self._client.set_auth(user_jwt)
                     self._last_auth_jwt = user_jwt
-                except Exception:
-                    logging.exception(
-                        "Failed to set_auth on realtime client", exc_info=True
-                    )
+                except Exception as exc:
+                    if _is_ws_abnormal_close(exc):
+                        logging.warning(
+                            "Realtime set_auth: WS 1006, will reconnect"
+                        )
+                    else:
+                        logging.exception(
+                            "Failed to set_auth on realtime client", exc_info=True
+                        )
 
             # Subscribe using the configured mode.
             if self._use_broadcast:
@@ -476,11 +527,18 @@ class RealtimeManager:
             # the loop unwinds past this failure.
             try:
                 await self._client.close()
-            except Exception:
-                logging.exception(
-                    "Error closing realtime client after failed connect",
-                    exc_info=True,
-                )
+            except Exception as close_exc:
+                # Closing a half-open socket commonly raises 1006 — expected.
+                if _is_ws_abnormal_close(close_exc):
+                    logging.debug(
+                        "Realtime WS already gone during cleanup-after-failed-connect",
+                        exc_info=True,
+                    )
+                else:
+                    logging.exception(
+                        "Error closing realtime client after failed connect",
+                        exc_info=True,
+                    )
             self._client = None
             raise
 
@@ -632,5 +690,14 @@ class RealtimeManager:
         try:
             if self._client:
                 await self._client.close()
-        except Exception:
-            logging.exception("Error shutting down realtime client", exc_info=True)
+        except Exception as exc:
+            if _is_ws_abnormal_close(exc):
+                # Socket already dropped — close() racing the network teardown
+                # is expected, not an error.
+                logging.warning(
+                    "Realtime WS already closed (1006) during shutdown"
+                )
+            else:
+                logging.exception(
+                    "Error shutting down realtime client", exc_info=True
+                )
