@@ -47,7 +47,7 @@ def _without_authorization(headers: Dict[str, str]) -> Optional[Dict[str, str]]:
     """
     if not headers:
         return None
-    sanitized = {k: v for k, v in headers.items() if k != "Authorization"}
+    sanitized = {k: v for k, v in headers.items() if k.lower() != "authorization"}
     return sanitized or None
 
 

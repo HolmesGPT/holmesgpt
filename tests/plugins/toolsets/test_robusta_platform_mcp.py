@@ -101,3 +101,22 @@ def test_render_headers_returns_none_when_only_stale_auth_on_error():
     with _patch_base_render_headers({"Authorization": "Bearer stale-token"}):
         headers = toolset._render_headers()
     assert headers is None
+
+
+def test_render_headers_strips_authorization_case_insensitively():
+    """HTTP headers are case-insensitive; a user-supplied lowercase
+    'authorization' in extra_headers must not leak through the sanitiser."""
+    dal = MagicMock()
+    dal.enabled = True
+    dal.get_ai_credentials.side_effect = RuntimeError("supabase down")
+    toolset = make_robusta_platform_mcp_toolset(dal)
+    assert toolset is not None
+
+    stale = {
+        "authorization": "Bearer stale-lower",
+        "AUTHORIZATION": "Bearer stale-upper",
+        "X-Other": "keep",
+    }
+    with _patch_base_render_headers(stale):
+        headers = toolset._render_headers()
+    assert headers == {"X-Other": "keep"}
