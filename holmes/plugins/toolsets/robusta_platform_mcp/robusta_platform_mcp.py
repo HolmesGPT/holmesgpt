@@ -39,7 +39,7 @@ TOOLSET_NAME = "robusta_platform_mcp"
 
 
 class RobustaPlatformMCPToolset(RemoteMCPToolset):
-    """RemoteMCPToolset wired to the relay `/api/mcp` endpoint with
+    """RemoteMCPToolset wired to the relay `/api/platform-mcp` endpoint with
     dynamic session-token auth."""
 
     _dal: Optional[SupabaseDal] = PrivateAttr(default=None)
@@ -96,7 +96,7 @@ def make_robusta_platform_mcp_toolset(
 
     # Allow operators to override the MCP endpoint independently of the LLM
     # endpoint in case a region is rolling out the new service incrementally.
-    mcp_base = os.environ.get("ROBUSTA_MCP_ENDPOINT") or f"{ROBUSTA_API_ENDPOINT}/api/mcp"
+    mcp_base = os.environ.get("ROBUSTA_MCP_ENDPOINT") or f"{ROBUSTA_API_ENDPOINT}/api/platform-mcp"
 
     config = MCPConfig(
         mode=MCPMode.STREAMABLE_HTTP,

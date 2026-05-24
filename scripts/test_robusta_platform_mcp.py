@@ -9,10 +9,10 @@ Prereqs:
   - ROBUSTA_UI_TOKEN, ROBUSTA_ACCOUNT_ID, CLUSTER_NAME must be set so
     SupabaseDal initialises successfully.
   - ROBUSTA_MCP_ENDPOINT must point at a reachable relay platform-mcp
-    (default in this script is ``http://127.0.0.1:5101/api/mcp``).
+    (default in this script is ``http://127.0.0.1:5101/api/platform-mcp``).
 
 Usage:
-  ROBUSTA_MCP_ENDPOINT=http://127.0.0.1:5101/api/mcp \
+  ROBUSTA_MCP_ENDPOINT=http://127.0.0.1:5101/api/platform-mcp \
       poetry run python scripts/test_robusta_platform_mcp.py
 """
 
@@ -27,7 +27,7 @@ import sys
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("holmes_mcp_smoke")
 
-os.environ.setdefault("ROBUSTA_MCP_ENDPOINT", "http://127.0.0.1:5101/api/mcp")
+os.environ.setdefault("ROBUSTA_MCP_ENDPOINT", "http://127.0.0.1:5101/api/platform-mcp")
 
 
 async def _list_tools(toolset):
