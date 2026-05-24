@@ -636,6 +636,16 @@ class ConversationWorker:
         # Per-event data still wins so the FE can override per-turn (e.g.
         # an alert-investigation chat that pivots to a freeform question).
         resolved_user_id = data.get("user_id") or task.user_id
+        # Per-conversation OAuth opt-out. When a Conversations row carries
+        # `metadata.oauth_enabled = false` (e.g. triggered workflows that
+        # don't want Holmes acting under the workflow creator's per-user
+        # OAuth tokens), drop user_id before it reaches ChatRequest so the
+        # OAuth resolver in tool_calling_llm has no user to key on.
+        oauth_enabled = (
+            task.metadata.get("oauth_enabled", True) if task.metadata else True
+        )
+        if not oauth_enabled:
+            resolved_user_id = None
         # Per-event presence wins, not truthiness — so an explicit empty
         # value from the FE (e.g. "" to deliberately clear a field) keeps
         # priority over the row-level metadata fallback and we don't
