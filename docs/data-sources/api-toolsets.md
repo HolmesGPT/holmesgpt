@@ -68,7 +68,7 @@ toolsets:
 #### Config Section
 
 - **`endpoints`**: List of whitelisted endpoint configurations
-  - **`hosts`**: List of allowed hostnames (supports wildcards like `*.example.com`)
+  - **`hosts`**: List of allowed host patterns. Each entry can be a bare hostname, wildcard subdomain (`*.example.com`), or an origin string that constrains scheme and/or port (see [Host Patterns](#host-patterns) below).
   - **`paths`**: List of allowed URL paths (supports glob patterns like `/api/*`)
   - **`methods`**: List of allowed HTTP methods (`GET`, `POST`, `PUT`, `DELETE`, etc.)
   - **`auth`** (optional): Authentication configuration (see Authentication section)
@@ -252,9 +252,39 @@ The endpoint whitelist provides security by restricting which APIs the HTTP conn
 
 ### Host Patterns
 
-- **Exact match**: `api.example.com`
-- **Wildcard subdomain**: `*.example.com` (matches `api.example.com`, `dev.example.com`, etc.)
-- **Multiple hosts**: `["api1.example.com", "api2.example.com"]`
+Each entry in `hosts` controls which scheme and port the LLM may use, in addition to the hostname. The form of the entry determines what is allowed:
+
+| Entry | Allowed scheme | Allowed port |
+|---|---|---|
+| `api.example.com` | any | any |
+| `*.example.com` | any | any |
+| `api.example.com:8080` | any | `8080` only |
+| `https://api.example.com` | `https` only | `443` only |
+| `http://api.example.com` | `http` only | `80` only |
+| `https://api.example.com:8443` | `https` only | `8443` only |
+| `https://*.example.com` | `https` only | `443` only |
+| `https://*.example.com:*` | `https` only | any |
+
+**Rules:**
+
+- A bare hostname (or bare wildcard) imposes no scheme or port restriction.
+- Adding a port (`host:8080`) pins requests to that port; the scheme stays unrestricted.
+- Adding a scheme pins both scheme and port. When no explicit port is written, the scheme's default port is used (`80` for `http`, `443` for `https`).
+- To allow a scheme on any port, use the explicit `:*` wildcard (e.g. `https://host:*`).
+- Wildcards must be a leading `*.` and match one or more subdomain labels. `*.example.com` matches `api.example.com` and `foo.bar.example.com`, but not `example.com` itself.
+- Multiple entries in `hosts` are ORed — a request matches if any entry matches.
+
+**Example:**
+
+```yaml
+hosts:
+  - "api.example.com"                    # any scheme, any port
+  - "*.internal.example.com"             # any subdomain, any scheme, any port
+  - "https://jenkins.example.com:8080"   # https on 8080 only
+  - "https://*.tools.example.com:*"      # https on any port, any subdomain
+```
+
+Malformed entries (unsupported scheme, port out of range, mid-host wildcards, etc.) fail at config-load time with a validation error.
 
 ### Path Patterns
 
@@ -342,4 +372,5 @@ llm_instructions: |
 - Check that the host matches your whitelist (including wildcards)
 - Verify the path pattern matches the endpoint you're trying to access
 - Ensure the HTTP method is in the allowed methods list
-- Check HolmesGPT logs for the exact URL being blocked
+- If a `hosts` entry includes a scheme (e.g. `https://...`), make sure the request uses the same scheme and either the scheme's default port or the port you specified — see [Host Patterns](#host-patterns)
+- Check HolmesGPT logs for the exact URL being blocked; the error message includes the request's scheme, host, port, and path
