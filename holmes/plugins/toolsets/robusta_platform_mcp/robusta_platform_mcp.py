@@ -26,7 +26,7 @@ from pydantic import AnyUrl, PrivateAttr
 
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import StaticPrerequisite, ToolsetTag
+from holmes.core.tools import ToolsetTag
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
@@ -104,11 +104,9 @@ def make_robusta_platform_mcp_toolset(
         verify_ssl=True,
     )
 
-    enabled_prereq = StaticPrerequisite(
-        enabled=True,
-        disabled_reason="Robusta platform MCP requires DAL",
-    )
-
+    # NOTE: prerequisites are set by RemoteMCPToolset.model_post_init —
+    # it always overrides them with its own CallablePrerequisite, so
+    # passing one here would be silently discarded.
     toolset = RobustaPlatformMCPToolset(
         name=TOOLSET_NAME,
         description=(
@@ -121,7 +119,6 @@ def make_robusta_platform_mcp_toolset(
         icon_url="https://cdn.prod.website-files.com/633e9bac8f71dfb7a8e4c9a6/646be7710db810b14133bdb5_logo.svg",
         enabled=True,
         tags=[ToolsetTag.CORE],
-        prerequisites=[enabled_prereq],
         tools=[],
         config={
             "mode": MCPMode.STREAMABLE_HTTP.value,
