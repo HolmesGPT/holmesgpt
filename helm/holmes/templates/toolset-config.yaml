@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -128,6 +128,19 @@ data:
     }}
     {{- $mcpServers = merge $mcpServers $githubMcpServers }}
     {{- end }}
+    {{- end }}
+    {{- if .Values.mcpAddons.gitlabMcp.enabled }}
+    {{- $gitlabMcpServers := dict "gitlab" (dict
+        "description" "GitLab MCP Server - access projects, merge requests, issues, pipelines, and code. Debug CI failures, search code, and create MRs."
+        "config" (dict
+          "url" (printf "http://%s-gitlab-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
+          "mode" "sse"
+          "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/gitlab.svg"
+        )
+        "llm_instructions" (include "holmes.gitlabMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $gitlabMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.sentry.enabled }}
     {{- $sentryMcpServers := dict "sentry" (dict

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from pydantic import BaseModel, Field, model_validator
+from holmes.utils.header_rendering import render_env_template
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,19 @@ class MCPOAuthConfig(BaseModel):
         """Auto-enable OAuth when any endpoint or client_id is explicitly set."""
         if not self.enabled and (self.authorization_url or self.token_url or self.client_id):
             self.enabled = True
+        return self
+
+    @model_validator(mode="after")
+    def render_client_secret_env_template(self):
+        """Substitute ``{{ env.X }}`` references in ``client_secret`` at load time.
+
+        Keeps the secret out of YAML by reading it from an environment variable
+        (typically injected from a Kubernetes Secret) — same Jinja syntax the
+        headers code path already supports.
+        """
+   
+
+        self.client_secret = render_env_template(self.client_secret, "MCPOAuthConfig.client_secret")
         return self
 
 

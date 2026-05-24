@@ -636,8 +636,38 @@ class ConversationWorker:
         # Per-event data still wins so the FE can override per-turn (e.g.
         # an alert-investigation chat that pivots to a freeform question).
         resolved_user_id = data.get("user_id") or task.user_id
-        resolved_request_source = data.get("request_source") or (
-            task.metadata.get("request_source") if task.metadata else None
+        # Per-event presence wins, not truthiness — so an explicit empty
+        # value from the FE (e.g. "" to deliberately clear a field) keeps
+        # priority over the row-level metadata fallback and we don't
+        # reintroduce stale Conversation-row values. Only fall back to
+        # task.metadata when the per-turn event omits the key entirely.
+        resolved_user_email = (
+            data["user_email"]
+            if "user_email" in data
+            else (task.metadata.get("user_email") if task.metadata else None)
+        )
+        resolved_request_source = (
+            data["request_source"]
+            if "request_source" in data
+            else (task.metadata.get("request_source") if task.metadata else None)
+        )
+        # source_ref is conversation-level for alert investigations (the
+        # whole chat is about one alert id), so the FE puts it on the
+        # Conversations row's metadata, not in each per-turn event.
+        resolved_source_ref = (
+            data["source_ref"]
+            if "source_ref" in data
+            else (task.metadata.get("source_ref") if task.metadata else None)
+        )
+        # request_type may also live under Conversations.metadata when the
+        # FE classifies a whole chat once at creation time. Same key-presence
+        # semantics — leaving the resolved value None when neither source
+        # supplies it preserves build_chat_recorder_state's auto-detection
+        # (Slack-prefix → 'slack_chat', fallback → 'user_chat').
+        resolved_request_type = (
+            data["request_type"]
+            if "request_type" in data
+            else (task.metadata.get("request_type") if task.metadata else None)
         )
 
         chat_request = ChatRequest(
@@ -653,23 +683,18 @@ class ConversationWorker:
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
             behavior_controls=data.get("behavior_controls"),
-            # source_ref / meta / is_internal still come from the per-event
-            # blob only — they're per-turn signals (which alert this
-            # follow-up question was about, etc.), not Conversation-level
-            # state. user_id / request_source fall back to the Conversations
-            # row when the FE didn't repeat them in the event.
+            # meta / is_internal still come from the per-event blob only —
+            # they're per-turn signals, not Conversation-level state.
+            # user_id / user_email / request_type / request_source /
+            # source_ref fall back to the Conversations row when the FE
+            # didn't repeat them in the per-turn event. None for
+            # request_type still lets build_chat_recorder_state's Slack
+            # auto-detection and 'user_chat' default run.
             user_id=resolved_user_id,
-            # request_type: pass through whatever the FE sent (None if absent)
-            # rather than hard-coding 'user_chat' here. The recorder helper
-            # (build_chat_recorder_state) handles the default and runs Slack
-            # auto-detection — hard-coding 'user_chat' would defeat the
-            # auto-detection because the helper bails out if request_type is
-            # already truthy. Today only /api/chat hits the Slack-prefix
-            # path, but the runner could route Slack through Conversations
-            # at any time without a code change here.
-            request_type=data.get("request_type"),
+            user_email=resolved_user_email,
+            request_type=resolved_request_type,
             request_source=resolved_request_source,
-            source_ref=data.get("source_ref"),
+            source_ref=resolved_source_ref,
             conversation_id=task.conversation_id,
             conversation_source="conversations",
             meta=data.get("meta"),

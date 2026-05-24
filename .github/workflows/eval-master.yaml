@@ -1,0 +1,77 @@
+name: Run eval regression on master
+
+on:
+  # Run on every push to master so PRs can compare against the most recent
+  # known-good state of master, not just the weekly benchmark.
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'mkdocs.yml'
+
+  # Allow manual triggering for one-off baselines / re-running after a fix.
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'Comma-separated models to baseline (default opus-4.6)'
+        required: false
+        default: 'opus-4.6'
+
+env:
+  DEFAULT_MASTER_MODELS: 'opus-4.6'
+
+jobs:
+  run-master-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    # Newer master pushes supersede in-flight runs — only the latest matters
+    # as the baseline.
+    concurrency:
+      group: eval-master
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup HolmesGPT environment
+        uses: ./.github/actions/setup-holmes-env
+        with:
+          python-version: '3.12'
+          install-kubectl: 'true'
+
+      - name: Setup KIND cluster
+        uses: ./.github/actions/setup-kind-cluster
+        with:
+          cluster-name: 'kind'
+          wait-for-ready: 'true'
+
+      - name: Create model list file
+        run: |
+          cat > /tmp/model_list.yaml << 'EOF'
+          ${{ secrets.MODEL_LIST_YAML }}
+          EOF
+
+      - name: Run regression evals on master HEAD
+        env:
+          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
+          MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+          # This name must match MASTER_EXPERIMENT_PREFIX in braintrust_history.py
+          EXPERIMENT_ID: "master-${{ github.run_id }}"
+          MODELS: ${{ github.event.inputs.models || env.DEFAULT_MASTER_MODELS }}
+        run: |
+          ./run_benchmarks_local.py --markers regression --models "$MODELS" --iterations 1

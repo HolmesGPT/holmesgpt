@@ -3,6 +3,11 @@ logLevel: INFO
 
 additionalEnvVars: []
 additional_env_vars: []
+# Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
+# configMapRef) loaded onto the Holmes pod. Use to share a Secret between the
+# runner and Holmes (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring
+# each key twice.
+additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
 commonLabels: {}
@@ -106,7 +111,7 @@ toolsets:
     enabled: true
   prometheus/metrics:
     enabled: true
-  runbook:
+  skills:
     enabled: true
   connectivity_check:
     enabled: true
@@ -115,6 +120,28 @@ toolsets:
     config:
       builtin_allowlist: "extended"
 mcp_servers: {}
+
+# Paths inside the Holmes container to scan for custom skills (SKILL.md files).
+# Use this when you mount skill files yourself via `additionalVolumes` /
+# `initContainers`. Each path may be a directory (scanned for SKILL.md files
+# up to 2 levels deep) or an individual SKILL.md file. The chart sets
+# CUSTOM_SKILL_PATHS in the Holmes pod from this list (joined with `customSkills`).
+customSkillPaths: []
+  # - /etc/holmes/my-skills
+
+# Inline skill definitions. When non-empty, the chart creates a ConfigMap
+# named `<release>-holmes-skills` and mounts it at /etc/holmes/skills/, with
+# each entry projected to /etc/holmes/skills/<name>/SKILL.md. The mount path
+# is automatically appended to CUSTOM_SKILL_PATHS, so you do not need to add
+# /etc/holmes/skills to customSkillPaths.
+customSkills: {}
+  # my-skill:
+  #   content: |
+  #     ---
+  #     description: My custom skill description
+  #     ---
+  #     ## Goal
+  #     ...
 
 resources:
   requests:
@@ -472,6 +499,85 @@ mcpAddons:
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # GitLab MCP Server Configuration
+  # Provides access to GitLab projects, merge requests, issues, pipelines, and code.
+  # Supports both gitlab.com (cloud) and self-hosted GitLab instances.
+  #
+  # AUTHENTICATION:
+  # Create a GitLab Personal Access Token with scopes: api, read_repository (and write_repository if you
+  # want Holmes to create branches/MRs). Then store it in a Kubernetes secret:
+  #   kubectl create secret generic gitlab-mcp-token --from-literal=token=<YOUR_GITLAB_PAT> -n <NAMESPACE>
+  #
+  # SELF-HOSTED GITLAB:
+  # Set config.apiUrl to your instance API URL (e.g., "https://gitlab.mycompany.com/api/v4").
+  # For self-signed certificates, mount a CA bundle via config.caCert.secretName (preferred)
+  # or disable verification entirely with config.verifySsl: false (insecure).
+  gitlabMcp:
+    enabled: false
+
+    registry: docker.io
+    image: "supercorp/supergateway:3.4.3"
+    imagePullPolicy: IfNotPresent
+
+    # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
+    mcpGitlabVersion: "2.1.11"
+
+    auth:
+      # K8s secret holding the GitLab Personal Access Token.
+      # kubectl create secret generic gitlab-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
+      secretName: ""      # Required when enabled=true
+      secretKey: "token"
+
+    config:
+      # GitLab API URL — set to your self-hosted instance for on-prem GitLab.
+      # Examples: "https://gitlab.com/api/v4", "https://gitlab.mycompany.com/api/v4"
+      apiUrl: "https://gitlab.com/api/v4"
+
+      # When true, blocks all write operations (no MR/issue creation, no commits).
+      readOnly: false
+
+      # Optional feature toggles for the @zereight/mcp-gitlab server
+      useWiki: false        # USE_GITLAB_WIKI — enable wiki tools
+      useMilestone: false   # USE_MILESTONE — enable milestone tools
+      usePipeline: true     # USE_PIPELINE — enable pipeline/CI tools (recommended)
+
+      # Scope the MCP server to specific projects (optional)
+      projectId: ""           # GITLAB_PROJECT_ID — default project ID
+      allowedProjectIds: ""   # GITLAB_ALLOWED_PROJECT_IDS — comma-separated allowlist
+
+      # Tool exposure (optional). Mirrors the github addon pattern.
+      # `toolsets` enables groups of tools; `tools` is a hard allowlist that takes precedence.
+      toolsets: ""   # GITLAB_TOOLSETS — comma-separated toolset IDs (empty = all)
+      tools: ""      # GITLAB_TOOLS — comma-separated individual tool names
+
+      # SSL/TLS for self-hosted GitLab
+      # Preferred: mount a trusted CA bundle via the caCert block below.
+      # Last resort: set verifySsl: false (disables ALL TLS verification — insecure).
+      verifySsl: true
+      caCert:
+        secretName: ""      # K8s secret containing the CA bundle (sets GITLAB_CA_CERT_PATH)
+        secretKey: "ca.crt"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+    # Additional environment variables to inject into the gitlab-mcp container
+    additionalEnvVars: []
 
     nodeSelector: {}
     tolerations: []

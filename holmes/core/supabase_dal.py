@@ -847,6 +847,7 @@ class SupabaseDal:
                 "account_id": self.account_id,
                 "cluster_id": state.cluster_id or self.cluster,
                 "user_id": state.user_id,
+                "user_email": state.user_email,
                 "conversation_id": state.conversation_id,
                 "conversation_source": state.conversation_source,
                 "request_id": state.request_id,
