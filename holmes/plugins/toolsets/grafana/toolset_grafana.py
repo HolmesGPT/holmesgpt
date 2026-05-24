@@ -130,17 +130,18 @@ class GrafanaToolset(BaseMultiInstanceGrafanaToolset):
             logger.info(f"Grafana health check failed: {msg}")
             return ok, msg
 
-        # Render-tool registration probes the first configured instance (rendering
-        # is a Grafana-server feature; assume homogeneous deployments).
+        # Render-tool registration succeeds if any configured instance exposes
+        # the renderer.
         if self.grafana_config.enable_rendering:
-            first_instance = next(iter(self._instances.values()), None)
-            if first_instance is not None:
+            for instance in self._instances.values():
                 logger.info(
-                    f"Rendering enabled, probing for image renderer at {get_base_url(first_instance)}..."
+                    f"Rendering enabled, probing for image renderer at {get_base_url(instance)}..."
                 )
-                self._try_add_render_tools(first_instance)
-                tool_names = [t.name for t in self.tools]
-                logger.info(f"Grafana toolset tools after renderer probe: {tool_names}")
+                self._try_add_render_tools(instance)
+                if any(isinstance(t, RenderPanel) for t in self.tools):
+                    break
+            tool_names = [t.name for t in self.tools]
+            logger.info(f"Grafana toolset tools after renderer probe: {tool_names}")
         return ok, msg
 
     def _try_add_render_tools(self, instance: GrafanaInstance) -> None:
