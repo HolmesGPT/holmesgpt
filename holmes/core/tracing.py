@@ -342,7 +342,7 @@ class TracingFactory:
                     TracingFactory._active_tracer = tracer
                     return tracer
                 except ImportError:
-                    logging.debug(
+                    logging.warning(
                         "OTEL_EXPORTER_OTLP_ENDPOINT set but otel packages not installed, using DummyTracer"
                     )
             return DummyTracer()
