@@ -61,9 +61,10 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         try:
             account_id, token = dal.get_ai_credentials()
         except Exception:
-            logger.exception(
+            logger.warning(
                 "robusta_platform_mcp: failed to mint session token; "
-                "request will likely be rejected"
+                "request will likely be rejected",
+                exc_info=True,
             )
             return headers or None
 
@@ -83,7 +84,10 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         try:
             self._dal.token_cache.pop("session_token", None)
         except Exception:
-            logger.exception("robusta_platform_mcp: failed to clear session token cache")
+            logger.warning(
+                "robusta_platform_mcp: failed to clear session token cache",
+                exc_info=True,
+            )
 
 
 def make_robusta_platform_mcp_toolset(
