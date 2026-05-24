@@ -71,24 +71,6 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         headers["Authorization"] = f"Bearer {account_id} {token}"
         return headers
 
-    def invalidate_session_token(self) -> None:
-        """Drop the cached session token so the next request mints a fresh one.
-
-        Called from the 401-retry path. The relay-side `validate_auth_token`
-        rejects tokens that are missing, revoked, or older than
-        ``HOLMES_TOKEN_EXPIRATION_SECONDS``; in any of those cases we want
-        the next attempt to create a brand new ``AuthTokens`` row.
-        """
-        if self._dal is None:
-            return
-        try:
-            self._dal.token_cache.pop("session_token", None)
-        except Exception:
-            logger.warning(
-                "robusta_platform_mcp: failed to clear session token cache",
-                exc_info=True,
-            )
-
 
 def make_robusta_platform_mcp_toolset(
     dal: Optional[SupabaseDal],

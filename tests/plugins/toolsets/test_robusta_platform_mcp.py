@@ -46,17 +46,3 @@ def test_renders_dynamic_bearer_header():
     headers = toolset._render_headers()
     assert headers is not None
     assert headers["Authorization"] == "Bearer acct-1 tok-abc"
-
-
-def test_invalidate_session_token_clears_cache():
-    dal = MagicMock()
-    dal.enabled = True
-    dal.account_id = "acct-1"
-    # token_cache is a real dict-like; the toolset just calls .pop on it.
-    dal.token_cache = {"session_token": "stale"}
-    dal.get_ai_credentials.return_value = ("acct-1", "fresh")
-
-    toolset = make_robusta_platform_mcp_toolset(dal)
-    assert toolset is not None
-    toolset.invalidate_session_token()
-    assert "session_token" not in dal.token_cache
