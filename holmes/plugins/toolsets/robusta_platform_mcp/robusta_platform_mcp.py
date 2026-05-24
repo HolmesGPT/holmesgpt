@@ -38,6 +38,19 @@ logger = logging.getLogger(__name__)
 TOOLSET_NAME = "robusta_platform_mcp"
 
 
+def _without_authorization(headers: Dict[str, str]) -> Optional[Dict[str, str]]:
+    """Return a copy of ``headers`` with the ``Authorization`` key removed.
+
+    Used on the error paths in ``_render_headers``: we must never let a
+    stale Authorization header injected by the base implementation leak
+    into a request when this toolset cannot mint a fresh session token.
+    """
+    if not headers:
+        return None
+    sanitized = {k: v for k, v in headers.items() if k != "Authorization"}
+    return sanitized or None
+
+
 class RobustaPlatformMCPToolset(RemoteMCPToolset):
     """RemoteMCPToolset wired to the relay `/api/platform-mcp` endpoint with
     dynamic session-token auth."""
@@ -55,8 +68,9 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         if dal is None or not dal.enabled:
             # Should not happen since we only construct the toolset when DAL
             # is enabled — but be defensive so we never serve up a request
-            # with a missing or stale Authorization header.
-            return headers or None
+            # with a stale Authorization header inherited from the base
+            # implementation.
+            return _without_authorization(headers)
 
         try:
             account_id, token = dal.get_ai_credentials()
@@ -66,7 +80,7 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
                 "request will likely be rejected",
                 exc_info=True,
             )
-            return headers or None
+            return _without_authorization(headers)
 
         headers["Authorization"] = f"Bearer {account_id} {token}"
         return headers
