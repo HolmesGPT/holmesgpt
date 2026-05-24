@@ -2,6 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 import requests  # type: ignore
+from pydantic import ValidationError
 from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import StructuredToolResultStatus, ToolInvokeContext
@@ -11,6 +12,7 @@ from holmes.plugins.toolsets.http.http_toolset import (
     HttpRequest,
     HttpToolset,
     HttpToolsetConfig,
+    _parse_host_pattern,
 )
 
 
@@ -89,6 +91,243 @@ class TestEndpointConfig:
     def test_methods_normalized_to_uppercase(self):
         endpoint = EndpointConfig(hosts=["example.com"], methods=["get", "post", "put"])
         assert endpoint.get_methods() == ["GET", "POST", "PUT"]
+
+
+class TestParseHostPattern:
+    def test_bare_hostname_any_scheme_any_port(self):
+        ph = _parse_host_pattern("api.example.com")
+        assert ph.scheme is None
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports is None
+
+    def test_wildcard_any_scheme_any_port(self):
+        ph = _parse_host_pattern("*.example.com")
+        assert ph.scheme is None
+        assert ph.host_pattern == "*.example.com"
+        assert ph.ports is None
+
+    def test_host_with_port(self):
+        ph = _parse_host_pattern("api.example.com:8080")
+        assert ph.scheme is None
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports == frozenset({8080})
+
+    def test_https_implies_default_port(self):
+        ph = _parse_host_pattern("https://api.example.com")
+        assert ph.scheme == "https"
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports == frozenset({443})
+
+    def test_http_implies_default_port(self):
+        ph = _parse_host_pattern("http://api.example.com")
+        assert ph.scheme == "http"
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports == frozenset({80})
+
+    def test_https_with_explicit_port(self):
+        ph = _parse_host_pattern("https://api.example.com:8443")
+        assert ph.scheme == "https"
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports == frozenset({8443})
+
+    def test_https_wildcard_implies_default_port(self):
+        ph = _parse_host_pattern("https://*.example.com")
+        assert ph.scheme == "https"
+        assert ph.host_pattern == "*.example.com"
+        assert ph.ports == frozenset({443})
+
+    def test_https_wildcard_with_explicit_any_port(self):
+        ph = _parse_host_pattern("https://*.example.com:*")
+        assert ph.scheme == "https"
+        assert ph.host_pattern == "*.example.com"
+        assert ph.ports is None
+
+    def test_explicit_any_port_without_scheme(self):
+        ph = _parse_host_pattern("*.example.com:*")
+        assert ph.scheme is None
+        assert ph.host_pattern == "*.example.com"
+        assert ph.ports is None
+
+    def test_path_after_url_is_stripped(self):
+        ph = _parse_host_pattern("https://api.example.com/v1/things")
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports == frozenset({443})
+
+    def test_userinfo_stripped(self):
+        ph = _parse_host_pattern("https://user:pass@api.example.com:8443/v1")
+        assert ph.scheme == "https"
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports == frozenset({8443})
+
+    def test_userinfo_stripped_bare(self):
+        ph = _parse_host_pattern("user:pass@api.example.com")
+        assert ph.scheme is None
+        assert ph.host_pattern == "api.example.com"
+        assert ph.ports is None
+
+    def test_lowercases_host(self):
+        ph = _parse_host_pattern("API.Example.COM")
+        assert ph.host_pattern == "api.example.com"
+
+    def test_lowercases_scheme(self):
+        ph = _parse_host_pattern("HTTPS://api.example.com")
+        assert ph.scheme == "https"
+
+    def test_ipv6_url(self):
+        ph = _parse_host_pattern("https://[::1]:8443/foo")
+        assert ph.scheme == "https"
+        assert ph.host_pattern == "::1"
+        assert ph.ports == frozenset({8443})
+
+    def test_ipv6_url_default_port(self):
+        ph = _parse_host_pattern("https://[2001:db8::1]")
+        assert ph.host_pattern == "2001:db8::1"
+        assert ph.ports == frozenset({443})
+
+    def test_ipv6_bare_address(self):
+        ph = _parse_host_pattern("::1")
+        assert ph.host_pattern == "::1"
+        assert ph.ports is None
+
+    def test_rejects_empty(self):
+        with pytest.raises(ValueError, match="Empty"):
+            _parse_host_pattern("")
+
+    def test_rejects_unsupported_scheme(self):
+        with pytest.raises(ValueError, match="Unsupported scheme"):
+            _parse_host_pattern("ftp://api.example.com")
+
+    def test_rejects_invalid_port_text(self):
+        with pytest.raises(ValueError, match="Invalid port"):
+            _parse_host_pattern("api.example.com:abc")
+
+    def test_rejects_port_out_of_range_high(self):
+        with pytest.raises(ValueError, match="out of range"):
+            _parse_host_pattern("api.example.com:99999")
+
+    def test_rejects_port_out_of_range_low(self):
+        with pytest.raises(ValueError, match="out of range"):
+            _parse_host_pattern("api.example.com:0")
+
+    def test_rejects_empty_port(self):
+        with pytest.raises(ValueError, match="Empty port"):
+            _parse_host_pattern("api.example.com:")
+
+    def test_rejects_mid_host_wildcard(self):
+        with pytest.raises(ValueError, match="leading '\\*\\.'"):
+            _parse_host_pattern("api.*.example.com")
+
+    def test_rejects_unclosed_ipv6_bracket(self):
+        with pytest.raises(ValueError, match="Unclosed"):
+            _parse_host_pattern("https://[::1/foo")
+
+
+class TestEndpointConfigValidation:
+    def test_invalid_pattern_raises_validation_error(self):
+        with pytest.raises(ValidationError):
+            EndpointConfig(hosts=["ftp://api.example.com"])
+
+    def test_keeps_original_string(self):
+        endpoint = EndpointConfig(hosts=["https://api.example.com:8443"])
+        # Field stays as-written; parsing happens via parsed_hosts().
+        assert endpoint.hosts == ["https://api.example.com:8443"]
+        parsed = endpoint.parsed_hosts()
+        assert len(parsed) == 1
+        assert parsed[0].scheme == "https"
+        assert parsed[0].ports == frozenset({8443})
+
+
+class TestHttpToolsetSchemeAndPortEnforcement:
+    def _toolset(self, hosts):
+        ts = HttpToolset()
+        ts._http_config = HttpToolsetConfig(
+            endpoints=[EndpointConfig(hosts=hosts, paths=["*"])]
+        )
+        return ts
+
+    def test_bare_hostname_allows_any_scheme_and_port(self):
+        ts = self._toolset(["jenkins.example.com"])
+        for url in [
+            "https://jenkins.example.com/x",
+            "http://jenkins.example.com/x",
+            "http://jenkins.example.com:8080/x",
+            "https://jenkins.example.com:9999/x",
+        ]:
+            endpoint, error = ts.match_endpoint(url)
+            assert endpoint is not None, f"expected match for {url}, got error={error}"
+
+    def test_https_only_blocks_http(self):
+        ts = self._toolset(["https://jenkins.example.com"])
+        endpoint, error = ts.match_endpoint("http://jenkins.example.com/x")
+        assert endpoint is None
+        assert error is not None
+
+    def test_https_only_blocks_non_default_port(self):
+        ts = self._toolset(["https://jenkins.example.com"])
+        endpoint, error = ts.match_endpoint("https://jenkins.example.com:8443/x")
+        assert endpoint is None
+
+    def test_https_only_allows_implicit_443(self):
+        ts = self._toolset(["https://jenkins.example.com"])
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com/x")
+        assert endpoint is not None
+
+    def test_https_only_allows_explicit_443(self):
+        ts = self._toolset(["https://jenkins.example.com"])
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com:443/x")
+        assert endpoint is not None
+
+    def test_explicit_port_pins_port(self):
+        ts = self._toolset(["https://jenkins.example.com:8443"])
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com:8443/x")
+        assert endpoint is not None
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com/x")
+        assert endpoint is None
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com:443/x")
+        assert endpoint is None
+
+    def test_host_with_port_only_allows_either_scheme(self):
+        ts = self._toolset(["jenkins.example.com:8080"])
+        endpoint, _ = ts.match_endpoint("http://jenkins.example.com:8080/x")
+        assert endpoint is not None
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com:8080/x")
+        assert endpoint is not None
+        endpoint, _ = ts.match_endpoint("http://jenkins.example.com/x")
+        assert endpoint is None
+
+    def test_wildcard_scheme_pins_default_port(self):
+        ts = self._toolset(["https://*.tools.example.com"])
+        endpoint, _ = ts.match_endpoint("https://a.tools.example.com/x")
+        assert endpoint is not None
+        endpoint, _ = ts.match_endpoint("https://a.tools.example.com:8443/x")
+        assert endpoint is None
+
+    def test_explicit_any_port_with_scheme(self):
+        ts = self._toolset(["https://*.tools.example.com:*"])
+        endpoint, _ = ts.match_endpoint("https://a.tools.example.com/x")
+        assert endpoint is not None
+        endpoint, _ = ts.match_endpoint("https://a.tools.example.com:9999/x")
+        assert endpoint is not None
+        endpoint, _ = ts.match_endpoint("http://a.tools.example.com/x")
+        assert endpoint is None
+
+    def test_mixed_entries(self):
+        ts = self._toolset(
+            [
+                "api.example.com",  # any scheme, any port
+                "https://jenkins.example.com:8080",  # https on 8080 only
+            ]
+        )
+        # api.example.com: anything goes
+        endpoint, _ = ts.match_endpoint("http://api.example.com:9000/x")
+        assert endpoint is not None
+        # jenkins.example.com: only https/8080
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com:8080/x")
+        assert endpoint is not None
+        endpoint, _ = ts.match_endpoint("http://jenkins.example.com:8080/x")
+        assert endpoint is None
+        endpoint, _ = ts.match_endpoint("https://jenkins.example.com/x")
+        assert endpoint is None
 
 
 class TestHttpToolsetHostMatching:
