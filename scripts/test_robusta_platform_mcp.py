@@ -58,13 +58,13 @@ async def _call_tool(
 def main() -> None:
     dal = SupabaseDal(cluster=os.environ.get("CLUSTER_NAME", "test"))
     if not dal.enabled:
-        logger.warning("DAL did not initialise — check ROBUSTA_UI_TOKEN")
+        logger.error("DAL did not initialise — check ROBUSTA_UI_TOKEN")
         raise RuntimeError("DAL did not initialise")
     logger.info("DAL initialised for account=%s url=%s", dal.account_id, dal.url)
 
     toolset = make_robusta_platform_mcp_toolset(dal)
     if toolset is None:
-        logger.warning("toolset is None — DAL should be enabled here")
+        logger.error("toolset is None — DAL should be enabled here")
         raise RuntimeError("make_robusta_platform_mcp_toolset returned None")
     logger.info(
         "Toolset constructed: name=%s url=%s",
@@ -76,10 +76,10 @@ def main() -> None:
     # bearer token contents — just confirm the prefix shape.
     headers = toolset._render_headers()
     if not headers or "Authorization" not in headers:
-        logger.warning("toolset did not produce an Authorization header")
+        logger.error("toolset did not produce an Authorization header")
         raise RuntimeError("missing Authorization header")
     if not headers["Authorization"].startswith(f"Bearer {dal.account_id} "):
-        logger.warning(
+        logger.error(
             "Authorization header did not start with the expected account prefix"
         )
         raise RuntimeError("malformed Authorization header")
@@ -93,7 +93,7 @@ def main() -> None:
     names = {t.name for t in tools.tools}
     logger.info("tools/list returned: %s", names)
     if "post_slack_message" not in names:
-        logger.warning("post_slack_message missing from tools/list: %s", names)
+        logger.error("post_slack_message missing from tools/list: %s", names)
         raise RuntimeError("post_slack_message not advertised")
 
     # tools/call — the test account in this sandbox has no Slack
@@ -112,20 +112,20 @@ def main() -> None:
 
     if os.environ.get("MCP_SMOKE_HAS_SLACK") == "1":
         if result.isError:
-            logger.warning("tools/call returned an error: %s", payload)
+            logger.error("tools/call returned an error: %s", payload)
             raise RuntimeError("post_slack_message failed")
         body = json.loads(payload)
         if body.get("ok") is not True:
-            logger.warning("tools/call did not return ok=true: %s", body)
+            logger.error("tools/call did not return ok=true: %s", body)
             raise RuntimeError("post_slack_message returned ok != True")
         logger.info("[ok] message posted: ts=%s", body.get("ts"))
     else:
         # Negative path: relay correctly says no integration configured.
         if not result.isError:
-            logger.warning("expected isError for account with no Slack: %s", payload)
+            logger.error("expected isError for account with no Slack: %s", payload)
             raise RuntimeError("expected isError but got success")
         if "no Slack integration" not in payload:
-            logger.warning("unexpected error payload: %s", payload)
+            logger.error("unexpected error payload: %s", payload)
             raise RuntimeError("unexpected error payload")
         logger.info("[ok] negative path: %s", payload)
 
@@ -133,6 +133,6 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        logger.warning("FAIL: %s", e)
+    except Exception:
+        logger.exception("FAIL")
         sys.exit(2)
