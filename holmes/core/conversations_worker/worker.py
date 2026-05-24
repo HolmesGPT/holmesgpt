@@ -31,6 +31,8 @@ from holmes.core.conversations_worker.models import (
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeManager
 from holmes.core.models import ChatRequest
+from holmes.core.supabase_dal import SupabaseDnsException
+from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
@@ -183,7 +185,7 @@ class ConversationWorker:
                 )
                 self._realtime_manager.start()
             except Exception:
-                logging.exception(
+                logging.warning(
                     "Failed to start Realtime manager; continuing with polling only",
                     exc_info=True,
                 )
@@ -271,11 +273,30 @@ class ConversationWorker:
         while self._running and not self._realtime_verify_stop.is_set():
             try:
                 result = self.dal.is_realtime_enabled()
-            except Exception:
-                logging.exception(
-                    "Unexpected error in realtime verify loop", exc_info=True
+            except (
+                SupabaseDnsException,
+                PGAPIError,
+                ConnectionError,
+                TimeoutError,
+                OSError,
+            ):
+                # Transient — keep retrying with backoff.
+                logging.warning(
+                    "Connectivity error in realtime verify loop; will retry with backoff",
+                    exc_info=True,
                 )
                 result = None
+            except Exception:
+                # is_realtime_enabled() already converts transport errors
+                # to None, so an exception escaping here is almost certainly
+                # a programming defect. Surface it loudly and stop the
+                # verify thread instead of silently retrying forever; the
+                # worker will continue in polling-only / unverified mode,
+                # but the failure will be visible in logs/alerts.
+                logging.exception(
+                    "Unexpected error in realtime verify loop; not retrying",
+                )
+                raise
 
             if result is True:
                 logging.info(
