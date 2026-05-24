@@ -88,6 +88,19 @@ def _build_grafana_dashboard_url(
         return None
 
 
+def _attach_grafana_url(data: Any, url: Optional[str]) -> Any:
+    """Wrap tool result data so the Grafana UI URL is visible to the LLM.
+
+    The LLM only sees `StructuredToolResult.data`, not `.url` — so the link must
+    live inside the data payload for the LLM to cite it back in responses.
+    """
+    if not url:
+        return data
+    if isinstance(data, dict):
+        return {"grafana_url": url, **data}
+    return {"grafana_url": url, "results": data}
+
+
 class GrafanaToolset(BaseMultiInstanceGrafanaToolset):
     config_classes: ClassVar[list[Type[GrafanaDashboardConfig]]] = [
         GrafanaDashboardConfig
@@ -376,7 +389,7 @@ class SearchDashboards(BaseGrafanaTool):
 
         return StructuredToolResult(
             status=result.status,
-            data=result.data,
+            data=_attach_grafana_url(result.data, search_url),
             params=result.params,
             url=search_url if search_url else None,
         )
@@ -415,6 +428,7 @@ class GetDashboardByUID(JsonFilterMixin, BaseGrafanaTool):
         dashboard_url = _build_grafana_dashboard_url(instance, uid=uid)
 
         filtered_result = self.filter_result(result, params)
+        filtered_result.data = _attach_grafana_url(filtered_result.data, dashboard_url)
         filtered_result.url = dashboard_url if dashboard_url else result.url
         return filtered_result
 
@@ -447,6 +461,7 @@ class GetHomeDashboard(JsonFilterMixin, BaseGrafanaTool):
                 dashboard_url = _build_grafana_dashboard_url(instance, uid=uid)
 
         filtered_result = self.filter_result(result, params)
+        filtered_result.data = _attach_grafana_url(filtered_result.data, dashboard_url)
         filtered_result.url = dashboard_url if dashboard_url else None
         return filtered_result
 
@@ -475,7 +490,7 @@ class GetDashboardTags(BaseGrafanaTool):
 
         return StructuredToolResult(
             status=result.status,
-            data=result.data,
+            data=_attach_grafana_url(result.data, tags_url),
             params=result.params,
             url=tags_url,
         )
