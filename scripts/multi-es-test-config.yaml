@@ -1,0 +1,48 @@
+# Sample HolmesGPT config for the multi-instance Elasticsearch live test.
+#
+# Pair with `scripts/deploy-multi-es-test.sh`:
+#   1. bash scripts/deploy-multi-es-test.sh
+#   2. kubectl --context avi-test-cluster2 -n holmes-es-a port-forward svc/elasticsearch 9200:9200
+#   3. kubectl --context avi-test-cluster2 -n holmes-es-b port-forward svc/elasticsearch 9201:9200
+#   4. holmes --config scripts/multi-es-test-config.yaml ask "list elasticsearch instances and report health"
+#
+# This config demonstrates:
+#   - Global `username` / `password` acting as defaults for cluster-a
+#   - Per-instance `password` override for cluster-b (with the same username repeated
+#     because basic-auth credentials must be set as a complete pair)
+#   - `verify_ssl: false` for HTTP-only local port-forwarded clusters
+#   - Backwards compatibility: the same top-level fields would still work without
+#     `instances:` for a single-cluster config.
+
+toolsets:
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      # Global defaults inherited by every instance unless overridden
+      username: elastic
+      password: holmes-cluster-a-pass
+      verify_ssl: false
+      timeout_seconds: 15
+      instances:
+        - name: cluster-a
+          api_url: http://localhost:9200
+          # Inherits global username + password
+        - name: cluster-b
+          api_url: http://localhost:9201
+          # Per-instance override: provide both username and password together
+          username: elastic
+          password: holmes-cluster-b-pass
+
+  elasticsearch/data:
+    enabled: true
+    config:
+      username: elastic
+      password: holmes-cluster-a-pass
+      verify_ssl: false
+      instances:
+        - name: cluster-a
+          api_url: http://localhost:9200
+        - name: cluster-b
+          api_url: http://localhost:9201
+          username: elastic
+          password: holmes-cluster-b-pass
