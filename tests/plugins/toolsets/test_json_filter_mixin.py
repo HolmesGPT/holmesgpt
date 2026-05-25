@@ -37,7 +37,11 @@ def test_jq_filter_applies_before_returning_data():
     )
 
     assert result.status is StructuredToolResultStatus.SUCCESS
-    assert result.data == "CPU"
+    # GetDashboardByUID wraps non-dict filter results with the Grafana UI URL.
+    assert result.data == {
+        "grafana_url": "http://example.com/d/abc",
+        "results": "CPU",
+    }
 
 
 def test_invalid_jq_returns_error():
@@ -106,14 +110,14 @@ def test_max_depth_zero_preserves_upstream_error():
 
 
 def test_max_depth_omitted_returns_full_data():
-    """Omitting max_depth must return the full, untouched payload."""
+    """Omitting max_depth must return the full, untouched payload (plus the Grafana UI URL)."""
     data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
     tool = _build_tool(data)
 
     result = tool._invoke({"uid": "abc"}, context=None)
 
     assert result.status is StructuredToolResultStatus.SUCCESS
-    assert result.data == data
+    assert result.data == {"grafana_url": "http://example.com/d/abc", **data}
 
 
 def test_max_depth_description_does_not_lure_zero():
