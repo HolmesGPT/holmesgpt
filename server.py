@@ -38,7 +38,6 @@ from holmes.common.env_vars import (
     HOLMES_PORT,
     LOG_PERFORMANCE,
     MCP_RETRY_BACKOFF_SCHEDULE,
-    MCP_TOOLS_REFRESH_INTERVAL_SECONDS,
     SENTRY_DSN,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
@@ -237,51 +236,6 @@ def _toolset_status_refresh_loop():
                 )
 
     thread = threading.Thread(target=refresh_loop, daemon=True, name="toolset-refresh")
-    thread.start()
-
-
-def _mcp_tools_refresh_loop():
-    """Periodically refresh MCP toolsets to discover newly added tools.
-
-    The shorter TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS loop only swaps the
-    cached executor when a toolset's status changes; this loop unconditionally
-    replaces the executor so new tools on remote MCP servers become visible.
-    """
-    interval = MCP_TOOLS_REFRESH_INTERVAL_SECONDS
-    if interval <= 0:
-        logging.info("Periodic MCP tools refresh is disabled")
-        return
-
-    logging.info(
-        f"Starting periodic MCP tools refresh (interval: {interval} seconds)"
-    )
-
-    def refresh_loop():
-        while True:
-            time.sleep(interval)
-            try:
-                changes = config.refresh_tool_executor(
-                    dal,
-                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
-                    enable_all_toolsets_possible=False,
-                    force_replace=True,
-                )
-                logging.info(
-                    "Periodic MCP tools refresh complete (status changes: %d)",
-                    len(changes),
-                )
-                if changes:
-                    for toolset_name, old_status, new_status in changes:
-                        logging.info(
-                            f"Toolset '{toolset_name}' status changed: {old_status} -> {new_status}"
-                        )
-                    holmes_sync_toolsets_status(dal, config)
-            except Exception:
-                logging.error(
-                    "Error during periodic MCP tools refresh", exc_info=True
-                )
-
-    thread = threading.Thread(target=refresh_loop, daemon=True, name="mcp-tools-refresh")
     thread.start()
 
 
@@ -720,7 +674,6 @@ def main():
     # Sync before server start
     sync_before_server_start()
     _toolset_status_refresh_loop()
-    _mcp_tools_refresh_loop()
 
     # Start server
     uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)

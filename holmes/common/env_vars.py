@@ -186,13 +186,6 @@ TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS = int(
 # Backoff schedule (seconds) for retrying failed MCP servers before falling
 # back to TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS.
 MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
-# Periodic refresh interval for MCP toolsets in server mode (in seconds).
-# Unlike TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS which only swaps the executor on
-# status changes, this refresh always replaces the executor so newly added tools
-# on remote MCP servers are discovered. Defaults to 6 hours. Set to 0 to disable.
-MCP_TOOLS_REFRESH_INTERVAL_SECONDS = int(
-    os.environ.get("MCP_TOOLS_REFRESH_INTERVAL_SECONDS", 6 * 60 * 60)
-)
 
 # Filesystem storage for large tool results
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(

@@ -57,6 +57,28 @@ def _parse_custom_skill_paths_env() -> List[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
+def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
+    """Stable signature of a toolset's tools for change detection.
+
+    Includes tool name and description so additions, removals, and description
+    edits all trigger an executor swap.
+    """
+    return frozenset(
+        (tool.name, tool.description or "") for tool in (toolset.tools or [])
+    )
+
+
+def _toolset_tools_changed(
+    current: List[Toolset], new: List[Toolset]
+) -> bool:
+    """Return True if any toolset present in both lists has a different tool set."""
+    current_sigs = {ts.name: _toolset_tool_signature(ts) for ts in current}
+    for ts in new:
+        if ts.name in current_sigs and current_sigs[ts.name] != _toolset_tool_signature(ts):
+            return True
+    return False
+
+
 class SupportedTicketSources(str, Enum):
     JIRA_SERVICE_MANAGEMENT = "jira-service-management"
     PAGERDUTY = "pagerduty"
@@ -418,7 +440,6 @@ class Config(RobustaBaseConfig):
         dal: Optional["SupabaseDal"] = None,
         toolset_tag_filter: Optional[List[ToolsetTag]] = None,
         enable_all_toolsets_possible: bool = False,
-        force_replace: bool = False,
     ) -> list[tuple[str, str, str]]:
         """Refresh the cached tool executor and return a list of changes.
 
@@ -426,10 +447,9 @@ class Config(RobustaBaseConfig):
         The cached executor is always replaced with the freshly-loaded one so that
         added/removed toolsets are picked up even when no status changes occur.
 
-        When ``force_replace`` is True the cached executor is replaced even when
-        no status changes were detected. This is used to expose newly added tools
-        on remote MCP servers (the tool list is reloaded on every prerequisite
-        check, but the in-memory executor only swaps on changes by default).
+        The executor is also replaced when an existing toolset's tool list
+        changes (e.g. a remote MCP server adding or removing tools while staying
+        healthy), so the LLM sees the new tools.
         """
         logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
         # Normalize early so the same tags are used for both loading and caching.
@@ -462,7 +482,7 @@ class Config(RobustaBaseConfig):
             )
         )
 
-        if changes or force_replace:
+        if changes or _toolset_tools_changed(current_toolsets, new_toolsets):
             with self._executor_lock:
                 executor = ToolExecutor(new_toolsets)
                 preload_oauth_tokens()
