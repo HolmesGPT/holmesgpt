@@ -3,35 +3,57 @@
 # multi-instance HolmesGPT config can be tested end-to-end.
 #
 # Usage:
-#   bash scripts/deploy-multi-es-test.sh             # deploy
-#   bash scripts/deploy-multi-es-test.sh --cleanup   # delete namespaces
+#   bash scripts/deploy-multi-es-test.sh                  # deploy ES clusters only (port-forward path)
+#   bash scripts/deploy-multi-es-test.sh --with-holmes    # also deploy HolmesGPT in-cluster
+#   bash scripts/deploy-multi-es-test.sh --cleanup        # delete all namespaces
 #
-# Each cluster lives in its own namespace (holmes-es-a, holmes-es-b) to keep
-# them fully isolated. Both expose HTTP on port 9200 in-cluster; the script
-# prints the kubectl port-forward commands at the end so HolmesGPT (running
-# locally) can talk to them on localhost:9200 / localhost:9201.
+# Each ES cluster lives in its own namespace (holmes-es-a, holmes-es-b) to
+# keep them fully isolated. Both expose HTTP on port 9200 in-cluster.
+#
+# `--with-holmes` additionally deploys HolmesGPT into a `holmes` namespace
+# using the user-supplied image, pre-configured against both ES clusters
+# via in-cluster service DNS — no port-forwarding required. The script
+# prints the kubectl exec command to drive it.
 
 set -euo pipefail
 
 CONTEXT="${KUBECTL_CONTEXT:-avi-test-cluster2}"
 NS_A="holmes-es-a"
 NS_B="holmes-es-b"
+NS_HOLMES="holmes"
 ES_IMAGE="docker.elastic.co/elasticsearch/elasticsearch:8.15.3"
+HOLMES_IMAGE="${HOLMES_IMAGE:-us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:multi-elastic}"
 # Distinct passwords let the sample config demonstrate the per-instance override.
 PASSWORD_A="holmes-cluster-a-pass"
 PASSWORD_B="holmes-cluster-b-pass"
 
+WITH_HOLMES=false
+
 cleanup() {
-  echo "==> Deleting namespaces $NS_A and $NS_B from context $CONTEXT"
+  echo "==> Deleting namespaces $NS_A, $NS_B, and $NS_HOLMES from context $CONTEXT"
   kubectl --context "$CONTEXT" delete namespace "$NS_A" --ignore-not-found
   kubectl --context "$CONTEXT" delete namespace "$NS_B" --ignore-not-found
+  kubectl --context "$CONTEXT" delete namespace "$NS_HOLMES" --ignore-not-found
   echo "✅ Cleanup complete"
 }
 
-if [[ "${1:-}" == "--cleanup" ]]; then
-  cleanup
-  exit 0
-fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cleanup)
+      cleanup
+      exit 0
+      ;;
+    --with-holmes)
+      WITH_HOLMES=true
+      shift
+      ;;
+    *)
+      echo "Unknown flag: $1" >&2
+      echo "Usage: $0 [--with-holmes] [--cleanup]" >&2
+      exit 1
+      ;;
+  esac
+done
 
 echo "==> Using kubectl context: $CONTEXT"
 kubectl config use-context "$CONTEXT"
@@ -168,6 +190,106 @@ probe_cluster() {
   echo "✅ $ns elasticsearch is healthy"
 }
 
+deploy_holmes() {
+  echo "==> Deploying HolmesGPT into namespace $NS_HOLMES with image $HOLMES_IMAGE"
+  kubectl --context "$CONTEXT" create namespace "$NS_HOLMES" --dry-run=client -o yaml | kubectl apply -f -
+
+  # Cross-namespace ES URLs (in-cluster service DNS) and the same distinct
+  # passwords used by the ES deployments above, so Holmes can hit both
+  # clusters without any port-forwarding from the user's laptop.
+  kubectl --context "$CONTEXT" -n "$NS_HOLMES" create configmap holmes-config \
+    --from-literal=config.yaml="$(cat <<YAML
+toolsets:
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      username: elastic
+      password: ${PASSWORD_A}
+      verify_ssl: false
+      timeout_seconds: 15
+      instances:
+        - name: cluster-a
+          api_url: http://elasticsearch.${NS_A}.svc:9200
+        - name: cluster-b
+          api_url: http://elasticsearch.${NS_B}.svc:9200
+          username: elastic
+          password: ${PASSWORD_B}
+  elasticsearch/data:
+    enabled: true
+    config:
+      username: elastic
+      password: ${PASSWORD_A}
+      verify_ssl: false
+      instances:
+        - name: cluster-a
+          api_url: http://elasticsearch.${NS_A}.svc:9200
+        - name: cluster-b
+          api_url: http://elasticsearch.${NS_B}.svc:9200
+          username: elastic
+          password: ${PASSWORD_B}
+YAML
+)" --dry-run=client -o yaml | kubectl apply -f -
+
+  kubectl --context "$CONTEXT" -n "$NS_HOLMES" apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: holmes
+  labels:
+    app: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: holmes
+  template:
+    metadata:
+      labels:
+        app: holmes
+    spec:
+      containers:
+        - name: holmes
+          image: ${HOLMES_IMAGE}
+          imagePullPolicy: Always
+          # Holmes reads ~/.holmes/config.yaml by default; mount the configmap there.
+          command: ["sleep", "infinity"]
+          volumeMounts:
+            - name: holmes-config
+              mountPath: /root/.holmes
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+      volumes:
+        - name: holmes-config
+          configMap:
+            name: holmes-config
+            items:
+              - key: config.yaml
+                path: config.yaml
+EOF
+
+  echo "==> Waiting for Holmes pod"
+  local ready=false
+  for _ in $(seq 1 30); do
+    if kubectl --context "$CONTEXT" -n "$NS_HOLMES" wait --for=condition=ready pod \
+        -l app=holmes --timeout=5s >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 2
+  done
+  if [[ "$ready" != "true" ]]; then
+    echo "❌ Holmes pod never became ready"
+    kubectl --context "$CONTEXT" -n "$NS_HOLMES" describe pod -l app=holmes | tail -40
+    exit 1
+  fi
+  echo "✅ Holmes is running in $NS_HOLMES"
+}
+
 deploy_cluster "$NS_A" "$PASSWORD_A"
 deploy_cluster "$NS_B" "$PASSWORD_B"
 
@@ -177,32 +299,63 @@ wait_for_cluster "$NS_B"
 probe_cluster "$NS_A" "$PASSWORD_A"
 probe_cluster "$NS_B" "$PASSWORD_B"
 
-cat <<EOM
+if [[ "$WITH_HOLMES" == "true" ]]; then
+  deploy_holmes
+  cat <<EOM
+
+==========================================================================
+✅ HolmesGPT is running in-cluster pointed at both ES instances.
+
+Drive it via kubectl exec — no port-forwarding needed:
+
+  kubectl --context $CONTEXT -n $NS_HOLMES exec -it deploy/holmes -- \\
+    holmes ask "List the configured Elasticsearch instances and report each cluster health"
+
+Target a specific instance:
+
+  kubectl --context $CONTEXT -n $NS_HOLMES exec -it deploy/holmes -- \\
+    holmes ask "Get the cluster health for cluster-b"
+
+Show the running config:
+
+  kubectl --context $CONTEXT -n $NS_HOLMES exec deploy/holmes -- cat /root/.holmes/config.yaml
+
+Image: $HOLMES_IMAGE
+(Override with HOLMES_IMAGE=... when re-running this script.)
+
+When you're done:
+
+  bash scripts/deploy-multi-es-test.sh --cleanup
+==========================================================================
+EOM
+else
+  cat <<EOM
 
 ==========================================================================
 ✅ Both Elasticsearch clusters are running on context '$CONTEXT'.
 
-Next steps to test multi-instance HolmesGPT support:
+Two ways to test multi-instance HolmesGPT support:
 
-1. Open two terminals and start port-forwards (they need to keep running):
+Option A — local Holmes via port-forward:
+1. Open two terminals and keep these port-forwards running:
 
      kubectl --context $CONTEXT -n $NS_A port-forward svc/elasticsearch 9200:9200
      kubectl --context $CONTEXT -n $NS_B port-forward svc/elasticsearch 9201:9200
 
-2. Point HolmesGPT at the sample config in this repo:
+2. Run Holmes against the sample config:
 
      holmes --config scripts/multi-es-test-config.yaml ask \\
        "List the configured Elasticsearch instances and report each cluster health"
 
    (Or copy the file to ~/.holmes/config.yaml.)
 
-3. Try targeting a specific instance:
+Option B — in-cluster Holmes (no port-forwarding):
 
-     holmes --config scripts/multi-es-test-config.yaml ask \\
-       "Get the cluster health for cluster-b"
+     bash scripts/deploy-multi-es-test.sh --with-holmes
 
 When you're done:
 
      bash scripts/deploy-multi-es-test.sh --cleanup
 ==========================================================================
 EOM
+fi
