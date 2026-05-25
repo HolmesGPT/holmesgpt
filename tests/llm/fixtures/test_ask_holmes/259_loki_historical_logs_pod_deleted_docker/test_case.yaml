@@ -1,0 +1,77 @@
+user_prompt: "The payment-api pod in namespace app-259 had issues on August 2, 2025 around 13:45 UTC. What happened?"
+
+description: |
+  Docker-only variant of 101_loki_historical_logs_pod_deleted.
+
+  Stands up a Loki container locally (no Kubernetes), pushes a historical
+  log timeline directly to Loki's HTTP API, and lets Holmes investigate
+  using only the grafana/loki toolset. The "pod was deleted" framing is preserved
+  by simply never running the pod — Holmes only has Loki to work with.
+
+  Use this variant to reproduce the regression on a developer laptop, or in any
+  environment where Kubernetes is unavailable (e.g. cgroup-v1 sandboxes).
+
+expected_output:
+  - Between 2025-08-02 13:45 UTC and 14:45 UTC, the payment-api pod logged the ERROR "Failed to acquire database connection - pool exhausted"
+  - The root cause is database connection pool exhaustion
+
+include_tool_calls: true
+
+tags:
+  - logs
+  - easy
+  - loki
+  - fast
+
+setup_timeout: 180
+
+before_test: |
+  set -e
+  CONTAINER=holmes-eval-loki-259
+  PORT=3259
+
+  # Clean up any leftover container from a previous run
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+  # Start Loki with config that allows ingestion of old samples
+  docker run -d --name "$CONTAINER" -p "$PORT:3100" \
+    -v "$(pwd)/loki-config.yaml:/etc/loki/local-config.yaml:ro" \
+    grafana/loki:2.9.0 -config.file=/etc/loki/local-config.yaml >/dev/null
+
+  # Wait for Loki to be ready
+  READY=false
+  for i in $(seq 1 60); do
+    if curl -sf "http://localhost:$PORT/ready" 2>/dev/null | grep -q ready; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" != "true" ]; then
+    echo "ERROR: Loki not ready after 60s"
+    docker logs "$CONTAINER" | tail -40
+    exit 1
+  fi
+
+  # Push the historical log timeline directly via Loki's push API
+  python3 generate_logs.py "http://localhost:$PORT"
+
+  # Verify the incident logs landed in Loki
+  for i in $(seq 1 30); do
+    ERROR_COUNT=$(curl -sG "http://localhost:$PORT/loki/api/v1/query_range" \
+      --data-urlencode 'query={namespace="app-259",level="ERROR"}' \
+      --data-urlencode 'start=2025-08-02T13:00:00Z' \
+      --data-urlencode 'end=2025-08-02T15:00:00Z' \
+      --data-urlencode 'limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    if [ "$ERROR_COUNT" -gt "0" ]; then
+      echo "Historical ERROR logs ready in Loki"
+      exit 0
+    fi
+    sleep 1
+  done
+
+  echo "ERROR: no historical ERROR logs found in Loki after push"
+  exit 1
+
+after_test: |
+  docker rm -f holmes-eval-loki-259 >/dev/null 2>&1 || true

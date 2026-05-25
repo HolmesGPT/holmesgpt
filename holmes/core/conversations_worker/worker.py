@@ -31,6 +31,8 @@ from holmes.core.conversations_worker.models import (
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeManager
 from holmes.core.models import ChatRequest
+from holmes.core.supabase_dal import SupabaseDnsException
+from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
@@ -183,7 +185,7 @@ class ConversationWorker:
                 )
                 self._realtime_manager.start()
             except Exception:
-                logging.exception(
+                logging.warning(
                     "Failed to start Realtime manager; continuing with polling only",
                     exc_info=True,
                 )
@@ -271,11 +273,30 @@ class ConversationWorker:
         while self._running and not self._realtime_verify_stop.is_set():
             try:
                 result = self.dal.is_realtime_enabled()
-            except Exception:
-                logging.exception(
-                    "Unexpected error in realtime verify loop", exc_info=True
+            except (
+                SupabaseDnsException,
+                PGAPIError,
+                ConnectionError,
+                TimeoutError,
+                OSError,
+            ):
+                # Transient — keep retrying with backoff.
+                logging.warning(
+                    "Connectivity error in realtime verify loop; will retry with backoff",
+                    exc_info=True,
                 )
                 result = None
+            except Exception:
+                # is_realtime_enabled() already converts transport errors
+                # to None, so an exception escaping here is almost certainly
+                # a programming defect. Surface it loudly and stop the
+                # verify thread instead of silently retrying forever; the
+                # worker will continue in polling-only / unverified mode,
+                # but the failure will be visible in logs/alerts.
+                logging.exception(
+                    "Unexpected error in realtime verify loop; not retrying",
+                )
+                raise
 
             if result is True:
                 logging.info(
@@ -636,8 +657,48 @@ class ConversationWorker:
         # Per-event data still wins so the FE can override per-turn (e.g.
         # an alert-investigation chat that pivots to a freeform question).
         resolved_user_id = data.get("user_id") or task.user_id
-        resolved_request_source = data.get("request_source") or (
-            task.metadata.get("request_source") if task.metadata else None
+        # Per-conversation OAuth opt-out. When a Conversations row carries
+        # `metadata.oauth_enabled = false` (e.g. triggered workflows that
+        # don't want Holmes acting under the workflow creator's per-user
+        # OAuth tokens), drop user_id before it reaches ChatRequest so the
+        # OAuth resolver in tool_calling_llm has no user to key on.
+        oauth_enabled = (
+            task.metadata.get("oauth_enabled", True) if task.metadata else True
+        )
+        if not oauth_enabled:
+            resolved_user_id = None
+        # Per-event presence wins, not truthiness — so an explicit empty
+        # value from the FE (e.g. "" to deliberately clear a field) keeps
+        # priority over the row-level metadata fallback and we don't
+        # reintroduce stale Conversation-row values. Only fall back to
+        # task.metadata when the per-turn event omits the key entirely.
+        resolved_user_email = (
+            data["user_email"]
+            if "user_email" in data
+            else (task.metadata.get("user_email") if task.metadata else None)
+        )
+        resolved_request_source = (
+            data["request_source"]
+            if "request_source" in data
+            else (task.metadata.get("request_source") if task.metadata else None)
+        )
+        # source_ref is conversation-level for alert investigations (the
+        # whole chat is about one alert id), so the FE puts it on the
+        # Conversations row's metadata, not in each per-turn event.
+        resolved_source_ref = (
+            data["source_ref"]
+            if "source_ref" in data
+            else (task.metadata.get("source_ref") if task.metadata else None)
+        )
+        # request_type may also live under Conversations.metadata when the
+        # FE classifies a whole chat once at creation time. Same key-presence
+        # semantics — leaving the resolved value None when neither source
+        # supplies it preserves build_chat_recorder_state's auto-detection
+        # (Slack-prefix → 'slack_chat', fallback → 'user_chat').
+        resolved_request_type = (
+            data["request_type"]
+            if "request_type" in data
+            else (task.metadata.get("request_type") if task.metadata else None)
         )
 
         chat_request = ChatRequest(
@@ -653,23 +714,18 @@ class ConversationWorker:
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
             behavior_controls=data.get("behavior_controls"),
-            # source_ref / meta / is_internal still come from the per-event
-            # blob only — they're per-turn signals (which alert this
-            # follow-up question was about, etc.), not Conversation-level
-            # state. user_id / request_source fall back to the Conversations
-            # row when the FE didn't repeat them in the event.
+            # meta / is_internal still come from the per-event blob only —
+            # they're per-turn signals, not Conversation-level state.
+            # user_id / user_email / request_type / request_source /
+            # source_ref fall back to the Conversations row when the FE
+            # didn't repeat them in the per-turn event. None for
+            # request_type still lets build_chat_recorder_state's Slack
+            # auto-detection and 'user_chat' default run.
             user_id=resolved_user_id,
-            # request_type: pass through whatever the FE sent (None if absent)
-            # rather than hard-coding 'user_chat' here. The recorder helper
-            # (build_chat_recorder_state) handles the default and runs Slack
-            # auto-detection — hard-coding 'user_chat' would defeat the
-            # auto-detection because the helper bails out if request_type is
-            # already truthy. Today only /api/chat hits the Slack-prefix
-            # path, but the runner could route Slack through Conversations
-            # at any time without a code change here.
-            request_type=data.get("request_type"),
+            user_email=resolved_user_email,
+            request_type=resolved_request_type,
             request_source=resolved_request_source,
-            source_ref=data.get("source_ref"),
+            source_ref=resolved_source_ref,
             conversation_id=task.conversation_id,
             conversation_source="conversations",
             meta=data.get("meta"),

@@ -305,6 +305,12 @@ raw = buf.getvalue()  # Contains full ANSI escape sequences
 - Known Rich 13.9.4 bug: `Live.refresh()` calls `console.print(Control())` with default `end="\\n"`, adding a trailing newline not counted in `LiveRender._shape`. When the terminal has room below the display, each frame leaks 1 ghost line. When the display is at the bottom (common case), the `\\n` causes scrolling and `height-1` cursor-ups is correct.
 - Workaround: subclass `Live` and override `refresh()` to pass `end=""`. Do NOT patch `position_cursor` — that over-erases when the display is at the terminal bottom (the common case).
 
+## Investigating Eval Regressions / Holmes Behavior Changes
+
+**Understand the behavior from trace data before designing a fix.** Braintrust (or the local evals_report.md) holds the rendered prompts, per-LLM-call metrics, and tool-call sequences for each iter. Pull traces for one baseline run and one current run for the same `(test, model)` before reading any source diffs — file-level diffs (prompts, code, config) routinely mislead about what actually changed at runtime (e.g. a jinja2 template can grow in source lines and shrink in rendered output). Look at individual runs first; aggregate statistics over n iters can hide deterministic per-iter differences under variance.
+
+When reverting or fixing a suspect PR, read its full diff (`git show --stat <commit>`) before deciding what to change — a PR often has multiple effects, and reverting only the file you noticed leaves the others still acting on the model.
+
 ## Security Notes
 
 - All tools have read-only access by design
@@ -552,6 +558,17 @@ When asked about content from the HolmesGPT documentation website (https://holme
 ## MkDocs Navigation
 
 The docs site uses the `awesome-nav` plugin. Navigation is controlled by `.nav.yml` files in each `docs/` subdirectory, **not** by the `nav:` section in `mkdocs.yml`. When adding a new docs page, you must add it to the `.nav.yml` file in the corresponding directory (e.g., `docs/reference/.nav.yml` for reference pages).
+
+## Updating References When Docs Pages Change
+
+When you rename or move a docs page, or change a section heading (which changes its anchor), the URL changes. Before committing, `grep -rn` across the entire repo for the old page path and old anchor slug and update every hit. References can appear in:
+
+- Other `docs/*.md` files (relative links like `[text](../path/page.md#anchor)`)
+- Python source (user-facing error messages and hints, e.g. `holmes/utils/memory_limit.py`)
+- `README.md` and top-level markdown
+- Code comments
+
+This applies to both `https://holmesgpt.dev/...` absolute URLs and repo-relative `.md` links.
 
 ## MkDocs Formatting Notes
 

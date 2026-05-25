@@ -2,11 +2,12 @@ import fnmatch
 import json
 import logging
 import os
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type
+from dataclasses import dataclass
+from typing import Any, ClassVar, Dict, FrozenSet, List, Literal, Optional, Tuple, Type
 from urllib.parse import urlparse
 
 import requests  # type: ignore
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import (
@@ -26,6 +27,119 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 logger = logging.getLogger(__name__)
 
 ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+SUPPORTED_SCHEMES = ("http", "https")
+SCHEME_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+@dataclass(frozen=True)
+class ParsedHostPattern:
+    """A host whitelist entry parsed into its constraints.
+
+    scheme=None means any scheme is allowed; otherwise only that scheme.
+    ports=None means any port is allowed; otherwise the request port (or
+    scheme default if request omits the port) must be in the set.
+    host_pattern is either an exact lowercased host or a leading-wildcard
+    pattern starting with '*.'.
+    """
+
+    scheme: Optional[str]
+    host_pattern: str
+    ports: Optional[FrozenSet[int]]
+
+
+def _parse_host_pattern(entry: str) -> ParsedHostPattern:
+    """Parse a single 'hosts' entry into a ParsedHostPattern.
+
+    Accepts:
+      bare hostname           -> any scheme, any port
+      *.example.com           -> any scheme, any port
+      host:port               -> any scheme, that port only
+      http(s)://host          -> that scheme, scheme-default port
+      http(s)://host:port     -> that scheme, that port only
+      http(s)://*.host        -> that scheme, scheme-default port
+      http(s)://host:*        -> that scheme, any port
+      *.host:*                -> any scheme, any port (explicit wildcard)
+      [ipv6]:port / scheme://[ipv6]:port  -> IPv6 forms
+    """
+    if not isinstance(entry, str):
+        raise ValueError(f"Host pattern must be a string, got {type(entry).__name__}")
+    s = entry.strip()
+    if not s:
+        raise ValueError("Empty host pattern")
+
+    scheme: Optional[str] = None
+    if "://" in s:
+        scheme_part, _, rest = s.partition("://")
+        scheme = scheme_part.lower()
+        if scheme not in SUPPORTED_SCHEMES:
+            raise ValueError(
+                f"Unsupported scheme {scheme!r} in host pattern {entry!r}. "
+                f"Supported schemes: {', '.join(SUPPORTED_SCHEMES)}."
+            )
+        s = rest
+
+    for sep in ("/", "?", "#"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+
+    if "@" in s:
+        s = s.rsplit("@", 1)[-1]
+
+    host_pattern: str
+    port_str: Optional[str] = None
+
+    if s.startswith("["):
+        close = s.find("]")
+        if close == -1:
+            raise ValueError(f"Unclosed '[' in host pattern: {entry!r}")
+        host_pattern = s[1:close]
+        rest_after = s[close + 1 :]
+        if rest_after.startswith(":"):
+            port_str = rest_after[1:]
+        elif rest_after:
+            raise ValueError(
+                f"Unexpected content after IPv6 host in {entry!r}: {rest_after!r}"
+            )
+    elif s.count(":") == 1:
+        host_pattern, _, port_str = s.partition(":")
+    else:
+        host_pattern = s
+
+    if not host_pattern:
+        raise ValueError(f"Empty host in pattern: {entry!r}")
+
+    if "*" in host_pattern and not host_pattern.startswith("*."):
+        raise ValueError(
+            f"Wildcards in host patterns must be a leading '*.' "
+            f"(e.g. '*.example.com'). Got: {entry!r}"
+        )
+
+    host_pattern = host_pattern.lower()
+
+    ports: Optional[FrozenSet[int]]
+    if port_str is None:
+        if scheme is not None:
+            ports = frozenset({SCHEME_DEFAULT_PORTS[scheme]})
+        else:
+            ports = None
+    elif port_str == "*":
+        ports = None
+    elif port_str == "":
+        raise ValueError(f"Empty port in host pattern: {entry!r}")
+    else:
+        try:
+            port_num = int(port_str)
+        except ValueError as err:
+            raise ValueError(
+                f"Invalid port {port_str!r} in host pattern {entry!r}"
+            ) from err
+        if not (1 <= port_num <= 65535):
+            raise ValueError(
+                f"Port {port_num} out of range (1-65535) in host pattern {entry!r}"
+            )
+        ports = frozenset({port_num})
+
+    return ParsedHostPattern(scheme=scheme, host_pattern=host_pattern, ports=ports)
 
 
 class AuthConfig(BaseModel):
@@ -58,8 +172,22 @@ class AuthConfig(BaseModel):
 
 class EndpointConfig(BaseModel):
     hosts: List[str] = Field(
-        description="List of allowed host patterns (e.g., ['*.atlassian.net', 'confluence.mycompany.com'])",
-        examples=[["api.example.com"]],
+        description=(
+            "Allowed host patterns. Each entry is one of:\n"
+            "  - bare hostname ('api.example.com') -- any scheme, any port\n"
+            "  - leading wildcard ('*.example.com') -- any scheme, any port\n"
+            "  - host with port ('host.example.com:8080') -- any scheme, that port\n"
+            "  - URL with scheme ('https://api.example.com') -- that scheme, scheme-default port\n"
+            "  - URL with scheme + port ('https://api.example.com:8443') -- that scheme, that port\n"
+            "  - explicit any-port wildcard ('https://*.example.com:*') -- that scheme, any port"
+        ),
+        examples=[
+            [
+                "api.example.com",
+                "*.internal.example.com",
+                "https://jenkins.example.com:8080",
+            ]
+        ],
     )
     paths: List[str] = Field(
         default_factory=lambda: ["*"],
@@ -80,6 +208,17 @@ class EndpointConfig(BaseModel):
         description="Optional URL to verify auth at initialization time.",
         examples=["https://api.example.com/health"],
     )
+
+    _parsed_hosts: List[ParsedHostPattern] = PrivateAttr(default_factory=list)
+
+    @model_validator(mode="after")
+    def _parse_and_cache_hosts(self) -> "EndpointConfig":
+        # Parsing both validates entries (raises on malformed) and populates the cache.
+        self._parsed_hosts = [_parse_host_pattern(h) for h in self.hosts]
+        return self
+
+    def parsed_hosts(self) -> List[ParsedHostPattern]:
+        return self._parsed_hosts
 
     def get_methods(self) -> List[str]:
         return [m.upper() for m in self.methods]
@@ -333,25 +472,52 @@ class HttpToolset(Toolset):
         if not parsed.scheme or not parsed.netloc:
             return None, f"Invalid URL format: {url}"
 
-        host = parsed.hostname or parsed.netloc
+        host = (parsed.hostname or parsed.netloc).lower()
+        scheme = parsed.scheme.lower()
         path = parsed.path or "/"
+        try:
+            req_port = parsed.port
+        except ValueError:
+            return None, f"Invalid port in URL: {url}"
 
         for endpoint in self.http_config.endpoints:
-            for host_pattern in endpoint.hosts:
-                if self._match_host(host, host_pattern):
+            for ph in endpoint.parsed_hosts():
+                if self._match_pattern(scheme, host, req_port, ph):
                     if self._match_path(path, endpoint.paths):
                         return endpoint, None
 
+        port_display = req_port if req_port is not None else "(default)"
         return (
             None,
-            f"URL not in whitelist. Host '{host}' with path '{path}' does not match any configured endpoint.",
+            f"URL not in whitelist. Scheme '{scheme}', host '{host}', "
+            f"port {port_display}, path '{path}' does not match any configured endpoint.",
         )
 
-    def _match_host(self, host: str, pattern: str) -> bool:
-        if pattern.startswith("*."):
-            return host.lower().endswith(pattern[1:].lower())
+    @staticmethod
+    def _match_pattern(
+        req_scheme: str,
+        req_host: str,
+        req_port: Optional[int],
+        pattern: ParsedHostPattern,
+    ) -> bool:
+        if pattern.scheme is not None and req_scheme != pattern.scheme:
+            return False
+
+        if pattern.host_pattern.startswith("*."):
+            if not req_host.endswith(pattern.host_pattern[1:]):
+                return False
         else:
-            return host.lower() == pattern.lower()
+            if req_host != pattern.host_pattern:
+                return False
+
+        if pattern.ports is not None:
+            effective_port = req_port
+            if effective_port is None:
+                effective_port = SCHEME_DEFAULT_PORTS.get(req_scheme)
+            if effective_port is None or effective_port not in pattern.ports:
+                return False
+
+        return True
 
     def _match_path(self, path: str, patterns: List[str]) -> bool:
         for pattern in patterns:

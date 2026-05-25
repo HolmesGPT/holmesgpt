@@ -55,6 +55,8 @@ MODEL_LIST_FILE_LOCATION = os.environ.get(
 OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
 
+_warned_missing_model_lookups: set[tuple[str, str]] = set()
+
 
 def get_context_window_compaction_threshold_pct() -> int:
     """Get the compaction threshold percentage at runtime to support test overrides."""
@@ -62,6 +64,21 @@ def get_context_window_compaction_threshold_pct() -> int:
 
 
 ROBUSTA_AI_MODEL_NAME = "Robusta"
+
+
+def _is_gemini_route(litellm_model_name: str) -> bool:
+    """True if the model goes through Google's Gemini GenerateContent API.
+
+    Covers `gemini/<model>` (Google AI Studio) and Vertex-AI Gemini routes.
+    Vertex-AI also hosts non-Gemini models (Claude, Llama, etc.) - those are NOT
+    Gemini and must keep cache_control_injection_points.
+    """
+    if litellm_model_name.startswith("gemini/"):
+        return True
+    if litellm_model_name.startswith(("vertex_ai/", "vertex_ai_beta/")):
+        # Only Vertex-hosted Gemini hits the GenerateContent CachedContent path.
+        return "gemini" in litellm_model_name.split("/", 1)[1].lower()
+    return False
 
 
 class ContextWindowUsage(BaseModel):
@@ -412,12 +429,15 @@ class DefaultLLM(LLM):
             except Exception:
                 continue
 
-        # Log which lookups we tried
-        logging.warning(
-            f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-            f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
-            f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
-        )
+        # Log which lookups we tried (once per model to avoid log spam)
+        warn_key = (self.model, "max_input_tokens")
+        if warn_key not in _warned_missing_model_lookups:
+            _warned_missing_model_lookups.add(warn_key)
+            logging.warning(
+                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
+                f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
+                f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
+            )
         return FALLBACK_CONTEXT_WINDOW_SIZE
 
     def _is_anthropic_model(self) -> bool:
@@ -605,6 +625,21 @@ class DefaultLLM(LLM):
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
 
+        # Gemini rejects GenerateContent requests that combine CachedContent with
+        # system_instruction / tools / tool_config, which is exactly what
+        # cache_control_injection_points produces for us. Skip the cache hint for
+        # Gemini routes (both Google AI Studio and Vertex-AI hosted Gemini); other
+        # providers - including non-Gemini models on Vertex like Claude - keep
+        # their cache benefit.
+        cache_kwargs: Dict[str, Any] = {}
+        if not _is_gemini_route(litellm_model_name):
+            cache_kwargs["cache_control_injection_points"] = [
+                {
+                    "location": "message",
+                    "index": -1,  # -1 targets the last message.
+                }
+            ]
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
@@ -619,12 +654,7 @@ class DefaultLLM(LLM):
             **azure_ad_kwargs,
             **tools_args,
             **self.args,
-            cache_control_injection_points=[
-                {
-                    "location": "message",
-                    "index": -1,  # -1 targets the last message.
-                }
-            ],
+            **cache_kwargs,
         )
 
         if isinstance(result, ModelResponse):
@@ -655,12 +685,15 @@ class DefaultLLM(LLM):
             except Exception:
                 continue
 
-        # Log which lookups we tried
-        logging.warning(
-            f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-            f"using {max_output_tokens} tokens for max_output_tokens. "
-            f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
-        )
+        # Log which lookups we tried (once per model to avoid log spam)
+        warn_key = (self.model, "max_output_tokens")
+        if warn_key not in _warned_missing_model_lookups:
+            _warned_missing_model_lookups.add(warn_key)
+            logging.warning(
+                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
+                f"using {max_output_tokens} tokens for max_output_tokens. "
+                f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
+            )
         return max_output_tokens
 
 
