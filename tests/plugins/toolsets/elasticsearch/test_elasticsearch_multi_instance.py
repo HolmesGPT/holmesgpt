@@ -371,3 +371,67 @@ class TestListInstancesTool:
         assert result.status is StructuredToolResultStatus.SUCCESS
         names = [i["name"] for i in result.data["instances"]]
         assert names == ["a", "b"]
+
+
+class TestSingleInstancePruning:
+    """When only one instance is configured, the multi-instance affordances
+    (the `elasticsearch_instance` parameter and the `elasticsearch_list_instances`
+    discovery tool) are pruned to keep the LLM's tool surface lean.
+    """
+
+    def test_single_instance_hides_list_instances_tool(self):
+        ts = ElasticsearchClusterToolset()
+        # `prerequisites_callable` is where pruning happens.
+        ok, _ = ts.prerequisites_callable({"api_url": "http://nope:9200"})
+        # We don't care if the health check succeeds — pruning runs before it.
+        del ok
+        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
+            ElasticsearchListInstances,
+        )
+
+        assert not any(isinstance(t, ElasticsearchListInstances) for t in ts.tools)
+
+    def test_single_instance_strips_param_from_every_tool(self):
+        ts = ElasticsearchClusterToolset()
+        ts.prerequisites_callable({"api_url": "http://nope:9200"})
+        for tool in ts.tools:
+            assert "elasticsearch_instance" not in tool.parameters, (
+                f"{tool.name} still exposes elasticsearch_instance"
+            )
+
+    def test_multi_instance_keeps_list_instances_tool(self):
+        ts = ElasticsearchClusterToolset()
+        ts.prerequisites_callable(
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a:9200"},
+                    {"name": "b", "api_url": "http://b:9200"},
+                ]
+            }
+        )
+        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
+            ElasticsearchListInstances,
+        )
+
+        assert any(isinstance(t, ElasticsearchListInstances) for t in ts.tools)
+
+    def test_multi_instance_keeps_param_on_every_tool(self):
+        ts = ElasticsearchClusterToolset()
+        ts.prerequisites_callable(
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a:9200"},
+                    {"name": "b", "api_url": "http://b:9200"},
+                ]
+            }
+        )
+        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
+            ElasticsearchListInstances,
+        )
+
+        for tool in ts.tools:
+            if isinstance(tool, ElasticsearchListInstances):
+                continue  # this tool deliberately has no instance param
+            assert "elasticsearch_instance" in tool.parameters, (
+                f"{tool.name} is missing elasticsearch_instance"
+            )

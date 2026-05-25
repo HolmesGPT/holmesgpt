@@ -306,7 +306,22 @@ class ElasticsearchBaseToolset(Toolset):
         # list (synthesizing a single "default" for the legacy flat shape).
         instances = self.elasticsearch_config.instances or []
         self._instances = {i.name: i for i in instances}
+        self._prune_tools_for_single_instance()
         return self._perform_health_check()
+
+    def _prune_tools_for_single_instance(self) -> None:
+        """Hide the multi-instance affordances when only one instance is configured.
+
+        When there's a single instance, the `elasticsearch_instance` parameter
+        and the `elasticsearch_list_instances` discovery tool add no value and
+        cost tokens on every tool call. Drop them so the LLM's tool surface
+        matches the simpler config.
+        """
+        if len(self._instances) != 1:
+            return
+        self.tools = [t for t in self.tools if not isinstance(t, ElasticsearchListInstances)]
+        for tool in self.tools:
+            tool.parameters.pop("elasticsearch_instance", None)
 
     def _perform_health_check(self) -> Tuple[bool, str]:
         """Probe `_cluster/health` on each configured instance.
