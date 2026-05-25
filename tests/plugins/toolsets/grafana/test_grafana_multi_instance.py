@@ -1,6 +1,8 @@
 """Tests for multi-instance Grafana configuration and basic-auth support."""
 
 import base64
+import logging
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,7 +19,10 @@ from holmes.plugins.toolsets.grafana.common import (
     build_auth,
     build_headers,
 )
-from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
+from holmes.plugins.toolsets.grafana.toolset_grafana import (
+    GrafanaDashboardConfig,
+    GrafanaToolset,
+)
 
 
 def _ctx() -> ToolInvokeContext:
@@ -99,7 +104,6 @@ class TestMultiInstanceShape:
             )
 
     def test_top_level_api_url_with_instances_logs_warning(self, caplog):
-        import logging
         with caplog.at_level(logging.WARNING):
             GrafanaConfig(
                 api_url="http://ignored",
@@ -171,10 +175,8 @@ class TestRequestConstruction:
             assert decoded == "u:p"
 
 
-def _toolset_with(**config) -> GrafanaToolset:
+def _toolset_with(**config: Any) -> GrafanaToolset:
     """Build a GrafanaToolset with state populated directly (no network probe)."""
-    from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaDashboardConfig
-
     ts = GrafanaToolset()
     ts._grafana_config = GrafanaDashboardConfig(**config)
     ts._instances = {i.name: i for i in ts._grafana_config.instances}

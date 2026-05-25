@@ -212,10 +212,11 @@ class GrafanaToolset(BaseMultiInstanceGrafanaToolset):
         tool = GetDashboardTags(self)
         failures: List[str] = []
         for instance in self._instances.values():
-            try:
-                tool._make_grafana_request(instance, "api/dashboards/tags", {})
-            except Exception as e:
-                failures.append(f"[{instance.name}] Failed to connect to Grafana {e}")
+            result = tool._make_grafana_request(instance, "api/dashboards/tags", {})
+            if result.status is not StructuredToolResultStatus.SUCCESS:
+                # `_make_grafana_request` already prefixes errors with the
+                # instance name and includes URL + status + response body.
+                failures.append(result.error or f"[{instance.name}] Unknown error")
         return self._aggregate_health_results(failures, len(self._instances))
 
     @property
@@ -273,8 +274,43 @@ class BaseGrafanaTool(Tool, ABC):
             response.raise_for_status()
             return response
 
-        response = _do_request()
-        data = response.json()
+        full_url = (
+            f"{url}?{urlencode(query_params, doseq=True)}" if query_params else url
+        )
+        try:
+            response = _do_request()
+            data = response.json()
+        except requests.HTTPError as e:
+            status_code = (
+                e.response.status_code if e.response is not None else "unknown"
+            )
+            response_text = e.response.text[:500] if e.response is not None else ""
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"[{instance.name}] Grafana API returned HTTP {status_code}. "
+                    f"GET {full_url}. Response: {response_text}"
+                ),
+                params=params,
+                url=full_url,
+            )
+        except requests.Timeout:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"[{instance.name}] Grafana API timed out. GET {full_url}",
+                params=params,
+                url=full_url,
+            )
+        except requests.ConnectionError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"[{instance.name}] Failed to connect to Grafana. "
+                    f"GET {full_url}. Error: {e}"
+                ),
+                params=params,
+                url=full_url,
+            )
 
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
@@ -644,26 +680,33 @@ class BaseGrafanaRenderTool(Tool, ABC):
             status_code = (
                 e.response.status_code if e.response is not None else "unknown"
             )
+            response_text = e.response.text[:500] if e.response is not None else ""
             query_string = urlencode(query_params, doseq=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Grafana render API returned HTTP {status_code}: {e}. "
-                f"Render path: {render_path}?{query_string}. "
-                f"Ensure the grafana-image-renderer plugin is installed and running.",
+                error=(
+                    f"[{instance.name}] Grafana render API returned HTTP {status_code}. "
+                    f"Render path: {render_path}?{query_string}. "
+                    f"Response: {response_text}. "
+                    f"Ensure the grafana-image-renderer plugin is installed and running."
+                ),
                 params=params,
             )
         except requests.ConnectionError as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to connect to Grafana render API at {render_path}: {e}",
+                error=f"[{instance.name}] Failed to connect to Grafana render API at {render_path}: {e}",
                 params=params,
             )
         except requests.Timeout:
             query_string = urlencode(query_params, doseq=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Grafana render request timed out for {render_path}?{query_string}. "
-                f"The panel may be too complex or the renderer is overloaded.",
+                error=(
+                    f"[{instance.name}] Grafana render request timed out for "
+                    f"{render_path}?{query_string}. "
+                    f"The panel may be too complex or the renderer is overloaded."
+                ),
                 params=params,
             )
 

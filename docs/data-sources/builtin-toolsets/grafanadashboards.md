@@ -193,15 +193,13 @@ Top-level credentials act as **global defaults**. Per-instance settings override
 
 If you just want HTTP Basic auth without multi-instance, set `username`/`password` at the top level:
 
-```yaml
-toolsets:
-  grafana/dashboards:
-    enabled: true
-    config:
-      api_url: https://grafana.internal
-      username: holmes
-      password: "{{ env.GRAFANA_PASSWORD }}"
-```
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: https://grafana.internal
+          username: holmes
+          password: "{{ env.GRAFANA_PASSWORD }}"
 
 ## Visual Rendering
 

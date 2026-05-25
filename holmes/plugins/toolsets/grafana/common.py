@@ -412,6 +412,18 @@ class MultiInstanceGrafanaConfig(GrafanaConfig):
 
     @model_validator(mode="after")
     def _normalize_and_resolve_globals(self) -> "MultiInstanceGrafanaConfig":
+        # Top-level auth must follow the same XOR rule as per-instance auth so
+        # mixed credentials are rejected up front rather than silently letting
+        # `api_key` win over `username`/`password` in the fall-through below.
+        if self.api_key and (self.username or self.password):
+            raise ValueError(
+                "Grafana config: use top-level `api_key` OR `username` + `password`, not both"
+            )
+        if bool(self.username) != bool(self.password):
+            raise ValueError(
+                "Grafana config: top-level `username` and `password` must be set together"
+            )
+
         if not self.instances:
             if not self.api_url:
                 raise ValueError(
