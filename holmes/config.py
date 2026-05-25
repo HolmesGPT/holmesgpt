@@ -418,12 +418,18 @@ class Config(RobustaBaseConfig):
         dal: Optional["SupabaseDal"] = None,
         toolset_tag_filter: Optional[List[ToolsetTag]] = None,
         enable_all_toolsets_possible: bool = False,
+        force_replace: bool = False,
     ) -> list[tuple[str, str, str]]:
         """Refresh the cached tool executor and return a list of changes.
 
         Changes include status transitions, added toolsets, and removed toolsets.
         The cached executor is always replaced with the freshly-loaded one so that
         added/removed toolsets are picked up even when no status changes occur.
+
+        When ``force_replace`` is True the cached executor is replaced even when
+        no status changes were detected. This is used to expose newly added tools
+        on remote MCP servers (the tool list is reloaded on every prerequisite
+        check, but the in-memory executor only swaps on changes by default).
         """
         logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
         # Normalize early so the same tags are used for both loading and caching.
@@ -456,7 +462,7 @@ class Config(RobustaBaseConfig):
             )
         )
 
-        if changes:
+        if changes or force_replace:
             with self._executor_lock:
                 executor = ToolExecutor(new_toolsets)
                 preload_oauth_tokens()
