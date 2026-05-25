@@ -163,34 +163,6 @@ class TestUserPricingRegistration:
         ) != pytest.approx(0.000004)
 
 
-class TestShippedRobustaOverridesDict:
-    """Sanity checks on the (normally-empty) ROBUSTA_MODEL_PRICES override dict.
-
-    Any entry someone adds here must use the post-correction litellm name
-    and supply required pricing fields, otherwise registration silently
-    no-ops.
-    """
-
-    def test_any_shipped_keys_use_corrected_litellm_prefix(self):
-        from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
-
-        for key in ROBUSTA_MODEL_PRICES:
-            assert key.startswith("openai/"), (
-                f"ROBUSTA_MODEL_PRICES key '{key}' is missing the openai/ "
-                "prefix that Robusta's litellm-name correction adds. "
-                "See OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai."
-            )
-
-    def test_any_shipped_entries_have_required_pricing_fields(self):
-        from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
-
-        for key, pricing in ROBUSTA_MODEL_PRICES.items():
-            assert "input_cost_per_token" in pricing, key
-            assert "output_cost_per_token" in pricing, key
-            assert pricing["input_cost_per_token"] > 0, key
-            assert pricing["output_cost_per_token"] > 0, key
-
-
 class TestRobustaAutoLookup:
     """Robusta entries pull pricing from litellm.model_cost automatically
     using the *real* upstream model name, without any hand-maintained table."""
@@ -323,68 +295,6 @@ class TestRobustaAutoLookup:
         # No openai/ alias should appear -- direct entries hit litellm
         # natively without the Robusta name correction.
         assert "openai/us.fake.direct" not in litellm.model_cost
-
-
-class TestRobustaDefaultsRegistration:
-    def test_robusta_defaults_register_on_startup(
-        self,
-        mock_config,
-        mock_dal,
-        monkeypatch,
-        _snapshot_litellm_model_cost,
-    ):
-        monkeypatch.setattr(
-            "holmes.core.llm.ROBUSTA_MODEL_PRICES",
-            {
-                "openai/test-default-opus": {
-                    "input_cost_per_token": 0.000007,
-                    "output_cost_per_token": 0.000028,
-                }
-            },
-        )
-        # No user models -- still registers Robusta defaults.
-        entry = ModelEntry(
-            model="gpt-4o", name="gpt4o", api_key=SecretStr("k")
-        )
-        _patch_models_file(monkeypatch, {"gpt4o": entry})
-
-        LLMModelRegistry(mock_config, mock_dal)
-
-        registered = litellm.model_cost["openai/test-default-opus"]
-        assert registered["input_cost_per_token"] == pytest.approx(0.000007)
-        assert registered["output_cost_per_token"] == pytest.approx(0.000028)
-
-    def test_user_pricing_overrides_robusta_default(
-        self,
-        mock_config,
-        mock_dal,
-        monkeypatch,
-        _snapshot_litellm_model_cost,
-    ):
-        """When user config names the same litellm model, user prices win."""
-        monkeypatch.setattr(
-            "holmes.core.llm.ROBUSTA_MODEL_PRICES",
-            {
-                "openai/shared-opus": {
-                    "input_cost_per_token": 0.000001,
-                    "output_cost_per_token": 0.000002,
-                }
-            },
-        )
-        entry = ModelEntry.model_validate(
-            {
-                "model": "openai/shared-opus",
-                "input_cost_per_token": 0.000009,
-                "output_cost_per_token": 0.000099,
-            }
-        )
-        _patch_models_file(monkeypatch, {"shared-opus": entry})
-
-        LLMModelRegistry(mock_config, mock_dal)
-
-        registered = litellm.model_cost["openai/shared-opus"]
-        assert registered["input_cost_per_token"] == pytest.approx(0.000009)
-        assert registered["output_cost_per_token"] == pytest.approx(0.000099)
 
 
 class TestUnknownModelWarning:

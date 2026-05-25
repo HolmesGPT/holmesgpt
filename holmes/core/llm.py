@@ -40,7 +40,6 @@ from holmes.common.env_vars import (
 )
 from holmes.core.azure_token import get_azure_ad_token
 from holmes.core.llm_usage import extract_usage_from_response
-from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
@@ -854,9 +853,7 @@ class LLMModelRegistry:
 
         Precedence, highest first:
           1. User pricing in ``model_list.yaml`` (extras on ``ModelEntry``).
-          2. Hand-curated ``ROBUSTA_MODEL_PRICES`` overrides (empty by
-             default; opt-in escape hatch).
-          3. Auto-lookup against ``litellm.model_cost`` for Robusta entries
+          2. Auto-lookup against ``litellm.model_cost`` for Robusta entries
              using the real upstream model name (e.g. a Robusta entry with
              ``model="bedrock/us.anthropic.claude-opus-4-6-v1"`` pulls the
              bundled Bedrock pricing and registers it under the corrected
@@ -865,11 +862,6 @@ class LLMModelRegistry:
         Models with no pricing match log one INFO line so operators know
         why their usage events will report 0.
         """
-        # ROBUSTA_MODEL_PRICES first so per-entry registrations below
-        # naturally override them when both target the same litellm name.
-        for name, pricing in ROBUSTA_MODEL_PRICES.items():
-            _register_custom_pricing(name, pricing)
-
         for entry in self._llms.values():
             litellm_name = _litellm_name_for_entry(entry)
 
@@ -880,9 +872,7 @@ class LLMModelRegistry:
                 continue
 
             # 2. For Robusta entries, auto-discover pricing from the bundled
-            # cost map under the *real* upstream model name. Skip if the
-            # corrected name is already registered (e.g. by a
-            # ROBUSTA_MODEL_PRICES override).
+            # cost map under the *real* upstream model name.
             if (
                 entry.is_robusta_model
                 and entry.model != litellm_name
