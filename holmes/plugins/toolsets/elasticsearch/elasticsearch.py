@@ -313,9 +313,9 @@ class ElasticsearchBaseToolset(Toolset):
         """Hide the multi-instance affordances when only one instance is configured.
 
         When there's a single instance, the `elasticsearch_instance` parameter
-        and the `elasticsearch_list_instances` discovery tool add no value and
-        cost tokens on every tool call. Drop them so the LLM's tool surface
-        matches the simpler config.
+        and the `elasticsearch_{data,cluster}_list_instances` discovery tool
+        add no value and cost tokens on every tool call. Drop them so the
+        LLM's tool surface matches the simpler config.
         """
         if len(self._instances) != 1:
             return
@@ -1180,12 +1180,18 @@ class ElasticsearchListInstances(Tool):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __init__(self, toolset: ElasticsearchBaseToolset):
+        # Scope the tool name to the toolset (`elasticsearch/data` →
+        # `elasticsearch_data_list_instances`) so the data and cluster
+        # toolsets register distinct discovery tools instead of colliding
+        # on a single shared name when both are multi-instance.
+        toolset_suffix = toolset.name.split("/")[-1]
         super().__init__(
-            name="elasticsearch_list_instances",
+            name=f"elasticsearch_{toolset_suffix}_list_instances",
             description=(
-                "List the configured Elasticsearch instances. Returns each instance's name "
-                "and api_url so subsequent tool calls can target the right one via the "
-                "`elasticsearch_instance` parameter."
+                f"List the Elasticsearch instances configured for the "
+                f"`{toolset.name}` toolset. Returns each instance's name and "
+                f"api_url so subsequent tool calls can target the right one via "
+                f"the `elasticsearch_instance` parameter."
             ),
             parameters={},
         )
