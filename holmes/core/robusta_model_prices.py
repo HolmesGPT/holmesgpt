@@ -10,31 +10,46 @@ This dict registers fallback prices with ``litellm.register_model`` at
 ``LLMModelRegistry`` startup so those costs come out non-zero out of the
 box. Keys MUST be the exact name passed to ``litellm.completion()`` -- for
 Robusta entries that is the output of
-``OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai`` (typically
-``openai/<model-id>``).
+``OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai``: provider prefix
+gets stripped and replaced with ``openai/`` (see ``holmes/core/llm.py``).
+For example a Robusta entry with
+``model="bedrock/us.anthropic.claude-opus-4-6-v1"`` becomes
+``openai/us.anthropic.claude-opus-4-6-v1`` when passed to litellm.
 
 User-configured pricing in ``model_list.yaml`` overrides anything here --
 ``_init_models`` registers these defaults first and per-entry pricing
 second.
 
 Values are USD per token. Cache keys are Anthropic-specific and optional.
-
-Maintainer note: entries below are stubs. Fill in authoritative numbers
-from the Robusta pricing source-of-truth before relying on them in
-production. Leaving the dict empty is safe: the mechanism still works
-for users who set their own ``input_cost_per_token`` / ``output_cost_per_token``.
+Prices below match Anthropic's wholesale public pricing
+(https://www.anthropic.com/pricing) as of 2026-05; Robusta passes those
+through to customers at parity. Update when Anthropic revises pricing
+or when Robusta starts charging a markup.
 """
 
 from typing import Dict
 
 
+# Anthropic Claude Opus 4.6 / 4.7 wholesale pricing (USD per token).
+# Both generations are priced identically as of 2026-05.
+_OPUS_4X_PRICING: Dict[str, float] = {
+    "input_cost_per_token": 5e-06,  # $5  / MTok
+    "output_cost_per_token": 2.5e-05,  # $25 / MTok
+    "cache_creation_input_token_cost": 6.25e-06,  # $6.25 / MTok (5-min cache write)
+    "cache_read_input_token_cost": 5e-07,  # $0.50 / MTok
+}
+
+
 ROBUSTA_MODEL_PRICES: Dict[str, Dict[str, float]] = {
-    # Example shape -- replace with real Robusta-hosted model names + prices.
+    # Robusta hosts Opus 4.6/4.7 on AWS Bedrock us-region. Robusta entries
+    # arrive with model="bedrock/us.anthropic.claude-opus-4-X-..." and get
+    # rewritten to "openai/us.anthropic.claude-opus-4-X-..." before litellm
+    # sees them; that rewritten string is the cost-map lookup key.
     #
-    # "openai/opus-4.6": {
-    #     "input_cost_per_token": 0.000003,
-    #     "output_cost_per_token": 0.000015,
-    #     "cache_creation_input_token_cost": 0.00000375,
-    #     "cache_read_input_token_cost": 0.0000003,
-    # },
+    # Bedrock naming changed between generations: 4.6 keeps the historical
+    # "-v1" suffix, 4.7 drops it. We register both 4.7 variants so the
+    # backfill keeps working if Robusta's backend ever standardizes.
+    "openai/us.anthropic.claude-opus-4-6-v1": _OPUS_4X_PRICING,
+    "openai/us.anthropic.claude-opus-4-7": _OPUS_4X_PRICING,
+    "openai/us.anthropic.claude-opus-4-7-v1": _OPUS_4X_PRICING,
 }

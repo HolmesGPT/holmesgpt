@@ -163,6 +163,58 @@ class TestUserPricingRegistration:
         ) != pytest.approx(0.000004)
 
 
+class TestShippedRobustaDefaults:
+    """Sanity checks on the real ROBUSTA_MODEL_PRICES table shipped in the repo.
+
+    Catches typos in keys (must start with ``openai/`` after Robusta-name
+    correction) and missing-field regressions.
+    """
+
+    def test_shipped_opus_keys_use_corrected_litellm_prefix(self):
+        from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
+
+        # Every shipped key must be the post-correction name that
+        # get_litellm_corrected_name_for_robusta_ai produces (openai/<id>).
+        for key in ROBUSTA_MODEL_PRICES:
+            assert key.startswith("openai/"), (
+                f"ROBUSTA_MODEL_PRICES key '{key}' is missing the openai/ "
+                "prefix that Robusta's litellm-name correction adds. "
+                "See OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai."
+            )
+
+    def test_shipped_entries_have_required_pricing_fields(self):
+        from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
+
+        for key, pricing in ROBUSTA_MODEL_PRICES.items():
+            assert "input_cost_per_token" in pricing, key
+            assert "output_cost_per_token" in pricing, key
+            assert pricing["input_cost_per_token"] > 0, key
+            assert pricing["output_cost_per_token"] > 0, key
+
+    def test_shipped_opus_46_and_47_are_registered_at_startup(
+        self,
+        mock_config,
+        mock_dal,
+        monkeypatch,
+        _snapshot_litellm_model_cost,
+    ):
+        """Real ROBUSTA_MODEL_PRICES lands in litellm.model_cost on init."""
+        # Use the actual module-level dict, not a monkeypatched stub.
+        from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
+
+        entry = ModelEntry(model="gpt-4o", name="gpt4o", api_key=SecretStr("k"))
+        _patch_models_file(monkeypatch, {"gpt4o": entry})
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        for name in ROBUSTA_MODEL_PRICES:
+            registered = litellm.model_cost.get(name)
+            assert registered is not None, (
+                f"Expected shipped default '{name}' to register in litellm.model_cost"
+            )
+            assert registered["input_cost_per_token"] > 0
+
+
 class TestRobustaDefaultsRegistration:
     def test_robusta_defaults_register_on_startup(
         self,
