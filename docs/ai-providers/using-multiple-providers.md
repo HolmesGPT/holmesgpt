@@ -298,6 +298,28 @@ Clients can specify the model in their API requests:
 ### Robusta AI Integration
 If you're a Robusta customer, you can also use [Robusta AI](robusta-ai.md) which provides access to multiple models without managing individual API keys.
 
+## Custom Model Pricing
+
+HolmesGPT reports per-call LLM cost in its usage events. The cost number comes from LiteLLM's bundled cost map, which only covers first-party model names (e.g. `gpt-5`, `claude-opus-4-5-20251101`). When you point Holmes at a model name LiteLLM doesn't recognise — an internal OpenAI-compatible endpoint, a renamed Bedrock deployment, a Robusta-hosted variant — the cost field will be `0`.
+
+To fix that, add `input_cost_per_token` and `output_cost_per_token` (and optionally Anthropic cache pricing) to the model's entry. Holmes registers them with LiteLLM at startup, after which usage events report real numbers.
+
+```yaml
+my-internal-opus:
+    model: openai/opus-4.6
+    api_base: https://llm.internal.example.com/v1
+    api_key: "{{ env.INTERNAL_LLM_KEY }}"
+    input_cost_per_token: 0.000003
+    output_cost_per_token: 0.000015
+    # Optional Anthropic prompt-cache pricing
+    cache_creation_input_token_cost: 0.00000375
+    cache_read_input_token_cost: 0.0000003
+```
+
+Values are USD per token. If you only configure one of `input_cost_per_token` / `output_cost_per_token`, neither is registered — both are required.
+
+If Holmes is started with a model whose name isn't in LiteLLM's cost map and no pricing is configured, an `INFO` log line is emitted at startup so you know usage costs for that model will be `0`.
+
 ## See Also
 
 - [Environment Variables Reference](../reference/environment-variables.md)

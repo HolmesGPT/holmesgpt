@@ -40,6 +40,7 @@ from holmes.common.env_vars import (
 )
 from holmes.core.azure_token import get_azure_ad_token
 from holmes.core.llm_usage import extract_usage_from_response
+from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
@@ -56,6 +57,65 @@ OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
 
 _warned_missing_model_lookups: set[tuple[str, str]] = set()
+
+# Names we've already warned operators about for missing cost-map entries.
+# Prevents spam when _init_models re-runs (e.g. Robusta resync path).
+_warned_unknown_cost_models: set[str] = set()
+
+_PRICING_FIELDS = (
+    "input_cost_per_token",
+    "output_cost_per_token",
+    "cache_creation_input_token_cost",
+    "cache_read_input_token_cost",
+)
+
+
+def _litellm_name_for_entry(entry: "ModelEntry") -> str:
+    """Return the model-name string that will be passed to litellm.completion.
+
+    Mirrors OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai so that
+    pricing registered here resolves at completion time.
+    """
+    if entry.is_robusta_model:
+        split = entry.model.split("/")
+        return split[0] if len(split) == 1 else f"openai/{split[1]}"
+    return entry.model
+
+
+def _build_pricing_dict_from_extra(extra: Dict[str, Any]) -> Optional[Dict[str, float]]:
+    """Pick pricing fields out of ModelEntry.model_extra; None if incomplete."""
+    if not extra:
+        return None
+    in_cost = extra.get("input_cost_per_token")
+    out_cost = extra.get("output_cost_per_token")
+    if in_cost is None or out_cost is None:
+        return None
+    pricing: Dict[str, float] = {
+        "input_cost_per_token": float(in_cost),
+        "output_cost_per_token": float(out_cost),
+    }
+    for k in ("cache_creation_input_token_cost", "cache_read_input_token_cost"):
+        v = extra.get(k)
+        if v is not None:
+            pricing[k] = float(v)
+    return pricing
+
+
+def _register_custom_pricing(litellm_name: str, pricing: Dict[str, float]) -> None:
+    """Register a single model's pricing with litellm, merging required metadata."""
+    entry: Dict[str, Any] = dict(pricing)
+    entry.setdefault("litellm_provider", "openai")
+    entry.setdefault("mode", "chat")
+    try:
+        litellm.register_model({litellm_name: entry})
+        logging.debug(
+            f"Registered custom pricing for '{litellm_name}': "
+            f"input={entry['input_cost_per_token']}, output={entry['output_cost_per_token']}"
+        )
+    except Exception as e:
+        logging.warning(
+            f"Failed to register custom pricing for '{litellm_name}': {e}"
+        )
 
 
 def get_context_window_compaction_threshold_pct() -> int:
@@ -736,6 +796,47 @@ class LLMModelRegistry:
                 api_key=self.config.api_key,
                 api_version=self.config.api_version,
             )
+
+        self._register_pricing_for_loaded_models()
+
+    def _register_pricing_for_loaded_models(self) -> None:
+        """Make litellm aware of per-token prices for non-stock models.
+
+        Without this, models that aren't in litellm's bundled
+        ``model_prices_and_context_window.json`` (e.g. Robusta-hosted
+        variants, OpenAI-compatible internal endpoints) report
+        ``response_cost=0`` and Holmes emits zero cost in usage events.
+
+        Registration order matters: Robusta defaults first, user-configured
+        pricing second, so values from ``model_list.yaml`` override defaults
+        for the same litellm name.
+        """
+        # 1. Robusta-hosted defaults shipped with HolmesGPT.
+        for name, pricing in ROBUSTA_MODEL_PRICES.items():
+            _register_custom_pricing(name, pricing)
+
+        # 2. Per-entry user pricing from model_list.yaml extras.
+        for entry in self._llms.values():
+            litellm_name = _litellm_name_for_entry(entry)
+            pricing = _build_pricing_dict_from_extra(entry.model_extra or {})
+            if pricing is not None:
+                _register_custom_pricing(litellm_name, pricing)
+                continue
+
+            # 3. Warn once per unknown un-priced model so the operator knows
+            # why usage-event costs will be 0.
+            if (
+                litellm_name not in litellm.model_cost
+                and litellm_name not in _warned_unknown_cost_models
+            ):
+                _warned_unknown_cost_models.add(litellm_name)
+                logging.info(
+                    f"Model '{litellm_name}' has no entry in litellm's cost map "
+                    "and no input/output_cost_per_token configured. "
+                    "Usage event costs for this model will be 0. "
+                    "Add input_cost_per_token and output_cost_per_token to its "
+                    "model_list.yaml entry to enable cost tracking."
+                )
 
     def _should_load_config_model(self) -> bool:
         if self.config.model is not None:
