@@ -118,6 +118,51 @@ def _register_custom_pricing(litellm_name: str, pricing: Dict[str, float]) -> No
         )
 
 
+def _pricing_dict_from_bundled(bundled: Dict[str, Any]) -> Optional[Dict[str, float]]:
+    """Extract pricing fields from a ``litellm.model_cost`` entry."""
+    if "input_cost_per_token" not in bundled or "output_cost_per_token" not in bundled:
+        return None
+    pricing: Dict[str, float] = {
+        "input_cost_per_token": float(bundled["input_cost_per_token"]),
+        "output_cost_per_token": float(bundled["output_cost_per_token"]),
+    }
+    for k in ("cache_creation_input_token_cost", "cache_read_input_token_cost"):
+        v = bundled.get(k)
+        if v is not None:
+            pricing[k] = float(v)
+    return pricing
+
+
+def _bundled_pricing_for_underlying_model(
+    raw_model_name: str,
+) -> Optional[Dict[str, float]]:
+    """Look up litellm's bundled pricing for a model name.
+
+    Robusta entries store the real upstream model (e.g.
+    ``bedrock/us.anthropic.claude-opus-4-6-v1``) in ``entry.model`` before
+    ``get_litellm_corrected_name_for_robusta_ai`` rewrites it to
+    ``openai/...``. The bundled litellm cost map keys Bedrock entries
+    *without* the ``bedrock/`` provider prefix, so we try the raw name
+    first then strip the provider prefix once.
+
+    Regional variants (``us.``/``eu.``/``au.``) are kept as-is on purpose:
+    they carry the AWS-Bedrock regional premium, and that is the price we
+    report. Stripping the regional prefix would silently switch us to a
+    different price tier.
+    """
+    if raw_model_name in litellm.model_cost:
+        bundled = litellm.model_cost[raw_model_name]
+    elif "/" in raw_model_name:
+        bare = raw_model_name.split("/", 1)[1]
+        bundled = litellm.model_cost.get(bare)
+    else:
+        bundled = None
+
+    if not bundled:
+        return None
+    return _pricing_dict_from_bundled(bundled)
+
+
 def get_context_window_compaction_threshold_pct() -> int:
     """Get the compaction threshold percentage at runtime to support test overrides."""
     return environ_get_safe_int("CONTEXT_WINDOW_COMPACTION_THRESHOLD_PCT", default="95")
@@ -807,21 +852,46 @@ class LLMModelRegistry:
         variants, OpenAI-compatible internal endpoints) report
         ``response_cost=0`` and Holmes emits zero cost in usage events.
 
-        Registration order matters: Robusta defaults first, user-configured
-        pricing second, so values from ``model_list.yaml`` override defaults
-        for the same litellm name.
+        Precedence, highest first:
+          1. User pricing in ``model_list.yaml`` (extras on ``ModelEntry``).
+          2. Hand-curated ``ROBUSTA_MODEL_PRICES`` overrides (empty by
+             default; opt-in escape hatch).
+          3. Auto-lookup against ``litellm.model_cost`` for Robusta entries
+             using the real upstream model name (e.g. a Robusta entry with
+             ``model="bedrock/us.anthropic.claude-opus-4-6-v1"`` pulls the
+             bundled Bedrock pricing and registers it under the corrected
+             ``openai/...`` name).
+
+        Models with no pricing match log one INFO line so operators know
+        why their usage events will report 0.
         """
-        # 1. Robusta-hosted defaults shipped with HolmesGPT.
+        # ROBUSTA_MODEL_PRICES first so per-entry registrations below
+        # naturally override them when both target the same litellm name.
         for name, pricing in ROBUSTA_MODEL_PRICES.items():
             _register_custom_pricing(name, pricing)
 
-        # 2. Per-entry user pricing from model_list.yaml extras.
         for entry in self._llms.values():
             litellm_name = _litellm_name_for_entry(entry)
-            pricing = _build_pricing_dict_from_extra(entry.model_extra or {})
-            if pricing is not None:
-                _register_custom_pricing(litellm_name, pricing)
+
+            # 1. User pricing always wins.
+            user_pricing = _build_pricing_dict_from_extra(entry.model_extra or {})
+            if user_pricing is not None:
+                _register_custom_pricing(litellm_name, user_pricing)
                 continue
+
+            # 2. For Robusta entries, auto-discover pricing from the bundled
+            # cost map under the *real* upstream model name. Skip if the
+            # corrected name is already registered (e.g. by a
+            # ROBUSTA_MODEL_PRICES override).
+            if (
+                entry.is_robusta_model
+                and entry.model != litellm_name
+                and litellm_name not in litellm.model_cost
+            ):
+                auto_pricing = _bundled_pricing_for_underlying_model(entry.model)
+                if auto_pricing is not None:
+                    _register_custom_pricing(litellm_name, auto_pricing)
+                    continue
 
             # 3. Warn once per unknown un-priced model so the operator knows
             # why usage-event costs will be 0.

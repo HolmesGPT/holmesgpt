@@ -300,9 +300,9 @@ If you're a Robusta customer, you can also use [Robusta AI](robusta-ai.md) which
 
 ## Custom Model Pricing
 
-HolmesGPT reports per-call LLM cost in its usage events. The cost number comes from LiteLLM's bundled cost map, which only covers first-party model names (e.g. `gpt-5`, `claude-opus-4-5-20251101`). When you point Holmes at a model name LiteLLM doesn't recognise — an internal OpenAI-compatible endpoint, a renamed Bedrock deployment, a Robusta-hosted variant — the cost field will be `0`.
+HolmesGPT reports per-call LLM cost in its usage events. The cost number comes from LiteLLM's bundled cost map. For first-party names (`gpt-5`, `claude-opus-4-5-20251101`) and standard Bedrock IDs LiteLLM already has prices, so the cost field is populated automatically. Robusta-hosted models also work without configuration: Holmes looks up pricing for the *real* upstream model name (e.g. `bedrock/us.anthropic.claude-opus-4-6-v1`) in LiteLLM's bundled map and registers it under the internal routing name automatically.
 
-To fix that, add `input_cost_per_token` and `output_cost_per_token` (and optionally Anthropic cache pricing) to the model's entry. Holmes registers them with LiteLLM at startup, after which usage events report real numbers.
+You only need to add per-token pricing yourself if you're pointing Holmes at a model LiteLLM doesn't recognise — an internal OpenAI-compatible endpoint, a private-preview model, or a fork. In that case, add `input_cost_per_token` and `output_cost_per_token` (and optionally Anthropic cache pricing) to the model's entry:
 
 ```yaml
 my-internal-opus:
@@ -316,9 +316,9 @@ my-internal-opus:
     cache_read_input_token_cost: 0.0000003
 ```
 
-Values are USD per token. If you only configure one of `input_cost_per_token` / `output_cost_per_token`, neither is registered — both are required.
+Values are USD per token. Both `input_cost_per_token` and `output_cost_per_token` must be set — configuring only one is ignored. User-configured pricing always wins over the auto-lookup.
 
-If Holmes is started with a model whose name isn't in LiteLLM's cost map and no pricing is configured, an `INFO` log line is emitted at startup so you know usage costs for that model will be `0`.
+If Holmes can't find pricing through any mechanism, it logs one `INFO` line at startup naming the model so you know its usage-event costs will be `0`.
 
 ## See Also
 

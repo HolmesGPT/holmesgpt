@@ -1,55 +1,43 @@
-"""Default per-token pricing for Robusta-hosted LLM models.
+"""Manual override layer for Robusta-hosted model pricing.
 
-LiteLLM's bundled cost map (``model_prices_and_context_window.json``) only
-knows about first-party model names (``gpt-5``, ``claude-opus-4-5-...``).
-When a Robusta-hosted variant is invoked, litellm cannot resolve a price
-and writes ``response_cost=0`` into ``_hidden_params``, so Holmes emits a
-``costs.total_cost`` of ``0`` in ``ANSWER_END`` usage events.
+In the normal path HolmesGPT does **not** need entries here. When a
+Robusta entry is loaded, ``LLMModelRegistry`` looks up the *real*
+underlying model name (e.g. ``bedrock/us.anthropic.claude-opus-4-6-v1``)
+in ``litellm.model_cost`` and copies the bundled pricing under the
+corrected ``openai/...`` name automatically. That covers every model
+LiteLLM already knows about, with no maintenance on our side.
 
-This dict registers fallback prices with ``litellm.register_model`` at
-``LLMModelRegistry`` startup so those costs come out non-zero out of the
-box. Keys MUST be the exact name passed to ``litellm.completion()`` -- for
+This dict exists only as an escape hatch for the two cases the
+auto-lookup can't handle:
+
+1. LiteLLM doesn't ship pricing for the underlying model yet (brand-new
+   release, private preview, custom internal endpoint).
+2. The customer-facing price differs from the upstream LiteLLM number
+   and that delta must be reflected in usage events.
+
+Keys MUST be the exact name passed to ``litellm.completion()`` -- for
 Robusta entries that is the output of
-``OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai``: provider prefix
-gets stripped and replaced with ``openai/`` (see ``holmes/core/llm.py``).
-For example a Robusta entry with
-``model="bedrock/us.anthropic.claude-opus-4-6-v1"`` becomes
-``openai/us.anthropic.claude-opus-4-6-v1`` when passed to litellm.
+``OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai``: the provider
+prefix is stripped and replaced with ``openai/``. Values match the
+LiteLLM cost-map schema (``input_cost_per_token``,
+``output_cost_per_token``, optional Anthropic cache fields).
 
-User-configured pricing in ``model_list.yaml`` overrides anything here --
-``_init_models`` registers these defaults first and per-entry pricing
-second.
-
-Values are USD per token. Cache keys are Anthropic-specific and optional.
-Prices below match Anthropic's wholesale public pricing
-(https://www.anthropic.com/pricing) as of 2026-05; Robusta passes those
-through to customers at parity. Update when Anthropic revises pricing
-or when Robusta starts charging a markup.
+Entries here register *before* the auto-lookup runs, so a key in this
+dict wins over whatever LiteLLM would have found.
 """
 
 from typing import Dict
 
 
-# Anthropic Claude Opus 4.6 / 4.7 wholesale pricing (USD per token).
-# Both generations are priced identically as of 2026-05.
-_OPUS_4X_PRICING: Dict[str, float] = {
-    "input_cost_per_token": 5e-06,  # $5  / MTok
-    "output_cost_per_token": 2.5e-05,  # $25 / MTok
-    "cache_creation_input_token_cost": 6.25e-06,  # $6.25 / MTok (5-min cache write)
-    "cache_read_input_token_cost": 5e-07,  # $0.50 / MTok
-}
-
-
 ROBUSTA_MODEL_PRICES: Dict[str, Dict[str, float]] = {
-    # Robusta hosts Opus 4.6/4.7 on AWS Bedrock us-region. Robusta entries
-    # arrive with model="bedrock/us.anthropic.claude-opus-4-X-..." and get
-    # rewritten to "openai/us.anthropic.claude-opus-4-X-..." before litellm
-    # sees them; that rewritten string is the cost-map lookup key.
+    # Example shape -- keep empty in normal operation. Auto-lookup against
+    # litellm.model_cost handles Bedrock/Anthropic/etc. models without us
+    # writing anything here.
     #
-    # Bedrock naming changed between generations: 4.6 keeps the historical
-    # "-v1" suffix, 4.7 drops it. We register both 4.7 variants so the
-    # backfill keeps working if Robusta's backend ever standardizes.
-    "openai/us.anthropic.claude-opus-4-6-v1": _OPUS_4X_PRICING,
-    "openai/us.anthropic.claude-opus-4-7": _OPUS_4X_PRICING,
-    "openai/us.anthropic.claude-opus-4-7-v1": _OPUS_4X_PRICING,
+    # "openai/some-private-preview-model": {
+    #     "input_cost_per_token": 0.000003,
+    #     "output_cost_per_token": 0.000015,
+    #     "cache_creation_input_token_cost": 0.00000375,
+    #     "cache_read_input_token_cost": 0.0000003,
+    # },
 }

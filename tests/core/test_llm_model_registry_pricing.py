@@ -163,18 +163,17 @@ class TestUserPricingRegistration:
         ) != pytest.approx(0.000004)
 
 
-class TestShippedRobustaDefaults:
-    """Sanity checks on the real ROBUSTA_MODEL_PRICES table shipped in the repo.
+class TestShippedRobustaOverridesDict:
+    """Sanity checks on the (normally-empty) ROBUSTA_MODEL_PRICES override dict.
 
-    Catches typos in keys (must start with ``openai/`` after Robusta-name
-    correction) and missing-field regressions.
+    Any entry someone adds here must use the post-correction litellm name
+    and supply required pricing fields, otherwise registration silently
+    no-ops.
     """
 
-    def test_shipped_opus_keys_use_corrected_litellm_prefix(self):
+    def test_any_shipped_keys_use_corrected_litellm_prefix(self):
         from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
 
-        # Every shipped key must be the post-correction name that
-        # get_litellm_corrected_name_for_robusta_ai produces (openai/<id>).
         for key in ROBUSTA_MODEL_PRICES:
             assert key.startswith("openai/"), (
                 f"ROBUSTA_MODEL_PRICES key '{key}' is missing the openai/ "
@@ -182,7 +181,7 @@ class TestShippedRobustaDefaults:
                 "See OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai."
             )
 
-    def test_shipped_entries_have_required_pricing_fields(self):
+    def test_any_shipped_entries_have_required_pricing_fields(self):
         from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
 
         for key, pricing in ROBUSTA_MODEL_PRICES.items():
@@ -191,28 +190,139 @@ class TestShippedRobustaDefaults:
             assert pricing["input_cost_per_token"] > 0, key
             assert pricing["output_cost_per_token"] > 0, key
 
-    def test_shipped_opus_46_and_47_are_registered_at_startup(
+
+class TestRobustaAutoLookup:
+    """Robusta entries pull pricing from litellm.model_cost automatically
+    using the *real* upstream model name, without any hand-maintained table."""
+
+    def test_robusta_entry_pulls_pricing_from_bundled_cost_map(
         self,
         mock_config,
         mock_dal,
         monkeypatch,
         _snapshot_litellm_model_cost,
     ):
-        """Real ROBUSTA_MODEL_PRICES lands in litellm.model_cost on init."""
-        # Use the actual module-level dict, not a monkeypatched stub.
-        from holmes.core.robusta_model_prices import ROBUSTA_MODEL_PRICES
-
-        entry = ModelEntry(model="gpt-4o", name="gpt4o", api_key=SecretStr("k"))
-        _patch_models_file(monkeypatch, {"gpt4o": entry})
+        """For a Robusta bedrock/<...> entry, the bundled Bedrock pricing
+        gets copied under the corrected openai/<...> name automatically."""
+        # Seed a fake bundled entry so we don't depend on whatever Bedrock
+        # prices ship in this version of litellm.
+        litellm.model_cost["us.fake.opus-test-v1"] = {
+            "input_cost_per_token": 6e-06,
+            "output_cost_per_token": 3e-05,
+            "cache_read_input_token_cost": 6e-07,
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        entry = ModelEntry.model_validate(
+            {
+                "model": "bedrock/us.fake.opus-test-v1",
+                "is_robusta_model": True,
+            }
+        )
+        _patch_models_file(monkeypatch, {"Robusta/opus-test": entry})
 
         LLMModelRegistry(mock_config, mock_dal)
 
-        for name in ROBUSTA_MODEL_PRICES:
-            registered = litellm.model_cost.get(name)
-            assert registered is not None, (
-                f"Expected shipped default '{name}' to register in litellm.model_cost"
-            )
-            assert registered["input_cost_per_token"] > 0
+        registered = litellm.model_cost.get("openai/us.fake.opus-test-v1")
+        assert registered is not None
+        assert registered["input_cost_per_token"] == pytest.approx(6e-06)
+        assert registered["output_cost_per_token"] == pytest.approx(3e-05)
+        assert registered["cache_read_input_token_cost"] == pytest.approx(6e-07)
+
+    def test_auto_lookup_uses_exact_underlying_name_not_normalized(
+        self,
+        mock_config,
+        mock_dal,
+        monkeypatch,
+        _snapshot_litellm_model_cost,
+    ):
+        """Regional `us.` prefix must be preserved -- we register the
+        regional price tier, not the non-regional wholesale tier."""
+        litellm.model_cost["us.fake.test-regional"] = {
+            "input_cost_per_token": 5.5e-06,  # 1.1x regional premium
+            "output_cost_per_token": 2.75e-05,
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        litellm.model_cost["fake.test-regional"] = {
+            "input_cost_per_token": 5e-06,  # wholesale
+            "output_cost_per_token": 2.5e-05,
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        entry = ModelEntry.model_validate(
+            {
+                "model": "bedrock/us.fake.test-regional",
+                "is_robusta_model": True,
+            }
+        )
+        _patch_models_file(monkeypatch, {"Robusta/test": entry})
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/us.fake.test-regional"]
+        # Regional tier, NOT the cheaper wholesale tier.
+        assert registered["input_cost_per_token"] == pytest.approx(5.5e-06)
+        assert registered["output_cost_per_token"] == pytest.approx(2.75e-05)
+
+    def test_user_pricing_overrides_auto_lookup(
+        self,
+        mock_config,
+        mock_dal,
+        monkeypatch,
+        _snapshot_litellm_model_cost,
+    ):
+        """User-configured pricing wins even when auto-lookup would succeed."""
+        litellm.model_cost["us.fake.user-override"] = {
+            "input_cost_per_token": 1e-05,
+            "output_cost_per_token": 5e-05,
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        entry = ModelEntry.model_validate(
+            {
+                "model": "bedrock/us.fake.user-override",
+                "is_robusta_model": True,
+                "input_cost_per_token": 7e-07,
+                "output_cost_per_token": 3e-06,
+            }
+        )
+        _patch_models_file(monkeypatch, {"Robusta/override": entry})
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/us.fake.user-override"]
+        assert registered["input_cost_per_token"] == pytest.approx(7e-07)
+        assert registered["output_cost_per_token"] == pytest.approx(3e-06)
+
+    def test_no_auto_lookup_for_non_robusta_entries(
+        self,
+        mock_config,
+        mock_dal,
+        monkeypatch,
+        _snapshot_litellm_model_cost,
+    ):
+        """A direct (non-Robusta) entry uses litellm's lookup as-is; we
+        don't shadow-register a separate openai/ alias for it."""
+        entry = ModelEntry.model_validate(
+            {
+                "model": "bedrock/us.fake.direct",
+                "is_robusta_model": False,
+            }
+        )
+        litellm.model_cost["us.fake.direct"] = {
+            "input_cost_per_token": 1e-06,
+            "output_cost_per_token": 5e-06,
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        _patch_models_file(monkeypatch, {"direct": entry})
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        # No openai/ alias should appear -- direct entries hit litellm
+        # natively without the Robusta name correction.
+        assert "openai/us.fake.direct" not in litellm.model_cost
 
 
 class TestRobustaDefaultsRegistration:
