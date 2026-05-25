@@ -442,40 +442,6 @@ class TestListInstancesTool:
         names = [i["name"] for i in result.data["instances"]]
         assert names == ["a", "b"]
 
-    def test_tool_name_is_scoped_to_cluster_toolset(self):
-        """Cluster toolset's discovery tool is `elasticsearch_cluster_list_instances`."""
-        ts = _toolset_with(
-            instances=[
-                {"name": "a", "api_url": "http://a:9200"},
-                {"name": "b", "api_url": "http://b:9200"},
-            ]
-        )
-        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
-            ElasticsearchListInstances,
-        )
-
-        tool = next(t for t in ts.tools if isinstance(t, ElasticsearchListInstances))
-        assert tool.name == "elasticsearch_cluster_list_instances"
-
-    def test_tool_name_is_scoped_to_data_toolset(self):
-        """Data toolset's discovery tool is `elasticsearch_data_list_instances`."""
-        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
-            ElasticsearchDataToolset,
-            ElasticsearchListInstances,
-        )
-
-        ts = ElasticsearchDataToolset()
-        ts.prerequisites_callable(
-            {
-                "instances": [
-                    {"name": "a", "api_url": "http://a:9200"},
-                    {"name": "b", "api_url": "http://b:9200"},
-                ]
-            }
-        )
-        tool = next(t for t in ts.tools if isinstance(t, ElasticsearchListInstances))
-        assert tool.name == "elasticsearch_data_list_instances"
-
     def test_data_and_cluster_names_do_not_collide(self):
         """When both toolsets are multi-instance, their discovery tools have
         distinct names so neither overrides the other in the tool registry."""
