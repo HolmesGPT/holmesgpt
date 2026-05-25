@@ -71,10 +71,13 @@ def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
 def _toolset_tools_changed(
     current: List[Toolset], new: List[Toolset]
 ) -> bool:
-    """Return True if any toolset present in both lists has a different tool set."""
-    current_sigs = {ts.name: _toolset_tool_signature(ts) for ts in current}
-    for ts in new:
-        if ts.name in current_sigs and current_sigs[ts.name] != _toolset_tool_signature(ts):
+    """Return True if the set of toolsets, or any shared toolset's tool list, changed."""
+    current_by_name = {ts.name: ts for ts in current}
+    new_by_name = {ts.name: ts for ts in new}
+    if current_by_name.keys() != new_by_name.keys():
+        return True
+    for name, new_ts in new_by_name.items():
+        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(new_ts):
             return True
     return False
 
