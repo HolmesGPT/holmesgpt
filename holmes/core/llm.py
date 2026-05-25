@@ -61,13 +61,6 @@ _warned_missing_model_lookups: set[tuple[str, str]] = set()
 # Prevents spam when _init_models re-runs (e.g. Robusta resync path).
 _warned_unknown_cost_models: set[str] = set()
 
-_PRICING_FIELDS = (
-    "input_cost_per_token",
-    "output_cost_per_token",
-    "cache_creation_input_token_cost",
-    "cache_read_input_token_cost",
-)
-
 
 def _litellm_name_for_entry(entry: "ModelEntry") -> str:
     """Return the model-name string that will be passed to litellm.completion.
