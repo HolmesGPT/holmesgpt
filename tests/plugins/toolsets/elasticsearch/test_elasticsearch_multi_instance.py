@@ -335,6 +335,76 @@ class TestToolPathThreading:
         assert called_auth.password == "b-pw"
 
     @patch("holmes.plugins.toolsets.elasticsearch.elasticsearch.requests.request")
+    def test_tool_uses_global_creds_for_instance_without_override(self, mock_request):
+        """Wire-level: instance with no auth gets the global creds on the
+        actual HTTP Authorization header, not the per-instance override."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status": "green"}
+        mock_response.raise_for_status = MagicMock()
+        mock_request.return_value = mock_response
+
+        ts = _toolset_with(
+            username="elastic",
+            password="global-pw",
+            instances=[
+                # Inherits the global creds.
+                {"name": "a", "api_url": "http://a:9200"},
+                # Has its own override.
+                {
+                    "name": "b",
+                    "api_url": "http://b:9200",
+                    "username": "elastic",
+                    "password": "b-pw",
+                },
+            ],
+        )
+        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
+            ElasticsearchClusterHealth,
+        )
+
+        tool = next(t for t in ts.tools if isinstance(t, ElasticsearchClusterHealth))
+        result = tool._invoke({"elasticsearch_instance": "a"}, context=None)
+
+        assert result.status is StructuredToolResultStatus.SUCCESS
+        called_url = mock_request.call_args[1]["url"]
+        assert called_url.startswith("http://a:9200/")
+        called_auth = mock_request.call_args[1]["auth"]
+        assert isinstance(called_auth, HTTPBasicAuth)
+        # Global creds, not the override that lives on instance "b".
+        assert called_auth.username == "elastic"
+        assert called_auth.password == "global-pw"
+
+    @patch("holmes.plugins.toolsets.elasticsearch.elasticsearch.requests.request")
+    def test_tool_uses_global_api_key_for_instance_without_override(self, mock_request):
+        """Wire-level: instance with no auth gets the global API key on the
+        Authorization header."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status": "green"}
+        mock_response.raise_for_status = MagicMock()
+        mock_request.return_value = mock_response
+
+        ts = _toolset_with(
+            api_key="global-key",
+            instances=[
+                {"name": "a", "api_url": "http://a:9200"},
+                {"name": "b", "api_url": "http://b:9200", "api_key": "b-key"},
+            ],
+        )
+        from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
+            ElasticsearchClusterHealth,
+        )
+
+        tool = next(t for t in ts.tools if isinstance(t, ElasticsearchClusterHealth))
+        result = tool._invoke({"elasticsearch_instance": "a"}, context=None)
+
+        assert result.status is StructuredToolResultStatus.SUCCESS
+        called_headers = mock_request.call_args[1]["headers"]
+        # Inherited global key, not "b-key".
+        assert called_headers.get("Authorization") == "ApiKey global-key"
+        # No basic auth when the instance is authenticating via api_key.
+        assert mock_request.call_args[1]["auth"] is None
+
+    @patch("holmes.plugins.toolsets.elasticsearch.elasticsearch.requests.request")
     def test_tool_errors_clearly_when_instance_missing(self, mock_request):
         ts = _toolset_with(
             instances=[
