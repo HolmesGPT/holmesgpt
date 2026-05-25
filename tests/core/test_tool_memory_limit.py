@@ -60,6 +60,10 @@ class TestCheckOomAndAppendHint:
         assert str(TOOL_MEMORY_LIMIT_MB) in result  # Shows current limit
         assert result.startswith("[OOM]")  # Hint comes first
         assert "NOT an error" in result  # Emphasizes this is by design
+        assert (
+            "https://holmesgpt.dev/data-sources/tool-execution-safety/#when-to-raise-the-limit"
+            in result
+        )  # Includes docs link
 
     def test_hint_prepended_before_output(self):
         """Test that hint appears before the original output, not after."""

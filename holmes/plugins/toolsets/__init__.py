@@ -60,6 +60,9 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
+from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
+    make_robusta_platform_mcp_toolset,
+)
 from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
@@ -136,6 +139,10 @@ def load_python_toolsets(
 
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
+
+    platform_mcp = make_robusta_platform_mcp_toolset(dal)
+    if platform_mcp is not None:
+        toolsets.append(platform_mcp)
 
     return toolsets
 
