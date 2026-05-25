@@ -441,15 +441,18 @@ class Config(RobustaBaseConfig):
         toolset_tag_filter: Optional[List[ToolsetTag]] = None,
         enable_all_toolsets_possible: bool = False,
     ) -> list[tuple[str, str, str]]:
-        """Refresh the cached tool executor and return a list of changes.
+        """Refresh the cached tool executor and return a list of toolset status changes.
 
-        Changes include status transitions, added toolsets, and removed toolsets.
-        The cached executor is always replaced with the freshly-loaded one so that
-        added/removed toolsets are picked up even when no status changes occur.
+        Prerequisites are re-checked for every toolset (which, for MCP toolsets,
+        re-fetches the remote tool list). The cached executor is then replaced
+        when either:
 
-        The executor is also replaced when an existing toolset's tool list
-        changes (e.g. a remote MCP server adding or removing tools while staying
-        healthy), so the LLM sees the new tools.
+        * a toolset's status transitioned (the returned ``changes`` list), or
+        * an existing toolset's tool list changed -- e.g. a remote MCP server
+          added or removed tools while staying healthy -- so the LLM sees the
+          new tools.
+
+        If neither condition holds, the cached executor is left in place.
         """
         logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
         # Normalize early so the same tags are used for both loading and caching.
