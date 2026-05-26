@@ -8,3 +8,4 @@ nav:
   - MCP Servers: remote-mcp-servers.md
   - OAuth MCP Servers: oauth-mcp-servers.md
   - HTTP Header Propagation: header-propagation.md
+  - Tool Execution Safety: tool-execution-safety.md

@@ -443,22 +443,25 @@ def test_realtime_verify_loop_exits_when_running_flag_cleared():
     mock_update.assert_not_called()
 
 
-def test_realtime_verify_loop_swallows_unexpected_exceptions():
-    """An unexpected exception from is_realtime_enabled must be treated as
-    an inconclusive result, NOT as a definitive False — the loop should
-    keep retrying."""
+def test_realtime_verify_loop_surfaces_unexpected_exceptions():
+    """An unexpected exception from is_realtime_enabled (i.e. one that the
+    DAL itself didn't convert to None) is a programming defect — the loop
+    must surface it rather than silently retry forever. The DAL already
+    folds all transport-level errors into a None return, so anything that
+    escapes here is something we can't sensibly back off from."""
     w = _verify_worker()
-    w.dal.is_realtime_enabled.side_effect = [RuntimeError("boom"), True]
+    w.dal.is_realtime_enabled.side_effect = RuntimeError("boom")
 
     w._realtime_verify_stop.wait = lambda timeout=None: False  # type: ignore[assignment]
 
     with patch(
         "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
     ) as mock_update:
-        w._realtime_verify_loop()
+        with pytest.raises(RuntimeError):
+            w._realtime_verify_loop()
 
-    assert w.dal.is_realtime_enabled.call_count == 2
-    mock_update.assert_called_once_with(w.dal, w.config, realtime_available=True)
+    assert w.dal.is_realtime_enabled.call_count == 1
+    mock_update.assert_not_called()
 
 
 def test_start_only_spawns_verifier_not_active_workers():
@@ -593,3 +596,51 @@ def test_claim_loop_initial_claim_without_realtime():
     t.join(timeout=3)
     assert not t.is_alive()
     assert call_count["n"] == 1
+
+
+def test_realtime_verify_loop_warns_on_transient_connectivity_exception(caplog):
+    """A transient connectivity exception (e.g. ConnectionError) must be
+    treated as a None/retry and logged at WARNING, not ERROR."""
+    import logging
+    w = _verify_worker()
+    # First call raises a transient error; second call returns True so the
+    # loop terminates.
+    w.dal.is_realtime_enabled.side_effect = [ConnectionError("dns blip"), True]
+    w._start_active_workers = MagicMock()
+    w._realtime_verify_stop.wait = lambda timeout=None: False  # type: ignore[assignment]
+
+    with caplog.at_level(logging.DEBUG, logger="root"):
+        with patch(
+            "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        ):
+            w._realtime_verify_loop()
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "Connectivity error" in r.getMessage()
+    ]
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert warnings
+    assert not errors, "transient connectivity must not log at ERROR"
+    assert w.dal.is_realtime_enabled.call_count == 2
+
+
+def test_realtime_verify_loop_surfaces_non_transient_exception(caplog):
+    """A non-transient exception (e.g. AttributeError from a bug) must be
+    logged at ERROR and propagate out of the loop instead of being silently
+    retried."""
+    import logging
+    w = _verify_worker()
+    w.dal.is_realtime_enabled.side_effect = AttributeError("dal misconfigured")
+
+    with pytest.raises(AttributeError):
+        with caplog.at_level(logging.DEBUG, logger="root"):
+            w._realtime_verify_loop()
+
+    errors = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.ERROR and "not retrying" in r.getMessage()
+    ]
+    assert errors, "non-transient defect must be logged at ERROR"

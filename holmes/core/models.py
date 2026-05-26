@@ -213,6 +213,7 @@ class ChatRequestBaseModel(BaseModel):
         None  # Optional span for tracing and heartbeat callbacks
     )
     user_id: Optional[str] = None  # User ID from relay session token validation
+    user_email: Optional[str] = None  # User email supplied by the frontend (source of truth for usage analytics)
 
     # ── AI usage tracking fields (HolmesUsageEvents). All optional / additive;
     # old clients that don't supply them keep working unchanged. ──
