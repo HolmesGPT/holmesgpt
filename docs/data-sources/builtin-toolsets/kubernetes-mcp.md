@@ -102,11 +102,23 @@ Your AKS cluster must be configured for Azure AD authentication. Follow the [Mic
 2. Enter a name (e.g., `holmes-k8s-mcp`), select **Accounts in this organizational directory only**, and click **Register**
 3. Under **Authentication > Platform configurations**, add a **Web** platform with the redirect URI matching your Robusta region:
 
-    | Region | Redirect URI |
-    |--------|--------------|
-    | US (default) | `https://platform.robusta.dev/oauth/callback.html` |
-    | EU | `https://platform.eu.robusta.dev/oauth/callback.html` |
-    | AP | `https://platform.ap.robusta.dev/oauth/callback.html` |
+    === "US"
+
+        ```
+        https://platform.robusta.dev/oauth/callback.html
+        ```
+
+    === "EU"
+
+        ```
+        https://platform.eu.robusta.dev/oauth/callback.html
+        ```
+
+    === "AP"
+
+        ```
+        https://platform.ap.robusta.dev/oauth/callback.html
+        ```
 
 4. Under **API Permissions**, add the following delegated permissions:
       - **Azure Kubernetes Service AAD Server** (`6dae42f8-4368-4678-94ff-3960e28e3630`): `user.read`

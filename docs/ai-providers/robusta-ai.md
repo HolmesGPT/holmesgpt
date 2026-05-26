@@ -98,23 +98,43 @@ holmes:
 
 ### Selecting a Region
 
-The Robusta platform is hosted in multiple regions. HolmesGPT defaults to the US endpoint. If your Robusta account lives in the EU or AP region, set `ROBUSTA_API_ENDPOINT` to the matching API URL:
+The Robusta platform is hosted in multiple regions. HolmesGPT defaults to the US endpoint. If your Robusta account lives in the EU or AP region, set `ROBUSTA_API_ENDPOINT` to the matching API URL — pick your region below:
 
-| Region | API endpoint |
-|--------|--------------|
-| US (default) | `https://api.robusta.dev` |
-| EU | `https://api.eu.robusta.dev` |
-| AP | `https://api.ap.robusta.dev` |
+=== "US"
 
-```yaml
-# Add to generated_values.yaml
-holmes:
-  additionalEnvVars:
-    - name: ROBUSTA_AI
-      value: "true"
-    - name: ROBUSTA_API_ENDPOINT
-      value: "https://api.eu.robusta.dev"  # change to match your region
-```
+    ```yaml
+    # Add to generated_values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: ROBUSTA_AI
+          value: "true"
+        - name: ROBUSTA_API_ENDPOINT
+          value: "https://api.robusta.dev"
+    ```
+
+=== "EU"
+
+    ```yaml
+    # Add to generated_values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: ROBUSTA_AI
+          value: "true"
+        - name: ROBUSTA_API_ENDPOINT
+          value: "https://api.eu.robusta.dev"
+    ```
+
+=== "AP"
+
+    ```yaml
+    # Add to generated_values.yaml
+    holmes:
+      additionalEnvVars:
+        - name: ROBUSTA_AI
+          value: "true"
+        - name: ROBUSTA_API_ENDPOINT
+          value: "https://api.ap.robusta.dev"
+    ```
 
 The endpoint must match the region your cluster is connected to in the Robusta platform — using the wrong endpoint will cause authentication and model-discovery failures.
 

@@ -32,13 +32,19 @@ The fastest way to use HolmesGPT is via the Robusta platform, which can be used 
 
 ### Get Started
 
-1. **Sign up:** pick the region closest to your clusters:
+1. **Sign up** — pick the region closest to your clusters:
 
-    | Region | Sign-up URL |
-    |--------|-------------|
-    | US (default) | [platform.robusta.dev](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"} |
-    | EU | [platform.eu.robusta.dev](https://platform.eu.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"} |
-    | AP | [platform.ap.robusta.dev](https://platform.ap.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"} |
+    === "US"
+
+        [platform.robusta.dev](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"}
+
+    === "EU"
+
+        [platform.eu.robusta.dev](https://platform.eu.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"}
+
+    === "AP"
+
+        [platform.ap.robusta.dev](https://platform.ap.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"}
 
 2. **Connect your cluster:** Follow the in-app wizard
 3. **Ask Holmes:** Analyze alerts or troubleshoot issues
