@@ -137,8 +137,16 @@ class OAuthTokenManager:
 
         Returns None if no token is available anywhere (caller should initiate OAuth flow).
         """
-        cache_key = self._get_cache_key(oauth_config, request_context)
         user_id = _get_user_id(request_context)
+
+        # In server mode, refuse to serve tokens without a user identity. The
+        # in-memory cache would otherwise collapse all such requests onto the
+        # DEFAULT_CLI_USER fallback key and could leak one caller's token to
+        # another. DalTokenStore.get_token applies the same guard.
+        if self._is_server_mode() and not user_id:
+            return None
+
+        cache_key = self._get_cache_key(oauth_config, request_context)
 
         # 1. Check in-memory cache
         cached = self._cache.get_valid_access_token(cache_key)
@@ -178,6 +186,8 @@ class OAuthTokenManager:
         request_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Check if any token (access or refreshable) is available in cache."""
+        if self._is_server_mode() and not _get_user_id(request_context):
+            return False
         cache_key = self._get_cache_key(oauth_config, request_context)
         return self._cache.has_token_or_refresh(cache_key)
 
@@ -190,8 +200,18 @@ class OAuthTokenManager:
         store_to_disk: bool = False,
     ) -> None:
         """Store a token to cache and persistent store."""
-        cache_key = self._get_cache_key(oauth_config, request_context)
         user_id = _get_user_id(request_context)
+
+        # In server mode, never persist a token under the DEFAULT_CLI_USER
+        # fallback — that would seed the in-memory cache with an entry that
+        # any subsequent user_id-less request could consume.
+        if self._is_server_mode() and not user_id:
+            logger.warning(
+                "OAuthTokenManager: refusing to store token in server mode without a user_id"
+            )
+            return
+
+        cache_key = self._get_cache_key(oauth_config, request_context)
         access_token = token_data.get("access_token")
         if not access_token:
             logger.warning("OAuthTokenManager: store_token called with no access_token")
@@ -244,6 +264,15 @@ class OAuthTokenManager:
         self._refresh_thread.join(timeout=5)
 
     # ── Cache / key helpers ────────────────────────────────────────────
+
+    def _is_server_mode(self) -> bool:
+        """True when running against the DB-backed token store (multi-user server).
+
+        In server mode the cache must not fall back to DEFAULT_CLI_USER because
+        the cache key would collide across callers. CLI mode legitimately uses
+        DEFAULT_CLI_USER as the single local identity.
+        """
+        return isinstance(self._store, DalTokenStore)
 
     @property
     def cache(self) -> OAuthTokenCache:

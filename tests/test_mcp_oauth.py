@@ -1938,3 +1938,112 @@ class TestBackgroundSweep:
 
 
 # ---------------------------------------------------------------------------
+# Server-mode user_id guard (prevents __no_user__ cache-key reuse)
+# ---------------------------------------------------------------------------
+class TestServerModeUserIdGuard:
+    """In server mode (DalTokenStore), the in-memory cache must not be readable
+    or writable without a user_id. This mirrors DalTokenStore.get_token's guard
+    and prevents one caller's token from being served to another via the
+    DEFAULT_CLI_USER fallback cache key.
+    """
+
+    def _make_server_manager(self) -> OAuthTokenManager:
+        from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+
+        manager = OAuthTokenManager()
+        manager._shutdown_event.set()
+        manager._store = DalTokenStore(dal=MagicMock())
+        return manager
+
+    def _make_cli_manager(self) -> OAuthTokenManager:
+        manager = OAuthTokenManager()
+        manager._shutdown_event.set()
+        manager._store = DiskTokenStore(enabled=False)
+        return manager
+
+    def _oauth(self) -> MCPOAuthConfig:
+        return MCPOAuthConfig(
+            enabled=True,
+            authorization_url="http://idp/auth",
+            token_url="http://idp/token",
+            client_id="cid",
+        )
+
+    def test_get_access_token_returns_none_without_user_id_in_server_mode(self):
+        manager = self._make_server_manager()
+        oauth = self._oauth()
+
+        # Pre-seed the cache under DEFAULT_CLI_USER to simulate a stale/poisoned
+        # entry. A user_id-less request must NOT receive this token.
+        poisoned_key = manager._get_cache_key(oauth, None)
+        manager._cache.set(poisoned_key, "leaked-token", expires_in=3600)
+
+        assert manager.get_access_token(oauth, request_context=None) is None
+        assert manager.get_access_token(oauth, request_context={"user_id": None}) is None
+        assert manager.get_access_token(oauth, request_context={"user_id": ""}) is None
+
+        manager.shutdown()
+
+    def test_has_token_returns_false_without_user_id_in_server_mode(self):
+        manager = self._make_server_manager()
+        oauth = self._oauth()
+
+        poisoned_key = manager._get_cache_key(oauth, None)
+        manager._cache.set(poisoned_key, "leaked-token", expires_in=3600)
+
+        assert manager.has_token(oauth, request_context=None) is False
+        assert manager.has_token(oauth, request_context={"user_id": None}) is False
+
+        manager.shutdown()
+
+    def test_store_token_refused_without_user_id_in_server_mode(self):
+        manager = self._make_server_manager()
+        oauth = self._oauth()
+
+        with patch.object(manager._store, "store_token") as mock_store:
+            manager.store_token(
+                oauth,
+                {"access_token": "should-not-persist", "expires_in": 3600},
+                request_context=None,
+            )
+
+        # Neither cache nor persistent store should have been touched.
+        assert mock_store.call_count == 0
+        cache_key = manager._get_cache_key(oauth, None)
+        assert manager._cache.get_valid_access_token(cache_key) is None
+
+        manager.shutdown()
+
+    def test_get_access_token_still_works_with_user_id_in_server_mode(self):
+        """Regression: the guard must not break the legitimate per-user path."""
+        manager = self._make_server_manager()
+        oauth = self._oauth()
+        ctx = {"user_id": "alice"}
+
+        cache_key = manager._get_cache_key(oauth, ctx)
+        manager._cache.set(cache_key, "alice-token", expires_in=3600)
+
+        assert manager.get_access_token(oauth, request_context=ctx) == "alice-token"
+        assert manager.has_token(oauth, request_context=ctx) is True
+
+        manager.shutdown()
+
+    def test_cli_mode_still_allows_default_user(self):
+        """In CLI mode the guard must NOT trigger — DEFAULT_CLI_USER is the
+        legitimate single-user identity for the local process."""
+        manager = self._make_cli_manager()
+        oauth = self._oauth()
+
+        manager.store_token(
+            oauth,
+            {"access_token": "cli-token", "expires_in": 3600},
+            request_context=None,
+        )
+
+        assert manager.get_access_token(oauth, request_context=None) == "cli-token"
+        assert manager.has_token(oauth, request_context=None) is True
+
+        manager.shutdown()
+
+
+# ---------------------------------------------------------------------------
