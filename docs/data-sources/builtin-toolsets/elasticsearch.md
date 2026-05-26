@@ -134,6 +134,118 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 !!! tip "Enable only what you need"
     You can enable just `elasticsearch/data` or `elasticsearch/cluster` depending on your needs. Most users who just want to search logs only need `elasticsearch/data`.
 
+## Multiple Elasticsearch Instances
+
+If you run a dedicated Elasticsearch cluster per Kubernetes cluster (or want a single HolmesGPT deployment to query several clusters), set `instances` instead of the single-cluster `api_url`/`api_key` fields. The LLM picks the right instance per tool call via the `elasticsearch_instance` parameter (call `elasticsearch_data_list_instances` or `elasticsearch_cluster_list_instances` to see configured names).
+
+Top-level credentials act as **global defaults**. Per-instance settings override them. Use either `api_key` **or** `username` + `password` — they're mutually exclusive both at the top level and per instance. When overriding basic auth on an instance, set both `username` and `password` together.
+
+=== "Holmes CLI"
+
+    ```yaml
+    toolsets:
+      elasticsearch/cluster:
+        enabled: true
+        config:
+          # Global defaults — applied to every instance unless overridden
+          username: elastic
+          password: "{{ env.ES_GLOBAL_PASSWORD }}"
+          timeout_seconds: 15
+          verify_ssl: true
+
+          instances:
+            - name: prod-eu
+              api_url: https://prod-eu.es.internal:9200
+              # Inherits global username + password
+            - name: prod-us
+              api_url: https://prod-us.es.internal:9200
+              # Per-instance override (uses a different basic auth password)
+              username: elastic
+              password: "{{ env.ES_US_PASSWORD }}"
+            - name: staging
+              api_url: https://staging.es.internal:9200
+              # Per-instance override (uses an API key instead of basic auth)
+              api_key: "{{ env.STAGING_ES_API_KEY }}"
+      elasticsearch/data:
+        enabled: true
+        config:
+          username: elastic
+          password: "{{ env.ES_GLOBAL_PASSWORD }}"
+          instances:
+            - name: prod-eu
+              api_url: https://prod-eu.es.internal:9200
+            - name: prod-us
+              api_url: https://prod-us.es.internal:9200
+              username: elastic
+              password: "{{ env.ES_US_PASSWORD }}"
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    additionalEnvVars:
+      - name: ES_GLOBAL_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: elasticsearch-credentials
+            key: global-password
+      - name: ES_US_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: elasticsearch-credentials
+            key: us-password
+      - name: STAGING_ES_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: elasticsearch-credentials
+            key: staging-api-key
+
+    toolsets:
+      elasticsearch/cluster:
+        enabled: true
+        config:
+          username: elastic
+          password: "{{ env.ES_GLOBAL_PASSWORD }}"
+          instances:
+            - name: prod-eu
+              api_url: https://prod-eu.es.internal:9200
+            - name: prod-us
+              api_url: https://prod-us.es.internal:9200
+              username: elastic
+              password: "{{ env.ES_US_PASSWORD }}"
+            - name: staging
+              api_url: https://staging.es.internal:9200
+              api_key: "{{ env.STAGING_ES_API_KEY }}"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: ES_GLOBAL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: global-password
+      toolsets:
+        elasticsearch/cluster:
+          enabled: true
+          config:
+            username: elastic
+            password: "{{ env.ES_GLOBAL_PASSWORD }}"
+            instances:
+              - name: prod-eu
+                api_url: https://prod-eu.es.internal:9200
+              - name: prod-us
+                api_url: https://prod-us.es.internal:9200
+    ```
+
+**Health check is tolerant**: if some instances are unreachable at startup, the toolset still loads with the healthy ones. The unreachable instances are listed in the toolset status string and discoverable via `elasticsearch_data_list_instances` / `elasticsearch_cluster_list_instances`.
+
+!!! note "Backwards compatibility"
+    Existing single-cluster configs (with a top-level `api_url`) continue to work unchanged — they're treated as a single instance named `default`, and the `elasticsearch_instance` parameter is auto-selected.
+
 ## Authentication
 
 The toolsets support multiple authentication methods:
@@ -255,9 +367,11 @@ If Elasticsearch uses a private CA, use the global [`certificate`](../../referen
 
 | Toolset | Tool Name | Description |
 |---------|-----------|-------------|
+| `elasticsearch/data` | elasticsearch_data_list_instances | List configured Elasticsearch instances on the data toolset (multi-instance discovery) |
 | `elasticsearch/data` | elasticsearch_search | Search documents using Elasticsearch Query DSL |
 | `elasticsearch/data` | elasticsearch_mappings | Get field mappings for an index |
 | `elasticsearch/data` | elasticsearch_list_indices | List indices matching a pattern |
+| `elasticsearch/cluster` | elasticsearch_cluster_list_instances | List configured Elasticsearch instances on the cluster toolset (multi-instance discovery) |
 | `elasticsearch/cluster` | elasticsearch_cat | Query _cat APIs (indices, shards, nodes, etc.) |
 | `elasticsearch/cluster` | elasticsearch_cluster_health | Get cluster health status |
 | `elasticsearch/cluster` | elasticsearch_allocation_explain | Explain shard allocation decisions |

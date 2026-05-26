@@ -1,9 +1,11 @@
 import json
+import logging
 from abc import ABC
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 import requests  # type: ignore[import-untyped]
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, ValidationError, model_validator
+from requests.auth import HTTPBasicAuth
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -19,28 +21,98 @@ from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
 
+logger = logging.getLogger(__name__)
+
+ELASTICSEARCH_INSTANCE_PARAM_DESCRIPTION = (
+    "Name of the Elasticsearch instance to query. Required when more than one "
+    "instance is configured. Leave empty when only a single instance is configured."
+)
+ELASTICSEARCH_INSTANCE_PARAM = ToolParameter(
+    description=ELASTICSEARCH_INSTANCE_PARAM_DESCRIPTION,
+    type="string",
+    required=False,
+)
+
+
+class ElasticsearchInstance(ToolsetConfig):
+    """Connection details for a single Elasticsearch/OpenSearch target.
+
+    Used when configuring multiple clusters via `ElasticsearchConfig.instances`.
+    Auth and SSL/timeout fields default to `None` so the multi-instance
+    config can detect whether the user explicitly set them on this instance
+    vs inheriting the top-level global default.
+    """
+
+    _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
+        "url": "api_url",
+    }
+
+    name: str = Field(
+        title="Name",
+        description="Stable identifier the LLM uses to select this instance",
+        examples=["prod-eu", "staging-us"],
+    )
+    api_url: str = Field(
+        title="API URL",
+        description="Elasticsearch/OpenSearch base URL for this instance",
+    )
+    api_key: Optional[str] = Field(default=None, json_schema_extra={"format": "password"})
+    username: Optional[str] = None
+    password: Optional[str] = Field(default=None, json_schema_extra={"format": "password"})
+    client_cert: Optional[str] = None
+    client_key: Optional[str] = None
+    # `None` means "inherit from the top-level global".
+    verify_ssl: Optional[bool] = None
+    timeout_seconds: Optional[int] = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_auth_and_mtls(self) -> "ElasticsearchInstance":
+        if self.api_key and (self.username or self.password):
+            raise ValueError(
+                f"Elasticsearch instance '{self.name}': use `api_key` OR `username` + `password`, not both"
+            )
+        if bool(self.username) != bool(self.password):
+            raise ValueError(
+                f"Elasticsearch instance '{self.name}': `username` and `password` must be set together"
+            )
+        if self.client_cert and not self.client_key:
+            raise ValueError(
+                f"Elasticsearch instance '{self.name}': `client_key` is required when `client_cert` is set"
+            )
+        if self.client_key and not self.client_cert:
+            raise ValueError(
+                f"Elasticsearch instance '{self.name}': `client_cert` is required when `client_key` is set"
+            )
+        return self
+
+
+def build_auth(instance: ElasticsearchInstance) -> Optional[HTTPBasicAuth]:
+    if instance.username and instance.password:
+        return HTTPBasicAuth(instance.username, instance.password)
+    return None
+
 
 class ElasticsearchConfig(ToolsetConfig):
     """Configuration for Elasticsearch/OpenSearch API access.
 
-    Example configuration:
+    Single-instance (legacy) configuration:
     ```yaml
     api_url: "https://your-cluster.es.cloud.io"
     api_key: "base64_encoded_api_key"
     ```
 
-    Or with basic auth:
+    Multi-instance configuration:
     ```yaml
-    api_url: "https://your-cluster.es.cloud.io"
-    username: "elastic"
-    password: "your_password"
-    ```
-
-    Or with mTLS (mutual TLS / client certificate):
-    ```yaml
-    api_url: "https://your-cluster:9200"
-    client_cert: "/path/to/client.crt"
-    client_key: "/path/to/client.key"
+    # Top-level fields act as global defaults inherited by any instance
+    # that doesn't override them.
+    username: elastic
+    password: "{{ env.ES_GLOBAL_PASSWORD }}"
+    instances:
+      - name: prod-eu
+        api_url: https://prod-eu.es.internal:9200
+      - name: prod-us
+        api_url: https://prod-us.es.internal:9200
+        password: "{{ env.ES_US_PASSWORD }}"   # per-instance override
     ```
     """
 
@@ -50,9 +122,10 @@ class ElasticsearchConfig(ToolsetConfig):
         "ca_cert": None,
     }
 
-    api_url: str = Field(
+    api_url: Optional[str] = Field(
+        default=None,
         title="API URL",
-        description="Elasticsearch/OpenSearch base URL",
+        description="Elasticsearch/OpenSearch base URL (single-instance shape). Omit when using `instances`.",
         examples=["https://your-cluster.es.cloud.io"],
     )
     api_key: Optional[str] = Field(
@@ -93,13 +166,111 @@ class ElasticsearchConfig(ToolsetConfig):
         title="Timeout Seconds",
         description="Default request timeout in seconds",
     )
+    instances: Optional[List[ElasticsearchInstance]] = Field(
+        default=None,
+        title="Instances",
+        description=(
+            "List of Elasticsearch instances for multi-cluster routing. "
+            "When set, top-level connection fields act as global defaults inherited "
+            "by any instance that doesn't override them."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_instances(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        raw = data.get("instances")
+        if not raw:
+            return data
+        coerced: List[ElasticsearchInstance] = []
+        for idx, item in enumerate(raw):
+            if isinstance(item, ElasticsearchInstance):
+                coerced.append(item)
+                continue
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"`instances[{idx}]` must be a dict, got {type(item).__name__}"
+                )
+            try:
+                coerced.append(ElasticsearchInstance(**item))
+            except ValidationError as e:
+                raise ValueError(
+                    f"Elasticsearch instance '{item.get('name', idx)}' is invalid: {e}"
+                ) from e
+        data["instances"] = coerced
+        return data
 
     @model_validator(mode="after")
-    def validate_mtls_fields(self) -> "ElasticsearchConfig":
+    def _normalize_and_resolve_globals(self) -> "ElasticsearchConfig":
+        # Top-level auth must follow the same XOR rule as per-instance auth so
+        # mixed credentials are rejected up front rather than silently letting
+        # api_key win over username/password in the fall-through below.
+        if self.api_key and (self.username or self.password):
+            raise ValueError(
+                "Elasticsearch config: use top-level `api_key` OR `username` + `password`, not both"
+            )
+        if bool(self.username) != bool(self.password):
+            raise ValueError(
+                "Elasticsearch config: top-level `username` and `password` must be set together"
+            )
         if self.client_cert and not self.client_key:
             raise ValueError("client_key is required when client_cert is set")
         if self.client_key and not self.client_cert:
             raise ValueError("client_cert is required when client_key is set")
+
+        if not self.instances:
+            if not self.api_url:
+                raise ValueError(
+                    "Either `instances` or top-level `api_url` is required for the Elasticsearch toolset"
+                )
+            # Backwards compat: synthesize a single "default" instance so the
+            # rest of the toolset only has to deal with the multi-instance code
+            # path.
+            self.instances = [
+                ElasticsearchInstance(
+                    name="default",
+                    api_url=self.api_url,
+                    api_key=self.api_key,
+                    username=self.username,
+                    password=self.password,
+                    client_cert=self.client_cert,
+                    client_key=self.client_key,
+                    verify_ssl=self.verify_ssl,
+                    timeout_seconds=self.timeout_seconds,
+                )
+            ]
+            return self
+
+        if self.api_url:
+            logger.warning(
+                "ElasticsearchConfig: top-level `api_url` is ignored when `instances` is set. "
+                "Move connection fields into an entry under `instances`."
+            )
+
+        seen: set[str] = set()
+        for inst in self.instances:
+            if inst.name in seen:
+                raise ValueError(f"Duplicate Elasticsearch instance name: '{inst.name}'")
+            seen.add(inst.name)
+            if inst.verify_ssl is None:
+                inst.verify_ssl = self.verify_ssl
+            if inst.timeout_seconds is None:
+                inst.timeout_seconds = self.timeout_seconds
+            # mTLS fall-through: instances without their own client cert inherit
+            # the global cert/key pair.
+            if not inst.client_cert and self.client_cert and self.client_key:
+                inst.client_cert = self.client_cert
+                inst.client_key = self.client_key
+            # Auth fall-through: instances without their own auth inherit the
+            # global credentials.
+            if not (inst.api_key or inst.username or inst.password):
+                if self.api_key:
+                    inst.api_key = self.api_key
+                elif self.username and self.password:
+                    inst.username = self.username
+                    inst.password = self.password
         return self
 
 
@@ -121,109 +292,181 @@ class ElasticsearchBaseToolset(Toolset):
             tags=[ToolsetTag.CORE],
             **kwargs,
         )
+        self._instances: Dict[str, ElasticsearchInstance] = {}
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         """Check if the Elasticsearch configuration is valid and the cluster is reachable."""
         try:
             config_class = self.config_classes[0] if self.config_classes else ElasticsearchConfig
             self.config = config_class(**config)
-            return self._perform_health_check()
         except Exception as e:
             return False, f"Failed to validate Elasticsearch configuration: {str(e)}"
 
+        # `_normalize_and_resolve_globals` guarantees a non-empty `instances`
+        # list (synthesizing a single "default" for the legacy flat shape).
+        instances = self.elasticsearch_config.instances or []
+        self._instances = {i.name: i for i in instances}
+        self._prune_tools_for_single_instance()
+        return self._perform_health_check()
+
+    def _prune_tools_for_single_instance(self) -> None:
+        """Hide the multi-instance affordances when only one instance is configured.
+
+        When there's a single instance, the `elasticsearch_instance` parameter
+        and the `elasticsearch_{data,cluster}_list_instances` discovery tool
+        add no value and cost tokens on every tool call. Drop them so the
+        LLM's tool surface matches the simpler config.
+        """
+        if len(self._instances) != 1:
+            return
+        self.tools = [t for t in self.tools if not isinstance(t, ElasticsearchListInstances)]
+        for tool in self.tools:
+            tool.parameters.pop("elasticsearch_instance", None)
+
     def _perform_health_check(self) -> Tuple[bool, str]:
-        """Perform a health check by querying cluster health."""
+        """Probe `_cluster/health` on each configured instance.
+
+        Tolerant: succeeds as long as at least one instance is reachable; the
+        toolset still loads with the healthy ones. Each failure is captured
+        with the instance name, status code, and response body so the LLM (and
+        any human reading the status string) can self-correct.
+        """
+        failures: List[str] = []
+        successes: List[str] = []
+        for instance in self._instances.values():
+            ok, msg = self._health_check_instance(instance)
+            if ok:
+                successes.append(msg)
+            else:
+                failures.append(msg)
+        return self._aggregate_health_results(failures, successes)
+
+    def _health_check_instance(
+        self, instance: ElasticsearchInstance
+    ) -> Tuple[bool, str]:
         try:
-            response = self._make_request("GET", "_cluster/health", timeout=10)
-            cluster_name = response.get("cluster_name", "unknown")
-            status = response.get("status", "unknown")
+            data = self._make_request(instance, "GET", "_cluster/health", timeout=10)
+            cluster_name = data.get("cluster_name", "unknown")
+            status = data.get("status", "unknown")
             return (
                 True,
-                f"Connected to Elasticsearch cluster '{cluster_name}' (status: {status})",
+                f"[{instance.name}] Connected to '{cluster_name}' (status: {status})",
             )
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
+            status_code = e.response.status_code
+            body = e.response.text[:500] if e.response is not None else ""
+            if status_code == 401:
                 return (
                     False,
-                    "Elasticsearch authentication failed. Check your API key or credentials.",
+                    f"[{instance.name}] Authentication failed for {instance.api_url}. "
+                    "Check api_key or username/password.",
                 )
-            elif e.response.status_code == 403:
+            if status_code == 403:
                 return (
                     False,
-                    "Elasticsearch access denied. Ensure your credentials have cluster access.",
+                    f"[{instance.name}] Access denied at {instance.api_url}. "
+                    "Credentials lack cluster access.",
                 )
-            else:
-                return (
-                    False,
-                    f"Elasticsearch API error: {e.response.status_code} - {e.response.text}",
-                )
+            return (
+                False,
+                f"[{instance.name}] HTTP {status_code} from {instance.api_url}: {body}",
+            )
         except requests.exceptions.SSLError as e:
             error_msg = str(e)
-            if "certificate required" in error_msg.lower() or "sslcertverificationerror" in error_msg.lower():
+            if (
+                "certificate required" in error_msg.lower()
+                or "sslcertverificationerror" in error_msg.lower()
+            ):
                 return (
                     False,
-                    f"Elasticsearch SSL/TLS error: {error_msg}. "
+                    f"[{instance.name}] SSL/TLS error at {instance.api_url}: {error_msg}. "
                     "If the server requires mTLS, configure client_cert and client_key. "
                     "If using a private CA, set the CERTIFICATE env var (base64-encoded CA cert).",
                 )
-            return False, f"Elasticsearch SSL error: {error_msg}"
-        except requests.exceptions.ConnectionError:
+            return False, f"[{instance.name}] SSL error at {instance.api_url}: {error_msg}"
+        except requests.exceptions.ConnectionError as e:
             return (
                 False,
-                f"Failed to connect to Elasticsearch at {self.elasticsearch_config.api_url}",
+                f"[{instance.name}] Failed to connect to {instance.api_url}: {e}",
             )
         except requests.exceptions.Timeout:
-            return False, "Elasticsearch health check timed out"
+            return False, f"[{instance.name}] Health check timed out for {instance.api_url}"
         except Exception as e:
-            return False, f"Elasticsearch health check failed: {str(e)}"
+            return False, f"[{instance.name}] Health check failed: {str(e)}"
+
+    def _aggregate_health_results(
+        self, failures: List[str], successes: List[str]
+    ) -> Tuple[bool, str]:
+        """Tolerant aggregation: succeed if any instance is reachable.
+
+        Returns `(True, summary)` when at least one instance is healthy; the
+        summary lists healthy connections and notes any failures so they're
+        visible in the toolset status. Returns `(False, joined_errors)` only
+        when every instance failed.
+        """
+        total = len(failures) + len(successes)
+        if not successes:
+            return False, "\n".join(failures) or "No Elasticsearch instances configured"
+        if failures:
+            logger.warning(
+                f"{self.name}: {len(successes)}/{total} instance(s) healthy. "
+                f"Failed: {failures}"
+            )
+            return True, (
+                "; ".join(successes)
+                + "; failed: "
+                + " | ".join(failures)
+            )
+        return True, "; ".join(successes)
+
+    def _get_instance(self, params: Dict[str, Any]) -> ElasticsearchInstance:
+        """Resolve which Elasticsearch instance a tool call should target.
+
+        Auto-selects when only one is configured. Otherwise requires
+        `elasticsearch_instance` in params. Raises `ValueError` with a helpful
+        message listing the configured names when missing or unknown.
+        """
+        configured = sorted(self._instances)
+        requested = params.get("elasticsearch_instance")
+        if not requested:
+            if len(self._instances) == 1:
+                return next(iter(self._instances.values()))
+            raise ValueError(
+                f"`elasticsearch_instance` is required (configured: {configured})"
+            )
+        if requested not in self._instances:
+            raise ValueError(
+                f"Unknown elasticsearch_instance '{requested}'. Configured: {configured}"
+            )
+        return self._instances[requested]
 
     @property
     def elasticsearch_config(self) -> ElasticsearchConfig:
         return self.config  # type: ignore
 
-    def _get_headers(self) -> Dict[str, str]:
-        """Build request headers with authentication."""
+    def _build_headers(self, instance: ElasticsearchInstance) -> Dict[str, str]:
+        """Build request headers with authentication for the given instance."""
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        if self.elasticsearch_config.api_key:
-            headers["Authorization"] = f"ApiKey {self.elasticsearch_config.api_key}"
+        if instance.api_key:
+            headers["Authorization"] = f"ApiKey {instance.api_key}"
         return headers
-
-    def _get_auth(self) -> Optional[Tuple[str, str]]:
-        """Return basic auth tuple if username/password configured."""
-        if self.elasticsearch_config.username and self.elasticsearch_config.password:
-            return (
-                self.elasticsearch_config.username,
-                self.elasticsearch_config.password,
-            )
-        return None
-
-    def _get_client_cert(self) -> Optional[Tuple[str, str]]:
-        """Return client certificate tuple for mTLS if configured."""
-        if self.elasticsearch_config.client_cert and self.elasticsearch_config.client_key:
-            return (
-                self.elasticsearch_config.client_cert,
-                self.elasticsearch_config.client_key,
-            )
-        return None
-
-    def _get_verify(self) -> bool:
-        """Return SSL verification setting."""
-        return self.elasticsearch_config.verify_ssl
 
     def _make_request(
         self,
+        instance: ElasticsearchInstance,
         method: str,
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
         body: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Make HTTP request to Elasticsearch.
+        """Make HTTP request to a specific Elasticsearch instance.
 
         Args:
+            instance: The target Elasticsearch instance (resolved via `_get_instance`).
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint (e.g., "_cluster/health")
             params: Query parameters
@@ -238,22 +481,33 @@ class ElasticsearchBaseToolset(Toolset):
             requests.exceptions.ConnectionError: For connection problems
             requests.exceptions.Timeout: For timeout errors
         """
-        url = f"{self.elasticsearch_config.api_url.rstrip('/')}/{endpoint.lstrip('/')}"
-        timeout = timeout or self.elasticsearch_config.timeout_seconds
+        url = f"{instance.api_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        effective_timeout = timeout or instance.timeout_seconds or 10
+        cert: Optional[Tuple[str, str]] = (
+            (instance.client_cert, instance.client_key)
+            if instance.client_cert and instance.client_key
+            else None
+        )
 
         response = requests.request(
             method=method,
             url=url,
-            headers=self._get_headers(),
-            auth=self._get_auth(),
-            cert=self._get_client_cert(),
+            headers=self._build_headers(instance),
+            auth=build_auth(instance),
+            cert=cert,
             params=params,
             json=body,
-            timeout=timeout,
-            verify=self._get_verify(),
+            timeout=effective_timeout,
+            verify=bool(instance.verify_ssl),
         )
         response.raise_for_status()
         return response.json()
+
+
+def _instance_error_result(params: dict, err: Exception) -> StructuredToolResult:
+    return StructuredToolResult(
+        status=StructuredToolResultStatus.ERROR, error=str(err), params=params
+    )
 
 
 class BaseElasticsearchTool(Tool, ABC):
@@ -271,6 +525,7 @@ class BaseElasticsearchTool(Tool, ABC):
 
     def _make_request(
         self,
+        instance: ElasticsearchInstance,
         method: str,
         endpoint: str,
         params: dict,
@@ -278,9 +533,10 @@ class BaseElasticsearchTool(Tool, ABC):
         body: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
     ) -> StructuredToolResult:
-        """Make a request to Elasticsearch and return structured result."""
+        """Make a request to a specific Elasticsearch instance and return a structured result."""
         try:
             data = self._toolset._make_request(
+                instance,
                 method=method,
                 endpoint=endpoint,
                 params=query_params,
@@ -303,25 +559,31 @@ class BaseElasticsearchTool(Tool, ABC):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Elasticsearch request failed for endpoint '{endpoint}': {error_detail}",
+                error=(
+                    f"[{instance.name}] Elasticsearch request failed for endpoint "
+                    f"'{endpoint}': {error_detail}"
+                ),
                 params=params,
             )
         except requests.exceptions.Timeout:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Elasticsearch request timed out for endpoint '{endpoint}'",
+                error=(
+                    f"[{instance.name}] Elasticsearch request timed out for endpoint "
+                    f"'{endpoint}'"
+                ),
                 params=params,
             )
         except requests.exceptions.ConnectionError as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to connect to Elasticsearch: {str(e)}",
+                error=f"[{instance.name}] Failed to connect to Elasticsearch: {str(e)}",
                 params=params,
             )
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Unexpected error querying Elasticsearch: {str(e)}",
+                error=f"[{instance.name}] Unexpected error querying Elasticsearch: {str(e)}",
                 params=params,
             )
 
@@ -339,6 +601,7 @@ class ElasticsearchCat(BaseElasticsearchTool):
                 "IMPORTANT: Always use the 'index' parameter when querying shards to filter by specific index."
             ),
             parameters={
+                "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                 "endpoint": ToolParameter(
                     description=(
                         "The _cat endpoint to query. Valid values: "
@@ -379,6 +642,11 @@ class ElasticsearchCat(BaseElasticsearchTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         endpoint = params["endpoint"]
         index = params.get("index")
 
@@ -406,7 +674,7 @@ class ElasticsearchCat(BaseElasticsearchTool):
         if params.get("health") and endpoint == "indices":
             query_params["health"] = params["health"]
 
-        return self._make_request("GET", path, params, query_params=query_params)
+        return self._make_request(instance, "GET", path, params, query_params=query_params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         endpoint = params.get("endpoint", "")
@@ -430,6 +698,7 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                 "Returns up to 100 documents by default (configurable via size parameter)."
             ),
             parameters={
+                "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                 "index": ToolParameter(
                     description=(
                         "Index name or pattern to search. Supports wildcards (e.g., 'logs-*'). "
@@ -503,6 +772,11 @@ class ElasticsearchSearch(BaseElasticsearchTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         index = params["index"]
         path = f"{index}/_search"
 
@@ -529,7 +803,7 @@ class ElasticsearchSearch(BaseElasticsearchTool):
         if params.get("profile"):
             body["profile"] = True
 
-        return self._make_request("POST", path, params, body=body)
+        return self._make_request(instance, "POST", path, params, body=body)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")
@@ -548,6 +822,7 @@ class ElasticsearchClusterHealth(BaseElasticsearchTool):
                 "node count, shard counts, and pending tasks."
             ),
             parameters={
+                "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                 "index": ToolParameter(
                     description="Optional: Get health for specific index or pattern",
                     type="string",
@@ -565,6 +840,11 @@ class ElasticsearchClusterHealth(BaseElasticsearchTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         index = params.get("index")
         path = f"_cluster/health/{index}" if index else "_cluster/health"
 
@@ -572,7 +852,7 @@ class ElasticsearchClusterHealth(BaseElasticsearchTool):
         if params.get("level"):
             query_params["level"] = params["level"]
 
-        return self._make_request("GET", path, params, query_params=query_params)
+        return self._make_request(instance, "GET", path, params, query_params=query_params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")
@@ -598,6 +878,7 @@ class ElasticsearchMappings(BaseElasticsearchTool, JsonFilterMixin):
             ),
             parameters=JsonFilterMixin.extend_parameters(
                 {
+                    "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                     "index": ToolParameter(
                         description="Index name or pattern to get mappings for",
                         type="string",
@@ -608,9 +889,14 @@ class ElasticsearchMappings(BaseElasticsearchTool, JsonFilterMixin):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         index = params["index"]
         path = f"{index}/_mapping"
-        result = self._make_request("GET", path, params)
+        result = self._make_request(instance, "GET", path, params)
         return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
@@ -630,6 +916,7 @@ class ElasticsearchIndexStats(BaseElasticsearchTool):
                 "store size, indexing rate, and search rate."
             ),
             parameters={
+                "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                 "index": ToolParameter(
                     description="Index name or pattern. Use '_all' for all indices.",
                     type="string",
@@ -648,6 +935,11 @@ class ElasticsearchIndexStats(BaseElasticsearchTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         index = params["index"]
         metrics = params.get("metrics")
 
@@ -656,7 +948,7 @@ class ElasticsearchIndexStats(BaseElasticsearchTool):
         else:
             path = f"{index}/_stats"
 
-        return self._make_request("GET", path, params)
+        return self._make_request(instance, "GET", path, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")
@@ -676,6 +968,7 @@ class ElasticsearchAllocationExplain(BaseElasticsearchTool):
                 "or specify index/shard to explain a specific shard."
             ),
             parameters={
+                "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                 "index": ToolParameter(
                     description="Index name for specific shard explanation",
                     type="string",
@@ -695,6 +988,11 @@ class ElasticsearchAllocationExplain(BaseElasticsearchTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         body: Optional[Dict[str, Any]] = None
 
         if params.get("index") is not None and params.get("shard") is not None:
@@ -705,7 +1003,7 @@ class ElasticsearchAllocationExplain(BaseElasticsearchTool):
             }
 
         return self._make_request(
-            "GET", "_cluster/allocation/explain", params, body=body
+            instance, "GET", "_cluster/allocation/explain", params, body=body
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
@@ -728,6 +1026,7 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
                 "thread pool, filesystem, transport, and HTTP metrics."
             ),
             parameters={
+                "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                 "node_id": ToolParameter(
                     description="Specific node ID or name. Use '_local' for current node, '_all' for all nodes.",
                     type="string",
@@ -745,6 +1044,11 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         node_id = params.get("node_id", "_all")
         metrics = params.get("metrics")
 
@@ -753,7 +1057,7 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
         else:
             path = f"_nodes/{node_id}/stats"
 
-        return self._make_request("GET", path, params)
+        return self._make_request(instance, "GET", path, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         node_id = params.get("node_id", "_all")
@@ -776,6 +1080,7 @@ class ElasticsearchListIndices(BaseElasticsearchTool, JsonFilterMixin):
             ),
             parameters=JsonFilterMixin.extend_parameters(
                 {
+                    "elasticsearch_instance": ELASTICSEARCH_INSTANCE_PARAM,
                     "pattern": ToolParameter(
                         description=(
                             "Index name pattern to match. Supports wildcards (e.g., 'logs-*', 'app-*'). "
@@ -827,6 +1132,11 @@ class ElasticsearchListIndices(BaseElasticsearchTool, JsonFilterMixin):
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            instance = self._toolset._get_instance(params)
+        except ValueError as e:
+            return _instance_error_result(params, e)
+
         pattern = params.get("pattern", "*")
         path = f"_cat/indices/{pattern}"
 
@@ -856,12 +1166,50 @@ class ElasticsearchListIndices(BaseElasticsearchTool, JsonFilterMixin):
         if params.get("expand_wildcards"):
             query_params["expand_wildcards"] = params["expand_wildcards"]
 
-        result = self._make_request("GET", path, params, query_params=query_params)
+        result = self._make_request(instance, "GET", path, params, query_params=query_params)
         return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         pattern = params.get("pattern", "*")
         return f"{toolset_name_for_one_liner(self._toolset.name)}: List indices ({pattern})"
+
+
+class ElasticsearchListInstances(Tool):
+    """List configured Elasticsearch instances for the LLM to discover routing targets."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def __init__(self, toolset: ElasticsearchBaseToolset):
+        # Scope the tool name to the toolset (`elasticsearch/data` →
+        # `elasticsearch_data_list_instances`) so the data and cluster
+        # toolsets register distinct discovery tools instead of colliding
+        # on a single shared name when both are multi-instance.
+        toolset_suffix = toolset.name.split("/")[-1]
+        super().__init__(
+            name=f"elasticsearch_{toolset_suffix}_list_instances",
+            description=(
+                f"List the Elasticsearch instances configured for the "
+                f"`{toolset.name}` toolset. Returns each instance's name and "
+                f"api_url so subsequent tool calls can target the right one via "
+                f"the `elasticsearch_instance` parameter."
+            ),
+            parameters={},
+        )
+        self._toolset = toolset
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        instances = [
+            {"name": inst.name, "api_url": inst.api_url}
+            for inst in self._toolset._instances.values()
+        ]
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data={"instances": instances},
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: List instances"
 
 
 # =============================================================================
@@ -884,6 +1232,7 @@ class ElasticsearchDataToolset(ElasticsearchBaseToolset):
         )
         # Initialize tools after super().__init__() - update the pydantic field
         self.tools = [
+            ElasticsearchListInstances(self),
             ElasticsearchSearch(self),
             ElasticsearchMappings(self),
             ElasticsearchListIndices(self),
@@ -905,6 +1254,7 @@ class ElasticsearchClusterToolset(ElasticsearchBaseToolset):
         )
         # Initialize tools after super().__init__() - update the pydantic field
         self.tools = [
+            ElasticsearchListInstances(self),
             ElasticsearchCat(self),
             ElasticsearchClusterHealth(self),
             ElasticsearchIndexStats(self),
