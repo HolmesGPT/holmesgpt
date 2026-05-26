@@ -38,7 +38,13 @@ from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag, pretty_print_toolset_status
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
+from holmes.common.env_vars import DEFAULT_CLI_USER
 from holmes.core.oauth_utils import enable_disk_token_store
+
+# CLI runs as a single local identity. Setting this explicitly on every LLM
+# invocation keeps the OAuth token manager mode-agnostic: it never has to
+# guess whether a missing user_id means "CLI" or "buggy server caller".
+_CLI_REQUEST_CONTEXT = {"user_id": DEFAULT_CLI_USER}
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
 from holmes.plugins.destinations import DestinationType
@@ -177,7 +183,7 @@ def _investigate_issue(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    return ai.call(messages)
+    return ai.call(messages, request_context=_CLI_REQUEST_CONTEXT)
 
 
 # TODO: add streaming output
@@ -400,7 +406,7 @@ def ask(
             f'holmes ask "{prompt}"', span_type=SpanType.TASK
         ) as trace_span:
             trace_span.log(input=prompt, metadata={"type": "user_question"})
-            response = ai.call(messages, trace_span=trace_span)
+            response = ai.call(messages, trace_span=trace_span, request_context=_CLI_REQUEST_CONTEXT)
             trace_span.log(
                 output=response.result,
             )
@@ -760,7 +766,7 @@ def ticket(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": ticket_user_prompt},
         ]
-        result = ai.call(messages)
+        result = ai.call(messages, request_context=_CLI_REQUEST_CONTEXT)
 
         console.print(Rule())
         console.print(

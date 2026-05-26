@@ -193,7 +193,7 @@ class TestRequiresApproval:
         ctx = MagicMock()
         ctx.user_approved = False
         ctx.tool_call_id = tool_call_id
-        ctx.request_context = {"headers": {"X-Conversation-Id": conv_id}}
+        ctx.request_context = {"user_id": "test-user", "headers": {"X-Conversation-Id": conv_id}}
         return ctx
 
     def test_requires_approval_with_oauth_metadata(self):
@@ -290,7 +290,7 @@ class TestExchangeCodeForToken:
         }
         mock_response.raise_for_status = MagicMock()
 
-        request_context = {"headers": {"X-Conversation-Id": conv_id}}
+        request_context = {"user_id": "test-user", "headers": {"X-Conversation-Id": conv_id}}
 
         with patch("holmes.core.oauth_utils.httpx.post", return_value=mock_response) as mock_post:
             _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
@@ -419,7 +419,7 @@ class TestOAuthCacheKeySharedIdP:
             token_url="http://internal-keycloak:8080/realms/mcp/protocol/openid-connect/token",  # different token_url
             client_id="holmes-client",
         )
-        ctx = {"headers": {"X-Conversation-Id": "conv-shared"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-shared"}}
         key1 = _get_token_manager().get_cache_key(oauth1, ctx)
         key2 = _get_token_manager().get_cache_key(oauth2, ctx)
         assert key1 == key2, "Same authorization_url + client_id should produce same cache key"
@@ -438,7 +438,7 @@ class TestOAuthCacheKeySharedIdP:
             token_url="http://keycloak-b:8080/token",
             client_id="holmes-client",
         )
-        ctx = {"headers": {"X-Conversation-Id": "conv-diff"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-diff"}}
         key1 = _get_token_manager().get_cache_key(oauth1, ctx)
         key2 = _get_token_manager().get_cache_key(oauth2, ctx)
         assert key1 != key2, "Different authorization_urls should produce different cache keys"
@@ -461,7 +461,7 @@ class TestOAuthCacheKeySharedIdP:
             token_url="http://keycloak:8080/token",
             client_id="client-b",
         )
-        ctx = {"headers": {"X-Conversation-Id": "conv-cid"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-cid"}}
         key1 = _get_token_manager().get_cache_key(oauth1, ctx)
         key2 = _get_token_manager().get_cache_key(oauth2, ctx)
         assert key1 == key2, "Same authorization_url should produce same cache key"
@@ -474,7 +474,7 @@ class TestOAuthCacheKeySharedIdP:
             token_url=None,
             client_id=None,
         )
-        ctx = {"headers": {"X-Conversation-Id": "conv-none"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-none"}}
         # Should not raise — returns a valid key even with None authorization_url
         key = _get_token_manager().get_cache_key(oauth, ctx)
         assert isinstance(key, str)
@@ -497,7 +497,7 @@ class TestOAuthCacheKeySharedIdP:
             token_url="http://internal:8080/token",  # different token_url, same auth
             client_id="shared-client",
         )
-        ctx = {"headers": {"X-Conversation-Id": "conv-share-test"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-share-test"}}
 
         # Cache token via first MCP server's config
         cache_key1 = _get_token_manager().get_cache_key(oauth1, ctx)
@@ -866,7 +866,7 @@ class TestCLIOAuthFlow:
         authorization_url (stable across DCR), so it stays the same."""
 
         oauth = self._make_oauth_endpoints(client_id=None, registration_endpoint="http://idp.test/register")
-        ctx = {"headers": {"X-Conversation-Id": "cli-conv"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "cli-conv"}}
 
         # Cache key before DCR (client_id=None)
         key_before = _get_token_manager().get_cache_key(oauth, ctx)
@@ -1183,7 +1183,7 @@ class TestRenderHeadersOAuth:
             client_id="inject-cid",
         )
         ts = self._make_toolset(oauth)
-        ctx = {"headers": {"X-Conversation-Id": "inject-conv"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "inject-conv"}}
         cache_key = _get_token_manager().get_cache_key(oauth, ctx)
         _get_token_manager().cache.set(cache_key, "my-bearer-token", expires_in=300)
 
@@ -1203,7 +1203,7 @@ class TestRenderHeadersOAuth:
             client_id="no-cache-cid",
         )
         ts = self._make_toolset(oauth)
-        ctx = {"headers": {"X-Conversation-Id": "no-cache-conv"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "no-cache-conv"}}
 
         result = ts._render_headers(ctx)
 
@@ -1217,7 +1217,7 @@ class TestRenderHeadersOAuth:
             client_id="refresh-inject-cid",
         )
         ts = self._make_toolset(oauth)
-        ctx = {"headers": {"X-Conversation-Id": "refresh-inject-conv"}}
+        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "refresh-inject-conv"}}
         cache_key = _get_token_manager().get_cache_key(oauth, ctx)
 
         _get_token_manager().cache.set(cache_key, "old", expires_in=60, refresh_token="r", refresh_expires_in=3600)
@@ -2005,27 +2005,27 @@ class TestBackgroundSweep:
 
 
 # ---------------------------------------------------------------------------
-# Server-mode user_id guard (prevents __no_user__ cache-key reuse)
+# user_id guard: cache cannot be keyed without an explicit identity
 # ---------------------------------------------------------------------------
-class TestServerModeUserIdGuard:
-    """In server mode (DalTokenStore), the in-memory cache must not be readable
-    or writable without a user_id. This mirrors DalTokenStore.get_token's guard
-    and prevents one caller's token from being served to another via the
-    DEFAULT_CLI_USER fallback cache key.
+class TestUserIdGuard:
+    """The in-memory cache must not be readable or writable without a user_id,
+    regardless of mode. Callers (CLI, server, worker) are responsible for
+    putting a real user_id on request_context — CLI uses DEFAULT_CLI_USER,
+    server/worker use the authenticated user.
+
+    Without this guard, a missing user_id in server mode would collapse all
+    callers onto one DEFAULT_CLI_USER cache slot (privilege escalation), and
+    cache_key computation would be ambiguous in any mode.
     """
 
-    def _make_server_manager(self) -> OAuthTokenManager:
-        from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
-
+    def _make_manager(self, with_dal: bool = False) -> OAuthTokenManager:
         manager = OAuthTokenManager()
         manager._shutdown_event.set()
-        manager._store = DalTokenStore(dal=MagicMock())
-        return manager
-
-    def _make_cli_manager(self) -> OAuthTokenManager:
-        manager = OAuthTokenManager()
-        manager._shutdown_event.set()
-        manager._store = DiskTokenStore(enabled=False)
+        if with_dal:
+            from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+            manager._store = DalTokenStore(dal=MagicMock())
+        else:
+            manager._store = DiskTokenStore(enabled=False)
         return manager
 
     def _oauth(self) -> MCPOAuthConfig:
@@ -2036,14 +2036,9 @@ class TestServerModeUserIdGuard:
             client_id="cid",
         )
 
-    def test_get_access_token_returns_none_without_user_id_in_server_mode(self):
-        manager = self._make_server_manager()
+    def test_get_access_token_returns_none_without_user_id(self):
+        manager = self._make_manager(with_dal=True)
         oauth = self._oauth()
-
-        # Pre-seed the cache under DEFAULT_CLI_USER to simulate a stale/poisoned
-        # entry. A user_id-less request must NOT receive this token.
-        poisoned_key = manager._get_cache_key(oauth, None)
-        manager._cache.set(poisoned_key, "leaked-token", expires_in=3600)
 
         assert manager.get_access_token(oauth, request_context=None) is None
         assert manager.get_access_token(oauth, request_context={"user_id": None}) is None
@@ -2051,20 +2046,17 @@ class TestServerModeUserIdGuard:
 
         manager.shutdown()
 
-    def test_has_token_returns_false_without_user_id_in_server_mode(self):
-        manager = self._make_server_manager()
+    def test_has_token_returns_false_without_user_id(self):
+        manager = self._make_manager(with_dal=True)
         oauth = self._oauth()
-
-        poisoned_key = manager._get_cache_key(oauth, None)
-        manager._cache.set(poisoned_key, "leaked-token", expires_in=3600)
 
         assert manager.has_token(oauth, request_context=None) is False
         assert manager.has_token(oauth, request_context={"user_id": None}) is False
 
         manager.shutdown()
 
-    def test_store_token_refused_without_user_id_in_server_mode(self):
-        manager = self._make_server_manager()
+    def test_store_token_refused_without_user_id(self):
+        manager = self._make_manager(with_dal=True)
         oauth = self._oauth()
 
         with patch.object(manager._store, "store_token") as mock_store:
@@ -2074,20 +2066,29 @@ class TestServerModeUserIdGuard:
                 request_context=None,
             )
 
-        # Neither cache nor persistent store should have been touched.
         assert mock_store.call_count == 0
-        cache_key = manager._get_cache_key(oauth, None)
-        assert manager._cache.get_valid_access_token(cache_key) is None
 
         manager.shutdown()
 
-    def test_get_access_token_still_works_with_user_id_in_server_mode(self):
+    def test_get_cache_key_raises_without_user_id(self):
+        """Cache-key computation must refuse to silently substitute a default."""
+        manager = self._make_manager(with_dal=True)
+        oauth = self._oauth()
+
+        with pytest.raises(ValueError):
+            manager.get_cache_key(oauth, None)
+        with pytest.raises(ValueError):
+            manager.get_cache_key(oauth, {"user_id": None})
+
+        manager.shutdown()
+
+    def test_explicit_user_id_works(self):
         """Regression: the guard must not break the legitimate per-user path."""
-        manager = self._make_server_manager()
+        manager = self._make_manager(with_dal=True)
         oauth = self._oauth()
         ctx = {"user_id": "alice"}
 
-        cache_key = manager._get_cache_key(oauth, ctx)
+        cache_key = manager.get_cache_key(oauth, ctx)
         manager._cache.set(cache_key, "alice-token", expires_in=3600)
 
         assert manager.get_access_token(oauth, request_context=ctx) == "alice-token"
@@ -2095,20 +2096,23 @@ class TestServerModeUserIdGuard:
 
         manager.shutdown()
 
-    def test_cli_mode_still_allows_default_user(self):
-        """In CLI mode the guard must NOT trigger — DEFAULT_CLI_USER is the
-        legitimate single-user identity for the local process."""
-        manager = self._make_cli_manager()
+    def test_cli_caller_passes_default_user_explicitly(self):
+        """CLI callers must put DEFAULT_CLI_USER on request_context themselves.
+        With it set, the guard does not trigger and tokens flow normally."""
+        from holmes.common.env_vars import DEFAULT_CLI_USER
+
+        manager = self._make_manager(with_dal=False)
         oauth = self._oauth()
+        cli_ctx = {"user_id": DEFAULT_CLI_USER}
 
         manager.store_token(
             oauth,
             {"access_token": "cli-token", "expires_in": 3600},
-            request_context=None,
+            request_context=cli_ctx,
         )
 
-        assert manager.get_access_token(oauth, request_context=None) == "cli-token"
-        assert manager.has_token(oauth, request_context=None) is True
+        assert manager.get_access_token(oauth, request_context=cli_ctx) == "cli-token"
+        assert manager.has_token(oauth, request_context=cli_ctx) is True
 
         manager.shutdown()
 

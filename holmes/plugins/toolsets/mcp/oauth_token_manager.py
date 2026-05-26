@@ -135,18 +135,18 @@ class OAuthTokenManager:
     ) -> Optional[str]:
         """Return a valid access token, checking cache → refresh → persistent store.
 
+        A user_id must be present on request_context. CLI callers must pass
+        DEFAULT_CLI_USER explicitly; the server must pass the authenticated
+        user. Without a user_id the cache cannot be safely keyed, so we
+        refuse to serve any token (mirrors DalTokenStore.get_token's guard).
+
         Returns None if no token is available anywhere (caller should initiate OAuth flow).
         """
         user_id = _get_user_id(request_context)
-
-        # In server mode, refuse to serve tokens without a user identity. The
-        # in-memory cache would otherwise collapse all such requests onto the
-        # DEFAULT_CLI_USER fallback key and could leak one caller's token to
-        # another. DalTokenStore.get_token applies the same guard.
-        if self._is_server_mode() and not user_id:
+        if not user_id:
             return None
 
-        cache_key = self._get_cache_key(oauth_config, request_context)
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
 
         # 1. Check in-memory cache
         cached = self._cache.get_valid_access_token(cache_key)
@@ -186,9 +186,10 @@ class OAuthTokenManager:
         request_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Check if any token (access or refreshable) is available in cache."""
-        if self._is_server_mode() and not _get_user_id(request_context):
+        user_id = _get_user_id(request_context)
+        if not user_id:
             return False
-        cache_key = self._get_cache_key(oauth_config, request_context)
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
         return self._cache.has_token_or_refresh(cache_key)
 
     def store_token(
@@ -201,17 +202,11 @@ class OAuthTokenManager:
     ) -> None:
         """Store a token to cache and persistent store."""
         user_id = _get_user_id(request_context)
-
-        # In server mode, never persist a token under the DEFAULT_CLI_USER
-        # fallback — that would seed the in-memory cache with an entry that
-        # any subsequent user_id-less request could consume.
-        if self._is_server_mode() and not user_id:
-            logger.warning(
-                "OAuthTokenManager: refusing to store token in server mode without a user_id"
-            )
+        if not user_id:
+            logger.warning("OAuthTokenManager: refusing to store token without a user_id")
             return
 
-        cache_key = self._get_cache_key(oauth_config, request_context)
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
         access_token = token_data.get("access_token")
         if not access_token:
             logger.warning("OAuthTokenManager: store_token called with no access_token")
@@ -245,18 +240,14 @@ class OAuthTokenManager:
             cache_key, expires_in, "refresh_token" in token_data,
         )
 
-    def require_user_id(self, request_context: Optional[Dict[str, Any]]) -> str:
-        """Return a user_id, using DEFAULT_CLI_USER in CLI mode or raising in server mode.
+    def require_user_id(self, request_context: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Return the user_id from request_context, or None if absent.
 
-        CLI mode (DiskTokenStore / no store): returns DEFAULT_CLI_USER.
-        Server mode (DalTokenStore): raises ValueError if user_id is missing.
+        Callers (CLI, server, conversation worker) are responsible for putting
+        a real user_id on request_context — CLI uses DEFAULT_CLI_USER, server
+        uses the authenticated user. This method just surfaces it.
         """
-        user_id = _get_user_id(request_context)
-        if user_id:
-            return user_id
-        if isinstance(self._store, DalTokenStore):
-            return None
-        return DEFAULT_CLI_USER
+        return _get_user_id(request_context)
 
     def shutdown(self) -> None:
         """Stop the background refresh thread."""
@@ -264,15 +255,6 @@ class OAuthTokenManager:
         self._refresh_thread.join(timeout=5)
 
     # ── Cache / key helpers ────────────────────────────────────────────
-
-    def _is_server_mode(self) -> bool:
-        """True when running against the DB-backed token store (multi-user server).
-
-        In server mode the cache must not fall back to DEFAULT_CLI_USER because
-        the cache key would collide across callers. CLI mode legitimately uses
-        DEFAULT_CLI_USER as the single local identity.
-        """
-        return isinstance(self._store, DalTokenStore)
 
     @property
     def cache(self) -> OAuthTokenCache:
@@ -429,7 +411,12 @@ class OAuthTokenManager:
     # ── Key helpers ────────────────────────────────────────────────────
 
     def _get_cache_key(self, oauth_config: Any, request_context: Optional[Dict[str, Any]]) -> str:
-        user_id = _get_user_id(request_context) or DEFAULT_CLI_USER
+        """Build a cache key from request_context. Raises if user_id is missing —
+        callers must put a user_id on the context (DEFAULT_CLI_USER in CLI mode,
+        authenticated user in server mode)."""
+        user_id = _get_user_id(request_context)
+        if not user_id:
+            raise ValueError("OAuthTokenManager: user_id is required in request_context")
         return self._build_cache_key(user_id, oauth_config.authorization_url)
 
     @staticmethod
