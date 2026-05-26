@@ -201,51 +201,19 @@ Overrides the URL LiteLLM fetches the model catalog (`model_prices_and_context_w
 
 Robusta hosts a mirror of the same file in each region. Pick the URL matching your Robusta region:
 
-=== "US"
-
-    ```
-    https://api.robusta.dev/litellm/model_prices_and_context_window.json
-    ```
-
-=== "EU"
-
-    ```
-    https://api.eu.robusta.dev/litellm/model_prices_and_context_window.json
-    ```
-
-=== "AP"
-
-    ```
-    https://api.ap.robusta.dev/litellm/model_prices_and_context_window.json
-    ```
+```robusta-region
+https://api.robusta.dev/litellm/model_prices_and_context_window.json
+```
 
 The mirror is cached and falls back to its last-known-good copy if the upstream is temporarily unreachable, so pointing at it gives the same freshness as the default URL without requiring egress to `raw.githubusercontent.com`.
 
 **Helm example:**
 
-=== "US"
-
-    ```yaml
-    additionalEnvVars:
-      - name: LITELLM_MODEL_COST_MAP_URL
-        value: https://api.robusta.dev/litellm/model_prices_and_context_window.json
-    ```
-
-=== "EU"
-
-    ```yaml
-    additionalEnvVars:
-      - name: LITELLM_MODEL_COST_MAP_URL
-        value: https://api.eu.robusta.dev/litellm/model_prices_and_context_window.json
-    ```
-
-=== "AP"
-
-    ```yaml
-    additionalEnvVars:
-      - name: LITELLM_MODEL_COST_MAP_URL
-        value: https://api.ap.robusta.dev/litellm/model_prices_and_context_window.json
-    ```
+```robusta-region {lang=yaml}
+additionalEnvVars:
+  - name: LITELLM_MODEL_COST_MAP_URL
+    value: https://api.robusta.dev/litellm/model_prices_and_context_window.json
+```
 
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.

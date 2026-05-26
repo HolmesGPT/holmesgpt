@@ -130,17 +130,9 @@ To configure this:
 
 1. Open the Robusta platform — pick your region:
 
-    === "US"
-
-        [platform.robusta.dev](https://platform.robusta.dev/)
-
-    === "EU"
-
-        [platform.eu.robusta.dev](https://platform.eu.robusta.dev/)
-
-    === "AP"
-
-        [platform.ap.robusta.dev](https://platform.ap.robusta.dev/)
+    ```robusta-region
+    [platform.robusta.dev](https://platform.robusta.dev/)
+    ```
 
 2. Navigate to **Settings → AI Assistant → AI Customization**
 3. Add your labels and metric details
