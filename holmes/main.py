@@ -166,6 +166,9 @@ def _investigate_issue(
     config: Config,
 ) -> LLMResult:
     """Investigate an issue using the standard ask system prompt with investigation additions."""
+    # Enable disk-based OAuth token storage so MCP tokens previously
+    # authorized via `holmes ask` are reused here (idempotent).
+    enable_disk_token_store()
     investigation_additions = f"Provide a terse analysis of the following {issue.source_type} alert/issue and why it is firing."
     system_prompt = build_system_prompt(
         toolsets=ai.tool_executor.toolsets,
@@ -735,6 +738,9 @@ def ticket(
             model=model,
             tool_results_dir=tool_results_dir,
         )
+
+        # Enable disk-based OAuth token storage for CLI mode
+        enable_disk_token_store()
 
         # Render ticket-specific additions
         ticket_additions = load_and_render_prompt(

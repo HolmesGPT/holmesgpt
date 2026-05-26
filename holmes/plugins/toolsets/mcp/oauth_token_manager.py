@@ -240,14 +240,18 @@ class OAuthTokenManager:
             cache_key, expires_in, "refresh_token" in token_data,
         )
 
-    def require_user_id(self, request_context: Optional[Dict[str, Any]]) -> Optional[str]:
-        """Return the user_id from request_context, or None if absent.
+    def require_user_id(self, request_context: Optional[Dict[str, Any]]) -> str:
+        """Return the user_id from request_context, or raise if absent.
 
         Callers (CLI, server, conversation worker) are responsible for putting
         a real user_id on request_context — CLI uses DEFAULT_CLI_USER, server
-        uses the authenticated user. This method just surfaces it.
+        uses the authenticated user. Missing user_id is a programming error
+        (would silently corrupt downstream per-user storage), so we fail fast.
         """
-        return _get_user_id(request_context)
+        user_id = _get_user_id(request_context)
+        if not user_id:
+            raise ValueError("OAuthTokenManager: user_id is required in request_context")
+        return user_id
 
     def shutdown(self) -> None:
         """Stop the background refresh thread."""

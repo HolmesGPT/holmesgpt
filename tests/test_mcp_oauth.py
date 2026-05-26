@@ -2082,6 +2082,22 @@ class TestUserIdGuard:
 
         manager.shutdown()
 
+    def test_require_user_id_raises_when_missing(self):
+        """require_user_id must fail-fast so callers like OAuthToolConnector
+        never receive None and silently pass it into per-user storage."""
+        manager = self._make_manager(with_dal=True)
+
+        with pytest.raises(ValueError):
+            manager.require_user_id(None)
+        with pytest.raises(ValueError):
+            manager.require_user_id({"user_id": None})
+        with pytest.raises(ValueError):
+            manager.require_user_id({"user_id": ""})
+
+        assert manager.require_user_id({"user_id": "alice"}) == "alice"
+
+        manager.shutdown()
+
     def test_explicit_user_id_works(self):
         """Regression: the guard must not break the legitimate per-user path."""
         manager = self._make_manager(with_dal=True)
