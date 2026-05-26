@@ -675,14 +675,14 @@ The fence (defined in `docs/custom_fences.py`, registered in `mkdocs.yml`) takes
 
 - **YAML or other code with `{lang=<name>}`** (applies the `language-<name>` class for syntax highlighting):
 
-    `````markdown
+    ````markdown
     ```robusta-region {lang=yaml}
     holmes:
       additionalEnvVars:
         - name: ROBUSTA_API_ENDPOINT
           value: "https://api.robusta.dev"
     ```
-    `````
+    ````
 
 Author the URL once using the US domain (`api.robusta.dev` / `platform.robusta.dev`); the fence handles the `.eu` / `.ap` rewrites. If you add a new region or rename one, update `ROBUSTA_REGIONS` in `docs/custom_fences.py` — that single change propagates to every page.
 
