@@ -1233,6 +1233,73 @@ class TestRenderHeadersOAuth:
         assert result is not None
         assert result["Authorization"] == "Bearer refreshed-tok"
 
+    def test_strips_static_authorization_when_oauth_enabled_but_no_token(self):
+        """When OAuth is configured but no user token is available (e.g. user_id
+        is null), a static Authorization header from `headers` must NOT be sent —
+        otherwise a shared service-account key would silently substitute for the
+        absent per-user OAuth token (privilege escalation)."""
+        oauth = MCPOAuthConfig(
+            enabled=True,
+            authorization_url="http://idp-strip/auth",
+            token_url="http://idp-strip/token",
+            client_id="strip-cid",
+        )
+        ts = RemoteMCPToolset(name="strip-test", enabled=True)
+        ts._mcp_config = MCPConfig(
+            url="http://mcp:8000",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=oauth,
+            headers={
+                "Authorization": "Bearer service-account-key",
+                "X-Custom": "keep-me",
+            },
+        )
+
+        # No token cached and request_context has no user_id
+        result = ts._render_headers(None) or {}
+
+        assert "Authorization" not in result
+        assert "authorization" not in result
+        assert result.get("X-Custom") == "keep-me"
+
+    def test_strips_static_authorization_case_insensitive(self):
+        """The strip must match Authorization headers regardless of case."""
+        oauth = MCPOAuthConfig(
+            enabled=True,
+            authorization_url="http://idp-strip-ci/auth",
+            token_url="http://idp-strip-ci/token",
+            client_id="strip-ci-cid",
+        )
+        ts = RemoteMCPToolset(name="strip-ci-test", enabled=True)
+        ts._mcp_config = MCPConfig(
+            url="http://mcp:8000",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=oauth,
+            headers={
+                "authorization": "Bearer lowercase-key",
+                "AUTHORIZATION": "Bearer upper-key",
+            },
+        )
+
+        result = ts._render_headers(None) or {}
+
+        assert not any(k.lower() == "authorization" for k in result)
+
+    def test_keeps_static_authorization_when_oauth_disabled(self):
+        """If OAuth is NOT configured for the toolset, the static Authorization
+        header is a deliberate config choice and must be passed through."""
+        ts = RemoteMCPToolset(name="no-oauth-test", enabled=True)
+        ts._mcp_config = MCPConfig(
+            url="http://mcp:8000",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=None,
+            headers={"Authorization": "Bearer static-key"},
+        )
+
+        result = ts._render_headers(None) or {}
+
+        assert result.get("Authorization") == "Bearer static-key"
+
 
 # ---------------------------------------------------------------------------
 # _discover_oauth_endpoints (mocked HTTP)
