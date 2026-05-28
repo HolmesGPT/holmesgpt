@@ -123,7 +123,7 @@ def init_config():
         tuple: (config, dal) - The initialized Config object and its DAL instance
     """
     default_config_path = Path(DEFAULT_CONFIG_LOCATION)
-    if default_config_path.exists():
+    if default_config_path.exists() and os.environ.get("LOAD_CONFIG_FROM_ENV", "false").lower() == "false":
         logging.info(f"Loading config from file: {default_config_path}")
         config = Config.load_from_file(default_config_path)
     else:
@@ -451,6 +451,14 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.user_id:
             request_context.setdefault("headers", {})
             request_context["user_id"] = chat_request.user_id
+        # Surface conversation_id and cluster_name to toolsets that need
+        # to hardwire them into outbound requests (e.g. platform-mcp adds
+        # them as X-Robusta-* headers so tool handlers don't have to trust
+        # the LLM-supplied arguments).
+        if chat_request.conversation_id:
+            request_context["conversation_id"] = chat_request.conversation_id
+        if config.cluster_name:
+            request_context["cluster_name"] = config.cluster_name
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()

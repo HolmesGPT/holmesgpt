@@ -650,3 +650,40 @@ When writing documentation in the `docs/` directory:
   ```
 
 - **Common Use Cases format**: Just example prompts, one per code block, no sub-headers, no explanations.
+
+## Robusta Platform/API URLs in Docs
+
+Whenever you reference `api.robusta.dev` or `platform.robusta.dev` in a docs page, use the `robusta-region` custom fence so readers can pick US/EU/AP. **Never hardcode a single region** — the Robusta platform is hosted in multiple regions and a bare `api.robusta.dev` link silently breaks for EU/AP users.
+
+The fence (defined in `docs/custom_fences.py`, registered in `mkdocs.yml`) takes a US URL as input and emits a three-tab picker with the domain rewritten per region. Pick the input shape that matches your context:
+
+- **Plain URL or text** (renders as a code block per tab):
+
+    ````markdown
+    ```robusta-region
+    https://api.robusta.dev/litellm/model_prices_and_context_window.json
+    ```
+    ````
+
+- **Markdown link** (renders as a clickable link per tab — use for "go to platform.robusta.dev" style prose):
+
+    ````markdown
+    ```robusta-region
+    [platform.robusta.dev](https://platform.robusta.dev/)
+    ```
+    ````
+
+- **YAML or other code with `{lang=<name>}`** (applies the `language-<name>` class for syntax highlighting):
+
+    ````markdown
+    ```robusta-region {lang=yaml}
+    holmes:
+      additionalEnvVars:
+        - name: ROBUSTA_API_ENDPOINT
+          value: "https://api.robusta.dev"
+    ```
+    ````
+
+Author the URL once using the US domain (`api.robusta.dev` / `platform.robusta.dev`); the fence handles the `.eu` / `.ap` rewrites. If you add a new region or rename one, update `ROBUSTA_REGIONS` in `docs/custom_fences.py` — that single change propagates to every page.
+
+Existing usages (greppable starting points): `docs/ai-providers/robusta-ai.md`, `docs/installation/ui-installation.md`, `docs/reference/environment-variables.md`, `docs/data-sources/builtin-toolsets/coralogix-logs.md`, `docs/data-sources/builtin-toolsets/kubernetes-mcp.md`.

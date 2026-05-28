@@ -245,6 +245,9 @@ markdown_extensions:
               - name: yaml-toolset-config
                 class: yaml
                 format: !!python/name:docs.custom_fences.toolset_config_fence_format
+              - name: robusta-region
+                class: robusta-region
+                format: !!python/name:docs.custom_fences.robusta_region_fence_format
     - pymdownx.tabbed:
           alternate_style: true
           combine_header_slug: true
