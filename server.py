@@ -123,7 +123,7 @@ def init_config():
         tuple: (config, dal) - The initialized Config object and its DAL instance
     """
     default_config_path = Path(DEFAULT_CONFIG_LOCATION)
-    if default_config_path.exists():
+    if default_config_path.exists() and os.environ.get("LOAD_CONFIG_FROM_ENV", "false").lower() == "false":
         logging.info(f"Loading config from file: {default_config_path}")
         config = Config.load_from_file(default_config_path)
     else:
