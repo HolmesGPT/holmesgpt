@@ -104,6 +104,103 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Multiple Grafana Instances
+
+If you run a Grafana instance in each Kubernetes cluster (or want a single Holmes deployment to query several Grafana servers), set `instances` instead of the single-instance `api_url`/`api_key` fields. The LLM picks the right instance per tool call via the `grafana_instance` parameter (run `grafana_list_instances` to see configured names).
+
+Top-level credentials act as **global defaults**. Per-instance settings override them. Use either `api_key` (Bearer) **or** `username` + `password` (HTTP Basic) — they're mutually exclusive per instance.
+
+=== "Holmes CLI"
+
+    ```yaml
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          # Global defaults — applied to every instance unless overridden
+          username: holmes
+          password: "{{ env.GRAFANA_PASSWORD }}"
+          timeout_seconds: 30
+
+          instances:
+            - name: prod-eu
+              api_url: https://grafana.eu-west-1.internal
+            - name: prod-us
+              api_url: https://grafana.us-east-1.internal
+            - name: staging
+              api_url: https://grafana.staging.internal
+              # Per-instance override (uses an API key instead of the global basic auth)
+              api_key: "{{ env.STAGING_GRAFANA_API_KEY }}"
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    additionalEnvVars:
+      - name: GRAFANA_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: grafana-credentials
+            key: password
+      - name: STAGING_GRAFANA_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: grafana-credentials
+            key: staging-api-key
+
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          username: holmes
+          password: "{{ env.GRAFANA_PASSWORD }}"
+          instances:
+            - name: prod-eu
+              api_url: https://grafana.eu-west-1.internal
+            - name: prod-us
+              api_url: https://grafana.us-east-1.internal
+            - name: staging
+              api_url: https://grafana.staging.internal
+              api_key: "{{ env.STAGING_GRAFANA_API_KEY }}"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: GRAFANA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-credentials
+              key: password
+      toolsets:
+        grafana/dashboards:
+          enabled: true
+          config:
+            username: holmes
+            password: "{{ env.GRAFANA_PASSWORD }}"
+            instances:
+              - name: prod-eu
+                api_url: https://grafana.eu-west-1.internal
+              - name: prod-us
+                api_url: https://grafana.us-east-1.internal
+    ```
+
+**Health check is tolerant**: if some instances are unreachable at startup, the toolset still loads with the healthy ones. The unreachable instances are listed in the toolset status string and via `grafana_list_instances`.
+
+### Username/password authentication (single instance)
+
+If you just want HTTP Basic auth without multi-instance, set `username`/`password` at the top level:
+
+    toolsets:
+      grafana/dashboards:
+        enabled: true
+        config:
+          api_url: https://grafana.internal
+          username: holmes
+          password: "{{ env.GRAFANA_PASSWORD }}"
+
 ## Visual Rendering
 
 When the Grafana Image Renderer is available, HolmesGPT can take screenshots of dashboards and panels and analyze them using the LLM's vision capabilities. This is useful for:

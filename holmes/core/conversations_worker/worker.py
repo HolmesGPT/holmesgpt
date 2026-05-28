@@ -31,6 +31,8 @@ from holmes.core.conversations_worker.models import (
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeManager
 from holmes.core.models import ChatRequest
+from holmes.core.supabase_dal import SupabaseDnsException
+from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
@@ -183,7 +185,7 @@ class ConversationWorker:
                 )
                 self._realtime_manager.start()
             except Exception:
-                logging.exception(
+                logging.warning(
                     "Failed to start Realtime manager; continuing with polling only",
                     exc_info=True,
                 )
@@ -271,11 +273,30 @@ class ConversationWorker:
         while self._running and not self._realtime_verify_stop.is_set():
             try:
                 result = self.dal.is_realtime_enabled()
-            except Exception:
-                logging.exception(
-                    "Unexpected error in realtime verify loop", exc_info=True
+            except (
+                SupabaseDnsException,
+                PGAPIError,
+                ConnectionError,
+                TimeoutError,
+                OSError,
+            ):
+                # Transient — keep retrying with backoff.
+                logging.warning(
+                    "Connectivity error in realtime verify loop; will retry with backoff",
+                    exc_info=True,
                 )
                 result = None
+            except Exception:
+                # is_realtime_enabled() already converts transport errors
+                # to None, so an exception escaping here is almost certainly
+                # a programming defect. Surface it loudly and stop the
+                # verify thread instead of silently retrying forever; the
+                # worker will continue in polling-only / unverified mode,
+                # but the failure will be visible in logs/alerts.
+                logging.exception(
+                    "Unexpected error in realtime verify loop; not retrying",
+                )
+                raise
 
             if result is True:
                 logging.info(
@@ -636,6 +657,16 @@ class ConversationWorker:
         # Per-event data still wins so the FE can override per-turn (e.g.
         # an alert-investigation chat that pivots to a freeform question).
         resolved_user_id = data.get("user_id") or task.user_id
+        # Per-conversation OAuth opt-out. When a Conversations row carries
+        # `metadata.oauth_enabled = false` (e.g. triggered workflows that
+        # don't want Holmes acting under the workflow creator's per-user
+        # OAuth tokens), drop user_id before it reaches ChatRequest so the
+        # OAuth resolver in tool_calling_llm has no user to key on.
+        oauth_enabled = (
+            task.metadata.get("oauth_enabled", True) if task.metadata else True
+        )
+        if not oauth_enabled:
+            resolved_user_id = None
         # Per-event presence wins, not truthiness — so an explicit empty
         # value from the FE (e.g. "" to deliberately clear a field) keeps
         # priority over the row-level metadata fallback and we don't
@@ -849,10 +880,19 @@ class ConversationWorker:
 
             # Build request_context with user_id so per-user OAuth tools resolve
             # correctly inside call_stream (matches the regular /api/chat flow
-            # in server.py).
+            # in server.py). Also surface conversation_id and cluster_name so
+            # the platform-mcp toolset can hardwire them onto its outbound
+            # requests (as X-Robusta-* headers) — keeping them out of the
+            # LLM-visible tool schema.
             request_context: Optional[Dict[str, Any]] = None
             if chat_request.user_id:
                 request_context = {"user_id": chat_request.user_id}
+            if task.conversation_id:
+                request_context = request_context or {}
+                request_context["conversation_id"] = task.conversation_id
+            if self.config.cluster_name:
+                request_context = request_context or {}
+                request_context["cluster_name"] = self.config.cluster_name
 
             try:
                 # Wrap the raw stream with the usage recorder BEFORE the

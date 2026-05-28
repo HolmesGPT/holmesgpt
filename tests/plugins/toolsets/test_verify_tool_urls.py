@@ -1,5 +1,6 @@
 import base64
 import json
+from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -418,7 +419,13 @@ class TestDashboardURLs:
 
     @staticmethod
     def setup_mocks():
-        def mock_make_request(endpoint, params, query_params=None, timeout=30):
+        def mock_make_request(
+            instance: Any,
+            endpoint: str,
+            params: Dict[str, Any],
+            query_params: Optional[Dict[str, Any]] = None,
+            timeout: int = 30,
+        ) -> MagicMock:
             if "home" in endpoint:
                 data = get_mock_home_dashboard()
             elif "tags" in endpoint:
@@ -452,6 +459,7 @@ class TestDashboardURLs:
     def toolset(self, config):
         toolset = GrafanaToolset()
         toolset._grafana_config = config
+        toolset._instances = {i.name: i for i in config.instances}
         return toolset
 
     TEST_CASES = [
