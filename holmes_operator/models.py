@@ -101,6 +101,7 @@ class HealthCheckCondition(BaseModel, Generic[ConditionTypeT]):
 class HealthCheckStatus(BaseModel):
     """HealthCheck CRD status."""
 
+    observedGeneration: Optional[int] = None
     phase: Optional[CheckPhase] = None
     startTime: Optional[str] = None
     completionTime: Optional[str] = None

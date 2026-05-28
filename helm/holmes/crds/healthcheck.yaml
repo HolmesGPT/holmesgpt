@@ -66,6 +66,10 @@ spec:
             status:
               type: object
               properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  description: "Last spec generation that was processed. When metadata.generation != observedGeneration, the check will be re-executed"
                 phase:
                   type: string
                   description: "Execution phase: Pending, Running, Completed, Failed"

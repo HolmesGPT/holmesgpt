@@ -1,10 +1,19 @@
 # Deployment Verification
 
-A common pattern is deploying a HealthCheck alongside your application to verify the new version is working correctly. Since HealthChecks run immediately when created, you can include one in the same manifest (or CI/CD step) as your deployment and use the result to gate rollout progression.
+A common pattern is deploying a HealthCheck alongside your application to verify the new version is working correctly. By adding the `holmesgpt.dev/rerun: "true"` annotation to your HealthCheck manifest, the operator will **re-run the check on every deploy** — no manual intervention needed.
 
-## One-Time Verification with HealthCheck
+## How It Works
 
-Include a [HealthCheck](health-checks.md) in the same manifest as your deployment. It runs immediately after `kubectl apply` and reports whether the new version started correctly.
+The `holmesgpt.dev/rerun` annotation creates an automatic toggle:
+
+1. Your manifest includes `holmesgpt.dev/rerun: "true"`
+2. On `kubectl apply`, the operator runs the check and **clears the annotation**
+3. On the next deploy, `kubectl apply` sees the annotation is missing (operator cleared it) but the manifest says it should be `"true"` → restores it → triggers re-run
+4. Repeat forever
+
+This means every `helm upgrade` or ArgoCD sync automatically triggers a fresh health check.
+
+## Example: HealthCheck Alongside a Deployment
 
 ```yaml
 # app-deployment.yaml
@@ -30,11 +39,12 @@ spec:
 apiVersion: holmesgpt.dev/v1alpha1
 kind: HealthCheck
 metadata:
-  name: checkout-api-deploy-v2-4-1
+  name: checkout-api-deploy-check
   namespace: production
+  annotations:
+    holmesgpt.dev/rerun: "true"
   labels:
     app: checkout-api
-    deploy-version: v2.4.1
 spec:
   query: "We just rolled out a new version of checkout-api to production. Is the deployment healthy? Check logs, error rates, latency, and resource usage before vs after the deploy and flag any regressions."
   timeout: 120
@@ -45,13 +55,58 @@ spec:
         channel: "#deploy-alerts"
 ```
 
-Apply both together:
-
 ```bash
 kubectl apply -f app-deployment.yaml
 ```
 
-If pods crash or fail readiness, the check fails and alerts your team.
+## Helm
+
+Add a HealthCheck template to your application's Helm chart:
+
+```yaml
+# templates/healthcheck.yaml
+apiVersion: holmesgpt.dev/v1alpha1
+kind: HealthCheck
+metadata:
+  name: {{ include "mychart.fullname" . }}-deploy-check
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    holmesgpt.dev/rerun: "true"
+  labels:
+    {{- include "mychart.labels" . | nindent 4 }}
+spec:
+  query: "Is the {{ include "mychart.fullname" . }} deployment in '{{ .Release.Namespace }}' fully rolled out and healthy? Check pod status, logs, and error rates."
+  timeout: 120
+  mode: alert
+  destinations:
+    - type: slack
+      config:
+        channel: "#deploy-alerts"
+```
+
+Every `helm upgrade` triggers a fresh check.
+
+## ArgoCD
+
+Add a HealthCheck to the same repo/path as your Application source. Every ArgoCD sync triggers a re-run:
+
+```yaml
+apiVersion: holmesgpt.dev/v1alpha1
+kind: HealthCheck
+metadata:
+  name: checkout-api-deploy-check
+  namespace: production
+  annotations:
+    holmesgpt.dev/rerun: "true"
+spec:
+  query: "Is the checkout-api deployment in 'production' fully rolled out and healthy? Check pod status, logs, and error rates."
+  timeout: 120
+  mode: alert
+  destinations:
+    - type: slack
+      config:
+        channel: "#deploy-alerts"
+```
 
 ## Gating CI/CD on the Result
 
@@ -60,13 +115,13 @@ After applying, poll for the result to gate your pipeline:
 ```bash
 # Wait for the check to complete, then read the result
 for i in $(seq 1 30); do
-  RESULT=$(kubectl get hc checkout-api-deploy-v2-4-1 -n production -o jsonpath='{.status.result}' 2>/dev/null)
+  RESULT=$(kubectl get hc checkout-api-deploy-check -n production -o jsonpath='{.status.result}' 2>/dev/null)
   if [ "$RESULT" = "pass" ]; then
     echo "Deploy verified healthy"
     exit 0
   elif [ "$RESULT" = "fail" ] || [ "$RESULT" = "error" ]; then
     echo "Deploy check failed:"
-    kubectl get hc checkout-api-deploy-v2-4-1 -n production -o jsonpath='{.status.message}'
+    kubectl get hc checkout-api-deploy-check -n production -o jsonpath='{.status.message}'
     exit 1
   fi
   sleep 10
@@ -79,9 +134,8 @@ exit 1
 
 One-time deploy checks catch immediate failures, but some problems only appear later — memory leaks, connection pool exhaustion, gradual performance degradation. [Scheduled Health Checks](scheduled-health-checks.md) run on a cron schedule to catch these regressions automatically.
 
-## Tips for One-Time HealthChecks
+## Tips
 
-- **Version the check name** (e.g., `checkout-api-deploy-v2-4-1`) so each deploy creates a distinct resource and you keep an audit trail. This applies to one-time `HealthCheck` resources only — `ScheduledHealthCheck` resources use a fixed name and create child HealthChecks automatically.
 - **Set a longer timeout** (60–120s) to give the rollout time to complete before Holmes evaluates.
-- **Use labels** like `deploy-version` to query checks for a specific release: `kubectl get hc -l deploy-version=v2.4.1`.
-- **Combine with ArgoCD**: If you use ArgoCD, the query can reference sync status — e.g., *"Is the ArgoCD application 'checkout-api' synced and healthy with no degraded resources?"* — since Holmes has access to the [ArgoCD toolset](../data-sources/builtin-toolsets/argocd.md).
+- **Use labels** to query checks for a specific app: `kubectl get hc -l app=checkout-api`.
+- **Combine with ArgoCD**: The query can reference sync status — e.g., *"Is the ArgoCD application 'checkout-api' synced and healthy with no degraded resources?"* — since Holmes has access to the [ArgoCD toolset](../data-sources/builtin-toolsets/argocd.md).

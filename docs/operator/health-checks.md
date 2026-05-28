@@ -124,6 +124,10 @@ After execution, the HealthCheck status contains:
 
 ### Execution Tracking
 
+**observedGeneration** (integer)
+
+The `metadata.generation` value that was last processed. When `metadata.generation != status.observedGeneration`, the operator will re-execute the check. This field is set on both successful and failed executions to prevent infinite retry loops.
+
 **phase** (string)
 
 Current execution state:
@@ -239,13 +243,23 @@ kubectl get hc check-pod-health -o jsonpath='{.status.rationale}'
 
 ## Re-running Checks
 
-To re-execute a check, add the rerun annotation:
+**Re-run on every apply (recommended for CI/CD):** Add `holmesgpt.dev/rerun: "true"` to your manifest. The operator clears the annotation after each run, so the next `kubectl apply` restores it and triggers a re-run. This works with Helm, ArgoCD, or plain manifests — see [Deployment Verification](deployment-verification.md) for examples.
 
-```bash
-kubectl annotate hc check-pod-health holmesgpt.dev/rerun=true --overwrite
+```yaml
+metadata:
+  annotations:
+    holmesgpt.dev/rerun: "true"
 ```
 
-This triggers a new execution while preserving the original resource. The status will be updated with new results.
+**Re-run on spec change:** When you modify any spec field (query, timeout, mode, etc.) and run `kubectl apply`, the operator detects the change via `metadata.generation` and re-executes automatically.
+
+**Manual re-run via kubectl:** To re-execute a check ad-hoc:
+
+```bash
+kubectl annotate hc check-pod-health holmesgpt.dev/rerun=true
+```
+
+The annotation is cleared automatically after execution, so you can repeat this as many times as needed.
 
 ## Practical Examples
 

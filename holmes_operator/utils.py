@@ -31,6 +31,7 @@ async def update_healthcheck_status(
     notifications: Optional[List[NotificationStatus]] = None,
     start_time: Optional[str] = None,
     completion_time: Optional[str] = None,
+    observed_generation: Optional[int] = None,
 ) -> None:
     """
     Update HealthCheck status fields.
@@ -74,6 +75,8 @@ async def update_healthcheck_status(
             status["startTime"] = start_time
         if completion_time is not None:
             status["completionTime"] = completion_time
+        if observed_generation is not None:
+            status["observedGeneration"] = observed_generation
 
         # Update status subresource
         await asyncio.to_thread(
@@ -254,6 +257,7 @@ async def set_healthcheck_completed(
     error: Optional[str] = None,
     model_used: Optional[str] = None,
     notifications: Optional[List[NotificationStatus]] = None,
+    observed_generation: Optional[int] = None,
 ) -> None:
     """Set HealthCheck status to Completed with result details."""
     await update_healthcheck_status(
@@ -269,6 +273,7 @@ async def set_healthcheck_completed(
         model_used=model_used,
         notifications=notifications,
         completion_time=get_current_time_iso(),
+        observed_generation=observed_generation,
     )
 
 
@@ -278,6 +283,7 @@ async def set_healthcheck_failed(
     namespace: str,
     message: str,
     error: str,
+    observed_generation: Optional[int] = None,
 ) -> None:
     """Set HealthCheck status to Failed due to operator error."""
     await update_healthcheck_status(
@@ -289,4 +295,5 @@ async def set_healthcheck_failed(
         message=message,
         error=error,
         completion_time=get_current_time_iso(),
+        observed_generation=observed_generation,
     )
