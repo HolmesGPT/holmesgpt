@@ -1,0 +1,20 @@
+# Matrix variant: confluence_html_filter — raw HTML, but the agent can
+# pass a `css_selector` parameter to narrow the response body down to
+# just the matched HTML elements.
+toolsets:
+  confluence:
+    enabled: false
+  confluence_markdown:
+    enabled: false
+  confluence_html_filter:
+    enabled: true
+    config:
+      api_url: "{{ env.CONFLUENCE_BASE_URL }}"
+      user: "{{ env.CONFLUENCE_SA_USER }}"
+      api_key: "{{ env.CONFLUENCE_SA_API_KEY }}"
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false

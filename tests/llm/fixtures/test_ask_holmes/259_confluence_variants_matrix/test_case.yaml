@@ -1,0 +1,175 @@
+# Matrix eval comparing the three Confluence toolset variants.
+#
+# The same prompt is run against three Confluence toolsets that share the
+# same underlying REST API + auth, but differ in how page bodies are
+# delivered to the LLM:
+#
+#   * confluence              — raw Confluence storage-format HTML
+#   * confluence_markdown     — HTML converted to Markdown server-side
+#   * confluence_html_filter  — raw HTML, plus a `css_selector` parameter the
+#                               agent can use to narrow the body
+#
+# The eval is intentionally simple: a single page with ~25 service sections
+# of distractor content plus an audit-summary table that contains the
+# verification code (see generate_page.py). All three variants should be
+# able to find the code; the matrix lets us compare token usage / cost /
+# pass-rate across them.
+#
+# Reentrancy: this eval creates a Confluence space + page with static keys.
+# `before_test` is idempotent (create-or-reuse) and there is intentionally
+# NO `after_test` because parallel CI runs share the same Confluence
+# instance — see CLAUDE.md "Cloud Service Eval Reentrancy".
+#
+# Requirements:
+#   CONFLUENCE_BASE_URL  — user-facing URL (e.g. https://yourcompany.atlassian.net)
+#   CONFLUENCE_SA_USER, CONFLUENCE_SA_API_KEY — service-account basic auth
+#                                               creds, used both by `before_test`
+#                                               and by the toolset configs.
+
+user_prompt: |
+  In the Confluence space 'HLMS259' there is a page titled 'Internal Service
+  Audit Catalogue'. The page contains a Quarterly Audit Summary table.
+  What is the audit code listed for 2025-Q1?
+
+expected_output:
+  - "Must report the 2025-Q1 audit code: AUDIT-2025-HOLMES-q9P3vL7m"
+
+tags:
+  - confluence
+  - question-answer
+  - medium
+
+toolsets_matrix:
+  - toolsets.yaml
+  - toolsets_markdown.yaml
+  - toolsets_html_filter.yaml
+
+before_test: |
+  set -e
+
+  SPACE_KEY="HLMS259"
+  SPACE_NAME="Holmes Eval 259 Variants"
+  PAGE_TITLE="Internal Service Audit Catalogue"
+  VERIFICATION_CODE="AUDIT-2025-HOLMES-q9P3vL7m"
+  TMPFILE=$(mktemp /tmp/holmes259_page_XXXXXX.json)
+  trap "rm -f $TMPFILE" EXIT
+
+  # Resolve the Atlassian Cloud ID and route REST calls through the
+  # api.atlassian.com gateway with bearer auth. Direct calls to
+  # ${CONFLUENCE_BASE_URL}/wiki/rest/api/* return 401/403 for the
+  # service-account token (it's a scoped token), but the same token works
+  # against https://api.atlassian.com/ex/confluence/{cloud_id}. The
+  # production toolset does this auto-fallback for runtime requests; we do
+  # it here so `before_test` uses the same path.
+  CLOUD_ID=$(curl -L -s "${CONFLUENCE_BASE_URL}/_edge/tenant_info" \
+    | python3 -c "import sys,json;print(json.load(sys.stdin).get('cloudId',''))")
+  if [ -z "$CLOUD_ID" ]; then
+    echo "Failed to resolve Atlassian Cloud ID from ${CONFLUENCE_BASE_URL}/_edge/tenant_info"
+    exit 1
+  fi
+  API="https://api.atlassian.com/ex/confluence/${CLOUD_ID}/rest/api"
+  AUTH=( -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}" )
+
+  echo "Generating page body..."
+  PAGE_BODY_JSON=$(python3 ./generate_page.py)
+
+  echo "Building request payload..."
+  python3 -c "
+  import json, sys
+  body_json = sys.stdin.read()
+  payload = {
+    'type': 'page',
+    'title': '${PAGE_TITLE}',
+    'space': {'key': '${SPACE_KEY}'},
+    'body': {'storage': {'value': json.loads(body_json), 'representation': 'storage'}}
+  }
+  json.dump(payload, open('$TMPFILE', 'w'))
+  " <<< "$PAGE_BODY_JSON"
+
+  echo "Creating Confluence space ${SPACE_KEY}..."
+  RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${API}/space" \
+    "${AUTH[@]}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"key\": \"${SPACE_KEY}\",
+      \"name\": \"${SPACE_NAME}\",
+      \"description\": {
+        \"plain\": {
+          \"value\": \"Test space for Holmes eval 259 (Confluence variants matrix)\",
+          \"representation\": \"plain\"
+        }
+      }
+    }")
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  BODY=$(echo "$RESPONSE" | sed '$d')
+
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "Space created."
+  elif echo "$BODY" | grep -q "already exists"; then
+    echo "Space already exists, verifying it is accessible..."
+    SPACE_CHECK=$(curl -L -s -w "\n%{http_code}" \
+      "${API}/space/${SPACE_KEY}" "${AUTH[@]}")
+    SPACE_CHECK_HTTP=$(echo "$SPACE_CHECK" | tail -n1)
+    if [ "$SPACE_CHECK_HTTP" -ne 200 ]; then
+      echo "Space key '${SPACE_KEY}' is reserved but not accessible (HTTP ${SPACE_CHECK_HTTP}). It may be in the Confluence trash — purge it manually or wait for the trash retention period to expire."
+      exit 1
+    fi
+    echo "Space is accessible, reusing."
+  else
+    echo "Failed to create space. HTTP ${HTTP_CODE}: ${BODY}"
+    exit 1
+  fi
+  sleep 2
+
+  echo "Creating or refreshing page..."
+  PAGE_RESPONSE=$(curl -L -s -w "\n%{http_code}" -X POST \
+    "${API}/content" \
+    "${AUTH[@]}" \
+    -H "Content-Type: application/json" \
+    -d @"$TMPFILE")
+
+  PAGE_HTTP_CODE=$(echo "$PAGE_RESPONSE" | tail -n1)
+  PAGE_BODY_RESP=$(echo "$PAGE_RESPONSE" | sed '$d')
+
+  if [ "$PAGE_HTTP_CODE" -eq 200 ]; then
+    PAGE_ID=$(echo "$PAGE_BODY_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+  else
+    echo "Page creation returned HTTP ${PAGE_HTTP_CODE}, searching for existing page..."
+    SEARCH_RESP=$(curl -L -s -w "\n%{http_code}" -G \
+      "${API}/content" \
+      --data-urlencode "title=${PAGE_TITLE}" \
+      --data-urlencode "spaceKey=${SPACE_KEY}" \
+      "${AUTH[@]}")
+    SEARCH_HTTP=$(echo "$SEARCH_RESP" | tail -n1)
+    SEARCH_BODY=$(echo "$SEARCH_RESP" | sed '$d')
+    if [ "$SEARCH_HTTP" -ne 200 ]; then
+      echo "Page search returned HTTP ${SEARCH_HTTP}: ${SEARCH_BODY}"
+      exit 1
+    fi
+    PAGE_ID=$(echo "$SEARCH_BODY" | python3 -c 'import sys,json; r=json.load(sys.stdin).get("results",[]); print(r[0]["id"]) if r else sys.exit(1)')
+    if [ -z "$PAGE_ID" ]; then
+      echo "Failed to create or find page."
+      exit 1
+    fi
+    echo "Found existing page (will not be updated; expected to already contain the verification code)."
+  fi
+  echo "Page ID: ${PAGE_ID}"
+
+  echo "Verifying verification code is present in page content..."
+  VERIFY=$(curl -L -s \
+    "${API}/content/${PAGE_ID}?expand=body.storage" \
+    "${AUTH[@]}")
+
+  if echo "$VERIFY" | grep -q "${VERIFICATION_CODE}"; then
+    echo "Page content verified - verification code found"
+  else
+    echo "Page verification failed - verification code not found in content"
+    exit 1
+  fi
+
+  echo "Setup complete"
+
+# No after_test: cloud service eval reentrancy. Multiple PR runs may share
+# the same Confluence instance and would race to delete the space.

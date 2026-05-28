@@ -23,6 +23,10 @@ from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasTool
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
 from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
+from holmes.plugins.toolsets.confluence.confluence_variants import (
+    ConfluenceHtmlFilterToolset,
+    ConfluenceMarkdownToolset,
+)
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
 from holmes.plugins.toolsets.database.database import DatabaseToolset
@@ -122,6 +126,8 @@ def load_python_toolsets(
         BashExecutorToolset(),
         KubectlRunToolset(),
         ConfluenceToolset(),
+        ConfluenceMarkdownToolset(),
+        ConfluenceHtmlFilterToolset(),
         MongoDBAtlasToolset(),
         SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),
         AzureSQLToolset(),

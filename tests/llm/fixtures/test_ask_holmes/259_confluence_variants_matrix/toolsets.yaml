@@ -1,0 +1,18 @@
+# Matrix variant: base Confluence toolset (raw HTML response).
+toolsets:
+  confluence:
+    enabled: true
+    config:
+      api_url: "{{ env.CONFLUENCE_BASE_URL }}"
+      user: "{{ env.CONFLUENCE_SA_USER }}"
+      api_key: "{{ env.CONFLUENCE_SA_API_KEY }}"
+  confluence_markdown:
+    enabled: false
+  confluence_html_filter:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
