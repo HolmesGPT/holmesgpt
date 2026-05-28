@@ -64,6 +64,19 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         # headers via config if they need to.
         headers: Dict[str, str] = super()._render_headers(request_context) or {}
 
+        # Hardwire cluster_name and conversation_id into every request as
+        # transport headers. The relay reads these off the request and
+        # passes them into the tool handler's MCPCallContext — keeping
+        # them out of the LLM-visible tool schema so the model can't
+        # forge or omit them.
+        if request_context:
+            cluster_name = request_context.get("cluster_name")
+            if cluster_name:
+                headers["X-Robusta-Cluster"] = str(cluster_name)
+            conversation_id = request_context.get("conversation_id")
+            if conversation_id:
+                headers["X-Robusta-Conversation-Id"] = str(conversation_id)
+
         dal = self._dal
         if dal is None or not dal.enabled:
             # Should not happen since we only construct the toolset when DAL

@@ -103,6 +103,45 @@ def test_render_headers_returns_none_when_only_stale_auth_on_error():
     assert headers is None
 
 
+def test_render_headers_injects_cluster_and_conversation_headers():
+    """cluster_name and conversation_id from request_context are hardwired
+    onto every MCP request as X-Robusta-* headers so the relay can pass
+    them into the tool handler without trusting LLM-supplied arguments."""
+    dal = MagicMock()
+    dal.enabled = True
+    dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
+    toolset = make_robusta_platform_mcp_toolset(dal)
+    assert toolset is not None
+
+    headers = toolset._render_headers(
+        {"cluster_name": "prod-eu", "conversation_id": "conv-42"}
+    )
+    assert headers is not None
+    assert headers["X-Robusta-Cluster"] == "prod-eu"
+    assert headers["X-Robusta-Conversation-Id"] == "conv-42"
+    assert headers["Authorization"] == "Bearer acct-1 tok-abc"
+
+
+def test_render_headers_omits_robusta_headers_when_context_missing():
+    """When cluster_name / conversation_id aren't in the request context
+    (e.g. CLI mode), don't emit empty X-Robusta-* headers."""
+    dal = MagicMock()
+    dal.enabled = True
+    dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
+    toolset = make_robusta_platform_mcp_toolset(dal)
+    assert toolset is not None
+
+    headers = toolset._render_headers(None)
+    assert headers is not None
+    assert "X-Robusta-Cluster" not in headers
+    assert "X-Robusta-Conversation-Id" not in headers
+
+    headers_empty_ctx = toolset._render_headers({})
+    assert headers_empty_ctx is not None
+    assert "X-Robusta-Cluster" not in headers_empty_ctx
+    assert "X-Robusta-Conversation-Id" not in headers_empty_ctx
+
+
 def test_render_headers_strips_authorization_case_insensitively():
     """HTTP headers are case-insensitive; a user-supplied lowercase
     'authorization' in extra_headers must not leak through the sanitiser."""
