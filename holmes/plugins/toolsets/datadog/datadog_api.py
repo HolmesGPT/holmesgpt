@@ -520,7 +520,7 @@ def get_endpoint_requirements(
 
 # Datadog v1 endpoints require UNIX integer timestamps for start/end params.
 # v2 endpoints accept RFC3339 strings.
-_V1_UNIX_TIMESTAMP_ENDPOINTS = frozenset(["api/v1/events", "api/v1/metrics"])
+_V1_UNIX_TIMESTAMP_ENDPOINTS = frozenset(["api/v1/events", "api/v1/metrics", "api/v1/query"])
 
 
 def _resolve_to_unix_timestamp(value: Union[str, int, float]) -> Optional[int]:
@@ -531,7 +531,7 @@ def _resolve_to_unix_timestamp(value: Union[str, int, float]) -> Optional[int]:
         if value < 0:
             # Relative offset in seconds, e.g. -86400
             return now_ts + int(value)
-        if 1_000_000_000 < value < 2_000_000_000:
+        if 1_000_000_000 <= value < 2_000_000_000:
             return None  # already a valid absolute UNIX timestamp
     elif isinstance(value, str):
         if value.lower() == "now":
@@ -540,9 +540,9 @@ def _resolve_to_unix_timestamp(value: Union[str, int, float]) -> Optional[int]:
             return _resolve_to_unix_timestamp(float(value))
         except ValueError:
             pass
-        # Unit-based relative strings like "-24h", "-7d"
+        # Unit-based relative strings like "-24h", "-7d", or explicit RFC3339 strings
         converted, format_type = convert_relative_time(value)
-        if format_type == "relative":
+        if format_type in ("relative", "rfc3339"):
             dt = datetime.fromisoformat(converted.replace("Z", "+00:00"))
             return int(dt.timestamp())
 
