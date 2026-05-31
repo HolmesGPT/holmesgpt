@@ -155,5 +155,7 @@ class TestDeriveTitle:
         assert title == "look at this image"
 
     def test_falls_back_when_no_user_message(self):
-        assert derive_title([{"role": "system", "content": "sys"}]) == "(untitled session)"
+        assert (
+            derive_title([{"role": "system", "content": "sys"}]) == "(untitled session)"
+        )
         assert derive_title([]) == "(untitled session)"

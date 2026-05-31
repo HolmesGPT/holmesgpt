@@ -181,8 +181,10 @@ opt_session_id: Optional[str] = typer.Option(
 def _format_session_timestamp(iso_timestamp: str) -> str:
     """Render a stored ISO timestamp in the user's local timezone for display."""
     try:
-        return datetime.fromisoformat(iso_timestamp).astimezone().strftime(
-            "%Y-%m-%d %H:%M"
+        return (
+            datetime.fromisoformat(iso_timestamp)
+            .astimezone()
+            .strftime("%Y-%m-%d %H:%M")
         )
     except (ValueError, TypeError):
         return iso_timestamp
