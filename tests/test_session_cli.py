@@ -7,9 +7,19 @@ from unittest.mock import Mock
 import pytest
 import typer
 
-from holmes.interactive import persist_session
+from holmes.interactive import deserialize_tool_calls, persist_session
 from holmes.main import _resolve_session_to_resume
 from holmes.utils.sessions import ChatSession, SessionManager, derive_title
+
+
+def _tool_call_dict(tool_call_id="call_1", tool_name="kubectl_get"):
+    """A serialized ToolCallResult as it would appear in a saved session."""
+    return {
+        "tool_call_id": tool_call_id,
+        "tool_name": tool_name,
+        "description": f"{tool_name} pods",
+        "result": {"status": "success", "data": "pod1 Running", "error": None},
+    }
 
 
 def _make_session(manager: SessionManager, prompt: str) -> ChatSession:
@@ -132,9 +142,14 @@ class TestPersistSession:
         assert loaded.working_directory == os.getcwd()
         assert loaded.metadata == {"session_type": "interactive"}
 
-    def test_tolerates_unserializable_tool_calls(self, tmp_path):
+    def test_unserializable_tool_call_only_drops_itself(self, tmp_path):
+        """A single bad tool call is skipped without discarding the good ones."""
         manager = SessionManager(sessions_dir=str(tmp_path))
         session_id = SessionManager.new_session_id()
+
+        class _GoodToolCall:
+            def model_dump(self, mode=None):
+                return {"tool_name": "good"}
 
         class _BadToolCall:
             def model_dump(self, mode=None):
@@ -144,13 +159,34 @@ class TestPersistSession:
             manager,
             session_id,
             [{"role": "user", "content": "hi"}],
-            [_BadToolCall()],
+            [_GoodToolCall(), _BadToolCall(), _GoodToolCall()],
             None,
         )
 
         loaded = manager.load(session_id)
-        assert loaded.tool_calls == []
+        assert loaded.tool_calls == [{"tool_name": "good"}, {"tool_name": "good"}]
         assert loaded.messages == [{"role": "user", "content": "hi"}]
+
+
+class TestDeserializeToolCalls:
+    def test_round_trips_saved_tool_calls(self):
+        restored = deserialize_tool_calls([_tool_call_dict("a"), _tool_call_dict("b")])
+        assert [tc.tool_call_id for tc in restored] == ["a", "b"]
+        assert restored[0].result.data == "pod1 Running"
+        # Restored objects must be real ToolCallResult instances usable by the UI
+        # (e.g. they expose .description and can be re-serialized).
+        assert restored[0].description == "kubectl_get pods"
+        assert restored[0].model_dump(mode="json")["tool_call_id"] == "a"
+
+    def test_skips_malformed_entries(self):
+        restored = deserialize_tool_calls(
+            [_tool_call_dict("ok"), {"garbage": True}, None]
+        )
+        assert [tc.tool_call_id for tc in restored] == ["ok"]
+
+    def test_empty_input(self):
+        assert deserialize_tool_calls([]) == []
+        assert deserialize_tool_calls(None) == []  # type: ignore[arg-type]
 
     def test_persistence_can_be_disabled_via_env(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOLMES_DISABLE_SESSION_PERSISTENCE", "true")

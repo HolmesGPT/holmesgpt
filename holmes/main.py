@@ -50,6 +50,7 @@ _CLI_REQUEST_CONTEXT = {"user_id": DEFAULT_CLI_USER}
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.interactive import (
     InitProgressRenderer,
+    deserialize_tool_calls,
     persist_session,
     run_interactive_loop,
     silence_display_loggers,
@@ -571,16 +572,21 @@ def ask(
         # Persist the conversation so it can later be resumed with
         # --continue / --resume, even from non-interactive runs.
         if messages:
-            non_interactive_session_id = (
-                resumed_session.session_id
-                if resumed_session is not None
-                else SessionManager.new_session_id()
-            )
+            if resumed_session is not None:
+                non_interactive_session_id = resumed_session.session_id
+                # Keep the resumed session's prior tool calls instead of
+                # overwriting them with only this run's tool calls.
+                tool_calls = deserialize_tool_calls(resumed_session.tool_calls) + (
+                    response.tool_calls or []
+                )
+            else:
+                non_interactive_session_id = SessionManager.new_session_id()
+                tool_calls = response.tool_calls or []
             persist_session(
                 session_manager,
                 non_interactive_session_id,
                 messages,
-                response.tool_calls or [],
+                tool_calls,
                 getattr(ai.llm, "model", None),
             )
 

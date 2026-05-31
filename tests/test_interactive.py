@@ -875,6 +875,16 @@ class TestRunInteractiveLoop(unittest.TestCase):
         sessions_dir = tempfile.mkdtemp()
         try:
             manager = SessionManager(sessions_dir=sessions_dir)
+            prior_tool_call = {
+                "tool_call_id": "prior_call",
+                "tool_name": "kubectl_get",
+                "description": "kubectl get pods",
+                "result": {
+                    "status": "success",
+                    "data": "pod1 Running",
+                    "error": None,
+                },
+            }
             prior = ChatSession(
                 session_id="resume-test-id",
                 title="prior question",
@@ -883,6 +893,7 @@ class TestRunInteractiveLoop(unittest.TestCase):
                     {"role": "user", "content": "prior question"},
                     {"role": "assistant", "content": "prior answer"},
                 ],
+                tool_calls=[prior_tool_call],
             )
             manager.save(prior)
 
@@ -933,6 +944,11 @@ class TestRunInteractiveLoop(unittest.TestCase):
             self.assertEqual(updated.session_id, "resume-test-id")
             self.assertEqual(updated.user_turns, 2)
             self.assertEqual(len(manager.list_sessions()), 1)
+            # The previously persisted tool call must survive the resume+save
+            # rather than being overwritten with an empty list.
+            self.assertEqual(
+                [tc["tool_call_id"] for tc in updated.tool_calls], ["prior_call"]
+            )
         finally:
             shutil.rmtree(sessions_dir, ignore_errors=True)
 

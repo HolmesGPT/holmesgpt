@@ -2244,10 +2244,16 @@ def persist_session(
     """
     if session_persistence_disabled():
         return
-    try:
-        tool_calls = [tc.model_dump(mode="json") for tc in all_tool_calls_history]
-    except Exception:  # noqa: BLE001 - never let serialization break the loop
-        tool_calls = []
+    # Serialize tool calls one at a time so a single unserializable entry only
+    # drops itself rather than discarding the whole history.
+    tool_calls = []
+    for tc in all_tool_calls_history:
+        try:
+            tool_calls.append(tc.model_dump(mode="json"))
+        except Exception as e:  # noqa: BLE001 - never let serialization break the loop
+            logging.debug(
+                "Skipping unserializable tool call when saving session: %s", e
+            )
     session = ChatSession(
         session_id=session_id,
         title=derive_title(messages),
@@ -2258,6 +2264,21 @@ def persist_session(
         metadata={"session_type": "interactive"},
     )
     session_manager.save(session)
+
+
+def deserialize_tool_calls(serialized: List[Dict]) -> List[ToolCallResult]:
+    """Rebuild ToolCallResult objects from a resumed session's saved tool calls.
+
+    Malformed entries are skipped (and logged) so a single bad record never
+    blocks resuming a conversation.
+    """
+    restored: List[ToolCallResult] = []
+    for tc in serialized or []:
+        try:
+            restored.append(ToolCallResult.model_validate(tc))
+        except Exception as e:  # noqa: BLE001
+            logging.debug("Skipping unrestorable tool call in resumed session: %s", e)
+    return restored
 
 
 def render_resumed_session(console: Console, session: ChatSession) -> None:
@@ -2503,9 +2524,14 @@ def run_interactive_loop(
     # Resume a previous conversation if one was loaded (--continue / --resume).
     messages = None
     current_session_id = None
+    # Track all tool calls throughout conversation; seed it from the resumed
+    # session so previously persisted tool calls are not lost when this session
+    # is saved again, and so /show works on the earlier tool outputs.
+    all_tool_calls_history: List[ToolCallResult] = []
     if resume_session is not None:
         messages = list(resume_session.messages)
         current_session_id = resume_session.session_id
+        all_tool_calls_history = deserialize_tool_calls(resume_session.tool_calls)
         render_resumed_session(console, resume_session)
 
     if not initial_user_input and resume_session is None:
@@ -2518,9 +2544,8 @@ def run_interactive_loop(
             f"\n[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {initial_user_input}"
         )
     last_response = None
-    all_tool_calls_history: List[
-        ToolCallResult
-    ] = []  # Track all tool calls throughout conversation
+    if all_tool_calls_history:
+        show_completer.update_history(all_tool_calls_history)
     model_name = getattr(ai.llm, "model", None)
 
     def _save_session() -> None:
