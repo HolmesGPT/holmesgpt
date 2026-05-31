@@ -112,6 +112,53 @@ class TestResolveSessionToResume:
             )
 
 
+class TestSelectSessionInteractively:
+    def test_picks_session_by_number(self, tmp_path):
+        from holmes.main import _select_session_interactively
+
+        manager = SessionManager(sessions_dir=str(tmp_path))
+        _make_session(manager, "first")
+        time.sleep(0.01)
+        second = _make_session(manager, "second")
+
+        console = Mock()
+        console.input.return_value = "1"  # most-recent-first => second
+        chosen = _select_session_interactively(manager, console)
+
+        assert chosen is not None
+        assert chosen.session_id == second.session_id
+
+    def test_empty_input_cancels(self, tmp_path):
+        from holmes.main import _select_session_interactively
+
+        manager = SessionManager(sessions_dir=str(tmp_path))
+        _make_session(manager, "only")
+
+        console = Mock()
+        console.input.return_value = ""
+        assert _select_session_interactively(manager, console) is None
+
+    def test_no_sessions_returns_none(self, tmp_path):
+        from holmes.main import _select_session_interactively
+
+        manager = SessionManager(sessions_dir=str(tmp_path / "empty"))
+        assert _select_session_interactively(manager, Mock()) is None
+
+    def test_reprompts_on_invalid_then_accepts_valid(self, tmp_path):
+        from holmes.main import _select_session_interactively
+
+        manager = SessionManager(sessions_dir=str(tmp_path))
+        only = _make_session(manager, "only")
+
+        console = Mock()
+        console.input.side_effect = ["99", "abc", "1"]
+        chosen = _select_session_interactively(manager, console)
+
+        assert chosen is not None
+        assert chosen.session_id == only.session_id
+        assert console.input.call_count == 3
+
+
 class TestPersistSession:
     def test_round_trip_with_tool_calls(self, tmp_path):
         manager = SessionManager(sessions_dir=str(tmp_path))
