@@ -23,9 +23,11 @@ from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
+    TOOL_SEARCH_ENABLED,
     load_bool,
 )
 from holmes.core.llm import LLM
+from holmes.core.tool_search import LOAD_TOOLS_NAME
 from holmes.core.llm_usage import RequestStats
 from holmes.core.models import (
     FrontendToolResult,
@@ -205,6 +207,9 @@ class ToolCallingLLM:
         self.tool_results_dir = tool_results_dir
 
         self._skill_in_use: bool = False
+        # Names of deferred (held-back) tools the model has loaded via load_tools in
+        # this conversation. Heavy MCP tool schemas stay out of context until loaded.
+        self._loaded_tool_names: set[str] = set()
 
     def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
         """Return a shallow copy with a different ToolExecutor.
@@ -220,15 +225,18 @@ class ToolCallingLLM:
             tracer=self.tracer,
         )
         # Preserve transient state so resumed turns keep access to
-        # skill-unlocked (restricted) tools.
+        # skill-unlocked (restricted) tools and already-loaded (tool-search) tools.
         clone._skill_in_use = self._skill_in_use
+        clone._loaded_tool_names = set(self._loaded_tool_names)
         return clone
 
     def reset_interaction_state(self) -> None:
         """
-        For interactive loop, reset skills in use
+        For interactive loop, reset transient per-conversation state (skills in
+        use, tool-search loaded tools) so a new conversation starts fresh.
         """
         self._skill_in_use = False
+        self._loaded_tool_names.clear()
 
     def _supports_vision(self) -> bool:
         """Check if vision/multimodal input is enabled.
@@ -561,6 +569,16 @@ class ToolCallingLLM:
         replace _connect placeholders for authenticated users.
         """
         user_id = (self._request_context or {}).get("user_id") if hasattr(self, "_request_context") else None
+        if TOOL_SEARCH_ENABLED:
+            # Progressive disclosure: hold heavy (MCP) tool schemas out of context and
+            # expose a load_tools meta-tool. Tools the model has loaded this conversation
+            # are included. The agent loop re-fetches tools each step (see call_stream),
+            # so newly loaded tools appear on the next turn.
+            return self.tool_executor.get_visible_tools_openai_format(
+                self._loaded_tool_names,
+                include_restricted=self._should_include_restricted_tools(),
+                user_id=user_id,
+            )
         return self.tool_executor.get_all_tools_openai_format(
             include_restricted=self._should_include_restricted_tools(),
             user_id=user_id,
@@ -867,6 +885,40 @@ class ToolCallingLLM:
             metadata=metadata,
         )
 
+    def _handle_load_tools(
+        self, tool_call_id: str, tool_params: Dict[str, Any]
+    ) -> ToolCallResult:
+        """Execute the load_tools meta-tool (tool search): find held-back tools matching
+        the query and mark them loaded, so the next agent step can call them."""
+        query = (tool_params or {}).get("query", "") or ""
+        matched = self.tool_executor.search_deferred_tools(query)
+        self._loaded_tool_names.update(matched)
+        if matched:
+            lines = []
+            for name in matched:
+                tool = self.tool_executor.get_tool_by_name(name)
+                desc = ""
+                if tool and tool.description:
+                    desc = tool.description.strip().splitlines()[0]
+                lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+            data = (
+                f"Loaded {len(matched)} tool(s) matching '{query}'. They are now "
+                "available — call them directly on your next step:\n" + "\n".join(lines)
+            )
+        else:
+            data = (
+                f"No tools matched '{query}'. Try broader keywords or an integration "
+                "name (e.g. aws, github, pagerduty, kafka, tempo, opensearch, grafana)."
+            )
+        return ToolCallResult(
+            tool_call_id=tool_call_id,
+            tool_name=LOAD_TOOLS_NAME,
+            description=f"load_tools(query={query!r})",
+            result=StructuredToolResult(
+                status=StructuredToolResultStatus.SUCCESS, data=data
+            ),
+        )
+
     def _invoke_llm_tool_call(
         self,
         tool_to_call: ChatCompletionMessageToolCall,
@@ -914,6 +966,16 @@ class ToolCallingLLM:
                 logging.warning(
                     f"Failed to parse arguments for tool: {tool_name}. args: {tool_arguments}"
                 )
+
+            # load_tools is a Holmes-owned meta-tool (tool search). Handle it here so it
+            # never reaches the ToolExecutor (it isn't a toolset tool) and so the loaded
+            # set is updated before the next _get_tools() re-fetch exposes the new tools.
+            if tool_name == LOAD_TOOLS_NAME:
+                tool_call_result = self._handle_load_tools(tool_id, tool_params)
+                ToolCallingLLM._log_tool_call_result(
+                    tool_span, tool_call_result, enable_tool_approval
+                )
+                return tool_call_result
 
             tool_response = None
             if not user_approved:

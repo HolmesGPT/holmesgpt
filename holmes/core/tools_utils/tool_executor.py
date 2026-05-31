@@ -1,17 +1,26 @@
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import List, Optional
 
 import sentry_sdk
 
 from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind
+from holmes.core.tool_search import LOAD_TOOLS_TOOL
 from holmes.core.tools import (
     Tool,
     Toolset,
     ToolsetStatusEnum,
+    ToolsetType,
 )
 from holmes.core.tools_utils.oauth_tool_connector import OAuthToolConnector
 
 display_logger = logging.getLogger("holmes.display.tool_executor")
+
+# Toolset types whose tools are "deferred" (held back from the default tool list and
+# loaded on demand via load_tools) when tool search is enabled. MCP servers dominate
+# tool-schema bloat; built-in toolsets (kubernetes, bash, etc.) stay loaded so common
+# operations don't pay a search hop.
+DEFERRABLE_TOOLSET_TYPES = frozenset({ToolsetType.MCP})
 
 
 class ToolExecutor:
@@ -153,3 +162,75 @@ class ToolExecutor:
                 continue
             tools.append(tool.get_openai_format())
         return tools
+
+    # ── Tool search (progressive disclosure) ───────────────────────────
+
+    def _is_deferrable(self, tool_name: str) -> bool:
+        """Whether a tool is held back from the default list until loaded on demand."""
+        toolset = self._tool_to_toolset.get(tool_name)
+        return toolset is not None and toolset.type in DEFERRABLE_TOOLSET_TYPES
+
+    def get_visible_tools_openai_format(
+        self,
+        loaded_tool_names: Optional[set] = None,
+        include_restricted: bool = True,
+        user_id: Optional[str] = None,
+    ) -> list:
+        """Tool-search mode: return core (non-deferrable) tools + the ``load_tools``
+        meta-tool + any deferrable tools that have already been loaded. Heavy MCP tool
+        schemas stay out of context until the model loads them via ``load_tools``.
+        """
+        loaded = loaded_tool_names or set()
+        tools = []
+        for tool in self.tools_by_name.values():
+            if not include_restricted and tool._is_restricted():
+                continue
+            if self._is_deferrable(tool.name) and tool.name not in loaded:
+                continue
+            tools.append(tool.get_openai_format())
+        tools.append(LOAD_TOOLS_TOOL)
+        return self.oauth_connector.apply_user_tools(tools, user_id, self._tool_to_toolset)
+
+    def search_deferred_tools(self, query: str, limit: int = 8) -> List[str]:
+        """Return names of held-back (deferrable) tools matching ``query``.
+
+        ``query`` is treated as a regular expression (Python ``re.search``); if it isn't
+        valid regex it falls back to a case-insensitive substring match. Each tool's
+        name, description and owning toolset's name/description are searched, so a query
+        like ``"kafka"`` matches every tool in the kafka toolset.
+        """
+        query = (query or "").strip()
+        if not query:
+            return []
+        try:
+            pattern = re.compile(query, re.IGNORECASE)
+
+            def matches(text: str) -> bool:
+                return bool(pattern.search(text))
+        except re.error:
+            needle = query.lower()
+
+            def matches(text: str) -> bool:
+                return needle in text.lower()
+
+        results: List[str] = []
+        for name, tool in self.tools_by_name.items():
+            if not self._is_deferrable(name):
+                continue
+            ts = self._tool_to_toolset.get(name)
+            haystack = " ".join(
+                filter(
+                    None,
+                    [
+                        name,
+                        tool.description or "",
+                        ts.name if ts else "",
+                        (ts.description or "") if ts else "",
+                    ],
+                )
+            )
+            if matches(haystack):
+                results.append(name)
+                if len(results) >= limit:
+                    break
+        return results
