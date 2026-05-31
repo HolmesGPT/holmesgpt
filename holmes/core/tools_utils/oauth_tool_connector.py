@@ -150,9 +150,10 @@ class OAuthToolConnector:
 
     def resolve_tools(self, user_id: Optional[str]) -> Optional[Dict[str, List[Tool]]]:
         """Return per-user OAuth tools if available, or None."""
-        key = user_id or _get_token_manager().require_user_id(None)
+        if not user_id:
+            return None
         with self._lock:
-            user_tools = self._user_tools.get(key)
+            user_tools = self._user_tools.get(user_id)
             return dict(user_tools) if user_tools else None
 
     def apply_user_tools(
@@ -190,9 +191,10 @@ class OAuthToolConnector:
 
     def find_tool(self, name: str, user_id: Optional[str]) -> Optional[Tool]:
         """Look up a tool in the per-user OAuth tools store."""
-        key = user_id or _get_token_manager().require_user_id(None)
+        if not user_id:
+            return None
         with self._lock:
-            for toolset_tools in self._user_tools.get(key, {}).values():
+            for toolset_tools in self._user_tools.get(user_id, {}).values():
                 for tool in toolset_tools:
                     if tool.name == name:
                         return tool
@@ -200,8 +202,9 @@ class OAuthToolConnector:
 
     def get_toolset(self, tool_name: str, user_id: Optional[str]) -> Optional[Any]:
         """Return the toolset for a per-user OAuth tool, or None."""
-        key = user_id or _get_token_manager().require_user_id(None)
-        return self._user_tool_to_toolset.get(key, {}).get(tool_name)
+        if not user_id:
+            return None
+        return self._user_tool_to_toolset.get(user_id, {}).get(tool_name)
 
 
     # ── Error handling helpers ─────────────────────────────────────────
