@@ -15,12 +15,14 @@ import json
 import logging
 import socket
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 import typer
 from rich.markdown import Markdown
 from rich.rule import Rule
+from rich.table import Table
 
 from holmes import get_version  # type: ignore
 from holmes.config import (
@@ -46,7 +48,12 @@ from holmes.core.oauth_utils import enable_disk_token_store
 # guess whether a missing user_id means "CLI" or "buggy server caller".
 _CLI_REQUEST_CONTEXT = {"user_id": DEFAULT_CLI_USER}
 from holmes.core.tracing import SpanType, TracingFactory
-from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
+from holmes.interactive import (
+    InitProgressRenderer,
+    persist_session,
+    run_interactive_loop,
+    silence_display_loggers,
+)
 from holmes.plugins.destinations import DestinationType
 from holmes.plugins.interfaces import Issue
 from holmes.plugins.prompts import load_and_render_prompt
@@ -54,6 +61,11 @@ from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.utils.sessions import (
+    ChatSession,
+    SessionManager,
+    SessionNotFoundError,
+)
 from holmes.checks.checks_cli import checks_app
 from holmes.common.cli_commons import (
     opt_api_key,
@@ -146,6 +158,113 @@ opt_documents: Optional[str] = typer.Option(
     "--documents",
     help="Additional documents to provide the LLM (typically URLs to runbooks)",
 )
+
+opt_continue_session: bool = typer.Option(
+    False,
+    "--continue",
+    "-c",
+    help="Resume the most recent session and continue the conversation",
+)
+opt_resume_session: bool = typer.Option(
+    False,
+    "--resume",
+    "-r",
+    help="Interactively pick a previous session to resume",
+)
+opt_session_id: Optional[str] = typer.Option(
+    None,
+    "--session-id",
+    help="Resume a specific session by its id (list ids with 'holmes ask --resume')",
+)
+
+
+def _format_session_timestamp(iso_timestamp: str) -> str:
+    """Render a stored ISO timestamp in the user's local timezone for display."""
+    try:
+        return datetime.fromisoformat(iso_timestamp).astimezone().strftime(
+            "%Y-%m-%d %H:%M"
+        )
+    except (ValueError, TypeError):
+        return iso_timestamp
+
+
+def _select_session_interactively(
+    manager: SessionManager, console
+) -> Optional[ChatSession]:
+    """Render recent sessions in a table and let the user pick one to resume."""
+    sessions = manager.list_sessions()
+    if not sessions:
+        console.print(
+            "[bold yellow]No saved sessions found.[/bold yellow] "
+            "Start a conversation with [bold]holmes ask[/bold] first."
+        )
+        return None
+
+    sessions = sessions[:20]
+    table = Table(title="Recent sessions", title_justify="left")
+    table.add_column("#", justify="right", style="bold")
+    table.add_column("Last updated")
+    table.add_column("Working directory", overflow="fold")
+    table.add_column("Title", overflow="fold")
+    for idx, session in enumerate(sessions, start=1):
+        table.add_row(
+            str(idx),
+            _format_session_timestamp(session.updated_at),
+            session.working_directory or "-",
+            session.title,
+        )
+    console.print(table)
+
+    while True:
+        try:
+            choice = console.input(
+                "Select a session number to resume (or press Enter to cancel): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            return None
+        if not choice:
+            return None
+        if choice.isdigit() and 1 <= int(choice) <= len(sessions):
+            return sessions[int(choice) - 1]
+        console.print(
+            f"[bold red]Invalid selection '{choice}'. "
+            f"Enter a number between 1 and {len(sessions)}.[/bold red]"
+        )
+
+
+def _resolve_session_to_resume(
+    *,
+    manager: SessionManager,
+    console,
+    continue_session: bool,
+    resume_session: bool,
+    session_id: Optional[str],
+) -> Optional[ChatSession]:
+    """Map the --continue / --resume / --session-id flags to a session to load."""
+    if sum([continue_session, resume_session, bool(session_id)]) > 1:
+        raise typer.BadParameter(
+            "Only one of --continue, --resume, or --session-id can be used at a time."
+        )
+
+    if session_id:
+        try:
+            return manager.load(session_id)
+        except SessionNotFoundError:
+            raise typer.BadParameter(
+                f"No session found with id '{session_id}'. "
+                "List available sessions with 'holmes ask --resume'."
+            )
+    if continue_session:
+        latest = manager.latest()
+        if latest is None:
+            raise typer.BadParameter(
+                "No previous sessions found to continue. Start one with 'holmes ask'."
+            )
+        return latest
+    if resume_session:
+        return _select_session_interactively(manager, console)
+    return None
 
 
 def parse_documents(documents: Optional[str]) -> List[ResourceInstructionDocument]:
@@ -263,6 +382,9 @@ def ask(
         "--fast-mode",
         help="Skip TodoWrite planning phase for faster responses",
     ),
+    continue_session: bool = opt_continue_session,
+    resume: bool = opt_resume_session,
+    session_id: Optional[str] = opt_session_id,
 ):
     """
     Ask any question and answer using available tools
@@ -310,6 +432,21 @@ def ask(
     # Create tracer if trace option is provided
     tracer = TracingFactory.create_tracer(trace, project="HolmesGPT-CLI")
     tracer.start_experiment()
+
+    # Resolve a session to resume (--continue / --resume / --session-id).
+    session_manager = SessionManager()
+    resume_requested = continue_session or resume or bool(session_id)
+    resumed_session = _resolve_session_to_resume(
+        manager=session_manager,
+        console=console,
+        continue_session=continue_session,
+        resume_session=resume,
+        session_id=session_id,
+    )
+    if resume_requested and resumed_session is None:
+        # Only reachable when the user cancels the --resume picker (or has no
+        # sessions); --continue / --session-id raise BadParameter above instead.
+        raise typer.Exit()
 
     if prompt_file and prompt:
         raise typer.BadParameter(
@@ -387,6 +524,8 @@ def ask(
                 prompt_component_overrides=prompt_component_overrides,
                 config=config,
                 config_file_path=config_file,
+                session_manager=session_manager,
+                resume_session=resumed_session,
             )
             return
 
@@ -396,14 +535,21 @@ def ask(
                     f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
                 )
 
-        messages = build_initial_ask_messages(
-            prompt,  # type: ignore
-            include_file,
-            ai.tool_executor,
-            config.get_skill_catalog(),
-            system_prompt_additions,
-            prompt_component_overrides=prompt_component_overrides,
-        )
+        if resumed_session is not None:
+            # Continue the previous conversation: keep its history and append
+            # the new question. The system prompt from the original run is
+            # reused as-is.
+            messages = list(resumed_session.messages)
+            messages.append({"role": "user", "content": prompt})
+        else:
+            messages = build_initial_ask_messages(
+                prompt,  # type: ignore
+                include_file,
+                ai.tool_executor,
+                config.get_skill_catalog(),
+                system_prompt_additions,
+                prompt_component_overrides=prompt_component_overrides,
+            )
 
         with tracer.start_trace(
             f'holmes ask "{prompt}"', span_type=SpanType.TASK
@@ -419,6 +565,22 @@ def ask(
 
         if json_output_file:
             write_json_file(json_output_file, response.model_dump())
+
+        # Persist the conversation so it can later be resumed with
+        # --continue / --resume, even from non-interactive runs.
+        if messages:
+            non_interactive_session_id = (
+                resumed_session.session_id
+                if resumed_session is not None
+                else SessionManager.new_session_id()
+            )
+            persist_session(
+                session_manager,
+                non_interactive_session_id,
+                messages,
+                response.tool_calls or [],
+                getattr(ai.llm, "model", None),
+            )
 
         issue = Issue(
             id=str(uuid.uuid4()),

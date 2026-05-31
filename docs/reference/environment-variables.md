@@ -223,6 +223,14 @@ Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holme
 export HOLMES_CONFIG_PATH="/path/to/custom/config.yaml"
 ```
 
+### HOLMES_DISABLE_SESSION_PERSISTENCE
+By default, `holmes ask` saves each conversation to `~/.holmes/sessions/` so it can be resumed later with `--continue` / `--resume`. Set this to a truthy value (`1`, `true`, `yes`, `on`) to stop writing new sessions to disk — useful in CI or other automated environments where you don't want conversation history (including tool output) persisted. Existing sessions can still be read/resumed.
+
+**Example:**
+```bash
+export HOLMES_DISABLE_SESSION_PERSISTENCE=true
+```
+
 ### LOG_LEVEL
 Controls the logging verbosity of HolmesGPT.
 

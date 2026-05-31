@@ -18,6 +18,54 @@ You can also provide an initial question:
 holmes ask "what pods are failing?"
 ```
 
+## Continuing and Resuming Sessions
+
+Every `holmes ask` conversation is saved locally so you can pick it up again later. Sessions are stored as JSON files under `~/.holmes/sessions/` (override the location with the `HOLMES_CONFIGPATH_DIR` environment variable).
+
+**Continue the most recent session:**
+
+```bash
+holmes ask --continue
+# or
+holmes ask -c
+```
+
+This reopens your last conversation with its full history. You can also add a new question right away:
+
+```bash
+holmes ask -c "did the fix work?"
+```
+
+**Resume an earlier session:**
+
+```bash
+holmes ask --resume
+# or
+holmes ask -r
+```
+
+This shows a list of recent sessions (with their working directory, last-updated time, and the first question) and lets you pick one to continue:
+
+```text
+Recent sessions
+  #   Last updated      Working directory   Title
+  1   2026-05-31 14:02  ~/incidents         why is checkout-api crashing
+  2   2026-05-30 09:15  ~/work/k8s          investigate high memory on the cache pods
+  3   2026-05-29 18:40  ~/incidents         pod stuck in pending
+
+Select a session number to resume (or press Enter to cancel):
+```
+
+**Resume a specific session by id** (useful for scripting):
+
+```bash
+holmes ask --session-id 20260531-140215-ab12cd "what changed since then?"
+```
+
+Use `/clear` inside interactive mode to start a fresh session without quitting. Continuing and resuming also work with `--no-interactive` for non-interactive/scripted runs.
+
+To stop saving conversations to disk (for example in CI), set `HOLMES_DISABLE_SESSION_PERSISTENCE=true`. Existing sessions can still be resumed.
+
 ## Example Workflows
 
 ### Autonomous AI Investigation

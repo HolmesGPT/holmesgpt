@@ -862,6 +862,86 @@ class TestRunInteractiveLoop(unittest.TestCase):
     @patch(
         "holmes.interactive.config_path_dir", new_callable=lambda: tempfile.gettempdir()
     )
+    def test_run_interactive_loop_resumes_and_persists_session(
+        self,
+        mock_config_dir,
+        mock_build_messages,
+        mock_prompt_session_class,
+        mock_check_version,
+    ):
+        """A resumed session keeps its history and is saved back in place."""
+        from holmes.utils.sessions import ChatSession, SessionManager
+
+        sessions_dir = tempfile.mkdtemp()
+        try:
+            manager = SessionManager(sessions_dir=sessions_dir)
+            prior = ChatSession(
+                session_id="resume-test-id",
+                title="prior question",
+                messages=[
+                    {"role": "system", "content": "sys"},
+                    {"role": "user", "content": "prior question"},
+                    {"role": "assistant", "content": "prior answer"},
+                ],
+            )
+            manager.save(prior)
+
+            mock_session = Mock()
+            mock_prompt_session_class.return_value = mock_session
+            mock_session.prompt.side_effect = ["/exit"]
+
+            full_history = prior.messages + [
+                {"role": "user", "content": "follow up"},
+                {"role": "assistant", "content": "Test response"},
+            ]
+
+            def _mock_stream(**kwargs):
+                yield StreamMessage(
+                    event=StreamEvents.ANSWER_END,
+                    data={
+                        "content": "Test response",
+                        "messages": full_history,
+                        "tool_calls": [],
+                        "num_llm_calls": 1,
+                        "costs": {},
+                    },
+                )
+
+            self.mock_ai.call_stream = Mock(side_effect=_mock_stream)
+
+            run_interactive_loop(
+                ai=self.mock_ai,
+                console=self.mock_console,
+                initial_user_input="follow up",
+                include_files=None,
+                show_tool_output=False,
+                check_version=False,
+                session_manager=manager,
+                resume_session=prior,
+            )
+
+            # The LLM was called with the resumed history plus the new question,
+            # and build_initial_ask_messages was NOT used (we reuse old history).
+            self.mock_ai.call_stream.assert_called_once()
+            mock_build_messages.assert_not_called()
+            msgs_arg = self.mock_ai.call_stream.call_args.kwargs["msgs"]
+            self.assertEqual(msgs_arg[0], {"role": "system", "content": "sys"})
+            self.assertEqual(msgs_arg[-1], {"role": "user", "content": "follow up"})
+
+            # The same session file was updated in place with the new turn.
+            updated = manager.load("resume-test-id")
+            self.assertEqual(updated.session_id, "resume-test-id")
+            self.assertEqual(updated.user_turns, 2)
+            self.assertEqual(len(manager.list_sessions()), 1)
+        finally:
+            shutil.rmtree(sessions_dir, ignore_errors=True)
+
+    @patch("holmes.interactive.check_version_async")
+    @patch("holmes.interactive.PromptSession")
+    @patch("holmes.interactive.build_initial_ask_messages")
+    @patch(
+        "holmes.interactive.config_path_dir", new_callable=lambda: tempfile.gettempdir()
+    )
     def test_run_interactive_loop_exception_handling(
         self,
         mock_config_dir,
