@@ -76,8 +76,17 @@ def exchange_code_for_tokens(
     except httpx.HTTPError as e:
         raise OAuthTokenExchangeError(0, f"Token request to {token_url} failed: {e}") from e
 
-    # If Basic Auth failed, retry with client_secret in POST body
-    if client_secret and not resp.is_success:
+    # Retry with client_secret in POST body if Basic Auth failed, OR if the IdP
+    # returned 200 with a non-token body (e.g. Slack responds HTTP 200 +
+    # {"ok": false, "error": "bad_client_secret"} when it only accepts
+    # client_secret_post).
+    def _has_access_token(r: httpx.Response) -> bool:
+        try:
+            return "access_token" in r.json()
+        except Exception:
+            return False
+
+    if client_secret and (not resp.is_success or not _has_access_token(resp)):
         data["client_secret"] = client_secret
         try:
             resp = httpx.post(

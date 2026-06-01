@@ -834,7 +834,24 @@ class RemoteMCPToolset(Toolset):
                 final_headers["Authorization"] = f"Bearer {cached_token}"
                 logger.debug("OAuth token injected for MCP server %s", self.name)
             else:
-                logger.warning("OAuth MCP server %s: no cached token — request will likely 401", self.name)
+                # OAuth is configured for this toolset but we have no user token
+                # (e.g. user_id is missing in server mode, or no one has authenticated).
+                # Strip any Authorization header coming from static `headers` /
+                # `extra_headers` so a shared service-account credential cannot
+                # silently substitute for the absent per-user OAuth token.
+                stripped = [k for k in list(final_headers.keys()) if k.lower() == "authorization"]
+                for k in stripped:
+                    del final_headers[k]
+                if stripped:
+                    logger.warning(
+                        "OAuth MCP server %s: no OAuth token available and static Authorization header suppressed — request will 401",
+                        self.name,
+                    )
+                else:
+                    logger.warning(
+                        "OAuth MCP server %s: no OAuth token available — request will 401",
+                        self.name,
+                    )
 
         return final_headers if final_headers else None
 
