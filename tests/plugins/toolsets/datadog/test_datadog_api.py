@@ -91,7 +91,9 @@ def test_v2_endpoint_keeps_rfc3339_strings():
 
 @freeze_time(FROZEN_NOW)
 def test_none_and_missing_time_fields_are_skipped():
-    """None values are skipped; the rest of the payload is preserved."""
+    """A present-but-None value and an absent key both hit the skip path:
+    neither is converted, and an absent key is never injected."""
+    # `start` present-but-None is left as-is; non-time fields are preserved.
     result = preprocess_time_fields(
         {"start": None, "end": "-24h", "query": "service:web"},
         "api/v1/events",
@@ -102,6 +104,12 @@ def test_none_and_missing_time_fields_are_skipped():
         "end": NOW_TS - ONE_DAY,
         "query": "service:web",
     }
+
+    # `start` entirely absent: it must not be materialized in the output.
+    result = preprocess_time_fields({"end": "-24h"}, "api/v1/events")
+
+    assert result == {"end": NOW_TS - ONE_DAY}
+    assert "start" not in result
 
 
 @freeze_time(FROZEN_NOW)
