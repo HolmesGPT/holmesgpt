@@ -103,8 +103,8 @@ auth:
 ```yaml
 auth:
   type: header
-  header_name: "X-API-Key"
-  header_value: "{{ env.API_KEY }}"
+  name: "X-API-Key"
+  value: "{{ env.API_KEY }}"
 ```
 
 ### Environment Variables
