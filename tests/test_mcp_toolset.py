@@ -2745,6 +2745,36 @@ class TestMCPHealthCheckTool:
         assert ok is True
         assert call_count["count"] == 0  # health check should not be called
 
+    def test_skipped_health_check_is_logged(self, monkeypatch, caplog):
+        """When no identity tool is exposed, the skipped check is logged (debug)
+        so it is diagnosable rather than silent."""
+        toolset = RemoteMCPToolset(
+            name="github",
+            description="GitHub MCP",
+            config={"url": "http://localhost:8000"},  # no health_check_tool
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(
+                tools=[
+                    Tool(
+                        name="list_repos",  # no allowlisted identity tool present
+                        inputSchema={"type": "object", "properties": {}},
+                        description="List repositories",
+                    ),
+                ]
+            )
+
+        monkeypatch.setattr(toolset, "_get_server_tools", mock_get_server_tools)
+
+        with caplog.at_level(logging.DEBUG):
+            ok, _ = toolset.prerequisites_callable(config=toolset.config)
+
+        assert ok is True
+        assert any(
+            "skipping auth health check" in r.getMessage() for r in caplog.records
+        )
+
     def test_auto_detect_health_check_tool_catches_bad_auth(
         self, monkeypatch, suppress_migration_warnings
     ):

@@ -1001,6 +1001,16 @@ class RemoteMCPToolset(Toolset):
                     candidate,
                 )
                 return candidate
+        # No identity tool exposed — the auth health check is skipped. Log it so
+        # a silently-skipped check is diagnosable (e.g. GitHub MCP without its
+        # 'context' toolset enabled does not expose get_me). Set an explicit
+        # health_check_tool in config to validate auth via a different tool.
+        logging.debug(
+            "MCP server %s: no health_check_tool configured and none of %s are "
+            "exposed by the server; skipping auth health check",
+            self.name,
+            DEFAULT_HEALTH_CHECK_TOOLS,
+        )
         return None
 
     def _run_health_check_tool(self, tool_name: str) -> Tuple[bool, str]:
