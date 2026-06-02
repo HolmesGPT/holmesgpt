@@ -373,6 +373,8 @@ mcpAddons:
   # Azure MCP Server Configuration
   azure:
     enabled: false
+    # Custom annotations to add to the Deployment metadata
+    deploymentAnnotations: {}
     # Service account configuration for Azure Workload Identity
     serviceAccount:
       create: true
@@ -438,6 +440,9 @@ mcpAddons:
   # To build your own image, see: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/github
   github:
     enabled: false
+
+    # Custom annotations to add to the Deployment metadata
+    deploymentAnnotations: {}
 
     image: "github-mcp:1.0.1"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
@@ -666,6 +671,9 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false
 
+    # Custom annotations to add to the Deployment metadata
+    deploymentAnnotations: {}
+
     image: "kubernetes-remediation-mcp:1.0.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
@@ -819,6 +827,9 @@ mcpAddons:
   #     --from-literal=confluence-username=<YOUR_EMAIL> --from-literal=confluence-api-token=<YOUR_API_TOKEN> -n <NAMESPACE>
   confluenceMcp:
     enabled: false
+
+    # Custom annotations to add to the Deployment metadata
+    deploymentAnnotations: {}
 
     image: "mcp-atlassian:v0.21.2"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"

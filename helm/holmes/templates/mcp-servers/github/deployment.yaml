@@ -29,6 +29,10 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-github-mcp-server
   namespace: {{ .Release.Namespace }}
+  {{- with .Values.mcpAddons.github.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   labels:
     app: {{ .Release.Name }}-github-mcp
     app.kubernetes.io/name: github-mcp-server

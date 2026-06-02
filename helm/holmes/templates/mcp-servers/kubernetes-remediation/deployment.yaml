@@ -30,6 +30,10 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-k8s-remediation-mcp-server
   namespace: {{ .Release.Namespace }}
+  {{- with .Values.mcpAddons.kubernetesRemediation.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   labels:
     app: {{ .Release.Name }}-k8s-remediation-mcp
     app.kubernetes.io/name: k8s-remediation-mcp-server
