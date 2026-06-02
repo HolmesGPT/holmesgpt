@@ -61,15 +61,15 @@ fi
 # 2. kubectl
 if ! command -v kubectl >/dev/null; then
   log "Installing kubectl..."
-  KUBECTL_VER=$(curl -sL https://dl.k8s.io/release/stable.txt)
-  sudo curl -sLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VER}/bin/linux/amd64/kubectl"
+  KUBECTL_VER=$(curl -sfL https://dl.k8s.io/release/stable.txt)
+  sudo curl -sfLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VER}/bin/linux/amd64/kubectl"
   sudo chmod +x /usr/local/bin/kubectl
 fi
 
 # 3. helm (the helm/core toolset's prereq check fails the eval otherwise)
 if ! command -v helm >/dev/null; then
   log "Installing helm..."
-  curl -sL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz -C /tmp/
+  curl -sfL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz -C /tmp/
   sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
   sudo chmod +x /usr/local/bin/helm
   rm -rf /tmp/linux-amd64
@@ -78,7 +78,7 @@ fi
 # 4. Static jq on host so we can copy it into the k3s container for the runc wrapper
 if [ ! -x /tmp/jq ]; then
   log "Downloading static jq for the runc wrapper inside k3s..."
-  curl -sL -o /tmp/jq "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-amd64"
+  curl -sfL -o /tmp/jq "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-amd64"
   chmod +x /tmp/jq
 fi
 
