@@ -278,7 +278,11 @@ if HOLMES_API_KEY:
     @app.middleware("http")
     async def api_key_auth(request: Request, call_next):
         """Reject requests missing a valid API key (X-API-Key or Bearer token)."""
-        if request.url.path in AUTH_EXEMPT_PATHS:
+        # Use the raw ASGI scope path, not request.url.path. The latter is
+        # reconstructed from the (attacker-controlled) Host header and can be
+        # spoofed via a malformed Host to bypass this exemption check
+        # (CVE-2026-48710 / GHSA-86qp-5c8j-p5mr).
+        if request.scope.get("path", "") in AUTH_EXEMPT_PATHS:
             return await call_next(request)
 
         key = extract_api_key(request)
