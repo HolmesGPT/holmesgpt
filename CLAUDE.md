@@ -747,6 +747,29 @@ runs in ~256s wall at -n 4 (~$3.30). Budget accordingly when looping.
   regression run takes ~80s of setup (mostly image pull) per worker; a second
   run on the same cluster reuses the image cache and is much faster. If you're
   iterating, **do NOT** delete the k3s container between runs.
+- **Docker Hub anonymous pull rate limit can fail eval setup.** The sandbox
+  shares an outbound IP across sessions, so anonymous Docker Hub pulls are
+  subject to the 100-pulls-per-6h limit (`429 Too Many Requests: toomanyrequests:
+  You have reached your unauthenticated pull rate limit`). Symptoms: eval
+  setup times out with pods stuck `ImagePullBackOff`. Hit it locally on
+  `12_job_crashing`, `51_logs_summarize_errors`, and `243_pod_names_contain_service`
+  — same evals all pass on CI because CI uses its own outbound IP and
+  authenticated pulls. Mitigations:
+  - Pre-pull the image on the host (`docker pull python:3.9-slim`) and
+    side-load into k3s with `docker save ... | docker exec -i k3s-server
+    ctr -n k8s.io images import -` (the same image-import gotcha applies —
+    do them one at a time).
+  - Add a Docker Hub auth block to `/tmp/k3s-output/registries.yaml`:
+    ```yaml
+    configs:
+      "registry-1.docker.io":
+        auth:
+          username: <hub-user>
+          password: <hub-pat>
+        tls:
+          ca_file: /etc/ssl/certs/ca-certificates.crt
+    ```
+  - Re-run after the 6h window expires.
 - **Sandbox network policy controls outbound access.** All recipe pulls
   (`get.helm.sh`, `dl.k8s.io`, `kind.sigs.k8s.io`, `openrouter.ai`,
   `registry-1.docker.io`, `ghcr.io` Calico images, etc.) succeed under the
