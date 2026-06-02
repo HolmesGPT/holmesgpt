@@ -2648,7 +2648,7 @@ class TestMCPHealthCheckTool:
 
         ok, msg = toolset.prerequisites_callable(config=toolset.config)
         assert ok is False
-        assert "health check failed" in msg
+        assert "health check tool 'get_me'" in msg
         assert "401 Unauthorized" in msg
 
     def test_health_check_tool_not_found(self, monkeypatch, suppress_migration_warnings):
@@ -2707,7 +2707,7 @@ class TestMCPHealthCheckTool:
 
         ok, msg = toolset.prerequisites_callable(config=toolset.config)
         assert ok is False
-        assert "health check failed" in msg
+        assert "health check tool 'get_me'" in msg
         assert "Connection refused" in msg
 
     def test_no_health_check_tool_skips_check(self, monkeypatch, suppress_migration_warnings):
@@ -2819,7 +2819,7 @@ class TestMCPHealthCheckTool:
         ok, msg = toolset.prerequisites_callable(config=toolset.config)
         assert ok is False
         assert called_with["tool_name"] == "get_me"
-        assert "health check failed" in msg
+        assert "health check tool 'get_me'" in msg
         assert "401 Unauthorized" in msg
 
     def test_auto_detect_health_check_tool_success(

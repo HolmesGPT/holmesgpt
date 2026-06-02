@@ -304,6 +304,11 @@ class ChatRequestBaseModel(BaseModel):
             and len(conversation_history) > 0
         ):
             first_item = conversation_history[0]
+            # The first item may not be a dict (e.g. {"conversation_history": ["bad"]}).
+            # Skip the role check rather than crashing on .get(); Pydantic then
+            # raises a clean ValidationError for the malformed item shape.
+            if not isinstance(first_item, dict):
+                return values
             if not first_item.get("role") == "system":
                 raise ValueError(
                     "The first item in conversation_history must contain 'role': 'system'"

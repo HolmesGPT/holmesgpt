@@ -60,6 +60,12 @@ class TestCheckFirstItemRole:
         with pytest.raises(ValidationError):
             ChatRequestBaseModel.model_validate(b"not json at all")
 
+    def test_non_dict_first_item_raises_validation_error_not_attribute_error(self):
+        """A conversation_history whose first item is not a dict must produce a
+        clean ValidationError, not an AttributeError from first_item.get()."""
+        with pytest.raises(ValidationError):
+            ChatRequestBaseModel.model_validate({"conversation_history": ["bad"]})
+
     def test_chat_request_from_bytes_body(self):
         """End-to-end: the public ChatRequest model also tolerates a bytes body."""
         raw = json.dumps(

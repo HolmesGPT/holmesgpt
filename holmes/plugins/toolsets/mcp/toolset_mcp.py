@@ -1043,7 +1043,8 @@ class RemoteMCPToolset(Toolset):
                 )
                 return (
                     False,
-                    f"MCP server {self.name}: health check failed - {error_text or 'unknown error'}",
+                    f"MCP server {self.name}: health check tool '{tool_name}' with params {{}} "
+                    f"failed - {error_text or 'unknown error'}",
                 )
             logging.info("MCP server %s health check passed (tool: %s)", self.name, tool_name)
             return (True, "")
@@ -1055,7 +1056,8 @@ class RemoteMCPToolset(Toolset):
             )
             return (
                 False,
-                f"MCP server {self.name}: health check failed - {error_detail}",
+                f"MCP server {self.name}: health check tool '{tool_name}' with params {{}} "
+                f"failed - {error_detail}",
             )
 
     async def _call_health_check_tool_async(self, tool_name: str):
