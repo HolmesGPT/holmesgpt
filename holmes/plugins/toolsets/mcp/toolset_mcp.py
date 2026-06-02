@@ -113,6 +113,20 @@ class MCPMode(str, Enum):
     STDIO = "stdio"
 
 
+# Well-known, read-only "who am I" tools used to verify MCP authentication when
+# no health_check_tool is explicitly configured. MCP servers commonly expose an
+# authenticated-identity endpoint (e.g. GitHub's get_me, GitLab's
+# get_current_user). Calling one with empty arguments is a side-effect-free way
+# to confirm credentials (such as an API token) are actually valid, since
+# list_tools succeeds even with a bad token. Order reflects matching priority.
+DEFAULT_HEALTH_CHECK_TOOLS: List[str] = [
+    "get_me",
+    "get_current_user",
+    "get_authenticated_user",
+    "whoami",
+]
+
+
 
 
 
@@ -948,8 +962,15 @@ class RemoteMCPToolset(Toolset):
             if not self.tools:
                 logging.warning("mcp server %s loaded 0 tools.", self.name)
 
-            # If health_check_tool is configured, invoke it to verify authentication
-            health_check_tool_name = self._mcp_config.health_check_tool
+            # Invoke a read-only tool to verify authentication actually works.
+            # MCP servers (e.g. GitHub) often return their tool list even with
+            # invalid credentials, so listing tools alone doesn't prove auth.
+            # Use the explicitly-configured tool if set, otherwise auto-detect a
+            # well-known read-only identity tool from the loaded tools.
+            health_check_tool_name = (
+                self._mcp_config.health_check_tool
+                or self._auto_detect_health_check_tool()
+            )
             if health_check_tool_name:
                 health_check_result = self._run_health_check_tool(health_check_tool_name)
                 if not health_check_result[0]:
@@ -963,6 +984,24 @@ class RemoteMCPToolset(Toolset):
                 f"Failed to load mcp server {self.name}: {error_detail}"
                 ". If the server is still starting up, Holmes will retry automatically",
             )
+
+    def _auto_detect_health_check_tool(self) -> Optional[str]:
+        """Pick a default health-check tool from a known allowlist of read-only
+        identity tools when none is explicitly configured.
+
+        Returns the name of the first allowlisted tool the server exposes, or
+        None if it exposes none (in which case the auth health check is skipped).
+        """
+        tool_names = {t.name for t in self.tools}
+        for candidate in DEFAULT_HEALTH_CHECK_TOOLS:
+            if candidate in tool_names:
+                logging.info(
+                    "MCP server %s: no health_check_tool configured, auto-detected '%s' for auth validation",
+                    self.name,
+                    candidate,
+                )
+                return candidate
+        return None
 
     def _run_health_check_tool(self, tool_name: str) -> Tuple[bool, str]:
         """Invoke a tool to verify authentication actually works.

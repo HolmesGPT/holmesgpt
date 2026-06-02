@@ -2711,7 +2711,8 @@ class TestMCPHealthCheckTool:
         assert "Connection refused" in msg
 
     def test_no_health_check_tool_skips_check(self, monkeypatch, suppress_migration_warnings):
-        """When health_check_tool is not set, no additional check is performed."""
+        """When health_check_tool is not set and the server exposes no known
+        identity tool, no additional check is performed."""
         toolset = RemoteMCPToolset(
             name="github",
             description="GitHub MCP",
@@ -2722,9 +2723,9 @@ class TestMCPHealthCheckTool:
             return ListToolsResult(
                 tools=[
                     Tool(
-                        name="get_me",
+                        name="list_repos",  # not in the auto-detect allowlist
                         inputSchema={"type": "object", "properties": {}},
-                        description="Get current user",
+                        description="List repositories",
                     ),
                 ]
             )
@@ -2743,6 +2744,128 @@ class TestMCPHealthCheckTool:
         ok, _ = toolset.prerequisites_callable(config=toolset.config)
         assert ok is True
         assert call_count["count"] == 0  # health check should not be called
+
+    def test_auto_detect_health_check_tool_catches_bad_auth(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """When health_check_tool is not configured but the server exposes a
+        known identity tool (e.g. get_me), it is auto-detected and invoked, so a
+        bad token causes prerequisites to fail instead of appearing healthy."""
+        toolset = RemoteMCPToolset(
+            name="github",
+            description="GitHub MCP",
+            config={"url": "http://localhost:8000"},  # no health_check_tool
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(
+                tools=[
+                    Tool(
+                        name="list_repos",
+                        inputSchema={"type": "object", "properties": {}},
+                        description="List repositories",
+                    ),
+                    Tool(
+                        name="get_me",  # in the auto-detect allowlist
+                        inputSchema={"type": "object", "properties": {}},
+                        description="Get current user",
+                    ),
+                ]
+            )
+
+        monkeypatch.setattr(toolset, "_get_server_tools", mock_get_server_tools)
+
+        called_with = {}
+
+        async def mock_call_health_check(tool_name):
+            called_with["tool_name"] = tool_name
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text="401 Unauthorized: Bad credentials")],
+            )
+
+        monkeypatch.setattr(toolset, "_call_health_check_tool_async", mock_call_health_check)
+
+        ok, msg = toolset.prerequisites_callable(config=toolset.config)
+        assert ok is False
+        assert called_with["tool_name"] == "get_me"
+        assert "health check failed" in msg
+        assert "401 Unauthorized" in msg
+
+    def test_auto_detect_health_check_tool_success(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Auto-detected identity tool that succeeds leaves prerequisites passing."""
+        toolset = RemoteMCPToolset(
+            name="gitlab",
+            description="GitLab MCP",
+            config={"url": "http://localhost:8000"},  # no health_check_tool
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(
+                tools=[
+                    Tool(
+                        name="get_current_user",  # GitLab-style identity tool
+                        inputSchema={"type": "object", "properties": {}},
+                        description="Get current user",
+                    ),
+                ]
+            )
+
+        monkeypatch.setattr(toolset, "_get_server_tools", mock_get_server_tools)
+
+        called_with = {}
+
+        async def mock_call_health_check(tool_name):
+            called_with["tool_name"] = tool_name
+            return CallToolResult(content=[TextContent(type="text", text='{"username": "user"}')])
+
+        monkeypatch.setattr(toolset, "_call_health_check_tool_async", mock_call_health_check)
+
+        ok, msg = toolset.prerequisites_callable(config=toolset.config)
+        assert ok is True
+        assert called_with["tool_name"] == "get_current_user"
+
+    def test_configured_health_check_tool_overrides_auto_detect(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """An explicit health_check_tool takes precedence over auto-detection."""
+        toolset = RemoteMCPToolset(
+            name="github",
+            description="GitHub MCP",
+            config={"url": "http://localhost:8000", "health_check_tool": "get_me"},
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(
+                tools=[
+                    Tool(
+                        name="get_me",
+                        inputSchema={"type": "object", "properties": {}},
+                        description="Get current user",
+                    ),
+                    Tool(
+                        name="get_current_user",  # also in allowlist, must be ignored
+                        inputSchema={"type": "object", "properties": {}},
+                        description="Get current user (alt)",
+                    ),
+                ]
+            )
+
+        monkeypatch.setattr(toolset, "_get_server_tools", mock_get_server_tools)
+
+        called_with = {}
+
+        async def mock_call_health_check(tool_name):
+            called_with["tool_name"] = tool_name
+            return CallToolResult(content=[TextContent(type="text", text='{"login": "user"}')])
+
+        monkeypatch.setattr(toolset, "_call_health_check_tool_async", mock_call_health_check)
+
+        ok, _ = toolset.prerequisites_callable(config=toolset.config)
+        assert ok is True
+        assert called_with["tool_name"] == "get_me"
 
     def test_health_check_tool_in_stdio_mode(self, monkeypatch, suppress_migration_warnings):
         """Health check tool also works in stdio mode."""
