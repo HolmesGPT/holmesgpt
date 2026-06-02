@@ -186,6 +186,13 @@ variable "mcp_jenkins_api_key" {
   default     = ""
 }
 
+variable "mcp_aws_billing_cost_management_api_key" {
+  description = "API key for AWS Billing & Cost Management MCP server"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # Grafana
 variable "grafana_url" {
   description = "Grafana instance URL"

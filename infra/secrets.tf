@@ -15,17 +15,18 @@ resource "aws_secretsmanager_secret_version" "anthropic_api_key" {
 # MCP API Keys secret — groups all three MCP keys in one secret
 resource "aws_secretsmanager_secret" "mcp_api_keys" {
   name                    = "${local.cluster_name}/mcp-api-keys"
-  description             = "API keys for MCP integrations (ADO, Atlassian, Salesforce, Jenkins)"
+  description             = "API keys for MCP integrations (ADO, Atlassian, Salesforce, Jenkins, AWS Billing & Cost Management)"
   recovery_window_in_days = var.environment == "dev" ? 0 : 30
 }
 
 resource "aws_secretsmanager_secret_version" "mcp_api_keys" {
   secret_id = aws_secretsmanager_secret.mcp_api_keys.id
   secret_string = jsonencode({
-    MCP_ADO_API_KEY        = var.mcp_ado_api_key
-    MCP_ATLASSIAN_API_KEY  = var.mcp_atlassian_api_key
-    MCP_SALESFORCE_API_KEY = var.mcp_salesforce_api_key
-    MCP_JENKINS_API_KEY    = var.mcp_jenkins_api_key
+    MCP_ADO_API_KEY                         = var.mcp_ado_api_key
+    MCP_ATLASSIAN_API_KEY                   = var.mcp_atlassian_api_key
+    MCP_SALESFORCE_API_KEY                  = var.mcp_salesforce_api_key
+    MCP_JENKINS_API_KEY                     = var.mcp_jenkins_api_key
+    MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY = var.mcp_aws_billing_cost_management_api_key
   })
 }
 

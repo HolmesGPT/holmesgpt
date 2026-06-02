@@ -26,32 +26,33 @@ resource "kubernetes_secret" "holmes_api_keys" {
   }
 
   data = {
-    ANTHROPIC_API_KEY        = var.anthropic_api_key
-    ANTHROPIC_API_BASE       = var.anthropic_api_base
-    OKTA_ISSUER              = local.ui_creds["OKTA_ISSUER"]
-    OKTA_CLIENT_ID           = local.ui_creds["OKTA_CLIENT_ID"]
-    HOLMES_SUPER_ADMIN_EMAIL = local.ui_creds["HOLMES_SUPER_ADMIN_EMAIL"]
-    OKTA_API_TOKEN           = local.ui_creds["OKTA_API_TOKEN"]
-    OKTA_GROUP_ID            = local.ui_creds["OKTA_GROUP_ID"]
-    MCP_ADO_API_KEY          = local.mcp_keys["MCP_ADO_API_KEY"]
-    MCP_ATLASSIAN_API_KEY    = local.mcp_keys["MCP_ATLASSIAN_API_KEY"]
-    MCP_SALESFORCE_API_KEY   = local.mcp_keys["MCP_SALESFORCE_API_KEY"]
-    MCP_JENKINS_API_KEY      = local.mcp_keys["MCP_JENKINS_API_KEY"]
-    GRAFANA_API_KEY          = local.grafana["GRAFANA_API_KEY"]
-    GRAFANA_URL              = local.grafana["GRAFANA_URL"]
-    DATADOG_API_KEY          = var.datadog_api_key
-    DATADOG_APP_KEY          = var.datadog_app_key
-    DATADOG_API_URL          = var.datadog_api_url
-    PAGERDUTY_API_KEY        = var.pagerduty_api_key
-    PAGERDUTY_USER_EMAIL     = var.pagerduty_user_email
-    PAGERDUTY_WEBHOOK_SECRET = var.pagerduty_webhook_secret
-    ADO_WEBHOOK_USERNAME     = var.ado_webhook_username
-    ADO_WEBHOOK_PASSWORD     = var.ado_webhook_password
-    ADO_PAT                  = var.ado_pat
-    ADO_ORGANIZATION         = var.ado_organization
-    SALESFORCE_WEBHOOK_TOKEN = var.salesforce_webhook_token
-    SALESFORCE_INSTANCE_URL  = var.salesforce_instance_url
-    SALESFORCE_ACCESS_TOKEN  = var.salesforce_access_token
+    ANTHROPIC_API_KEY                       = var.anthropic_api_key
+    ANTHROPIC_API_BASE                      = var.anthropic_api_base
+    OKTA_ISSUER                             = local.ui_creds["OKTA_ISSUER"]
+    OKTA_CLIENT_ID                          = local.ui_creds["OKTA_CLIENT_ID"]
+    HOLMES_SUPER_ADMIN_EMAIL                = local.ui_creds["HOLMES_SUPER_ADMIN_EMAIL"]
+    OKTA_API_TOKEN                          = local.ui_creds["OKTA_API_TOKEN"]
+    OKTA_GROUP_ID                           = local.ui_creds["OKTA_GROUP_ID"]
+    MCP_ADO_API_KEY                         = local.mcp_keys["MCP_ADO_API_KEY"]
+    MCP_ATLASSIAN_API_KEY                   = local.mcp_keys["MCP_ATLASSIAN_API_KEY"]
+    MCP_SALESFORCE_API_KEY                  = local.mcp_keys["MCP_SALESFORCE_API_KEY"]
+    MCP_JENKINS_API_KEY                     = local.mcp_keys["MCP_JENKINS_API_KEY"]
+    MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY = local.mcp_keys["MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY"]
+    GRAFANA_API_KEY                         = local.grafana["GRAFANA_API_KEY"]
+    GRAFANA_URL                             = local.grafana["GRAFANA_URL"]
+    DATADOG_API_KEY                         = var.datadog_api_key
+    DATADOG_APP_KEY                         = var.datadog_app_key
+    DATADOG_API_URL                         = var.datadog_api_url
+    PAGERDUTY_API_KEY                       = var.pagerduty_api_key
+    PAGERDUTY_USER_EMAIL                    = var.pagerduty_user_email
+    PAGERDUTY_WEBHOOK_SECRET                = var.pagerduty_webhook_secret
+    ADO_WEBHOOK_USERNAME                    = var.ado_webhook_username
+    ADO_WEBHOOK_PASSWORD                    = var.ado_webhook_password
+    ADO_PAT                                 = var.ado_pat
+    ADO_ORGANIZATION                        = var.ado_organization
+    SALESFORCE_WEBHOOK_TOKEN                = var.salesforce_webhook_token
+    SALESFORCE_INSTANCE_URL                 = var.salesforce_instance_url
+    SALESFORCE_ACCESS_TOKEN                 = var.salesforce_access_token
   }
 
   type = "Opaque"
@@ -180,6 +181,15 @@ resource "helm_release" "holmes" {
             secretKeyRef = {
               name = kubernetes_secret.holmes_api_keys.metadata[0].name
               key  = "MCP_JENKINS_API_KEY"
+            }
+          }
+        },
+        {
+          name = "MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY"
+          valueFrom = {
+            secretKeyRef = {
+              name = kubernetes_secret.holmes_api_keys.metadata[0].name
+              key  = "MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY"
             }
           }
         },
@@ -437,7 +447,8 @@ resource "helm_release" "holmes" {
       mcp_servers = (local.mcp_keys["MCP_ADO_API_KEY"] != "" ||
         local.mcp_keys["MCP_ATLASSIAN_API_KEY"] != "" ||
         local.mcp_keys["MCP_SALESFORCE_API_KEY"] != "" ||
-        local.mcp_keys["MCP_JENKINS_API_KEY"] != "") ? merge(
+        local.mcp_keys["MCP_JENKINS_API_KEY"] != "" ||
+        local.mcp_keys["MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY"] != "") ? merge(
         local.mcp_keys["MCP_ADO_API_KEY"] != "" ? {
           ado = {
             description = "Azure DevOps - work items, repositories, pipelines, and boards"
@@ -492,6 +503,20 @@ resource "helm_release" "holmes" {
               icon_url = "https://cdn.simpleicons.org/jenkins/D24939"
             }
             llm_instructions = "Use this toolset to query Jenkins CI/CD data: jobs, builds, pipeline runs, and build console logs. Prefer specific job/build references over broad queries."
+          }
+        } : {},
+        local.mcp_keys["MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY"] != "" ? {
+          "aws-billing-cost-management" = {
+            description = "AWS Billing & Cost Management - cost & usage, pricing, budgets, billing views, Compute Optimizer"
+            config = {
+              url  = "https://mcp-api.platform.pditechnologies.com/v1/aws-billing-cost-management-sse/mcp"
+              mode = "streamable-http"
+              headers = {
+                "x-api-key" = "{{ env.MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY }}"
+              }
+              icon_url = "https://cdn.simpleicons.org/amazonwebservices/FF9900"
+            }
+            llm_instructions = "Use this toolset to query AWS cost and usage, pricing, budgets, billing views, savings plans, and Compute Optimizer recommendations. Specify a time range and granularity (DAILY/MONTHLY) for cost queries. Data is read-only and may lag real-time by up to 24h."
           }
         } : {}
       ) : {}

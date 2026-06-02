@@ -7,6 +7,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 <div class="grid cards" markdown>
 
 -   [:material-aws:{ .lg .middle } **AWS (MCP)**](aws.md)
+-   [:material-aws:{ .lg .middle } **AWS Billing & Cost Management (MCP)**](aws-billing-cost-management-mcp.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure (MCP)**](azure-mcp.md)
 -   [:material-google-cloud:{ .lg .middle } **GCP (MCP)**](gcp.md)
 

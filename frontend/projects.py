@@ -828,7 +828,7 @@ def _fetch_secret(secret_arn: str) -> dict:
 
 
 # MCP toolset types that can be scoped per-project via a per-project API key
-_MCP_TOOLSET_TYPES = {"ado", "atlassian", "salesforce", "jenkins"}
+_MCP_TOOLSET_TYPES = {"ado", "atlassian", "salesforce", "jenkins", "aws-billing-cost-management"}
 
 # Default MCP server URLs (mirrors helm.tf configuration)
 _MCP_DEFAULT_URLS = {
@@ -836,6 +836,7 @@ _MCP_DEFAULT_URLS = {
     "atlassian": "https://mcp-api.platform.pditechnologies.com/v1/atlassian-sse/mcp",
     "salesforce": "https://mcp-api.platform.pditechnologies.com/v1/salesforce-sse/mcp",
     "jenkins": "https://mcp-api.platform.pditechnologies.com/v1/jenkins-sse/mcp",
+    "aws-billing-cost-management": "https://mcp-api.platform.pditechnologies.com/v1/aws-billing-cost-management-sse/mcp",
 }
 
 _MCP_ICONS = {
@@ -843,6 +844,7 @@ _MCP_ICONS = {
     "atlassian": "https://cdn.simpleicons.org/atlassian/0052CC",
     "salesforce": "https://cdn.simpleicons.org/salesforce/00A1E0",
     "jenkins": "https://cdn.simpleicons.org/jenkins/D24939",
+    "aws-billing-cost-management": "https://cdn.simpleicons.org/amazonwebservices/FF9900",
 }
 
 _MCP_DESCRIPTIONS = {
@@ -850,6 +852,7 @@ _MCP_DESCRIPTIONS = {
     "atlassian": "Atlassian - Jira issues, Confluence pages, and project boards",
     "salesforce": "Salesforce - accounts, contacts, opportunities, cases, and CRM data",
     "jenkins": "Jenkins - CI/CD jobs, builds, pipelines, and build history",
+    "aws-billing-cost-management": "AWS Billing & Cost Management - cost & usage, pricing, budgets, billing views, Compute Optimizer",
 }
 
 _MCP_INSTRUCTIONS_DIR = os.path.join(os.path.dirname(__file__), "mcp_instructions")

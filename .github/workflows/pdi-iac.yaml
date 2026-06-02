@@ -48,6 +48,7 @@
 #   PDI_MCP_ADO_API_KEY            — Azure DevOps PAT (dev)
 #   PDI_MCP_ATLASSIAN_API_KEY      — Atlassian API key (dev)
 #   PDI_MCP_SALESFORCE_API_KEY     — Salesforce API key (dev)
+#   PDI_MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY — AWS Billing & Cost Management MCP x-api-key (dev)
 #   PDI_DEV_TF_STATE_BUCKET        — S3 bucket name for dev state
 #   PDI_DEV_HOLMES_UI_PASSWORD     — Holmes UI login password (dev)
 #
@@ -58,6 +59,7 @@
 #   PDI_PROD_MCP_ADO_API_KEY       — Azure DevOps PAT (prod)
 #   PDI_PROD_MCP_ATLASSIAN_API_KEY — Atlassian API key (prod)
 #   PDI_PROD_MCP_SALESFORCE_API_KEY — Salesforce API key (prod)
+#   PDI_PROD_MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY — AWS Billing & Cost Management MCP x-api-key (prod)
 #   PDI_PROD_TF_STATE_BUCKET       — S3 bucket name for prod state
 #   PDI_PROD_ECR_REGISTRY          — ECR registry URL (<PROD_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com)
 #   PDI_PROD_HOLMES_UI_PASSWORD    — Holmes UI login password (prod)
@@ -186,6 +188,7 @@ jobs:
             echo "MCP_ADO_API_KEY=${{ secrets.PDI_PROD_MCP_ADO_API_KEY }}" >> $GITHUB_ENV
             echo "MCP_ATLASSIAN_API_KEY=${{ secrets.PDI_PROD_MCP_ATLASSIAN_API_KEY }}" >> $GITHUB_ENV
             echo "MCP_SALESFORCE_API_KEY=${{ secrets.PDI_PROD_MCP_SALESFORCE_API_KEY }}" >> $GITHUB_ENV
+            echo "MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY=${{ secrets.PDI_PROD_MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY }}" >> $GITHUB_ENV
             echo "HOLMES_UI_PASSWORD=${{ secrets.PDI_PROD_HOLMES_UI_PASSWORD }}" >> $GITHUB_ENV
           else
             echo "AWS_ACCESS_KEY_ID=${{ secrets.PDI_AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
@@ -197,6 +200,7 @@ jobs:
             echo "MCP_ADO_API_KEY=${{ secrets.PDI_MCP_ADO_API_KEY }}" >> $GITHUB_ENV
             echo "MCP_ATLASSIAN_API_KEY=${{ secrets.PDI_MCP_ATLASSIAN_API_KEY }}" >> $GITHUB_ENV
             echo "MCP_SALESFORCE_API_KEY=${{ secrets.PDI_MCP_SALESFORCE_API_KEY }}" >> $GITHUB_ENV
+            echo "MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY=${{ secrets.PDI_MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY }}" >> $GITHUB_ENV
             echo "HOLMES_UI_PASSWORD=${{ secrets.PDI_DEV_HOLMES_UI_PASSWORD }}" >> $GITHUB_ENV
           fi
 
@@ -266,6 +270,7 @@ jobs:
             -var="mcp_ado_api_key=${{ env.MCP_ADO_API_KEY }}" \
             -var="mcp_atlassian_api_key=${{ env.MCP_ATLASSIAN_API_KEY }}" \
             -var="mcp_salesforce_api_key=${{ env.MCP_SALESFORCE_API_KEY }}" \
+            -var="mcp_aws_billing_cost_management_api_key=${{ env.MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY }}" \
             -refresh=false \
             -out=tfplan \
             -no-color \
@@ -365,6 +370,7 @@ jobs:
             -var="mcp_ado_api_key=${{ env.MCP_ADO_API_KEY }}" \
             -var="mcp_atlassian_api_key=${{ env.MCP_ATLASSIAN_API_KEY }}" \
             -var="mcp_salesforce_api_key=${{ env.MCP_SALESFORCE_API_KEY }}" \
+            -var="mcp_aws_billing_cost_management_api_key=${{ env.MCP_AWS_BILLING_COST_MANAGEMENT_API_KEY }}" \
             -auto-approve \
             -no-color \
             2>&1 | tee /tmp/apply_output.txt

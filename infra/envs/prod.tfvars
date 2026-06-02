@@ -40,16 +40,17 @@ holmes_replicas  = 2
 holmes_image_tag = "latest"
 
 # UI Auth — Okta OIDC (PKCE) — reuses dev Okta app
-okta_issuer              = "https://pdisoftware.okta.com/oauth2/default"
-okta_client_id           = "0oa1ae04lowCIDE9B2p8"
-holmes_super_admin_email = "srinivasreddy.v@pditechnologies.com"
-okta_group_id            = "00g1ae0b43fuHGUXw2p8"
-okta_api_token           = "" # Read from Secrets Manager via okta_api_token_secret_arn
+okta_issuer               = "https://pdisoftware.okta.com/oauth2/default"
+okta_client_id            = "0oa1ae04lowCIDE9B2p8"
+holmes_super_admin_email  = "srinivasreddy.v@pditechnologies.com"
+okta_group_id             = "00g1ae0b43fuHGUXw2p8"
+okta_api_token            = "" # Read from Secrets Manager via okta_api_token_secret_arn
 okta_api_token_secret_arn = "arn:aws:secretsmanager:us-east-1:827852520868:secret:holmesgpt-prod/okta-api-token-paziMj"
 
 # MCP Integration API Keys
-mcp_ado_api_key       = "" # Set via TF_VAR_mcp_ado_api_key or -var flag
-mcp_atlassian_api_key = "" # Set via TF_VAR_mcp_atlassian_api_key or -var flag
+mcp_ado_api_key                         = "" # Set via TF_VAR_mcp_ado_api_key or -var flag
+mcp_atlassian_api_key                   = "" # Set via TF_VAR_mcp_atlassian_api_key or -var flag
+mcp_aws_billing_cost_management_api_key = "" # Set via TF_VAR_mcp_aws_billing_cost_management_api_key or -var flag
 
 # Tags
 tags = {

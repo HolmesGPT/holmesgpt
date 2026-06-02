@@ -1,0 +1,25 @@
+Use this toolset to investigate AWS billing, cost, usage, and pricing data. It wraps the AWS Labs Billing & Cost Management MCP server, which exposes a small set of tools that each take an `operation` (and operation-specific parameters). The data is **read-only** and may lag real time by up to ~24 hours.
+
+**What you can answer:**
+- Cost & usage over time (Cost Explorer): spend by service, account, region, tag, or usage type
+- Cost forecasts and month-over-month / period-over-period comparisons
+- Budgets and budget status
+- Savings Plans and Reserved Instance utilization/coverage and recommendations
+- Compute Optimizer right-sizing recommendations (EC2, EBS, Lambda, ECS)
+- Cost Optimization Hub recommendations and estimated savings
+- Free Tier usage, Storage Lens summaries, and AWS pricing lookups
+- Billing views, account associations, and resource policies
+
+**Query guidance:**
+- For cost/usage queries, ALWAYS specify a time range (start and end date) and a granularity — `DAILY`, `MONTHLY`, or `HOURLY`. Default to `MONTHLY` for trend questions and `DAILY` for spikes.
+- Use `GroupBy` dimensions (e.g. `SERVICE`, `LINKED_ACCOUNT`, `REGION`, `USAGE_TYPE`) or tag keys to break costs down. Filter with the same dimensions to scope a query.
+- Common cost metrics: `UnblendedCost`, `AmortizedCost`, `UsageQuantity`. Prefer `UnblendedCost` unless the user asks about amortized/blended cost.
+- When investigating a cost spike: pull `DAILY` `UnblendedCost` grouped by `SERVICE` over the affected window, then drill into the top service grouped by `USAGE_TYPE` or `REGION`.
+- For "how do I reduce cost" questions, combine Compute Optimizer + Cost Optimization Hub + Savings Plans recommendations.
+
+**Best practices:**
+- Always bound queries by an explicit date range — unbounded queries can return large, expensive responses.
+- Report the exact time range, granularity, account(s), and filters you used so results are reproducible.
+- Costs are reported in the payer account's currency (USD unless stated otherwise) — state the currency in your answer.
+- If a query returns no data, say what range/account/filter was searched; recent days may not be finalized yet.
+- This account is read-only — do not attempt to create, modify, or delete budgets or any other resources.

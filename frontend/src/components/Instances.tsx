@@ -15,9 +15,10 @@ const TOOLSET_TYPES = [
   'pagerduty',
   'jenkins',
   'bitbucket',
+  'aws-billing-cost-management',
 ]
 
-const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce', 'jenkins'])
+const MCP_TYPES = new Set(['ado', 'atlassian', 'salesforce', 'jenkins', 'aws-billing-cost-management'])
 
 type PagerDutyInstanceConfig = {
   service_ids?: string[]
