@@ -14,6 +14,106 @@ HolmesGPT is an AI-powered troubleshooting agent that connects to observability 
 poetry install
 ```
 
+### Running Evals in the Claude Code Sandbox (k8s setup)
+
+Claude Code on the web runs in a managed Linux container where Docker works but
+KIND fails (nested systemd cannot mount the systemd cgroup hierarchy under
+cgroup v1). The supported path is **k3s-in-Docker**, set up by
+`scripts/setup-sandbox-k8s.sh`. The script is idempotent; run it once per
+session before invoking pytest.
+
+**Complete steps (verified end-to-end):**
+
+```bash
+# 1. One-time per session: start dockerd, install kubectl/helm/jq,
+#    bring up k3s, install the runc oomScoreAdj-stripping wrapper.
+./scripts/setup-sandbox-k8s.sh
+
+# 2. Point kubectl + the eval framework at the cluster.
+export KUBECONFIG=/tmp/k3s-output/kubeconfig.yaml
+
+# 3. Use OpenRouter — the only LLM provider with creds in this env
+#    (OPENROUTER_API_KEY is pre-populated). CLASSIFIER_MODEL must also
+#    point at OpenRouter, otherwise the classifier default fails.
+export MODEL="openrouter/openai/gpt-4.1-mini"
+export CLASSIFIER_MODEL="openrouter/openai/gpt-4.1"
+
+# 4. Run an eval. Smoke test: ~45s end-to-end (setup + 14 pods + LLM call).
+poetry run pytest -k "01_how_many_pods" --no-cov
+```
+
+Verified on this branch:
+- `setup-sandbox-k8s.sh` from scratch: ~15s.
+- `01_how_many_pods` full cycle (setup → eval → cleanup): ~45s wall time, PASS.
+
+**What the setup script handles (and why):**
+
+- Starts `dockerd` (the sandbox doesn't auto-start it).
+- Installs `kubectl`, `helm`, and a static `jq`. `helm` is needed by toolset
+  prerequisite checks — without it many `test_ask_holmes` evals fail at setup
+  with `helm: not found`.
+- Runs k3s v1.31 in a privileged Docker container with `--cgroupns=host` and
+  unconfined seccomp/apparmor. KIND is installed but **not** used — it can't
+  boot a control-plane container here.
+- Mounts the sandbox CA bundle (`/etc/ssl/certs/ca-certificates.crt`) into the
+  k3s container at the OS trust-store paths. The egress proxy MITMs HTTPS, so
+  without this containerd's image pulls fail with `x509: certificate signed by
+  unknown authority`.
+- **Replaces `/bin/runc` inside the k3s container with a wrapper that strips
+  `.process.oomScoreAdj` from each container's `config.json` before invoking
+  the real runc.** Without this, every pod sandbox creation fails with
+  `nsexec: failed to update /proc/self/oom_score_adj: Permission denied` →
+  `runc create failed: ... can't get final child's PID from pipe: EOF`. The
+  sandbox revokes `CAP_SYS_RESOURCE`, so processes cannot lower their
+  oom_score_adj, and kubelet sets `oomScoreAdj=-998` on every pause container.
+  Stripping the field lets runc inherit the parent's value.
+
+**Fastest eval to run as a smoke test:** `01_how_many_pods` — minimal manifest
+(14 busybox pods), straightforward question, completes in ~45s including k8s
+namespace setup. Use it as the canonical "did I break anything" check.
+
+**Don't use `--skip-setup` in this sandbox.** It skips `before_test` but the
+test framework still runs `after_test` (which deletes the namespace), so the
+next run sees `0 pods` and fails. Run the full cycle each time.
+
+**Other env-var gotchas:**
+
+- **Braintrust** — two different env vars and two different token types, easy to
+  confuse:
+  - `BRAINTRUST_API_KEY` is the only one the eval framework reads
+    (`tests/llm/utils/test_env_vars.py`); setting it flips `braintrust_enabled`
+    to true, which makes test setup call `braintrust.init_dataset()` and
+    `braintrust.init(... update=True)` (both **write** operations).
+  - `BRAINTRUST_SERVICE_TOKEN` is ignored by the eval framework (only
+    `braintrust_history.py` falls back to it, for read-only history fetches).
+  - Token-type rule of thumb: tokens that start with `bt-st-` are **service
+    tokens** — read-only by default. Anything else (typically a user API key
+    copied from your Braintrust profile) is writable.
+  - **How to check what you have in this shell:**
+    ```bash
+    env | grep -i braintrust
+    # BRAINTRUST_API_KEY     starting with bt-st-  → read-only,  WILL crash writes
+    # BRAINTRUST_API_KEY     anything else         → writable,   safe
+    # BRAINTRUST_SERVICE_TOKEN only                → framework ignores it, safe
+    # nothing                                      → braintrust disabled, safe
+    ```
+  - **This sandbox** ships with only `BRAINTRUST_SERVICE_TOKEN` (a `bt-st-…`
+    service token). Leave it alone. **Do not** copy it into
+    `BRAINTRUST_API_KEY` — tests will hit a 401 from `braintrust.init(...
+    update=True)` and fail.
+- `OPENAI_API_KEY`: not required when `MODEL` is an `openrouter/...` string;
+  LiteLLM routes by the `openrouter/` prefix and reads `OPENROUTER_API_KEY`.
+
+**Limitations of the sandbox cluster (don't waste time trying to fix):**
+
+- `kind`, `minikube`, and bare `k3s` outside the wrapper all fail.
+- Pods that explicitly require setting `oomScoreAdj` to a fixed value in the
+  spec may still fail; the wrapper only strips the kubelet-injected default.
+- Only a single-node cluster; no real load-balancer (`servicelb` is disabled);
+  no metrics-server, no traefik.
+- Cgroup v1 only. Anything that requires cgroup v2 (e.g., memory.swap.max
+  workloads, some eBPF tools) won't work.
+
 ### Testing
 
 ```bash
