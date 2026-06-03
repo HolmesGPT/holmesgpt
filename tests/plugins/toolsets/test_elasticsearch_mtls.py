@@ -10,6 +10,14 @@ from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
 )
 
 
+def _toolset_with(config: ElasticsearchConfig) -> ElasticsearchClusterToolset:
+    """Construct a toolset and populate _instances from the config (skipping the network probe)."""
+    toolset = ElasticsearchClusterToolset()
+    toolset.config = config
+    toolset._instances = {i.name: i for i in (config.instances or [])}
+    return toolset
+
+
 class TestElasticsearchMTLSConfig:
     """Tests for mTLS configuration validation."""
 
@@ -22,6 +30,9 @@ class TestElasticsearchMTLSConfig:
         )
         assert config.client_cert == "/path/to/client.crt"
         assert config.client_key == "/path/to/client.key"
+        # Synthesized default instance also carries the mTLS pair.
+        assert config.instances[0].client_cert == "/path/to/client.crt"
+        assert config.instances[0].client_key == "/path/to/client.key"
 
     def test_mtls_config_cert_without_key_fails(self):
         """Test that client_cert without client_key raises error."""
@@ -59,44 +70,36 @@ class TestElasticsearchMTLSConfig:
 
 
 class TestElasticsearchMTLSRequest:
-    """Tests for mTLS request handling."""
+    """Tests for mTLS request handling on the resolved instance."""
 
-    def test_get_client_cert_returns_tuple(self):
-        """Test that _get_client_cert returns cert/key tuple when configured."""
-        toolset = ElasticsearchClusterToolset()
-        toolset.config = ElasticsearchConfig(
+    def test_instance_carries_cert_pair(self):
+        """The synthesized default instance carries the mTLS cert/key pair."""
+        config = ElasticsearchConfig(
             api_url="https://es:9200",
             client_cert="/path/to/client.crt",
             client_key="/path/to/client.key",
         )
-        result = toolset._get_client_cert()
-        assert result == ("/path/to/client.crt", "/path/to/client.key")
+        toolset = _toolset_with(config)
+        inst = toolset._instances["default"]
+        assert inst.client_cert == "/path/to/client.crt"
+        assert inst.client_key == "/path/to/client.key"
 
-    def test_get_client_cert_returns_none(self):
-        """Test that _get_client_cert returns None when not configured."""
-        toolset = ElasticsearchClusterToolset()
-        toolset.config = ElasticsearchConfig(
-            api_url="https://es:9200",
-            api_key="test-key",
-        )
-        assert toolset._get_client_cert() is None
+    def test_instance_has_no_cert_when_unset(self):
+        config = ElasticsearchConfig(api_url="https://es:9200", api_key="test-key")
+        toolset = _toolset_with(config)
+        inst = toolset._instances["default"]
+        assert inst.client_cert is None
+        assert inst.client_key is None
 
-    def test_get_verify_returns_bool(self):
-        """Test that _get_verify returns verify_ssl boolean."""
-        toolset = ElasticsearchClusterToolset()
-        toolset.config = ElasticsearchConfig(
-            api_url="https://es:9200",
-            verify_ssl=False,
-        )
-        assert toolset._get_verify() is False
+    def test_instance_verify_ssl_propagated(self):
+        config = ElasticsearchConfig(api_url="https://es:9200", verify_ssl=False)
+        toolset = _toolset_with(config)
+        assert toolset._instances["default"].verify_ssl is False
 
-    def test_get_verify_defaults_true(self):
-        """Test that _get_verify defaults to True."""
-        toolset = ElasticsearchClusterToolset()
-        toolset.config = ElasticsearchConfig(
-            api_url="https://es:9200",
-        )
-        assert toolset._get_verify() is True
+    def test_instance_verify_ssl_defaults_true(self):
+        config = ElasticsearchConfig(api_url="https://es:9200")
+        toolset = _toolset_with(config)
+        assert toolset._instances["default"].verify_ssl is True
 
     @patch("holmes.plugins.toolsets.elasticsearch.elasticsearch.requests.request")
     def test_make_request_passes_mtls_params(self, mock_request):
@@ -106,14 +109,15 @@ class TestElasticsearchMTLSRequest:
         mock_response.raise_for_status = MagicMock()
         mock_request.return_value = mock_response
 
-        toolset = ElasticsearchClusterToolset()
-        toolset.config = ElasticsearchConfig(
+        config = ElasticsearchConfig(
             api_url="https://es:9200",
             client_cert="/path/to/client.crt",
             client_key="/path/to/client.key",
         )
+        toolset = _toolset_with(config)
+        instance = toolset._instances["default"]
 
-        toolset._make_request("GET", "_cluster/health")
+        toolset._make_request(instance, "GET", "_cluster/health")
 
         mock_request.assert_called_once()
         call_kwargs = mock_request.call_args[1]
@@ -128,13 +132,11 @@ class TestElasticsearchMTLSRequest:
         mock_response.raise_for_status = MagicMock()
         mock_request.return_value = mock_response
 
-        toolset = ElasticsearchClusterToolset()
-        toolset.config = ElasticsearchConfig(
-            api_url="https://es:9200",
-            api_key="test-key",
-        )
+        config = ElasticsearchConfig(api_url="https://es:9200", api_key="test-key")
+        toolset = _toolset_with(config)
+        instance = toolset._instances["default"]
 
-        toolset._make_request("GET", "_cluster/health")
+        toolset._make_request(instance, "GET", "_cluster/health")
 
         call_kwargs = mock_request.call_args[1]
         assert call_kwargs["cert"] is None

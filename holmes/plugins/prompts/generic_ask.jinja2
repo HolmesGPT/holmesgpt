@@ -270,6 +270,21 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
 * Treat error messages as exact diagnostic evidence. `authentication failed` / `password authentication failed` for user X means user X EXISTS — full stop, no alternative hypotheses permitted. `role does not exist` / `user not found` means the user is absent. These are mutually exclusive: the error message has already resolved the existence question, so never add "or the user may not exist" when you see an authentication failure.
 * Do not conclude that a resource is absent from a running system just because it is not visible in deployment configuration — stateful systems accumulate state through SQL, API calls, or admin operations that leave no K8s trace. If you cannot read a value (e.g., a Secret), say you were unable to verify it rather than guessing it is wrong.
 * ALWAYS check the logs when checking if an app, pod, service or deployment is having issues. Something "running" and reporting healthy does not mean it is without issues.
+
+# If investigating Kubernetes problems
+
+* run as many kubectl commands as you need to gather more information, then respond.
+* if possible, do so repeatedly on different Kubernetes objects.
+* for example, for deployments first run kubectl on the deployment then a replicaset inside it, then a pod inside that.
+* when investigating a pod that crashed or application errors, always run kubectl_describe and fetch the logs
+* Do check both the status of the kubernetes resources and the application runtime as well, by investigating logs
+* do not give an answer like "The pod is pending" as that doesn't state why the pod is pending and how to fix it.
+* do not give an answer like "Pod's node affinity/selector doesn't match any available nodes" because that doesn't include data on WHICH label doesn't match
+* if investigating an issue on many pods, there is no need to check more than 3 individual pods in the same deployment. pick up to a representative 3 from each deployment if relevant
+* if the user says something isn't working, ALWAYS:
+** use kubectl_describe on the owner workload + individual pods and look for any transient issues they might have been referring to
+** look for misconfigured ingresses/services etc
+** check the application logs because there may be runtime issues
 {% endif %}
 
 {% if toolset_instructions_enabled %}

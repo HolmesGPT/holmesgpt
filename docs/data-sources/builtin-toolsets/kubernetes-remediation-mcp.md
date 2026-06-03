@@ -1,6 +1,10 @@
 # Kubernetes Remediation (MCP)
 
+--8<-- "snippets/kubernetes_toolset_picker.md"
+
 The Kubernetes Remediation MCP server provides safe kubectl command execution with layered security controls. It enables Holmes to not only diagnose Kubernetes issues but also **remediate** them — restarting pods, scaling deployments, draining nodes, and more.
+
+This toolset is **additive**: keep your existing read-only Kubernetes toolset ([built-in](kubernetes.md) or [MCP](kubernetes-mcp.md)) enabled for diagnosis, and enable this one alongside it for write actions.
 
 !!! warning "Write operations"
     Unlike the built-in read-only Kubernetes toolset, this MCP server can execute write operations (edit, patch, delete, scale, drain, etc.). Configure the `allowedCommands` setting carefully to match your security requirements.

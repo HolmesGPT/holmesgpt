@@ -331,7 +331,13 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
     scores = span.get("scores") or {}
     metrics = span.get("metrics") or {}
 
-    test_id = metadata.get("eval_id") or metadata.get("test_id", "")
+    # Prefer test_id over eval_id: for parameterized tests (e.g.
+    # "227_count_configmaps_per_namespace[0]") eval_id strips the [N] suffix
+    # while test_id keeps it. The report joins baseline rows on test_case_name
+    # which always carries the parameterization, so eval_id-keyed rows would
+    # silently fail to match. Fall back to eval_id for older spans that only
+    # set the latter.
+    test_id = metadata.get("test_id") or metadata.get("eval_id", "")
     model = metadata.get("model", "")
 
     if not test_id or not model:

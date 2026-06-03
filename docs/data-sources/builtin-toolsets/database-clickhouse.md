@@ -43,6 +43,7 @@ GRANT SELECT ON system.* TO holmes_readonly;
         type: database
         config:
           connection_url: "clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs"
+          clickhouse_use_http_json: true
         llm_instructions: "Log analytics database with application and system logs"
     ```
 
@@ -182,7 +183,32 @@ GRANT SELECT ON system.* TO holmes_readonly;
 - **read_only** (default: `true`): Only allow SELECT/SHOW/DESCRIBE/EXPLAIN/WITH statements
 - **verify_ssl** (default: `true`): Verify SSL certificates
 - **max_rows** (default: `200`): Maximum rows to return (1-10000)
+- **timeout_seconds** (default: `60`): HTTP JSONEachRow query timeout in seconds (1-600); used when `clickhouse_use_http_json` is enabled
+- **clickhouse_use_http_json** (default: `false`): Use ClickHouse HTTP API with `JSONEachRow` instead of the SQLAlchemy driver's TSV format for query results
 - **llm_instructions**: Context about this database
+
+### HTTP JSONEachRow mode (`clickhouse_use_http_json`)
+
+The default SQLAlchemy HTTP driver returns `TabSeparatedWithNamesAndTypes` and parses `DateTime64` timestamps with Python `strptime` using microsecond precision (`%f`). Result sets with **nanosecond** timestamps (common in OpenTelemetry log tables, e.g. `DateTime64(9)`) can fail while reading rows with:
+
+```text
+ValueError: unconverted data remains: 789
+```
+
+Enable JSONEachRow when you query tables that return high-precision `DateTime64` columns:
+
+```yaml
+toolsets:
+  clickhouse-otel-logs:
+    type: database
+    config:
+      connection_url: "clickhouse+http://user:pass@clickhouse:8123/otel"
+      clickhouse_use_http_json: true
+      read_only: true
+      max_rows: 200
+```
+
+This path only affects **query execution** (`execute_query`); list/describe tools still use SQLAlchemy. Use `clickhouse+http://` (port 8123), not the native protocol, with this option.
 
 ## Common Use Cases
 

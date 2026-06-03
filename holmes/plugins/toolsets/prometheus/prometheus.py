@@ -77,6 +77,14 @@ class PrometheusSubtype(str, Enum):
     AZURE_MANAGED_PROMETHEUS = "azure-managed-prometheus"
 
 
+def get_config_field(config: dict[str, Any], field: str) -> Any:
+    """Return the value of ``field`` from ``config``, falling back to the
+    matching upper-cased environment variable. Empty/None config values fall
+    through to the env var; missing or empty env vars return ``None``.
+    """
+    return config.get(field) or os.environ.get(field.upper()) or None
+
+
 def format_ssl_error_message(prometheus_url: str, error: SSLError) -> str:
     """Format a clear SSL error message with remediation steps."""
     return (
@@ -536,18 +544,43 @@ class AzurePrometheusConfig(PrometheusConfig):
 
     @staticmethod
     def is_azure_config(config: dict[str, Any]) -> bool:
-        """Check if config dict or environment variables indicate Azure Prometheus config."""
-        # Check for explicit Azure fields in config
-        if (
-            "azure_client_id" in config
-            or "azure_tenant_id" in config
-            or "azure_use_managed_id" in config
-        ):
+        """Return True if the config (dict + AZURE_* env vars) is complete enough
+        to actually use Azure Managed Prometheus auth.
+
+        Mirrors the completeness rules enforced in ``__init__``: either
+        ``azure_use_managed_id`` is enabled, or all three of
+        ``azure_client_id`` / ``azure_tenant_id`` / ``azure_client_secret`` are
+        resolvable. A partial Azure signal (e.g. ``AZURE_CLIENT_ID`` set on the
+        pod for an unrelated subsystem like Azure AI Foundry) logs a warning
+        explaining why Azure auth was skipped, then returns ``False`` so the
+        toolset falls back to plain Prometheus instead of failing on a missing
+        client secret.
+        """
+        creds = {
+            field: get_config_field(config, field)
+            for field in AzurePrometheusConfig._ui_required_fields
+        }
+        use_managed_id = str(
+            get_config_field(config, "azure_use_managed_id") or ""
+        ).lower() in ("true", "1")
+
+        if use_managed_id or all(creds.values()):
             return True
 
-        # Check for Azure environment variables
-        if os.environ.get("AZURE_CLIENT_ID") or os.environ.get("AZURE_TENANT_ID"):
-            return True
+        found = [f"{f}/{f.upper()}" for f, v in creds.items() if v]
+        missing = [f"{f}/{f.upper()}" for f, v in creds.items() if not v]
+
+        if found:
+            logging.warning(
+                "Partial Azure Managed Prometheus credentials detected "
+                "(found: %s; missing: %s). Not using Azure auth — falling back "
+                "to plain Prometheus. To enable Azure, provide all of "
+                "azure_client_id / azure_tenant_id / azure_client_secret "
+                "(in the toolset config or as AZURE_* env vars), or set "
+                "azure_use_managed_id: true for managed identity.",
+                ", ".join(found),
+                ", ".join(missing),
+            )
 
         return False
 

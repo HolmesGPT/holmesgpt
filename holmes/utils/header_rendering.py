@@ -78,3 +78,19 @@ def _render_single_template(
 
     template = Template(template_str)
     return template.render(context)
+
+
+def render_env_template(value: Optional[str], source_name: str = "unknown") -> Optional[str]:
+    """Render a single string with {{ env.X }} substitution at load time.
+
+    No-op when ``value`` is ``None`` or contains no template syntax. On render
+    failure, logs a warning and returns the original string so misconfiguration
+    surfaces as an authentication error downstream rather than a startup crash.
+    """
+    if value is None or "{{" not in value:
+        return value
+    try:
+        return _render_single_template(value)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"'{source_name}': Failed to render env template: {e}")
+        return value
