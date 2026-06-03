@@ -560,10 +560,22 @@ in this sandbox:
 # Docker daemon is not running by default
 sudo dockerd > /tmp/dockerd.log 2>&1 &
 
-# registries.yaml pointing containerd at the host CA bundle (mounted below)
+# registries.yaml: host CA bundle for trust, plus mirror docker.io through
+# mirror.gcr.io to dodge Docker Hub anonymous-pull rate limits (the sandbox
+# shares an outbound IP across sessions, so the 100/6h budget is exhausted
+# quickly). Containerd falls back to registry-1.docker.io if the mirror
+# doesn't have the image.
 mkdir -p /tmp/k3s-registries /tmp/k3s-output
 cat > /tmp/k3s-registries/registries.yaml << 'EOF'
+mirrors:
+  "docker.io":
+    endpoint:
+      - "https://mirror.gcr.io"
+      - "https://registry-1.docker.io"
 configs:
+  "mirror.gcr.io":
+    tls:
+      ca_file: /etc/ssl/certs/ca-certificates.crt
   "registry-1.docker.io":
     tls:
       ca_file: /etc/ssl/certs/ca-certificates.crt
@@ -751,10 +763,13 @@ runs in ~256s wall at -n 4 (~$3.30). Budget accordingly when looping.
   shares an outbound IP across sessions, so anonymous Docker Hub pulls are
   subject to the 100-pulls-per-6h limit (`429 Too Many Requests: toomanyrequests:
   You have reached your unauthenticated pull rate limit`). Symptoms: eval
-  setup times out with pods stuck `ImagePullBackOff`. Hit it locally on
-  `12_job_crashing`, `51_logs_summarize_errors`, and `243_pod_names_contain_service`
-  — same evals all pass on CI because CI uses its own outbound IP and
-  authenticated pulls. Mitigations:
+  setup times out with pods stuck `ImagePullBackOff`. The setup script works
+  around this by configuring containerd to pull `docker.io` images through
+  **`mirror.gcr.io`** (Google's public pull-through cache for Docker Hub
+  `library/*` and the k8s ecosystem) before falling back to
+  `registry-1.docker.io`. The mirror has no rate limit and needs no
+  credentials. If a workload pulls an image the mirror doesn't have and
+  the fallback still 429s, additional mitigations:
   - Pre-pull the image on the host (`docker pull python:3.9-slim`) and
     side-load into k3s with `docker save ... | docker exec -i k3s-server
     ctr -n k8s.io images import -` (the same image-import gotcha applies —

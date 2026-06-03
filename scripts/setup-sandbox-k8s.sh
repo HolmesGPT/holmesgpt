@@ -87,9 +87,23 @@ mkdir -p "$K3S_OUTPUT_DIR"
 # 5. Sandbox CA bundle: containerd inside k3s must trust the proxy CA
 cp /etc/ssl/certs/ca-certificates.crt "$K3S_OUTPUT_DIR/ca-certs.crt"
 
-# 6. registries.yaml — belt-and-braces with the CA mount above
+# 6. registries.yaml — CA trust + mirror docker.io through mirror.gcr.io to
+# dodge Docker Hub's anonymous-pull rate limit (100/6h per outbound IP). The
+# sandbox shares an outbound IP across sessions, so concurrent test runs
+# quickly hit 429 ToomanyRequests on python:3.9-slim / busybox / etc. Google
+# runs mirror.gcr.io as a pull-through cache for Docker Hub's library/* and
+# k8s ecosystem images with no rate limit; containerd will fall back to
+# registry-1.docker.io for anything the mirror doesn't have.
 cat > "$K3S_OUTPUT_DIR/registries.yaml" << 'EOF'
+mirrors:
+  "docker.io":
+    endpoint:
+      - "https://mirror.gcr.io"
+      - "https://registry-1.docker.io"
 configs:
+  "mirror.gcr.io":
+    tls:
+      ca_file: /etc/ssl/certs/ca-certificates.crt
   "registry-1.docker.io":
     tls:
       ca_file: /etc/ssl/certs/ca-certificates.crt
