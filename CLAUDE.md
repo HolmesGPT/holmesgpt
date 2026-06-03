@@ -528,119 +528,35 @@ The sandbox does not ship with a running Kubernetes cluster, kubectl, helm, or a
 running docker daemon. To run k8s-based evals (e.g.
 `tests/llm/fixtures/test_ask_holmes/227_count_configmaps_per_namespace/test_case.yaml`,
 which uses `kubectl create namespace` / `kubectl create configmap` in `before_test`),
-bring up a cluster manually using **k3s in a container**. KIND does NOT work here
-because the inner node's systemd cannot mount `/sys/fs/cgroup/systemd` under the
-sandbox's cgroup v1 — the container restart-loops with "Failed to mount API filesystems".
-
-The full recipe below was verified end-to-end on 2026-05-16 by running the
-`llm and regression` test suite against a freshly-bootstrapped k3s cluster
-with opus-4.6: **10 of 11 regression evals pass** in 256s wall, 4-way
-parallel. The eleventh (`176_network_policy_blocking_traffic_no_skills`)
-cannot pass here — see the limitations section.
-
-Two non-obvious things have to be patched for k3s pods to actually start
-in this sandbox:
+run `./scripts/setup-sandbox-k8s.sh`. It brings up **k3s in a container** (KIND does
+NOT work — the inner node's systemd cannot mount `/sys/fs/cgroup/systemd` under the
+sandbox's cgroup v1 and restart-loops with "Failed to mount API filesystems"),
+installs `kubectl` / `helm` / a static `jq`, and patches two sandbox-specific
+issues that would otherwise prevent any pod from starting:
 
 - The sandbox MITMs HTTPS to public registries with an internal CA
   (`egress-gateway-ca-*.crt`, `swp-ca-*.crt`). k3s's containerd doesn't
   trust those, so the inner cluster can't pull `rancher/mirrored-pause`
   and every pod sandbox fails. Fix: bind-mount the host CA bundle into
-  k3s and write a `registries.yaml` pointing containerd at it.
+  k3s and write a `registries.yaml` pointing containerd at it. The
+  script also mirrors `docker.io` through `mirror.gcr.io` to dodge
+  Docker Hub's 100/6h anonymous pull limit (the sandbox shares an
+  outbound IP across sessions).
 - The sandbox strips `CAP_SYS_RESOURCE` from our user. K3s's pause
   container has `oomScoreAdj: -998`; setting a negative `oom_score_adj`
   requires CAP_SYS_RESOURCE. runc's `nsexec` fails with `failed to
   update /proc/self/oom_score_adj: Permission denied`, the child dies,
   the parent gets `can't get final child's PID from pipe: EOF`. Fix:
-  wrap `/bin/runc` inside the k3s container and rewrite negative
-  `oomScoreAdj` to `0` in the OCI config before `runc create` runs.
+  wrap `/bin/runc` inside the k3s container with a shim that uses `jq`
+  to strip `.process.oomScoreAdj` from the OCI config before
+  `runc create` runs.
 
-**1. Bring up the cluster and CLI tooling:**
+Verified end-to-end with the `llm and regression` test suite against a
+freshly-bootstrapped cluster under opus-4.6: **10 of 11 regression evals pass**
+in ~256s wall at -n 4. The eleventh (`176_network_policy_blocking_traffic_no_skills`)
+cannot pass here — see the limitations section. Skip via `-m "llm and regression and not network"`.
 
-```bash
-# Docker daemon is not running by default
-sudo dockerd > /tmp/dockerd.log 2>&1 &
-
-# registries.yaml: host CA bundle for trust, plus mirror docker.io through
-# mirror.gcr.io to dodge Docker Hub anonymous-pull rate limits (the sandbox
-# shares an outbound IP across sessions, so the 100/6h budget is exhausted
-# quickly). Containerd falls back to registry-1.docker.io if the mirror
-# doesn't have the image.
-mkdir -p /tmp/k3s-registries /tmp/k3s-output
-cat > /tmp/k3s-registries/registries.yaml << 'EOF'
-mirrors:
-  "docker.io":
-    endpoint:
-      - "https://mirror.gcr.io"
-      - "https://registry-1.docker.io"
-configs:
-  "mirror.gcr.io":
-    tls:
-      ca_file: /etc/ssl/certs/ca-certificates.crt
-  "registry-1.docker.io":
-    tls:
-      ca_file: /etc/ssl/certs/ca-certificates.crt
-  "registry.k8s.io":
-    tls:
-      ca_file: /etc/ssl/certs/ca-certificates.crt
-  "quay.io":
-    tls:
-      ca_file: /etc/ssl/certs/ca-certificates.crt
-EOF
-
-# runc wrapper that strips negative oomScoreAdj — see preamble above
-cat > /tmp/runc-wrapper << 'WRAPPER'
-#!/bin/sh
-bundle=""; prev=""; action=""
-for a in "$@"; do
-  if [ "$prev" = "--bundle" ] || [ "$prev" = "-b" ]; then bundle="$a"; fi
-  case "$a" in create|run|exec) action="$a";; esac
-  prev="$a"
-done
-[ -z "$bundle" ] && bundle="$PWD"
-cfg="$bundle/config.json"
-if [ "$action" = "create" ] && [ -f "$cfg" ]; then
-  sed -i -E 's/"oomScoreAdj":-[0-9]+/"oomScoreAdj":0/g' "$cfg"
-fi
-exec /bin/runc.real "$@"
-WRAPPER
-chmod +x /tmp/runc-wrapper
-
-# k3s-in-docker (do NOT use kind here)
-docker run -d --privileged --name k3s-server -p 6443:6443 \
-  -e K3S_KUBECONFIG_OUTPUT=/output/kubeconfig.yaml -e K3S_KUBECONFIG_MODE=666 \
-  -v /tmp/k3s-output:/output \
-  -v /tmp/k3s-registries/registries.yaml:/etc/rancher/k3s/registries.yaml:ro \
-  -v /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro \
-  rancher/k3s:v1.30.6-k3s1 server --disable=traefik --disable=metrics-server
-
-# Wait for /bin/runc to land in the container, then swap in the wrapper
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  docker exec k3s-server ls /bin/runc >/dev/null 2>&1 && break
-  sleep 1
-done
-docker exec k3s-server sh -c '[ -e /bin/runc.real ] || mv /bin/runc /bin/runc.real'
-docker cp /tmp/runc-wrapper k3s-server:/bin/runc
-docker exec k3s-server chmod +x /bin/runc
-
-# kubeconfig
-mkdir -p ~/.kube && cp /tmp/k3s-output/kubeconfig.yaml ~/.kube/config
-sed -i 's|127.0.0.1|localhost|' ~/.kube/config && chmod 600 ~/.kube/config
-
-# kubectl (not preinstalled)
-curl -sLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-# helm (not preinstalled; required — toolset prerequisites check fails the eval otherwise)
-curl -fsSL https://get.helm.sh/helm-v3.16.0-linux-amd64.tar.gz | tar xz -C /tmp/
-sudo cp /tmp/linux-amd64/helm /usr/local/bin/
-
-# Smoke-test: kube-system pods should be Running within ~10s, user pods should work
-kubectl get nodes
-kubectl get pods -n kube-system
-kubectl run smoke --image=busybox:1.36 --restart=Never -i --rm --command -- echo HELLO
-```
-
-**2. LLM provider env (OpenRouter — Anthropic / OpenAI keys are not in env):**
+**LLM provider env (OpenRouter — Anthropic / OpenAI keys are not in env):**
 
 Two non-obvious requirements for the classifier scoring step:
 
@@ -681,19 +597,13 @@ unset BRAINTRUST_SERVICE_TOKEN
 
 export MODEL=gpt-4.1-mini MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
 export CLASSIFIER_MODEL=gpt-4.1 RUN_LIVE=true OPENAI_API_KEY=dummy
-
-# Single eval
-poetry run pytest tests/llm/test_ask_holmes.py -k "227_count_configmaps_per_namespace" \
-  --no-cov -n0 -p no:cacheprovider
-
-# Whole regression suite, 4-way parallel
-poetry run pytest tests/llm/test_ask_holmes.py -m "llm and regression" \
-  --no-cov -n 4 -p no:cacheprovider
 ```
 
-Wall time is ~65s for a single k8s eval with gpt-4.1-mini (~$0.03 OpenRouter spend);
-opus-4.6 is ~90s per run. The full 11-eval `llm and regression` suite under opus-4.6
-runs in ~256s wall at -n 4 (~$3.30). Budget accordingly when looping.
+Then run the regression suite using the invocation that `setup-sandbox-k8s.sh`
+prints on success. Wall time is ~65s for a single k8s eval with gpt-4.1-mini
+(~$0.03 OpenRouter spend); opus-4.6 is ~90s per run. The full 11-eval
+`llm and regression` suite under opus-4.6 runs in ~256s wall at -n 4 (~$3.30).
+Budget accordingly when looping.
 
 **What does NOT work in the sandbox:**
 
@@ -734,16 +644,15 @@ runs in ~256s wall at -n 4 (~$3.30). Budget accordingly when looping.
   that asserts directly on `/proc/<pid>/oom_score_adj` of a system pod.
 - **The runc wrapper survives `docker restart k3s-server` but NOT
   `docker rm`.** The wrapper lives on the container's writable layer at
-  `/bin/runc` (with the original at `/bin/runc.real`). A fresh container starts
-  with stock runc and pods get stuck again — re-run the "wait for /bin/runc /
-  swap in wrapper" block from the recipe. To verify the wrapper is active:
-  `docker exec k3s-server head -3 /bin/runc` should show the shebang + comment,
-  not a binary.
+  `/bin/runc` (with the original at `/bin/runc.real`). A fresh container
+  starts with stock runc and pods get stuck again — re-run
+  `./scripts/setup-sandbox-k8s.sh`; it's idempotent and reinstalls the
+  wrapper. To verify the wrapper is active: `docker exec k3s-server head -3
+  /bin/runc` should show the shebang + comment, not a binary.
 - **The sandbox itself is reclaimed after a period of inactivity.** dockerd,
   the k3s container, kubectl, and helm all disappear when the session container
-  is reclaimed. Re-run the full bring-up. Anything you didn't commit and push
-  is also gone — including local kubeconfigs, model_list.yaml, runc-wrapper,
-  registries.yaml. Keep the recipe scriptable.
+  is reclaimed. Re-run `./scripts/setup-sandbox-k8s.sh`. Anything you didn't
+  commit and push is also gone — including local kubeconfigs and `model_list.yaml`.
 - **`CAP_SYS_RESOURCE` removal blocks more than just `oomScoreAdj`.** Anything
   that tries to raise rlimits (`RLIMIT_NOFILE`, `RLIMIT_NPROC`) also fails. The
   hard ulimit for open files is pinned at 4096 and not even root can raise it;
