@@ -96,12 +96,28 @@ holmes:
       value: "false"
 ```
 
+### Selecting a Region
+
+The Robusta platform is hosted in multiple regions. HolmesGPT defaults to the US endpoint. If your Robusta account lives in the EU or AP region, set `ROBUSTA_API_ENDPOINT` to the matching API URL — pick your region below:
+
+```robusta-region {lang=yaml}
+# Add to generated_values.yaml
+holmes:
+  additionalEnvVars:
+    - name: ROBUSTA_AI
+      value: "true"
+    - name: ROBUSTA_API_ENDPOINT
+      value: "https://api.robusta.dev"
+```
+
+The endpoint must match the region your cluster is connected to in the Robusta platform — using the wrong endpoint will cause authentication and model-discovery failures.
+
 ## How It Works
 
 1. **Authentication**: HolmesGPT reads your Robusta token from the cluster configuration
 2. **Session creation**: A session token is created with the Robusta platform
-3. **Model discovery**: Available models are fetched from `https://api.robusta.dev/api/llm/models/v2`
-4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `https://api.robusta.dev/llm/{model_name}`
+3. **Model discovery**: Available models are fetched from `${ROBUSTA_API_ENDPOINT}/api/llm/models/v2` (default: `https://api.robusta.dev/api/llm/models/v2`)
+4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `${ROBUSTA_API_ENDPOINT}/llm/{model_name}` (default: `https://api.robusta.dev/llm/{model_name}`)
 5. **Automatic refresh**: Authentication tokens are automatically refreshed when they expire
 
 ## Available Models
@@ -124,16 +140,17 @@ When Robusta AI is enabled, models appear in the model selector dropdown in the 
 Check that:
 
 1. Your Robusta token is valid and not expired
-2. HolmesGPT can reach `api.robusta.dev`
-3. `ROBUSTA_AI` is set to `true`
-4. Check logs for authentication errors
+2. HolmesGPT can reach the Robusta API endpoint for your region (`api.robusta.dev`, `api.eu.robusta.dev`, or `api.ap.robusta.dev`)
+3. `ROBUSTA_API_ENDPOINT` matches the region your Robusta account is in (see [Selecting a Region](#selecting-a-region))
+4. `ROBUSTA_AI` is set to `true`
+5. Check logs for authentication errors
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|------------|---------|
 | `ROBUSTA_AI` | Enable/disable Robusta AI | Auto-detected |
-| `ROBUSTA_API_ENDPOINT` | Robusta API endpoint (different for on-premise users) | `https://api.robusta.dev` |
+| `ROBUSTA_API_ENDPOINT` | Robusta API endpoint. Set per region (`https://api.robusta.dev`, `https://api.eu.robusta.dev`, `https://api.ap.robusta.dev`) or to your on-premise URL. See [Selecting a Region](#selecting-a-region). | `https://api.robusta.dev` |
 
 ## See Also
 

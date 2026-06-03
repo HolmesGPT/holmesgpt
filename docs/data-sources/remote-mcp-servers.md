@@ -391,6 +391,32 @@ MCP servers can forward HTTP headers from the incoming request to the MCP backen
 
 For full details on template syntax, blocked headers, precedence rules, and examples for other toolset types, see [HTTP Header Propagation](header-propagation.md).
 
+**Validating Authentication at Startup (Health Check)**
+
+Many MCP servers return their full tool list even when the configured credential is invalid (a bad token, expired key, etc.). Because of this, simply connecting and listing tools does not prove that authentication works — the toolset can appear "connected" while every real call would fail.
+
+To catch this at startup, Holmes can invoke a single read-only tool during the toolset's health check. If the call fails (e.g. `401 Unauthorized`), the toolset is marked **disabled** with the underlying error surfaced, instead of showing as enabled.
+
+- **Automatic:** if the server exposes a well-known identity tool — `get_me`, `get_current_user`, `get_authenticated_user`, or `whoami` — Holmes auto-detects and uses it. No configuration needed.
+- **Explicit:** for any other server, set `health_check_tool` to a tool of your choice. This takes precedence over auto-detection.
+
+The chosen tool **must be read-only, take no required arguments** (it is called with empty arguments `{}`), and actually exercise the credential. If `health_check_tool` is unset and the server exposes none of the known identity tools, the auth health check is skipped and the toolset loads as long as listing tools succeeds.
+
+```yaml
+mcp_servers:
+  my_server:
+    description: "My custom MCP server"
+    config:
+      url: "http://my-mcp:8000/mcp"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.MY_API_KEY }}"
+      # Invoked with empty args at startup to verify the credential is valid.
+      # Must be a read-only, no-argument tool exposed by your server.
+      health_check_tool: get_current_user
+    llm_instructions: "..."
+```
+
 ## Configuration Format Migration
 
 The MCP server configuration format has been updated. The `url` field must now be inside the `config` section.

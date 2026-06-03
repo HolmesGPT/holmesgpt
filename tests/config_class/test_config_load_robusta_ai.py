@@ -2,6 +2,11 @@ from unittest.mock import patch
 
 from holmes.clients.robusta_client import RobustaModel, RobustaModelsResponse
 from holmes.config import Config
+from holmes.core.llm import ModelEntry
+
+
+def _fake_existing_model_entry() -> ModelEntry:
+    return ModelEntry(model="gpt-4o", base_url="http://foo")
 
 ROBUSTA_TEST_MODELS = RobustaModelsResponse(
     models={
@@ -51,7 +56,7 @@ def test_server_not_loads_robusta_ai_when_false(mock_cluster, *, monkeypatch):
 @patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
 @patch(
     "holmes.core.llm.LLMModelRegistry._parse_models_file",
-    return_value={"existing_model": {"base_url": "http://foo"}},
+    return_value={"existing_model": _fake_existing_model_entry()},
 )
 def test_server_loads_robusta_ai_when_true_and_model_list_exists(
     mock_parse, mock_cluster, mock_fetch, *, monkeypatch
@@ -65,7 +70,7 @@ def test_server_loads_robusta_ai_when_true_and_model_list_exists(
 @patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
 @patch(
     "holmes.core.llm.LLMModelRegistry._parse_models_file",
-    return_value={"existing_model": {"base_url": "http://foo"}},
+    return_value={"existing_model": _fake_existing_model_entry()},
 )
 def test_server_not_loads_robusta_ai_when_false_and_model_list_exists(
     mock_parse, mock_cluster, *, monkeypatch
@@ -79,7 +84,7 @@ def test_server_not_loads_robusta_ai_when_false_and_model_list_exists(
 @patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
 @patch(
     "holmes.core.llm.LLMModelRegistry._parse_models_file",
-    return_value={"existing_model": {"base_url": "http://foo"}},
+    return_value={"existing_model": _fake_existing_model_entry()},
 )
 def test_server_not_loads_robusta_ai_when_no_env_var_and_model_list_exists(
     mock_parse, mock_cluster, *, monkeypatch

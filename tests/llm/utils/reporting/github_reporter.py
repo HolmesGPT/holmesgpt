@@ -39,6 +39,10 @@ def _get_eval_source_url(test_type: str, test_case_name: str) -> Optional[str]:
     fixture_dir = _TEST_TYPE_TO_FIXTURE_DIR.get(test_type)
     if not fixture_dir or not test_case_name:
         return None
+    # Strip pytest parametrize suffix (e.g. "227_count_configmaps_per_namespace[0]"
+    # → "227_count_configmaps_per_namespace"); the fixture directory on disk
+    # does not include the "[…]" portion.
+    fixture_name = test_case_name.split("[", 1)[0]
     ref = (
         os.environ.get("EVAL_BRANCH")
         or os.environ.get("GITHUB_HEAD_REF")
@@ -48,7 +52,7 @@ def _get_eval_source_url(test_type: str, test_case_name: str) -> Optional[str]:
     encoded_ref = quote(ref, safe="")
     return (
         f"https://github.com/HolmesGPT/holmesgpt/blob/{encoded_ref}"
-        f"/tests/llm/fixtures/{fixture_dir}/{test_case_name}/test_case.yaml"
+        f"/tests/llm/fixtures/{fixture_dir}/{fixture_name}/test_case.yaml"
     )
 
 
@@ -94,13 +98,21 @@ def _render_metric_table(
     master_label: str,
     benchmark_label: str,
 ) -> List[str]:
-    """Render a six-column comparison table with two baselines and average row.
+    """Render a six-column comparison table with two baselines and average rows.
 
     Columns: Test case | This branch | master (abs) | Δ vs master | benchmark (abs) | Δ vs benchmark
 
     Skips the table entirely when no row has either master or benchmark data.
-    Per-baseline averages are computed only over rows where both this-branch
-    AND that-specific baseline have values.
+
+    Emits two summary rows:
+    - **Total (all)** — each column averages over its own non-null subset.
+      Δ cells are intentionally empty because the subsets may differ
+      (e.g. a test missing from master vs present in benchmark) and the
+      delta would be apples-to-oranges.
+    - **Comparable (m=N, b=N)** — per-baseline matched subsets only:
+      Δ vs master and the master column are computed across rows where
+      both this-branch and master have a value; same for benchmark.
+      Use this row to read deltas; use the Total row to read absolutes.
     """
     has_master = any(r[master_key] is not None for r in rows)
     has_bench = any(r[benchmark_key] is not None for r in rows)
@@ -116,6 +128,9 @@ def _render_metric_table(
     matched_m = 0
     cur_sum_b = base_sum_b = 0.0
     matched_b = 0
+    cur_all: List[float] = []
+    mast_all: List[float] = []
+    bench_all: List[float] = []
 
     for r in rows:
         cur = r[current_key]
@@ -128,11 +143,34 @@ def _render_metric_table(
             f"| {r['name']} | {cur_s} | {mast_s} | {_diff_cell(cur, mast)} "
             f"| {bench_s} | {_diff_cell(cur, bench)} |"
         )
+        if cur is not None:
+            cur_all.append(float(cur))
+        if mast is not None:
+            mast_all.append(float(mast))
+        if bench is not None:
+            bench_all.append(float(bench))
         if cur and mast:
             cur_sum_m += float(cur); base_sum_m += float(mast); matched_m += 1
         if cur and bench:
             cur_sum_b += float(cur); base_sum_b += float(bench); matched_b += 1
 
+    # Total (all): each column averaged over its own non-null subset.
+    # Δ cells stay empty — the subsets may differ, so a delta would compare
+    # different sets of tests.
+    if cur_all or mast_all or bench_all:
+        all_cur_avg = sum(cur_all) / len(cur_all) if cur_all else None
+        all_mast_avg = sum(mast_all) / len(mast_all) if mast_all else None
+        all_bench_avg = sum(bench_all) / len(bench_all) if bench_all else None
+        out.append(
+            f"| **Total (all, n={len(cur_all)})** "
+            f"| **{formatter(all_cur_avg) if all_cur_avg is not None else '—'}** "
+            f"| **{formatter(all_mast_avg) if all_mast_avg is not None else '—'}** "
+            f"| **—** "
+            f"| **{formatter(all_bench_avg) if all_bench_avg is not None else '—'}** "
+            f"| **—** |"
+        )
+
+    # Comparable: per-baseline matched subsets only. Apples-to-apples deltas.
     if matched_m or matched_b:
         avg_cur_m = (cur_sum_m / matched_m) if matched_m else None
         avg_mast = (base_sum_m / matched_m) if matched_m else None
@@ -142,7 +180,7 @@ def _render_metric_table(
         # "This branch" column when both exist (it's the more recent comparison).
         avg_cur = avg_cur_m if avg_cur_m is not None else avg_cur_b
         out.append(
-            f"| **Average (m={matched_m}, b={matched_b})** "
+            f"| **Comparable (m={matched_m}, b={matched_b})** "
             f"| **{formatter(avg_cur) if avg_cur is not None else '—'}** "
             f"| **{formatter(avg_mast) if avg_mast is not None else '—'}** "
             f"| **{_diff_cell(avg_cur_m, avg_mast)}** "
@@ -403,8 +441,8 @@ def generate_markdown_report(
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions | Src |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
@@ -435,12 +473,12 @@ def generate_markdown_report(
         if braintrust_url:
             test_case_name = f"[{test_case_name}]({braintrust_url})"
 
-        # Add 📄 link to the eval's test_case.yaml on the branch this run ran from
+        # Link to the eval's test_case.yaml on the branch this run ran from
+        # (rendered as its own "Src" column at the end of the row).
         source_url = _get_eval_source_url(
             result.get("test_type", ""), result["test_case_name"]
         )
-        if source_url:
-            test_case_name = f"[📄]({source_url}) {test_case_name}"
+        source_str = f"[src]({source_url})" if source_url else "—"
 
         status = TestStatus(result)
 
@@ -521,7 +559,7 @@ def generate_markdown_report(
         max_prompt_str = _fmt_tokens(max_prompt)
         compactions_str = str(num_compactions) if num_compactions > 0 else "—"
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} |\n"
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} | {source_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
@@ -537,7 +575,7 @@ def generate_markdown_report(
     max_completion_max_str = _fmt_tokens(max_completion_per_call_max)
     max_prompt_max_str = _fmt_tokens(max_prompt_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** |\n"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** | |\n"
 
     # Add footer explaining when no baseline available
     if not benchmark and not master:

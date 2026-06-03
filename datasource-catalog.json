@@ -22,19 +22,19 @@
       "id": "traces",
       "name": "Traces",
       "description": "Connect a tracing provider for distributed tracing",
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opentelemetry.svg"
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opentelemetry-icon.svg"
     },
     {
       "id": "databases",
       "name": "Databases",
       "description": "Connect databases for query and performance analysis",
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mysql.svg"
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mysql-icon.svg"
     },
     {
       "id": "source-control-cicd",
       "name": "Source Control & CI/CD",
       "description": "Connect source control and CI/CD tools",
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/github.svg"
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/github-icon.svg"
     },
     {
       "id": "itsm-knowledgebase",
@@ -91,7 +91,7 @@
       "name": "MariaDB",
       "description": "Query MariaDB performance data, deadlocks, and slow queries",
       "categories": ["databases"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mariadb.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mariadb-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/mariadb-mcp/?tab=robusta-helm-chart",
       "configType": "native-mcp",
       "helmPath": "holmes.mcpAddons.mariadb",
@@ -103,7 +103,7 @@
       "name": "MongoDB Atlas",
       "description": "Query MongoDB Atlas alerts, events, logs, and slow queries",
       "categories": ["databases"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mongodb.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mongodb-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/mongodb-atlas/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["atlas_mongodb", "MongoDBAtlas", "mongodbatlas"]
@@ -123,7 +123,7 @@
       "name": "MySQL",
       "description": "Run read-only SQL queries against MySQL",
       "categories": ["databases"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mysql.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mysql-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-mysql/?tab=robusta-helm-chart",
       "configType": "native-mcp",
       "backendToolsetNames": ["mysql"]
@@ -143,7 +143,7 @@
       "name": "SQL Server",
       "description": "Run read-only SQL queries against SQL Server",
       "categories": ["databases"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-sqlserver/?tab=robusta-helm-chart",
       "configType": "native-mcp",
       "backendToolsetNames": ["mssql"]
@@ -153,7 +153,7 @@
       "name": "SQLite",
       "description": "Run read-only SQL queries against SQLite",
       "categories": ["databases"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/sqlite.svg",
+      "iconUrl": "https://cdn.simpleicons.org/sqlite/003B57",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-sqlite/?tab=robusta-helm-chart",
       "configType": "native-mcp",
       "backendToolsetNames": ["sqlite"]
@@ -173,7 +173,7 @@
       "name": "SQL Database",
       "description": "Run read-only SQL queries against any SQLAlchemy-compatible database",
       "categories": ["databases"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mysql.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mysql-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/database-connectors",
       "configType": "native",
       "backendToolsetNames": ["database/sql"]
@@ -183,7 +183,7 @@
       "name": "GitHub",
       "description": "Query GitHub repositories, pull requests, issues, and Actions workflows",
       "categories": ["source-control-cicd"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/github.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/github-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/github-mcp/?tab=robusta-helm-chart",
       "configType": "native-mcp",
       "helmPath": "holmes.mcpAddons.github",
@@ -191,11 +191,23 @@
       "backendToolsetNames": ["github", "github-mcp"]
     },
     {
+      "id": "gitlab-mcp",
+      "name": "GitLab",
+      "description": "Query GitLab projects, merge requests, issues, pipelines, and code",
+      "categories": ["source-control-cicd"],
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/gitlab-icon.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/gitlab-mcp/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "helmPath": "holmes.mcpAddons.gitlabMcp",
+      "minRobustaVersion": "0.39.0",
+      "backendToolsetNames": ["gitlab", "gitlab-mcp"]
+    },
+    {
       "id": "argocd/core",
       "name": "ArgoCD",
       "description": "Query ArgoCD application sync status and deployment health",
       "categories": ["source-control-cicd"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/argo.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/argo-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/argocd/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["argocd/core"]
@@ -205,7 +217,7 @@
       "name": "Splunk",
       "description": "Search and query Splunk logs and events",
       "categories": ["logs"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/splunk.svg",
+      "iconUrl": "https://cdn.simpleicons.org/splunk/65A637",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/splunk-mcp/?tab=robusta-helm-chart",
       "configType": "mcp",
       "backendToolsetNames": ["splunk", "splunk-mcp"]
@@ -215,7 +227,7 @@
       "name": "Datadog Logs",
       "description": "Search and query Datadog logs",
       "categories": ["logs"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["datadog/logs"]
@@ -235,7 +247,7 @@
       "name": "OpenSearch Logs",
       "description": "Search and query OpenSearch logs",
       "categories": ["logs"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["opensearch/logs", "opensearch/query_assist"]
@@ -277,7 +289,7 @@
       "name": "Datadog Metrics",
       "description": "Query Datadog metrics",
       "categories": ["metrics"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["datadog/metrics"]
@@ -287,7 +299,7 @@
       "name": "OpenSearch Metrics",
       "description": "Query OpenSearch metrics",
       "categories": ["metrics"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["opensearch/metrics"]
@@ -307,7 +319,7 @@
       "name": "Datadog APM",
       "description": "Query Datadog APM traces",
       "categories": ["traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["datadog/traces"]
@@ -317,7 +329,7 @@
       "name": "OpenSearch Traces",
       "description": "Query OpenSearch traces",
       "categories": ["traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["opensearch/traces"]
@@ -327,7 +339,7 @@
       "name": "New Relic",
       "description": "Query New Relic logs, metrics, and traces",
       "categories": ["logs", "metrics", "traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/new-relic.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/new-relic-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/newrelic/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["newrelic"]
@@ -347,7 +359,7 @@
       "name": "Dynatrace",
       "description": "Query Dynatrace logs, metrics, and traces",
       "categories": ["logs", "metrics", "traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/dynatrace.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/dynatrace-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/?tab=robusta-helm-chart",
       "configType": "mcp",
       "backendToolsetNames": ["dynatrace", "dynatrace-mcp"]
@@ -377,7 +389,7 @@
       "name": "Notion",
       "description": "Search Notion pages and knowledge base content",
       "categories": ["itsm-knowledgebase"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/notion.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/notion-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/notion/?tab=robusta-helm-chart",
       "configType": "native",
       "backendToolsetNames": ["notion"]
@@ -409,7 +421,7 @@
       "name": "Sentry",
       "description": "Query Sentry issues, stack traces, and error data",
       "categories": ["other"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/sentry.svg",
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/sentry-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/sentry-mcp/?tab=robusta-helm-chart",
       "configType": "native-mcp",
       "helmPath": "holmes.mcpAddons.sentryMcp",

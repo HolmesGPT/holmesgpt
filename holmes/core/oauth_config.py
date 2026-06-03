@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from pydantic import BaseModel, Field, model_validator
+from holmes.utils.header_rendering import render_env_template
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,17 @@ def exchange_code_for_tokens(
     except httpx.HTTPError as e:
         raise OAuthTokenExchangeError(0, f"Token request to {token_url} failed: {e}") from e
 
-    # If Basic Auth failed, retry with client_secret in POST body
-    if client_secret and not resp.is_success:
+    # Retry with client_secret in POST body if Basic Auth failed, OR if the IdP
+    # returned 200 with a non-token body (e.g. Slack responds HTTP 200 +
+    # {"ok": false, "error": "bad_client_secret"} when it only accepts
+    # client_secret_post).
+    def _has_access_token(r: httpx.Response) -> bool:
+        try:
+            return "access_token" in r.json()
+        except Exception:
+            return False
+
+    if client_secret and (not resp.is_success or not _has_access_token(resp)):
         data["client_secret"] = client_secret
         try:
             resp = httpx.post(
@@ -144,6 +154,19 @@ class MCPOAuthConfig(BaseModel):
         """Auto-enable OAuth when any endpoint or client_id is explicitly set."""
         if not self.enabled and (self.authorization_url or self.token_url or self.client_id):
             self.enabled = True
+        return self
+
+    @model_validator(mode="after")
+    def render_client_secret_env_template(self):
+        """Substitute ``{{ env.X }}`` references in ``client_secret`` at load time.
+
+        Keeps the secret out of YAML by reading it from an environment variable
+        (typically injected from a Kubernetes Secret) — same Jinja syntax the
+        headers code path already supports.
+        """
+   
+
+        self.client_secret = render_env_template(self.client_secret, "MCPOAuthConfig.client_secret")
         return self
 
 

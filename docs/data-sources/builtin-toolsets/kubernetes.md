@@ -1,5 +1,7 @@
 # Kubernetes
 
+--8<-- "snippets/kubernetes_toolset_picker.md"
+
 ## Toolsets
 
 ### Core
@@ -7,7 +9,7 @@
 !!! info "Enabled by Default"
     This toolset is enabled by default and should typically remain enabled.
 
-By enabling this toolset, HolmesGPT will be able to describe and find Kubernetes resources like nodes, deployments, pods, etc.
+By enabling this toolset, HolmesGPT will be able to describe and find Kubernetes resources like nodes, deployments, pods, etc. The tools shell out to `kubectl`, authenticated with the pod's ServiceAccount when deployed in-cluster or with your local kubeconfig for CLI usage. Permissions are read-only by default — secrets and other sensitive resources are excluded.
 
 **Configuration:**
 

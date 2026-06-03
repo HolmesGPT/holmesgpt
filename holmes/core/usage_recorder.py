@@ -156,6 +156,7 @@ def build_chat_recorder_state(
         conversation_id=chat_request.conversation_id,
         conversation_source=conversation_source,
         user_id=chat_request.user_id,
+        user_email=chat_request.user_email,
         is_streaming=is_streaming,
         is_internal=is_internal,
         model=model_name,
@@ -287,6 +288,12 @@ class UsageRecorderState:
     # is no human user. Used for per-user analytics and (today) by the
     # feedback RPC's auth.uid() check.
     user_id: Optional[str] = None
+
+    # Email of the human who started the chat. Supplied by the frontend
+    # on every chat-bound payload (FE is the source of truth — for SSO
+    # users it's not joinable from auth.users / account_users). NULL for
+    # system / scheduled flows or any client that didn't send it.
+    user_email: Optional[str] = None
 
     # Holmes' cluster id (env-var string, e.g. 'production-east'). Falls
     # back to dal.cluster inside record_usage_event when left at None

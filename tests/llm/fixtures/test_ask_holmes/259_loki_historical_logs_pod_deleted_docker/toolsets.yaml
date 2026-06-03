@@ -1,0 +1,19 @@
+toolsets:
+  # Disable everything Kubernetes/Helm-related — this test runs against a plain
+  # Docker Loki container with no cluster to query.
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  helm/core:
+    enabled: false
+  connectivity_check:
+    enabled: false
+  grafana/loki:
+    enabled: true
+    config:
+      api_url: http://localhost:3259
+      api_key: ""
+      labels:
+        pod: pod_name
+        namespace: namespace
