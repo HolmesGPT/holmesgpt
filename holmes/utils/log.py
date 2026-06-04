@@ -65,20 +65,20 @@ class SecretRedactingFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            record.msg = redact_secrets(record.msg)
-
-        if record.args:
-            if isinstance(record.args, dict):
-                record.args = {
-                    key: (redact_secrets(value) if isinstance(value, str) else value)
-                    for key, value in record.args.items()
-                }
-            else:
-                record.args = tuple(
-                    redact_secrets(value) if isinstance(value, str) else value
-                    for value in record.args
-                )
+        # Render the message with its args FIRST, then redact the final string.
+        # This catches secrets nested inside dict/list/object args (which
+        # str-only scrubbing of record.args would miss, e.g.
+        # logging.error("%s", {"authorization": "Bearer ..."})) and avoids
+        # corrupting the format string (redacting a "%s" that happens to sit
+        # next to a credential pattern before interpolation would break
+        # "msg % args"). After rendering we clear args so downstream handlers
+        # don't re-interpolate.
+        try:
+            message = record.getMessage()
+        except Exception:
+            message = str(record.msg)
+        record.msg = redact_secrets(message)
+        record.args = ()
 
         if record.exc_info:
             if not record.exc_text:

@@ -1,6 +1,8 @@
 """Tests for credential redaction in log output (see GitHub issue #2010)."""
 
 import logging
+import sys
+from typing import Callable
 
 import pytest
 
@@ -81,7 +83,7 @@ def test_handles_none_and_non_strings():
     assert redact_secrets("") == ""
 
 
-def _record_with_filter(make_record):
+def _record_with_filter(make_record: Callable[[], logging.LogRecord]) -> str:
     """Apply SecretRedactingFilter to a record and return its rendered output."""
     record = make_record()
     SecretRedactingFilter().filter(record)
@@ -119,6 +121,41 @@ def test_filter_redacts_args():
     assert FAKE_GEMINI_KEY not in output
 
 
+def test_filter_redacts_secret_nested_in_dict_arg():
+    # A dict arg interpolated via "%s" must not leak secrets it contains.
+    output = _record_with_filter(
+        lambda: logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="request failed: %s",
+            args=({"authorization": "Bearer abc.def.ghi-jkl_mno123"},),
+            exc_info=None,
+        )
+    )
+    assert "abc.def.ghi-jkl_mno123" not in output
+    assert REDACTED in output
+
+
+def test_filter_preserves_literal_percent_after_redaction():
+    # After rendering, args are cleared; a literal '%' in the message must not
+    # trigger a second interpolation attempt.
+    output = _record_with_filter(
+        lambda: logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="disk usage at 95%% and key=%s",
+            args=("supersecretvalue123",),
+            exc_info=None,
+        )
+    )
+    assert "supersecretvalue123" not in output
+    assert "95%" in output
+
+
 def test_filter_redacts_exception_traceback():
     try:
         raise ValueError(
@@ -126,8 +163,6 @@ def test_filter_redacts_exception_traceback():
             f"'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={FAKE_GEMINI_KEY}'"
         )
     except ValueError:
-        import sys
-
         exc_info = sys.exc_info()
 
     record = logging.LogRecord(
