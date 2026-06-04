@@ -36,3 +36,5 @@ before_test: |
   fi
 after_test: |
   kubectl delete namespace app-176 || true
+
+memories_generated: false

@@ -150,12 +150,46 @@ class HolmesTestCase(BaseModel):
     max_tokens: Optional[int] = (
         None  # Maximum total tokens allowed; test fails if exceeded
     )
+    # SUGGEST_RUNBOOKS is injected on every run, so memory emission can occur
+    # on any eval. This field controls the assertion:
+    # - True  → the test fails if the LLM emits zero memories
+    # - False → the test fails if the LLM emits any memories
+    # - None  → no count enforcement (legacy / unspecified)
+    # The emitted memories are surfaced to the LLM judge alongside
+    # `expected_output`, so memory content quality is scored by the judge —
+    # no extra wrapper fields are needed here.
+    memories_generated: Optional[bool] = None
+    # When memories_generated=True and the first pass actually emitted
+    # memories, also run the same prompt a SECOND time with those memories
+    # rendered as SKILL.md files and injected into the SkillsToolset's
+    # search paths. The replay run checks that (a) the agent fetched the
+    # skill (proving it judged the memory relevant) and (b) the answer is
+    # still correct. Provides a closed-loop validation that the captured
+    # memory actually helps future investigations.
+    rerun_with_memory: Optional[bool] = False
+    # Pre-loaded skills directory (relative to the test fixture folder). When
+    # set, the path is added to the SkillsToolset's search paths BEFORE the
+    # primary pass — letting an eval simulate "the customer already has
+    # skill X saved" without going through the suggest_runbooks→replay flow.
+    # Used by evals that test how the agent behaves when handed an
+    # externally-authored skill (e.g. a misleading one, or one captured
+    # from a different investigation).
+    pre_loaded_skills_path: Optional[str] = None
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):
     user_prompt: Union[
         str, List[str]
     ]  # The user's question(s) to ask holmes - can be single string or array
+    # Optional alternative prompt used on the closed-loop replay pass. When set,
+    # the replay run uses this prompt instead of `user_prompt`. This lets the
+    # primary pass use a biased phrasing that reliably triggers the
+    # wrong→right correction (so the suggest_runbooks tool fires and a memory
+    # is captured), while the replay simulates a future investigation asking
+    # the same question in a more natural way — which is when the captured
+    # skill should actually pay off by short-circuiting the failed call. If
+    # unset, the replay uses the original `user_prompt`.
+    replay_user_prompt: Optional[Union[str, List[str]]] = None
     cluster_name: Optional[str] = None
     include_files: Optional[List[str]] = None  # matches include_files option of the CLI
     skills: Optional[Dict[str, Any]] = None  # Optional skill catalog override

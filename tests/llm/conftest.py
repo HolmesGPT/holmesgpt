@@ -788,6 +788,8 @@ def _collect_test_results_from_stats(terminalreporter):
                     "braintrust_root_span_id": None,
                     "clean_test_case_id": None,  # Not available for skipped tests
                     "env_config": "default",  # Not available for skipped tests
+                    "memories_count": 0,
+                    "suggested_memories": [],
                 }
                 continue
             elif when != "call":
@@ -859,6 +861,40 @@ def _collect_test_results_from_stats(terminalreporter):
                 ),  # Any throttling during execution
                 "model": user_props.get("model", "Unknown"),
                 "env_config": user_props.get("env_config", "default"),
+                "memories_count": user_props.get("memories_count", 0),
+                "suggested_memories": user_props.get("suggested_memories", []),
+                # Whether the primary pass (everything before the replay
+                # block) passed. Used by the GitHub reporter to keep the
+                # primary row ✅ even if the replay assertion fails the
+                # whole test.
+                "primary_passed": user_props.get("primary_passed", False),
+                # Replay-with-memory results (only populated when the test
+                # set rerun_with_memory: true AND a memory was actually
+                # captured on the first pass).
+                "replay_attempted": user_props.get("replay_attempted", False),
+                "replay_skill_loaded": user_props.get("replay_skill_loaded", False),
+                "replay_correctness": user_props.get("replay_correctness"),
+                "replay_turns": user_props.get("replay_turns"),
+                "replay_tool_calls_count": user_props.get("replay_tool_calls_count"),
+                "replay_skill_count": user_props.get("replay_skill_count"),
+                "replay_duration": user_props.get("replay_duration"),
+                "replay_total_cost": user_props.get("replay_total_cost"),
+                "replay_total_tokens": user_props.get("replay_total_tokens"),
+                "replay_prompt_tokens": user_props.get("replay_prompt_tokens"),
+                "replay_completion_tokens": user_props.get(
+                    "replay_completion_tokens"
+                ),
+                "replay_cached_tokens": user_props.get("replay_cached_tokens"),
+                "replay_reasoning_tokens": user_props.get(
+                    "replay_reasoning_tokens"
+                ),
+                "replay_max_completion_tokens_per_call": user_props.get(
+                    "replay_max_completion_tokens_per_call"
+                ),
+                "replay_max_prompt_tokens_per_call": user_props.get(
+                    "replay_max_prompt_tokens_per_call"
+                ),
+                "replay_num_compactions": user_props.get("replay_num_compactions"),
                 "clean_test_case_id": user_props.get("clean_test_case_id"),
                 "braintrust_span_id": user_props.get("braintrust_span_id"),
                 "braintrust_root_span_id": user_props.get("braintrust_root_span_id"),

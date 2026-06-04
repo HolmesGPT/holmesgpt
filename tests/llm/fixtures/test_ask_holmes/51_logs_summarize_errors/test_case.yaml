@@ -38,3 +38,5 @@ after_test: |
   # Note: namespace deletion can be slow, using --wait=false for speed
   kubectl delete namespace ask-holmes-namespace-51 --wait=false || echo "WARNING: Failed to delete namespace (exit code: $?)"
   echo "Cleanup completed"
+
+memories_generated: false
