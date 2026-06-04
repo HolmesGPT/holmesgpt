@@ -6,6 +6,8 @@ from typing import List, Optional
 from rich.console import Console
 from rich.logging import RichHandler
 
+from holmes.utils.log import install_secret_redaction
+
 
 class Verbosity(Enum):
     NORMAL = 0
@@ -97,6 +99,10 @@ def init_logging(verbose_flags: Optional[List[bool]] = None, log_costs: bool = F
             ],
         )
         suppress_noisy_logs()
+
+    # Strip API keys / tokens from all log records (messages and tracebacks)
+    # before they are printed or shipped to a backend.
+    install_secret_redaction()
 
     logging.debug(f"verbosity is {verbosity}")
 
