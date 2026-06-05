@@ -20,7 +20,7 @@ import logging
 import os
 import shutil
 import subprocess
-from typing import List
+from typing import List, Optional
 
 from holmes.common.env_vars import (
     HOLMES_BASH_SANDBOX_ENABLED,
@@ -141,13 +141,22 @@ def _setenv_args() -> List[str]:
     return args
 
 
-def build_sandbox_argv(inner_cmd: str) -> List[str]:
+def build_sandbox_argv(
+    inner_cmd: str, rw_bind_paths: Optional[List[str]] = None
+) -> List[str]:
     """
     Build the full bwrap argv that runs ``inner_cmd`` via /bin/bash inside the jail.
 
     ``inner_cmd`` is the already-prepared shell string (e.g. the ulimit-prefixed
     command). It is passed to ``bash -c`` inside the jail, so normal shell
     semantics (pipes, &&, etc.) still apply.
+
+    ``rw_bind_paths`` is an optional list of host directories to bind-mount
+    read-write at the same absolute path inside the jail. This is how the
+    per-session tool-result spill directory is made visible so the LLM can
+    ``cat``/``grep`` large results that the framework wrote to disk. These paths
+    are session-scoped on purpose — the whole spill base is never bound, so one
+    session's jail cannot see another session's spilled files.
     """
     argv: List[str] = [
         BWRAP_BINARY,
@@ -180,6 +189,13 @@ def build_sandbox_argv(inner_cmd: str) -> List[str]:
         "--tmpfs", _JAIL_WORKDIR,
         "--chdir", _JAIL_WORKDIR,
     ]
+
+    # Session-scoped read-write binds (e.g. the tool-result spill dir). These come
+    # AFTER the tmpfs mounts so that a bind under /tmp layers on top of the tmpfs
+    # rather than being hidden by it (bwrap applies operations in argv order).
+    for path in rw_bind_paths or []:
+        if path and os.path.isdir(path):
+            argv += ["--bind", path, path]
 
     # The command itself.
     argv += ["/bin/bash", "-c", inner_cmd]

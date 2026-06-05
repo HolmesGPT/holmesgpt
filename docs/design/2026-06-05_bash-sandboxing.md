@@ -78,6 +78,37 @@ with:
 `no_new_privs` and capability dropping come for free — bwrap sets them by
 default — so they are not separate code.
 
+### Interaction with tool-result spilling
+
+HolmesGPT spills oversized tool results to disk
+(`core/tools_utils/filesystem_result_storage.py`) and hands the LLM an absolute
+path with the instruction to read it back via bash:
+
+> `Saved to: /tmp/.holmes/<chat-uuid>/tool_results/<tool>_<id>.txt`
+> `Use \`cat <path>\` to read it ... \`cat <path> | jq ...\`, \`cat <path> | grep ...\``
+
+A naive jail with an ephemeral `tmpfs /tmp` **breaks this workflow** — the
+spilled file lives on the host, not in the jail, so `cat <path>` fails with "No
+such file or directory". This is a real regression the sandbox must avoid.
+
+The fix is to bind-mount the **per-session** spill directory into the jail at the
+**same absolute path**. The per-session `tool_results_dir` (already created once
+per chat/request) is threaded from the tool-call layer down through
+`ToolInvokeContext` → the bash tool → `execute_bash_command` →
+`build_sandbox_argv`, which adds a `--bind <dir> <dir>` *after* the `tmpfs /tmp`
+so it layers on top. Crucially we bind only that session's directory, never the
+shared `HOLMES_TOOL_RESULT_STORAGE_PATH` base — so one session's jail cannot see
+another session's spilled files, which keeps the isolation property intact.
+
+Images are unaffected: they are read back by the `read_image_file` Python tool,
+which reads the host filesystem directly rather than shelling out into the jail.
+
+Note this is per-command isolation, so scratch files written by one bash command
+to the ephemeral `/work` or `/tmp` are **not** visible to a later command in the
+same session. Persisting a per-session work dir is part of the per-session
+sandbox follow-up; the spill directory above is the one cross-command path that
+must survive, and it does.
+
 ### Decisions
 
 These are the design forks and how we resolved them:

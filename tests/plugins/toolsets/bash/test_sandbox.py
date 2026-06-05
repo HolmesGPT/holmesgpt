@@ -76,6 +76,25 @@ class TestBuildSandboxArgv:
         argv = build_sandbox_argv("true")
         assert "KUBECONFIG" in argv
 
+    def test_rw_bind_paths_added_after_tmpfs(self, tmp_path):
+        # A bind under /tmp must come AFTER the --tmpfs /tmp so it isn't hidden.
+        d = tmp_path / "tool_results"
+        d.mkdir()
+        argv = build_sandbox_argv("true", rw_bind_paths=[str(d)])
+        assert "--bind" in argv
+        bind_idx = argv.index("--bind")
+        assert argv[bind_idx + 1] == str(d)
+        assert argv[bind_idx + 2] == str(d)
+        # Ordering invariant relative to the tmpfs mount.
+        tmpfs_tmp_idx = next(
+            i for i, t in enumerate(argv) if t == "--tmpfs" and argv[i + 1] == "/tmp"
+        )
+        assert bind_idx > tmpfs_tmp_idx
+
+    def test_nonexistent_bind_path_skipped(self):
+        argv = build_sandbox_argv("true", rw_bind_paths=["/does/not/exist"])
+        assert "/does/not/exist" not in argv
+
 
 @requires_jail
 class TestSandboxIsolationEndToEnd:
@@ -119,6 +138,47 @@ class TestSandboxIsolationEndToEnd:
         assert result.return_code == 0
         assert "data" in result.stdout
         assert "/work" in result.stdout
+
+    def test_spilled_result_dir_is_readable_when_bound(self, tmp_path):
+        # Simulate the framework spilling a large tool result to the session dir.
+        results_dir = tmp_path / ".holmes" / "chat-uuid" / "tool_results"
+        results_dir.mkdir(parents=True)
+        spilled = results_dir / "kubectl_get_pods_abc.txt"
+        spilled.write_text("SPILLED-MATCH-7x9k2m4p\nnoise\n")
+        result = execute_bash_command(
+            f"cat {spilled} | grep MATCH",
+            timeout=20,
+            sandbox_bind_paths=[str(results_dir)],
+        )
+        assert result.return_code == 0
+        assert "SPILLED-MATCH-7x9k2m4p" in result.stdout
+
+    def test_spilled_result_dir_invisible_without_bind(self, tmp_path):
+        # Without the bind, the host path does not exist inside the jail.
+        results_dir = tmp_path / ".holmes" / "chat-uuid" / "tool_results"
+        results_dir.mkdir(parents=True)
+        spilled = results_dir / "out.txt"
+        spilled.write_text("data\n")
+        result = execute_bash_command(
+            f"cat {spilled} 2>&1 || echo MISSING", timeout=20, sandbox_bind_paths=None
+        )
+        assert "MISSING" in result.stdout
+        assert "data" not in result.stdout
+
+    def test_other_session_dir_not_visible(self, tmp_path):
+        # Binding one session's dir must not expose another session's dir.
+        mine = tmp_path / ".holmes" / "chat-mine" / "tool_results"
+        mine.mkdir(parents=True)
+        other = tmp_path / ".holmes" / "chat-other" / "tool_results"
+        other.mkdir(parents=True)
+        (other / "secret.txt").write_text("OTHER-SESSION-SECRET\n")
+        result = execute_bash_command(
+            f"cat {other}/secret.txt 2>&1 || echo NOT_VISIBLE",
+            timeout=20,
+            sandbox_bind_paths=[str(mine)],
+        )
+        assert "NOT_VISIBLE" in result.stdout
+        assert "OTHER-SESSION-SECRET" not in result.stdout
 
 
 def test_sandbox_disabled_by_default():
