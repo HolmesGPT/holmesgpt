@@ -244,12 +244,34 @@ def test_ask_holmes(
         and suggested_memories
     )
     if replay_eligible:
+        import shutil
         import tempfile
 
         update_property(request, "replay_attempted", True)
         with tempfile.TemporaryDirectory(
             prefix=f"replay-{test_case.id}-"
         ) as skills_dir:
+            # If the test pre-loaded existing skills (e.g. simulating a
+            # customer who already saved a domain skill from a previous
+            # investigation), copy them into the replay tempdir BEFORE
+            # writing new emissions. The skill writer then detects the
+            # existing `quirks-for-querying-<domain>/SKILL.md` and merges
+            # the new quirks into it — the cross-investigation update
+            # flow. Without this step the writer would write to a fresh
+            # tempdir and the pre-loaded skill would be invisible to the
+            # replay agent.
+            preloaded = getattr(test_case, "pre_loaded_skills_path", None)
+            if preloaded:
+                preloaded_abs = os.path.join(test_case.folder, preloaded)
+                if os.path.isdir(preloaded_abs):
+                    for entry in os.listdir(preloaded_abs):
+                        src = os.path.join(preloaded_abs, entry)
+                        dst = os.path.join(skills_dir, entry)
+                        if os.path.isdir(src):
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
+
             written = write_memories_as_skill_files(suggested_memories, skills_dir)
 
             # Optional assertion: if the eval declares an expected

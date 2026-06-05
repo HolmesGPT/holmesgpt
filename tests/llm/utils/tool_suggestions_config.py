@@ -358,48 +358,151 @@ def _normalize_skill_domain(raw: Optional[str]) -> str:
     return text or "general"
 
 
+def _parse_quirks_from_skill_md(skill_md_path: str) -> List[Dict[str, Any]]:
+    """Parse a previously-written domain SKILL.md back into a list of quirk
+    dicts. Lets the harness MERGE a new emission into a pre-existing
+    domain skill rather than overwriting it — the update-existing path
+    that lets a customer's domain skill grow across investigations.
+
+    The parser is intentionally lenient: missing fields produce empty
+    strings, the file may be a legacy one-quirk skill (no numbered
+    headings) — best-effort recovery so older saved skills can still be
+    extended.
+    """
+    import re
+
+    try:
+        with open(skill_md_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (FileNotFoundError, PermissionError):
+        return []
+
+    # Strip YAML frontmatter if present.
+    body = re.sub(r"^---\n.*?\n---\n", "", content, count=1, flags=re.DOTALL)
+
+    # Split into entries by `## N. Title` headings. Skill files we write
+    # number their entries; if the file is hand-written or legacy, fall
+    # back to splitting on `## ` at the start of a line.
+    entry_pattern = re.compile(r"^## \d+\.\s+(.+?)$", re.MULTILINE)
+    matches = list(entry_pattern.finditer(body))
+    if not matches:
+        # Fall back: any `## ` heading except the top-level title
+        entry_pattern = re.compile(
+            r"^## (?!Known quirks)(.+?)$", re.MULTILINE
+        )
+        matches = list(entry_pattern.finditer(body))
+
+    quirks: List[Dict[str, Any]] = []
+    for idx, m in enumerate(matches):
+        title = m.group(1).strip()
+        start = m.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(body)
+        section = body[start:end]
+
+        def _extract(label: str) -> str:
+            # Pulls the text between `**<label>:**` and the next `**...**:`
+            # bold-label or end of section. Tolerates inline-value style
+            # ("**When to use:** text") and block-value style.
+            pat = re.compile(
+                rf"\*\*{re.escape(label)}:?\*\*\s*(.*?)(?=\n\*\*[^*]+:?\*\*|\Z)",
+                re.DOTALL,
+            )
+            mm = pat.search(section)
+            if not mm:
+                return ""
+            return mm.group(1).strip().lstrip("-").strip()
+
+        quirks.append(
+            {
+                "title": title,
+                "when_to_use": _extract("When to use"),
+                "failed_call": _extract("Failed call shape (avoid)"),
+                "working_call": _extract("Working call shape"),
+                "why_env_specific": _extract("Why this is env-specific"),
+                "importance": "medium",
+            }
+        )
+    return quirks
+
+
+def _existing_domain_skill_path(
+    target_dir: str, domain: str
+) -> Optional[str]:
+    """Locate an existing ``quirks-for-querying-<domain>/SKILL.md`` under
+    ``target_dir`` if one was written by a prior investigation. Returns
+    the absolute path or None.
+
+    The match is on the suffix ``quirks-for-querying-<domain>`` so the
+    numeric prefix (``01-``, ``02-`` …) the writer adds for ordering
+    doesn't break lookup.
+    """
+    import os
+
+    suffix = f"quirks-for-querying-{domain}"
+    if not os.path.isdir(target_dir):
+        return None
+    for entry in os.listdir(target_dir):
+        full = os.path.join(target_dir, entry)
+        if not os.path.isdir(full):
+            continue
+        if entry == suffix or entry.endswith(f"-{suffix}"):
+            skill_md = os.path.join(full, "SKILL.md")
+            if os.path.isfile(skill_md):
+                return skill_md
+    return None
+
+
 def write_memories_as_skill_files(
     memories: List[Dict[str, Any]], target_dir: str
 ) -> List[str]:
     """Render captured memories into ONE consolidated SKILL.md per
-    ``skill_domain`` under ``target_dir``. Each domain skill collects all
-    quirks the agent reported for that data source/tool family into a
-    single \"Known quirks\" body so the SkillsToolset listing stays small
-    (one entry per domain, not per quirk) and a replay agent fetches one
-    skill to see every quirk this team's environment has.
+    ``skill_domain`` under ``target_dir``. If a domain skill already
+    exists in ``target_dir`` (from a prior investigation), its existing
+    quirks are READ, merged with the new emissions (deduplicating by
+    title), and the file is rewritten — supporting the
+    update-existing-skill flow where a single domain skill grows entry
+    by entry across many investigations.
 
     Returns the list of skill directories written.
-
-    Used by the rerun_with_memory replay flow: after the first eval pass
-    captures memories, we write the consolidated domain skill(s) to disk,
-    point the SkillsToolset at the tempdir, and run the prompt(s) a
-    second time. The agent — having read the domain skill's description
-    in the system prompt — is expected to call fetch_skill once, see the
-    `## Known quirks` section listing every relevant correction, and use
-    the right working_call shape for each question the prompt asks.
     """
     import os
     from collections import OrderedDict
 
-    # Group by normalized domain, preserving the order the agent first
-    # emitted each domain so the deterministic disk layout matches the
-    # agent's discovery order.
-    by_domain: "OrderedDict[str, List[Dict[str, Any]]]" = OrderedDict()
+    # Group new emissions by normalized domain, preserving emission order.
+    new_by_domain: "OrderedDict[str, List[Dict[str, Any]]]" = OrderedDict()
     for mem in memories:
         domain = _normalize_skill_domain(mem.get("skill_domain"))
-        by_domain.setdefault(domain, []).append(mem)
+        new_by_domain.setdefault(domain, []).append(mem)
 
     written: List[str] = []
-    for idx, (domain, domain_memories) in enumerate(by_domain.items(), start=1):
+    for idx, (domain, new_quirks) in enumerate(new_by_domain.items(), start=1):
         skill_name = f"quirks-for-querying-{domain}"
-        skill_dir = os.path.join(target_dir, f"{idx:02d}-{skill_name}")
-        os.makedirs(skill_dir, exist_ok=True)
 
-        # The agent on replay only sees `name | description` in the system
-        # prompt when deciding whether to fetch a skill. The description
-        # is generic per-domain ("known schema/query quirks for this
-        # team's <domain> in this environment") so ANY query against that
-        # data source recognizes the skill as relevant.
+        # If this domain already has a pre-existing skill file in
+        # target_dir, parse and prepend its quirks so the merged file
+        # preserves prior knowledge. The new emissions follow (dedupe by
+        # title).
+        existing_path = _existing_domain_skill_path(target_dir, domain)
+        existing_quirks: List[Dict[str, Any]] = []
+        skill_dir: str
+        if existing_path:
+            existing_quirks = _parse_quirks_from_skill_md(existing_path)
+            skill_dir = os.path.dirname(existing_path)
+        else:
+            skill_dir = os.path.join(target_dir, f"{idx:02d}-{skill_name}")
+            os.makedirs(skill_dir, exist_ok=True)
+
+        # Merge: existing first, then new, deduplicating on title.
+        seen_titles: set = {q["title"].strip().lower() for q in existing_quirks if q.get("title")}
+        merged_quirks: List[Dict[str, Any]] = list(existing_quirks)
+        for q in new_quirks:
+            t = str(q.get("title") or "").strip().lower()
+            if t and t in seen_titles:
+                continue
+            merged_quirks.append(q)
+            if t:
+                seen_titles.add(t)
+
         description = (
             f"Known schema and query quirks for this team's {domain} "
             f"in this environment — fetch BEFORE issuing the first query "
@@ -421,7 +524,7 @@ def write_memories_as_skill_files(
             "",
         ]
 
-        for entry_idx, mem in enumerate(domain_memories, start=1):
+        for entry_idx, mem in enumerate(merged_quirks, start=1):
             title = str(mem.get("title") or f"quirk-{entry_idx}")
             when_to_use = str(mem.get("when_to_use") or "").strip()
             body_parts += [

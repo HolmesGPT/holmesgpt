@@ -1,0 +1,176 @@
+# Test: update-existing-skill / cross-investigation accumulation.
+#
+# Scenario: this team has previously discovered (in some earlier
+# investigation) that their `app-269-logs-a-*` indices store log
+# severity in a custom `severity` field, and saved a domain skill at
+# ./prior_quirks/quirks-for-querying-elasticsearch/SKILL.md.
+#
+# Today they're looking at a different index, app-269-logs-b-*, which
+# has its OWN unrelated quirk: timestamps are stored in a custom
+# `ingest_ts` keyword field instead of `@timestamp`. The pre-loaded
+# skill has nothing to say about timestamps.
+#
+# What we want to verify:
+#   1. The agent discovers the new ingest_ts quirk (mapping inspection
+#      because @timestamp doesn't exist) and emits it via
+#      suggest_runbooks with skill_domain="elasticsearch".
+#   2. The harness MERGES this new quirk into the existing
+#      quirks-for-querying-elasticsearch/SKILL.md rather than creating
+#      a second domain skill or clobbering the pre-existing one.
+#   3. On replay (with the merged skill available), the agent fetches
+#      it once and uses BOTH quirks — `severity` for index A and
+#      `ingest_ts` for index B — to answer a cross-index question.
+#
+# This is the closed-loop validation of "domain skills grow across
+# investigations" — the missing piece from 268's within-investigation
+# consolidation.
+
+user_prompt: |
+  In the elasticsearch index 'app-269-logs-b-r5x8m3n9', run a
+  `range: { "@timestamp": { gte: today's date } }` query filtered to
+  ERROR-level entries and report the count. If the @timestamp filter
+  returns zero or errors, find the right timestamp field and re-run.
+
+# Replay prompt: a natural cross-index question that requires BOTH the
+# pre-existing severity quirk (for app-A) AND the newly-emitted
+# ingest_ts quirk (for app-B). If the merge succeeded, the consolidated
+# skill the agent fetches will list both entries and the agent can
+# answer using the right field for each index. If only one quirk is in
+# the merged file, the agent has to rediscover the other.
+replay_user_prompt: |
+  Please tell me both:
+  (1) how many ERROR-level entries are in index 'app-269-logs-a-r5x8m3n9'?
+  (2) how many ERROR-level entries are there from today in index
+      'app-269-logs-b-r5x8m3n9'?
+
+expected_output:
+  - "There are 10 ERROR entries in app-269-logs-a-r5x8m3n9 (uses `severity` keyword field)"
+  - "There are 7 ERROR entries from today in app-269-logs-b-r5x8m3n9 (uses `ingest_ts` keyword field for timestamps)"
+
+memories_generated: true
+rerun_with_memory: true
+
+# The primary discovers ONE new quirk (ingest_ts) and emits it. The
+# harness merges it into the pre-loaded elasticsearch skill. After
+# merging there should still be ONLY ONE elasticsearch domain skill
+# file (containing both the pre-existing severity quirk and the new
+# ingest_ts quirk).
+expected_skill_count: 1
+
+# Pre-loaded skill simulates a customer's existing knowledge from
+# previous investigations. Tested both during the primary pass (so the
+# agent sees the existing severity skill even though it doesn't help
+# with the timestamp question) and on replay (so we can verify the
+# merged file contains both the original and the newly-emitted quirk).
+pre_loaded_skills_path: ./prior_quirks
+
+tags:
+  - elasticsearch
+  - question-answer
+  - hard
+  - regression
+  - skills
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  PREFIX="app-269-logs"
+  echo "Creating two indices under prefix: $PREFIX"
+
+  # ── Index A: 'severity' keyword (same quirk as the pre-loaded skill) ──
+  IDX_A="${PREFIX}-a-r5x8m3n9"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX_A}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${IDX_A}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "severity":   { "type": "keyword" },
+          "message":    { "type": "text" },
+          "service":    { "type": "keyword" },
+          "@timestamp": { "type": "date" }
+        }
+      }
+    }' > /dev/null
+
+  BULK_A=""
+  for i in $(seq 1 10); do
+    TS=$(printf '2026-05-14T12:00:%02dZ' "$i")
+    BULK_A="${BULK_A}{\"index\":{}}\n{\"severity\":\"ERROR\",\"service\":\"app-A\",\"message\":\"err $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 5); do
+    TS=$(printf '2026-05-14T12:01:%02dZ' "$i")
+    BULK_A="${BULK_A}{\"index\":{}}\n{\"severity\":\"INFO\",\"service\":\"app-A\",\"message\":\"hb $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  echo -e "$BULK_A" | curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_A}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @- > /dev/null
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_A}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # ── Index B: 'ingest_ts' keyword (the NEW quirk to be discovered) ────
+  IDX_B="${PREFIX}-b-r5x8m3n9"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX_B}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${IDX_B}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "ingest_ts": { "type": "keyword" },
+          "level":     { "type": "keyword" },
+          "message":   { "type": "text" }
+        }
+      }
+    }' > /dev/null
+
+  # Use today's date so the replay's "from today" query resolves against
+  # the same date the data was written for.
+  TODAY=$(date -u +%Y-%m-%d)
+  YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
+  BULK_B=""
+  for i in $(seq 1 7); do
+    BULK_B="${BULK_B}{\"index\":{}}\n{\"ingest_ts\":\"${TODAY}T08:0${i}:00\",\"level\":\"ERROR\",\"message\":\"err today $i\"}\n"
+  done
+  for i in $(seq 1 5); do
+    BULK_B="${BULK_B}{\"index\":{}}\n{\"ingest_ts\":\"${YESTERDAY}T08:0${i}:00\",\"level\":\"ERROR\",\"message\":\"err yest $i\"}\n"
+  done
+  for i in $(seq 1 4); do
+    BULK_B="${BULK_B}{\"index\":{}}\n{\"ingest_ts\":\"${TODAY}T09:0${i}:00\",\"level\":\"INFO\",\"message\":\"info today $i\"}\n"
+  done
+  echo -e "$BULK_B" | curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_B}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @- > /dev/null
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_B}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  for IDX in "$IDX_A" "$IDX_B"; do
+    COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${IDX}/_count" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      | grep -o '"count":[0-9]*' | cut -d':' -f2)
+    echo "  $IDX: $COUNT docs"
+    if [ -z "$COUNT" ] || [ "$COUNT" = "0" ]; then
+      echo "❌ $IDX has no documents"
+      exit 1
+    fi
+  done
+  echo "✅ Both app-269 indices populated"
+
+after_test: |
+  for IDX in app-269-logs-a-r5x8m3n9 app-269-logs-b-r5x8m3n9; do
+    echo "⏳ Cleaning up: $IDX"
+    curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX}" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  done
+  echo "✅ Cleanup complete"

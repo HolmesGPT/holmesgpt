@@ -153,6 +153,87 @@ def test_write_memories_fallback_domain_when_missing():
         assert "Quirk A" in content and "Quirk B" in content
 
 
+def test_write_memories_merges_into_existing_domain_skill(tmp_path):
+    """Cross-investigation accumulation: emitting a second quirk to a
+    domain that already has a saved skill must MERGE into that file,
+    not replace it or create a parallel domain skill.
+    """
+    from tests.llm.utils.tool_suggestions_config import (
+        write_memories_as_skill_files,
+        _parse_quirks_from_skill_md,
+    )
+    import os
+
+    first = [{
+        "skill_domain": "elasticsearch",
+        "title": "app-A uses 'severity' not 'level'",
+        "when_to_use": "ES level query on app-A",
+        "failed_call": "term level=ERROR",
+        "working_call": "term severity=ERROR",
+        "why_env_specific": "Custom team schema.",
+        "importance": "medium",
+    }]
+    second = [{
+        "skill_domain": "elasticsearch",
+        "title": "app-B uses 'ingest_ts' keyword not '@timestamp'",
+        "when_to_use": "Date-range on app-B",
+        "failed_call": "range @timestamp",
+        "working_call": "range ingest_ts",
+        "why_env_specific": "No ECS @timestamp.",
+        "importance": "high",
+    }]
+
+    # First investigation writes the initial skill.
+    written1 = write_memories_as_skill_files(first, str(tmp_path))
+    assert len(written1) == 1
+    skill_md = os.path.join(written1[0], "SKILL.md")
+    parsed1 = _parse_quirks_from_skill_md(skill_md)
+    assert len(parsed1) == 1
+
+    # Second investigation discovers a different quirk in the same
+    # domain — must merge, not overwrite or create a parallel file.
+    written2 = write_memories_as_skill_files(second, str(tmp_path))
+    assert len(written2) == 1
+    # Same directory as before.
+    assert written2[0] == written1[0]
+
+    parsed2 = _parse_quirks_from_skill_md(skill_md)
+    assert len(parsed2) == 2
+    titles = {q["title"] for q in parsed2}
+    assert "app-A uses 'severity' not 'level'" in titles
+    assert "app-B uses 'ingest_ts' keyword not '@timestamp'" in titles
+
+
+def test_write_memories_dedupes_existing_quirks(tmp_path):
+    """Re-emitting a quirk whose title already exists in the saved skill
+    must not produce a duplicate entry.
+    """
+    from tests.llm.utils.tool_suggestions_config import (
+        write_memories_as_skill_files,
+        _parse_quirks_from_skill_md,
+    )
+    import os
+
+    mem = [{
+        "skill_domain": "loki",
+        "title": "Streams use acme_service label",
+        "when_to_use": "Any Loki query for service identity",
+        "failed_call": "{service='checkout'}",
+        "working_call": "{acme_service='checkout'}",
+        "why_env_specific": "Promtail relabel.",
+        "importance": "high",
+    }]
+    write_memories_as_skill_files(mem, str(tmp_path))
+    write_memories_as_skill_files(mem, str(tmp_path))  # same quirk again
+    write_memories_as_skill_files(mem, str(tmp_path))  # and again
+
+    # Find the loki skill file
+    loki_dir = next(p for p in os.listdir(str(tmp_path)) if "loki" in p)
+    skill_md = os.path.join(str(tmp_path), loki_dir, "SKILL.md")
+    parsed = _parse_quirks_from_skill_md(skill_md)
+    assert len(parsed) == 1, f"expected 1 unique quirk, got {len(parsed)}"
+
+
 def test_extract_suggested_memories_ignores_other_tools():
     other = _make_tool_call("kubectl_get", {"resource": "pods"})
     assert extract_suggested_memories([other]) == []
