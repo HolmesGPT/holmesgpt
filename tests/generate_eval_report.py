@@ -6,7 +6,7 @@ import json
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, DefaultDict, Dict, List, Optional, Set
+from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote
 
 from tests.llm.utils.test_env_vars import (
@@ -1139,17 +1139,68 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
 
 
 def generate_cost_comparison_table(results: Dict[str, Any]) -> str:
-    """Generate model cost comparison table."""
-    model_costs: DefaultDict[str, List[float]] = defaultdict(list)
+    """Generate model cost / token / turn comparison table.
+
+    Costs and tokens are summed across the parent agent and any subagents it
+    dispatched (the parent's accumulated_stats already rolls them up). Turns
+    are split into parent vs total because a subagent run can finish a task
+    in fewer parent turns at the price of more subagent turns — a tradeoff
+    worth seeing per-model in the matrix eval.
+
+    When a matrix axis is in play (e.g. ``SUBAGENTS=true,false``) each
+    matrix variant gets its own subtotal row and a per-model "Total"
+    row aggregates over them.
+    """
+
+    class _Bucket:
+        __slots__ = (
+            "tests", "costs", "tokens", "parent_turns",
+            "subagent_invocations", "subagent_turns", "total_turns",
+        )
+
+        def __init__(self) -> None:
+            self.tests = 0
+            self.costs: List[float] = []
+            self.tokens: List[int] = []
+            self.parent_turns: List[int] = []
+            self.subagent_invocations: List[int] = []
+            self.subagent_turns: List[int] = []
+            self.total_turns: List[int] = []
+
+        def add(self, *, cost, tokens, parent_turns, subagent_invocations,
+                subagent_turns, total_turns) -> None:
+            self.tests += 1
+            if cost is not None and cost > 0:
+                self.costs.append(cost)
+            if tokens is not None and tokens > 0:
+                self.tokens.append(int(tokens))
+            if parent_turns is not None:
+                self.parent_turns.append(int(parent_turns))
+            if subagent_invocations is not None:
+                self.subagent_invocations.append(int(subagent_invocations))
+            if subagent_turns is not None:
+                self.subagent_turns.append(int(subagent_turns))
+            if total_turns is not None:
+                self.total_turns.append(int(total_turns))
+
+    # buckets keyed by (model, variant_label). variant_label is e.g.
+    # "subagent_on" / "subagent_off", or "" when no matrix axis is active.
+    buckets: Dict[Tuple[str, str], _Bucket] = {}
+    # per-model aggregate (across all variants) — drives the "Total" row.
+    per_model_buckets: Dict[str, _Bucket] = {}
 
     for test in results.get("tests", []):
-        # Skip deselected tests
         if test.get("outcome") == "deselected":
             continue
 
-        # Extract model and cost from user_properties
         model = None
         cost = None
+        total_tokens = None
+        parent_turns = None
+        subagent_invocations = None
+        subagent_turns = None
+        total_turns = None
+        subagents_enabled = None
 
         user_props = test.get("user_properties", [])
         for prop in user_props:
@@ -1158,44 +1209,102 @@ def generate_cost_comparison_table(results: Dict[str, Any]) -> str:
                     model = prop["model"]
                 if "cost" in prop:
                     cost = prop["cost"]
+                if "total_tokens" in prop:
+                    total_tokens = prop["total_tokens"]
+                if "num_llm_calls" in prop:
+                    parent_turns = prop["num_llm_calls"]
+                if "num_subagent_invocations" in prop:
+                    subagent_invocations = prop["num_subagent_invocations"]
+                if "num_subagent_llm_calls" in prop:
+                    subagent_turns = prop["num_subagent_llm_calls"]
+                if "total_turns" in prop:
+                    total_turns = prop["total_turns"]
+                if "subagents_enabled" in prop:
+                    subagents_enabled = prop["subagents_enabled"]
 
-        # Fallback: try to extract model from nodeid if needed
         if not model:
             nodeid = test.get("nodeid", "")
             if "-" in nodeid:
                 model = nodeid.split("-")[-1].rstrip("]")
-
-        if model and cost is not None and cost > 0:
-            model_costs[model].append(cost)
-
-    if not model_costs:
-        return ""
-
-    # Build markdown table
-    lines = []
-    lines.append("## Model Cost Comparison")
-    lines.append("")
-    lines.append("| Model | Tests | Avg Cost | Min Cost | Max Cost | Total Cost |")
-    lines.append("|-------|-------|----------|----------|----------|------------|")
-
-    for model in sorted(model_costs.keys(), key=get_model_sort_key):
-        costs = model_costs[model]
-        if not costs:
+        if not model:
             continue
 
-        avg_cost = sum(costs) / len(costs)
-        min_cost = min(costs)
-        max_cost = max(costs)
-        total_cost = sum(costs)
-        num_tests = len(costs)
+        if subagents_enabled is True:
+            variant = "subagent_on"
+        elif subagents_enabled is False:
+            variant = "subagent_off"
+        else:
+            variant = ""  # not parametrized → no subtotal split
 
-        # Get clean display name
-        display_model = get_model_display_name(model)
-
-        lines.append(
-            f"| {display_model} | {num_tests} | ${avg_cost:.2f} | ${min_cost:.2f} | "
-            f"${max_cost:.2f} | ${total_cost:.2f} |"
+        kwargs = dict(
+            cost=cost, tokens=total_tokens, parent_turns=parent_turns,
+            subagent_invocations=subagent_invocations,
+            subagent_turns=subagent_turns, total_turns=total_turns,
         )
+        buckets.setdefault((model, variant), _Bucket()).add(**kwargs)
+        per_model_buckets.setdefault(model, _Bucket()).add(**kwargs)
+
+    if not per_model_buckets:
+        return ""
+
+    def _avg(values: List[float]) -> str:
+        return f"{(sum(values) / len(values)):.1f}" if values else "—"
+
+    def _avg_int(values: List[int]) -> str:
+        return f"{int(round(sum(values) / len(values))):,}" if values else "—"
+
+    def _row(label: str, b: _Bucket) -> str:
+        if b.costs:
+            cost_cells = (
+                f"${sum(b.costs) / len(b.costs):.2f} | ${min(b.costs):.2f} | "
+                f"${max(b.costs):.2f} | ${sum(b.costs):.2f}"
+            )
+        else:
+            cost_cells = "— | — | — | —"
+        return (
+            f"| {label} | {b.tests} | {cost_cells} | "
+            f"{_avg_int(b.tokens)} | {_avg(b.parent_turns)} | "
+            f"{_avg(b.subagent_invocations)} | "
+            f"{_avg(b.subagent_turns)} | {_avg(b.total_turns)} |"
+        )
+
+    lines = [
+        "## Model Cost / Tokens / Turns Comparison",
+        "",
+        "_Cost and token totals are summed across the parent agent and any "
+        "subagents it dispatched. **Subagent invocations** is the number of "
+        "times `dispatch_agent` was called; **Subagent turns** is the LLM-call "
+        "count those subagents burned (sum). **Total turns** = parent + "
+        "subagent turns. When `SUBAGENTS=true,false` is in play each matrix "
+        "variant gets its own subtotal and a per-model **Total** row "
+        "aggregates over them._",
+        "",
+        "| Model | Tests | Avg Cost | Min Cost | Max Cost | Total Cost | "
+        "Avg Tokens | Avg Parent Turns | Avg Subagent Invocations | "
+        "Avg Subagent Turns | Avg Total Turns |",
+        "|-------|-------|----------|----------|----------|------------|"
+        "-----------:|-----------------:|-------------------------:|"
+        "-------------------:|----------------:|",
+    ]
+
+    # Stable variant ordering: off before on so the report reads "baseline → matrix".
+    variant_order = {"subagent_off": 0, "subagent_on": 1, "": 99}
+    for model in sorted(per_model_buckets.keys(), key=get_model_sort_key):
+        display_model = get_model_display_name(model)
+        variants_for_model = sorted(
+            (v for (m, v), _ in buckets.items() if m == model),
+            key=lambda v: (variant_order.get(v, 50), v),
+        )
+
+        # Only emit subtotal rows when there is more than one variant for the
+        # model — otherwise the subtotal duplicates the total.
+        if len(variants_for_model) > 1:
+            for variant in variants_for_model:
+                b = buckets[(model, variant)]
+                lines.append(_row(f"{display_model} · {variant}", b))
+            lines.append(_row(f"**{display_model} · Total**", per_model_buckets[model]))
+        else:
+            lines.append(_row(display_model, per_model_buckets[model]))
 
     return "\n".join(lines)
 

@@ -1,0 +1,3 @@
+eval	mode	run	passed	cost	tokens	prompt_tokens	completion_tokens	model	subagent_model
+188_elasticsearch_mapping_explosion	subagent_on	1	PASS	0.40958825000000004	256503	253204	3299	openrouter/anthropic/claude-opus-4.8	openrouter/anthropic/claude-haiku-4.5
+188_elasticsearch_mapping_explosion	subagent_on	2	PASS	0.34288700000000005	161202	158507	2695	openrouter/anthropic/claude-opus-4.8	openrouter/anthropic/claude-haiku-4.5

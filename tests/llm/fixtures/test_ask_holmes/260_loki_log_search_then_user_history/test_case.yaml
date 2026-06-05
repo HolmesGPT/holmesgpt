@@ -1,0 +1,82 @@
+user_prompt: |
+  The orders-api service in namespace app-260 logged a checkout error on
+  September 14, 2025 around 11:30 UTC. Identify the affected user, then look
+  back at that user's recent login activity in the same logs and tell me
+  whether there were prior failed login attempts for them in the 30 minutes
+  before the checkout error.
+
+description: |
+  Multi-stage Loki investigation that exercises the dispatch sweet spot:
+
+  1. The ERROR line is one of ~28,800 INFO lines across one hour. Without
+     server-side filtering by level, the agent has to chew through a lot.
+  2. After identifying the affected user_id from the ERROR, the agent must
+     run a second Loki query filtered by user_id to find the prior failed
+     login attempts.
+
+  This is the pattern subagents are theorised to help with: the noisy
+  initial log set should stay inside the subagent; the parent should only
+  see the extracted user_id and the focused follow-up result.
+
+expected_output:
+  - The affected user_id is USR_QXR42
+  - The checkout error message references payment_declined (gateway response insufficient_funds)
+  - In the 30 minutes before the checkout error, USR_QXR42 had 3 failed login attempts (login_failed events with reason=invalid_password)
+  - USR_QXR42 successfully logged in approximately 8 minutes before the checkout error
+
+include_tool_calls: true
+
+tags:
+  - logs
+  - medium
+  - loki
+  - subagent-candidate
+  - regression
+
+setup_timeout: 240
+
+before_test: |
+  set -e
+  CONTAINER=holmes-eval-loki-260
+  PORT=3260
+
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+  docker run -d --name "$CONTAINER" -p "$PORT:3100" \
+    -v "$(pwd)/loki-config.yaml:/etc/loki/local-config.yaml:ro" \
+    grafana/loki:2.9.0 -config.file=/etc/loki/local-config.yaml >/dev/null
+
+  READY=false
+  for i in $(seq 1 60); do
+    if curl -sf "http://localhost:$PORT/ready" 2>/dev/null | grep -q ready; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" != "true" ]; then
+    echo "ERROR: Loki not ready after 60s"
+    docker logs "$CONTAINER" | tail -40
+    exit 1
+  fi
+
+  python3 generate_logs.py "http://localhost:$PORT"
+
+  for i in $(seq 1 30); do
+    ERROR_COUNT=$(curl -sG "http://localhost:$PORT/loki/api/v1/query_range" \
+      --data-urlencode 'query={namespace="app-260",level="ERROR"}' \
+      --data-urlencode 'start=2025-09-14T11:00:00Z' \
+      --data-urlencode 'end=2025-09-14T12:00:00Z' \
+      --data-urlencode 'limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    if [ "$ERROR_COUNT" -gt "0" ]; then
+      echo "Incident logs ready in Loki"
+      exit 0
+    fi
+    sleep 1
+  done
+
+  echo "ERROR: no ERROR logs found in Loki after push"
+  exit 1
+
+after_test: |
+  docker rm -f holmes-eval-loki-260 >/dev/null 2>&1 || true

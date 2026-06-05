@@ -1129,12 +1129,14 @@ EXPECTED_COSTS_KEYS = {
 EXPECTED_TOKEN_COUNT_METADATA_KEYS = {"costs", "usage", "tokens", "max_tokens", "max_output_tokens"}
 
 EXPECTED_ANSWER_END_KEYS = {
-    "content", "messages", "metadata", "tool_calls", "num_llm_calls", "prompt", "costs",
+    "content", "messages", "metadata", "tool_calls", "num_llm_calls",
+    "num_subagent_invocations", "num_subagent_llm_calls", "prompt", "costs",
 }
 
 EXPECTED_APPROVAL_REQUIRED_KEYS = {
     "content", "messages", "pending_approvals",
-    "pending_frontend_tool_calls", "num_llm_calls", "costs",
+    "pending_frontend_tool_calls", "num_llm_calls",
+    "num_subagent_invocations", "num_subagent_llm_calls", "costs",
 }
 
 
@@ -1204,6 +1206,8 @@ class TestSSEEventShapes:
         assert isinstance(data["messages"], list)
         assert isinstance(data["tool_calls"], list)
         assert isinstance(data["num_llm_calls"], int)
+        assert isinstance(data["num_subagent_llm_calls"], int)
+        assert data["num_subagent_llm_calls"] >= 0
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_approval_required_event_shape(self, _mock_limit, make_ai, mock_llm):
@@ -1234,6 +1238,9 @@ class TestSSEEventShapes:
         assert set(data["costs"].keys()) == EXPECTED_COSTS_KEYS
         assert isinstance(data["pending_approvals"], list)
         assert isinstance(data["pending_frontend_tool_calls"], list)
+        assert isinstance(data["num_llm_calls"], int)
+        assert isinstance(data["num_subagent_llm_calls"], int)
+        assert data["num_subagent_llm_calls"] >= 0
         assert len(data["pending_approvals"]) > 0
 
 
@@ -1503,6 +1510,9 @@ class TestFrontendToolPauseFlow:
         assert set(data.keys()) == EXPECTED_APPROVAL_REQUIRED_KEYS
         assert isinstance(data["pending_frontend_tool_calls"], list)
         assert isinstance(data["pending_approvals"], list)
+        assert isinstance(data["num_llm_calls"], int)
+        assert isinstance(data["num_subagent_llm_calls"], int)
+        assert data["num_subagent_llm_calls"] >= 0
         # Backend approvals empty, frontend has one entry
         assert len(data["pending_approvals"]) == 0
         assert len(data["pending_frontend_tool_calls"]) == 1

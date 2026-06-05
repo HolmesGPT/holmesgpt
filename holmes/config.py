@@ -50,38 +50,6 @@ from holmes.utils.pydantic_utils import RobustaBaseConfig, load_model_from_file
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
 
 
-def _parse_custom_skill_paths_env() -> List[str]:
-    raw = os.environ.get("CUSTOM_SKILL_PATHS")
-    if not raw:
-        return []
-    return [p.strip() for p in raw.split(",") if p.strip()]
-
-
-def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
-    """Stable signature of a toolset's tools for change detection.
-
-    Includes tool name and description so additions, removals, and description
-    edits all trigger an executor swap.
-    """
-    return frozenset(
-        (tool.name, tool.description or "") for tool in (toolset.tools or [])
-    )
-
-
-def _toolset_tools_changed(
-    current: List[Toolset], new: List[Toolset]
-) -> bool:
-    """Return True if the set of toolsets, or any shared toolset's tool list, changed."""
-    current_by_name = {ts.name: ts for ts in current}
-    new_by_name = {ts.name: ts for ts in new}
-    if current_by_name.keys() != new_by_name.keys():
-        return True
-    for name, new_ts in new_by_name.items():
-        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(new_ts):
-            return True
-    return False
-
-
 class SupportedTicketSources(str, Enum):
     JIRA_SERVICE_MANAGEMENT = "jira-service-management"
     PAGERDUTY = "pagerduty"
@@ -129,6 +97,11 @@ class Config(RobustaBaseConfig):
     opsgenie_query: Optional[str] = None
 
     custom_skill_paths: List[Union[str, FilePath]] = []
+
+    # When True, the main agent gets access to a `dispatch_agent` tool that can
+    # spawn focused child agents sharing the same LLM and toolset but with
+    # isolated context windows. See holmes/core/subagent.py.
+    subagents_enabled: bool = False
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -251,11 +224,6 @@ class Config(RobustaBaseConfig):
                 result.model = model_from_env
                 result._model_source = "via $MODEL"
 
-        if not result.custom_skill_paths:
-            skill_paths = _parse_custom_skill_paths_env()
-            if skill_paths:
-                result.custom_skill_paths = skill_paths
-
         result.log_useful_info()
         return result
 
@@ -287,9 +255,6 @@ class Config(RobustaBaseConfig):
             val = os.getenv(field_name.upper(), None)
             if val is not None:
                 kwargs[field_name] = val
-        skill_paths = _parse_custom_skill_paths_env()
-        if skill_paths:
-            kwargs["custom_skill_paths"] = skill_paths
         kwargs["cluster_name"] = Config.__get_cluster_name()
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
@@ -444,18 +409,11 @@ class Config(RobustaBaseConfig):
         toolset_tag_filter: Optional[List[ToolsetTag]] = None,
         enable_all_toolsets_possible: bool = False,
     ) -> list[tuple[str, str, str]]:
-        """Refresh the cached tool executor and return a list of toolset status changes.
+        """Refresh the cached tool executor and return a list of changes.
 
-        Prerequisites are re-checked for every toolset (which, for MCP toolsets,
-        re-fetches the remote tool list). The cached executor is then replaced
-        when either:
-
-        * a toolset's status transitioned (the returned ``changes`` list), or
-        * an existing toolset's tool list changed -- e.g. a remote MCP server
-          added or removed tools while staying healthy -- so the LLM sees the
-          new tools.
-
-        If neither condition holds, the cached executor is left in place.
+        Changes include status transitions, added toolsets, and removed toolsets.
+        The cached executor is always replaced with the freshly-loaded one so that
+        added/removed toolsets are picked up even when no status changes occur.
         """
         logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
         # Normalize early so the same tags are used for both loading and caching.
@@ -488,7 +446,7 @@ class Config(RobustaBaseConfig):
             )
         )
 
-        if changes or _toolset_tools_changed(current_toolsets, new_toolsets):
+        if changes:
             with self._executor_lock:
                 executor = ToolExecutor(new_toolsets)
                 preload_oauth_tokens()
@@ -509,6 +467,7 @@ class Config(RobustaBaseConfig):
         tracer=None,
         tool_results_dir: Optional[Path] = None,
         on_event: EventCallback = None,
+        subagents_enabled: Optional[bool] = None,
     ) -> "ToolCallingLLM":
         """
         Create a ToolCallingLLM with explicit behavioral controls.
@@ -557,11 +516,15 @@ class Config(RobustaBaseConfig):
             reuse_executor=reuse_executor,
             on_event=on_event,
         )
+        effective_subagents = (
+            subagents_enabled if subagents_enabled is not None else self.subagents_enabled
+        )
         return ToolCallingLLM(
             tool_executor,
             self.max_steps,
             llm,
             tool_results_dir=tool_results_dir,
+            subagents_enabled=effective_subagents,
         )
 
     def validate_jira_config(self):
@@ -657,7 +620,6 @@ class Config(RobustaBaseConfig):
         return AlertManagerSource(
             url=self.alertmanager_url,  # type: ignore
             username=self.alertmanager_username,
-            password=self.alertmanager_password,
             alertname_filter=self.alertmanager_alertname,  # type: ignore
             label_filter=self.alertmanager_label,  # type: ignore
             filepath=self.alertmanager_file,

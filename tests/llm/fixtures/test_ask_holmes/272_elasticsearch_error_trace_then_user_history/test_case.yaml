@@ -1,0 +1,191 @@
+# Test: Elasticsearch trace with large fields + cross-index user history lookup
+#
+# This is 245 plus a multi-stage tail. The original 245 stops after the
+# parent identifies which service errored and what the error was. Here we
+# extend: the trace's error.context contains a user_id, and the parent must
+# follow up by querying a second index for that user's other failed traces
+# in the last 24 hours.
+#
+# Without a subagent, the giant trace fields remain in the parent's context
+# while it does the follow-up search — that's where the cost compounds.
+
+user_prompt: |
+  I'm investigating an error in trace TRACE-MS-B7N3F in Elasticsearch.
+  Tell me which service failed, what the error was, and which user_id was
+  affected. Then query the app-272-trace-history index to count how many
+  OTHER failed traces (status_code >= 500) the same user has had in the
+  same time window so I know if this is recurring.
+
+expected_output:
+  - Must find trace TRACE-MS-B7N3F
+  - The orders-gateway service failed with error code ORDR-9120 (database connection timeout)
+  - The affected user_id is USR_RECUR_555
+  - USR_RECUR_555 has 4 OTHER failed traces (status_code >= 500) in the app-272-trace-history index
+  - Should use source filtering (source parameter excludes or includes) to avoid loading large fields like http.request.body or error.stack_trace into context
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - traces
+  - medium
+  - subagent-candidate
+  - regression
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-272-apm-traces" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-272-trace-history" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/app-272-apm-traces" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"service":{"type":"keyword"},"operation":{"type":"keyword"},"duration_ms":{"type":"integer"},"http.method":{"type":"keyword"},"http.status_code":{"type":"integer"},"http.request.body":{"type":"text"},"http.response.body":{"type":"text"},"error.type":{"type":"keyword"},"error.message":{"type":"text"},"error.stack_trace":{"type":"text"},"error.user_id":{"type":"keyword"}}}}' > /dev/null
+
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/app-272-trace-history" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"trace_id":{"type":"keyword"},"user_id":{"type":"keyword"},"service":{"type":"keyword"},"status_code":{"type":"integer"},"duration_ms":{"type":"integer"}}}}' > /dev/null
+
+  # Wait for both indexes' shards to be active before bulk-inserting
+  curl -sf "${ELASTICSEARCH_URL}/_cluster/health?wait_for_status=yellow&wait_for_active_shards=1&timeout=30s" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  BULK=/tmp/es_272_$$.ndjson
+  > "$BULK"
+
+  python3 << 'PY' >> "$BULK"
+  import json, random
+  random.seed(272)
+
+  IDX = "app-272-apm-traces"
+  TRACE_ID = "TRACE-MS-B7N3F"
+  USER_ID = "USR_RECUR_555"
+
+  # Padding fields — make sure these are LARGE so source-filtering matters
+  big_req_body = "{" + ",".join([
+      f'"item_{i}":{{"sku":"SKU_{i}","name":"Item {i} description with extended metadata field that adds bytes to the payload","price":{i*1.5}}}'
+      for i in range(200)
+  ]) + "}"
+
+  big_stack = "\\n".join([
+      f"  File \"/app/orders_gateway/handlers/checkout.py\", line {100+i}, in process_order\\n    await db.execute(query, params)"
+      for i in range(200)
+  ]) + "\\nDatabaseConnectionTimeout: error ORDR-9120 - upstream pgbouncer pool exhausted"
+
+  big_resp_body = "<html><body><h1>503 Service Unavailable</h1>" + "".join([
+      f"<div class='debug'>req-trace-{i} corr_id_{i} server_node_{i}</div>"
+      for i in range(150)
+  ]) + "</body></html>"
+
+  # Normal trace spans (5 of them, small)
+  for i in range(5):
+      print(json.dumps({"index": {"_index": IDX}}))
+      print(json.dumps({
+          "@timestamp": f"2025-12-04T15:{i:02d}:00Z",
+          "trace_id": f"TRACE-OK-{10000+i}",
+          "span_id": f"span-ok-{i}",
+          "service": "orders-gateway",
+          "operation": "POST /api/orders",
+          "duration_ms": random.randint(80, 350),
+          "http.method": "POST", "http.status_code": 200,
+      }))
+
+  # The error trace gateway span
+  print(json.dumps({"index": {"_index": IDX}}))
+  print(json.dumps({
+      "@timestamp": "2025-12-04T15:30:00Z",
+      "trace_id": TRACE_ID, "span_id": "span-gw-err",
+      "service": "api-gateway",
+      "operation": "POST /api/orders",
+      "duration_ms": 8245,
+      "http.method": "POST", "http.status_code": 503,
+  }))
+  # The error trace orders-gateway span with HUGE fields
+  print(json.dumps({"index": {"_index": IDX}}))
+  print(json.dumps({
+      "@timestamp": "2025-12-04T15:30:00.050Z",
+      "trace_id": TRACE_ID, "span_id": "span-orders-err",
+      "service": "orders-gateway",
+      "operation": "create_order",
+      "duration_ms": 8180,
+      "http.method": "POST", "http.status_code": 503,
+      "http.request.body": big_req_body,
+      "http.response.body": big_resp_body,
+      "error.type": "DatabaseConnectionTimeout",
+      "error.message": "Database connection pool exhausted - error code ORDR-9120",
+      "error.stack_trace": big_stack,
+      "error.user_id": USER_ID,
+  }))
+
+  # History index: 4 OTHER failed traces for USR_RECUR_555 in the 24h window
+  H_IDX = "app-272-trace-history"
+  for i in range(4):
+      print(json.dumps({"index": {"_index": H_IDX}}))
+      print(json.dumps({
+          "@timestamp": f"2025-12-04T{8+i:02d}:00:00Z",
+          "trace_id": f"TRACE-HIST-{i}", "user_id": USER_ID,
+          "service": "orders-gateway",
+          "status_code": random.choice([500, 502, 503, 504]),
+          "duration_ms": random.randint(2000, 9000),
+      }))
+  # And many successful + failed traces for OTHER users in the window — noise
+  OTHER_USERS = [f"USR_{random.randint(10000,99999):05d}" for _ in range(30)]
+  for i in range(120):
+      u = random.choice(OTHER_USERS)
+      print(json.dumps({"index": {"_index": H_IDX}}))
+      print(json.dumps({
+          "@timestamp": f"2025-12-04T{random.randint(0,23):02d}:{random.randint(0,59):02d}:00Z",
+          "trace_id": f"TRACE-N-{i:04d}", "user_id": u,
+          "service": random.choice(["orders-gateway", "catalog-service", "auth-service"]),
+          "status_code": random.choice([200, 200, 200, 201, 400, 401, 500, 502]),
+          "duration_ms": random.randint(50, 4000),
+      }))
+  PY
+
+  # Retry bulk insert up to 3 times for transient unavailable_shards_exception
+  for attempt in 1 2 3; do
+    curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk?refresh=false&timeout=30s" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$BULK" > /tmp/bulk_resp_$$ 2>&1 || true
+    if grep -q '"errors":false' /tmp/bulk_resp_$$; then
+      break
+    fi
+    if [ "$attempt" = "3" ]; then
+      echo "Bulk insert failed after 3 attempts:"
+      head -c 800 /tmp/bulk_resp_$$
+      exit 1
+    fi
+    sleep 3
+  done
+  rm -f "$BULK" /tmp/bulk_resp_$$
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-272-apm-traces/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-272-trace-history/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  COUNT=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-272-trace-history/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"size":0,"query":{"bool":{"filter":[{"term":{"user_id":"USR_RECUR_555"}},{"range":{"status_code":{"gte":500}}}]}}}' \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['hits']['total']['value'])")
+  if [ "$COUNT" != "4" ]; then
+    echo "Expected 4 failed history traces for USR_RECUR_555, got $COUNT"
+    exit 1
+  fi
+  echo "Setup verified: 4 failed history traces for USR_RECUR_555"
+
+after_test: |
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-272-apm-traces" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-272-trace-history" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true

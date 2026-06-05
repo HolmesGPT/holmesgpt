@@ -1,0 +1,88 @@
+user_prompt: |
+  The payment-api in namespace app-273 had issues on August 2, 2025
+  between 13:45 and 14:45 UTC. Tell me the root cause, and ALSO count how
+  many DISTINCT users (user_id values) were affected by the errors during
+  that hour-long window.
+
+description: |
+  Multi-stage upgrade of 259. The first question (root cause) only needs
+  to identify the pool-exhausted error. The second question (distinct
+  affected users) forces the agent to scan ALL error log lines in the
+  window and aggregate user_ids — a perfect fit for a subagent that does
+  the scan inside its own context and returns just the count.
+
+  Without a subagent, all error log lines stay in parent context across
+  both reasoning turns. With one, parent gets ("DB pool exhausted",
+  count=17) and nothing else.
+
+expected_output:
+  - The root cause is database connection pool exhaustion in the payment-api pod (during 2025-08-02 13:45–14:45 UTC)
+  - The pool-exhausted ERROR lines mention queue_length and wait_time_ms
+  - The number of DISTINCT users affected by the errors during that hour is 17
+
+include_tool_calls: true
+
+tags:
+  - logs
+  - medium
+  - loki
+  - subagent-candidate
+  - regression
+
+setup_timeout: 240
+
+before_test: |
+  set -e
+  CONTAINER=holmes-eval-loki-273
+  PORT=3273
+
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+  docker run -d --name "$CONTAINER" -p "$PORT:3100" \
+    -v "$(pwd)/loki-config.yaml:/etc/loki/local-config.yaml:ro" \
+    grafana/loki:2.9.0 -config.file=/etc/loki/local-config.yaml >/dev/null
+
+  READY=false
+  for i in $(seq 1 60); do
+    if curl -sf "http://localhost:$PORT/ready" 2>/dev/null | grep -q ready; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" != "true" ]; then
+    echo "ERROR: Loki not ready after 60s"
+    docker logs "$CONTAINER" | tail -40
+    exit 1
+  fi
+
+  python3 generate_logs.py "http://localhost:$PORT"
+
+  for i in $(seq 1 30); do
+    ERROR_COUNT=$(curl -sG "http://localhost:$PORT/loki/api/v1/query_range" \
+      --data-urlencode 'query={namespace="app-273",level="ERROR"}' \
+      --data-urlencode 'start=2025-08-02T13:00:00Z' \
+      --data-urlencode 'end=2025-08-02T15:00:00Z' \
+      --data-urlencode 'limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    if [ "$ERROR_COUNT" -gt "0" ]; then
+      echo "Incident logs ready"
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ERROR_COUNT" = "0" ]; then
+    echo "ERROR: no ERROR logs in Loki after push"
+    exit 1
+  fi
+
+  # Verify the data actually contains 17 distinct user_id values in the
+  # incident window — otherwise the eval's expected count is unreliable.
+  DISTINCT_USERS=$(curl -sG "http://localhost:$PORT/loki/api/v1/query_range" --data-urlencode 'query={namespace="app-273",level="ERROR"}' --data-urlencode 'start=2025-08-02T13:45:00Z' --data-urlencode 'end=2025-08-02T14:45:00Z' --data-urlencode 'limit=5000' 2>/dev/null | python3 -c 'import sys,json,re; d=json.load(sys.stdin); users=set(); [users.add(re.search(r"\"user_id\":\s*\"([^\"]+)\"", line).group(1)) for s in d.get("data",{}).get("result",[]) for _,line in s.get("values",[]) if re.search(r"\"user_id\":\s*\"([^\"]+)\"", line)]; print(len(users))' 2>/dev/null || echo "0")
+  if [ "$DISTINCT_USERS" != "17" ]; then
+    echo "ERROR: expected 17 distinct user_ids in incident window, found $DISTINCT_USERS"
+    exit 1
+  fi
+  echo "Setup verified: $DISTINCT_USERS distinct affected users"
+
+after_test: |
+  docker rm -f holmes-eval-loki-273 >/dev/null 2>&1 || true

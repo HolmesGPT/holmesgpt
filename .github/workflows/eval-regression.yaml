@@ -985,6 +985,10 @@ jobs:
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+          # Must match the SUBAGENTS value used in the actual Run step below,
+          # otherwise the collect-only phase only sees one parametrize variant
+          # and the run step ends up with a different test list.
+          SUBAGENTS: "true,false"
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
@@ -1193,6 +1197,10 @@ jobs:
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           MODEL: ${{ steps.eval-params.outputs.model }}
           ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
+          # Run every eval twice (once with the dispatch_agent subagent tool
+          # enabled, once without) so the regression suite also acts as a
+          # matrix eval across the subagent architecture flag.
+          SUBAGENTS: "true,false"
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -1212,12 +1220,6 @@ jobs:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
-          # Needed by tests/llm/utils/braintrust_history.py to authenticate the
-          # GitHub Actions API lookup that finds recent master-* / ci-benchmark-*
-          # workflow runs. Without it the unauthenticated 60 req/h rate limit is
-          # exhausted within minutes on shared runners and the "vs master" /
-          # "vs benchmark" columns silently come back empty.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}

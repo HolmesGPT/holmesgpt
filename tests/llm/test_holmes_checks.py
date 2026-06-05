@@ -26,6 +26,7 @@ from tests.llm.utils.test_case_utils import (
     HolmesTestCase,
     check_and_skip_test,
     get_models,
+    get_subagent_modes,
 )
 
 TEST_CASES_FOLDER = Path(
@@ -88,6 +89,7 @@ def run_holmes_check(
     tracer,
     eval_span,
     request,
+    subagents_enabled: bool = False,
 ) -> Dict[str, CheckStatus]:
     """Run holmes check with the test case configuration."""
 
@@ -119,6 +121,7 @@ def run_holmes_check(
             enable_all_toolsets_possible=True,
             prerequisite_cache=PrerequisiteCacheMode.ENABLED,
             tracer=tracer,
+            subagents_enabled=subagents_enabled,
         )
 
         # Load checks configuration
@@ -150,11 +153,21 @@ def run_holmes_check(
             checks_file.unlink()
 
 
+def _subagent_mode_id(mode: bool) -> str:
+    return "subagent_on" if mode else "subagent_off"
+
+
 @pytest.mark.llm
 @pytest.mark.parametrize("model", get_models())
+@pytest.mark.parametrize(
+    "subagents_enabled",
+    get_subagent_modes(),
+    ids=lambda m: _subagent_mode_id(m),
+)
 @pytest.mark.parametrize("test_case", get_holmes_check_test_cases())
 def test_holmes_check(
     model: str,
+    subagents_enabled: bool,
     test_case: CheckTestCase,
     caplog,
     request,
@@ -163,7 +176,10 @@ def test_holmes_check(
     """Test holmes check command with various check configurations."""
 
     # Set initial properties
-    set_initial_properties(request, test_case, model)
+    set_initial_properties(
+        request, test_case, model, subagents_enabled=subagents_enabled
+    )
+    request.node.user_properties.append(("subagents_enabled", subagents_enabled))
 
     # Check if test should be skipped
     check_and_skip_test(test_case)
@@ -217,6 +233,7 @@ def test_holmes_check(
                             tracer=tracer,
                             eval_span=eval_span,
                             request=request,
+                            subagents_enabled=subagents_enabled,
                         )
             else:
                 with set_test_env_vars(test_case):
@@ -225,6 +242,7 @@ def test_holmes_check(
                         tracer=tracer,
                         eval_span=eval_span,
                         request=request,
+                        subagents_enabled=subagents_enabled,
                     )
 
     except Exception as e:

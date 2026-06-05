@@ -172,13 +172,24 @@ ApprovalCallback = Callable[[PendingToolApproval], tuple[bool, Optional[str]]]
 
 class LLMResult(RequestStats):
     tool_calls: Optional[List[ToolCallResult]] = None
-    num_llm_calls: Optional[int] = None  # Number of LLM API calls (turns)
+    # Turns the *parent* (this) agent itself burned. Does NOT include turns
+    # the subagents spawned by this agent burned.
+    num_llm_calls: Optional[int] = None
+    # Number of times the parent dispatched a subagent via dispatch_agent.
+    # Different from num_subagent_llm_calls — that's the *total turns* the
+    # subagents burned. e.g. 3 dispatches each burning 5 turns =
+    # num_subagent_invocations=3, num_subagent_llm_calls=15.
+    num_subagent_invocations: int = 0
+    # Turns burned by every subagent dispatched from this agent (summed).
+    # Always 0 when subagents_enabled=False or no dispatch_agent calls were
+    # made. The "total" turn count for a run is num_llm_calls +
+    # num_subagent_llm_calls.
+    num_subagent_llm_calls: int = 0
     result: Optional[str] = None
     unprocessed_result: Optional[str] = None
     instructions: List[str] = Field(default_factory=list)
     messages: Optional[List[dict]] = None
     metadata: Optional[Dict[Any, Any]] = None
-    finish_reason: Optional[str] = None  # Last LLM iteration's finish_reason (stop / length / tool_calls / content_filter)
 
 
 class ToolCallWithDecision(BaseModel):
@@ -197,7 +208,18 @@ class ToolCallingLLM:
         llm: LLM,
         tool_results_dir: Optional[Path],
         tracer=None,
+        subagents_enabled: bool = False,
     ):
+        # Keep a handle to the original (un-cloned) executor so that children
+        # spawned via dispatch_agent inherit a tool list that does NOT include
+        # the dispatch tool itself — this prevents recursive subagent spawning.
+        self._base_tool_executor = tool_executor
+        self.subagents_enabled = subagents_enabled
+        if subagents_enabled:
+            from holmes.core.subagent import DispatchAgentTool
+
+            tool_executor = tool_executor.clone_with_extra_tools([DispatchAgentTool()])
+
         self.tool_executor = tool_executor
         self.max_steps = max_steps
         self.tracer = tracer
@@ -218,6 +240,7 @@ class ToolCallingLLM:
             llm=self.llm,
             tool_results_dir=self.tool_results_dir,
             tracer=self.tracer,
+            subagents_enabled=self.subagents_enabled,
         )
         # Preserve transient state so resumed turns keep access to
         # skill-unlocked (restricted) tools.
@@ -324,26 +347,6 @@ class ToolCallingLLM:
                         )
 
                 if not tool_result:
-                    if tool_decision.edit_command is not None:
-                        try:
-                            edited_params = json.loads(tool_call.function.arguments or "{}")
-                        except json.JSONDecodeError:
-                            edited_params = {}
-                        edited_params["command"] = tool_decision.edit_command
-                        edited_arguments = json.dumps(edited_params)
-                        tool_call.function.arguments = edited_arguments
-                        # Persist the edited command in the conversation history so
-                        # subsequent turns see the command that was actually executed.
-                        msg_tool_calls = messages[
-                            tool_call_with_decision.message_index
-                        ].get("tool_calls", [])
-                        for original_tool_call in msg_tool_calls:
-                            if original_tool_call.get("id") == tool_call.id:
-                                original_function = original_tool_call.get("function") or {}
-                                original_function["arguments"] = edited_arguments
-                                original_tool_call["function"] = original_function
-                                break
-
                     tool_result = self._invoke_llm_tool_call(
                         tool_to_call=tool_call,
                         previous_tool_calls=[],
@@ -399,70 +402,6 @@ class ToolCallingLLM:
             messages.insert(
                 tool_call_with_decision.message_index + 1, tool_call_message
             )
-
-        return messages, events
-
-    def _resolve_orphaned_tool_calls(
-        self, messages: List[Dict[str, Any]]
-    ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
-        """Inject denial tool results for assistant tool_calls that have no result.
-
-        A tool call is "orphaned" when the assistant requested it but the
-        conversation never recorded a matching tool result. This happens when a
-        user abandons a pending tool approval — closing the approval modal or
-        asking a new follow-up question instead of approving/denying. Without a
-        matching tool result, the next LLM call fails because providers
-        (Anthropic/Bedrock) require every tool_use block to be immediately
-        followed by a tool_result block.
-
-        We treat any such abandoned call as denied so the conversation can
-        continue with the user's new request.
-        """
-        resolved_ids = {
-            msg.get("tool_call_id")
-            for msg in messages
-            if msg.get("role") == "tool" and msg.get("tool_call_id")
-        }
-
-        events: list[StreamMessage] = []
-        # Walk from the end so insertions don't shift indices we haven't visited.
-        for i in reversed(range(len(messages))):
-            msg = messages[i]
-            if msg.get("role") != "assistant" or not msg.get("tool_calls"):
-                continue
-            insert_offset = 1
-            for tool_call in msg.get("tool_calls", []):
-                tool_call_id = tool_call.get("id")
-                if not tool_call_id or tool_call_id in resolved_ids:
-                    continue
-                # Drop any stale pending_approval flag so it isn't re-emitted.
-                tool_call.pop("pending_approval", None)
-                function = tool_call.get("function") or {}
-                tool_name = function.get("name") or "unknown"
-                tool_result = ToolCallResult(
-                    tool_call_id=tool_call_id,
-                    tool_name=tool_name,
-                    description=tool_name,
-                    result=StructuredToolResult(
-                        status=StructuredToolResultStatus.ERROR,
-                        error="Tool execution was cancelled because the user "
-                        "submitted a new request before approving it.",
-                    ),
-                )
-                messages.insert(
-                    i + insert_offset,
-                    tool_result.to_llm_message(
-                        supports_vision=self._supports_vision()
-                    ),
-                )
-                resolved_ids.add(tool_call_id)
-                insert_offset += 1
-                events.append(
-                    StreamMessage(
-                        event=StreamEvents.TOOL_RESULT,
-                        data=tool_result.to_client_dict(),
-                    )
-                )
 
         return messages, events
 
@@ -583,6 +522,8 @@ class ToolCallingLLM:
         all_tool_calls: list[dict] = []
         tool_decisions: Optional[List[ToolApprovalDecision]] = None
         total_num_llm_calls = 0
+        total_subagent_invocations = 0
+        total_subagent_llm_calls = 0
         accumulated_stats = RequestStats()
 
         while True:
@@ -646,6 +587,14 @@ class ToolCallingLLM:
             # call_stream returns the absolute iteration count (including offset),
             # so we assign rather than accumulate to avoid double-counting.
             total_num_llm_calls = terminal_data.get("num_llm_calls", 0)
+            # Subagent turns/invocations are emitted per-stream (not absolute);
+            # accumulate across approval-loop iterations.
+            total_subagent_invocations += terminal_data.get(
+                "num_subagent_invocations", 0
+            )
+            total_subagent_llm_calls += terminal_data.get(
+                "num_subagent_llm_calls", 0
+            )
             accumulated_stats += RequestStats(**terminal_data.get("costs", {}))
 
             if terminal_event == StreamEvents.APPROVAL_REQUIRED:
@@ -660,9 +609,10 @@ class ToolCallingLLM:
                         result="Investigation paused: the AI requested frontend-defined tools that cannot be executed in sync mode.",
                         tool_calls=all_tool_calls,  # type: ignore
                         num_llm_calls=total_num_llm_calls,
+                        num_subagent_invocations=total_subagent_invocations,
+                        num_subagent_llm_calls=total_subagent_llm_calls,
                         messages=terminal_data.get("messages"),
                         metadata=terminal_data.get("metadata"),
-                        finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
                         **accumulated_stats.model_dump(),
                     )
 
@@ -682,9 +632,10 @@ class ToolCallingLLM:
                 result=terminal_data["content"],
                 tool_calls=list(deduped.values()),
                 num_llm_calls=total_num_llm_calls,
+                num_subagent_invocations=total_subagent_invocations,
+                num_subagent_llm_calls=total_subagent_llm_calls,
                 messages=terminal_data["messages"],
                 metadata=terminal_data.get("metadata"),
-                finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
                 **accumulated_stats.model_dump(),
             )
 
@@ -744,6 +695,7 @@ class ToolCallingLLM:
         tool_number: Optional[int] = None,
         session_approved_prefixes: Optional[List[str]] = None,
         request_context: Optional[Dict[str, Any]] = None,
+        trace_span: Any = None,
     ) -> StructuredToolResult:
         # Ensure the toolset is initialized (lazy initialization on first use)
         init_error = self.tool_executor.ensure_toolset_initialized(tool_name)
@@ -776,6 +728,8 @@ class ToolCallingLLM:
                 tool_call_id=tool_call_id,
                 session_approved_prefixes=session_approved_prefixes or [],
                 request_context=request_context,
+                parent_agent=self,
+                trace_span=trace_span,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
@@ -932,6 +886,7 @@ class ToolCallingLLM:
                     tool_call_id=tool_id,
                     session_approved_prefixes=session_approved_prefixes,
                     request_context=request_context,
+                    trace_span=tool_span,
                 )
 
             user_id = (request_context or {}).get("user_id")
@@ -1001,12 +956,16 @@ class ToolCallingLLM:
         tool = self.tool_executor.get_tool_by_name(tool_name)
         if not tool:
             return False
+        # Mirror the context shape that _directly_invoke_tool_call builds so
+        # requires_approval() sees identical inputs on both the real and
+        # re-check paths (notably parent_agent, used by subagent tooling).
         context = ToolInvokeContext(
             llm=self.llm,
             max_token_count=self.llm.get_max_token_count_for_single_tool(),
             tool_name=tool_name,
             tool_call_id="",
             session_approved_prefixes=session_approved_prefixes or [],
+            parent_agent=self,
         )
         approval = tool.requires_approval(params, context)
         return not approval or not approval.needs_approval
@@ -1082,22 +1041,20 @@ class ToolCallingLLM:
                 if ev.event == StreamEvents.TOOL_RESULT:
                     all_tool_calls.append(ev.data)
 
-        # Deny any tool calls the user abandoned (e.g. closed the approval modal
-        # or asked a new question without deciding). Otherwise the LLM call fails
-        # because every tool_use block must be followed by a tool_result block.
-        if msgs:
-            msgs, events = self._resolve_orphaned_tool_calls(msgs)
-            for ev in events:
-                yield ev
-                if ev.event == StreamEvents.TOOL_RESULT:
-                    all_tool_calls.append(ev.data)
-
         messages: list[dict] = list(msgs) if msgs else []
         tool_calls: list[dict] = []
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
+        # Turns burned by subagents dispatched during this stream run. Rolled
+        # up from StructuredToolResult.subagent_num_llm_calls when tool results
+        # come back from dispatch_agent.
+        subagent_turns = 0
+        # How many times the parent dispatched a subagent. Each
+        # StructuredToolResult coming back with subagent_num_llm_calls set
+        # represents one dispatch_agent invocation.
+        subagent_invocations = 0
         if iteration_offset < 0:
             raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
@@ -1251,18 +1208,6 @@ class ToolCallingLLM:
 
             tools_to_call = getattr(response_message, "tool_calls", None)
             if not tools_to_call:
-                # Capture the final iteration's finish_reason for usage tracking
-                # (HolmesUsageEvents.finish_reason). Earlier iterations always end
-                # with 'tool_calls'; this last one tells us why the loop terminated
-                # (stop / length / content_filter / etc.). Skip if the value isn't
-                # a real string (e.g. MagicMock in tests), so pydantic validation
-                # of LLMResult below doesn't blow up.
-                try:
-                    fr = full_response.choices[0].finish_reason  # type: ignore
-                    if isinstance(fr, str):
-                        metadata["finish_reason"] = fr
-                except (AttributeError, IndexError, TypeError):
-                    pass
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
@@ -1271,6 +1216,8 @@ class ToolCallingLLM:
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,
                         "num_llm_calls": i,
+                        "num_subagent_invocations": subagent_invocations,
+                        "num_subagent_llm_calls": subagent_turns,
                         "prompt": json.dumps(messages, indent=2),
                         "costs": stats.model_dump(),
                     },
@@ -1324,6 +1271,30 @@ class ToolCallingLLM:
                         raise LLMInterruptedError()
 
                     tool_call_result: ToolCallResult = future.result()
+
+                    # If a tool dispatched a subagent, roll the child's
+                    # token/cost usage into our own per-iteration stats and
+                    # accumulate its turn count separately.
+                    sub_stats = getattr(
+                        tool_call_result.result, "subagent_stats", None
+                    )
+                    if sub_stats:
+                        try:
+                            stats += RequestStats(**sub_stats)
+                        except Exception:
+                            logging.exception(
+                                "Failed to roll subagent stats into parent stats"
+                            )
+                    sub_turns = getattr(
+                        tool_call_result.result, "subagent_num_llm_calls", None
+                    )
+                    if sub_turns is not None:
+                        # Presence of this field means dispatch_agent ran (even
+                        # if the child happened to take 0 turns), so count it
+                        # as one invocation.
+                        subagent_invocations += 1
+                        if sub_turns:
+                            subagent_turns += int(sub_turns)
 
                     tool_result_dict = tool_call_result.to_client_dict()
 
@@ -1435,6 +1406,8 @@ class ToolCallingLLM:
                                 fc.model_dump() for fc in pending_frontend_calls
                             ],
                             "num_llm_calls": i,
+                            "num_subagent_invocations": subagent_invocations,
+                            "num_subagent_llm_calls": subagent_turns,
                             "costs": stats.model_dump(),
                         },
                     )

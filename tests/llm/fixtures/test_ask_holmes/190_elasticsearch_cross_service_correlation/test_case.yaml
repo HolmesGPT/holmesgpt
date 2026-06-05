@@ -30,6 +30,7 @@ expected_output:
 tags:
   - elasticsearch
   - medium
+  - regression
 
 setup_timeout: 300
 

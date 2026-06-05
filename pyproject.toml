@@ -189,7 +189,8 @@ markers = [
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
-    "token-limit: Tests that enforce a maximum token usage budget"
+    "token-limit: Tests that enforce a maximum token usage budget",
+    "subagent-candidate: Multi-stage evals expected to benefit from purpose-built subagents (pre-registered candidate set for the dispatch_agent measurement round)"
 ]
 
 addopts = [

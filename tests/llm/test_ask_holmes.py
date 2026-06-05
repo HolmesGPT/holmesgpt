@@ -36,6 +36,7 @@ from tests.llm.utils.test_case_utils import (
     check_and_skip_test,
     create_eval_llm,
     get_models,
+    get_subagent_modes,
 )
 
 TEST_CASES_FOLDER = Path(
@@ -52,13 +53,23 @@ def _get_env_config_ids():
     return [ec.name for ec in get_env_configs()]
 
 
+def _subagent_mode_id(mode: bool) -> str:
+    return "subagent_on" if mode else "subagent_off"
+
+
 @pytest.mark.llm
 @pytest.mark.parametrize("env_config", get_env_configs(), ids=_get_env_config_ids())
 @pytest.mark.parametrize("model", get_models())
+@pytest.mark.parametrize(
+    "subagents_enabled",
+    get_subagent_modes(),
+    ids=lambda m: _subagent_mode_id(m),
+)
 @pytest.mark.parametrize("test_case", get_ask_holmes_test_cases())
 def test_ask_holmes(
     env_config: EnvConfig,
     model: str,
+    subagents_enabled: bool,
     test_case: AskHolmesTestCase,
     caplog,
     request,
@@ -66,17 +77,25 @@ def test_ask_holmes(
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
-    set_initial_properties(request, test_case, model, env_config)
+    set_initial_properties(
+        request, test_case, model, env_config, subagents_enabled=subagents_enabled
+    )
+    request.node.user_properties.append(("subagents_enabled", subagents_enabled))
 
     tracer = TracingFactory.create_tracer("braintrust")
-    metadata = {"model": model, "env_config": env_config.name}
+    metadata = {
+        "model": model,
+        "env_config": env_config.name,
+        "subagents_enabled": subagents_enabled,
+    }
     tracer.start_experiment(additional_metadata=metadata)
 
     result: Optional[LLMResult] = None
 
     try:
         with tracer.start_trace(
-            name=f"{test_case.id}[{model}][{env_config.name}]", span_type=SpanType.EVAL
+            name=f"{test_case.id}[{model}][{env_config.name}][{_subagent_mode_id(subagents_enabled)}]",
+            span_type=SpanType.EVAL,
         ) as eval_span:
             set_trace_properties(request, eval_span)
             check_and_skip_test(test_case, request, shared_test_infrastructure)
@@ -110,6 +129,7 @@ def test_ask_holmes(
                     eval_span,  # positional arg
                     additional_system_prompt=additional_system_prompt,
                     request=request,
+                    subagents_enabled=subagents_enabled,
                     retry_enabled=retry_enabled,
                     test_id=test_case.id,
                     model=model,  # Also pass for logging in retry_handler
@@ -176,6 +196,7 @@ def ask_holmes(
     eval_span,
     additional_system_prompt,
     request=None,
+    subagents_enabled: bool = False,
 ) -> LLMResult:
     with eval_span.start_span(
         "Initialize Toolsets",
@@ -201,6 +222,7 @@ def ask_holmes(
             max_steps=100,
             llm=create_eval_llm(model=model, tracer=tracer),
             tool_results_dir=tool_results_dir,
+            subagents_enabled=subagents_enabled,
         )
 
         test_type = (

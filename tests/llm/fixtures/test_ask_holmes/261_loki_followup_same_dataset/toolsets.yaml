@@ -1,0 +1,17 @@
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  helm/core:
+    enabled: false
+  connectivity_check:
+    enabled: false
+  grafana/loki:
+    enabled: true
+    config:
+      api_url: http://localhost:3261
+      api_key: ""
+      labels:
+        pod: pod_name
+        namespace: namespace

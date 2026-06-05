@@ -29,6 +29,14 @@ AZURE_API_VERSION = os.environ.get("AZURE_API_VERSION")
 # Test configuration
 ASK_HOLMES_TEST_TYPE = os.environ.get("ASK_HOLMES_TEST_TYPE", "cli")
 
+# Subagent matrix configuration. Comma-separated list of bool-ish values
+# controlling whether each eval is run with the subagent dispatch_agent tool
+# enabled, disabled, or both. Matches the MODEL env var semantics: a single
+# value runs that one variant, multiple values cross-product with the rest of
+# the parametrize axes (model x env_config x test_case x subagents).
+# Examples: "false" (default, current behavior), "true", "true,false".
+SUBAGENTS = os.environ.get("SUBAGENTS", "false")
+
 # Braintrust configuration
 BRAINTRUST_ORG = os.environ.get("BRAINTRUST_ORG", "robustadev")
 BRAINTRUST_PROJECT = os.environ.get("BRAINTRUST_PROJECT", "HolmesGPT")

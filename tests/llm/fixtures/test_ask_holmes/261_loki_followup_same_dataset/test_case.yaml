@@ -1,0 +1,83 @@
+user_prompt: |
+  The inventory-api service in namespace app-261 had an incident on
+  October 21, 2025 around 14:15 UTC. Two things I need:
+  (1) What was the CRITICAL event and which downstream system was affected?
+  (2) Were there any earlier warning signs in the same log window — for
+  example, repeated retries to the same downstream — before the CRITICAL
+  fired?
+
+description: |
+  Designed to exercise the persistent-subagent (Option D) benefit: the
+  agent should fetch the noisy log window once, identify the CRITICAL,
+  then re-use the same fetched data (ideally via session continuation,
+  not re-fetch) to count the prior WARN retries.
+
+  Without persistence, an agent either:
+  - keeps the 30k INFO lines in parent context across both questions
+    (cache write cost + read cost on follow-up turn), or
+  - re-fetches via a second tool call (full re-cost).
+
+  With persistence, the subagent retains the fetched window and answers
+  the follow-up cheaply.
+
+expected_output:
+  - The CRITICAL event is warehouse_connection_lost, affecting ZONE_EU3 (downstream warehouse zone)
+  - Within the 20 minutes immediately before the CRITICAL, there were ~47 retry attempts to ZONE_EU3 (warehouse_retry warnings)
+  - The retry attempts used exponential backoff (increasing backoff_ms per attempt)
+
+include_tool_calls: true
+
+tags:
+  - logs
+  - medium
+  - loki
+  - subagent-candidate
+  - regression
+
+setup_timeout: 240
+
+before_test: |
+  set -e
+  CONTAINER=holmes-eval-loki-261
+  PORT=3261
+
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+  docker run -d --name "$CONTAINER" -p "$PORT:3100" \
+    -v "$(pwd)/loki-config.yaml:/etc/loki/local-config.yaml:ro" \
+    grafana/loki:2.9.0 -config.file=/etc/loki/local-config.yaml >/dev/null
+
+  READY=false
+  for i in $(seq 1 60); do
+    if curl -sf "http://localhost:$PORT/ready" 2>/dev/null | grep -q ready; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" != "true" ]; then
+    echo "ERROR: Loki not ready after 60s"
+    docker logs "$CONTAINER" | tail -40
+    exit 1
+  fi
+
+  python3 generate_logs.py "http://localhost:$PORT"
+
+  for i in $(seq 1 30); do
+    CRIT_COUNT=$(curl -sG "http://localhost:$PORT/loki/api/v1/query_range" \
+      --data-urlencode 'query={namespace="app-261",level="CRITICAL"}' \
+      --data-urlencode 'start=2025-10-21T13:30:00Z' \
+      --data-urlencode 'end=2025-10-21T15:00:00Z' \
+      --data-urlencode 'limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    if [ "$CRIT_COUNT" -gt "0" ]; then
+      echo "Incident logs ready in Loki"
+      exit 0
+    fi
+    sleep 1
+  done
+
+  echo "ERROR: no CRITICAL logs found in Loki after push"
+  exit 1
+
+after_test: |
+  docker rm -f holmes-eval-loki-261 >/dev/null 2>&1 || true

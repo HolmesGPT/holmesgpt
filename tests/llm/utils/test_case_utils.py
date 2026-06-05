@@ -18,6 +18,7 @@ from tests.llm.utils.test_env_vars import (
     CLASSIFIER_MODEL,
     MODEL,
     MODEL_LIST_FILE_LOCATION,
+    SUBAGENTS,
 )
 
 
@@ -85,6 +86,37 @@ def get_models() -> List[str]:
             raise ValueError("Multiple models require CLASSIFIER_MODEL to be set")
 
     return models
+
+
+def _coerce_bool(raw: str) -> bool:
+    val = raw.strip().lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    if val in ("false", "0", "no", "off"):
+        return False
+    raise ValueError(
+        f"Invalid SUBAGENTS value '{raw}'. Use 'true', 'false', or comma-separated mix."
+    )
+
+
+def get_subagent_modes() -> List[bool]:
+    """Get list of subagent modes to test from SUBAGENTS env var.
+
+    Mirrors get_models(): a comma-separated list of boolean values, each one
+    becoming a separate parametrize variant. Default is just [False] so that
+    setting SUBAGENTS=true,false from CI runs every eval with both options.
+    """
+    parts = [p for p in SUBAGENTS.split(",") if p.strip()]
+    if not parts:
+        return [False]
+    seen: set = set()
+    modes: List[bool] = []
+    for p in parts:
+        b = _coerce_bool(p)
+        if b not in seen:
+            seen.add(b)
+            modes.append(b)
+    return modes
 
 
 def read_file(file_path: Path):

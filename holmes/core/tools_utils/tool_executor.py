@@ -125,6 +125,19 @@ class ToolExecutor:
 
         return clone
 
+    def clone_without_tools(self, excluded_tool_names: List[str]) -> "ToolExecutor":
+        """Create a shallow clone with specific tools removed from the registry.
+
+        Used to hand subagents a narrower tool list — meta-tools like
+        TodoWrite or fetch_skill are noise for a one-shot lookup and
+        encourage extra turns of overhead.
+        """
+        clone = self._clone_base()
+        for name in excluded_tool_names:
+            clone.tools_by_name.pop(name, None)
+            clone._tool_to_toolset.pop(name, None)
+        return clone
+
     # ── Tool listing ───────────────────────────────────────────────────
 
     @sentry_sdk.trace

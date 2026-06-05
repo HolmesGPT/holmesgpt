@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from tests.llm.utils.test_case_utils import (  # type: ignore[attr-defined]
     Evaluation,
     HolmesTestCase,
+    get_subagent_modes,
 )
 
 if TYPE_CHECKING:
@@ -14,6 +15,7 @@ def set_initial_properties(
     test_case: HolmesTestCase,
     model: str,
     env_config: Optional["EnvConfig"] = None,
+    subagents_enabled: Optional[bool] = None,
 ) -> None:
     """Set initial properties at the beginning of a test so they're available even if test fails early.
 
@@ -22,6 +24,10 @@ def set_initial_properties(
         test_case: The test case being executed
         model: The model being used for this test run
         env_config: Optional environment configuration being used for this test run
+        subagents_enabled: Optional subagent matrix variant. When provided AND
+            the SUBAGENTS env var requested more than one variant, a suffix
+            ``[subagent_on]`` / ``[subagent_off]`` is appended to the reported
+            test ID so the GitHub report shows both variants distinctly.
     """
     expected = test_case.expected_output
     if not isinstance(expected, list):
@@ -57,8 +63,17 @@ def set_initial_properties(
 
     # Add model and test identification properties
     request.node.user_properties.append(("model", model))
+
+    # Build the test case ID shown in reports. When the subagent matrix is
+    # exercising multiple variants, suffix the ID so they can be told apart in
+    # GitHub eval reports (which aggregate by clean_test_case_id).
+    reported_id = test_case.id
+    if subagents_enabled is not None and len(get_subagent_modes()) > 1:
+        variant = "subagent_on" if subagents_enabled else "subagent_off"
+        reported_id = f"{test_case.id}[{variant}]"
+
     # Add clean test case ID (without model suffix that pytest adds during parameterization)
-    request.node.user_properties.append(("clean_test_case_id", test_case.id))
+    request.node.user_properties.append(("clean_test_case_id", reported_id))
     # Add tags for tag-based performance analysis
     request.node.user_properties.append(("tags", test_case.tags or []))
 
@@ -190,6 +205,23 @@ def update_test_results(
                         f"  {line}" for line in output_text.split("\n")
                     )
                     tool_calls_text += f"Output:\n{indented_output}\n"
+                # When this parent tool is a dispatch_agent invocation, the
+                # subagent's own tool calls are stored on the StructuredToolResult
+                # so the judge can credit work (e.g. ES source filtering) done
+                # inside the subagent. Without this nesting the judge only sees
+                # the parent's high-level dispatch and the distilled answer.
+                subagent_calls = getattr(tc.result, "subagent_tool_calls", None) if hasattr(tc, "result") and tc.result else None
+                if subagent_calls:
+                    tool_calls_text += "Inner subagent tool calls:\n"
+                    for j, inner in enumerate(subagent_calls, 1):
+                        desc = inner.get("description", "")
+                        tool_calls_text += f"  * Subagent tool #{i}.{j}: {desc}\n"
+                        inner_result = inner.get("result_summary", "")
+                        if inner_result:
+                            indented_inner = "\n".join(
+                                f"    {line}" for line in inner_result.split("\n")
+                            )
+                            tool_calls_text += f"  Output:\n{indented_inner}\n"
                 tool_calls_text += "---\n"
             evaluation_output = evaluation_output + tool_calls_text
 
@@ -223,7 +255,9 @@ def update_test_results(
     # Tokens are useful even when cost is 0 (e.g., local or free-tier runs)
     # Record token counts when present regardless of total_cost
     if hasattr(result, "total_cost") or hasattr(result, "total_tokens"):
-        # Always record cost if present (even if 0)
+        # Always record cost if present (even if 0). Note: parent's accumulated_stats
+        # already includes any cost/tokens burned by subagents, so this single
+        # number reflects the entire run.
         if hasattr(result, "total_cost"):
             request.node.user_properties.append(("cost", result.total_cost))
         # Always record tokens if present
@@ -255,6 +289,23 @@ def update_test_results(
             request.node.user_properties.append(
                 ("num_compactions", result.num_compactions)
             )
+
+    # Track turns. Parent turns is what the top-level agent itself burned;
+    # subagent invocations is how many times dispatch_agent was called;
+    # subagent turns is the sum of LLM calls across every dispatched child;
+    # total turns is parent + subagent (this is what users typically care
+    # about for cost vs latency tradeoffs in the matrix eval comparison).
+    parent_turns = getattr(result, "num_llm_calls", None) or 0
+    subagent_invocations = getattr(result, "num_subagent_invocations", 0) or 0
+    subagent_turns = getattr(result, "num_subagent_llm_calls", 0) or 0
+    request.node.user_properties.append(("num_llm_calls", parent_turns))
+    request.node.user_properties.append(
+        ("num_subagent_invocations", subagent_invocations)
+    )
+    request.node.user_properties.append(("num_subagent_llm_calls", subagent_turns))
+    request.node.user_properties.append(
+        ("total_turns", parent_turns + subagent_turns)
+    )
 
     return scores
 

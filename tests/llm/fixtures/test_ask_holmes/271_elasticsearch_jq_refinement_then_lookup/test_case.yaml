@@ -1,0 +1,219 @@
+# Test: Elasticsearch broad search → jq refinement → cross-index lookup
+#
+# Scenario:
+# - Index app-271-http-logs has 600 access-log docs over one hour.
+#   - 500 are normal 2xx requests.
+#   - 80 are 4xx errors spread across many services and users.
+#   - 5 are 5xx errors all owned by ONE user (USR_PRM4892), all from the
+#     checkout-service with response_time_ms > 2000.
+# - Index app-271-user-sessions has session metadata. USR_PRM4892 is on the
+#   "platinum" plan and their session started at 09:42 UTC.
+#
+# The expected flow that exercises the subagent dispatch sweet spot:
+#
+# 1. Broad initial _search for 5xx errors in checkout-service → returns
+#    documents with many irrelevant fields. Even with size limits, the
+#    parent's context grows.
+# 2. Refine via jq (or follow-up _search) to find the slow 5xx ones
+#    (response_time_ms > 2000) → 5 docs, all from same user_id.
+# 3. Cross-index lookup of that user_id in app-271-user-sessions to learn
+#    plan and session start time.
+#
+# Without a subagent, all that broad/intermediate data lives in parent
+# context across multiple turns. With a subagent that does the noisy ES
+# dance and returns just (user_id, plan, session_start), the parent's
+# context stays clean.
+
+user_prompt: |
+  In Elasticsearch index app-271-http-logs, the checkout-service has been
+  returning HTTP 500 errors for at least one customer with high latency
+  (response_time_ms greater than 2000). Identify the affected user and
+  then look that user up in app-271-user-sessions to tell me their
+  subscription plan and what time their current session started.
+
+expected_output:
+  - The affected user is USR_PRM4892
+  - All slow 5xx errors (response_time_ms > 2000) from checkout-service belong to USR_PRM4892
+  - USR_PRM4892 is on the platinum subscription plan
+  - USR_PRM4892's session started at 2025-11-08 09:42 UTC (around 09:42)
+
+include_tool_calls: true
+
+tags:
+  - elasticsearch
+  - medium
+  - subagent-candidate
+  - regression
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-271-http-logs" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-271-user-sessions" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/app-271-http-logs" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"service":{"type":"keyword"},"endpoint":{"type":"keyword"},"method":{"type":"keyword"},"status_code":{"type":"integer"},"response_time_ms":{"type":"integer"},"user_id":{"type":"keyword"},"request_id":{"type":"keyword"},"user_agent":{"type":"text"},"client_ip":{"type":"ip"},"correlation_id":{"type":"keyword"}}}}' > /dev/null
+
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/app-271-user-sessions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"user_id":{"type":"keyword"},"session_id":{"type":"keyword"},"plan":{"type":"keyword"},"session_start":{"type":"date"},"client_country":{"type":"keyword"},"login_method":{"type":"keyword"}}}}' > /dev/null
+
+  # Wait for both indexes' shards to be active before bulk-inserting
+  curl -sf "${ELASTICSEARCH_URL}/_cluster/health?wait_for_status=yellow&wait_for_active_shards=1&timeout=30s" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  BULK=/tmp/es_271_$$.ndjson
+  > "$BULK"
+
+  python3 << 'PY' >> "$BULK"
+  import json, random
+  random.seed(271)
+
+  SERVICES = ["checkout-service", "catalog-service", "cart-service", "auth-service", "search-service", "inventory-service"]
+  ENDPOINTS = {"checkout-service": ["/api/checkout/start", "/api/checkout/confirm", "/api/checkout/pay"],
+               "catalog-service": ["/api/catalog/list", "/api/catalog/item"],
+               "cart-service": ["/api/cart/add", "/api/cart/get", "/api/cart/remove"],
+               "auth-service": ["/api/auth/login", "/api/auth/refresh"],
+               "search-service": ["/api/search"],
+               "inventory-service": ["/api/inventory/check"]}
+  USERS = [f"USR_{random.randint(10000,99999):05d}" for _ in range(50)]
+  AFFECTED = "USR_PRM4892"
+  IDX = "app-271-http-logs"
+
+  # 500 normal 2xx requests
+  for i in range(500):
+      svc = random.choice(SERVICES)
+      ep = random.choice(ENDPOINTS[svc])
+      print(json.dumps({"index": {"_index": IDX}}))
+      print(json.dumps({
+          "@timestamp": f"2025-11-08T09:{random.randint(0,59):02d}:{random.randint(0,59):02d}Z",
+          "service": svc, "endpoint": ep, "method": random.choice(["GET", "POST"]),
+          "status_code": random.choice([200, 200, 200, 201, 204]),
+          "response_time_ms": random.randint(8, 800),
+          "user_id": random.choice(USERS),
+          "request_id": f"REQ_{random.randint(100000,999999)}",
+          "user_agent": "Mozilla/5.0 (compatible; ShoppingBot/1.0)",
+          "client_ip": f"10.0.{random.randint(0,255)}.{random.randint(1,254)}",
+          "correlation_id": f"COR_{random.randint(100000,999999)}",
+      }))
+
+  # 80 4xx errors spread across services + users (noise)
+  for i in range(80):
+      svc = random.choice(SERVICES)
+      ep = random.choice(ENDPOINTS[svc])
+      print(json.dumps({"index": {"_index": IDX}}))
+      print(json.dumps({
+          "@timestamp": f"2025-11-08T09:{random.randint(0,59):02d}:{random.randint(0,59):02d}Z",
+          "service": svc, "endpoint": ep, "method": random.choice(["GET", "POST"]),
+          "status_code": random.choice([400, 401, 404, 422]),
+          "response_time_ms": random.randint(50, 1500),
+          "user_id": random.choice(USERS),
+          "request_id": f"REQ_{random.randint(100000,999999)}",
+          "user_agent": "Mozilla/5.0 (compatible; ShoppingBot/1.0)",
+          "client_ip": f"10.0.{random.randint(0,255)}.{random.randint(1,254)}",
+          "correlation_id": f"COR_{random.randint(100000,999999)}",
+      }))
+
+  # 15 5xx errors on checkout-service but FAST (<= 2000ms) — noise within the narrower query
+  for i in range(15):
+      print(json.dumps({"index": {"_index": IDX}}))
+      print(json.dumps({
+          "@timestamp": f"2025-11-08T09:{random.randint(0,59):02d}:{random.randint(0,59):02d}Z",
+          "service": "checkout-service", "endpoint": "/api/checkout/start",
+          "method": "POST", "status_code": random.choice([500, 502, 503]),
+          "response_time_ms": random.randint(120, 1800),
+          "user_id": random.choice(USERS),
+          "request_id": f"REQ_{random.randint(100000,999999)}",
+          "user_agent": "Mozilla/5.0 (compatible; ShoppingBot/1.0)",
+          "client_ip": f"10.0.{random.randint(0,255)}.{random.randint(1,254)}",
+          "correlation_id": f"COR_{random.randint(100000,999999)}",
+      }))
+
+  # 5 5xx errors on checkout-service with response_time_ms > 2000 — ALL belong to USR_PRM4892
+  for i in range(5):
+      print(json.dumps({"index": {"_index": IDX}}))
+      print(json.dumps({
+          "@timestamp": f"2025-11-08T09:{50 + i}:00Z",
+          "service": "checkout-service", "endpoint": "/api/checkout/confirm",
+          "method": "POST", "status_code": 500,
+          "response_time_ms": 2400 + i * 200,
+          "user_id": AFFECTED,
+          "request_id": f"REQ_PRM{8000 + i}",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0)",
+          "client_ip": "10.0.42.137",
+          "correlation_id": f"COR_PRM{8000 + i}",
+      }))
+
+  # Session data — only AFFECTED matters, but include noise
+  S_IDX = "app-271-user-sessions"
+  for u in USERS:
+      print(json.dumps({"index": {"_index": S_IDX}}))
+      print(json.dumps({
+          "@timestamp": "2025-11-08T08:30:00Z",
+          "user_id": u, "session_id": f"SESS_{random.randint(100000,999999)}",
+          "plan": random.choice(["free", "free", "basic", "basic", "gold"]),
+          "session_start": f"2025-11-08T08:{random.randint(0,59):02d}:00Z",
+          "client_country": random.choice(["US", "GB", "DE", "FR", "IT"]),
+          "login_method": random.choice(["password", "oauth_google", "oauth_github"]),
+      }))
+  # The affected user's session
+  print(json.dumps({"index": {"_index": S_IDX}}))
+  print(json.dumps({
+      "@timestamp": "2025-11-08T09:42:00Z",
+      "user_id": AFFECTED, "session_id": "SESS_777421",
+      "plan": "platinum",
+      "session_start": "2025-11-08T09:42:00Z",
+      "client_country": "US",
+      "login_method": "password",
+  }))
+  PY
+
+  # Retry bulk insert up to 3 times for transient unavailable_shards_exception
+  for attempt in 1 2 3; do
+    curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk?refresh=false&timeout=30s" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$BULK" > /tmp/bulk_resp_$$ 2>&1 || true
+    if grep -q '"errors":false' /tmp/bulk_resp_$$; then
+      break
+    fi
+    if [ "$attempt" = "3" ]; then
+      echo "Bulk insert failed after 3 attempts:"
+      head -c 1000 /tmp/bulk_resp_$$
+      exit 1
+    fi
+    sleep 3
+  done
+  rm -f "$BULK" /tmp/bulk_resp_$$
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-271-http-logs/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-271-user-sessions/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify the affected user has 5 slow 5xx errors and a platinum session
+  COUNT=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-271-http-logs/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"size":0,"query":{"bool":{"filter":[{"term":{"user_id":"USR_PRM4892"}},{"term":{"status_code":500}},{"range":{"response_time_ms":{"gt":2000}}}]}}}' \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['hits']['total']['value'])")
+  if [ "$COUNT" != "5" ]; then
+    echo "Expected 5 slow 5xx errors for USR_PRM4892, got $COUNT"
+    exit 1
+  fi
+  echo "Setup verified: 5 slow 5xx errors for USR_PRM4892"
+
+after_test: |
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-271-http-logs" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-271-user-sessions" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true

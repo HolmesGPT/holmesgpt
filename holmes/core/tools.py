@@ -107,6 +107,25 @@ class StructuredToolResult(BaseModel):
     elapsed_seconds: Optional[float] = None
     # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
     oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
+    # When a tool internally runs a child ToolCallingLLM (e.g. dispatch_agent),
+    # it can attach the child's resource usage here so the parent's
+    # ToolCallingLLM can roll the numbers up into its accumulated_stats.
+    # Stored as a dict (not RequestStats) to avoid an import cycle and keep
+    # the model JSON-serializable. Excluded from serialization to clients.
+    subagent_stats: Optional[Dict[str, Any]] = Field(default=None, exclude=True)
+    # Number of LLM turns the subagent itself burned. Excluded from
+    # serialization to clients; consumed by the parent for reporting.
+    subagent_num_llm_calls: Optional[int] = Field(default=None, exclude=True)
+    # The subagent's own inner tool calls, captured so the eval classifier
+    # (which only sees parent-level tool calls) can credit work done inside
+    # the subagent. Stored as a list of {description, result_summary} dicts
+    # to avoid a ToolCallResult import cycle and keep the model
+    # JSON-serializable. Excluded from serialization to API clients —
+    # consumed by property_manager.py when `include_tool_calls` is set on
+    # an eval.
+    subagent_tool_calls: Optional[List[Dict[str, Any]]] = Field(
+        default=None, exclude=True
+    )
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
@@ -265,6 +284,15 @@ class ToolInvokeContext(BaseModel):
         str
     ] = []  # Bash prefixes approved during this session
     request_context: Optional[Dict[str, Any]] = None
+    # Reference to the parent ToolCallingLLM. Used by the dispatch_agent (subagent)
+    # tool to spawn child agents that share the same llm and tool_executor.
+    # Typed as Any to avoid a circular import with tool_calling_llm.
+    parent_agent: Optional[Any] = None
+    # Active tracing span for this tool invocation. dispatch_agent uses it to
+    # nest the child agent's spans under the parent's tool span so a single
+    # Braintrust trace shows the full call tree. Typed as Any because the
+    # concrete span type depends on the tracer implementation.
+    trace_span: Optional[Any] = None
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""
@@ -273,6 +301,9 @@ class ToolInvokeContext(BaseModel):
             data["request_context"] = {
                 k: "***REDACTED***" for k in data["request_context"].keys()
             }
+        # parent_agent and trace_span are runtime object references; never serialize.
+        data.pop("parent_agent", None)
+        data.pop("trace_span", None)
         return data
 
     def __str__(self):
@@ -775,11 +806,6 @@ class Toolset(BaseModel):
     _initialized: bool = PrivateAttr(default=True)
     _init_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
-    # Set by the prerequisite-check timeout handler to tell a still-running
-    # background worker to stop mutating self.status / self.error after the
-    # main thread has already marked this toolset FAILED.
-    _prereq_aborted: bool = PrivateAttr(default=False)
-
     # status fields that be cached
     type: Optional[ToolsetType] = None
     path: Optional[FilePath] = None
@@ -922,9 +948,7 @@ class Toolset(BaseModel):
         return self.config is None
 
     def check_prerequisites(self, silent: bool = False):
-        if self._prereq_aborted:
-            # Timeout handler has already finalized status; don't touch it.
-            return
+        self.status = ToolsetStatusEnum.ENABLED
 
         # Sort prerequisites by type to fail fast on missing env vars before
         # running slow commands (e.g., ArgoCD checks that timeout):
@@ -934,15 +958,7 @@ class Toolset(BaseModel):
         # 4. Command checks (slowest - may timeout or hang)
         sorted_prereqs = sorted(self.prerequisites, key=_prereq_priority)
 
-        # Accumulate results in locals so we can commit atomically at the end
-        # — a concurrent timeout-handler may declare this toolset FAILED while
-        # we're mid-check, and we must not overwrite that decision.
-        local_status: ToolsetStatusEnum = ToolsetStatusEnum.ENABLED
-        local_error: Optional[str] = None
-
         for prereq in sorted_prereqs:
-            if self._prereq_aborted:
-                return
             if isinstance(prereq, ToolsetCommandPrerequisite):
                 try:
                     command = self.interpolate_command(prereq.command)
@@ -958,53 +974,47 @@ class Toolset(BaseModel):
                         prereq.expected_output
                         and prereq.expected_output not in result.stdout
                     ):
-                        local_status = ToolsetStatusEnum.FAILED
-                        local_error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
+                        self.status = ToolsetStatusEnum.FAILED
+                        self.error = f"`{prereq.command}` did not include `{prereq.expected_output}`"
                 except subprocess.CalledProcessError as e:
-                    local_status = ToolsetStatusEnum.FAILED
+                    self.status = ToolsetStatusEnum.FAILED
                     stderr = (e.stderr or "").strip()
                     detail = f": {stderr}" if stderr else ""
-                    local_error = (
+                    self.error = (
                         f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
                     )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
                 for env_var in prereq.env:
                     if env_var not in os.environ:
-                        local_status = ToolsetStatusEnum.FAILED
-                        local_error = f"Environment variable {env_var} was not set"
+                        self.status = ToolsetStatusEnum.FAILED
+                        self.error = f"Environment variable {env_var} was not set"
 
             elif isinstance(prereq, StaticPrerequisite):
                 if not prereq.enabled:
-                    local_status = ToolsetStatusEnum.FAILED
-                    local_error = f"{prereq.disabled_reason}"
+                    self.status = ToolsetStatusEnum.FAILED
+                    self.error = f"{prereq.disabled_reason}"
 
             elif isinstance(prereq, CallablePrerequisite):
                 try:
                     (enabled, error_message) = prereq.callable(self.config or {})
                     if not enabled:
-                        local_status = ToolsetStatusEnum.FAILED
+                        self.status = ToolsetStatusEnum.FAILED
                     if error_message:
-                        local_error = f"{error_message}"
+                        self.error = f"{error_message}"
                 except Exception as e:
                     logger.exception(f"Toolset {self.name} prerequisite check failed")
-                    local_status = ToolsetStatusEnum.FAILED
-                    local_error = f"Prerequisite call failed unexpectedly: {str(e)}"
+                    self.status = ToolsetStatusEnum.FAILED
+                    self.error = f"Prerequisite call failed unexpectedly: {str(e)}"
 
-            if local_status in (ToolsetStatusEnum.DISABLED, ToolsetStatusEnum.FAILED):
+            if (
+                self.status == ToolsetStatusEnum.DISABLED
+                or self.status == ToolsetStatusEnum.FAILED
+            ):
+                if not silent:
+                    display_logger.info(f"❌ Toolset {self.name}: {self.error}")
                 # no point checking further prerequisites if one failed
-                break
-
-        if self._prereq_aborted:
-            # Timeout handler claimed this toolset while we were running; honor it.
-            return
-
-        self.status = local_status
-        self.error = local_error
-        if local_status in (ToolsetStatusEnum.DISABLED, ToolsetStatusEnum.FAILED):
-            if not silent:
-                display_logger.info(f"❌ Toolset {self.name}: {self.error}")
-            return
+                return
 
         if not silent:
             display_logger.info(f"✅ Toolset {self.name}")
