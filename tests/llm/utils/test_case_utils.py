@@ -196,6 +196,13 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     # skill should actually pay off by short-circuiting the failed call. If
     # unset, the replay uses the original `user_prompt`.
     replay_user_prompt: Optional[Union[str, List[str]]] = None
+    # Optional alternative expected_output for the replay pass. Needed when
+    # the replay asks a different question than the primary (e.g. the
+    # primary discovers a new quirk on index B while the replay asks
+    # about both indices A and B together). If unset, the replay uses
+    # the original `expected_output` (the normal case where primary and
+    # replay ask the same question).
+    expected_replay_output: Optional[Union[str, List[str]]] = None
     cluster_name: Optional[str] = None
     include_files: Optional[List[str]] = None  # matches include_files option of the CLI
     skills: Optional[Dict[str, Any]] = None  # Optional skill catalog override

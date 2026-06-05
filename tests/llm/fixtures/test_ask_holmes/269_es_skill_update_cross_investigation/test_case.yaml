@@ -43,7 +43,20 @@ replay_user_prompt: |
   (2) how many ERROR-level entries are there from today in index
       'app-269-logs-b-r5x8m3n9'?
 
+# Primary asks only about index B. After failing on `@timestamp`, the
+# agent has to discover `ingest_ts` and report 7 ERROR entries from
+# today. The pre-loaded skill (about app-A's severity field) is
+# unrelated to this question and the agent shouldn't blindly use it
+# for B; it must discover B's quirk on its own.
 expected_output:
+  - "There are 7 ERROR entries from today in app-269-logs-b-r5x8m3n9 (uses `ingest_ts` keyword for timestamps, not `@timestamp`)"
+
+# Replay asks about BOTH indices. By that point the harness has merged
+# the newly-emitted ingest_ts quirk into the pre-existing
+# quirks-for-querying-elasticsearch skill — so the replay agent should
+# fetch ONE skill and use `severity` for app-A and `ingest_ts` for
+# app-B. If the merge worked, both answers come from one skill fetch.
+expected_replay_output:
   - "There are 10 ERROR entries in app-269-logs-a-r5x8m3n9 (uses `severity` keyword field)"
   - "There are 7 ERROR entries from today in app-269-logs-b-r5x8m3n9 (uses `ingest_ts` keyword field for timestamps)"
 

@@ -353,7 +353,15 @@ def test_ask_holmes(
         from tests.llm.utils.classifiers import evaluate_correctness
         from tests.llm.utils.test_case_utils import Evaluation
 
-        expected = test_case.expected_output
+        # When the replay asks a different question than the primary
+        # (e.g. cross-index in 269 vs single-index in primary), the
+        # fixture declares `expected_replay_output` to specify what the
+        # replay's answer should contain. Falls back to the primary's
+        # `expected_output` when they ask the same question.
+        expected = (
+            getattr(test_case, "expected_replay_output", None)
+            or test_case.expected_output
+        )
         if not isinstance(expected, list):
             expected = [expected]
         evaluation_type = "strict"
