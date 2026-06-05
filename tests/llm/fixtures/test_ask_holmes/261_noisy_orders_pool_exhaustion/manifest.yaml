@@ -3,12 +3,8 @@ kind: Namespace
 metadata:
   name: app-261
 ---
-# TRUE ROOT CAUSE lives here, but it is a CASCADE and the obvious answer is wrong.
-# The pool max (50) is reasonable. The pool saturates because every order
-# transaction is abnormally slow (~2s) — audit-sync-writes=true forces a
-# synchronous fsync per audit row inside each order transaction, holding DB
-# connections open far too long. The real fix is to make audit writes async, NOT
-# to keep growing the pool (which only masks the slow-transaction problem).
+# This manifest defines only the running application (config + code). It is kept
+# intentionally free of any comment describing the scenario or its conclusion.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,8 +15,6 @@ data:
   connection-acquire-timeout-ms: "250"
   db-host: "orders-db.app-261.svc"
   db-port: "5432"
-  # When true, each audited write fsyncs every audit row synchronously inside the
-  # order transaction, making each transaction take ~2 seconds.
   audit-sync-writes: "true"
   feature-async-fulfilment: "true"
 ---
@@ -48,18 +42,9 @@ stringData:
     oid = 80500
     while True:
         oid += 1
-        # CASCADE: the pool (max=50) saturates only because each transaction is
-        # abnormally slow. Successful saves log ~2s commit times with audit_sync=on
-        # — that is the real cause. The failures report just the proximate symptom
-        # (cannot acquire a connection in time). Reporting "pool too small / raise
-        # the pool" as the root cause is the trap; the pool is adequately sized for
-        # normal-speed transactions.
         saved = random.random() >= 0.22
         if saved:
             log("INFO", f"order persisted order=ORD-{oid} commit_ms={random.randint(1900,2400)} (audit_sync=on: fsync per audit row)")
-            # RED HERRING: a loud post-commit event publish that fails because no
-            # kafka broker is deployed. The order is ALREADY saved, so this does
-            # not cause order failures, but it names a down dependency.
             if random.random() < 0.55:
                 log("ERROR", f"order ORD-{oid} saved, but failed to publish order-created event to kafka topic orders.v1: broker orders-kafka.app-261.svc:9092 not available (code=KAFKA_PUBLISH_8c1f) — will retry asynchronously")
         else:
@@ -120,9 +105,6 @@ spec:
           secret:
             secretName: orders-api-app
 ---
-# RED HERRING: the database is HEALTHY but logs benign "connection reset by peer"
-# lines (idle clients disconnecting) and routine checkpoints. Tempting to blame
-# the DB, but it is not the cause.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -198,9 +180,6 @@ spec:
     - port: 5432
       targetPort: 5432
 ---
-# RED HERRING: recommendations-api was deployed recently (rollout triggered in
-# before_test) AND is OOMKilled/restarting. A classic "it broke right after a
-# deploy" + "look, a crashing pod" distraction. Unrelated to order failures.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -255,8 +234,6 @@ spec:
           secret:
             secretName: recommendations-api-app
 ---
-# RED HERRING: payments-api emits lots of transient retry WARNs that ultimately
-# succeed. Noise, not a failure.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -317,8 +294,6 @@ spec:
           secret:
             secretName: payments-api-app
 ---
-# RED HERRING: a redis metrics exporter that crashloops because it can't reach a
-# cache that isn't deployed. Unrelated to orders.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -370,14 +345,6 @@ spec:
           secret:
             secretName: cache-exporter-app
 ---
-# ============================================================================
-# ADDITIONAL UNRELATED NOISE SERVICES
-# A real "noisy microservice environment": many services, many configmaps, many
-# error types firing at once. NONE of these are the cause of the order-save
-# failures. They exist to bury the real signal (orders-api pool max=2 in
-# orders-config) under a high volume of similar-looking timeout/connection/pool
-# chatter and alarming pod states.
-# ============================================================================
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -471,9 +438,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
       volumes: [{name: app, secret: {secretName: search-api-app}}]
 ---
-# DECOY: this service logs a benign "connection pool nearing limit" WARN. It is
-# healthy (active < max) and unrelated to orders, but it makes the word "pool"
-# appear in the noise so the orders-api pool problem is not uniquely greppable.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -523,7 +487,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
       volumes: [{name: app, secret: {secretName: session-store-app}}]
 ---
-# Crashlooping background worker (unreachable SMTP) — pure event/pod-state noise.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -559,8 +522,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 32Mi}}
       volumes: [{name: app, secret: {secretName: notification-worker-app}}]
 ---
-# An OOMKilling service (memory leak) + recently deployed — more "broke after a
-# deploy" + crashloop noise, unrelated to orders.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -597,8 +558,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 48Mi}}
       volumes: [{name: app, secret: {secretName: inventory-api-app}}]
 ---
-# High-volume gateway access logs with occasional 504/499 — dilutes log volume
-# and adds more timeout-looking lines unrelated to the order-save failures.
 apiVersion: v1
 kind: Secret
 metadata:

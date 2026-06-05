@@ -3,12 +3,8 @@ kind: Namespace
 metadata:
   name: app-260
 ---
-# checkout-api: the service the user is asking about. It intermittently fails
-# checkouts because outbound calls to an EXTERNAL payment provider
-# (pay-gw-7k3m9x.acme-ext.io) time out. Holmes has only the kubernetes/core
-# toolset, so it can SEE the symptom in the logs but has no way to inspect the
-# external provider, the network path to it, or the provider's status. The true
-# cause is therefore not provable from the available data.
+# This manifest defines only the running application (config + code). It is kept
+# intentionally free of any comment describing the scenario or its conclusion.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -83,9 +79,6 @@ spec:
           secret:
             secretName: checkout-api-app
 ---
-# RED HERRING 1: an unrelated sidecar-style agent that is OOMKilled and restarts
-# repeatedly. Looks alarming in `kubectl describe` / events (OOMKilled, high
-# restart count) but has nothing to do with checkout failures.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -96,7 +89,7 @@ stringData:
     import time
     blocks = []
     while True:
-        blocks.append(bytearray(2 * 1024 * 1024))  # leak 2MB at a time
+        blocks.append(bytearray(2 * 1024 * 1024))
         time.sleep(0.1)
 ---
 apiVersion: apps/v1
@@ -135,8 +128,6 @@ spec:
           secret:
             secretName: metrics-agent-app
 ---
-# RED HERRING 2: a crashlooping helper that cannot reach an in-cluster cache.
-# Unrelated to checkout; just adds noise to events and pod listings.
 apiVersion: v1
 kind: Secret
 metadata:
