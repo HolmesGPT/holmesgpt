@@ -28,6 +28,24 @@ package, the four design options, and the recommended bundle.
 Confirms Opus passes all 5 multi-stage evals reliably — accuracy is not the
 constraint. The 30%-cost-reduction bar is the bar that matters.
 
+## Iteration 0: existing `dispatch_agent` (subagent_on, N=1)
+
+| Eval | Off | On | Δ | Hit 30%? |
+|------|-----|----|----|---------|
+| 260 | $0.2891 | $0.2448 | −15.3% | no |
+| 261 | $0.6989 | $0.6055 | −13.4% | no |
+| 271 | $0.3681 | $0.2876 | −21.9% | no |
+| 272 | $0.5974 | $0.5677 | −5.0% | no |
+| 273 | $0.5250 | $0.6266 | **+19.4%** | regression |
+| Total | $2.4785 | $2.3322 | −5.9% | 0/5 |
+
+All 5 still PASS on accuracy. Existing generic `dispatch_agent` averages
+−6% across the candidate set with max −22% — well short of the 30% bar.
+273 actively regresses (dispatch overhead > savings on small extracts).
+
+Conclusion: the generic dispatch tool isn't enough. Need purpose-built
+subagents (Option A/B) and/or toolset surgery (Option C) to hit 30%.
+
 ## Theory recap
 
 Prior measurement (`SUBAGENT_EVAL_FINDINGS.md`) showed 0/5 of the original
