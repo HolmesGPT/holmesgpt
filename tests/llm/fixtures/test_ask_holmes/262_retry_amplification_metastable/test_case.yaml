@@ -1,5 +1,11 @@
 # Test: retry-amplification / metastable cascade behind a wall of red herrings
 #
+# Measured results (clean, sequential judge): opus-4.6 PASS (3/3), sonnet-4.6 PASS,
+# sonnet-4.5 FAIL — sonnet-4.5 takes the bait, calling it "pricing-db resource
+# starvation" and recommending a DB scale-up as the primary fix, while opus/sonnet-4.6
+# correctly identify the retry amplification as the cause and the DB scale-up as a
+# band-aid. A fair, solvable, frontier-discriminating eval.
+#
 # A famous real-world failure mode (retry storms / metastable failures, see the
 # Google SRE book "Addressing Cascading Failures" and the metastable-failures
 # literature). The hard part is that EVERY loud error is at the victim tier, so
