@@ -201,8 +201,24 @@ class KubernetesLogsToolset(Toolset):
                     return_code=return_code,
                 )
 
+            # When an include filter is used, the matched lines on their own
+            # rarely contain the event that TRIGGERED a recurring error (a config
+            # reload, a deploy, a dependency change, ...) because that event does
+            # not contain the error keyword and is therefore filtered out. To make
+            # the data self-sufficient (independent of how the model reasons),
+            # automatically surface the unfiltered lines surrounding the FIRST
+            # match - this is where the root cause is typically found.
+            context_block = build_first_match_context_block(
+                all_logs=all_logs,
+                params=params,
+                display_container_name=has_multiple_containers,
+                match_count=filtered_count_before_limit,
+            )
+
             # Put metadata at the end
             response_data = formatted_logs + "\n" + "\n".join(metadata_lines)
+            if context_block:
+                response_data = context_block + "\n\n" + response_data
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -651,14 +667,9 @@ def add_metadata(
         metadata_lines.append("")
         metadata_lines.append("⚠️  Hit display limit! Suggestions:")
         metadata_lines.append(
-            "  - Only the MOST RECENT logs are shown; the OLDEST logs (including the FIRST occurrence of any error) were dropped."
-        )
-        metadata_lines.append(
-            "    For root-cause analysis, re-fetch WITHOUT a limit (or with a time range covering the start of the incident) to see what happened just before the first error."
-        )
-        metadata_lines.append(
             "  - Add exclude_filter to remove noise: exclude_filter='<pattern1>|<pattern2>|<pattern3>'"
         )
+        metadata_lines.append("  - Narrow time range to see fewer logs")
         metadata_lines.append(
             "  - Use more specific filter: filter='<term1>.*<term2>|<exact-phrase>'"
         )
@@ -789,6 +800,100 @@ def filter_logs(
         removed_by_include_filter,
         removed_by_exclude_filter,
     )
+
+
+# Number of unfiltered lines to surface immediately before/after the first
+# matching log line when an include filter is used. The cause of a recurring
+# error almost always precedes its first occurrence, so we weight "before"
+# heavily and include a few "after" lines for continuity.
+CONTEXT_LINES_BEFORE_FIRST_MATCH = 30
+CONTEXT_LINES_AFTER_FIRST_MATCH = 5
+# Only surface "nearby" context when the filter matches at least this many lines.
+# The point is to help with recurring-error floods (where the matched lines bury
+# or omit the triggering event); for a small, precise filter the model can
+# already see everything, so injecting context would just add noise.
+MIN_MATCHES_FOR_CONTEXT = 20
+
+
+def build_first_match_context_block(
+    all_logs: List[StructuredLog],
+    params: FetchPodLogsParams,
+    display_container_name: bool,
+    match_count: int,
+) -> Optional[str]:
+    """Return a labeled block of the unfiltered logs surrounding the FIRST line
+    that matches the include filter.
+
+    Returns None when there is no include filter, too few matches to be a
+    recurring-error flood, no match, or the surrounding lines add nothing beyond
+    the first match itself. ``all_logs`` is expected to already be sorted
+    ascending by timestamp (``filter_logs`` sorts it in place).
+    """
+    if not params.filter or match_count < MIN_MATCHES_FOR_CONTEXT:
+        return None
+
+    # Compile the include filter the same way filter_logs does (regex with a
+    # case-insensitive substring fallback) so "first match" is defined
+    # identically to the filtered view shown to the model.
+    regex_pattern = None
+    try:
+        regex_pattern = re.compile(params.filter, re.IGNORECASE)
+    except re.error:
+        regex_pattern = None
+
+    def matches_include(content: str) -> bool:
+        if regex_pattern:
+            return bool(regex_pattern.search(content))
+        return params.filter.lower() in content.lower()
+
+    # Restrict to the requested time window (if any) so the context lines come
+    # from the same slice of time the model asked about.
+    time_filter: Optional[TimeFilter] = None
+    if params.start_time or params.end_time:
+        start, end = process_timestamps_to_int(
+            start=params.start_time,
+            end=params.end_time,
+            default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
+        )
+        time_filter = TimeFilter(start_ms=start * 1000, end_ms=end * 1000)
+
+    def within_time(log: StructuredLog) -> bool:
+        if not time_filter or log.timestamp_ms is None:
+            return True
+        return time_filter.start_ms <= log.timestamp_ms <= time_filter.end_ms
+
+    first_match_index = None
+    for i, log in enumerate(all_logs):
+        if within_time(log) and matches_include(log.content):
+            first_match_index = i
+            break
+
+    if first_match_index is None or first_match_index == 0:
+        # No match, or the first match is already the very first log line, so
+        # there is no preceding context to add.
+        return None
+
+    start_index = max(0, first_match_index - CONTEXT_LINES_BEFORE_FIRST_MATCH)
+    end_index = min(
+        len(all_logs), first_match_index + CONTEXT_LINES_AFTER_FIRST_MATCH + 1
+    )
+    window = [log for log in all_logs[start_index:end_index] if within_time(log)]
+
+    # Only worth showing if it surfaces lines that the filter would have hidden.
+    preceding = [log for log in all_logs[start_index:first_match_index] if within_time(log)]
+    if not any(not matches_include(log.content) for log in preceding):
+        return None
+
+    header = (
+        "=" * 80
+        + "\nCONTEXT: unfiltered logs around the FIRST match of your filter "
+        + f"('{params.filter}')\n"
+        + "These lines are NOT in the filtered view above. The event that triggered a\n"
+        + "recurring error usually appears here, just before its first occurrence.\n"
+        + "=" * 80
+    )
+    body = format_logs(window, display_container_name)
+    return header + "\n" + body
 
 
 def parse_logs(

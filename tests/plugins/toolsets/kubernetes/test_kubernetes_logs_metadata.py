@@ -105,12 +105,6 @@ class TestKubernetesLogsMetadata:
         assert "⚠️  Hit display limit! Suggestions:" in result.data
         assert "exclude_filter='<pattern1>|<pattern2>|<pattern3>'" in result.data
         assert "filter='<term1>.*<term2>|<exact-phrase>'" in result.data
-        # The limit keeps only the most recent logs and drops the oldest, so the
-        # response must warn that the first occurrence (where root causes appear)
-        # was discarded and recommend re-fetching without a limit.
-        assert "OLDEST logs" in result.data
-        assert "FIRST occurrence" in result.data
-        assert "re-fetch WITHOUT a limit" in result.data
 
     @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
