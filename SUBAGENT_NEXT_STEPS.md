@@ -43,8 +43,42 @@ All 5 still PASS on accuracy. Existing generic `dispatch_agent` averages
 −6% across the candidate set with max −22% — well short of the 30% bar.
 273 actively regresses (dispatch overhead > savings on small extracts).
 
+### Diagnostic: 272 rerun trace (subagent_on, opus-4.6, N=1, $0.5663)
+
+Captured live with `pytest -s`:
+
+- 14 tools total, **0 dispatch_agent invocations**
+- Tool #6 `elasticsearch_search app-272-apm-traces` returned **63,320 characters**
+  of trace data directly into the parent's context
+- All other tool outputs were ≤1,350 chars
+- 4 `TodoWrite` calls (1,3,13,14) added ~640 chars each — noise, not dispatch
+- Tool #6's 63k-char output is the dominant cost driver; every subsequent
+  turn re-processes that payload
+
+**Root cause**: Opus 4.6 has `dispatch_agent` in its registry but chooses
+direct `elasticsearch_search` anyway. The existing description (which already
+says "ONE narrow lookup that would otherwise pull >5k tokens") has 3 examples,
+all for *narrow Elasticsearch lookups* (get_mapping, trace_id grep) — none
+showing a full-text trace search like #6.
+
 Conclusion: the generic dispatch tool isn't enough. Need purpose-built
 subagents (Option A/B) and/or toolset surgery (Option C) to hit 30%.
+
+## Iteration 1 plan (decided 2026-06-05)
+
+Cheapest experiment first: sharpen the `dispatch_agent` description so it
+explicitly covers the 272-style case (full-document ES search dumping
+50KB+ into context). One file changed (`holmes/core/subagent.py`),
+re-run 272 alone, compare against iter 0's $0.5677.
+
+- If 272 drops to ≤$0.40 (−30%) → roll the description forward to all
+  5 evals and re-measure.
+- If 272 stays at ~$0.55 → Opus is not influenced by description tweaks.
+  Move to **Option C scoped** (hide `elasticsearch_search` from parent
+  registry when `subagents_enabled=True`; subagent retains it) which
+  *forces* dispatch and removes the meta-decision.
+
+Either way we converge on a working solution within 2 more iterations.
 
 ## Theory recap
 
