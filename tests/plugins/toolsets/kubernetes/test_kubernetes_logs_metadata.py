@@ -300,6 +300,114 @@ class TestKubernetesLogsMetadata:
         assert "Remaining: 200 logs" in result.data
 
 
+class TestNearbyLinesContext:
+    """Test that fetch_pod_logs surfaces the unfiltered 'nearby lines' that
+    contain the trigger of a recurring error, regardless of filter/limit."""
+
+    def setup_method(self):
+        self.toolset = KubernetesLogsToolset()
+        self.mock_datetime = datetime(2024, 1, 15, 12, 45, 0, tzinfo=timezone.utc)
+
+    @staticmethod
+    def _current_only(stdout):
+        """Return a subprocess.run side_effect that serves `stdout` for the
+        current-logs call and empty output for the `--previous` call, matching a
+        pod that has not restarted (so lines are not duplicated)."""
+
+        def side_effect(cmd, *args, **kwargs):
+            if "--previous" in cmd:
+                return Mock(stdout="", stderr="", returncode=1)
+            return Mock(stdout=stdout, stderr="", returncode=0)
+
+        return side_effect
+
+    def _build_incident_logs(self):
+        """Healthy startup -> a config reload (the trigger) -> a flood of errors.
+        The reload line does NOT contain the error keyword, so a 'Connection
+        refused' filter would drop it; a tail limit would drop it too."""
+        lines = []
+        for i in range(20):
+            lines.append(f"2024-01-15T10:00:{i:02d}Z INFO startup healthy {i}")
+        lines.append("2024-01-15T10:05:00Z WARN Configuration file change detected")
+        lines.append("2024-01-15T10:05:01Z CONFIG db host db-staging (was: db-prod)")
+        for i in range(60):
+            lines.append(
+                f"2024-01-15T10:06:{i % 60:02d}Z ERROR Connection refused (db-staging) {i}"
+            )
+        return "\n".join(lines)
+
+    @patch("subprocess.run")
+    @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
+    def test_filter_surfaces_trigger_before_first_match(
+        self, mock_datetime_module, mock_run
+    ):
+        mock_datetime_module.now.return_value = self.mock_datetime
+        mock_run.side_effect = self._current_only(self._build_incident_logs())
+
+        params = FetchPodLogsParams(
+            namespace="app",
+            pod_name="api",
+            filter="Connection refused",
+        )
+        result = self.toolset.fetch_pod_logs(params)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        # The filtered view alone never contains the reload, but the context
+        # block must surface it so the root cause is in the data.
+        assert "CONTEXT: unfiltered logs around the FIRST match" in result.data
+        assert "Configuration file change detected" in result.data
+        assert "what CHANGED" in result.data
+
+    @patch("subprocess.run")
+    @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
+    def test_limit_surfaces_earliest_lines(self, mock_datetime_module, mock_run):
+        mock_datetime_module.now.return_value = self.mock_datetime
+        mock_run.side_effect = self._current_only(self._build_incident_logs())
+
+        # No filter, aggressive limit -> tail only would drop the reload.
+        params = FetchPodLogsParams(namespace="app", pod_name="api", limit=20)
+        result = self.toolset.fetch_pod_logs(params)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "EARLIEST log lines" in result.data
+        assert "older lines were dropped by limit" in result.data
+        assert "Configuration file change detected" in result.data
+
+    @patch("subprocess.run")
+    @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
+    def test_small_filter_adds_no_context_block(self, mock_datetime_module, mock_run):
+        """A small/precise filter (few matches) must NOT get a context block -
+        the existing filter semantics are preserved."""
+        mock_datetime_module.now.return_value = self.mock_datetime
+        logs = []
+        for i in range(50):
+            logs.append(f"2024-01-15T10:30:{i % 60:02d}Z INFO normal {i}")
+        logs.append("2024-01-15T10:31:00Z ERROR rare_unique_failure occurred")
+        mock_run.return_value = Mock(stdout="\n".join(logs), stderr="", returncode=0)
+
+        params = FetchPodLogsParams(
+            namespace="app", pod_name="api", filter="rare_unique_failure"
+        )
+        result = self.toolset.fetch_pod_logs(params)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "CONTEXT:" not in result.data
+
+    @patch("subprocess.run")
+    @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
+    def test_small_limit_adds_no_context_block(self, mock_datetime_module, mock_run):
+        """A tiny result set (few total lines) must NOT get an earliest block."""
+        mock_datetime_module.now.return_value = self.mock_datetime
+        logs = [f"2024-01-15T10:30:0{i}Z INFO line {i}" for i in range(6)]
+        mock_run.return_value = Mock(stdout="\n".join(logs), stderr="", returncode=0)
+
+        params = FetchPodLogsParams(namespace="app", pod_name="api", limit=2)
+        result = self.toolset.fetch_pod_logs(params)
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "CONTEXT:" not in result.data
+
+
 if __name__ == "__main__":
     # Run the tests and show output
     pytest.main([__file__, "-v", "-s"])
