@@ -205,6 +205,23 @@ def update_test_results(
                         f"  {line}" for line in output_text.split("\n")
                     )
                     tool_calls_text += f"Output:\n{indented_output}\n"
+                # When this parent tool is a dispatch_agent invocation, the
+                # subagent's own tool calls are stored on the StructuredToolResult
+                # so the judge can credit work (e.g. ES source filtering) done
+                # inside the subagent. Without this nesting the judge only sees
+                # the parent's high-level dispatch and the distilled answer.
+                subagent_calls = getattr(tc.result, "subagent_tool_calls", None) if hasattr(tc, "result") and tc.result else None
+                if subagent_calls:
+                    tool_calls_text += "Inner subagent tool calls:\n"
+                    for j, inner in enumerate(subagent_calls, 1):
+                        desc = inner.get("description", "")
+                        tool_calls_text += f"  * Subagent tool #{i}.{j}: {desc}\n"
+                        inner_result = inner.get("result_summary", "")
+                        if inner_result:
+                            indented_inner = "\n".join(
+                                f"    {line}" for line in inner_result.split("\n")
+                            )
+                            tool_calls_text += f"  Output:\n{indented_inner}\n"
                 tool_calls_text += "---\n"
             evaluation_output = evaluation_output + tool_calls_text
 

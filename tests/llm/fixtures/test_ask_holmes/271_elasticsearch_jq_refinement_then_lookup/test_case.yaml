@@ -43,6 +43,7 @@ tags:
   - elasticsearch
   - medium
   - subagent-candidate
+  - regression
 
 setup_timeout: 300
 

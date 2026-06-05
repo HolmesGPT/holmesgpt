@@ -30,6 +30,7 @@ tags:
   - traces
   - medium
   - subagent-candidate
+  - regression
 
 setup_timeout: 300
 

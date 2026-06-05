@@ -27,6 +27,7 @@ tags:
   - medium
   - loki
   - subagent-candidate
+  - regression
 
 setup_timeout: 240
 

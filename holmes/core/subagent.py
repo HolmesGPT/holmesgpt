@@ -18,7 +18,7 @@ When unset, the subagent uses the parent's LLM instance directly.
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from holmes.core.tracing import DummySpan, SpanType
 from holmes.core.tools import (
@@ -72,6 +72,44 @@ def _extract_request_stats(result: Any) -> Dict[str, Any]:
     in tools.py — keeps the StructuredToolResult model layering clean.
     """
     return {field: getattr(result, field, None) for field in _REQUEST_STATS_FIELDS}
+
+
+# Max chars to keep from each subagent tool-call result when summarizing for
+# the eval classifier. Long enough to show field selectors and small tool
+# outputs (mappings, counts), short enough to avoid ballooning the judge's
+# prompt with the same noise the subagent was created to absorb.
+_SUBAGENT_TOOL_CALL_RESULT_CHARS = 1500
+
+
+def _summarize_subagent_tool_calls(result: Any) -> Optional[List[Dict[str, Any]]]:
+    """Flatten the subagent's inner tool calls into plain dicts for the parent.
+
+    The eval classifier (property_manager.py) iterates parent-level
+    `result.tool_calls` to build the "# Tool Calls" section it shows the
+    judge. Without this, an eval criterion like "must use source filtering"
+    can't be satisfied when the actual ES query happens inside the subagent
+    — the judge only sees the dispatch_agent call and the distilled answer.
+
+    Each entry: {description, result_summary} where result_summary is
+    truncated. We use plain dicts instead of ToolCallResult to avoid an
+    import cycle from tools.py.
+    """
+    inner = getattr(result, "tool_calls", None) or []
+    if not inner:
+        return None
+    summarized: List[Dict[str, Any]] = []
+    for tc in inner:
+        result_text = str(getattr(tc, "result", "") or "")
+        if len(result_text) > _SUBAGENT_TOOL_CALL_RESULT_CHARS:
+            result_text = (
+                result_text[:_SUBAGENT_TOOL_CALL_RESULT_CHARS] + "…[truncated]"
+            )
+        summarized.append({
+            "description": getattr(tc, "description", "") or "",
+            "tool_name": getattr(tc, "tool_name", "") or "",
+            "result_summary": result_text,
+        })
+    return summarized
 
 
 def _build_subagent_llm(parent_llm: Any) -> Any:
@@ -316,6 +354,7 @@ class DispatchAgentTool(Tool):
             )
 
         answer = (result.result or "").strip()
+        subagent_tool_calls = _summarize_subagent_tool_calls(result)
         if not answer:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.NO_DATA,
@@ -323,6 +362,7 @@ class DispatchAgentTool(Tool):
                 params=params,
                 subagent_stats=_extract_request_stats(result),
                 subagent_num_llm_calls=result.num_llm_calls,
+                subagent_tool_calls=subagent_tool_calls,
             )
 
         return StructuredToolResult(
@@ -331,6 +371,7 @@ class DispatchAgentTool(Tool):
             params=params,
             subagent_stats=_extract_request_stats(result),
             subagent_num_llm_calls=result.num_llm_calls,
+            subagent_tool_calls=subagent_tool_calls,
         )
 
     def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:

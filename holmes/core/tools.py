@@ -116,6 +116,16 @@ class StructuredToolResult(BaseModel):
     # Number of LLM turns the subagent itself burned. Excluded from
     # serialization to clients; consumed by the parent for reporting.
     subagent_num_llm_calls: Optional[int] = Field(default=None, exclude=True)
+    # The subagent's own inner tool calls, captured so the eval classifier
+    # (which only sees parent-level tool calls) can credit work done inside
+    # the subagent. Stored as a list of {description, result_summary} dicts
+    # to avoid a ToolCallResult import cycle and keep the model
+    # JSON-serializable. Excluded from serialization to API clients —
+    # consumed by property_manager.py when `include_tool_calls` is set on
+    # an eval.
+    subagent_tool_calls: Optional[List[Dict[str, Any]]] = Field(
+        default=None, exclude=True
+    )
 
     def stringify_data(self, compact: bool = True) -> Tuple[str, bool]:
         """Serialize the data field to a string.
