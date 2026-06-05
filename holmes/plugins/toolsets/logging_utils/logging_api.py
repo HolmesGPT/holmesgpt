@@ -129,7 +129,7 @@ class PodLoggingTool(Tool):
         description = (
             f"Fetch logs for a Kubernetes pod from {toolset_name}"
             " with support for regex filtering and exclusion patterns"
-            f". Defaults: Fetches last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days of logs, limited to {DEFAULT_LOG_LIMIT} most recent entries"
+            f". By default the last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days of logs are returned."
         )
 
         parameters = {
@@ -152,7 +152,7 @@ class PodLoggingTool(Tool):
                 required=False,
             ),
             "limit": ToolParameter(
-                description=f"Maximum number of logs to return. Default: {DEFAULT_LOG_LIMIT}",
+                description="Maximum number of logs to return. If omitted, all matching logs are returned. When set, both the earliest and the most recent matching lines are kept.",
                 type="integer",
                 required=False,
             ),

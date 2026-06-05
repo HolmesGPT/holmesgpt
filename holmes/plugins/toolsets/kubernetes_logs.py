@@ -214,6 +214,16 @@ class KubernetesLogsToolset(Toolset):
                 display_container_name=has_multiple_containers,
                 match_count=filtered_count_before_limit,
             )
+            # A `limit` keeps only the most recent lines, dropping the start of the
+            # incident. When that happens (and no filter already anchors on the first
+            # occurrence), surface the earliest lines so the trigger stays visible.
+            if not context_block:
+                context_block = build_earliest_logs_block(
+                    all_logs=all_logs,
+                    params=params,
+                    display_container_name=has_multiple_containers,
+                    filtered_count_before_limit=filtered_count_before_limit,
+                )
 
             # Put metadata at the end
             response_data = formatted_logs + "\n" + "\n".join(metadata_lines)
@@ -808,11 +818,15 @@ def filter_logs(
 # heavily and include a few "after" lines for continuity.
 CONTEXT_LINES_BEFORE_FIRST_MATCH = 30
 CONTEXT_LINES_AFTER_FIRST_MATCH = 5
-# Only surface "nearby" context when the filter matches at least this many lines.
-# The point is to help with recurring-error floods (where the matched lines bury
-# or omit the triggering event); for a small, precise filter the model can
-# already see everything, so injecting context would just add noise.
-MIN_MATCHES_FOR_CONTEXT = 20
+# When a `limit` keeps only the most recent lines, surface this many of the
+# EARLIEST lines so the start of an incident (where the triggering event lives)
+# is never silently dropped.
+EARLIEST_LINES_WHEN_LIMITED = 30
+# Don't bother surfacing extra context for tiny result sets - the model can
+# already see everything. Only kick in for floods of matching/available lines
+# (e.g. a recurring error) where the matched/displayed lines bury or omit the
+# triggering event.
+MIN_LINES_FOR_CONTEXT = 20
 
 
 def build_first_match_context_block(
@@ -829,7 +843,7 @@ def build_first_match_context_block(
     the first match itself. ``all_logs`` is expected to already be sorted
     ascending by timestamp (``filter_logs`` sorts it in place).
     """
-    if not params.filter or match_count < MIN_MATCHES_FOR_CONTEXT:
+    if not params.filter or match_count < MIN_LINES_FOR_CONTEXT:
         return None
 
     # Compile the include filter the same way filter_logs does (regex with a
@@ -893,6 +907,67 @@ def build_first_match_context_block(
         + "=" * 80
     )
     body = format_logs(window, display_container_name)
+    return header + "\n" + body
+
+
+def build_earliest_logs_block(
+    all_logs: List[StructuredLog],
+    params: FetchPodLogsParams,
+    display_container_name: bool,
+    filtered_count_before_limit: int,
+) -> Optional[str]:
+    """Return a labeled block of the EARLIEST log lines when a ``limit`` caused
+    them to be dropped.
+
+    A ``limit`` keeps only the most recent lines, so the beginning of an incident
+    (where the triggering event is recorded) is silently discarded. This surfaces
+    those earliest lines so the start of the incident stays visible regardless of
+    how aggressively the model limits. Returns None when no limit was applied,
+    nothing was dropped, the result set is tiny, or an include filter is set (in
+    which case build_first_match_context_block already anchors on the first
+    occurrence).
+    """
+    if (
+        not params.limit
+        or params.filter  # handled by build_first_match_context_block
+        or filtered_count_before_limit <= params.limit  # nothing dropped
+        or filtered_count_before_limit < MIN_LINES_FOR_CONTEXT
+    ):
+        return None
+
+    time_filter: Optional[TimeFilter] = None
+    if params.start_time or params.end_time:
+        start, end = process_timestamps_to_int(
+            start=params.start_time,
+            end=params.end_time,
+            default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
+        )
+        time_filter = TimeFilter(start_ms=start * 1000, end_ms=end * 1000)
+
+    earliest: List[StructuredLog] = []
+    for log in all_logs:
+        if time_filter and log.timestamp_ms is not None and (
+            log.timestamp_ms < time_filter.start_ms
+            or log.timestamp_ms > time_filter.end_ms
+        ):
+            continue
+        earliest.append(log)
+        if len(earliest) >= EARLIEST_LINES_WHEN_LIMITED:
+            break
+
+    if not earliest:
+        return None
+
+    header = (
+        "=" * 80
+        + f"\nCONTEXT: the {len(earliest)} EARLIEST log lines "
+        + f"({filtered_count_before_limit - params.limit:,} older lines were dropped by limit={params.limit})\n"
+        + "Your 'limit' kept only the most recent lines; these earliest lines are shown\n"
+        + "because the event that triggered a recurring error is usually at the START of\n"
+        + "the incident, not in the latest lines.\n"
+        + "=" * 80
+    )
+    body = format_logs(earliest, display_container_name)
     return header + "\n" + body
 
 
