@@ -3,12 +3,8 @@ kind: Namespace
 metadata:
   name: app-262
 ---
-# NOTE FOR MAINTAINERS: the design rationale, the intended root cause, the traps,
-# and the grading live ONLY in test_case.yaml (the answer key, never shown to the
-# model). Everything in THIS manifest is deliberately answer-free: it contains only
-# realistic application config and code, with no comment that states or interprets
-# the root cause. This is what keeps the eval honest no matter which tool surfaces
-# the data (our kubernetes/logs, bash, or a third-party logging MCP).
+# This manifest defines only the running application (config + code). It is kept
+# intentionally free of any comment describing the scenario or its conclusion.
 apiVersion: v1
 kind: ConfigMap
 metadata:
