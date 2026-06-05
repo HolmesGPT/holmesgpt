@@ -46,7 +46,7 @@ toolsets:
         command: "kubectl get application {{ app_name }} -n {{ namespace }} -o yaml"
 
       - name: "vela_logs"
-        description: "Get logs from a KubeVela application or specific component"
+        description: "Get logs from a KubeVela application or specific component. Returns up to the last 500 lines by default (override with the 'tail' parameter)."
         command: "vela logs {{ app_name }} -n {{ namespace }}{% if component %} -c {{ component }}{% endif %}{% if pod %} --pod {{ pod }}{% endif %} --tail {{ tail | default(500) }} -y"
 
       - name: "vela_port_forward"
@@ -90,9 +90,9 @@ toolsets:
         command: "kubectl top pods -l app.oam.dev/name={{ app_name }} -n {{ namespace }}"
 
       - name: "vela_dry_run"
-        description: "Preview the Kubernetes resources that would be created by an application spec"
+        description: "Preview the Kubernetes resources that would be created by an application spec. Requires file_path to point to a KubeVela application manifest that already exists on the HolmesGPT host filesystem; it cannot read manifests from the live cluster, so this is only usable when such a local file is available."
         command: "vela dry-run -f {{ file_path }}"
 
       - name: "vela_live_diff"
-        description: "Show difference between local spec and running application"
+        description: "Show the difference between a local application spec and the running application. Requires file_path to point to a KubeVela application manifest that already exists on the HolmesGPT host filesystem; it cannot read the local spec from the live cluster, so this is only usable when such a local file is available."
         command: "vela live-diff -f {{ file_path }} -n {{ namespace }}"
