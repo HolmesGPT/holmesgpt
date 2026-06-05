@@ -6,11 +6,27 @@ package, the four design options, and the recommended bundle.
 ## Status
 
 - [x] Eval package planned
-- [x] Eval package built (this commit — 5 new evals: 260, 261, 271, 272, 273)
+- [x] Eval package built (5 new evals: 260, 261, 271, 272, 273)
 - [x] Re-pre-register criteria with the new candidate eval set (commit updated `SUBAGENT_EVAL_CRITERIA.md`)
-- [ ] Option chosen (awaiting decision)
+- [x] Baseline established (Opus 4.6, subagent_off, N=1, local sandbox)
+- [ ] Iteration 0 (existing dispatch_agent, subagent_on) — running
+- [ ] Option chosen
 - [ ] Implementation
-- [ ] Run candidate evals against baseline (subagents_enabled=False) and against the chosen option
+- [ ] Final measurement vs 5×30% bar
+
+## Opus 4.6 baseline (subagent_off, N=1, local sandbox)
+
+| Eval | Score | Cost |
+|------|-------|------|
+| 260 | PASS | $0.2891 |
+| 261 | PASS | $0.6989 |
+| 271 | PASS | $0.3681 |
+| 272 | PASS | $0.5974 |
+| 273 | PASS | $0.5250 |
+| **Total** | **5/5** | **$2.4785** |
+
+Confirms Opus passes all 5 multi-stage evals reliably — accuracy is not the
+constraint. The 30%-cost-reduction bar is the bar that matters.
 
 ## Theory recap
 
