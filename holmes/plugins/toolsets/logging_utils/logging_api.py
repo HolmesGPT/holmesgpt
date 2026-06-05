@@ -128,8 +128,13 @@ class PodLoggingTool(Tool):
         toolset_name = toolset.name if toolset.name else "logging backend"
         description = (
             f"Fetch logs for a Kubernetes pod from {toolset_name}"
-            " with support for regex filtering and exclusion patterns"
-            f". Defaults: Fetches last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days of logs, limited to {DEFAULT_LOG_LIMIT} most recent entries"
+            " with support for regex filtering and exclusion patterns."
+            " When neither start_time/end_time nor limit are provided, all currently"
+            " available logs for the pod are returned (no time window or line cap is"
+            " applied). Large outputs are truncated to fit the model's token budget -"
+            " the oldest lines are dropped first and a truncation marker is inserted."
+            " Use start_time/end_time to bound the time range and limit to cap the"
+            " number of returned lines."
         )
 
         parameters = {
@@ -142,7 +147,7 @@ class PodLoggingTool(Tool):
                 description="Kubernetes namespace", type="string", required=True
             ),
             "start_time": ToolParameter(
-                description=f"Start time for logs. Can be an RFC3339 formatted datetime (e.g. '2023-03-01T10:30:00Z') for absolute time or a negative string number (e.g. -3600) for relative seconds before end_time. Default: -{DEFAULT_TIME_SPAN_SECONDS} (last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days)",
+                description="Start time for logs. Can be an RFC3339 formatted datetime (e.g. '2023-03-01T10:30:00Z') for absolute time or a negative string number (e.g. -3600) for relative seconds before end_time. If neither start_time nor end_time is provided, no time filtering is applied and all available logs are fetched.",
                 type="string",
                 required=False,
             ),
@@ -152,7 +157,7 @@ class PodLoggingTool(Tool):
                 required=False,
             ),
             "limit": ToolParameter(
-                description=f"Maximum number of logs to return. Default: {DEFAULT_LOG_LIMIT}",
+                description="Maximum number of (most recent) log lines to return. If not set, all matching log lines are returned, subject to token-budget truncation of large outputs.",
                 type="integer",
                 required=False,
             ),
