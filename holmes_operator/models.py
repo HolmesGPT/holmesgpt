@@ -201,9 +201,10 @@ class TriggeredHealthCheckSpec(BaseModel):
     settleTimeout: int = Field(default=300, ge=0, le=3600)
     # Deliberate wait before running the check, measured from when the rollout is
     # detected. Use this to let slow-burn problems (leaks, pool exhaustion) surface
-    # before Holmes evaluates. 0 runs as soon as the rollout settles. Max 7 days.
-    # Pending fires are persisted in status, so long delays survive operator restarts.
-    delaySeconds: int = Field(default=0, ge=0, le=604800)
+    # before Holmes evaluates. Defaults to 5 minutes; set to 0 to run as soon as the
+    # rollout settles. Max 7 days. Pending fires are persisted in status, so long
+    # delays survive operator restarts.
+    delaySeconds: int = Field(default=300, ge=0, le=604800)
     # Suppress re-firing for the same Deployment within this many seconds. 0 disables.
     cooldownSeconds: int = Field(default=0, ge=0)
     # Inline HealthCheck definition (same fields as HealthCheckSpec)

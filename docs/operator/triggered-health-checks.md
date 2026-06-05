@@ -19,7 +19,8 @@ both are self-contained (they embed the check definition inline) and both spawn 
 1. The operator watches Deployments in namespaces where `TriggeredHealthCheck`
    resources exist.
 2. When a matching Deployment's **pod template changes** (a rollout), the operator
-   waits for the rollout to settle (up to `settleTimeout`).
+   waits for the rollout to settle (up to `settleTimeout`), then waits an additional
+   `delaySeconds` (default 5 minutes) so slow-burn problems have time to surface.
 3. It then creates a `HealthCheck` (owned by the trigger) with your query, having
    substituted the rollout context into it.
 4. Holmes investigates using every connected data source; in `alert` mode it notifies
@@ -39,7 +40,7 @@ spec:
       matchLabels:
         app: checkout-api
   settleTimeout: 300        # wait up to 5m for the rollout to finish
-  delaySeconds: 0           # extra wait before running (e.g. 86400 = a day later)
+  delaySeconds: 300         # then wait 5m more before checking (default; 0 = check now)
   cooldownSeconds: 600      # don't re-fire for the same Deployment within 10m
   query: |
     checkout-api was rolled out to {{ .new.image }} (was {{ .old.image }}).
@@ -84,7 +85,7 @@ The `query` is templated with the rollout context before the check runs:
 | `enabled` | `true` | Whether the trigger is active |
 | `deploymentRollout.selector.matchLabels` | `{}` | Deployment labels that must all match. **Empty matches every Deployment in the namespace.** |
 | `settleTimeout` | `300` | Max seconds to wait for the rollout to *finish deploying* before running the check. `0` runs immediately. If the rollout doesn't settle in time, the check runs anyway (so a stuck rollout still gets investigated). |
-| `delaySeconds` | `0` | A *deliberate* wait before running the check, measured from when the rollout is detected — for catching slow-burn problems (memory leaks, connection-pool exhaustion) that only show up after the app has run a while. e.g. `86400` runs the check a day after the rollout. Max 7 days. |
+| `delaySeconds` | `300` | A *deliberate* wait before running the check, measured from when the rollout is detected — for catching slow-burn problems (memory leaks, connection-pool exhaustion) that only show up after the app has run a while. Defaults to 5 minutes; set to `0` to check as soon as the rollout settles, or e.g. `86400` to check a day after. Max 7 days. |
 | `cooldownSeconds` | `0` | Suppress re-firing for the same Deployment within this window. `0` disables. |
 | `query` | — | Natural-language investigation (supports the tokens above). Required. |
 | `timeout` | `120` | Check execution timeout in seconds. |
