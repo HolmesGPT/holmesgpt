@@ -242,9 +242,14 @@ class ToolCallingLLM:
         for toolset in self.tool_executor.enabled_toolsets:
             if toolset.name == "bash":
                 config = toolset.config
-                if config:
-                    return config.builtin_allowlist != "none"
-                return False
+                if not config:
+                    return False
+                # config may still be a raw dict if the toolset has not been
+                # lazily initialized (prerequisites_callable parses it into
+                # BashExecutorConfig on first use).
+                if isinstance(config, dict):
+                    return config.get("builtin_allowlist", "core") != "none"
+                return config.builtin_allowlist != "none"
         return False
 
     def _execute_tool_decisions(

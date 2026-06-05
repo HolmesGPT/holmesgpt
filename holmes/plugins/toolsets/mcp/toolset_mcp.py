@@ -46,6 +46,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetType,
 )
+from holmes.common.env_vars import DEFAULT_CLI_USER
 from holmes.plugins.toolsets.mcp.oauth_token_manager import _get_user_id
 from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -330,18 +331,25 @@ class RemoteMCPTool(Tool):
         oauth_config = self.toolset._mcp_config.oauth
         disk_key = str(self.toolset._mcp_config.url) if isinstance(self.toolset._mcp_config, MCPConfig) else None
 
+        # CLI mode: no request_context means the call came from the CLI, not the API server
+        is_cli = context.request_context is None
+
+        # The CLI has no authenticated user, so the tool-invocation path keys
+        # tokens under DEFAULT_CLI_USER. Use the same id here so token storage
+        # and retrieval are consistent (otherwise the stored token can't be
+        # found and every request 401s).
+        effective_context = context.request_context or {"user_id": DEFAULT_CLI_USER}
+
         # Try to get a token from cache → refresh → DB → disk
         mgr = _get_token_manager()
-        token = mgr.get_access_token(oauth_config, context.request_context, disk_key=disk_key)
+        token = mgr.get_access_token(oauth_config, effective_context, disk_key=disk_key)
         if token:
             logger.info("OAuth MCP %s: token available via manager", self.toolset.name)
             return None
 
         # No token found anywhere — need to authenticate
-        user_id = _get_user_id(context.request_context)
+        user_id = _get_user_id(effective_context)
 
-        # CLI mode: no request_context means the call came from the CLI, not the API server
-        is_cli = context.request_context is None
         if is_cli:
             # CLI mode: run browser OAuth flow synchronously
             logger.info("OAuth MCP %s: CLI mode, running browser OAuth flow", self.toolset.name)
@@ -356,7 +364,7 @@ class RemoteMCPTool(Tool):
             token_data = cli_oauth_flow(oauth_endpoints, self.toolset.name)
             if token_data:
                 _get_token_manager().store_token(
-                    oauth_config, token_data, context.request_context,
+                    oauth_config, token_data, effective_context,
                     disk_key=disk_key, store_to_disk=True,
                 )
                 logger.info("OAuth MCP %s: CLI auth successful", self.toolset.name)
