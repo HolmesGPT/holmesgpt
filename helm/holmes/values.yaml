@@ -667,9 +667,9 @@ mcpAddons:
   # Provides safe kubectl command execution with security controls
   # WARNING: This addon can execute write operations. Configure allowedCommands carefully.
   kubernetesRemediation:
-    enabled: false
+    enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.0.0"
+    image: "kubernetes-remediation-mcp:1.1.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -677,19 +677,27 @@ mcpAddons:
       create: true
       name: "k8s-remediation-mcp-sa"
       annotations: {}
-      clusterRole: "cluster-admin"  # Override with a more restrictive role as needed
+      clusterRole: ""        # empty -> chart creates the scoped, least-privilege
+                             # ClusterRole below. Set to bring-your-own ClusterRole name.
 
     config:
-      # Comma-separated list of allowed kubectl subcommands
-      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+      # Hard verb allowlist for the approval-gated run_kubectl_command fallback
+      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
       # Comma-separated list of blocked flags
       dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
+      # Pre-approved read-only commands for run_preapproved_kubectl_command (auto-approved)
+      preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
+      # Pre-approved troubleshooting images for run_diagnostic_image (auto-approved)
+      diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+      # read_file_from_container path policy (allow roots minus secret/token mounts)
+      fileReadAllowedPaths: "/"
+      fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
+      # Enable the approval-gated fallback (set false for a fully locked-down mode)
+      allowArbitraryKubectlCommands: true
       # Command timeout in seconds
       timeout: "60"
       # Log level
       logLevel: "INFO"
-      # Comma-separated list of allowed images for the run_image tool (leave empty to disable)
-      allowedImages: ""
 
     resources:
       requests:
@@ -700,17 +708,15 @@ mcpAddons:
         cpu: "200m"
 
     networkPolicy:
-      enabled: false
+      enabled: true          # ingress-only; inert where the CNI doesn't enforce
 
-    # Tools that can only be called after a runbook invocation (prevents ad-hoc write operations)
-    # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
-    restrictedTools:
-      - "*"
-    # Tools that require user confirmation before execution
-    # Use ["*"] to require approval for all tools, or specify tool names
+    # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
+    # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
+    # run_diagnostic_image, get_remediation_mcp_config) run immediately.
     approvalRequiredTools:
-      - "*"
+      - "run_kubectl_command"
 
+    # Optional override of the default LLM instructions
     llmInstructions: ""
 
     nodeSelector: {}

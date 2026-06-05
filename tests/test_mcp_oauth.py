@@ -1813,7 +1813,6 @@ class TestInvokeOAuthConnectReturnsTools:
         """_directly_invoke_tool_call stores oauth_tools returned by connect on the executor."""
         placeholder = MagicMock()
         placeholder.name = "mcp_connect"
-        placeholder._is_restricted.return_value = False
         placeholder.get_openai_format.return_value = {"function": {"name": "mcp_connect"}}
 
         real_tool = MagicMock()
