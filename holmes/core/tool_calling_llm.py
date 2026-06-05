@@ -166,6 +166,98 @@ def _try_process_oauth_decision(tool_call_id, oauth_code, request_context) -> bo
         return False
 
 
+# --- Provider-agnostic root-cause hint -------------------------------------
+# When the model constrains a query (a limit/size or a filter/search) and the
+# result is a multi-line, log/event-like body, the lines returned are by
+# construction either "only what matched" or "only the most recent" entries.
+# For a recurring failure the triggering event is OLDER than those lines and
+# usually does not contain the error keyword, so it is exactly what gets hidden.
+# This hint is appended to ANY tool's result at the agent layer, so it works for
+# third-party / future logging MCP tools we do not control (we can't add the
+# missing data for a server-side tool, but we can reliably prompt the follow-up).
+_RCA_LIMIT_ARG_NAMES = {
+    "limit", "size", "max_results", "maxresults", "max_lines", "maxlines",
+    "count", "rows", "top", "tail", "head", "page_size", "pagesize", "max",
+    "max_items", "maxitems", "num_results",
+}
+_RCA_FILTER_ARG_NAMES = {
+    "filter", "query", "q", "search", "grep", "pattern", "match", "exclude",
+    "exclude_filter", "filter_query", "keyword", "keywords", "regex", "lucene",
+    "logql", "ppl", "kql",
+}
+_RCA_HINT_MARKER = "ROOT-CAUSE CHECK (automated)"
+_RCA_HINT = (
+    "\n\n"
+    + "=" * 80
+    + f"\n⚠️ {_RCA_HINT_MARKER}: this is a FILTERED or CAPPED view of time-ordered\n"
+    "logs/events, so it shows only matching and/or only the most recent entries.\n"
+    "The event that TRIGGERED a recurring failure is usually OLDER than the lines\n"
+    "here and does NOT contain the error keyword (e.g. a config/secret reload, a\n"
+    "deploy or rollout, a scale event, a dependency/endpoint change, or a flag flip).\n"
+    "Before concluding a root cause: find the FIRST occurrence of the problem and\n"
+    "fetch what happened just BEFORE it — drop the filter, request earlier/older\n"
+    "entries, or narrow the time range to bracket that first occurrence, using\n"
+    "whatever parameters this tool exposes. State explicitly what changed.\n"
+    + "=" * 80
+)
+_RCA_MIN_LINES = 15
+_RCA_MIN_CHARS = 400
+
+
+def _query_is_constrained(tool_params: Any) -> bool:
+    """True if the model passed a limit-like or filter-like parameter."""
+    if not isinstance(tool_params, dict):
+        return False
+    keys = {str(k).lower() for k in tool_params.keys()}
+    if not (keys & _RCA_LIMIT_ARG_NAMES or keys & _RCA_FILTER_ARG_NAMES):
+        return False
+    # Ignore empty/falsey filter values (a key present but unset isn't a constraint).
+    for k, v in tool_params.items():
+        kl = str(k).lower()
+        if kl in _RCA_LIMIT_ARG_NAMES and v not in (None, "", 0):
+            return True
+        if kl in _RCA_FILTER_ARG_NAMES and v not in (None, "", "*", "{}"):
+            return True
+    return False
+
+
+def _looks_like_log_body(data: str) -> bool:
+    """Heuristic: a multi-line, non-JSON, text body (logs/events), not a small
+    or structured (JSON) payload."""
+    if not isinstance(data, str) or len(data) < _RCA_MIN_CHARS:
+        return False
+    if data.count("\n") < _RCA_MIN_LINES:
+        return False
+    # Skip genuinely structured (JSON) payloads, but NOT log lines that merely
+    # start with a bracket (e.g. "[ERROR] ..."), which are not valid JSON.
+    stripped = data.lstrip()
+    if stripped[:1] in ("{", "["):
+        try:
+            json.loads(stripped)
+            return False
+        except Exception:
+            pass
+    return True
+
+
+def _augment_constrained_logs_with_rca_hint(tool_params: Any, tool_response) -> None:
+    """Best-effort: append a root-cause follow-up hint to constrained, log-like
+    tool results. Never raises."""
+    try:
+        if (
+            tool_response is None
+            or tool_response.status != StructuredToolResultStatus.SUCCESS
+        ):
+            return
+        data = tool_response.data
+        if not isinstance(data, str) or _RCA_HINT_MARKER in data:
+            return
+        if _query_is_constrained(tool_params) and _looks_like_log_body(data):
+            tool_response.data = data + _RCA_HINT
+    except Exception:
+        logging.debug("RCA hint augmentation skipped", exc_info=True)
+
+
 # Callback type: receives a pending approval, returns (approved, optional_feedback)
 ApprovalCallback = Callable[[PendingToolApproval], tuple[bool, Optional[str]]]
 
@@ -778,6 +870,11 @@ class ToolCallingLLM:
                 request_context=request_context,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
+
+            # Provider-agnostic root-cause hint for constrained log/event queries.
+            # Applied at the agent layer so it reaches ANY tool, including
+            # third-party MCP logging providers we don't control.
+            _augment_constrained_logs_with_rca_hint(tool_params, tool_response)
 
             # Store OAuth tools discovered by a _connect placeholder
             if tool_response.oauth_tools:
