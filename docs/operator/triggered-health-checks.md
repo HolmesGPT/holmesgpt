@@ -39,6 +39,7 @@ spec:
       matchLabels:
         app: checkout-api
   settleTimeout: 300        # wait up to 5m for the rollout to finish
+  delaySeconds: 0           # extra wait before running (e.g. 86400 = a day later)
   cooldownSeconds: 600      # don't re-fire for the same Deployment within 10m
   query: |
     checkout-api was rolled out to {{ .new.image }} (was {{ .old.image }}).
@@ -82,13 +83,34 @@ The `query` is templated with the rollout context before the check runs:
 |-------|---------|-------------|
 | `enabled` | `true` | Whether the trigger is active |
 | `deploymentRollout.selector.matchLabels` | `{}` | Deployment labels that must all match. **Empty matches every Deployment in the namespace.** |
-| `settleTimeout` | `300` | Max seconds to wait for the rollout to finish before running the check. `0` runs immediately. |
+| `settleTimeout` | `300` | Max seconds to wait for the rollout to *finish deploying* before running the check. `0` runs immediately. If the rollout doesn't settle in time, the check runs anyway (so a stuck rollout still gets investigated). |
+| `delaySeconds` | `0` | A *deliberate* wait before running the check, measured from when the rollout is detected — for catching slow-burn problems (memory leaks, connection-pool exhaustion) that only show up after the app has run a while. e.g. `86400` runs the check a day after the rollout. Max 7 days. |
 | `cooldownSeconds` | `0` | Suppress re-firing for the same Deployment within this window. `0` disables. |
 | `query` | — | Natural-language investigation (supports the tokens above). Required. |
 | `timeout` | `120` | Check execution timeout in seconds. |
 | `mode` | `monitor` | `alert` notifies destinations on failure; `monitor` only records the result. |
 | `model` | — | Override the default LLM model for this check. |
 | `destinations` | `[]` | Alert destinations (used in `alert` mode). See [Destinations](destinations.md). |
+
+## `settleTimeout` vs `delaySeconds`
+
+These solve different problems and compose:
+
+- **`settleTimeout`** answers *"is the new version broken on arrival?"* — it waits for the
+  rollout to become available, then checks immediately. Catches crash loops, bad images,
+  failed readiness.
+- **`delaySeconds`** answers *"did the new version degrade after running for a while?"* —
+  it waits a deliberate period (minutes to days) before checking. Catches memory leaks,
+  connection-pool exhaustion, slow resource creep.
+
+Run both by setting both: the rollout settles, then the deliberate delay elapses, then
+the check runs. A common pattern is one immediate trigger plus one with
+`delaySeconds: 86400` for next-day verification.
+
+Delayed checks are persisted in `status.pending` and reconciled by the operator, so a
+scheduled fire **survives an operator restart** — even a day-long delay will still run.
+If a newer rollout of the same Deployment happens while a check is pending, the pending
+entry is debounced (replaced) so only the latest state is checked.
 
 ## Notes & limitations
 

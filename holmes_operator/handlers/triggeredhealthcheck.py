@@ -158,6 +158,24 @@ async def on_deployment_event(
             )
             continue
 
+        if spec.delaySeconds > 0:
+            fire_at = trigger_executor.compute_fire_at(spec.delaySeconds)
+            await trigger_executor.add_pending(
+                api=context.k8s_api,
+                trigger_name=trigger_name,
+                namespace=namespace,
+                deployment=name,
+                fire_at=fire_at,
+                old_image=old_image,
+                new_image=new_image,
+            )
+            logger.info(
+                f"Rollout of {namespace}/{name} matched TriggeredHealthCheck "
+                f"{namespace}/{trigger_name}; check scheduled for {fire_at} "
+                f"(delay {spec.delaySeconds}s)"
+            )
+            continue
+
         logger.info(
             f"Rollout of {namespace}/{name} matched TriggeredHealthCheck "
             f"{namespace}/{trigger_name}"
@@ -171,6 +189,59 @@ async def on_deployment_event(
                 deployment=name,
                 old_image=old_image,
                 new_image=new_image,
+                k8s_api=context.k8s_api,
+            )
+        )
+        trigger_executor.track_task(task)
+
+
+@kopf.on.timer(GROUP, VERSION, "triggeredhealthchecks", interval=15.0)  # type: ignore[arg-type]
+async def on_triggeredhealthcheck_timer(
+    *,
+    spec: Dict[str, Any],
+    status: Dict[str, Any],
+    name: str,
+    namespace: str,
+    uid: str,
+    logger: kopf.Logger,
+    **kwargs: Any,
+) -> None:
+    """Fire delayed checks whose scheduled time has arrived.
+
+    Pending entries are claimed (removed from status) before spawning so a check is
+    never run twice, even across operator restarts.
+    """
+    pending = (status or {}).get("pending", [])
+    if not pending:
+        return
+
+    due = trigger_executor.due_pending(pending)
+    if not due:
+        return
+
+    try:
+        parsed = TriggeredHealthCheckSpec(**spec)
+    except Exception as e:
+        logger.warning(f"Skipping timer for invalid {namespace}/{name}: {e}")
+        return
+
+    # Claim the due entries first so a slow spawn can't be double-processed.
+    await trigger_executor.remove_pending(context.k8s_api, name, namespace, due)
+
+    for entry in due:
+        logger.info(
+            f"Delayed check for {namespace}/{entry.get('deployment')} is due; "
+            f"running TriggeredHealthCheck {namespace}/{name}"
+        )
+        task = asyncio.create_task(
+            trigger_executor.settle_and_spawn(
+                trigger_name=name,
+                namespace=namespace,
+                trigger_uid=uid,
+                spec=parsed,
+                deployment=entry.get("deployment"),
+                old_image=entry.get("oldImage") or "",
+                new_image=entry.get("newImage") or "",
                 k8s_api=context.k8s_api,
             )
         )

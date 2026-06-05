@@ -51,6 +51,12 @@ spec:
                   default: 300
                   minimum: 0
                   maximum: 3600
+                delaySeconds:
+                  type: integer
+                  description: "Deliberate wait (from rollout detection) before running the check, to let slow-burn problems surface. 0 = run as soon as settled. Persisted across restarts."
+                  default: 0
+                  minimum: 0
+                  maximum: 604800
                 cooldownSeconds:
                   type: integer
                   description: "Suppress re-firing for the same Deployment within this many seconds (0 = disabled)"
@@ -119,6 +125,27 @@ spec:
                       lastTriggerTime:
                         type: string
                         format: date-time
+                pending:
+                  type: array
+                  description: "Delayed checks scheduled to run later (delaySeconds), persisted to survive operator restarts"
+                  items:
+                    type: object
+                    required:
+                      - deployment
+                      - fireAt
+                    properties:
+                      deployment:
+                        type: string
+                      fireAt:
+                        type: string
+                        format: date-time
+                      scheduledAt:
+                        type: string
+                        format: date-time
+                      oldImage:
+                        type: string
+                      newImage:
+                        type: string
                 history:
                   type: array
                   description: "Recent triggered executions (last N)"

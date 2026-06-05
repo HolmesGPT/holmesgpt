@@ -142,6 +142,80 @@ class TestCooldown:
         assert not trigger_executor.is_in_cooldown(status, "checkout", 600)
 
 
+class TestPendingQueue:
+    def test_due_pending_selects_past_entries(self):
+        pending = [
+            {"deployment": "a", "fireAt": "2000-01-01T00:00:00+00:00"},
+            {"deployment": "b", "fireAt": "2999-01-01T00:00:00+00:00"},
+        ]
+        due = trigger_executor.due_pending(pending)
+        assert [e["deployment"] for e in due] == ["a"]
+
+    def test_compute_fire_at_in_future(self):
+        from datetime import datetime, timezone
+
+        fire_at = datetime.fromisoformat(trigger_executor.compute_fire_at(3600))
+        assert fire_at > datetime.now(timezone.utc)
+
+    async def test_add_pending_debounces_per_deployment(
+        self, setup_context, mock_k8s_api
+    ):
+        # Resource already has a pending entry for "checkout"
+        mock_k8s_api.get_namespaced_custom_object.return_value = {
+            "metadata": {"resourceVersion": "1"},
+            "status": {
+                "pending": [
+                    {"deployment": "checkout", "fireAt": "2999-01-01T00:00:00+00:00"}
+                ]
+            },
+        }
+
+        await trigger_executor.add_pending(
+            mock_k8s_api,
+            trigger_name="verify-rollouts",
+            namespace="prod",
+            deployment="checkout",
+            fire_at="2999-06-01T00:00:00+00:00",
+            old_image="app:v1",
+            new_image="app:v2",
+        )
+
+        patched = mock_k8s_api.patch_namespaced_custom_object_status.call_args[1][
+            "body"
+        ]["status"]["pending"]
+        # Old entry replaced, not duplicated
+        assert len(patched) == 1
+        assert patched[0]["fireAt"] == "2999-06-01T00:00:00+00:00"
+        assert patched[0]["newImage"] == "app:v2"
+
+    async def test_remove_pending_matches_deployment_and_fireat(
+        self, setup_context, mock_k8s_api
+    ):
+        mock_k8s_api.get_namespaced_custom_object.return_value = {
+            "metadata": {"resourceVersion": "1"},
+            "status": {
+                "pending": [
+                    {"deployment": "checkout", "fireAt": "2999-01-01T00:00:00+00:00"},
+                    {"deployment": "payments", "fireAt": "2999-02-01T00:00:00+00:00"},
+                ]
+            },
+        }
+
+        await trigger_executor.remove_pending(
+            mock_k8s_api,
+            trigger_name="verify-rollouts",
+            namespace="prod",
+            entries=[
+                {"deployment": "checkout", "fireAt": "2999-01-01T00:00:00+00:00"}
+            ],
+        )
+
+        patched = mock_k8s_api.patch_namespaced_custom_object_status.call_args[1][
+            "body"
+        ]["status"]["pending"]
+        assert [p["deployment"] for p in patched] == ["payments"]
+
+
 class TestSettleAndSpawn:
     async def test_spawns_healthcheck_and_records_status(
         self, setup_context, mock_k8s_api

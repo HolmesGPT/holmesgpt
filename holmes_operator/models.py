@@ -199,6 +199,11 @@ class TriggeredHealthCheckSpec(BaseModel):
     # Max seconds to wait for the rollout to finish before running the check.
     # 0 disables waiting (run immediately).
     settleTimeout: int = Field(default=300, ge=0, le=3600)
+    # Deliberate wait before running the check, measured from when the rollout is
+    # detected. Use this to let slow-burn problems (leaks, pool exhaustion) surface
+    # before Holmes evaluates. 0 runs as soon as the rollout settles. Max 7 days.
+    # Pending fires are persisted in status, so long delays survive operator restarts.
+    delaySeconds: int = Field(default=0, ge=0, le=604800)
     # Suppress re-firing for the same Deployment within this many seconds. 0 disables.
     cooldownSeconds: int = Field(default=0, ge=0)
     # Inline HealthCheck definition (same fields as HealthCheckSpec)
@@ -226,6 +231,17 @@ class TriggeredCheckHistoryEntry(BaseModel):
     newImage: Optional[str] = None
 
 
+class PendingCheck(BaseModel):
+    """A check scheduled to run later (delaySeconds), persisted in status so it
+    survives operator restarts."""
+
+    deployment: str
+    fireAt: str
+    scheduledAt: str
+    oldImage: Optional[str] = None
+    newImage: Optional[str] = None
+
+
 class TriggeredHealthCheckStatus(BaseModel):
     """TriggeredHealthCheck CRD status."""
 
@@ -233,6 +249,7 @@ class TriggeredHealthCheckStatus(BaseModel):
     lastTriggerDeployment: Optional[str] = None
     triggerCount: int = 0
     cooldowns: List[TriggeredDeploymentCooldown] = Field(default_factory=list)
+    pending: List[PendingCheck] = Field(default_factory=list)
     history: List[TriggeredCheckHistoryEntry] = Field(default_factory=list)
     conditions: List[HealthCheckCondition] = Field(default_factory=list)
 

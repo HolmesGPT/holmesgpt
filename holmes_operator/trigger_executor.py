@@ -10,8 +10,8 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from kubernetes import client
@@ -158,6 +158,82 @@ def is_in_cooldown(status: dict, deployment: str, cooldown_seconds: int) -> bool
             last = last.replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - last).total_seconds() < cooldown_seconds
     return False
+
+
+def compute_fire_at(delay_seconds: int) -> str:
+    """ISO timestamp ``delay_seconds`` from now."""
+    return (datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)).isoformat()
+
+
+def due_pending(pending: List[dict]) -> List[dict]:
+    """Return the pending entries whose fireAt is now or in the past."""
+    now = datetime.now(timezone.utc)
+    due = []
+    for entry in pending:
+        raw = entry.get("fireAt")
+        if not raw:
+            continue
+        try:
+            fire_at = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if fire_at.tzinfo is None:
+            fire_at = fire_at.replace(tzinfo=timezone.utc)
+        if fire_at <= now:
+            due.append(entry)
+    return due
+
+
+async def add_pending(
+    api: client.CustomObjectsApi,
+    trigger_name: str,
+    namespace: str,
+    deployment: str,
+    fire_at: str,
+    old_image: str,
+    new_image: str,
+) -> None:
+    """Schedule a delayed check, debounced per Deployment (a newer rollout replaces
+    any still-pending entry for the same Deployment)."""
+
+    def modify_status(resource: dict) -> dict:
+        status = resource.get("status", {})
+        pending = [
+            p for p in status.get("pending", []) if p.get("deployment") != deployment
+        ]
+        pending.append(
+            {
+                "deployment": deployment,
+                "fireAt": fire_at,
+                "scheduledAt": get_current_time_iso(),
+                "oldImage": old_image,
+                "newImage": new_image,
+            }
+        )
+        return {"pending": pending}
+
+    await _patch_status_with_retry(api, trigger_name, namespace, modify_status)
+
+
+async def remove_pending(
+    api: client.CustomObjectsApi,
+    trigger_name: str,
+    namespace: str,
+    entries: List[dict],
+) -> None:
+    """Remove the given pending entries (matched by deployment + fireAt)."""
+    keys = {(e.get("deployment"), e.get("fireAt")) for e in entries}
+
+    def modify_status(resource: dict) -> dict:
+        status = resource.get("status", {})
+        pending = [
+            p
+            for p in status.get("pending", [])
+            if (p.get("deployment"), p.get("fireAt")) not in keys
+        ]
+        return {"pending": pending}
+
+    await _patch_status_with_retry(api, trigger_name, namespace, modify_status)
 
 
 def generate_check_name(trigger_name: str) -> str:
