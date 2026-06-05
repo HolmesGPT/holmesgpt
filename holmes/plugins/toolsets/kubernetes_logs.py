@@ -904,6 +904,8 @@ def build_first_match_context_block(
         + f"('{params.filter}')\n"
         + "These lines are NOT in the filtered view above. The event that triggered a\n"
         + "recurring error usually appears here, just before its first occurrence.\n"
+        + "When explaining the root cause, identify and report what CHANGED here\n"
+        + "(a config reload, deploy, or dependency change) that started the errors.\n"
         + "=" * 80
     )
     body = format_logs(window, display_container_name)
@@ -964,7 +966,8 @@ def build_earliest_logs_block(
         + f"({filtered_count_before_limit - params.limit:,} older lines were dropped by limit={params.limit})\n"
         + "Your 'limit' kept only the most recent lines; these earliest lines are shown\n"
         + "because the event that triggered a recurring error is usually at the START of\n"
-        + "the incident, not in the latest lines.\n"
+        + "the incident, not in the latest lines. When explaining the root cause, identify\n"
+        + "and report what CHANGED here (a config reload, deploy, or dependency change).\n"
         + "=" * 80
     )
     body = format_logs(earliest, display_container_name)
