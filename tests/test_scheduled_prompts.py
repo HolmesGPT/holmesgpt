@@ -628,7 +628,8 @@ class TestSinkDeliveryConditions:
         from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
 
         llm = MagicMock()
-        assert evaluate_sink_decisions(llm, "   ", "some analysis") == {}
+        out = evaluate_sink_decisions(llm, "   ", "some analysis")
+        assert out.decisions == {}
         # No conditions to evaluate -> must not even call the model.
         llm.completion.assert_not_called()
 
@@ -639,7 +640,9 @@ class TestSinkDeliveryConditions:
             {"send_to_slack": True, "send_to_email": False, "rationale": "not critical"}
         )
         out = evaluate_sink_decisions(llm, "email me only if critical", "all healthy")
-        assert out == {"slack": True, "email": False}
+        assert out.decisions == {"slack": True, "email": False}
+        assert out.rationale == "not critical"
+        assert out.suppressed() == ["email"]
         llm.completion.assert_called_once()
 
     def test_evaluate_returns_empty_on_llm_error(self):
@@ -647,8 +650,19 @@ class TestSinkDeliveryConditions:
 
         llm = MagicMock()
         llm.completion = MagicMock(side_effect=RuntimeError("boom"))
-        # Fail-safe: any error -> {} (reporter then delivers to all channels).
-        assert evaluate_sink_decisions(llm, "some prompt", "analysis") == {}
+        # Fail-safe: any error -> empty (reporter then delivers to all channels).
+        assert evaluate_sink_decisions(llm, "some prompt", "analysis").decisions == {}
+
+    def test_format_delivery_note(self):
+        from holmes.core.scheduled_prompts.sink_conditions import format_delivery_note
+
+        assert format_delivery_note([], "x") == ""
+        single = format_delivery_note(["email"], "no critical issues")
+        assert "not sent to email" in single
+        assert "no critical issues" in single
+        both = format_delivery_note(["slack", "email"], "")
+        assert "Slack and email" in both
+        assert "Reason:" not in both  # no rationale -> no reason line
 
     def test_execute_prompt_sets_sink_decisions(
         self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
@@ -663,9 +677,12 @@ class TestSinkDeliveryConditions:
         response = executor._execute_prompt(sp)
 
         assert response.sink_decisions == {"slack": True, "email": False}
+        # The suppressed channel is surfaced in the chat result.
+        assert "not sent to email" in response.analysis
         # The decision is persisted as part of the result payload.
         result_arg = mock_dal.finish_scheduled_prompt_run.call_args.kwargs["result"]
         assert result_arg["sink_decisions"] == {"slack": True, "email": False}
+        assert "not sent to email" in result_arg["analysis"]
 
     def test_execute_prompt_leaves_decisions_none_on_failure(
         self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload

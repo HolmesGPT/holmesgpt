@@ -26,7 +26,8 @@ Design notes:
 
 import json
 import logging
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 from holmes.core.llm import LLM
 
@@ -35,6 +36,30 @@ _FIELD_TO_SINK = {
     "send_to_slack": "slack",
     "send_to_email": "email",
 }
+
+# Human-readable label for each sink type, used in the delivery note.
+_SINK_LABELS = {
+    "slack": "Slack",
+    "email": "email",
+}
+
+
+@dataclass
+class SinkDecisions:
+    """Outcome of evaluating a scheduled prompt's delivery conditions.
+
+    ``decisions`` maps sink type ("slack"/"email") to whether it should be
+    delivered. ``rationale`` is the model's brief explanation, surfaced in the
+    chat result when a channel is suppressed. An empty ``decisions`` map means
+    "deliver to every configured channel" (the safe default).
+    """
+
+    decisions: Dict[str, bool] = field(default_factory=dict)
+    rationale: str = ""
+
+    def suppressed(self) -> List[str]:
+        """Sink types explicitly suppressed (decision is False)."""
+        return [sink for sink, send in self.decisions.items() if send is False]
 
 SINK_DECISION_RESPONSE_FORMAT = {
     "type": "json_schema",
@@ -107,17 +132,28 @@ def _coerce_decisions(content: str) -> Dict[str, bool]:
     return decisions
 
 
+def _coerce_rationale(content: str) -> str:
+    """Best-effort extraction of the model's rationale string."""
+    try:
+        parsed = json.loads(content or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if isinstance(parsed, dict) and isinstance(parsed.get("rationale"), str):
+        return parsed["rationale"].strip()
+    return ""
+
+
 def evaluate_sink_decisions(
     llm: LLM, prompt_text: str, analysis: str
-) -> Dict[str, bool]:
+) -> SinkDecisions:
     """Decide, per sink type, whether to deliver the report.
 
-    Returns a map like {"slack": True, "email": False}. Returns an empty map on
-    any failure or when there is nothing to evaluate, which the reporter treats
-    as "deliver to every configured channel" (the safe default).
+    Returns a :class:`SinkDecisions`. Empty decisions (on any failure or when
+    there is nothing to evaluate) tell the reporter to deliver to every
+    configured channel (the safe default).
     """
     if not prompt_text or not prompt_text.strip():
-        return {}
+        return SinkDecisions()
 
     user_content = (
         "Here is the user's scheduled-prompt request:\n"
@@ -139,10 +175,35 @@ def evaluate_sink_decisions(
             drop_params=True,
         )
         content = result.choices[0].message.content  # type: ignore[union-attr]
-        return _coerce_decisions(content)
+        return SinkDecisions(
+            decisions=_coerce_decisions(content),
+            rationale=_coerce_rationale(content),
+        )
     except Exception:
         logging.exception(
             "Failed to evaluate scheduled-prompt sink delivery conditions; "
             "defaulting to deliver to all configured channels"
         )
-        return {}
+        return SinkDecisions()
+
+
+def format_delivery_note(suppressed: List[str], rationale: str) -> str:
+    """Build a short, clearly-delimited note for channels that were withheld.
+
+    Phrased as the delivery *decision* (not actual transport) so it stays
+    accurate regardless of which channels the account has configured.
+    """
+    if not suppressed:
+        return ""
+    labels = [_SINK_LABELS.get(sink, sink) for sink in suppressed]
+    if len(labels) == 1:
+        targets = labels[0]
+    else:
+        targets = f"{', '.join(labels[:-1])} and {labels[-1]}"
+    note = (
+        f"\n\n---\n_Delivery note: based on the conditions in your prompt, "
+        f"this report was not sent to {targets}._"
+    )
+    if rationale:
+        note += f"\n_Reason: {rationale}_"
+    return note

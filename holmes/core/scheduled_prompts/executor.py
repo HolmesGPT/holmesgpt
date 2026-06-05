@@ -22,7 +22,10 @@ from holmes.core.scheduled_prompts.heartbeat_tracer import (
     ScheduledPromptsHeartbeatSpan,
 )
 from holmes.core.scheduled_prompts.models import ScheduledPrompt
-from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
+from holmes.core.scheduled_prompts.sink_conditions import (
+    evaluate_sink_decisions,
+    format_delivery_note,
+)
 from holmes.core.supabase_dal import RunStatus
 
 # to prevent circular imports due to type hints
@@ -235,15 +238,20 @@ class ScheduledPromptsExecutor:
 
         Sets ``response.sink_decisions`` to a {sink_type: bool} map (e.g.
         ``{"slack": True, "email": False}``) that the reporter uses to decide
-        which channels to deliver to. Any failure leaves ``sink_decisions`` as
+        which channels to deliver to. When a channel is suppressed, a short
+        delivery note is appended to ``response.analysis`` so the suppression is
+        visible in the chat result. Any failure leaves ``sink_decisions`` as
         None, which the reporter treats as "deliver to all configured channels".
         """
         try:
             prompt_text = self._extract_prompt_text(sp.prompt)
             llm = self.config._get_llm(model_key=sp.model_name)
-            decisions = evaluate_sink_decisions(llm, prompt_text, response.analysis)
-            if decisions:
-                response.sink_decisions = decisions
+            result = evaluate_sink_decisions(llm, prompt_text, response.analysis)
+            if result.decisions:
+                response.sink_decisions = result.decisions
+                note = format_delivery_note(result.suppressed(), result.rationale)
+                if note:
+                    response.analysis = (response.analysis or "") + note
         except Exception:
             logging.exception(
                 "Failed to evaluate sink delivery conditions for run %s; "
