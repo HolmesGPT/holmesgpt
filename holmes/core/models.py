@@ -353,3 +353,9 @@ class ChatResponse(BaseModel):
     follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None
+    # Per-notification-channel delivery decisions for scheduled prompts, keyed by
+    # sink type ("slack", "email"). A value of False asks the reporter (relay) to
+    # suppress delivery to that channel because the user's prompt specified a
+    # condition that was not met. Absent/None means "deliver everywhere" (the
+    # default), keeping all non-scheduled flows backwards-compatible.
+    sink_decisions: Optional[Dict[str, bool]] = None

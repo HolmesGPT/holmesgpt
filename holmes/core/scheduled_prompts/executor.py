@@ -22,6 +22,7 @@ from holmes.core.scheduled_prompts.heartbeat_tracer import (
     ScheduledPromptsHeartbeatSpan,
 )
 from holmes.core.scheduled_prompts.models import ScheduledPrompt
+from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
 from holmes.core.supabase_dal import RunStatus
 
 # to prevent circular imports due to type hints
@@ -217,6 +218,7 @@ class ScheduledPromptsExecutor:
         if isinstance(response, ChatResponse):
             response.metadata = dict(response.metadata or {})
             response.metadata["duration_seconds"] = duration_seconds
+            self._populate_sink_decisions(sp, response)
 
         result_data = (
             response.model_dump() if isinstance(response, ChatResponse) else {}
@@ -225,6 +227,29 @@ class ScheduledPromptsExecutor:
         self._finish_run(status=RunStatus.COMPLETED, result=result_data, sp=sp)
 
         return response
+
+    def _populate_sink_decisions(
+        self, sp: ScheduledPrompt, response: ChatResponse
+    ) -> None:
+        """Evaluate per-channel delivery conditions written in the user's prompt.
+
+        Sets ``response.sink_decisions`` to a {sink_type: bool} map (e.g.
+        ``{"slack": True, "email": False}``) that the reporter uses to decide
+        which channels to deliver to. Any failure leaves ``sink_decisions`` as
+        None, which the reporter treats as "deliver to all configured channels".
+        """
+        try:
+            prompt_text = self._extract_prompt_text(sp.prompt)
+            llm = self.config._get_llm(model_key=sp.model_name)
+            decisions = evaluate_sink_decisions(llm, prompt_text, response.analysis)
+            if decisions:
+                response.sink_decisions = decisions
+        except Exception:
+            logging.exception(
+                "Failed to evaluate sink delivery conditions for run %s; "
+                "defaulting to deliver to all configured channels",
+                sp.id,
+            )
 
     def _fetch_additional_system_prompt(
         self, fallback: Optional[str] = None

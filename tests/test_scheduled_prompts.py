@@ -582,3 +582,98 @@ class TestScheduledPromptModel:
         assert sp.scheduled_prompt_definition_id is None
         assert sp.msg is None
         assert sp.metadata is None
+
+
+class TestSinkDeliveryConditions:
+    """Tests for per-channel delivery conditions on scheduled prompts."""
+
+    def _completion_returning(self, payload):
+        """Build a mock LLM whose completion returns the given JSON payload."""
+        import json as _json
+
+        message = MagicMock()
+        message.content = _json.dumps(payload)
+        choice = MagicMock()
+        choice.message = message
+        result = MagicMock()
+        result.choices = [choice]
+        llm = MagicMock()
+        llm.completion = MagicMock(return_value=result)
+        return llm
+
+    def test_coerce_decisions_valid(self):
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
+
+        out = _coerce_decisions(
+            '{"send_to_slack": true, "send_to_email": false, "rationale": "x"}'
+        )
+        assert out == {"slack": True, "email": False}
+
+    def test_coerce_decisions_malformed_returns_empty(self):
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
+
+        assert _coerce_decisions("not json") == {}
+        assert _coerce_decisions("") == {}
+        assert _coerce_decisions("[1, 2, 3]") == {}
+
+    def test_coerce_decisions_ignores_non_bool(self):
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
+
+        # Non-bool fields are dropped, valid ones kept.
+        assert _coerce_decisions('{"send_to_slack": "yes", "send_to_email": true}') == {
+            "email": True
+        }
+
+    def test_evaluate_returns_empty_for_blank_prompt(self):
+        from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
+
+        llm = MagicMock()
+        assert evaluate_sink_decisions(llm, "   ", "some analysis") == {}
+        # No conditions to evaluate -> must not even call the model.
+        llm.completion.assert_not_called()
+
+    def test_evaluate_maps_structured_output(self):
+        from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
+
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "not critical"}
+        )
+        out = evaluate_sink_decisions(llm, "email me only if critical", "all healthy")
+        assert out == {"slack": True, "email": False}
+        llm.completion.assert_called_once()
+
+    def test_evaluate_returns_empty_on_llm_error(self):
+        from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
+
+        llm = MagicMock()
+        llm.completion = MagicMock(side_effect=RuntimeError("boom"))
+        # Fail-safe: any error -> {} (reporter then delivers to all channels).
+        assert evaluate_sink_decisions(llm, "some prompt", "analysis") == {}
+
+    def test_execute_prompt_sets_sink_decisions(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """A successful condition evaluation must be attached to the result."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "healthy"}
+        )
+        mock_config._get_llm = MagicMock(return_value=llm)
+
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        response = executor._execute_prompt(sp)
+
+        assert response.sink_decisions == {"slack": True, "email": False}
+        # The decision is persisted as part of the result payload.
+        result_arg = mock_dal.finish_scheduled_prompt_run.call_args.kwargs["result"]
+        assert result_arg["sink_decisions"] == {"slack": True, "email": False}
+
+    def test_execute_prompt_leaves_decisions_none_on_failure(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """If evaluation fails, sink_decisions stays None (deliver everywhere)."""
+        mock_config._get_llm = MagicMock(side_effect=RuntimeError("no llm"))
+
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        response = executor._execute_prompt(sp)
+
+        assert response.sink_decisions is None
