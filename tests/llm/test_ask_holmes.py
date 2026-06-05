@@ -153,6 +153,12 @@ def test_ask_holmes(
     suggested_memories = extract_suggested_memories(result.tool_calls)
     update_property(request, "suggested_memories", suggested_memories)
     update_property(request, "memories_count", len(suggested_memories))
+    primary_fetch_skill_count = sum(
+        1
+        for tc in (result.tool_calls or [])
+        if getattr(tc, "tool_name", "") == "fetch_skill"
+    )
+    update_property(request, "skills_read_count", primary_fetch_skill_count)
 
     scores = update_test_results(
         request=request,
@@ -320,15 +326,19 @@ def test_ask_holmes(
                 raise
 
         replay_tool_calls = replay_result.tool_calls or []
-        fetch_skill_called = any(
-            getattr(tc, "tool_name", "") == "fetch_skill" for tc in replay_tool_calls
+        replay_fetch_skill_count = sum(
+            1
+            for tc in replay_tool_calls
+            if getattr(tc, "tool_name", "") == "fetch_skill"
         )
+        fetch_skill_called = replay_fetch_skill_count > 0
         # Capture the full LLMResult stats for the replay so the GitHub
         # report can show side-by-side duration / tokens / cost vs the
         # original run.
         update_property(request, "replay_turns", replay_result.num_llm_calls)
         update_property(request, "replay_tool_calls_count", len(replay_tool_calls))
         update_property(request, "replay_skill_loaded", fetch_skill_called)
+        update_property(request, "replay_skills_read_count", replay_fetch_skill_count)
         update_property(request, "replay_skill_count", len(written))
         update_property(request, "replay_duration", replay_duration)
         for attr in (

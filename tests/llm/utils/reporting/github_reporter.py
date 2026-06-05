@@ -505,8 +505,8 @@ def generate_markdown_report(
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Memories | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions | Src |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Skill Generated | Skills Read | Compactions | Src |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
@@ -636,9 +636,13 @@ def generate_markdown_report(
         # SUGGEST_RUNBOOKS is always injected; the count is how many
         # env-specific corrections the LLM judged worth capturing this run.
         memories_count = result.get("memories_count", 0) or 0
-        memories_str = str(memories_count)
+        skill_generated_str = str(memories_count) if memories_count else "—"
+        # Count of fetch_skill calls the primary made (consulting any
+        # pre-loaded or builtin skills).
+        skills_read_count = result.get("skills_read_count", 0) or 0
+        skills_read_str = str(skills_read_count) if skills_read_count else "—"
 
-        markdown += f"| {primary_status_symbol} | {test_case_name} | {memories_str} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} | {source_str} |\n"
+        markdown += f"| {primary_status_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {skill_generated_str} | {skills_read_str} | {compactions_str} | {source_str} |\n"
 
         # If this test ran a closed-loop replay (rerun_with_memory: true and
         # a memory was actually captured), emit a second row labeled
@@ -661,7 +665,13 @@ def generate_markdown_report(
             else:
                 replay_status = ":x:"
             replay_name = f"{test_case_name} [replay]"
-            replay_mem_str = "skill ✓" if skill_loaded else "skill ✗"
+            # Replay never injects suggest_runbooks, so Skill Generated is
+            # always "—" on the replay row.
+            replay_skill_generated_str = "—"
+            r_skills_read_count = result.get("replay_skills_read_count", 0) or 0
+            replay_skills_read_str = (
+                str(r_skills_read_count) if r_skills_read_count else "—"
+            )
 
             r_duration = result.get("replay_duration")
             r_time_str = (
@@ -708,12 +718,13 @@ def generate_markdown_report(
 
             # Replay shares the parent row's Src link — same test_case.yaml.
             markdown += (
-                f"| {replay_status} | {replay_name} | {replay_mem_str} | "
+                f"| {replay_status} | {replay_name} | "
                 f"{r_time_str} | {r_turns_str} | {r_tools_str} | {r_cost_str} | "
                 f"{r_total_tokens_str} | {r_input_str} | {r_max_prompt_str} | "
                 f"{r_output_str} | {r_max_completion_str} | {r_cached_str} | "
-                f"{r_non_cached_str} | {r_reasoning_str} | {r_compactions_str} | "
-                f"{source_str} |\n"
+                f"{r_non_cached_str} | {r_reasoning_str} | "
+                f"{replay_skill_generated_str} | {replay_skills_read_str} | "
+                f"{r_compactions_str} | {source_str} |\n"
             )
 
     # Add summary row
@@ -730,13 +741,22 @@ def generate_markdown_report(
     max_completion_max_str = _fmt_tokens(max_completion_per_call_max)
     max_prompt_max_str = _fmt_tokens(max_prompt_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
-    # Total memories captured across all rows (SUGGEST_RUNBOOKS is always
-    # injected, so any row may emit memories).
-    total_memories_sum = sum(
+    # Skills generated/read totals across primary + replay rows.
+    total_skill_generated = sum(
         (r.get("memories_count") or 0) for r in sorted_results
     )
-    memories_total_str = f"**{total_memories_sum}**" if total_memories_sum else "—"
-    markdown += f"| | **Total** | {memories_total_str} | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** | |\n"
+    skill_generated_total_str = (
+        f"**{total_skill_generated}**" if total_skill_generated else "—"
+    )
+    total_skills_read = sum(
+        (r.get("skills_read_count") or 0)
+        + (r.get("replay_skills_read_count") or 0)
+        for r in sorted_results
+    )
+    skills_read_total_str = (
+        f"**{total_skills_read}**" if total_skills_read else "—"
+    )
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | {skill_generated_total_str} | {skills_read_total_str} | **{total_compactions_str}** | |\n"
 
     # Skills mechanism net-win summary. Aggregates the rows where a memory
     # was emitted and (when applicable) replayed, so the bottom-line
