@@ -70,19 +70,19 @@ before_test: |
   BULK_DATA=""
   for i in $(seq 1 6); do
     TS=$(printf '2026-06-03T08:00:%02dZ' "$i")
-    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":5,\"svc\":\"order-264\",\"msg\":\"DB timeout $i\",\"@timestamp\":\"${TS}\"}\n"
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":5,\"svc\":\"order-264\",\"msg\":\"[ERROR] DB timeout $i\",\"@timestamp\":\"${TS}\"}\n"
   done
   for i in $(seq 1 2); do
     TS=$(printf '2026-06-03T08:01:%02dZ' "$i")
-    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":6,\"svc\":\"order-264\",\"msg\":\"Disk full $i\",\"@timestamp\":\"${TS}\"}\n"
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":6,\"svc\":\"order-264\",\"msg\":\"[FATAL] Disk full $i\",\"@timestamp\":\"${TS}\"}\n"
   done
   for i in $(seq 1 5); do
     TS=$(printf '2026-06-03T08:02:%02dZ' "$i")
-    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":4,\"svc\":\"order-264\",\"msg\":\"Slow query $i\",\"@timestamp\":\"${TS}\"}\n"
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":4,\"svc\":\"order-264\",\"msg\":\"[WARN] Slow query $i\",\"@timestamp\":\"${TS}\"}\n"
   done
   for i in $(seq 1 10); do
     TS=$(printf '2026-06-03T08:03:%02dZ' "$i")
-    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":3,\"svc\":\"order-264\",\"msg\":\"Order placed $i\",\"@timestamp\":\"${TS}\"}\n"
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":3,\"svc\":\"order-264\",\"msg\":\"[INFO] Order placed $i\",\"@timestamp\":\"${TS}\"}\n"
   done
 
   BULK_RESPONSE=$(echo -e "$BULK_DATA" | curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \

@@ -503,10 +503,23 @@ def write_memories_as_skill_files(
             if t:
                 seen_titles.add(t)
 
+        # Rule-based description: aggressively imperative + broad trigger
+        # set + explicit pushback on the speculative-fetch gate the base
+        # prompt enforces ("only fetch skills that clearly match"). The
+        # agent on replay won't know it's about to make a wrong call, so
+        # framing this as a pre-flight optimization doesn't work — frame
+        # it instead as "any touch of {domain} is a clear match".
         description = (
-            f"Known schema and query quirks for this team's {domain} "
-            f"in this environment — fetch BEFORE issuing the first query "
-            f"against {domain} to skip wrong-call recovery."
+            f"MANDATORY pre-read for ANY investigation that will touch "
+            f"{domain}. Fetch this skill BEFORE your first {domain} tool "
+            f"call — applies to every search, count, filter, aggregation, "
+            f"schema/mapping inspection, label/series listing, log query, "
+            f"metric query, or trace query against {domain} in this "
+            f"environment. This team's {domain} uses non-default field "
+            f"names, indices, labels, or routing conventions; entries below "
+            f"list each quirk so your first call lands right instead of "
+            f"empty. Any user question that will touch {domain} is a clear "
+            f"match for this skill — fetch it, do not skip."
         )
 
         body_parts: List[str] = [

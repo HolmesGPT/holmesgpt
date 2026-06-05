@@ -454,9 +454,19 @@ def ask_holmes(
                 pytest.skip("CLI mode does not support conversation history tests")
             else:
                 if test_case.skills is None:
-                    # Load skills from the test fixture directory
+                    # Load skills from the test fixture directory AND any
+                    # extra paths the harness injected (e.g. the replay
+                    # tempdir holding a captured-memory SKILL.md). Without
+                    # the extra paths the replay agent never sees the
+                    # description block in the prompt's Skill Catalog
+                    # section — only the bare name in fetch_skill's
+                    # parameter list — so it has no signal that the
+                    # captured skill is relevant.
                     skills = load_skill_catalog(
-                        custom_skill_paths=[test_case.folder]
+                        custom_skill_paths=[
+                            test_case.folder,
+                            *(additional_skill_paths or []),
+                        ]
                     )
                 elif test_case.skills == {}:
                     skills = None
