@@ -118,19 +118,19 @@ WHITELISTED_ENDPOINTS = [
     # Logs
     (
         r"^/api/v1/logs/config/indexes$",
-        "When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset",
+        "When available, prefer using fetch_datadog_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset",
     ),
     (
         r"^/api/v2/logs/events$",
-        "When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. Use RFC3339 timestamps (e.g., '2024-01-01T00:00:00Z')",
+        "When available, prefer using fetch_datadog_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. Use RFC3339 timestamps (e.g., '2024-01-01T00:00:00Z')",
     ),
     (
         r"^/api/v2/logs/events/search$",
-        'When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. RFC3339 time format. Example: {"filter": {"from": "2024-01-01T00:00:00Z", "to": "2024-01-02T00:00:00Z", "query": "*"}}',
+        'When available, prefer using fetch_datadog_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. RFC3339 time format. Example: {"filter": {"from": "2024-01-01T00:00:00Z", "to": "2024-01-02T00:00:00Z", "query": "*"}}',
     ),
     (
         r"^/api/v2/logs/analytics/aggregate$",
-        "When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. Do not include 'sort' parameter",
+        "When available, prefer using fetch_datadog_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. Do not include 'sort' parameter",
     ),
     # Metrics
     (
