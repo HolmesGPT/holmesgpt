@@ -36,11 +36,14 @@ DISPATCH_AGENT_TOOL_NAME = "dispatch_agent"
 # Default cap on subagent agentic-loop iterations. Subagents are intended to be
 # narrowly scoped, so we cap them well below the parent's typical max_steps.
 # Lower cap forces the child to converge on a single answer instead of doing
-# its own multi-step investigation that duplicates parent reasoning. iter13:
-# 3 turns is enough for the patterns we want (fetch + slice + answer);
-# anything beyond is usually drift, and iter7 evidence showed extra turns
-# often produced "NOT FOUND" hallucinations rather than useful exploration.
-DEFAULT_SUBAGENT_MAX_STEPS = 3
+# its own multi-step investigation that duplicates parent reasoning.
+#
+# Sized for recovery from one tool-format quirk: 1 search → empty → 1 mapping
+# lookup → 1 retry → 1 follow-up → 1 final answer. iter 1A evidence showed 3
+# steps was insufficient: subagent hit an ES sort-array format quirk on the
+# first call, ran out of steps before it could see the mapping and retry,
+# returned empty, and the parent had to redo the work — net regression.
+DEFAULT_SUBAGENT_MAX_STEPS = 5
 
 # Meta-tools the subagent should never see. TodoWrite plans multi-step
 # investigations; fetch_skill loads investigation playbooks; both are overhead
@@ -98,34 +101,53 @@ def _build_subagent_llm(parent_llm: Any) -> Any:
 SUBAGENT_SYSTEM_PROMPT = (
     "You are a sub-agent. Use the fewest tool calls possible to answer. "
     "Make at least one tool call before concluding NOT FOUND — never "
-    "guess from training data. Final answer: at most 2 short lines, raw "
-    "facts only (no preamble, no narration, no \"based on...\", no "
-    "caveats). Quote IDs, field names, and counts verbatim. If the "
-    "answer truly is not in the data after a tool call, return exactly: "
-    "NOT FOUND"
+    "guess from training data. "
+    "For Elasticsearch/OpenSearch searches that fetch documents, use the "
+    "source parameter to include only fields you need to answer the "
+    "question — exclude bulky fields like http.request.body, "
+    "http.response.body, error.stack_trace. This keeps your own context "
+    "small. "
+    "For log queries (Loki, Coralogix), pass tight time windows and use "
+    "label filters to narrow the result set before scanning. "
+    "Final answer: at most 2 short lines, raw facts only (no preamble, "
+    "no narration, no \"based on...\", no caveats). Quote IDs, field "
+    "names, and counts verbatim. If you applied source filtering or "
+    "narrow label filters, say so on a second line (one short sentence). "
+    "If the answer truly is not in the data after a tool call, return "
+    "exactly: NOT FOUND"
 )
 
 
 class DispatchAgentTool(Tool):
     name: str = DISPATCH_AGENT_TOOL_NAME
     description: str = (
-        "Launch a sub-agent in isolated context for ONE narrow lookup that "
-        "would otherwise pull >5k tokens of mostly-irrelevant data into your "
-        "context. You only see the 1-3 line answer.\n\n"
+        "Launch a sub-agent in isolated context to extract a small answer "
+        "from a tool call whose raw output would otherwise be >5k tokens. "
+        "You only see the 1-3 line answer.\n\n"
+        "USE THIS WHEN:\n"
+        "  • Searching log lines, traces, or ES/OpenSearch documents where "
+        "the response body is likely >5k tokens of mostly-irrelevant data "
+        "(e.g. a full trace document, a log window with hundreds of lines, "
+        "a wide search hit with embedded stack traces or HTTP payloads).\n"
+        "  • You need to derive an ID, count, or short summary from such "
+        "data — NOT to inspect raw fields one-by-one.\n"
+        "  • Investigation involves a follow-up step after the lookup: "
+        "the noisy payload would otherwise ride along in your context.\n\n"
         "RULES:\n"
         "  • Each prompt must be self-contained and end with a literal "
         'output spec, e.g. "Return only X. Nothing else."\n'
         "  • To cover many similar sources, dispatch ONCE with a wildcard "
         "tool call inside it — never fan out one dispatch per source.\n"
         "  • Do NOT dispatch when one direct tool call already gives a "
-        "small result.\n\n"
+        "small result (e.g. cluster_health, list_indices, get_mapping).\n\n"
         "GOOD prompts:\n"
-        '  - "Call elasticsearch_get_mapping on index app-X-*. Return only '
-        'the field count per index. Format: index=N, one per line."\n'
-        '  - "Search index foo-* for trace_id=ABC123. Return only the '
-        'service name and error code. Nothing else."\n'
-        '  - "Get mapping for app-Y-telemetry and return the exact field '
-        'name(s) containing \'transaction\'. One per line."'
+        '  - "Search index app-X-apm-traces for trace_id=TRACE-ABC. Return '
+        'ONLY service name, error code, user_id, and timestamp. Nothing else."\n'
+        '  - "Query Loki {namespace=\\"foo\\",level=\\"ERROR\\"} between '
+        'T1 and T2. Return the count of distinct user_id values and the '
+        'top error message. Nothing else."\n'
+        '  - "Call elasticsearch_get_mapping on app-X-*. Return only the '
+        'field count per index. Format: index=N, one per line."'
     )
     parameters: Dict[str, ToolParameter] = {
         "task_description": ToolParameter(

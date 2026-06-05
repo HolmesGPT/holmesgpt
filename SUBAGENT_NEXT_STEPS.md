@@ -80,6 +80,72 @@ re-run 272 alone, compare against iter 0's $0.5677.
 
 Either way we converge on a working solution within 2 more iterations.
 
+### Iter 1A result: $0.7680 on 272 (regression +35% vs iter 0)
+
+| Run | Cost | Δ vs iter 0 | dispatch_agent calls |
+|-----|------|-------------|----------------------|
+| baseline (subagent_off) | $0.5974 | — | 0 |
+| iter 0 (weak desc) | $0.5677 | — | 0 |
+| iter 1A (sharp desc) | **$0.7680** | **+35.3%** | 1 |
+
+**What happened**: The sharpened description DID make Opus dispatch — log
+shows `[subagent] dispatching 'Find trace details'` on tool #3. But the
+subagent hit an Elasticsearch sort-array format quirk (passed `sort: null`
+in initial search), got 0-char responses on calls #1-2, then hit
+`max_steps=3` limit and returned empty. The parent then redid the whole
+search itself (tools #6-8 culminating in tool #8 = 63,320 chars) — paying
+twice.
+
+**Root cause**: max_steps=3 is too tight for a subagent that needs to
+recover from one tool-format mistake (search → empty → mapping →
+corrected-search → answer).
+
+### Iter 1B plan
+
+Keep the sharper description (proven to make Opus dispatch). Bump
+`DEFAULT_SUBAGENT_MAX_STEPS` from 3 → 5. Re-run 272.
+
+- If 272 drops to ≤$0.40 → great, expand to all 5 evals.
+- If 272 still ≥ baseline → revert description; the subagent isn't
+  the right shape for this workload. Move to Option C scoped.
+
+### Iter 1C results (full 5-eval matrix, N=1)
+
+Config: sharp description + max_steps=5 + subagent system prompt
+mentioning source filtering and tight Loki time windows.
+
+| Eval | Off | Iter 0 (On) | Iter 1C | vs Off | 30% bar? |
+|------|-----|-------------|---------|--------|----------|
+| 260  | $0.2891 | $0.2448 | $0.3177 | +9.9% | ❌ regression |
+| 261  | $0.6989 | $0.6055 | $0.4023 | −42.4% | ✅ |
+| 271  | $0.3681 | $0.2876 | $0.2899 | −21.2% | ❌ near |
+| 272  | $0.5974 | $0.5677 | $0.6187 | +3.6% | ❌ regression |
+| 273  | $0.5250 | $0.6266 | $0.5009 | −4.6% | ❌ |
+| **Total** | **$2.4785** | **$2.3322** | **$2.1295** | **−14.1%** | **1/5** |
+
+- All 5 PASS accuracy.
+- Only 261 hits the 30% bar (−42%, likely partly noise).
+- Aggregate −14% but spread is wide: ±20% per eval = N=1 noise floor.
+- 0 dispatches observed across the batch. The sharpened description
+  did not trigger dispatch on these runs; Opus continues to choose
+  direct tool calls. The longer description is now pure prompt
+  overhead in those cases — adds ~$0.07-0.10/eval that's NOT
+  amortised by an actual dispatch.
+
+Conclusion: prompt-only changes can't reliably trigger dispatch on
+Opus 4.6. The mean-decision tax is too high. Need to make dispatch
+the *only* path — i.e. Option C (toolset surgery).
+
+## Iter 2 plan: Option C scoped
+
+Hide `elasticsearch_search` and `grafana_loki_query_range` from the
+parent's tool registry when `subagents_enabled=True`. Subagent retains
+them (uses base executor). Parent's only path to log/trace search is
+via `dispatch_agent`. Removes Opus's meta-decision entirely.
+
+3-line change in `tool_calling_llm.py` — chain `clone_without_tools`
+after `clone_with_extra_tools`. Re-run all 5 evals.
+
 ## Theory recap
 
 Prior measurement (`SUBAGENT_EVAL_FINDINGS.md`) showed 0/5 of the original
