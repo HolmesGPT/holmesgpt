@@ -790,6 +790,20 @@ class Toolset(BaseModel):
             setattr(self, field, value)
 
     @model_validator(mode="before")
+    def warn_on_removed_restricted_tools(cls, values):
+        # Backwards compatibility: the restricted_tools mechanism was removed.
+        # Ignore the deprecated key (rather than hard-failing old configs) and
+        # warn so users migrate to approval_required_tools.
+        if isinstance(values, dict) and "restricted_tools" in values:
+            values.pop("restricted_tools", None)
+            logging.warning(
+                "Config field 'restricted_tools' has been removed and is now "
+                "ignored. Tool approval is controlled solely by "
+                "'approval_required_tools'."
+            )
+        return values
+
+    @model_validator(mode="before")
     def preprocess_tools(cls, values):
         transformers = values.get("transformers", None)
         tools_data = values.get("tools", [])

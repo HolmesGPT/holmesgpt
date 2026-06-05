@@ -95,3 +95,19 @@ def test_session_approval_suppresses_reprompt():
         {}, _context(APPROVAL_TOOL, user_approved=True)
     )
     assert result.status == StructuredToolResultStatus.SUCCESS
+
+
+def test_deprecated_restricted_tools_is_ignored_with_warning(caplog):
+    """Old configs carrying the removed restricted_tools key load without error."""
+    from holmes.core.tools import ToolsetYamlFromConfig
+
+    with caplog.at_level("WARNING"):
+        ts = ToolsetYamlFromConfig(
+            name="kubernetes_remediation",
+            restricted_tools=["*"],
+            approval_required_tools=[APPROVAL_TOOL],
+        )
+
+    assert not hasattr(ts, "restricted_tools")
+    assert ts.approval_required_tools == [APPROVAL_TOOL]
+    assert any("restricted_tools" in r.message for r in caplog.records)
