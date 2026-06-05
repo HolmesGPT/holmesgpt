@@ -77,6 +77,16 @@ expected_skill_count: 1
 # merged file contains both the original and the newly-emitted quirk).
 pre_loaded_skills_path: ./prior_quirks
 
+# The value this eval verifies is the MERGE: a new emission joining a
+# pre-loaded domain skill into one file rather than creating a parallel
+# one. That's already proven by `expected_skill_count: 1` on the
+# primary. The replay's job is to score correctness against the merged
+# skill's contents — whether the agent chooses to call fetch_skill or
+# (re)discover the same quirks via mapping inspection is a separate
+# concern (tested in 261/262/264/265/268). On a 2-index question
+# mapping inspection is cheap, so we don't force fetch_skill here.
+require_skill_load_on_replay: false
+
 tags:
   - elasticsearch
   - question-answer

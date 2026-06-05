@@ -381,7 +381,8 @@ def test_ask_holmes(
         # Hard assertions: the agent must have fetched the skill (so we
         # know the memory was actually consulted) and the answer must
         # still be correct.
-        assert fetch_skill_called, (
+        require_load = getattr(test_case, "require_skill_load_on_replay", True)
+        assert (not require_load) or fetch_skill_called, (
             f"Test {test_case.id} replay: the LLM did NOT call fetch_skill, "
             f"so the captured memory was ignored. Either the skill name "
             f"description wasn't relevant enough, or the agent isn't using "

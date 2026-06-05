@@ -181,6 +181,16 @@ class HolmesTestCase(BaseModel):
     # under a single `skill_domain` (and thus consolidated into 1 file)
     # rather than inventing N different domains. None disables the check.
     expected_skill_count: Optional[int] = None
+    # Controls whether the closed-loop replay strictly requires the agent
+    # to call `fetch_skill`. True (default) is right for evals where the
+    # captured skill is supposed to short-circuit recovery — if the agent
+    # ignores the skill, the eval fails. False is for evals like the
+    # update-existing-skill case where the value being tested is the
+    # *merge* of the new emission into the pre-loaded skill, not the
+    # agent's choice to consume it on replay. When False, the replay is
+    # still scored on correctness; only the skill-load assertion is
+    # relaxed.
+    require_skill_load_on_replay: bool = True
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):
