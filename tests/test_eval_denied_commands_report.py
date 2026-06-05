@@ -175,3 +175,52 @@ def test_report_includes_denied_commands_column():
         assert row.count("|") == header.count("|")
     total_row = next(row for row in body if "**Total**" in row)
     assert "**2**" in total_row
+
+    # A warning line above the table announces the total denied bash command count.
+    assert "**Warning:** this eval run contains 2 denied bash commands." in markdown
+    warning_idx = markdown.index("denied bash commands.")
+    table_idx = markdown.index("| Status | Test case |")
+    assert warning_idx < table_idx, "warning must appear above the table"
+
+
+def test_report_warning_omitted_when_no_denied_commands():
+    results = [
+        {
+            "test_type": "ask",
+            "test_case_name": "01_how_many_pods",
+            "status": "passed",
+            "outcome": "passed",
+            "actual_correctness_score": 1.0,
+            "expected_correctness_score": 1.0,
+            "holmes_duration": 1.0,
+            "num_llm_calls": 1,
+            "tool_call_count": 1,
+            "denied_commands": [],
+        },
+    ]
+
+    markdown, _, _ = generate_markdown_report(results, include_historical=False)
+
+    assert "denied bash command" not in markdown
+
+
+def test_report_warning_singular_phrasing():
+    results = [
+        {
+            "test_type": "ask",
+            "test_case_name": "260_bash_denied_command",
+            "status": "passed",
+            "outcome": "passed",
+            "actual_correctness_score": 1.0,
+            "expected_correctness_score": 1.0,
+            "holmes_duration": 1.0,
+            "num_llm_calls": 1,
+            "tool_call_count": 1,
+            "denied_commands": ["ps aux"],
+        },
+    ]
+
+    markdown, _, _ = generate_markdown_report(results, include_historical=False)
+
+    assert "this eval run contains 1 denied bash command." in markdown
+    assert "1 denied bash commands." not in markdown

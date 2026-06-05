@@ -456,6 +456,17 @@ def generate_markdown_report(
         if ask_holmes_mock_failures > 0:
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
+
+    # Warn (above the table) when the run attempted bash commands that were denied
+    # by the eval's allow/deny list. These are listed in the "Denied commands" column.
+    denied_total = sum(len(r.get("denied_commands") or []) for r in sorted_results)
+    if denied_total > 0:
+        plural = "s" if denied_total != 1 else ""
+        markdown += (
+            f"\n> ⚠️ **Warning:** this eval run contains {denied_total} denied "
+            f"bash command{plural}.\n"
+        )
+
     # Generate detailed table
     markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions | Denied commands | Src |\n"
     markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
