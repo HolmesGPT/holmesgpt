@@ -65,12 +65,23 @@ before_test: |
       --data-urlencode 'limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
     if [ "$ERROR_COUNT" -gt "0" ]; then
       echo "Incident logs ready"
-      exit 0
+      break
     fi
     sleep 1
   done
-  echo "ERROR: no ERROR logs in Loki after push"
-  exit 1
+  if [ "$ERROR_COUNT" = "0" ]; then
+    echo "ERROR: no ERROR logs in Loki after push"
+    exit 1
+  fi
+
+  # Verify the data actually contains 17 distinct user_id values in the
+  # incident window — otherwise the eval's expected count is unreliable.
+  DISTINCT_USERS=$(curl -sG "http://localhost:$PORT/loki/api/v1/query_range" --data-urlencode 'query={namespace="app-273",level="ERROR"}' --data-urlencode 'start=2025-08-02T13:45:00Z' --data-urlencode 'end=2025-08-02T14:45:00Z' --data-urlencode 'limit=5000' 2>/dev/null | python3 -c 'import sys,json,re; d=json.load(sys.stdin); users=set(); [users.add(re.search(r"\"user_id\":\s*\"([^\"]+)\"", line).group(1)) for s in d.get("data",{}).get("result",[]) for _,line in s.get("values",[]) if re.search(r"\"user_id\":\s*\"([^\"]+)\"", line)]; print(len(users))' 2>/dev/null || echo "0")
+  if [ "$DISTINCT_USERS" != "17" ]; then
+    echo "ERROR: expected 17 distinct user_ids in incident window, found $DISTINCT_USERS"
+    exit 1
+  fi
+  echo "Setup verified: $DISTINCT_USERS distinct affected users"
 
 after_test: |
   docker rm -f holmes-eval-loki-273 >/dev/null 2>&1 || true

@@ -188,6 +188,15 @@ User to choose which package to build next:
   Haiku-as-subagent still help when parent isn't Anthropic? Cross-provider
   prompt caching is messy. Probably yes if subagent provider matches
   subagent model.
+
+## Sandbox notes
+
+- For local opus runs through OpenRouter, the litellm pricing key is
+  `openrouter/anthropic/claude-opus-4.6` (dots, not dashes; `openrouter/`
+  prefix, not `openai/`). Using `openai/anthropic/claude-opus-4.6` silently
+  loses cost tracking ("Total Cost: —" in the eval report). The classifier
+  (gpt-4.1) still needs the `openai/` prefix with explicit `api_base` so the
+  raw OpenAI SDK that autoevals uses can call OpenRouter.
 - Anthropic prompt cache TTL is 5 min standard / 1 hr extended. For
   Option D, do we explicitly use the 1-hour TTL? Adds cost on cache
   write but extends the session lifetime benefit.

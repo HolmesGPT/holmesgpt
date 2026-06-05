@@ -83,6 +83,18 @@ def generate(loki_url):
             json.dumps({"level": level, "message": message, "service": SERVICE, "pod": POD_NAME, **extra}),
         ])
 
+    # Deterministically schedule one ERROR per affected_user inside the
+    # problem window so the count of DISTINCT users in expected_output is
+    # reliable. Without this, random.choice() over a 1-hour window only
+    # collects ~7 of the 17 users on average (coupon-collector problem),
+    # and the eval is flaky.
+    incident_minutes = int((problem_end - problem_start).total_seconds() // 60)
+    step = max(1, incident_minutes // len(affected_users))
+    forced_errors = {
+        problem_start + timedelta(minutes=i * step): user
+        for i, user in enumerate(affected_users)
+    }
+
     current = scenario_start
     while current < scenario_end:
         # Normal background payment success traffic
@@ -115,6 +127,20 @@ def generate(loki_url):
         if pending >= BATCH_SIZE:
             push(loki_url, streams_by_level)
             streams_by_level = {}
+
+    # Guarantee every affected user has at least one ERROR in the incident
+    # window (one per ~step minutes). Adds 17 deterministic errors on top of
+    # the random ones above so DISTINCT users = 17 every run.
+    for t, user in forced_errors.items():
+        add(
+            t,
+            "ERROR",
+            "Failed to acquire database connection - pool exhausted",
+            wait_time_ms=random.randint(1000, 5000),
+            queue_length=random.randint(5, 15),
+            user_id=user,
+        )
+        total += 1
 
     push(loki_url, streams_by_level)
     print(f"Pushed {total} log entries; expected 17 distinct affected users in incident window")
