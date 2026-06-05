@@ -723,7 +723,11 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                     required=False,
                 ),
                 "size": ToolParameter(
-                    description="Maximum number of documents to return (default: 100, max recommended: 500)",
+                    description=(
+                        "Maximum number of documents to return (default: 100). "
+                        "No enforced upper limit - large values can return very large "
+                        "responses, so keep this small and narrow results with filters/aggregations."
+                    ),
                     type="integer",
                     required=False,
                 ),
