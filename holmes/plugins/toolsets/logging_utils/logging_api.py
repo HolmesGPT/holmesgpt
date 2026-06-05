@@ -169,7 +169,8 @@ Examples of useful filters:
 - For specific HTTP errors: filter='5[0-9]{2}|404|403'
 - For Java exceptions: filter='Exception|Error|Throwable|StackTrace'
 - For timeouts: filter='timeout|timed out|deadline exceeded'
-If you get no results with a filter, try a broader pattern or drop the filter.""",
+If you get no results with a filter, try a broader pattern or drop the filter.
+IMPORTANT for root-cause analysis: a filter only returns lines that match it, hiding the surrounding context. The event that TRIGGERED a recurring error (e.g. a config reload, a deploy, a dependency change) usually does NOT contain the error keyword, so it is filtered out. Once you have located the FIRST matching error, re-fetch the logs WITHOUT a filter (optionally with start_time/end_time bracketing that first occurrence) to read the unfiltered lines immediately before it - that is where the cause is typically found.""",
                 type="string",
                 required=False,
             ),
