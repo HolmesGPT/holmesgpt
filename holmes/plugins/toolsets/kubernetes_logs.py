@@ -208,7 +208,22 @@ class KubernetesLogsToolset(Toolset):
             # the data self-sufficient (independent of how the model reasons),
             # automatically surface the unfiltered lines surrounding the FIRST
             # match - this is where the root cause is typically found.
-            context_block = None  # PROXY-TEST: structural help disabled to simulate an uncontrolled MCP log tool
+            context_block = build_first_match_context_block(
+                all_logs=all_logs,
+                params=params,
+                display_container_name=has_multiple_containers,
+                match_count=filtered_count_before_limit,
+            )
+            # A `limit` keeps only the most recent lines, dropping the start of the
+            # incident. When that happens (and no filter already anchors on the first
+            # occurrence), surface the earliest lines so the trigger stays visible.
+            if not context_block:
+                context_block = build_earliest_logs_block(
+                    all_logs=all_logs,
+                    params=params,
+                    display_container_name=has_multiple_containers,
+                    filtered_count_before_limit=filtered_count_before_limit,
+                )
 
             # Put metadata at the end
             response_data = formatted_logs + "\n" + "\n".join(metadata_lines)
