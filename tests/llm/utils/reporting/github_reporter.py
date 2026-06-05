@@ -87,11 +87,11 @@ def _calc_diff_pct(current: Optional[float], baseline: Optional[float]) -> Optio
 
 def _generate_skills_summary(rows: List[Dict[str, Any]]) -> str:
     """Aggregate primary→replay cost/token deltas across rows that emitted a
-    memory and ran a replay. The bottom-line "is this feature paying for
-    itself" answer.
+    memory and ran a replay.
 
-    Negative deltas mean the replay was cheaper than the primary — i.e. the
-    captured skill let the second run skip the wrong-call recovery.
+    Output is the raw counts and the mean delta only — no interpretation,
+    wrapped in a collapsed `<details>` block so it doesn't dominate the
+    report.
     """
     emitted_rows = [r for r in rows if (r.get("memories_count") or 0) > 0]
     replay_rows = [r for r in rows if r.get("replay_attempted")]
@@ -125,22 +125,20 @@ def _generate_skills_summary(rows: List[Dict[str, Any]]) -> str:
 
     lines = [
         "",
-        "**Skills mechanism — net win summary**",
+        "<details>",
+        "<summary>Skills mechanism stats</summary>",
         "",
-        f"- **{len(emitted_rows)}** eval(s) emitted at least one memory",
-        f"- **{len(replay_rows)}** replay(s) attempted "
-        f"(`rerun_with_memory: true` + memory captured)",
-        f"- **{len(skill_loaded_rows)}/{len(replay_rows)}** replay(s) where the "
-        f"agent loaded the captured skill",
-        f"- **{len(replay_correct_rows)}/{len(replay_rows)}** replay(s) still "
-        f"answered correctly",
-        f"- **Mean replay vs primary delta (per-row average): "
-        f"{_avg_delta(cost_deltas)} cost, {_avg_delta(token_deltas)} tokens** "
+        f"- Evals that emitted at least one memory: **{len(emitted_rows)}**",
+        f"- Replays attempted: **{len(replay_rows)}**",
+        f"- Replays where the agent loaded the captured skill: "
+        f"**{len(skill_loaded_rows)}/{len(replay_rows)}**",
+        f"- Replays that answered correctly: "
+        f"**{len(replay_correct_rows)}/{len(replay_rows)}**",
+        f"- Mean replay vs primary delta (per-row average): "
+        f"{_avg_delta(cost_deltas)} cost, {_avg_delta(token_deltas)} tokens "
         f"(n={len(cost_deltas)})",
         "",
-        "_Negative delta = replay was cheaper, i.e. the captured skill skipped "
-        "the wrong-call recovery. Regression-set baseline vs master is in the "
-        "comparison details below._",
+        "</details>",
         "",
     ]
     return "\n".join(lines)
