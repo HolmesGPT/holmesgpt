@@ -138,13 +138,65 @@ the *only* path — i.e. Option C (toolset surgery).
 
 ## Iter 2 plan: Option C scoped
 
-Hide `elasticsearch_search` and `grafana_loki_query_range` from the
-parent's tool registry when `subagents_enabled=True`. Subagent retains
-them (uses base executor). Parent's only path to log/trace search is
-via `dispatch_agent`. Removes Opus's meta-decision entirely.
+Hide `elasticsearch_search` and `grafana_loki_query` from the parent's
+tool registry when `subagents_enabled=True`. Subagent retains them
+(uses base executor). Parent's only path to log/trace search is via
+`dispatch_agent`. Removes Opus's meta-decision entirely.
 
 3-line change in `tool_calling_llm.py` — chain `clone_without_tools`
 after `clone_with_extra_tools`. Re-run all 5 evals.
+
+### Iter 2 result: catastrophic regression, reverted
+
+| Eval | Off | Iter 1C | Iter 2 (C) | vs Off |
+|------|-----|---------|------------|--------|
+| 260  | $0.2891 | $0.3177 | $0.4673 | **+62%** |
+| 261  | $0.6989 | $0.4023 | $1.2310 | **+76%** |
+| 271  | $0.3681 | $0.2899 | $0.6621 | **+80%** |
+| 272  | $0.5974 | $0.6187 | $0.6850 | +15% |
+| 273  | $0.5250 | $0.5009 | $1.0206 | **+94%** |
+| **Total** | **$2.4785** | **$2.1295** | **$4.0660** | **+64%** |
+
+All 5 PASS accuracy. Forcing dispatch made things much worse on cost:
+Opus dispatches *multiple times* per eval (each logical sub-question
+becomes its own dispatch), and each dispatch carries:
+
+- Full subagent system prompt + tool definitions (cold cache on first
+  dispatch in eval; partial on subsequent ones).
+- Subagent steps to re-discover what the parent already knew (e.g. ES
+  index list, mappings) — parent's accumulated context doesn't transfer.
+- Output formatting overhead (the 2-line distillation rule).
+
+The subagent ends up doing work the parent could do cheaply, and pays
+for it three to five times across the eval. Net cost ~2x baseline.
+
+Reverted in the same commit. Option C is not viable as scoped here.
+A purpose-built subagent that *retains state across the parent's
+follow-up turns* (Option D — persistent sessions) is the obvious next
+lever to amortize the setup cost across multiple turns. Not in
+scope for this session.
+
+## Status summary
+
+Best result: **iter 1C** at $2.1295 total (−14% vs baseline) with all
+5 evals PASS on accuracy. The 30% bar is not met — only 261 hits it
+individually (likely partly noisy at N=1). Aggregate −14% across the
+candidate set is a real improvement but well below the bar.
+
+Two architectural realities limit further gains within this session:
+
+1. **Dispatch is meta-decided by Opus**. Description tweaks budge it
+   only marginally; toolset surgery to force dispatch backfires on
+   cost. Reliable, cheap dispatch needs either (a) a much smaller
+   subagent model so each dispatch is ~1/4 the cost, or (b) persistent
+   subagent sessions so the dispatch fixed cost is amortized.
+
+2. **The eval criterion #5 in 272/245 ("must use source filtering")
+   tests the *means* rather than the *end*.** Subagent achieves the
+   end (no bloat in parent context) by absorbing the bloat itself —
+   but doesn't mention source filtering in its return, so the
+   classifier scores 0%. This is a legitimate finding about the
+   subagent architecture vs. the eval design; not a bug in either.
 
 ## Theory recap
 
