@@ -1566,7 +1566,12 @@ class ExecuteInstantQuery(BasePrometheusTool):
             description=(
                 f"Execute an instant PromQL query (single point in time). "
                 f"Default timeout is {DEFAULT_QUERY_TIMEOUT_SECONDS} seconds "
-                f"but can be increased up to {MAX_QUERY_TIMEOUT_SECONDS} seconds for complex/slow queries."
+                f"but can be increased up to {MAX_QUERY_TIMEOUT_SECONDS} seconds for complex/slow queries. "
+                f"If the result is too large for the response token budget, the raw data is replaced "
+                f"by a summary of series/label cardinality plus a topk() suggestion - narrow the query "
+                f"(e.g. with topk() or more label matchers) and run it again. "
+                f"A query that returns no data is reported as a failure asking you to check the query, "
+                f"not as an empty success."
             ),
             parameters={
                 "query": ToolParameter(
@@ -1756,10 +1761,15 @@ class ExecuteRangeQuery(BasePrometheusTool):
         super().__init__(
             name="execute_prometheus_range_query",
             description=(
-                f"Generates a graph and Execute a PromQL range query. "
+                f"Execute a PromQL range query (time series over a time range). "
                 f"Default timeout is {DEFAULT_QUERY_TIMEOUT_SECONDS} seconds "
                 f"but can be increased up to {MAX_QUERY_TIMEOUT_SECONDS} seconds for complex/slow queries. "
-                f"Default time range is last 1 hour."
+                f"Default time range is last 1 hour. "
+                f"If the result is too large for the response token budget, the raw data is replaced "
+                f"by a summary of series/label cardinality plus a topk() suggestion - narrow the query "
+                f"(e.g. with topk() or more label matchers) and run it again. "
+                f"A query that returns no data is reported as a failure asking you to check the query, "
+                f"not as an empty success."
             ),
             parameters={
                 "query": ToolParameter(
