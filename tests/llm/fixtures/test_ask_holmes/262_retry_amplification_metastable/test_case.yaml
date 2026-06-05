@@ -1,5 +1,18 @@
 # Test: retry-amplification / metastable cascade behind a wall of red herrings
 #
+# INTEGRITY MODEL (this is the answer key — never shown to the model):
+#   This eval does NOT restrict the toolset to stay honest (no disabling bash, no
+#   denying secret reads). Instead, integrity is a property of the DATA: nothing the
+#   model can observe — logs, ConfigMaps, or the app source in manifest.yaml — states
+#   or interprets the root cause. The observable surface is realistic raw signal only;
+#   the conclusion lives solely in expected_output below. That makes the eval robust
+#   no matter which tool surfaces the data: our kubernetes/logs, bash, or an
+#   off-the-shelf third-party logging MCP whose tools we don't control all return the
+#   same answer-free data, so the model must reason either way. (The only artifact that
+#   contains the answer is this file; the general guarantee against reading it is to run
+#   the agent the way a real deployment does — its own process with access to the
+#   cluster + MCP endpoints, not the eval's source tree.)
+#
 # Measured results (clean, sequential judge): opus-4.6 PASS (3/3), sonnet-4.6 PASS,
 # sonnet-4.5 FAIL — sonnet-4.5 takes the bait, calling it "pricing-db resource
 # starvation" and recommending a DB scale-up as the primary fix, while opus/sonnet-4.6

@@ -3,31 +3,12 @@ kind: Namespace
 metadata:
   name: app-262
 ---
-# ============================================================================
-# THE REAL ROOT CAUSE: a retry-amplification / metastable failure.
-#
-# A brief, ALREADY-RECOVERED latency blip in pricing-db (a one-off slow
-# checkpoint at startup) made pricing-service slow for a moment. catalog-service
-# reacts to slow pricing calls by retrying up to 5 times with ZERO backoff and NO
-# circuit breaker (see catalog-config). That turns every 1 user request into ~5
-# upstream calls, so pricing-service / pricing-db now receive ~5x the organic
-# traffic. That self-inflicted load keeps pricing saturated, which keeps
-# catalog retrying — a self-sustaining (metastable) overload that does NOT recover
-# on its own even though the original trigger is long gone.
-#
-# THE TRAP: every LOUD error is at the victims (pricing-service "pool exhausted",
-# pricing-db "too many clients"), so the obvious answer is "the database/pricing
-# tier is overloaded, scale it / raise max_connections". That is a band-aid and
-# the wrong root cause — scaling the victim may not even break the retry loop. The
-# real fix is to fix catalog-service's retry policy (backoff + jitter, cap retries,
-# circuit breaker) so the amplification stops.
-#
-# The discoverable tells: (1) pricing receives ~5x the user-facing request rate
-# (storefront-gateway ~40 req/s vs pricing-service ~200 req/s); (2) catalog-config
-# retry_max=5 / backoff_ms=0 / circuit_breaker=disabled; (3) catalog logs the SAME
-# req_id retried "attempt 5/5"; (4) pricing-db's slow checkpoint (evt CKPT_8x3k)
-# already RECOVERED, while "too many clients" is ongoing from the amplified load.
-# ============================================================================
+# NOTE FOR MAINTAINERS: the design rationale, the intended root cause, the traps,
+# and the grading live ONLY in test_case.yaml (the answer key, never shown to the
+# model). Everything in THIS manifest is deliberately answer-free: it contains only
+# realistic application config and code, with no comment that states or interprets
+# the root cause. This is what keeps the eval honest no matter which tool surfaces
+# the data (our kubernetes/logs, bash, or a third-party logging MCP).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -35,9 +16,6 @@ metadata:
   namespace: app-262
 data:
   pricing-service-url: "http://pricing-service.app-262.svc:8080/v1/price"
-  # AGGRESSIVE retry policy with no backoff and no circuit breaker: this is the
-  # real root cause. On any slow pricing call it retries up to 5x immediately,
-  # multiplying load ~5x onto pricing-service/pricing-db.
   pricing-retry-max: "5"
   pricing-retry-backoff-ms: "0"
   pricing-timeout-ms: "250"
@@ -69,16 +47,12 @@ stringData:
     while True:
         n += 1
         rid = f"RX-{random.randint(100000, 999999)}"
-        # Most product renders need a price. pricing-service is saturated, so calls
-        # are slow and we retry up to retry_max with NO backoff -> ~5 calls each.
         if random.random() < 0.62:
-            for a in range(2, 6):  # attempts 2..5 after the initial try
+            for a in range(2, 6):
                 log("WARN", f"pricing-service call exceeded {TMO}ms, retrying (attempt {a}/{RMAX}) req_id={rid} upstream=pricing-service.app-262.svc")
             log("INFO", f"product rendered req_id={rid} (price resolved after {RMAX} attempts)")
         else:
             log("INFO", f"product rendered req_id={rid} price_ms={random.randint(8,40)}")
-        # Periodic fanout/throughput stat: organic user requests vs the calls we
-        # actually emit to pricing (retries included). ~40 in, ~200 out = ~5x.
         if n % 11 == 0:
             log("INFO", f"fanout stats (1s window): user_requests=40 pricing_calls_emitted={random.randint(195,210)} inflight_retries={random.randint(120,150)}")
         time.sleep(0.4)
@@ -138,8 +112,6 @@ spec:
           secret:
             secretName: catalog-service-app
 ---
-# VICTIM (loud): pricing-service is saturated by the ~5x amplified call rate. Its
-# "pool exhausted / PRICE_POOL_FULL" errors are the LOUDEST signal -> the trap.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -164,7 +136,6 @@ stringData:
             log("ERROR", f"context deadline exceeded waiting on pricing-db connection (db_wait_ms>250) req=PR-{i}")
         else:
             log("INFO", f"price computed req=PR-{i} compute_ms={random.randint(3,18)}")
-        # The smoking gun for amplification: inbound rate is ~5x the user traffic.
         if i % 9 == 0:
             log("WARN", f"sustained inbound request rate ~{random.randint(195,210)}/s against worker pool size=64 — saturated")
         time.sleep(0.3)
@@ -213,11 +184,6 @@ spec:
     - port: 8080
       targetPort: 8080
 ---
-# VICTIM (loud) + the RECOVERED trigger: pricing-db hits "too many clients" NOW
-# because of the amplified client load. Its only real fault was a one-off slow
-# checkpoint at startup (evt CKPT_8x3k) which ALREADY RECOVERED — subsequent
-# checkpoints are nominal. Blaming the DB now (scale it / raise max_connections)
-# is the trap: it is a victim of the retry storm, not the root cause.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -233,15 +199,11 @@ stringData:
 
     log("LOG:  database system is ready to accept connections")
     log("LOG:  parameter max_connections=100")
-    # The ORIGINAL trigger: a single slow checkpoint (disk I/O pressure) at startup
-    # that recovered. This brief blip is what first made pricing slow and kicked
-    # off the retries. It is NOT the ongoing cause.
     log("WARNING:  checkpoint sync stalled: wrote buffers in 5210ms (transient I/O pressure) [evt CKPT_8x3k]")
     log("LOG:  checkpoint complete; recovered, subsequent checkpoints nominal")
     while True:
         r = random.random()
         if r < 0.5:
-            # ongoing saturation caused by the amplified client connection load
             log("FATAL:  sorry, too many clients already (active=100 max_connections=100)")
         elif r < 0.68:
             log("LOG:  could not receive data from client: Connection reset by peer")
@@ -295,9 +257,6 @@ spec:
     - port: 5432
       targetPort: 5432
 ---
-# SYMPTOM SURFACE: storefront-gateway is where the user-visible 503s appear. It
-# also logs the organic user traffic rate (~40 req/s) — half of the amplification
-# ratio. It is healthy itself; it just surfaces catalog/pricing failures.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -357,13 +316,6 @@ spec:
           secret:
             secretName: storefront-gateway-app
 ---
-# ============================================================================
-# UNRELATED NOISE / RED HERRINGS — a real noisy microservice namespace. NONE of
-# these cause the product-page 503s. They exist to bury the real signal.
-# ============================================================================
-# RED HERRING: recommendation-engine is OOMKilled (memory leak) AND is rolled out
-# recently (rollout triggered in before_test) -> "it broke right after a deploy"
-# + a crashing pod. Unrelated to the retry storm.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -400,8 +352,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 48Mi}}
       volumes: [{name: app, secret: {secretName: recommendation-engine-app}}]
 ---
-# RED HERRING: analytics-collector loudly fails to publish to a kafka broker that
-# isn't deployed. Looks like a broken dependency; unrelated to product 503s.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -443,10 +393,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
       volumes: [{name: app, secret: {secretName: analytics-collector-app}}]
 ---
-# RED HERRING / DECOY: inventory-sync logs a benign "connection pool nearing limit"
-# warning. It is healthy (active < max) and unrelated, but it puts the word "pool"
-# in the noise so pricing-service's pool problem is not uniquely greppable, and it
-# tempts a generic "you have a connection-pool problem, raise the pools" answer.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -495,8 +441,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
       volumes: [{name: app, secret: {secretName: inventory-sync-app}}]
 ---
-# RED HERRING: email-dispatcher crashloops (SMTP relay unreachable). Pure pod-state
-# noise, unrelated to product 503s.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -532,8 +476,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 32Mi}}
       volumes: [{name: app, secret: {secretName: email-dispatcher-app}}]
 ---
-# RED HERRING: ledger-api emits transient retry WARNs that ultimately succeed.
-# Noise that resembles the real retry pattern but is harmless and self-correcting.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -576,8 +518,6 @@ spec:
           resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
       volumes: [{name: app, secret: {secretName: ledger-api-app}}]
 ---
-# High-volume edge access logs with occasional 502/504 — dilutes log volume and
-# adds more timeout-looking lines unrelated to the product-page failures.
 apiVersion: v1
 kind: Secret
 metadata:
