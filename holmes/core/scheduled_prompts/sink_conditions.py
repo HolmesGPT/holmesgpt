@@ -35,6 +35,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from holmes.common.env_vars import TEMPERATURE
 from holmes.core.llm import LLM
 
 # Maps the structured-output field names to the sink-type keys relay expects.
@@ -176,10 +177,17 @@ def evaluate_sink_decisions(
     ]
 
     try:
+        # Use the same TEMPERATURE contract as the main investigation chat
+        # (tool_calling_llm). A hardcoded value here breaks models that reject
+        # the parameter: Anthropic with extended thinking enabled requires
+        # temperature unset or 1 (0 is a 400), and Opus 4.7+ deprecates it
+        # entirely. TEMPERATURE is None in those deployments, sending no
+        # temperature at all. drop_params can't strip these at the provider, so
+        # the value must be omitted at the source.
         result = llm.completion(
             messages=messages,
             response_format=SINK_DECISION_RESPONSE_FORMAT,
-            temperature=0,
+            temperature=TEMPERATURE,
             drop_params=True,
         )
         content = result.choices[0].message.content  # type: ignore[union-attr]

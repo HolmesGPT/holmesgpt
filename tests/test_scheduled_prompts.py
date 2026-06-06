@@ -653,6 +653,26 @@ class TestSinkDeliveryConditions:
         # Fail-safe: any error -> empty (reporter then delivers to all channels).
         assert evaluate_sink_decisions(llm, "some prompt", "analysis").decisions == {}
 
+    def test_evaluate_uses_temperature_contract_not_hardcoded_zero(self):
+        """Regression: a hardcoded temperature=0 breaks thinking-enabled and
+        Opus 4.7+ models (the provider 400s, the error is swallowed, and
+        sink_decisions silently stays null). The call must instead pass the
+        shared TEMPERATURE constant, which is None when temperature must be
+        omitted entirely."""
+        from holmes.common.env_vars import TEMPERATURE
+        from holmes.core.scheduled_prompts.sink_conditions import (
+            evaluate_sink_decisions,
+        )
+
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": True, "rationale": "x"}
+        )
+        evaluate_sink_decisions(llm, "notify only on problems", "analysis")
+
+        kwargs = llm.completion.call_args.kwargs
+        assert kwargs["temperature"] == TEMPERATURE
+        assert kwargs["temperature"] != 0
+
     def test_format_delivery_note(self):
         from holmes.core.scheduled_prompts.sink_conditions import format_delivery_note
 

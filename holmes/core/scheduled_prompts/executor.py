@@ -264,9 +264,10 @@ class ScheduledPromptsExecutor:
                     response.analysis = (response.analysis or "") + note
         except Exception:
             logging.exception(
-                "Failed to evaluate sink delivery conditions for run %s; "
-                "defaulting to deliver to all configured channels",
+                "Failed to evaluate sink delivery conditions for run %s "
+                "(model=%s); defaulting to deliver to all configured channels",
                 sp.id,
+                sp.model_name,
             )
 
     @staticmethod
