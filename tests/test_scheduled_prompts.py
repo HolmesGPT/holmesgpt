@@ -673,6 +673,61 @@ class TestSinkDeliveryConditions:
         assert kwargs["temperature"] == TEMPERATURE
         assert kwargs["temperature"] != 0
 
+    def test_evaluate_does_not_send_strict_response_format(self):
+        """Regression: a strict response_format json_schema is rejected (HTTP
+        400, error_code 5400) by some providers / the Robusta AI proxy, which
+        was swallowed and left sink_decisions null. The call must rely on prompt
+        instructions + tolerant parsing instead, never a strict schema."""
+        from holmes.core.scheduled_prompts.sink_conditions import (
+            evaluate_sink_decisions,
+        )
+
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": True, "rationale": "x"}
+        )
+        evaluate_sink_decisions(llm, "notify only on problems", "analysis")
+
+        kwargs = llm.completion.call_args.kwargs
+        assert kwargs.get("response_format") is None
+
+    def test_coerce_decisions_handles_code_fenced_json(self):
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
+
+        fenced = '```json\n{"send_to_slack": true, "send_to_email": false}\n```'
+        assert _coerce_decisions(fenced) == {"slack": True, "email": False}
+
+    def test_coerce_decisions_handles_prose_wrapped_json(self):
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
+
+        prose = (
+            "Sure! Based on the report:\n"
+            '{"rationale": "all healthy", "send_to_slack": true, '
+            '"send_to_email": false}\nLet me know if you need more.'
+        )
+        assert _coerce_decisions(prose) == {"slack": True, "email": False}
+
+    def test_evaluate_warns_when_output_unparseable(self):
+        """A successful call with non-JSON output must log (not silently return
+        null) and fall back to deliver-everywhere."""
+        from holmes.core.scheduled_prompts import sink_conditions
+
+        llm = MagicMock()
+        message = MagicMock()
+        message.content = "I cannot decide that."  # not JSON
+        choice = MagicMock()
+        choice.message = message
+        result = MagicMock()
+        result.choices = [choice]
+        llm.completion = MagicMock(return_value=result)
+
+        with patch.object(sink_conditions, "logging") as mock_logging:
+            out = sink_conditions.evaluate_sink_decisions(
+                llm, "only notify on problems", "analysis"
+            )
+
+        assert out.decisions == {}
+        mock_logging.warning.assert_called_once()
+
     def test_format_delivery_note(self):
         from holmes.core.scheduled_prompts.sink_conditions import format_delivery_note
 

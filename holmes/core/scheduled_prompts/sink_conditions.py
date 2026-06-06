@@ -32,6 +32,7 @@ Design notes:
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
@@ -68,36 +69,6 @@ class SinkDecisions:
         """Sink types explicitly suppressed (decision is False)."""
         return [sink for sink, send in self.decisions.items() if send is False]
 
-SINK_DECISION_RESPONSE_FORMAT = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "sink_delivery_decision",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "rationale": {
-                    "type": "string",
-                    "description": (
-                        "Briefly state whether the user's request contained any "
-                        "delivery conditions and, if so, whether the report meets them."
-                    ),
-                },
-                "send_to_slack": {
-                    "type": "boolean",
-                    "description": "Should this report be delivered to Slack?",
-                },
-                "send_to_email": {
-                    "type": "boolean",
-                    "description": "Should this report be delivered by email?",
-                },
-            },
-            "required": ["rationale", "send_to_slack", "send_to_email"],
-            "additionalProperties": False,
-        },
-    },
-}
-
 SINK_DECISION_SYSTEM_PROMPT = """\
 You decide whether a scheduled report should be delivered to each notification \
 channel (Slack and email).
@@ -117,7 +88,50 @@ it's critical", "don't email unless action is needed") — apply each condition 
 to the channel it names, and leave the other channel at its default of true.
 - Base your decision ONLY on the notification instructions and the report's \
 findings below. Do not invent conditions that were not stated.
-- When in doubt, prefer sending (true)."""
+- When in doubt, prefer sending (true).
+
+Respond with ONLY a single JSON object and nothing else — no prose, no \
+explanation, no markdown, no code fences. The object must have exactly these \
+keys:
+{"rationale": "<brief reason>", "send_to_slack": <true|false>, "send_to_email": <true|false>}"""
+
+
+def _extract_json_object(content: str) -> Dict[str, Any]:
+    """Best-effort parse of a JSON object from an LLM text response.
+
+    The sink-decision call relies on prompt instructions rather than a strict
+    ``response_format`` json_schema, because that schema is rejected (HTTP 400)
+    by some providers/proxies (e.g. the Robusta AI proxy). Models therefore may
+    wrap the JSON in markdown code fences or surrounding prose, so we tolerate
+    both: try a direct parse first, strip ```code fences```, then fall back to
+    the first ``{...}`` block. Returns ``{}`` if nothing parseable is found.
+    """
+    if not content:
+        return {}
+    text = content.strip()
+
+    # Strip a leading/trailing markdown code fence, e.g. ```json ... ```.
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback: pull the first {...} span out of surrounding prose.
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            parsed = json.loads(match.group(0))
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
 
 
 def _coerce_decisions(content: str) -> Dict[str, bool]:
@@ -126,15 +140,10 @@ def _coerce_decisions(content: str) -> Dict[str, bool]:
     Only well-formed boolean fields are kept; anything else is ignored so a
     partially-malformed response can never accidentally suppress a channel.
     """
-    try:
-        parsed: Any = json.loads(content or "{}")
-    except (json.JSONDecodeError, TypeError):
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
+    parsed = _extract_json_object(content)
     decisions: Dict[str, bool] = {}
-    for field, sink in _FIELD_TO_SINK.items():
-        value = parsed.get(field)
+    for field_name, sink in _FIELD_TO_SINK.items():
+        value = parsed.get(field_name)
         if isinstance(value, bool):
             decisions[sink] = value
     return decisions
@@ -142,13 +151,9 @@ def _coerce_decisions(content: str) -> Dict[str, bool]:
 
 def _coerce_rationale(content: str) -> str:
     """Best-effort extraction of the model's rationale string."""
-    try:
-        parsed = json.loads(content or "{}")
-    except (json.JSONDecodeError, TypeError):
-        return ""
-    if isinstance(parsed, dict) and isinstance(parsed.get("rationale"), str):
-        return parsed["rationale"].strip()
-    return ""
+    parsed = _extract_json_object(content)
+    rationale = parsed.get("rationale")
+    return rationale.strip() if isinstance(rationale, str) else ""
 
 
 def evaluate_sink_decisions(
@@ -177,22 +182,34 @@ def evaluate_sink_decisions(
     ]
 
     try:
-        # Use the same TEMPERATURE contract as the main investigation chat
-        # (tool_calling_llm). A hardcoded value here breaks models that reject
-        # the parameter: Anthropic with extended thinking enabled requires
-        # temperature unset or 1 (0 is a 400), and Opus 4.7+ deprecates it
-        # entirely. TEMPERATURE is None in those deployments, sending no
-        # temperature at all. drop_params can't strip these at the provider, so
-        # the value must be omitted at the source.
+        # Keep this request shaped like the main investigation chat, which we
+        # know the provider/proxy accepts:
+        #   - Use the shared TEMPERATURE contract (None on deployments whose
+        #     model rejects the parameter — e.g. Anthropic with extended
+        #     thinking, which requires temperature unset/1, or Opus 4.7+ which
+        #     deprecates it; drop_params can't strip these at the provider).
+        #   - Do NOT pass a strict response_format json_schema. Some providers
+        #     and the Robusta AI proxy reject it with HTTP 400 (error_code
+        #     5400). We instead instruct JSON output in the system prompt and
+        #     parse it tolerantly via _extract_json_object.
         result = llm.completion(
             messages=messages,
-            response_format=SINK_DECISION_RESPONSE_FORMAT,
             temperature=TEMPERATURE,
             drop_params=True,
         )
         content = result.choices[0].message.content  # type: ignore[union-attr]
+        decisions = _coerce_decisions(content)
+        if not decisions:
+            # Successful call but unparseable output: log it so this never fails
+            # silently again (deliver-everywhere is still the safe fallback).
+            logging.warning(
+                "Scheduled-prompt sink delivery evaluation produced no usable "
+                "decisions; model output was not parseable as the expected JSON. "
+                "Defaulting to deliver to all configured channels. Output: %r",
+                (content or "")[:300],
+            )
         return SinkDecisions(
-            decisions=_coerce_decisions(content),
+            decisions=decisions,
             rationale=_coerce_rationale(content),
         )
     except Exception:
