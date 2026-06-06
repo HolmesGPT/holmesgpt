@@ -790,3 +790,51 @@ class TestSinkDeliveryConditions:
         response = executor._execute_prompt(sp)
 
         assert response.sink_decisions is None
+
+    def test_sink_decision_usage_recorded_as_internal(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """The 2nd (sink-decision) LLM call must be recorded as a server-internal
+        usage event: is_internal=True and an 'internal_'-prefixed request_source."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "healthy"}
+        )
+        llm.model = "anthropic/claude-x"
+        llm.is_robusta_model = False
+        mock_config._get_llm = MagicMock(return_value=llm)
+
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only email me if there's a critical issue",
+        }
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+
+        with patch(
+            "holmes.core.scheduled_prompts.executor.record_single_llm_call"
+        ) as rec:
+            executor._execute_prompt(sp)
+
+        rec.assert_called_once()
+        state = rec.call_args.args[0]
+        assert state.is_internal is True
+        assert state.request_source.startswith("internal_")
+        assert state.request_type == "scheduled_prompt"
+        assert state.source_ref == sp.id
+        # SUCCESS status is passed when the completion returned a response.
+        from holmes.core.usage_recorder import RequestStatus
+
+        assert rec.call_args.kwargs["status"] == RequestStatus.SUCCESS
+
+    def test_sink_decision_usage_not_recorded_without_notification_prompt(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """No notification_prompt -> no 2nd LLM call -> nothing to record."""
+        mock_config._get_llm = MagicMock()
+
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        with patch(
+            "holmes.core.scheduled_prompts.executor.record_single_llm_call"
+        ) as rec:
+            executor._execute_prompt(sp)
+
+        rec.assert_not_called()

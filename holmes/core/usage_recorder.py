@@ -575,6 +575,29 @@ def record_error(state: UsageRecorderState, exc: Exception) -> None:
     state._fire()
 
 
+def record_single_llm_call(
+    state: UsageRecorderState,
+    stats: Optional["RequestStats"],
+    *,
+    status: RequestStatus = RequestStatus.SUCCESS,
+) -> None:
+    """Record usage for a single, non-streaming, non-agentic ``llm.completion`` call.
+
+    For side-calls that bypass the ChatRequest / tool-calling path (e.g. the
+    scheduled-prompt sink-delivery decision), the caller already has the
+    ``RequestStats`` it extracted from the raw litellm response (typically via
+    ``RequestStats.from_response``). This sets the single-call runtime fields
+    (one iteration, no tool calls) and fires the row. ``stats=None`` is recorded
+    as a zero-stats row, which pairs with ``status=RequestStatus.ERROR`` when the
+    completion itself failed.
+    """
+    state.stats = stats if stats is not None else RequestStats()
+    state.iterations = 1
+    state.tool_call_count = 0
+    state.status = status
+    state._fire()
+
+
 __all__ = [
     "RequestStatus",
     "UsageRecorderState",
@@ -582,6 +605,7 @@ __all__ = [
     "detect_slack_origin",
     "record_error",
     "record_from_llm_result",
+    "record_single_llm_call",
     "resolve_provider",
     "stream_with_usage_recording",
 ]

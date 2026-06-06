@@ -34,10 +34,11 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from holmes.common.env_vars import TEMPERATURE
 from holmes.core.llm import LLM
+from holmes.core.llm_usage import RequestStats
 
 # Maps the structured-output field names to the sink-type keys relay expects.
 _FIELD_TO_SINK = {
@@ -64,6 +65,11 @@ class SinkDecisions:
 
     decisions: Dict[str, bool] = field(default_factory=dict)
     rationale: str = ""
+    # Token/cost stats for the single LLM call this evaluation made, extracted
+    # from the completion response. ``None`` means the call never produced a
+    # response (it raised) — the caller records that as an error usage event.
+    # A non-None (possibly zero) value means the call succeeded.
+    stats: Optional[RequestStats] = None
 
     def suppressed(self) -> List[str]:
         """Sink types explicitly suppressed (decision is False)."""
@@ -208,9 +214,18 @@ def evaluate_sink_decisions(
                 "Defaulting to deliver to all configured channels. Output: %r",
                 (content or "")[:300],
             )
+        # Extract token/cost stats for usage tracking. The call succeeded, so
+        # always return a (possibly empty) RequestStats — never None — to mark
+        # this as a successful LLM call. Guarded so a stats-extraction hiccup
+        # can never turn a good decision into a swallowed failure.
+        try:
+            stats = RequestStats.from_response(result)
+        except Exception:
+            stats = RequestStats()
         return SinkDecisions(
             decisions=decisions,
             rationale=_coerce_rationale(content),
+            stats=stats,
         )
     except Exception:
         logging.exception(

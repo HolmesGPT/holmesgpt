@@ -27,6 +27,18 @@ from holmes.core.scheduled_prompts.sink_conditions import (
     format_delivery_note,
 )
 from holmes.core.supabase_dal import RunStatus
+from holmes.core.usage_recorder import (
+    RequestStatus,
+    UsageRecorderState,
+    record_single_llm_call,
+    resolve_provider,
+)
+
+# request_source for the sink-delivery decision's LLM call. The "internal_"
+# prefix marks it (alongside is_internal=True) as a server-internal side-call so
+# it's filtered out of user-facing activity/cost dashboards, separate from the
+# user-facing investigation run (request_source="scheduler").
+SINK_DECISION_REQUEST_SOURCE = "internal_scheduled_prompt_notification"
 
 # to prevent circular imports due to type hints
 if TYPE_CHECKING:
@@ -257,6 +269,7 @@ class ScheduledPromptsExecutor:
             result = evaluate_sink_decisions(
                 llm, notification_prompt, response.analysis
             )
+            self._record_sink_decision_usage(sp, llm, result)
             if result.decisions:
                 response.sink_decisions = result.decisions
                 note = format_delivery_note(result.suppressed(), result.rationale)
@@ -268,6 +281,47 @@ class ScheduledPromptsExecutor:
                 "(model=%s); defaulting to deliver to all configured channels",
                 sp.id,
                 sp.model_name,
+            )
+
+    def _record_sink_decision_usage(
+        self, sp: ScheduledPrompt, llm, result
+    ) -> None:
+        """Record AI usage for the sink-delivery decision's LLM call.
+
+        This is a separate, non-streaming ``llm.completion`` call that bypasses
+        the ChatRequest/usage-recorder path the investigation uses, so its tokens
+        would otherwise go untracked. Tag it as a server-internal side-call
+        (``is_internal=True`` + an ``internal_``-prefixed request_source) so it's
+        excluded from user-facing dashboards but still counted for cost.
+
+        Best-effort: telemetry must never break the run, so any failure here is
+        swallowed.
+        """
+        try:
+            model = getattr(llm, "model", None) or sp.model_name
+            state = UsageRecorderState(
+                dal=self.dal,
+                request_type="scheduled_prompt",
+                request_source=SINK_DECISION_REQUEST_SOURCE,
+                source_ref=sp.id,
+                is_internal=True,
+                is_streaming=False,
+                model=model,
+                provider=resolve_provider(model),
+                is_robusta_model=getattr(llm, "is_robusta_model", False),
+            )
+            # result.stats is None only when the completion itself raised.
+            status = (
+                RequestStatus.SUCCESS
+                if result.stats is not None
+                else RequestStatus.ERROR
+            )
+            record_single_llm_call(state, result.stats, status=status)
+        except Exception:
+            logging.debug(
+                "Failed to record sink-decision usage for run %s",
+                sp.id,
+                exc_info=True,
             )
 
     @staticmethod
