@@ -2,11 +2,16 @@
 Per-channel delivery conditions for scheduled prompts.
 
 A scheduled prompt's report is, by default, delivered to every notification
-channel configured for it (Slack, email). Users may, however, write delivery
-conditions directly in their prompt, e.g.:
+channel configured for it (Slack, email). A user may, however, attach delivery
+conditions to the scheduled prompt via a dedicated ``notification_prompt`` field
+(stored alongside ``title`` and ``raw_prompt`` in the prompt definition), e.g.:
 
     "Always post the summary to Slack. Only send the email if there is a
      critical issue that needs human attention."
+
+This is kept separate from the main ``raw_prompt`` on purpose: older Holmes
+builds that don't support this feature simply ignore the unknown field, so the
+conditions never leak into the investigation prompt.
 
 After the investigation runs, this module asks the LLM to translate those
 free-text instructions into a per-sink-type decision map that the reporter
@@ -15,13 +20,14 @@ free-text instructions into a per-sink-type decision map that the reporter
     {"slack": True, "email": False}
 
 Design notes:
-- The default is always SEND. A channel is only suppressed when the user's
-  prompt specifies a condition for it (or for delivery in general) and the
-  report's findings show that condition is not met.
-- This is fail-safe: any error (LLM failure, malformed output, empty prompt)
+- The default is always SEND. A channel is only suppressed when the
+  notification instructions specify a condition for it (or for delivery in
+  general) and the report's findings show that condition is not met.
+- This is fail-safe: any error (LLM failure, malformed output, no instructions)
   returns an empty map, which the reporter treats as "deliver everywhere".
 - Granularity is per sink *type* (all Slack channels share one decision, all
-  email recipients share another), matching the reporter's sink model.
+  email recipients share another), matching the reporter's sink model. A single
+  ``notification_prompt`` drives both channels.
 """
 
 import json
@@ -95,20 +101,21 @@ SINK_DECISION_SYSTEM_PROMPT = """\
 You decide whether a scheduled report should be delivered to each notification \
 channel (Slack and email).
 
-The DEFAULT is to SEND the report to every channel. Only suppress a channel when \
-the user's request contains an explicit condition about when to send/notify, AND \
-the report's findings show that condition is NOT satisfied.
+You are given the user's NOTIFICATION INSTRUCTIONS and the report that was \
+produced. The DEFAULT is to SEND the report to every channel. Only suppress a \
+channel when the instructions contain an explicit condition about when to \
+send/notify, AND the report's findings show that condition is NOT satisfied.
 
 Rules:
-- If the user's request says nothing about when or whether to send/notify/alert, \
+- If the instructions say nothing about when or whether to send/notify/alert, \
 return send_to_slack=true and send_to_email=true.
 - A condition may be global ("only notify me if there is a problem", "skip if \
 everything is healthy") — apply it to BOTH channels.
 - A condition may be channel-specific ("always post to Slack", "only email me if \
 it's critical", "don't email unless action is needed") — apply each condition only \
 to the channel it names, and leave the other channel at its default of true.
-- Base your decision ONLY on the user's request and the report's findings below. \
-Do not invent conditions the user did not state.
+- Base your decision ONLY on the notification instructions and the report's \
+findings below. Do not invent conditions that were not stated.
 - When in doubt, prefer sending (true)."""
 
 
@@ -144,20 +151,21 @@ def _coerce_rationale(content: str) -> str:
 
 
 def evaluate_sink_decisions(
-    llm: LLM, prompt_text: str, analysis: str
+    llm: LLM, notification_instructions: str, analysis: str
 ) -> SinkDecisions:
     """Decide, per sink type, whether to deliver the report.
 
+    ``notification_instructions`` is the user's free-text ``notification_prompt``.
     Returns a :class:`SinkDecisions`. Empty decisions (on any failure or when
-    there is nothing to evaluate) tell the reporter to deliver to every
-    configured channel (the safe default).
+    there are no instructions) tell the reporter to deliver to every configured
+    channel (the safe default).
     """
-    if not prompt_text or not prompt_text.strip():
+    if not notification_instructions or not notification_instructions.strip():
         return SinkDecisions()
 
     user_content = (
-        "Here is the user's scheduled-prompt request:\n"
-        f"<request>\n{prompt_text}\n</request>\n\n"
+        "Here are the user's notification instructions:\n"
+        f"<instructions>\n{notification_instructions}\n</instructions>\n\n"
         "Here is the report that was produced:\n"
         f"<report>\n{analysis or ''}\n</report>\n\n"
         "Decide whether to deliver this report to Slack and to email."

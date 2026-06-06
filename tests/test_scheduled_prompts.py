@@ -673,6 +673,10 @@ class TestSinkDeliveryConditions:
         )
         mock_config._get_llm = MagicMock(return_value=llm)
 
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only email me if there's a critical issue",
+        }
         sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
         response = executor._execute_prompt(sp)
 
@@ -684,12 +688,29 @@ class TestSinkDeliveryConditions:
         assert result_arg["sink_decisions"] == {"slack": True, "email": False}
         assert "not sent to email" in result_arg["analysis"]
 
+    def test_execute_prompt_skips_evaluation_without_notification_prompt(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """No notification_prompt -> no LLM call, deliver everywhere (None)."""
+        mock_config._get_llm = MagicMock()
+
+        # sample payload's prompt has only raw_prompt, no notification_prompt
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        response = executor._execute_prompt(sp)
+
+        assert response.sink_decisions is None
+        mock_config._get_llm.assert_not_called()
+
     def test_execute_prompt_leaves_decisions_none_on_failure(
         self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
     ):
         """If evaluation fails, sink_decisions stays None (deliver everywhere)."""
         mock_config._get_llm = MagicMock(side_effect=RuntimeError("no llm"))
 
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only notify if there are problems",
+        }
         sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
         response = executor._execute_prompt(sp)
 

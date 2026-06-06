@@ -236,6 +236,11 @@ class ScheduledPromptsExecutor:
     ) -> None:
         """Evaluate per-channel delivery conditions written in the user's prompt.
 
+        The conditions come from the prompt's dedicated ``notification_prompt``
+        field (kept separate from the main ``raw_prompt`` so older Holmes builds
+        ignore it). When it is absent, no evaluation happens and delivery falls
+        back to every configured channel.
+
         Sets ``response.sink_decisions`` to a {sink_type: bool} map (e.g.
         ``{"slack": True, "email": False}``) that the reporter uses to decide
         which channels to deliver to. When a channel is suppressed, a short
@@ -243,10 +248,15 @@ class ScheduledPromptsExecutor:
         visible in the chat result. Any failure leaves ``sink_decisions`` as
         None, which the reporter treats as "deliver to all configured channels".
         """
+        notification_prompt = self._extract_notification_prompt(sp.prompt)
+        if not notification_prompt:
+            return
+
         try:
-            prompt_text = self._extract_prompt_text(sp.prompt)
             llm = self.config._get_llm(model_key=sp.model_name)
-            result = evaluate_sink_decisions(llm, prompt_text, response.analysis)
+            result = evaluate_sink_decisions(
+                llm, notification_prompt, response.analysis
+            )
             if result.decisions:
                 response.sink_decisions = result.decisions
                 note = format_delivery_note(result.suppressed(), result.rationale)
@@ -258,6 +268,20 @@ class ScheduledPromptsExecutor:
                 "defaulting to deliver to all configured channels",
                 sp.id,
             )
+
+    @staticmethod
+    def _extract_notification_prompt(prompt: Union[str, dict]) -> Optional[str]:
+        """Read the optional ``notification_prompt`` delivery-conditions field.
+
+        Returns the trimmed instructions, or None when the prompt is not a dict
+        or the field is absent/blank (the common case for prompts created by
+        clients that don't set delivery conditions).
+        """
+        if isinstance(prompt, dict):
+            value = prompt.get("notification_prompt")
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
 
     def _fetch_additional_system_prompt(
         self, fallback: Optional[str] = None
