@@ -128,11 +128,16 @@ def _extract_json_object(content: str) -> Dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # Fallback: pull the first {...} span out of surrounding prose.
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
+    # Fallback: decode the first JSON object embedded in surrounding prose.
+    # raw_decode stops at the end of the first valid object, so trailing prose
+    # — or a second object — no longer breaks parsing. A greedy `\{.*\}` regex
+    # would instead span from the first brace to the LAST brace anywhere in the
+    # text and fail json.loads ("Extra data"); it also mishandles braces inside
+    # string values. raw_decode handles both correctly.
+    start = text.find("{")
+    if start != -1:
         try:
-            parsed = json.loads(match.group(0))
+            parsed, _ = json.JSONDecoder().raw_decode(text[start:])
             if isinstance(parsed, dict):
                 return parsed
         except (json.JSONDecodeError, TypeError):

@@ -706,6 +706,35 @@ class TestSinkDeliveryConditions:
         )
         assert _coerce_decisions(prose) == {"slack": True, "email": False}
 
+    def test_coerce_decisions_handles_multiple_json_objects(self):
+        """Regression: a greedy `{.*}` regex spans first-to-last brace and fails
+        json.loads ('Extra data') when the model emits more than one object;
+        raw_decode must take the first valid object instead."""
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
+
+        multi = (
+            'Result: {"send_to_slack": true, "send_to_email": false} '
+            'or maybe {"other": 1}'
+        )
+        assert _coerce_decisions(multi) == {"slack": True, "email": False}
+
+    def test_coerce_decisions_handles_trailing_prose_with_brace(self):
+        """A `}` in trailing prose must not break extraction of the first object."""
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
+
+        text = (
+            '{"send_to_slack": false, "send_to_email": true} '
+            "note: use the }}-syntax elsewhere"
+        )
+        assert _coerce_decisions(text) == {"slack": False, "email": True}
+
+    def test_coerce_rationale_handles_brace_inside_string(self):
+        """A brace inside the rationale string must not truncate parsing."""
+        from holmes.core.scheduled_prompts.sink_conditions import _coerce_rationale
+
+        text = '{"rationale": "use the {placeholder}", "send_to_slack": true}'
+        assert _coerce_rationale(text) == "use the {placeholder}"
+
     def test_evaluate_warns_when_output_unparseable(self):
         """A successful call with non-JSON output must log (not silently return
         null) and fall back to deliver-everywhere."""
