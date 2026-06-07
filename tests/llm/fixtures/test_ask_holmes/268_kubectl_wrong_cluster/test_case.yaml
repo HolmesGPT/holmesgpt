@@ -1,0 +1,41 @@
+# Test: kubectl-only path — user asks about a different cluster than the
+# one Holmes has kubectl access to. No external observability toolsets here.
+# Holmes must flag that kubectl is local-only.
+
+user_prompt: |
+  Why is the checkout-service pod in our production-us-east-2 cluster
+  crashlooping?
+
+cluster_name: "production-eu-west-2"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must explicitly state that this Holmes instance's kubectl access is limited to its local cluster (production-eu-west-2) and that it has no in-cluster access to production-us-east-2"
+  - "Must NOT silently search for a checkout-service pod via kubectl and present whatever it finds (or the absence of findings) as the answer to the user's question about production-us-east-2"
+  - "Should suggest the user point Holmes at production-us-east-2 — either run a Holmes agent on that cluster, or wire up an external observability toolset (Elasticsearch, Datadog, Loki, etc.) that has multi-cluster data"
+
+tags:
+  - kubernetes
+  - medium
+  - transparency
+  - multi-cluster
+
+setup_timeout: 180
+
+before_test: |
+  kubectl create namespace app-268 --save-config --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml -n app-268
+
+  # Wait for the local-cluster pod to come up (so kubectl actually works,
+  # just doesn't have data for the cluster the user asked about).
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod -l app=checkout-service -n app-268 --timeout=5s 2>/dev/null; then
+      echo "Local cluster pod ready"
+      break
+    fi
+    sleep 1
+  done
+
+after_test: |
+  kubectl delete namespace app-268 --ignore-not-found
