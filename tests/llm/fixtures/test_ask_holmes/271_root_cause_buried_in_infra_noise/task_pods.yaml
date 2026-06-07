@@ -1,0 +1,57 @@
+# The 3 ephemeral KubernetesPodOperator task pods for the Airflow
+# "log-archival" DAG's "index-to-es" task. These are REAL pods: they schedule,
+# pull their image, start, and then fail at the APPLICATION layer (the indexer
+# cannot reach Elasticsearch) and exit non-zero. restartPolicy: Never mirrors
+# the operator's pod spec, so each pod runs exactly once and ends in Error.
+#
+# before_test runs these to completion (producing genuine Scheduled/Pulled/
+# Started lifecycle events) and then DELETES them, mimicking the operator's
+# default on-finish pod cleanup. After deletion `kubectl logs` returns nothing,
+# but the lifecycle events remain and prove the pods actually ran -- so the
+# failure was application-level, and the real error lives in the Airflow task
+# logs, not in kubectl.
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: v1
+    kind: Pod
+    metadata:
+      name: log-archival-index-to-es-7q4w9z-1
+      namespace: app-271
+      labels: {app: log-archival, dag: log-archival, task: index-to-es}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: indexer
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - 'echo "[index-to-es] starting bulk index run"; echo "[index-to-es] connecting to elasticsearch at es-data.logging.svc.cluster.local:9200"; sleep 2; echo "[index-to-es] ERROR: ConnectionError: host es-data.logging.svc.cluster.local:9200 unreachable (connection refused) after 3 retries"; exit 1'
+  - apiVersion: v1
+    kind: Pod
+    metadata:
+      name: log-archival-index-to-es-7q4w9z-2
+      namespace: app-271
+      labels: {app: log-archival, dag: log-archival, task: index-to-es}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: indexer
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - 'echo "[index-to-es] starting bulk index run"; echo "[index-to-es] connecting to elasticsearch at es-data.logging.svc.cluster.local:9200"; sleep 2; echo "[index-to-es] ERROR: ConnectionError: host es-data.logging.svc.cluster.local:9200 unreachable (connection refused) after 3 retries"; exit 1'
+  - apiVersion: v1
+    kind: Pod
+    metadata:
+      name: log-archival-index-to-es-7q4w9z-3
+      namespace: app-271
+      labels: {app: log-archival, dag: log-archival, task: index-to-es}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: indexer
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - 'echo "[index-to-es] starting bulk index run"; echo "[index-to-es] connecting to elasticsearch at es-data.logging.svc.cluster.local:9200"; sleep 2; echo "[index-to-es] ERROR: ConnectionError: host es-data.logging.svc.cluster.local:9200 unreachable (connection refused) after 3 retries"; exit 1'

@@ -32,10 +32,17 @@ def parse_hypotheses(hypotheses_data: Any) -> list[Hypothesis]:
 
     for item in hypotheses_data:
         if isinstance(item, dict):
+            statement = (item.get("statement") or "").strip()
+            if not statement:
+                logging.warning(
+                    "Skipping hypothesis with empty statement (id=%s)",
+                    item.get("id", "<none>"),
+                )
+                continue
             hypotheses.append(
                 Hypothesis(
                     id=item.get("id", str(uuid4())),
-                    statement=item.get("statement", ""),
+                    statement=statement,
                     status=HypothesisStatus(item.get("status", "proposed")),
                     evidence=item.get("evidence", "") or "",
                 )

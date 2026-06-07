@@ -4,29 +4,34 @@
 #
 # Scenario: an Airflow DAG ("log-archival") runs its final task ("index-to-es")
 # via the KubernetesPodOperator, which spawns an ephemeral pod in-cluster. The
-# task failed 3 times. The 3 ephemeral task pods
-# (log-archival-index-to-es-7q4w9z-{1,2,3}) were SUCCESSFULLY scheduled and
-# Started -- their Normal lifecycle events (Scheduled/Pulled/Started) remain in
-# the cluster and prove this. They then failed at the APPLICATION layer, and the
-# operator deleted the pods on finish (its default behavior), so `kubectl logs`
-# returns nothing for them; the application error lives in the Airflow task logs.
+# task failed 3 times. All in-cluster state here is REAL (no injected/fake
+# events):
 #
-# Meanwhile the namespace/cluster is full of dramatic but UNRELATED infra noise:
-# AWS-CNI IP-address-exhaustion FailedCreatePodSandBox events on dozens of OTHER
-# pods, node draining / Karpenter churn, and many Pending pods (high density).
+#   * before_test actually runs the 3 task pods
+#     (log-archival-index-to-es-7q4w9z-{1,2,3}). They schedule, pull their
+#     image, start, then fail at the APPLICATION layer (the indexer cannot
+#     reach Elasticsearch) and exit non-zero. The operator then deletes them
+#     (its default on-finish behavior), so `kubectl logs` returns nothing -- but
+#     their Scheduled/Pulled/Started events remain and prove they ran. The real
+#     error lives in the Airflow task logs, not in kubectl.
 #
-# The bug: Holmes over-weights this loud cluster-wide infrastructure signal and
-# blames "IP address exhaustion / node churn" for the task failures, instead of
-# recognizing that the task pods actually ran (so infra did not block them) and
-# that the real cause is application-level and must be read from the Airflow
-# task logs (unavailable via kubectl because the pods were deleted).
+#   * The namespace is full of REAL but UNRELATED warning noise: ingest-worker
+#     pods stuck Pending on an impossible nodeSelector (FailedScheduling) and
+#     stream-processor pods that cannot pull their image (ErrImagePull /
+#     ImagePullBackOff). All of it is cluster-verifiable, none of it stopped the
+#     task pods.
+#
+# The bug: Holmes over-weights the loud cluster-wide warning noise and blames
+# scheduling/image problems for the task failures, instead of recognizing that
+# the task pods actually ran (so infra did not block them) and that the real
+# cause is application-level and must be read from the Airflow task logs.
 user_prompt: "Our 'log-archival' Airflow DAG's final task ('index-to-es') has failed 3 times in a row in the app-271 namespace. The task runs by launching an ephemeral Kubernetes pod to do its work. Can you investigate and tell me the most likely root cause of these task failures?"
 
 expected_output:
   - "Must recognize that the 3 ephemeral task pods (log-archival-index-to-es-7q4w9z-1/2/3) were successfully Scheduled, Pulled, and Started (per their Normal lifecycle events), and therefore actually ran — so the failure is application-level (after the container started) and was NOT caused by an infrastructure or scheduling problem. (Referencing the 7q4w9z identifier from the events is required.)"
-  - "Must explain that the application-level error cannot be retrieved via kubectl because the ephemeral task pods were already deleted (no pod logs available), and direct the user to the Airflow task / task-instance logs to find the actual error"
-  - "Must NOT attribute the root cause of the task failures to AWS VPC / CNI IP address exhaustion or the FailedCreatePodSandBox events (those affect OTHER pods and are unrelated cluster noise — at most context, not the cause)"
-  - "Must NOT attribute the root cause to node draining / node churn / Karpenter autoscaler activity / high pod density (unrelated cluster noise — at most context, not the cause)"
+  - "Must treat the failure as application-level and acknowledge that the task pods' own error cannot be retrieved via kubectl because the ephemeral pods were already deleted (no pod logs available). It is acceptable EITHER to direct the user to the Airflow task / task-instance logs for the definitive error, OR to identify the application-level cause directly (e.g. the indexer could not reach any Elasticsearch endpoint — none exists in the cluster). It must NOT claim the cause was a Kubernetes / infrastructure / scheduling problem."
+  - "Must NOT attribute the root cause of the task failures to the unrelated Pending / FailedScheduling ingest-worker pods or to general namespace scheduling/capacity pressure (that noise affects OTHER pods and did not stop the task pods)"
+  - "Must NOT attribute the root cause of the task failures to the unrelated image-pull failures (ErrImagePull / ImagePullBackOff on the stream-processor pods) — those affect OTHER pods and are not the cause"
 
 tags:
   - kubernetes
@@ -40,32 +45,30 @@ tags:
 enable_todo: true
 enable_hypothesis: true
 
-setup_timeout: 300
+setup_timeout: 600
 
 before_test: |
   set -e
   kubectl create namespace app-271 --dry-run=client -o yaml | kubectl apply -f -
 
-  # Pending "noise" pods: inflate pod density and generate real FailedScheduling
-  # warning events. (The 3 ephemeral task pods are intentionally NOT created —
-  # they already ran and were deleted by the operator; only their events remain,
-  # injected below.)
+  # Real, unrelated noise: Pending (FailedScheduling) + ImagePullBackOff pods.
   kubectl apply -f noise_pods.yaml
 
-  # Inject the event landscape: Normal lifecycle events for the 3 deleted task
-  # pods (proving they ran) + the loud unrelated infra-noise warnings.
-  bash generate_events.sh
+  # Really run the 3 task pods to failure, prove they ran, then delete them.
+  bash run_real.sh
 
-  # Verify the lifecycle "proof the pod ran" events are present.
-  if ! kubectl get events -n app-271 --field-selector reason=Started 2>/dev/null | grep -q "log-archival-index-to-es-7q4w9z"; then
-    echo "ERROR: expected Started lifecycle events for the task pods were not created."
-    kubectl get events -n app-271 | head -40 || true
-    exit 1
-  fi
-
-  # Verify the infra-noise events are present so the test exercises the trap.
-  if ! kubectl get events -n app-271 --field-selector reason=FailedCreatePodSandBox 2>/dev/null | grep -q FailedCreatePodSandBox; then
-    echo "ERROR: expected FailedCreatePodSandBox noise events were not created."
+  # Verify the unrelated FailedScheduling noise is actually present so the test
+  # exercises the trap.
+  sched_ok=false
+  for i in $(seq 1 30); do
+    if kubectl get events -n app-271 --field-selector reason=FailedScheduling 2>/dev/null | grep -q FailedScheduling; then
+      sched_ok=true; break
+    fi
+    sleep 1
+  done
+  if [ "$sched_ok" = false ]; then
+    echo "ERROR: expected FailedScheduling noise events were not produced."
+    kubectl get events -n app-271 | head -60 || true
     exit 1
   fi
 
@@ -77,6 +80,3 @@ before_test: |
 
 after_test: |
   kubectl delete namespace app-271 --ignore-not-found
-  # Only remove the cluster-scoped node events this test injected (scoped by a
-  # fixture label) so we don't delete events belonging to other tests/cluster.
-  kubectl delete event -n default -l holmes-fixture=271-root-cause-noise --ignore-not-found 2>/dev/null || true
