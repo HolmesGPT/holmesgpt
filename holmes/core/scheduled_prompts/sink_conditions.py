@@ -75,6 +75,41 @@ class SinkDecisions:
         """Sink types explicitly suppressed (decision is False)."""
         return [sink for sink, send in self.decisions.items() if send is False]
 
+
+# Strict structured-output schema, mirroring checks.py's CHECK_RESPONSE_FORMAT.
+# Sent on the first attempt so compliant providers return validated JSON. Some
+# stacks reject it (see evaluate_sink_decisions) and we fall back to
+# prompt-instructed JSON, so this is best-effort, not a hard dependency.
+SINK_DECISION_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "sink_delivery_decision",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "rationale": {
+                    "type": "string",
+                    "description": (
+                        "Briefly state whether the user's request contained any "
+                        "delivery conditions and, if so, whether the report meets them."
+                    ),
+                },
+                "send_to_slack": {
+                    "type": "boolean",
+                    "description": "Should this report be delivered to Slack?",
+                },
+                "send_to_email": {
+                    "type": "boolean",
+                    "description": "Should this report be delivered by email?",
+                },
+            },
+            "required": ["rationale", "send_to_slack", "send_to_email"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 SINK_DECISION_SYSTEM_PROMPT = """\
 You decide whether a scheduled report should be delivered to each notification \
 channel (Slack and email).
@@ -192,22 +227,40 @@ def evaluate_sink_decisions(
         {"role": "user", "content": user_content},
     ]
 
+    # temperature uses the shared TEMPERATURE contract (None on deployments
+    # whose model rejects the parameter — e.g. Anthropic with extended thinking,
+    # which requires temperature unset/1, or Opus 4.7+ which deprecates it;
+    # drop_params can't strip these at the provider).
+    base_kwargs = {
+        "messages": messages,
+        "temperature": TEMPERATURE,
+        "drop_params": True,
+    }
+
+    # Attempt 1: request a strict json_schema so compliant providers return
+    # validated JSON (the same approach checks.py uses). Some stacks reject it —
+    # notably Anthropic with extended thinking, where litellm encodes structured
+    # output as a forced tool call that the API forbids while thinking is on;
+    # via the Robusta AI proxy this surfaces as HTTP 400 (error_code 5400). When
+    # that happens, fall back to a plain call: the system prompt already asks for
+    # raw JSON, which _extract_json_object parses tolerantly.
+    result = None
     try:
-        # Keep this request shaped like the main investigation chat, which we
-        # know the provider/proxy accepts:
-        #   - Use the shared TEMPERATURE contract (None on deployments whose
-        #     model rejects the parameter — e.g. Anthropic with extended
-        #     thinking, which requires temperature unset/1, or Opus 4.7+ which
-        #     deprecates it; drop_params can't strip these at the provider).
-        #   - Do NOT pass a strict response_format json_schema. Some providers
-        #     and the Robusta AI proxy reject it with HTTP 400 (error_code
-        #     5400). We instead instruct JSON output in the system prompt and
-        #     parse it tolerantly via _extract_json_object.
         result = llm.completion(
-            messages=messages,
-            temperature=TEMPERATURE,
-            drop_params=True,
+            response_format=SINK_DECISION_RESPONSE_FORMAT, **base_kwargs
         )
+    except Exception:
+        logging.warning(
+            "Scheduled-prompt sink delivery: response_format json_schema was "
+            "rejected; retrying without it (prompt-instructed JSON). Expected "
+            "for models that don't support structured output here (e.g. "
+            "thinking-enabled Anthropic via the proxy).",
+            exc_info=True,
+        )
+
+    try:
+        if result is None:
+            result = llm.completion(**base_kwargs)
         content = result.choices[0].message.content  # type: ignore[union-attr]
         decisions = _coerce_decisions(content)
         if not decisions:

@@ -664,18 +664,47 @@ class TestSinkDeliveryConditions:
         assert kwargs["temperature"] == TEMPERATURE
         assert kwargs["temperature"] != 0
 
-    def test_evaluate_does_not_send_strict_response_format(self):
-        """Regression: a strict response_format json_schema is rejected (HTTP
-        400, error_code 5400) by some providers / the Robusta AI proxy, which
-        was swallowed and left sink_decisions null. The call must rely on prompt
-        instructions + tolerant parsing instead, never a strict schema."""
+    def test_evaluate_requests_structured_output_schema(self):
+        """The first attempt requests validated JSON via a strict json_schema
+        response_format (so compliant providers don't need text parsing)."""
         llm = self._completion_returning(
             {"send_to_slack": True, "send_to_email": True, "rationale": "x"}
         )
         evaluate_sink_decisions(llm, "notify only on problems", "analysis")
 
         kwargs = llm.completion.call_args.kwargs
-        assert kwargs.get("response_format") is None
+        rf = kwargs.get("response_format")
+        assert rf is not None
+        assert rf["type"] == "json_schema"
+        assert rf["json_schema"]["strict"] is True
+
+    def test_evaluate_falls_back_when_response_format_rejected(self):
+        """If the strict schema is rejected (e.g. thinking-enabled Anthropic via
+        the proxy → HTTP 400), retry WITHOUT response_format and still parse the
+        prompt-instructed JSON, rather than silently returning no decisions."""
+        message = MagicMock()
+        message.content = json.dumps(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "x"}
+        )
+        choice = MagicMock()
+        choice.message = message
+        good = MagicMock()
+        good.choices = [choice]
+
+        llm = MagicMock()
+        llm.completion = MagicMock(side_effect=[RuntimeError("400 invalid"), good])
+
+        out = evaluate_sink_decisions(llm, "email only if critical", "healthy")
+
+        assert out.decisions == {"slack": True, "email": False}
+        assert llm.completion.call_count == 2
+        # First attempt carries the schema; the retry drops it.
+        assert (
+            llm.completion.call_args_list[0].kwargs.get("response_format") is not None
+        )
+        assert (
+            llm.completion.call_args_list[1].kwargs.get("response_format") is None
+        )
 
     def test_coerce_decisions_handles_code_fenced_json(self):
         fenced = '```json\n{"send_to_slack": true, "send_to_email": false}\n```'
