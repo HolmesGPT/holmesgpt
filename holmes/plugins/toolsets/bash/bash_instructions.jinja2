@@ -6,16 +6,47 @@ Use the `bash` tool to execute shell commands. You must provide:
 
 ## Tool Selection — Prefer Dedicated Tools
 
-Before reaching for bash, check whether a dedicated tool already covers
-the question. For Kubernetes questions in particular, dedicated tools such
-as `kubernetes_jq_query`, `kubernetes_tabular_query`, and `kubernetes_count`
-exist precisely so that aggregation, filtering, grouping, and counting can
-be done in a single tool call without shell plumbing. Picking the right
-tool from the start is faster, more reliable, and produces a cleaner
-investigation trace.
+For Kubernetes questions, dedicated tools (`kubernetes_jq_query`,
+`kubernetes_tabular_query`, `kubernetes_count`) exist precisely so that
+aggregation, filtering, grouping, and counting can be done in one
+structured call. Reach for them before reaching for bash. Here's why
+this matters in practice — these are the real costs of choosing bash
+when a dedicated tool fits:
 
-**Do not use bash pipelines for aggregation when a dedicated tool fits.**
-Common anti-patterns to avoid:
+- **Approval prompts interrupt the user.** Compound bash constructs —
+  `for`/`while`/`until` loops, `if`/`case` blocks, command substitution
+  `$(...)`, process substitution `<(...)` — require explicit user
+  approval before they run. Dedicated tools and simple `kubectl get`
+  calls are auto-approved. Every compound bash call mid-investigation
+  is a UX interruption that breaks the user's flow.
+- **The bash allowlist gates every pipeline segment.** A piped command
+  is auto-approved only if *every* segment (`kubectl get`, `awk`,
+  `sort`, `uniq`, `wc`, `grep`, `cut`, `head`, ...) matches a prefix in
+  the configured allowlist. If one segment isn't allowed, the whole
+  pipeline blocks waiting for approval — or fails outright in
+  deployments that auto-deny. Dedicated tools sidestep the allowlist
+  entirely.
+- **Text parsing is fragile and fails silently.** `wc -l` counts the
+  header line. `awk '{print $1}'` breaks when columns shift under
+  `-o wide` or with multi-container pods. An empty `awk` match yields
+  empty `uniq -c` output that looks like "0 results" rather than "bad
+  pipeline". Dedicated tools work on structured JSON via jq, so a
+  wrong query returns an actionable error you can self-correct on,
+  not a plausible-looking false answer.
+- **Server-side filtering keeps token budgets small.**
+  `kubernetes_jq_query` projects only the fields you asked for, on the
+  API server. `kubectl get -A | ...` first pulls every resource's full
+  status into the conversation. On real clusters with hundreds of pods
+  the bash path can blow through context budgets that the dedicated
+  tool path barely touches — and you pay for those tokens on every
+  subsequent turn until compaction.
+- **Structured calls produce readable traces.** A
+  `kubernetes_count(kind=..., jq=...)` line is reviewable in the
+  investigation history (and survives compaction summarization with
+  its intent intact). A 200-character shell pipeline is opaque to
+  reviewers and gets harder to interpret as it's summarized.
+
+**Common anti-patterns to avoid:**
 
 - Counting/grouping with `kubectl get ... | awk '{print $1}' | sort | uniq -c`
   → use `kubernetes_count` with a jq grouping expression, or
