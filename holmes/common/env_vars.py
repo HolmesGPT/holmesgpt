@@ -184,9 +184,6 @@ SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
 SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
     os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
 )
-# DEPRECATED: TodoWrite is now disabled by default via DISABLED_BY_DEFAULT in prompt.py.
-# This env var is no longer used but kept for backwards compatibility.
-ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",
