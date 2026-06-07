@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
@@ -5,13 +6,22 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
+from holmes.common.env_vars import TEMPERATURE
 from holmes.core.models import ChatResponse
 from holmes.core.scheduled_prompts import (
     ScheduledPrompt,
     ScheduledPromptsExecutor,
     ScheduledPromptsHeartbeatSpan,
+    sink_conditions,
+)
+from holmes.core.scheduled_prompts.sink_conditions import (
+    _coerce_decisions,
+    _coerce_rationale,
+    evaluate_sink_decisions,
+    format_delivery_note,
 )
 from holmes.core.supabase_dal import RunStatus
+from holmes.core.usage_recorder import RequestStatus
 
 
 @pytest.fixture
@@ -589,10 +599,8 @@ class TestSinkDeliveryConditions:
 
     def _completion_returning(self, payload):
         """Build a mock LLM whose completion returns the given JSON payload."""
-        import json as _json
-
         message = MagicMock()
-        message.content = _json.dumps(payload)
+        message.content = json.dumps(payload)
         choice = MagicMock()
         choice.message = message
         result = MagicMock()
@@ -602,31 +610,23 @@ class TestSinkDeliveryConditions:
         return llm
 
     def test_coerce_decisions_valid(self):
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
-
         out = _coerce_decisions(
             '{"send_to_slack": true, "send_to_email": false, "rationale": "x"}'
         )
         assert out == {"slack": True, "email": False}
 
     def test_coerce_decisions_malformed_returns_empty(self):
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
-
         assert _coerce_decisions("not json") == {}
         assert _coerce_decisions("") == {}
         assert _coerce_decisions("[1, 2, 3]") == {}
 
     def test_coerce_decisions_ignores_non_bool(self):
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
-
         # Non-bool fields are dropped, valid ones kept.
         assert _coerce_decisions('{"send_to_slack": "yes", "send_to_email": true}') == {
             "email": True
         }
 
     def test_evaluate_returns_empty_for_blank_prompt(self):
-        from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
-
         llm = MagicMock()
         out = evaluate_sink_decisions(llm, "   ", "some analysis")
         assert out.decisions == {}
@@ -634,8 +634,6 @@ class TestSinkDeliveryConditions:
         llm.completion.assert_not_called()
 
     def test_evaluate_maps_structured_output(self):
-        from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
-
         llm = self._completion_returning(
             {"send_to_slack": True, "send_to_email": False, "rationale": "not critical"}
         )
@@ -646,8 +644,6 @@ class TestSinkDeliveryConditions:
         llm.completion.assert_called_once()
 
     def test_evaluate_returns_empty_on_llm_error(self):
-        from holmes.core.scheduled_prompts.sink_conditions import evaluate_sink_decisions
-
         llm = MagicMock()
         llm.completion = MagicMock(side_effect=RuntimeError("boom"))
         # Fail-safe: any error -> empty (reporter then delivers to all channels).
@@ -659,11 +655,6 @@ class TestSinkDeliveryConditions:
         sink_decisions silently stays null). The call must instead pass the
         shared TEMPERATURE constant, which is None when temperature must be
         omitted entirely."""
-        from holmes.common.env_vars import TEMPERATURE
-        from holmes.core.scheduled_prompts.sink_conditions import (
-            evaluate_sink_decisions,
-        )
-
         llm = self._completion_returning(
             {"send_to_slack": True, "send_to_email": True, "rationale": "x"}
         )
@@ -678,10 +669,6 @@ class TestSinkDeliveryConditions:
         400, error_code 5400) by some providers / the Robusta AI proxy, which
         was swallowed and left sink_decisions null. The call must rely on prompt
         instructions + tolerant parsing instead, never a strict schema."""
-        from holmes.core.scheduled_prompts.sink_conditions import (
-            evaluate_sink_decisions,
-        )
-
         llm = self._completion_returning(
             {"send_to_slack": True, "send_to_email": True, "rationale": "x"}
         )
@@ -691,14 +678,10 @@ class TestSinkDeliveryConditions:
         assert kwargs.get("response_format") is None
 
     def test_coerce_decisions_handles_code_fenced_json(self):
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
-
         fenced = '```json\n{"send_to_slack": true, "send_to_email": false}\n```'
         assert _coerce_decisions(fenced) == {"slack": True, "email": False}
 
     def test_coerce_decisions_handles_prose_wrapped_json(self):
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
-
         prose = (
             "Sure! Based on the report:\n"
             '{"rationale": "all healthy", "send_to_slack": true, '
@@ -710,8 +693,6 @@ class TestSinkDeliveryConditions:
         """Regression: a greedy `{.*}` regex spans first-to-last brace and fails
         json.loads ('Extra data') when the model emits more than one object;
         raw_decode must take the first valid object instead."""
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
-
         multi = (
             'Result: {"send_to_slack": true, "send_to_email": false} '
             'or maybe {"other": 1}'
@@ -720,8 +701,6 @@ class TestSinkDeliveryConditions:
 
     def test_coerce_decisions_handles_trailing_prose_with_brace(self):
         """A `}` in trailing prose must not break extraction of the first object."""
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_decisions
-
         text = (
             '{"send_to_slack": false, "send_to_email": true} '
             "note: use the }}-syntax elsewhere"
@@ -730,16 +709,12 @@ class TestSinkDeliveryConditions:
 
     def test_coerce_rationale_handles_brace_inside_string(self):
         """A brace inside the rationale string must not truncate parsing."""
-        from holmes.core.scheduled_prompts.sink_conditions import _coerce_rationale
-
         text = '{"rationale": "use the {placeholder}", "send_to_slack": true}'
         assert _coerce_rationale(text) == "use the {placeholder}"
 
     def test_evaluate_warns_when_output_unparseable(self):
         """A successful call with non-JSON output must log (not silently return
         null) and fall back to deliver-everywhere."""
-        from holmes.core.scheduled_prompts import sink_conditions
-
         llm = MagicMock()
         message = MagicMock()
         message.content = "I cannot decide that."  # not JSON
@@ -758,8 +733,6 @@ class TestSinkDeliveryConditions:
         mock_logging.warning.assert_called_once()
 
     def test_format_delivery_note(self):
-        from holmes.core.scheduled_prompts.sink_conditions import format_delivery_note
-
         assert format_delivery_note([], "x") == ""
         single = format_delivery_note(["email"], "no critical issues")
         assert "not sent to email" in single
@@ -850,8 +823,6 @@ class TestSinkDeliveryConditions:
         assert state.request_type == "scheduled_prompt"
         assert state.source_ref == sp.id
         # SUCCESS status is passed when the completion returned a response.
-        from holmes.core.usage_recorder import RequestStatus
-
         assert rec.call_args.kwargs["status"] == RequestStatus.SUCCESS
 
     def test_sink_decision_usage_not_recorded_without_notification_prompt(
