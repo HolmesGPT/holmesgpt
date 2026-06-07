@@ -1,0 +1,28 @@
+# kubectl + Elasticsearch both enabled. kubectl only sees the local cluster
+# (production-eu-west-2). Elasticsearch is the "global" backend that contains
+# data for both production-eu-west-2 and production-us-east-2. Used to verify
+# that for a question about a non-local cluster, Holmes routes the
+# investigation to the external toolset (ES) rather than kubectl.
+toolsets:
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true
+  helm/core:
+    enabled: false
+  robusta:
+    enabled: false
+  bash:
+    enabled: false
