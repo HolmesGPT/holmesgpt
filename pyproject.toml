@@ -189,7 +189,8 @@ markers = [
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
-    "token-limit: Tests that enforce a maximum token usage budget"
+    "token-limit: Tests that enforce a maximum token usage budget",
+    "multi-cluster: Multi-cluster / multi-environment topology and scope-awareness evals (PR #2042 set) — cluster mismatches, name disambiguation across clusters/namespaces/regions, labeling discipline in cross-cluster data, toolset vs no-data distinction, time-window gaps"
 ]
 
 addopts = [
