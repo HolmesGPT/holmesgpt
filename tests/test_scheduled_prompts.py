@@ -867,3 +867,84 @@ class TestSinkDeliveryConditions:
             executor._execute_prompt(sp)
 
         rec.assert_not_called()
+
+    def test_sink_usage_recorded_after_finish(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """Usage recording must happen AFTER the run is finished, so the
+        background Supabase write can't race (and terminate) the finish write —
+        which would strand the run in RUNNING and cause re-execution."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "x"}
+        )
+        mock_config._get_llm = MagicMock(return_value=llm)
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only email me if there's a critical issue",
+        }
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+
+        order = []
+        mock_dal.finish_scheduled_prompt_run.side_effect = (
+            lambda **kwargs: order.append("finish") or True
+        )
+        with patch(
+            "holmes.core.scheduled_prompts.executor.record_single_llm_call",
+            side_effect=lambda *a, **k: order.append("record"),
+        ):
+            executor._execute_prompt(sp)
+
+        assert order == ["finish", "record"]
+
+
+class TestFinishScheduledPromptRunRetry:
+    """finish_scheduled_prompt_run must survive transient Supabase connection
+    errors, so a completed run is actually persisted and not reclaimed."""
+
+    def _make_dal(self, execute_side_effect):
+        from holmes.core.supabase_dal import SupabaseDal
+
+        dal = object.__new__(SupabaseDal)
+        dal.enabled = True
+        dal.cluster = "test-cluster"
+        dal.account_id = "acc"
+        exec_builder = MagicMock()
+        exec_builder.execute = MagicMock(side_effect=execute_side_effect)
+        dal.client = MagicMock()
+        dal.client.rpc = MagicMock(return_value=exec_builder)
+        return dal, exec_builder
+
+    def _finish(self, dal):
+        return dal.finish_scheduled_prompt_run(
+            status=RunStatus.COMPLETED,
+            result={},
+            run_id="r",
+            scheduled_prompt_definition_id=None,
+            version="v",
+            metadata=None,
+        )
+
+    def test_retries_then_succeeds_on_transient_error(self):
+        import httpx
+
+        dal, exec_builder = self._make_dal(
+            [
+                httpx.RemoteProtocolError("terminated"),
+                httpx.RemoteProtocolError("terminated"),
+                MagicMock(),
+            ]
+        )
+        assert self._finish(dal) is True
+        assert exec_builder.execute.call_count == 3
+
+    def test_returns_false_after_exhausting_retries(self):
+        import httpx
+
+        dal, exec_builder = self._make_dal(httpx.RemoteProtocolError("terminated"))
+        assert self._finish(dal) is False
+        assert exec_builder.execute.call_count == 3
+
+    def test_non_transient_error_is_not_retried(self):
+        dal, exec_builder = self._make_dal(ValueError("schema error"))
+        assert self._finish(dal) is False
+        assert exec_builder.execute.call_count == 1

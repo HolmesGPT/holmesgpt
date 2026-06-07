@@ -10,6 +10,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+import httpx
 import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
@@ -1269,27 +1270,48 @@ class SupabaseDal:
             )
             return False
 
-        try:
-            self.client.rpc(
-                "finish_scheduled_prompt_run",
-                {
-                    "_cluster_name": self.cluster,
-                    "_account_id": self.account_id,
-                    "_status": status.value,
-                    "_result": result,
-                    "_scheduled_prompt_run_id": run_id,
-                    "_scheduled_prompt_definition_id": scheduled_prompt_definition_id,
-                    "_version": version,
-                    "_metadata": metadata,
-                },
-            ).execute()
-            return True
-        except Exception:
-            logging.exception(
-                "Supabase error while finishing scheduled prompt run",
-                exc_info=True,
-            )
-            return False
+        payload = {
+            "_cluster_name": self.cluster,
+            "_account_id": self.account_id,
+            "_status": status.value,
+            "_result": result,
+            "_scheduled_prompt_run_id": run_id,
+            "_scheduled_prompt_definition_id": scheduled_prompt_definition_id,
+            "_version": version,
+            "_metadata": metadata,
+        }
+        # Retry transient connection failures. The shared Supabase HTTP/2 client
+        # can emit RemoteProtocolError (ConnectionTerminated / GOAWAY) under
+        # concurrent use or server-side connection recycling. If finishing isn't
+        # persisted the run stays RUNNING and gets reclaimed and re-executed, so
+        # it's worth a couple of retries — this RPC is an idempotent status
+        # update, and httpx opens a fresh connection on the next attempt.
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, 4):
+            try:
+                self.client.rpc("finish_scheduled_prompt_run", payload).execute()
+                return True
+            except httpx.TransportError as exc:
+                last_exc = exc
+                logging.warning(
+                    "Transient Supabase error finishing scheduled prompt run "
+                    "(attempt %d/3): %s",
+                    attempt,
+                    exc,
+                )
+            except Exception:
+                logging.exception(
+                    "Supabase error while finishing scheduled prompt run",
+                    exc_info=True,
+                )
+                return False
+        logging.error(
+            "Failed to persist scheduled prompt run %s completion after 3 "
+            "attempts; it may be reclaimed and re-executed",
+            run_id,
+            exc_info=last_exc,
+        )
+        return False
 
     # --- OAuth Token Storage ---
 

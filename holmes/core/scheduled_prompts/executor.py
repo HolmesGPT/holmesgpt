@@ -193,7 +193,8 @@ class ScheduledPromptsExecutor:
             "Found pending run %s, executing with model %s", run_id, sp.model_name
         )
         self._execute_prompt(sp)
-        logging.info("Successfully completed run %s", run_id)
+        # Completion is logged by _finish_run based on whether the store write
+        # actually persisted — a failed finish must NOT be reported as success.
 
     def _execute_prompt(
         self,
@@ -230,10 +231,11 @@ class ScheduledPromptsExecutor:
         response = self.chat_function(chat_request, empty_request)
         duration_seconds = time.perf_counter() - start
 
+        sink_usage = None
         if isinstance(response, ChatResponse):
             response.metadata = dict(response.metadata or {})
             response.metadata["duration_seconds"] = duration_seconds
-            self._populate_sink_decisions(sp, response)
+            sink_usage = self._populate_sink_decisions(sp, response)
 
         result_data = (
             response.model_dump() if isinstance(response, ChatResponse) else {}
@@ -241,11 +243,20 @@ class ScheduledPromptsExecutor:
 
         self._finish_run(status=RunStatus.COMPLETED, result=result_data, sp=sp)
 
+        # Record the sink-decision LLM usage AFTER the run is finished. The
+        # recorder fires its Supabase write on a background thread; doing it
+        # before _finish_run let that write race the (critical) finish write on
+        # the single shared Supabase HTTP/2 client, terminating the connection
+        # and failing the finish — which stranded the run in RUNNING and caused
+        # it to be reclaimed and re-executed. Deferring keeps finish uncontended.
+        if sink_usage is not None:
+            self._record_sink_decision_usage(sp, *sink_usage)
+
         return response
 
     def _populate_sink_decisions(
         self, sp: ScheduledPrompt, response: ChatResponse
-    ) -> None:
+    ) -> Optional[tuple]:
         """Evaluate per-channel delivery conditions written in the user's prompt.
 
         The conditions come from the prompt's dedicated ``notification_prompt``
@@ -262,19 +273,22 @@ class ScheduledPromptsExecutor:
         """
         notification_prompt = self._extract_notification_prompt(sp.prompt)
         if not notification_prompt:
-            return
+            return None
 
         try:
             llm = self.config._get_llm(model_key=sp.model_name)
             result = evaluate_sink_decisions(
                 llm, notification_prompt, response.analysis
             )
-            self._record_sink_decision_usage(sp, llm, result)
             if result.decisions:
                 response.sink_decisions = result.decisions
                 note = format_delivery_note(result.suppressed(), result.rationale)
                 if note:
                     response.analysis = (response.analysis or "") + note
+            # Return the call's llm + result so the caller can record usage AFTER
+            # the run is finished (see _execute_prompt). Recording it here, before
+            # _finish_run, races the finish write on the shared Supabase client.
+            return (llm, result)
         except Exception:
             logging.exception(
                 "Failed to evaluate sink delivery conditions for run %s "
@@ -282,6 +296,7 @@ class ScheduledPromptsExecutor:
                 sp.id,
                 sp.model_name,
             )
+            return None
 
     def _record_sink_decision_usage(
         self, sp: ScheduledPrompt, llm, result
@@ -366,8 +381,8 @@ class ScheduledPromptsExecutor:
         status: RunStatus,
         result: dict,
         sp: ScheduledPrompt,
-    ) -> None:
-        self.dal.finish_scheduled_prompt_run(
+    ) -> bool:
+        persisted = self.dal.finish_scheduled_prompt_run(
             status=status,
             result=result,
             run_id=sp.id,
@@ -375,6 +390,19 @@ class ScheduledPromptsExecutor:
             version=get_version(),
             metadata=sp.metadata,
         )
+        if persisted:
+            logging.info("Run %s finished and persisted as %s", sp.id, status.value)
+        else:
+            # Do NOT report this as success: the store write failed, so the run
+            # is still RUNNING and will likely be reclaimed and re-executed
+            # (usually a transient Supabase connection error).
+            logging.error(
+                "Run %s finished locally but the store write FAILED; it was NOT "
+                "marked %s and may be reclaimed and re-executed",
+                sp.id,
+                status.value,
+            )
+        return persisted
 
     def _extract_prompt_text(self, prompt: Union[str, dict]) -> str:
         """
