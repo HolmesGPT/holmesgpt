@@ -10,7 +10,8 @@ packages = [{ include = "holmes" }]
 holmes = "holmes.main:run"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+# Upper bound <3.14 required by litellm >= 1.83.10 (CVE-2026-40217 fix)
+python = ">=3.10,<3.14"
 openai = "^2.8.0"
 jiter = "!=0.13.0"  # Exclude 0.13.0 due to corrupted Windows wheel (RECORD file issue)
 jinja2 = "^3.1.2"
@@ -34,7 +35,10 @@ markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
-litellm = "1.83.7"
+# 1.83.10+ fixes CVE-2026-40217; 1.83.14 bumps its pinned aiohttp to 3.13.4 and
+# python-dotenv to 1.2.2 (CVE fixes in both). Two aiohttp Mediums
+# (CVE-2026-34993/47265) need aiohttp 3.14.0, which requires litellm >= 1.84.
+litellm = "1.83.14"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
