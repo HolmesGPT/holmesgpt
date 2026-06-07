@@ -19,7 +19,7 @@
 #     recognizing the task pods actually ran.
 set -e
 NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-OUT="$(mktemp /tmp/app262-events.XXXXXX.yaml)"
+OUT="$(mktemp /tmp/app271-events.XXXXXX.yaml)"
 
 emit_lifecycle() {
   # $1 = pod name, $2 = event-name suffix
@@ -27,7 +27,7 @@ emit_lifecycle() {
   cat <<EOF
   - apiVersion: v1
     kind: Event
-    metadata: {name: ${sfx}-scheduled, namespace: app-262}
+    metadata: {name: ${sfx}-scheduled, namespace: app-271}
     type: Normal
     reason: Scheduled
     count: 1
@@ -36,11 +36,11 @@ emit_lifecycle() {
     source: {component: default-scheduler}
     reportingComponent: default-scheduler
     reportingInstance: default-scheduler
-    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-262, name: ${pod}}
-    message: "Successfully assigned app-262/${pod} to ip-10-0-5-12.ec2.internal"
+    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-271, name: ${pod}}
+    message: "Successfully assigned app-271/${pod} to ip-10-0-5-12.ec2.internal"
   - apiVersion: v1
     kind: Event
-    metadata: {name: ${sfx}-pulled, namespace: app-262}
+    metadata: {name: ${sfx}-pulled, namespace: app-271}
     type: Normal
     reason: Pulled
     count: 1
@@ -49,11 +49,11 @@ emit_lifecycle() {
     source: {component: kubelet, host: ip-10-0-5-12.ec2.internal}
     reportingComponent: kubelet
     reportingInstance: ip-10-0-5-12.ec2.internal
-    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-262, name: ${pod}}
+    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-271, name: ${pod}}
     message: "Container image \"registry.internal/log-archival/indexer:2.3.1\" already present on machine"
   - apiVersion: v1
     kind: Event
-    metadata: {name: ${sfx}-started, namespace: app-262}
+    metadata: {name: ${sfx}-started, namespace: app-271}
     type: Normal
     reason: Started
     count: 1
@@ -62,7 +62,7 @@ emit_lifecycle() {
     source: {component: kubelet, host: ip-10-0-5-12.ec2.internal}
     reportingComponent: kubelet
     reportingInstance: ip-10-0-5-12.ec2.internal
-    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-262, name: ${pod}}
+    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-271, name: ${pod}}
     message: "Started container base"
 EOF
 }
@@ -82,7 +82,7 @@ EOF
     cat <<EOF
   - apiVersion: v1
     kind: Event
-    metadata: {name: ipexhaust-${n}, namespace: app-262}
+    metadata: {name: ipexhaust-${n}, namespace: app-271}
     type: Warning
     reason: FailedCreatePodSandBox
     count: 17
@@ -91,7 +91,7 @@ EOF
     source: {component: kubelet, host: ip-10-0-${n}-42.ec2.internal}
     reportingComponent: kubelet
     reportingInstance: ip-10-0-${n}-42.ec2.internal
-    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-262, name: data-pipeline-${n}}
+    involvedObject: {apiVersion: v1, kind: Pod, namespace: app-271, name: data-pipeline-${n}}
     message: "Failed to create pod sandbox: rpc error: code = Unknown desc = failed to setup network for sandbox: plugin type=\"aws-cni\" name=\"aws-cni\" failed (add): add cmd: failed to assign an IP address to container: InsufficientFreeAddressesInSubnet: subnet-0ab12cd34ef has no available IP addresses"
 EOF
   done
@@ -101,7 +101,7 @@ EOF
     cat <<EOF
   - apiVersion: v1
     kind: Event
-    metadata: {name: nodedrain-${n}, namespace: default, labels: {holmes-fixture: "262-root-cause-noise"}}
+    metadata: {name: nodedrain-${n}, namespace: default, labels: {holmes-fixture: "271-root-cause-noise"}}
     type: Warning
     reason: FailedDraining
     count: 4
