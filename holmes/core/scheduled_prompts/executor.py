@@ -190,8 +190,6 @@ class ScheduledPromptsExecutor:
         # Create heartbeat span
         heartbeat_span = ScheduledPromptsHeartbeatSpan(sp=sp, dal=self.dal)
 
-        # TodoWrite is disabled by default (via DISABLED_BY_DEFAULT in prompt.py).
-        # ENABLE_SCHEDULED_PROMPTS_FAST_MODE is no longer needed for this purpose.
         chat_request = ChatRequest(
             ask=self._extract_prompt_text(sp.prompt),
             model=sp.model_name,
