@@ -150,6 +150,9 @@ class HolmesTestCase(BaseModel):
     max_tokens: Optional[int] = (
         None  # Maximum total tokens allowed; test fails if exceeded
     )
+    enable_todo: bool = (
+        False  # Enable the TodoWrite/todos feature (disabled by default in evals)
+    )
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):
