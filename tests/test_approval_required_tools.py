@@ -15,6 +15,7 @@ from holmes.core.tools import (
     ToolInvokeContext,
     Toolset,
     ToolsetTag,
+    ToolsetYamlFromConfig,
 )
 from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 
@@ -99,8 +100,6 @@ def test_session_approval_suppresses_reprompt():
 
 def test_deprecated_restricted_tools_is_ignored_with_warning(caplog):
     """Old configs carrying the removed restricted_tools key load without error."""
-    from holmes.core.tools import ToolsetYamlFromConfig
-
     with caplog.at_level("WARNING"):
         ts = ToolsetYamlFromConfig(
             name="kubernetes_remediation",
