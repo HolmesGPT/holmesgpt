@@ -1,0 +1,15 @@
+# Pure config-generation eval: Holmes should answer from the setup-assistant
+# context in the prompt, NOT by calling cluster/diagnostic tools. Disable every
+# toolset so there are no tools to call (matches the frontend setup assistant,
+# which instructs Holmes not to investigate the cluster).
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  robusta:
+    enabled: false
+  bash:
+    enabled: false
