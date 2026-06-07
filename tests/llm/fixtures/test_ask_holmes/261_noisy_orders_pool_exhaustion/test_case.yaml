@@ -23,18 +23,19 @@
 #   - payments-api logs frequent transient retry WARNs that succeed.
 #   - cache-exporter is in CrashLoopBackOff (can't reach a cache that isn't there).
 #
-# Correct behavior: trace the order failures to pool exhaustion caused by the
-# misconfigured connection-pool-max=2 in orders-config, and explicitly rule out
-# (or at least NOT blame) the database, the recommendations-api deploy/OOM, and
-# the crashlooping cache-exporter.
+# Correct behavior: trace the order failures to the slow synchronous audit writes
+# (audit-sync-writes=true) that make each transaction ~2s and saturate an
+# otherwise-reasonable pool (max=50); recommend making audit writes async rather
+# than growing the pool, and explicitly do NOT blame the pool size itself, the
+# database, the recommendations-api deploy/OOM, or the crashlooping cache-exporter.
 #
-# Anti-hallucination: the unique error code ORD_POOL_7k3m9x and the pool value 2
-# only exist in the logs/ConfigMap and cannot be guessed. Holmes must surface them
-# to prove it actually investigated rather than pattern-matched on the noise.
+# Anti-hallucination: the unique error code ORD_POOL_7k3m9x and the ~2000ms
+# commit_ms (audit_sync=on) values only exist in the logs/ConfigMap and cannot be
+# guessed. Holmes must surface them to prove it actually investigated rather than
+# pattern-matched on the noise.
 #
-# This test is expected to FAIL on current models (incl. opus 4.6): they tend to
-# either blame the recent recommendations-api deploy/OOM, blame the database
-# because of the connection-reset noise, or miss that the pool size is the cause.
+# Measured: opus-4.6, sonnet-4.6 and sonnet-4.5 all PASS this (clean sequential
+# runs) — it is a fair, solvable eval rather than a model discriminator.
 
 user_prompt: |
   Orders are intermittently failing to save in the app-261 namespace and customers are complaining.
