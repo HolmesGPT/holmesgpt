@@ -20,7 +20,7 @@
 # recognizing that the task pods actually ran (so infra did not block them) and
 # that the real cause is application-level and must be read from the Airflow
 # task logs (unavailable via kubectl because the pods were deleted).
-user_prompt: "Our 'log-archival' Airflow DAG's final task ('index-to-es') has failed 3 times in a row in the app-260 namespace. The task runs by launching an ephemeral Kubernetes pod to do its work. Can you investigate and tell me the most likely root cause of these task failures?"
+user_prompt: "Our 'log-archival' Airflow DAG's final task ('index-to-es') has failed 3 times in a row in the app-262 namespace. The task runs by launching an ephemeral Kubernetes pod to do its work. Can you investigate and tell me the most likely root cause of these task failures?"
 
 expected_output:
   - "Must recognize that the 3 ephemeral task pods (log-archival-index-to-es-7q4w9z-1/2/3) were successfully Scheduled, Pulled, and Started (per their Normal lifecycle events), and therefore actually ran — so the failure is application-level (after the container started) and was NOT caused by an infrastructure or scheduling problem. (Referencing the 7q4w9z identifier from the events is required.)"
@@ -38,7 +38,7 @@ setup_timeout: 300
 
 before_test: |
   set -e
-  kubectl create namespace app-260 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-262 --dry-run=client -o yaml | kubectl apply -f -
 
   # Pending "noise" pods: inflate pod density and generate real FailedScheduling
   # warning events. (The 3 ephemeral task pods are intentionally NOT created —
@@ -51,24 +51,26 @@ before_test: |
   bash generate_events.sh
 
   # Verify the lifecycle "proof the pod ran" events are present.
-  if ! kubectl get events -n app-260 --field-selector reason=Started 2>/dev/null | grep -q "log-archival-index-to-es-7q4w9z"; then
+  if ! kubectl get events -n app-262 --field-selector reason=Started 2>/dev/null | grep -q "log-archival-index-to-es-7q4w9z"; then
     echo "ERROR: expected Started lifecycle events for the task pods were not created."
-    kubectl get events -n app-260 | head -40 || true
+    kubectl get events -n app-262 | head -40 || true
     exit 1
   fi
 
   # Verify the infra-noise events are present so the test exercises the trap.
-  if ! kubectl get events -n app-260 --field-selector reason=FailedCreatePodSandBox 2>/dev/null | grep -q FailedCreatePodSandBox; then
+  if ! kubectl get events -n app-262 --field-selector reason=FailedCreatePodSandBox 2>/dev/null | grep -q FailedCreatePodSandBox; then
     echo "ERROR: expected FailedCreatePodSandBox noise events were not created."
     exit 1
   fi
 
   # Confirm the task pods themselves are absent (deleted), so kubectl logs yields nothing.
-  if kubectl get pod log-archival-index-to-es-7q4w9z-1 -n app-260 >/dev/null 2>&1; then
+  if kubectl get pod log-archival-index-to-es-7q4w9z-1 -n app-262 >/dev/null 2>&1; then
     echo "ERROR: task pod unexpectedly exists; it should have been deleted."
     exit 1
   fi
 
 after_test: |
-  kubectl delete namespace app-260 --ignore-not-found
-  kubectl delete event --field-selector reason=FailedDraining -n default --ignore-not-found 2>/dev/null || true
+  kubectl delete namespace app-262 --ignore-not-found
+  # Only remove the cluster-scoped node events this test injected (scoped by a
+  # fixture label) so we don't delete events belonging to other tests/cluster.
+  kubectl delete event -n default -l holmes-fixture=262-root-cause-noise --ignore-not-found 2>/dev/null || true
