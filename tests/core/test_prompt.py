@@ -218,7 +218,8 @@ class TestBuildInitialAskMessages:
             expected_skills=skills is not None,
         )
 
-        assert get_tasks_management_system_reminder() in user_content
+        # TodoWrite is disabled by default, so reminder should NOT be present
+        assert get_tasks_management_system_reminder() not in user_content
 
         if test_files:
             for test_file in test_files:
@@ -244,7 +245,8 @@ class TestBuildInitialAskMessages:
         assert messages[1]["role"] == "user"
         user_content = messages[1]["content"]
         assert "Test prompt" in user_content
-        assert get_tasks_management_system_reminder() in user_content
+        # TodoWrite is disabled by default, so reminder should NOT be present
+        assert get_tasks_management_system_reminder() not in user_content
         assert "The current UTC timestamp in seconds is" in user_content
 
 
@@ -420,17 +422,33 @@ def test_append_all_files_to_user_prompt_no_files():
 class TestIsComponentEnabled:
     """Test is_component_enabled function with overrides."""
 
-    def test_no_overrides_returns_env_var_result(self, monkeypatch):
-        """Without overrides, should return is_prompt_allowed_by_env result."""
+    def test_todowrite_disabled_by_default(self, monkeypatch):
+        """TodoWrite components are disabled by default."""
         monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
-        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is False
+        assert is_component_enabled(PromptComponent.TODOWRITE_REMINDER) is False
+
+    def test_non_todowrite_enabled_by_default(self, monkeypatch):
+        """Non-TodoWrite components are still enabled by default."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        assert is_component_enabled(PromptComponent.INTRO) is True
+        assert is_component_enabled(PromptComponent.GENERAL_INSTRUCTIONS) is True
+
+    def test_override_can_enable_todowrite(self, monkeypatch):
+        """API override can enable TodoWrite that is disabled by default."""
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is True
+        )
 
     def test_override_can_disable_component(self, monkeypatch):
         """API override can disable a component that env var allows."""
         monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
-        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        overrides = {PromptComponent.INTRO: False}
         assert (
-            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is_component_enabled(PromptComponent.INTRO, overrides)
             is False
         )
 
@@ -441,15 +459,6 @@ class TestIsComponentEnabled:
         assert (
             is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
             is False
-        )
-
-    def test_override_true_keeps_enabled(self, monkeypatch):
-        """API override with True keeps component enabled."""
-        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
-        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
-        assert (
-            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
-            is True
         )
 
     def test_env_var_selective_enable_with_override(self, monkeypatch):

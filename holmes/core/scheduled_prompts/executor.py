@@ -12,7 +12,6 @@ from starlette.requests import Request
 
 from holmes import get_version
 from holmes.common.env_vars import (
-    ENABLE_SCHEDULED_PROMPTS_FAST_MODE,
     ROBUSTA_UI_DOMAIN,
     SCHEDULED_PROMPTS_ACTIVE_POLL_INTERVAL_SECONDS,
     SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS,
@@ -191,11 +190,8 @@ class ScheduledPromptsExecutor:
         # Create heartbeat span
         heartbeat_span = ScheduledPromptsHeartbeatSpan(sp=sp, dal=self.dal)
 
-        behavior_controls = (
-            {"todowrite_instructions": False, "todowrite_reminder": False}
-            if ENABLE_SCHEDULED_PROMPTS_FAST_MODE
-            else None
-        )
+        # TodoWrite is disabled by default (via DISABLED_BY_DEFAULT in prompt.py).
+        # ENABLE_SCHEDULED_PROMPTS_FAST_MODE is no longer needed for this purpose.
         chat_request = ChatRequest(
             ask=self._extract_prompt_text(sp.prompt),
             model=sp.model_name,
@@ -203,7 +199,7 @@ class ScheduledPromptsExecutor:
             stream=False,
             additional_system_prompt=additional_system_prompt,
             trace_span=heartbeat_span,
-            behavior_controls=behavior_controls,
+            behavior_controls=None,
             # AI usage tracking — these runs are server-driven, not user-driven.
             request_type="scheduled_prompt",
             request_source="scheduler",
