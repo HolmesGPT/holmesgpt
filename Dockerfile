@@ -1,43 +1,97 @@
+# Alpine-based holmes image (switched from Debian bookworm).
+#
+# Why Alpine: the Debian base carried HIGH/CRITICAL CVEs with no fix available
+# in any Debian release — most notably the perl group (CVE-2026-42496 Critical
+# + CVE-2026-42497/48959/48961/48962/9538), which is unremovable on Debian
+# (perl-base is Essential, git depends on perl). Alpine's git does not depend
+# on perl, so the entire group is absent, and Alpine typically patches lib
+# CVEs (curl, expat, ncurses, ...) within days. Scan result at switch time:
+# 0 CRITICAL / 0 HIGH / 2 MEDIUM (aiohttp, blocked on litellm >= 1.84).
+#
+# Notable differences vs the previous Debian image:
+# - kubectl is a CVE-rebuilt static binary (see scripts/build_go_binaries.sh),
+#   not an apt/apk package
+# - msodbcsql18 (azure/sql toolset) is installed from Microsoft's Alpine .apk
+#   and is AMD64-ONLY — Microsoft does not ship a working aarch64 Alpine
+#   package, so the azure/sql toolset is unavailable on arm64
+# - confluent-kafka has no musllinux wheels and is built from source against
+#   Alpine's librdkafka-dev in the builder stage
+# - argocd / helm / kube-lineage are the same CGO_ENABLED=0 static binaries
+#   as before (libc-independent)
+
 # Build stage
-FROM python:3.11-slim-bookworm as builder
+FROM python:3.11-alpine AS builder
 ENV PATH="/root/.local/bin/:$PATH"
 
-RUN apt-get update \
-    && apt-get install -y \
+# build-base + librdkafka-dev: confluent-kafka builds from source on musl (no musllinux wheels)
+# libffi-dev / openssl-dev: source builds for any remaining non-wheel deps
+# unixodbc-dev: pyodbc headers (pyodbc itself ships musllinux wheels; kept for safety)
+# librdkafka-dev comes from edge: confluent-kafka 2.14.0 requires librdkafka >= 2.14.0,
+# but Alpine 3.23 stable ships 2.12.1. For production, pin the version or build
+# librdkafka from source instead of tracking edge.
+RUN apk add --no-cache \
     curl \
     git \
-    apt-transport-https \
-    gnupg2 \
-    build-essential \
+    gnupg \
     unzip \
-    && apt-get purge -y --auto-remove \
-    && rm -rf /var/lib/apt/lists/*
+    build-base \
+    libffi-dev \
+    openssl-dev \
+    unixodbc-dev \
+    cyrus-sasl-dev \
+    && apk add --no-cache \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+    librdkafka-dev
 
 WORKDIR /
 
 # Create and activate virtual environment.
 # Upgrade wheel to >= 0.46.2 to fix CVE-2026-24049 (path traversal); the version
 # pulled in by --upgrade-deps (0.45.1) is vulnerable.
+# Upgrade pip to >= 26.1 to fix CVE-2026-3219/6357 (and 25.3 for CVE-2025-8869).
 RUN python -m venv /venv --upgrade-deps && \
-    /venv/bin/pip install --upgrade 'wheel>=0.46.2' && \
+    /venv/bin/pip install --upgrade 'wheel>=0.46.2' 'pip>=26.1' && \
     . /venv/bin/activate
 
 ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Needed for kubectl
-ENV VERIFY_CHECKSUM=true \
-    VERIFY_SIGNATURES=true
-RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key -o Release.key
-
-# Set up kube-lineage (pre-built with Go 1.26.4 to fix stdlib
-# CVE-2026-42499/33814/39836/33811/39820, grpc pinned to v1.79.3 to fix CVE-2026-33186,
-# spdystream pinned to v0.5.1 to fix CVE-2026-35469, and containerd pinned to
-# v1.7.32 to fix CVE-2026-46680).
-# kube-lineage v2.2.5 ships with Go 1.24.13 + grpc 1.64.1 + spdystream 0.5.0 which are vulnerable.
-# Rebuild with: ./scripts/build_go_binaries.sh
-# Revert to upstream binary when kube-lineage releases a version with all three at fixed versions.
+# Set up kubectl. Rebuilt from source with Go 1.26.4 (see
+# scripts/build_go_binaries.sh) because every published kubectl release is
+# compiled with a Go toolchain vulnerable to stdlib
+# CVE-2026-42499/33814/39836/33811/39820/39823/39825/39826/42504.
+# Revert to the dl.k8s.io binary when a release is built with Go >= 1.26.3.
 ARG TARGETARCH
+COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz /tmp/kubectl.gz
+COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz.sha256 /tmp/kubectl.gz.sha256
+RUN cd /tmp && sha256sum -c kubectl.gz.sha256 \
+    && gunzip /tmp/kubectl.gz && mv /tmp/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
+    && rm -f /tmp/kubectl.gz.sha256 \
+    && kubectl version --client
+
+# Download and signature-verify Microsoft ODBC driver for the final stage.
+# Required for the azure/sql toolset. Microsoft only publishes a working Alpine
+# apk for amd64 (the _arm64-named file contains arch x86_64 metadata and is
+# uninstallable on aarch64), so the driver — and the azure/sql toolset — is
+# amd64-only on Alpine. An empty marker file is created on other arches so the
+# final-stage COPY succeeds.
+ARG MSODBCSQL_VERSION=18.5.1.1-1
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+    curl -fsSLO "https://download.microsoft.com/download/fae28b9a-d880-42fd-9b98-d779f0fdd77f/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
+    && curl -fsSLO "https://download.microsoft.com/download/fae28b9a-d880-42fd-9b98-d779f0fdd77f/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --import - \
+    && gpg --verify "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
+    && mv "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" /msodbcsql18.apk \
+    && rm -f "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig"; \
+    else \
+    echo "msodbcsql18: no aarch64 Alpine package from Microsoft; azure/sql toolset unavailable on ${TARGETARCH}" \
+    && touch /msodbcsql18.apk; \
+    fi
+
+# Set up kube-lineage / ArgoCD / Helm — identical CVE-patched static binaries
+# as the Debian image (see Dockerfile + scripts/build_go_binaries.sh for the
+# CVE list and revert conditions).
 COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz /tmp/kube-lineage.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz.sha256 /tmp/kube-lineage.gz.sha256
 RUN cd /tmp && sha256sum -c kube-lineage.gz.sha256 \
@@ -45,27 +99,12 @@ RUN cd /tmp && sha256sum -c kube-lineage.gz.sha256 \
     && rm -f /tmp/kube-lineage.gz.sha256
 RUN /kube-lineage --version
 
-# Set up ArgoCD (rebuilt from v3.3.11 source with Go 1.26.4 to fix stdlib
-# CVE-2026-42499/33814/39836/33811/39820, go-git pinned to v5.19.1 to fix
-# CVE-2026-41506/45022/45570/45571, and go-billy pinned to v5.9.0 to fix CVE-2026-44973.
-# ArgoCD pins go-git v5.14.0 upstream (go-git/go-git#1551, an SSH-push regression
-# that holmes never hits — argocd is used as a read-only API client only).
-# v3.3.11 ships otel/sdk 1.43.0, so the previous otel replace was dropped.
-# Rebuild with: ./scripts/build_go_binaries.sh
-# Revert to plain upstream binary when ArgoCD ships go-git >= 5.19.1 and go-billy >= 5.9.0.
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz.sha256 /tmp/argocd.gz.sha256
 RUN cd /tmp && sha256sum -c argocd.gz.sha256 \
     && gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd \
     && rm -f /tmp/argocd.gz.sha256
 
-# Set up Helm (v3.21.0 pre-built with Go 1.26.4 to fix stdlib
-# CVE-2026-42499/33814/39836/33811/39820, and containerd pinned to v1.7.32 to fix
-# CVE-2026-46680). Helm v3.21.0 already ships grpc v1.80.0, so the previous grpc
-# replace (CVE-2026-33186) was dropped.
-# Rebuild with: ./scripts/build_go_binaries.sh
-# Revert to upstream binary when Helm releases a version built with Go >= 1.26.3
-# and containerd >= 1.7.32.
 COPY bin/go-cve-rebuild/${TARGETARCH}/helm.gz /tmp/helm.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/helm.gz.sha256 /tmp/helm.gz.sha256
 RUN cd /tmp && sha256sum -c helm.gz.sha256 \
@@ -88,7 +127,7 @@ RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
 
 
 # Final stage
-FROM python:3.11-slim-bookworm
+FROM python:3.11-alpine
 
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/venv/bin:$PATH"
@@ -98,50 +137,40 @@ WORKDIR /app
 
 COPY --from=builder /venv /venv
 
-# Known unfixable CVEs (acknowledge in scanner): perl CVE-2026-42496 (Critical),
-# CVE-2026-42497/48959/48961/48962/9538 (High). No fixed perl exists in any Debian
-# release (bookworm/trixie/sid all vulnerable as of 2026-06). perl-base is
-# Debian-Essential and git Depends on perl, so the packages cannot be removed.
-# Re-check https://security-tracker.debian.org/tracker/source-package/perl and
-# remove this note once a fixed 5.36.0-7+deb12uX lands in bookworm-security.
-
-# We're installing here libexpat1, to upgrade the package to include a fix to 3 high CVEs. CVE-2024-45491,CVE-2024-45490,CVE-2024-45492
-# libgnutls30 is upgraded to >= 3.7.9-2+deb12u7 to fix CVE-2026-33845/42010 (Critical)
-# and CVE-2026-33846/3833/42009 (High); the base image ships an older build.
-RUN apt-get update \
-    && apt-get install -y \
+# Runtime packages. Note: git on Alpine does NOT depend on perl — the Debian
+# image's unfixable perl CVE group (CVE-2026-42496 et al.) is absent here.
+# librdkafka: runtime lib for the source-built confluent-kafka binding.
+# libstdc++ / libgcc: required by several compiled wheels.
+# krb5-libs + unixodbc: runtime deps of msodbcsql18 (azure/sql toolset).
+# apk upgrade picks up security fixes for base-image packages (e.g. xz-libs
+# CVE-2026-34743) that Alpine has already shipped.
+RUN apk upgrade --no-cache && apk add --no-cache \
     curl \
     jq \
     git \
-    apt-transport-https \
-    gnupg2 \
     tcpdump \
-    && apt-get purge -y --auto-remove \
-    && apt-get install -y --no-install-recommends libexpat1 libgnutls30 \
-    && rm -rf /var/lib/apt/lists/*
+    libstdc++ \
+    libgcc \
+    unixodbc \
+    krb5-libs \
+    && apk add --no-cache \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+    librdkafka
+
+# Microsoft ODBC for Azure SQL. Required for azure/sql toolset (amd64 only on
+# Alpine — see builder stage). The apk was signature-verified in the builder
+# stage; --allow-untrusted is needed because the package is not in an Alpine
+# repository.
+ARG TARGETARCH
+COPY --from=builder /msodbcsql18.apk /tmp/msodbcsql18.apk
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+    apk add --no-cache --allow-untrusted /tmp/msodbcsql18.apk; \
+    fi && rm /tmp/msodbcsql18.apk
 
 # Set up kubectl
-COPY --from=builder /Release.key Release.key
-RUN cat Release.key |  gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg \
-    && echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list \
-    && apt-get update
-RUN apt-get install -y kubectl
-
-
-# Microsoft ODBC for Azure SQL. Required for azure/sql toolset
-RUN VERSION_ID=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2 | cut -d '.' -f 1) && \
-    if ! echo "11 12" | grep -q "$VERSION_ID"; then \
-        echo "Debian $VERSION_ID is not currently supported."; \
-        exit 1; \
-    fi && \
-    curl -sSL -O https://packages.microsoft.com/config/debian/$VERSION_ID/packages-microsoft-prod.deb && \
-    dpkg -i packages-microsoft-prod.deb && \
-    rm packages-microsoft-prod.deb && \
-    apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
-    apt-get install -y libgssapi-krb5-2 && \
-    rm -rf /var/lib/apt/lists/*
-
+COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
+RUN kubectl version --client
 
 # Set up kube lineage
 COPY --from=builder /kube-lineage /usr/local/bin
@@ -163,15 +192,10 @@ ARG AWS_REGION
 # Patching CVE-2024-32002
 RUN git config --global core.symlinks false
 
-# Remove setuptools-65.5.1 installed from python:3.11-slim base image as fix for CVE-2024-6345 until image will be updated
-RUN rm -rf /usr/local/lib/python3.11/site-packages/setuptools-65.5.1.dist-info
-RUN rm -rf /usr/local/lib/python3.11/ensurepip/_bundled/setuptools-65.5.0-py3-none-any.whl
-
-# Upgrade wheel + setuptools in the base image's system Python to fix CVE-2026-24049
-# (wheel 0.45.1 path traversal). The venv at /venv was already upgraded in the builder stage,
-# but the base image's system Python still has the vulnerable copy.
-RUN /usr/local/bin/pip install --upgrade --no-cache-dir 'wheel>=0.46.2' 'setuptools>=80.0.0' \
-    && rm -rf /usr/local/lib/python3.11/site-packages/wheel-0.45.1.dist-info
+# Upgrade wheel + setuptools in the base image's system Python to fix
+# CVE-2026-24049 (wheel 0.45.1 path traversal), mirroring the Debian image,
+# and pip to >= 26.1 (CVE-2026-3219/6357, CVE-2025-8869, CVE-2026-1703).
+RUN /usr/local/bin/pip install --upgrade --no-cache-dir 'wheel>=0.46.2' 'setuptools>=80.0.0' 'pip>=26.1'
 
 COPY ./experimental/ag-ui/server-agui.py /app/experimental/ag-ui/server-agui.py
 COPY ./holmes /app/holmes
@@ -179,4 +203,3 @@ COPY ./server.py /app/server.py
 COPY ./holmes_cli.py /app/holmes_cli.py
 
 ENTRYPOINT ["python", "holmes_cli.py"]
-#CMD ["http://docker.for.mac.localhost:9093"]
