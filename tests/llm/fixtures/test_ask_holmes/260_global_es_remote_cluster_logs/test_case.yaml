@@ -1,0 +1,155 @@
+# Test: Global observability topology — Holmes on cluster A, ES has data for ALL clusters.
+#
+# Counterpart to eval 259. Same shape (Holmes is set to cluster_name
+# production-eu-west-2, user asks about production-us-east-2) but a DIFFERENT
+# topology: this customer runs a single Holmes agent and routes their entire
+# observability stack (Elasticsearch / OpenSearch / Datadog / Loki / etc.)
+# through it, with central data for many clusters. So the ES index here
+# contains genuine us-east-2 logs.
+#
+# Failure modes this catches:
+#   1. Over-correction from the cluster-awareness rule — Holmes refuses to
+#      investigate because the user named a different cluster than
+#      cluster_name, even though the external ES index has the data.
+#   2. Holmes investigates but silently treats us-east-2 logs as if they were
+#      eu-west-2 (the cluster Holmes is on), or vice versa.
+#
+# Correct behavior: Holmes notices that the index contains us-east-2 data,
+# investigates the user's incident using that data, and labels findings as
+# coming from production-us-east-2. May mention that the local k8s context
+# is eu-west-2, but must not refuse or get blocked by that.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: |
+  We have an active P1 incident — the checkout service in our production-us-east-2
+  cluster is throwing 500 errors and customers cannot complete payments. Please
+  investigate the root cause using the app-260-prod-logs index.
+
+cluster_name: "production-eu-west-2"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must investigate the incident using the production-us-east-2 logs found in the index — must NOT refuse to investigate or claim it cannot help because this Holmes instance's local k8s context is production-eu-west-2"
+  - "Must identify the actual root cause from the us-east-2 logs: payment-service upstream timeouts to the external payment provider (Stripe-US), which caused checkout-service circuit-breaker to open and return 500s"
+  - "Findings related to production-us-east-2 must be clearly attributed to production-us-east-2 (the cluster the user asked about), not silently relabeled as production-eu-west-2"
+
+tags:
+  - elasticsearch
+  - medium
+  - transparency
+  - regression
+  - multi-cluster
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  LOGS_INDEX="app-260-prod-logs"
+
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  T_5M=$(ts "minutes=5")
+  T_15M=$(ts "minutes=15")
+  T_30M=$(ts "minutes=30")
+  T_45M=$(ts "minutes=45")
+  T_1H=$(ts "hours=1")
+  T_2H=$(ts "hours=2")
+  T_3H=$(ts "hours=3")
+
+  echo "Cleaning up existing test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "Creating prod logs index..."
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+      "mappings": {"properties": {
+        "timestamp": {"type": "date"},
+        "service": {"type": "keyword"},
+        "cluster": {"type": "keyword"},
+        "region": {"type": "keyword"},
+        "level": {"type": "keyword"},
+        "status_code": {"type": "integer"},
+        "message": {"type": "text"},
+        "correlation_id": {"type": "keyword"}
+      }}
+    }')
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create logs index: $CREATE_RESPONSE"
+    exit 1
+  fi
+  sleep 2
+
+  # Index contains logs from BOTH production-us-east-2 (the cluster the user
+  # asked about) AND production-eu-west-2 (the cluster Holmes is on). The
+  # us-east-2 logs describe an active checkout/payment outage. The eu-west-2
+  # logs are quiet / healthy.
+  BULK_FILE=$(es_temp_file "logs" "260")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"timestamp":"${T_3H}","service":"checkout-service","cluster":"production-us-east-2","region":"us-east-2","level":"WARN","status_code":200,"message":"Latency on POST /api/checkout p95=1700ms (target 800ms)","correlation_id":"chk-us-2001"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"checkout-service","cluster":"production-us-east-2","region":"us-east-2","level":"ERROR","status_code":500,"message":"POST /api/checkout failed: payment provider response timeout after 30s (provider=stripe-us)","correlation_id":"chk-us-2142"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"payment-service","cluster":"production-us-east-2","region":"us-east-2","level":"ERROR","status_code":504,"message":"Upstream timeout calling stripe-us /v1/charges after 30000ms","correlation_id":"chk-us-2142"}
+  {"index":{}}
+  {"timestamp":"${T_1H}","service":"checkout-service","cluster":"production-us-east-2","region":"us-east-2","level":"ERROR","status_code":500,"message":"POST /api/checkout failed: circuit-breaker open for payment-service (failure rate 41% > 25% threshold)","correlation_id":"chk-us-2208"}
+  {"index":{}}
+  {"timestamp":"${T_45M}","service":"payment-service","cluster":"production-us-east-2","region":"us-east-2","level":"ERROR","status_code":504,"message":"Upstream timeout calling stripe-us /v1/charges after 30000ms","correlation_id":"chk-us-2220"}
+  {"index":{}}
+  {"timestamp":"${T_30M}","service":"checkout-service","cluster":"production-us-east-2","region":"us-east-2","level":"ERROR","status_code":500,"message":"POST /api/checkout failed: payment provider returned 502 Bad Gateway","correlation_id":"chk-us-2252"}
+  {"index":{}}
+  {"timestamp":"${T_15M}","service":"payment-service","cluster":"production-us-east-2","region":"us-east-2","level":"WARN","status_code":200,"message":"Stripe-US degraded mode acknowledged via status page; retry queue depth=1031"}
+  {"index":{}}
+  {"timestamp":"${T_5M}","service":"checkout-service","cluster":"production-us-east-2","region":"us-east-2","level":"ERROR","status_code":500,"message":"POST /api/checkout failed: circuit-breaker open for payment-service","correlation_id":"chk-us-2280"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"checkout-service","cluster":"production-eu-west-2","region":"eu-west-2","level":"INFO","status_code":200,"message":"Healthy: p95 latency 230ms over last 5 minutes"}
+  {"index":{}}
+  {"timestamp":"${T_1H}","service":"payment-service","cluster":"production-eu-west-2","region":"eu-west-2","level":"INFO","status_code":200,"message":"Stripe-EU responding normally, p95 latency 180ms"}
+  BULK_EOF
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
+
+  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+  rm -f "$BULK_FILE"
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  if [ "$DOC_COUNT" != "10" ]; then
+    echo "Expected 10 log records but found: $DOC_COUNT"
+    exit 1
+  fi
+
+  # Verify us-east-2 data IS present
+  USE2_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_count" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"term":{"cluster":"production-us-east-2"}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  if [ "$USE2_COUNT" != "8" ]; then
+    echo "Expected 8 us-east-2 records but found: $USE2_COUNT"
+    exit 1
+  fi
+
+  echo "Test data ready: $DOC_COUNT log records ($USE2_COUNT from production-us-east-2)"
+
+after_test: |
+  echo "Skipping index cleanup (reentrant - before_test handles idempotent setup)"
