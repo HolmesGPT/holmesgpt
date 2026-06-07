@@ -49,7 +49,7 @@ user_prompt: |
 include_tool_calls: false
 
 expected_output:
-  - "Must provide Helm values with a `holmes.mcp_servers` entry for Jira whose `config.url` is the Atlassian Rovo MCP endpoint and whose `config.mode` is `streamable-http`"
+  - "Must provide Helm values with a `holmes.mcp_servers` entry for Jira whose `config.url` is exactly the Atlassian Rovo MCP endpoint `https://mcp.atlassian.com/v1/mcp` and whose `config.mode` is `streamable-http`"
   - "The MCP auth header must be `Authorization: Basic <env.JIRA_TOKEN>` — HTTP Basic, NOT Bearer"
   - "Must declare the token under `holmes.additionalEnvVars` using a `secretKeyRef` (referencing the Kubernetes secret), and reference the env var via the `<env.JIRA_TOKEN>` angle-bracket shorthand rather than a raw secret value"
   - "Must give a kubectl command that creates the secret in the `robusta` namespace, storing the base64 encoding of `<atlassian-email>:<api-token>` (i.e. the Basic credential), not a raw token"
@@ -59,7 +59,6 @@ expected_output:
 
 tags:
   - mcp
-  - frontend
   - fast
   - medium
 
