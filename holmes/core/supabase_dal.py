@@ -587,6 +587,16 @@ class SupabaseDal:
 
         issue_data["evidence"] = relevant_evidence
 
+        # Surface a uniform "firing" boolean so the LLM doesn't have to infer the
+        # alert's current state from raw timestamps. For prometheus alerts the
+        # GroupedIssues row fetched above already carries an explicit `firing`
+        # column; for every other source the firing state is implicit in
+        # `ends_at` (a null ends_at means the issue is still firing). Compute it
+        # from `ends_at` when it isn't already present so callers see the same
+        # field regardless of source.
+        if issue_data.get("firing") is None:
+            issue_data["firing"] = issue_data.get("ends_at") is None
+
         # build issue investigation dates
         started_at = issue_data.get("starts_at")
         if started_at:
