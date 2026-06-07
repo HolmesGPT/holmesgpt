@@ -16,9 +16,11 @@ when a dedicated tool fits:
 - **Approval prompts interrupt the user.** Compound bash constructs —
   `for`/`while`/`until` loops, `if`/`case` blocks, command substitution
   `$(...)`, process substitution `<(...)` — require explicit user
-  approval before they run. Dedicated tools and simple `kubectl get`
-  calls are auto-approved. Every compound bash call mid-investigation
-  is a UX interruption that breaks the user's flow.
+  approval before they run. Dedicated tools are auto-approved
+  unconditionally; simple `kubectl get` calls are auto-approved when
+  their prefix is on the configured bash allowlist (which `kubectl get`
+  is on by default). Every compound bash call mid-investigation is a
+  UX interruption that breaks the user's flow.
 - **The bash allowlist gates every pipeline segment.** A piped command
   is auto-approved only if *every* segment (`kubectl get`, `awk`,
   `sort`, `uniq`, `wc`, `grep`, `cut`, `head`, ...) matches a prefix in
