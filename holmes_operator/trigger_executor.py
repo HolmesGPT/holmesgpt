@@ -140,6 +140,31 @@ def render_query(
     return rendered
 
 
+def compose_query(
+    template: str,
+    deployment: str,
+    namespace: str,
+    old_image: str,
+    new_image: str,
+) -> str:
+    """Build the spawned check's query.
+
+    The rollout facts are always prepended as a structured context header — so the
+    model knows which Deployment/namespace and what changed even if the author's
+    query is terse and uses none of the tokens — followed by the author's query with
+    any tokens substituted.
+    """
+    header = (
+        "This health check was triggered automatically by a Kubernetes Deployment "
+        "rollout. Use this context when investigating:\n"
+        f"- Deployment: {deployment}\n"
+        f"- Namespace: {namespace}\n"
+        f"- Previous image(s): {old_image or 'unknown'}\n"
+        f"- New image(s): {new_image or 'unknown'}\n\n"
+    )
+    return header + render_query(template, deployment, namespace, old_image, new_image)
+
+
 def is_in_cooldown(status: dict, deployment: str, cooldown_seconds: int) -> bool:
     """Return True if ``deployment`` fired within the cooldown window."""
     if cooldown_seconds <= 0:
@@ -274,7 +299,7 @@ def build_healthcheck_object(
             ],
         },
         "spec": {
-            "query": render_query(
+            "query": compose_query(
                 spec.query, deployment, namespace, old_image, new_image
             ),
             "timeout": spec.timeout,

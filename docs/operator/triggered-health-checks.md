@@ -66,9 +66,22 @@ kubectl describe thc verify-checkout-rollouts
 kubectl get hc -l holmesgpt.dev/triggered-by=verify-checkout-rollouts
 ```
 
-## Query tokens
+## Query and rollout context
 
-The `query` is templated with the rollout context before the check runs:
+The rollout facts are **always** prepended to the query the check runs, so even a terse
+query like `"Is the new version healthy?"` gives the model what it needs:
+
+```
+This health check was triggered automatically by a Kubernetes Deployment rollout. Use this context when investigating:
+- Deployment: checkout-api
+- Namespace: production
+- Previous image(s): myregistry/checkout-api:v2.4.0
+- New image(s): myregistry/checkout-api:v2.4.1
+
+<your query>
+```
+
+You can also reference the same facts inline in your `query` with these tokens:
 
 | Token | Replaced with |
 |-------|---------------|

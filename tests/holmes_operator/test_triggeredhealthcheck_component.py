@@ -95,6 +95,21 @@ class TestHelpers:
         )
         assert rendered == "was unknown"
 
+    def test_compose_query_injects_context_for_terse_query(self):
+        # A query with no tokens still gets the rollout facts.
+        query = trigger_executor.compose_query(
+            "Is the new version healthy?",
+            deployment="checkout",
+            namespace="prod",
+            old_image="repo/app:v1",
+            new_image="repo/app:v2",
+        )
+        assert "Is the new version healthy?" in query
+        assert "- Deployment: checkout" in query
+        assert "- Namespace: prod" in query
+        assert "- Previous image(s): repo/app:v1" in query
+        assert "- New image(s): repo/app:v2" in query
+
 
 class TestDetectRollout:
     def test_baseline_then_change(self):
@@ -244,10 +259,14 @@ class TestSpawnCheck:
         assert create_kwargs["plural"] == "healthchecks"
         hc = create_kwargs["body"]
         assert hc["kind"] == "HealthCheck"
-        assert (
-            hc["spec"]["query"]
-            == "checkout rolled out to repo/app:v2 (was repo/app:v1)"
-        )
+        query = hc["spec"]["query"]
+        # The author's query (with tokens substituted) is present...
+        assert "checkout rolled out to repo/app:v2 (was repo/app:v1)" in query
+        # ...and the rollout context is auto-injected so a terse query still works.
+        assert "- Deployment: checkout" in query
+        assert "- Namespace: prod" in query
+        assert "- Previous image(s): repo/app:v1" in query
+        assert "- New image(s): repo/app:v2" in query
         assert hc["spec"]["mode"] == "alert"
         assert hc["spec"]["destinations"][0]["type"] == "slack"
         owner = hc["metadata"]["ownerReferences"][0]
