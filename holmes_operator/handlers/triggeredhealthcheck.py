@@ -181,7 +181,7 @@ async def on_deployment_event(
             f"{namespace}/{trigger_name}"
         )
         task = asyncio.create_task(
-            trigger_executor.settle_and_spawn(
+            trigger_executor.spawn_check(
                 trigger_name=trigger_name,
                 namespace=namespace,
                 trigger_uid=trigger_uid,
@@ -234,7 +234,7 @@ async def on_triggeredhealthcheck_timer(
             f"running TriggeredHealthCheck {namespace}/{name}"
         )
         task = asyncio.create_task(
-            trigger_executor.settle_and_spawn(
+            trigger_executor.spawn_check(
                 trigger_name=name,
                 namespace=namespace,
                 trigger_uid=uid,

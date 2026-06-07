@@ -291,59 +291,7 @@ def build_healthcheck_object(
     return healthcheck
 
 
-async def wait_for_rollout(
-    deployment: str,
-    namespace: str,
-    timeout_seconds: int,
-    poll_interval: int = 5,
-) -> bool:
-    """Poll a Deployment until its rollout completes or the timeout elapses.
-
-    Returns True if the rollout completed (all updated replicas available), False on
-    timeout or if the Deployment disappears.
-    """
-    if timeout_seconds <= 0:
-        return False
-
-    apps_api = client.AppsV1Api()
-    start = datetime.now(timezone.utc)
-
-    while (datetime.now(timezone.utc) - start).total_seconds() < timeout_seconds:
-        try:
-            dep = await asyncio.to_thread(
-                apps_api.read_namespaced_deployment, deployment, namespace
-            )
-        except client.exceptions.ApiException as e:
-            if e.status == 404:
-                logger.warning(
-                    f"Deployment {namespace}/{deployment} not found while waiting "
-                    "for rollout to settle"
-                )
-                return False
-            logger.error(f"Error reading Deployment {namespace}/{deployment}: {e}")
-            await asyncio.sleep(poll_interval)
-            continue
-
-        spec_replicas = dep.spec.replicas if dep.spec.replicas is not None else 0
-        st = dep.status
-        observed = (st.observed_generation or 0) >= (dep.metadata.generation or 0)
-        updated = (st.updated_replicas or 0) >= spec_replicas
-        available = (st.available_replicas or 0) >= spec_replicas
-        no_unavailable = (st.unavailable_replicas or 0) == 0
-
-        if observed and updated and available and no_unavailable:
-            return True
-
-        await asyncio.sleep(poll_interval)
-
-    logger.info(
-        f"Rollout of {namespace}/{deployment} did not settle within "
-        f"{timeout_seconds}s; running the check anyway"
-    )
-    return False
-
-
-async def settle_and_spawn(
+async def spawn_check(
     trigger_name: str,
     namespace: str,
     trigger_uid: str,
@@ -353,11 +301,8 @@ async def settle_and_spawn(
     new_image: str,
     k8s_api: client.CustomObjectsApi,
 ) -> None:
-    """Wait for the rollout to settle, then spawn a HealthCheck and record it."""
+    """Create a HealthCheck for this rollout and record it in the trigger status."""
     try:
-        if spec.settleTimeout > 0:
-            await wait_for_rollout(deployment, namespace, spec.settleTimeout)
-
         check_name = generate_check_name(trigger_name)
         logger.info(
             f"TriggeredHealthCheck {namespace}/{trigger_name} fired by rollout of "

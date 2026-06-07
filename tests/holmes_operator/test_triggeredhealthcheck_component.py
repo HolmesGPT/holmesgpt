@@ -4,7 +4,7 @@ Pure helpers are tested directly; the execution path is tested with the Kubernet
 API mocked and the rollout-settle wait patched out.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -216,33 +216,27 @@ class TestPendingQueue:
         assert [p["deployment"] for p in patched] == ["payments"]
 
 
-class TestSettleAndSpawn:
+class TestSpawnCheck:
     async def test_spawns_healthcheck_and_records_status(
         self, setup_context, mock_k8s_api
     ):
         spec = TriggeredHealthCheckSpec(
             deploymentRollout={"selector": {"matchLabels": {"app": "checkout"}}},
-            settleTimeout=300,
             query="checkout rolled out to {{ .new.image }} (was {{ .old.image }})",
             mode="alert",
             destinations=[{"type": "slack", "config": {"channel": "#deploys"}}],
         )
 
-        with patch.object(
-            trigger_executor, "wait_for_rollout", new=AsyncMock(return_value=True)
-        ) as mock_wait:
-            await trigger_executor.settle_and_spawn(
-                trigger_name="verify-rollouts",
-                namespace="prod",
-                trigger_uid="thc-uid-1",
-                spec=spec,
-                deployment="checkout",
-                old_image="repo/app:v1",
-                new_image="repo/app:v2",
-                k8s_api=mock_k8s_api,
-            )
-
-        mock_wait.assert_awaited_once()
+        await trigger_executor.spawn_check(
+            trigger_name="verify-rollouts",
+            namespace="prod",
+            trigger_uid="thc-uid-1",
+            spec=spec,
+            deployment="checkout",
+            old_image="repo/app:v1",
+            new_image="repo/app:v2",
+            k8s_api=mock_k8s_api,
+        )
 
         # A HealthCheck was created with the rendered query and owner reference
         mock_k8s_api.create_namespaced_custom_object.assert_called_once()
@@ -271,27 +265,3 @@ class TestSettleAndSpawn:
         assert status["history"][0]["checkName"].startswith("verify-rollouts-")
         assert status["history"][0]["newImage"] == "repo/app:v2"
         assert status["cooldowns"][0]["deployment"] == "checkout"
-
-    async def test_settle_skipped_when_timeout_zero(self, setup_context, mock_k8s_api):
-        spec = TriggeredHealthCheckSpec(
-            deploymentRollout={"selector": {}},
-            settleTimeout=0,
-            query="check {{ .deployment }}",
-        )
-
-        with patch.object(
-            trigger_executor, "wait_for_rollout", new=AsyncMock(return_value=True)
-        ) as mock_wait:
-            await trigger_executor.settle_and_spawn(
-                trigger_name="verify-rollouts",
-                namespace="prod",
-                trigger_uid="thc-uid-1",
-                spec=spec,
-                deployment="checkout",
-                old_image="repo/app:v1",
-                new_image="repo/app:v2",
-                k8s_api=mock_k8s_api,
-            )
-
-        mock_wait.assert_not_awaited()
-        mock_k8s_api.create_namespaced_custom_object.assert_called_once()

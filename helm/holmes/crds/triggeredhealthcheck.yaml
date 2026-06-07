@@ -45,15 +45,9 @@ spec:
                           description: "Deployment labels that must all match"
                           additionalProperties:
                             type: string
-                settleTimeout:
-                  type: integer
-                  description: "Max seconds to wait for the rollout to finish before running the check (0 = run immediately)"
-                  default: 300
-                  minimum: 0
-                  maximum: 3600
                 delaySeconds:
                   type: integer
-                  description: "Deliberate wait (from rollout detection) before running the check, to let slow-burn problems surface. Default 300 (5 min); 0 = run as soon as settled. Persisted across restarts."
+                  description: "How long to wait after a rollout before running the check (seconds). Gives the rollout time to finish and problems time to surface. Default 300 (5 min); 0 = check immediately; up to 604800 (7 days). The wait is saved on the resource and survives operator restarts."
                   default: 300
                   minimum: 0
                   maximum: 604800

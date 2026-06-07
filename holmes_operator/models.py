@@ -196,14 +196,10 @@ class TriggeredHealthCheckSpec(BaseModel):
 
     enabled: bool = Field(default=True)
     deploymentRollout: DeploymentRolloutTrigger
-    # Max seconds to wait for the rollout to finish before running the check.
-    # 0 disables waiting (run immediately).
-    settleTimeout: int = Field(default=300, ge=0, le=3600)
-    # Deliberate wait before running the check, measured from when the rollout is
-    # detected. Use this to let slow-burn problems (leaks, pool exhaustion) surface
-    # before Holmes evaluates. Defaults to 5 minutes; set to 0 to run as soon as the
-    # rollout settles. Max 7 days. Pending fires are persisted in status, so long
-    # delays survive operator restarts.
+    # How long to wait after a new version is rolled out before running the check.
+    # Gives the rollout time to finish and gives crashes/errors time to show up.
+    # Default 5 minutes; 0 checks immediately; up to 7 days (e.g. 86400 = a day later).
+    # The wait is saved on the resource, so it still completes if the operator restarts.
     delaySeconds: int = Field(default=300, ge=0, le=604800)
     # Suppress re-firing for the same Deployment within this many seconds. 0 disables.
     cooldownSeconds: int = Field(default=0, ge=0)
