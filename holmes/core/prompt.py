@@ -93,7 +93,7 @@ def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     if enabled_prompts.lower() == "none":
         return False
 
-    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
+    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",") if x.strip()]
     return component.value in enabled_names
 
 
