@@ -186,6 +186,7 @@ def ask_holmes(
             allow_toolset_failures=getattr(test_case, "allow_toolset_failures", False),
             toolsets_config_path=getattr(test_case, "toolsets_config_path", None),
             enable_todo=getattr(test_case, "enable_todo", False),
+            enable_hypothesis=getattr(test_case, "enable_hypothesis", False),
         )
 
         tool_executor = ToolExecutor(toolset_manager.toolsets)

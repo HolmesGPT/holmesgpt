@@ -153,6 +153,9 @@ class HolmesTestCase(BaseModel):
     enable_todo: bool = (
         False  # Enable the TodoWrite/todos feature (disabled by default in evals)
     )
+    enable_hypothesis: bool = (
+        False  # Enable the HypothesisWrite/hypothesis-tracking feature (disabled by default in evals)
+    )
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):

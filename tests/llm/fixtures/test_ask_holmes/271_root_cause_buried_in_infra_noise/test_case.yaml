@@ -34,6 +34,12 @@ tags:
   - transparency
   - hard
 
+# Give the investigation the optional planning/reasoning tools. HypothesisWrite
+# lets Holmes track competing root-cause hypotheses (infra vs application) and
+# weigh the evidence for each instead of latching onto the loudest infra signal.
+enable_todo: true
+enable_hypothesis: true
+
 setup_timeout: 300
 
 before_test: |
