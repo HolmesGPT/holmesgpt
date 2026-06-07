@@ -77,27 +77,6 @@ def build_vision_content(
     return content
 
 
-def _get_env_prompts_setting() -> tuple[bool, Optional[set[str]]]:
-    """
-    Parse the ENABLED_PROMPTS environment variable.
-
-    Returns:
-        Tuple of (is_set, enabled_names):
-        - (False, None): env var not set, use defaults
-        - (True, set()): env var is "none", disable all
-        - (True, set[str]): env var has explicit list of enabled components
-    """
-    enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
-
-    if not enabled_prompts:
-        return (False, None)  # Not set, use defaults
-    if enabled_prompts.lower() == "none":
-        return (True, set())  # Explicitly disable all
-
-    enabled_names = {x.strip().lower() for x in enabled_prompts.split(",")}
-    return (True, enabled_names)
-
-
 def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     """
     Check if a prompt component is allowed by the ENABLED_PROMPTS environment variable.
@@ -107,13 +86,15 @@ def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     - If set to "none": all prompts are disabled
     - Comma-separated names (e.g., "files,time_skills")
     """
-    is_set, enabled_names = _get_env_prompts_setting()
+    enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
 
-    if not is_set:
+    if not enabled_prompts:
         return True  # Default: all enabled
-    if enabled_names is not None:
-        return component.value in enabled_names
-    return False
+    if enabled_prompts.lower() == "none":
+        return False
+
+    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
+    return component.value in enabled_names
 
 
 def is_component_enabled(
@@ -123,32 +104,17 @@ def is_component_enabled(
     """
     Check if a prompt component is enabled, considering both env var and API overrides.
 
-    Precedence: env var (explicit enable) > API override > env var (default) > DISABLED_BY_DEFAULT
-    - If env var explicitly lists the component: enabled (unless API override says False)
-    - If env var is "none": disabled (can't override)
-    - If env var is not set: API override decides, or use DISABLED_BY_DEFAULT
+    Precedence: env var > API override > default
+    - If env var disables component: always disabled (API can't override)
+    - If env var allows component: API override decides, or use default
+    - Default is enabled for most components, except those in DISABLED_BY_DEFAULT
     """
-    is_env_set, enabled_names = _get_env_prompts_setting()
-
-    # If ENABLED_PROMPTS="none", disable everything
-    if is_env_set and (enabled_names is None or len(enabled_names) == 0):
-        return False
-
-    # If ENABLED_PROMPTS explicitly lists component, treat as enabled by default
-    # but API can still override to False
-    if is_env_set and enabled_names and component.value in enabled_names:
-        if overrides and component in overrides:
-            return overrides[component]
-        return True  # Explicitly enabled via env var
-
-    # If ENABLED_PROMPTS lists components but doesn't include this one, disable it
-    if is_env_set and enabled_names and component.value not in enabled_names:
-        return False
-
-    # Env var not set - check API override, then DISABLED_BY_DEFAULT
+    env_allowed = is_prompt_allowed_by_env(component)
+    if not env_allowed:
+        return False  # env var wins, can't override to enabled
     if overrides and component in overrides:
-        return overrides[component]
-    return component not in DISABLED_BY_DEFAULT
+        return overrides[component]  # env allows, API decides
+    return component not in DISABLED_BY_DEFAULT  # env allows, no override, use default
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:

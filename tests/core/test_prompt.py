@@ -463,12 +463,20 @@ class TestIsComponentEnabled:
 
     def test_env_var_selective_enable_with_override(self, monkeypatch):
         """When env var selectively enables, override can still disable."""
-        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions,intro")
-        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+        monkeypatch.setenv("ENABLED_PROMPTS", "intro,general_instructions")
+        # INTRO is allowed by env var and not in DISABLED_BY_DEFAULT, so enabled
+        assert is_component_enabled(PromptComponent.INTRO) is True
 
-        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
-        assert (
-            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
-            is False
-        )
+        # Override can still disable it
+        overrides = {PromptComponent.INTRO: False}
+        assert is_component_enabled(PromptComponent.INTRO, overrides) is False
+
+    def test_env_var_does_not_override_disabled_by_default(self, monkeypatch):
+        """Even if env var allows a component, DISABLED_BY_DEFAULT still applies."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions,intro")
+        # TodoWrite passes env check but is in DISABLED_BY_DEFAULT
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is False
+        # But explicit override can enable it
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides) is True
 
