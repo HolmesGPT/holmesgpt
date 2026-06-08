@@ -128,7 +128,7 @@ def make_robusta_platform_mcp_toolset(
             "owns the credentials for. Tools are discovered at runtime; "
             "credentials never leave the relay."
         ),
-        docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/robusta-platform-mcp/",
+        docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/robusta/",
         icon_url="https://cdn.prod.website-files.com/633e9bac8f71dfb7a8e4c9a6/646be7710db810b14133bdb5_logo.svg",
         enabled=True,
         tags=[ToolsetTag.CORE],
