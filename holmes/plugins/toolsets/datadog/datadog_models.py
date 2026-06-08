@@ -47,7 +47,8 @@ class DatadogTracesConfig(DatadogBaseConfig):
 
     # Hide list-typed advanced fields from the frontend form and example YAML.
     # The runtime still accepts them via raw YAML for users who need to override.
-    _hidden_fields: ClassVar[List[str]] = ["indexes"]
+    # Must include "accounts" from the parent so ClassVar shadowing doesn't leak it.
+    _hidden_fields: ClassVar[List[str]] = ["accounts", "indexes"]
 
     indexes: list[str] = Field(
         default_factory=lambda: ["*"],
@@ -62,7 +63,8 @@ class DatadogLogsConfig(DatadogBaseConfig):
     # Hide the `indexes` list from the frontend form and example YAML
     # because complex list types don't render as form inputs. Runtime still
     # accepts it via raw YAML for advanced users.
-    _hidden_fields: ClassVar[List[str]] = ["indexes"]
+    # Must include "accounts" from the parent so ClassVar shadowing doesn't leak it.
+    _hidden_fields: ClassVar[List[str]] = ["accounts", "indexes"]
 
     indexes: list[str] = Field(
         default_factory=lambda: ["*"],

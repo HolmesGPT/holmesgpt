@@ -140,7 +140,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
                 default_time_span_seconds=ACTIVE_METRICS_DEFAULT_TIME_SPAN_SECONDS,
             )
 
-            url = f"{account.api_url}/api/v1/metrics"
+            url = f"{str(account.api_url).rstrip('/')}/api/v1/metrics"
             headers = get_headers(account)
 
             query_params = {
@@ -357,7 +357,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
                 default_time_span_seconds=DEFAULT_TIME_SPAN_SECONDS,
             )
 
-            url = f"{account.api_url}/api/v1/query"
+            url = f"{str(account.api_url).rstrip('/')}/api/v1/query"
             headers = get_headers(account)
 
             query_params = {
@@ -578,7 +578,7 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
 
             for metric_name in metric_names:
                 try:
-                    api_url = f"{account.api_url}/api/v1/metrics/{metric_name}"
+                    api_url = f"{str(account.api_url).rstrip('/')}/api/v1/metrics/{metric_name}"
 
                     data = execute_datadog_http_request(
                         url=api_url,
@@ -696,7 +696,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
         try:
             metric_name = get_param_or_raise(params, "metric_name")
 
-            api_url = f"{account.api_url}/api/v2/metrics/{metric_name}/active-configurations"
+            api_url = f"{str(account.api_url).rstrip('/')}/api/v2/metrics/{metric_name}/active-configurations"
             headers = get_headers(account)
 
             data = execute_datadog_http_request(
@@ -797,7 +797,7 @@ class DatadogMetricsToolset(Toolset):
                 account.name,
             )
 
-            url = f"{account.api_url}/api/v1/validate"
+            url = f"{str(account.api_url).rstrip('/')}/api/v1/validate"
             headers = get_headers(account)
 
             data = execute_datadog_http_request(

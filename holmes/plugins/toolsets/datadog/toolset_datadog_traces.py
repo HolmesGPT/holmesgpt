@@ -113,7 +113,7 @@ class DatadogTracesToolset(Toolset):
                 }
             }
 
-            search_url = f"{account.api_url}/api/v2/spans/events/search"
+            search_url = f"{str(account.api_url).rstrip('/')}/api/v2/spans/events/search"
 
             execute_datadog_http_request(
                 url=search_url,
@@ -291,7 +291,7 @@ class GetSpans(BaseDatadogTracesTool):
                 sort = "-timestamp"
 
             # Use POST endpoint for more complex searches
-            url = f"{account.api_url}/api/v2/spans/events/search"
+            url = f"{str(account.api_url).rstrip('/')}/api/v2/spans/events/search"
             headers = get_headers(account)
 
             payload = {
@@ -665,7 +665,7 @@ class AggregateSpans(BaseDatadogTracesTool):
             query = params.get("query", "*")
 
             # Build the request payload
-            url = f"{account.api_url}/api/v2/spans/analytics/aggregate"
+            url = f"{str(account.api_url).rstrip('/')}/api/v2/spans/analytics/aggregate"
             headers = get_headers(account)
 
             # Build payload attributes first

@@ -81,10 +81,10 @@ class DatadogLogsToolset(Toolset):
         self.tools = [GetLogs(toolset=self)]
         self._reload_instructions()
 
-    def _perform_healthcheck(self, account: DatadogAccount) -> Tuple[bool, str]:
+    def _perform_healthcheck(
+        self, account: DatadogAccount, dd_config: DatadogLogsConfig
+    ) -> Tuple[bool, str]:
         """Perform health check on Datadog logs API for one account."""
-        if not self.dd_config:
-            return False, "Internal error: Datadog configuration not initialized"
         try:
             logging.info(
                 "Performing Datadog logs healthcheck for account %r...", account.name
@@ -95,17 +95,17 @@ class DatadogLogsToolset(Toolset):
                     "from": "now-1m",
                     "to": "now",
                     "query": "*",
-                    "indexes": self.dd_config.indexes,
+                    "indexes": dd_config.indexes,
                 },
                 "page": {"limit": 1},
             }
 
-            search_url = f"{account.api_url}/api/v2/logs/events/search"
+            search_url = f"{str(account.api_url).rstrip('/')}/api/v2/logs/events/search"
             execute_datadog_http_request(
                 url=search_url,
                 headers=headers,
                 payload_or_params=payload,
-                timeout=self.dd_config.timeout_seconds,
+                timeout=dd_config.timeout_seconds,
                 method="POST",
             )
 
@@ -147,12 +147,13 @@ class DatadogLogsToolset(Toolset):
 
         try:
             dd_config = DatadogLogsConfig(**config)
-            self.dd_config = dd_config
 
             for account in dd_config.accounts:
-                success, error_msg = self._perform_healthcheck(account)
+                success, error_msg = self._perform_healthcheck(account, dd_config)
                 if not success:
                     return False, error_msg
+
+            self.dd_config = dd_config
             self._reload_instructions()
             return True, ""
 
@@ -255,7 +256,7 @@ class GetLogs(Tool):
             params["limit"] = limit
             sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 
-            url = f"{account.api_url}/api/v2/logs/events/search"
+            url = f"{str(account.api_url).rstrip('/')}/api/v2/logs/events/search"
             headers = get_headers(account)
 
             storage = self.toolset.dd_config.storage_tier
