@@ -230,7 +230,6 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi cl
       kubernetes:
         enabled: true
 
-        # Field is camelCase. `llm_instructions` (snake_case) is silently ignored.
         llmInstructions: |
           This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
 
@@ -311,9 +310,6 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi cl
             - "--cluster-provider"
             - "kubeconfig"
 
-          # Block configuration_view: it returns the raw kubeconfig (all
-          # tokens) to any caller. The LLM only needs context names via
-          # configuration_contexts_list, not the credentials themselves.
           serverConfig: |
             disabled_tools = ["configuration_view"]
     ```
@@ -341,7 +337,6 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi cl
         kubernetes:
           enabled: true
 
-          # Field is camelCase. `llm_instructions` (snake_case) is silently ignored.
           llmInstructions: |
             This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
 
@@ -421,9 +416,6 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi cl
               - "--cluster-provider"
               - "kubeconfig"
 
-            # Block configuration_view: it returns the raw kubeconfig (all
-            # tokens) to any caller. The LLM only needs context names via
-            # configuration_contexts_list, not the credentials themselves.
             serverConfig: |
               disabled_tools = ["configuration_view"]
     ```
