@@ -402,6 +402,70 @@ class ToolCallingLLM:
 
         return messages, events
 
+    def _resolve_orphaned_tool_calls(
+        self, messages: List[Dict[str, Any]]
+    ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
+        """Inject denial tool results for assistant tool_calls that have no result.
+
+        A tool call is "orphaned" when the assistant requested it but the
+        conversation never recorded a matching tool result. This happens when a
+        user abandons a pending tool approval — closing the approval modal or
+        asking a new follow-up question instead of approving/denying. Without a
+        matching tool result, the next LLM call fails because providers
+        (Anthropic/Bedrock) require every tool_use block to be immediately
+        followed by a tool_result block.
+
+        We treat any such abandoned call as denied so the conversation can
+        continue with the user's new request.
+        """
+        resolved_ids = {
+            msg.get("tool_call_id")
+            for msg in messages
+            if msg.get("role") == "tool" and msg.get("tool_call_id")
+        }
+
+        events: list[StreamMessage] = []
+        # Walk from the end so insertions don't shift indices we haven't visited.
+        for i in reversed(range(len(messages))):
+            msg = messages[i]
+            if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+                continue
+            insert_offset = 1
+            for tool_call in msg.get("tool_calls", []):
+                tool_call_id = tool_call.get("id")
+                if not tool_call_id or tool_call_id in resolved_ids:
+                    continue
+                # Drop any stale pending_approval flag so it isn't re-emitted.
+                tool_call.pop("pending_approval", None)
+                function = tool_call.get("function") or {}
+                tool_name = function.get("name") or "unknown"
+                tool_result = ToolCallResult(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    description=tool_name,
+                    result=StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error="Tool execution was cancelled because the user "
+                        "submitted a new request before approving it.",
+                    ),
+                )
+                messages.insert(
+                    i + insert_offset,
+                    tool_result.to_llm_message(
+                        supports_vision=self._supports_vision()
+                    ),
+                )
+                resolved_ids.add(tool_call_id)
+                insert_offset += 1
+                events.append(
+                    StreamMessage(
+                        event=StreamEvents.TOOL_RESULT,
+                        data=tool_result.to_client_dict(),
+                    )
+                )
+
+        return messages, events
+
     @staticmethod
     def _process_frontend_tool_results(
         messages: List[Dict[str, Any]],
@@ -1013,6 +1077,16 @@ class ToolCallingLLM:
         if msgs and frontend_tool_results:
             logging.info(f"Processing {len(frontend_tool_results)} frontend tool results")
             msgs, events = self._process_frontend_tool_results(msgs, frontend_tool_results)
+            for ev in events:
+                yield ev
+                if ev.event == StreamEvents.TOOL_RESULT:
+                    all_tool_calls.append(ev.data)
+
+        # Deny any tool calls the user abandoned (e.g. closed the approval modal
+        # or asked a new question without deciding). Otherwise the LLM call fails
+        # because every tool_use block must be followed by a tool_result block.
+        if msgs:
+            msgs, events = self._resolve_orphaned_tool_calls(msgs)
             for ev in events:
                 yield ev
                 if ev.event == StreamEvents.TOOL_RESULT:

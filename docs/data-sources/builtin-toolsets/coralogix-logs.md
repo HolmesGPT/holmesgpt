@@ -128,7 +128,12 @@ By specifying details about your Coralogix metrics, logs, and traces, you can si
 
 To configure this:
 
-1. Go to [platform.robusta.dev](https://platform.robusta.dev/)
+1. Open the Robusta platform — pick your region:
+
+    ```robusta-region
+    [platform.robusta.dev](https://platform.robusta.dev/)
+    ```
+
 2. Navigate to **Settings → AI Assistant → AI Customization**
 3. Add your labels and metric details
 4. Save your changes

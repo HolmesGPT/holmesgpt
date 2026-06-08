@@ -777,6 +777,7 @@ def _collect_test_results_from_stats(terminalreporter):
                     "expected": "Test skipped",
                     "actual": skip_reason,
                     "tools_called": [],
+                    "denied_commands": [],
                     "expected_correctness_score": 0.0,
                     "user_prompt": "",
                     "actual_correctness_score": 0.0,
@@ -847,6 +848,9 @@ def _collect_test_results_from_stats(terminalreporter):
                 "holmes_duration": user_props.get("holmes_duration"),
                 "num_llm_calls": user_props.get("num_llm_calls"),
                 "tool_call_count": user_props.get("tool_call_count"),
+                # Bash commands HolmesGPT tried to run that were denied by the eval's
+                # allow/deny list (no interactive approver exists during evals).
+                "denied_commands": user_props.get("denied_commands", []),
                 "mock_data_failure": False,
                 "user_prompt": user_props.get("user_prompt", ""),
                 "is_setup_failure": user_props.get("is_setup_failure", False),

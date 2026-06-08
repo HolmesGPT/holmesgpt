@@ -880,10 +880,19 @@ class ConversationWorker:
 
             # Build request_context with user_id so per-user OAuth tools resolve
             # correctly inside call_stream (matches the regular /api/chat flow
-            # in server.py).
+            # in server.py). Also surface conversation_id and cluster_name so
+            # the platform-mcp toolset can hardwire them onto its outbound
+            # requests (as X-Robusta-* headers) — keeping them out of the
+            # LLM-visible tool schema.
             request_context: Optional[Dict[str, Any]] = None
             if chat_request.user_id:
                 request_context = {"user_id": chat_request.user_id}
+            if task.conversation_id:
+                request_context = request_context or {}
+                request_context["conversation_id"] = task.conversation_id
+            if self.config.cluster_name:
+                request_context = request_context or {}
+                request_context["cluster_name"] = self.config.cluster_name
 
             try:
                 # Wrap the raw stream with the usage recorder BEFORE the
