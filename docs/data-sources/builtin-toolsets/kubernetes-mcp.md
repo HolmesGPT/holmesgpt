@@ -10,7 +10,7 @@ The [Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server)
 |------|------------------------|----------------|----------|
 | **[Single Cluster](#single-cluster-serviceaccount)** | Just the cluster Holmes runs in | Pod's own ServiceAccount | Single-cluster setups, simplest path |
 | **[Multiple Clusters](#multiple-clusters-mounted-kubeconfig)** | Many clusters from one Holmes pod | Pre-issued tokens in a mounted kubeconfig | Investigating prod + staging + dev from one place |
-| **[Per-User Auth](#per-user-auth-oauth-oidc)** | One cluster, per-user identity | Each user's own SSO token (Microsoft Entra ID) | Enterprise SSO with per-user RBAC enforced on the API server |
+| **[Per-User Auth](#per-user-auth-oauth-or-oidc)** | One cluster, per-user identity | Each user's own SSO token (Microsoft Entra ID) | Enterprise SSO with per-user RBAC enforced on the API server |
 
 ## Single Cluster (ServiceAccount)
 
@@ -210,7 +210,7 @@ kubectl get secret k8s-mcp-kubeconfig -n YOUR_NAMESPACE \
 
 ### Step 4: Deploy
 
-Adjust your values.yaml file in the holmes "hub" cluster where you want multi cluster access:
+Adjust your values.yaml file in the holmes "hub" cluster where you want multi-cluster access:
 
 === "Holmes Helm Chart"
 
@@ -424,7 +424,7 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi cl
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-The `llmInstructions` block above helps holmes with multi cluster awareness.
+The `llmInstructions` block above helps holmes with multi-cluster awareness.
 
 ### Step 5: Route chats to the right cluster (Robusta UI)
 
@@ -436,7 +436,7 @@ Only needed if you use the [Robusta platform](https://platform.robusta.dev) with
 
 Your "Hub" holmes instance now have access to multiple clusters.
 
-## Per-User Auth (OAuth / OIDC)
+## Per-User Auth (OAuth or OIDC)
 
 Use OAuth/OIDC when cluster access is managed through Microsoft Entra ID (Azure AD) — for example, enterprise environments with centralized SSO.
 
@@ -596,18 +596,18 @@ When you ask Holmes a Kubernetes question for the first time, the Robusta UI wil
 
 ## Common Use Cases
 
-```
-"List all pods in CrashLoopBackOff across all namespaces"
-```
-
-```
-"What events are happening in the production namespace?"
+```bash
+holmes ask "List all pods in CrashLoopBackOff across all namespaces"
 ```
 
-```
-"Show me the resource requests and limits for all deployments in namespace backend"
+```bash
+holmes ask "What events are happening in the production namespace?"
 ```
 
+```bash
+holmes ask "Show me the resource requests and limits for all deployments in namespace backend"
 ```
-"Why is the checkout-api pod not scheduling?"
+
+```bash
+holmes ask "Why is the checkout-api pod not scheduling?"
 ```
