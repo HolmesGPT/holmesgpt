@@ -4,9 +4,17 @@
 
 The [Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server) gives Holmes access to Kubernetes clusters via the MCP protocol, with support for OAuth/OIDC authentication. It is intended to **replace** the built-in `kubernetes/core` and `kubernetes/logs` toolsets — the Helm examples below disable those to avoid overlap.
 
-## In-Cluster Setup (ServiceAccount)
+## Which setup do I need?
 
-The simplest setup — the MCP server runs in the same cluster it monitors, using a ServiceAccount for authentication.
+| Mode | Clusters Holmes can see | Authentication | Best for |
+|------|------------------------|----------------|----------|
+| **[Single Cluster](#single-cluster-serviceaccount)** | Just the cluster Holmes runs in | Pod's own ServiceAccount | Single-cluster setups, simplest path |
+| **[Multiple Clusters](#multiple-clusters-mounted-kubeconfig)** | Many clusters from one Holmes pod | Pre-issued tokens in a mounted kubeconfig | Investigating prod + staging + dev from one place |
+| **[Per-User Auth](#per-user-auth-oauth-oidc)** | One cluster, per-user identity | Each user's own SSO token (Microsoft Entra ID) | Enterprise SSO with per-user RBAC enforced on the API server |
+
+## Single Cluster (ServiceAccount)
+
+The simplest setup. The MCP server runs in the same cluster it monitors and authenticates with its own ServiceAccount — no tokens to mint, no external IdP to configure.
 
 ### Step 1: Deploy
 
@@ -81,15 +89,9 @@ The simplest setup — the MCP server runs in the same cluster it monitors, usin
 kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=k8s-mcp-server
 ```
 
-## Multi-Cluster Setup (Mounted Kubeconfig)
+## Multiple Clusters (Mounted Kubeconfig)
 
-Use this mode when you want **one Holmes pod to investigate multiple Kubernetes clusters** from a single place. Holmes still runs inside one "home" cluster, but instead of using its in-pod ServiceAccount it authenticates to every target cluster (including, optionally, its home cluster) using credentials packed into a kubeconfig file you mount as a Secret.
-
-**How this differs from the other two modes:**
-
-- **In-Cluster (ServiceAccount)** — Holmes can only see the cluster it's deployed in. Auth is the pod's own ServiceAccount.
-- **OAuth / OIDC** — Holmes runs in one cluster; each end-user's identity is passed through to the API server. Cluster-side RBAC is enforced per user.
-- **Multi-Cluster (this mode)** — Holmes uses pre-issued tokens (one per cluster) bundled in a kubeconfig. Every applicable MCP tool exposes a `context` argument so the LLM can pick which cluster to query for each step of an investigation.
+Use this mode when you want **one Holmes pod to investigate multiple Kubernetes clusters** from a single place. Holmes still runs inside one "home" cluster, but instead of using its in-pod ServiceAccount it authenticates to every target cluster (including, optionally, its home cluster) using credentials packed into a kubeconfig file you mount as a Secret. Every applicable MCP tool exposes a `context` argument so the LLM can pick which cluster to query for each step of an investigation.
 
 ### Step 1: Generate a kubeconfig for Holmes
 
@@ -99,70 +101,8 @@ For each cluster you want Holmes to access, you need a ServiceAccount with a lon
 
 Run the following against **each target cluster** (switch your local `kubectl` context first). Edit `CLUSTER_NAME` to a unique short name per cluster before each run.
 
-=== "Existing ServiceAccount (default)"
-
-    Use this when the target cluster already has an SA you want to reuse — typically `robusta-holmes-service-account` if Robusta is already Helm-installed there. This script mints a long-lived token for that SA and appends a context to `./holmes-kubeconfig`.
-
-    ```bash
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    CLUSTER_NAME=prod                                 # appears in MCP tool calls
-    SA_NAME=robusta-holmes-service-account            # existing SA to mint a token for
-    SA_NAMESPACE=default                              # namespace of that SA
-    KUBECONFIG_OUT=./holmes-kubeconfig
-    TOKEN_SECRET="${SA_NAME}-mcp-token"
-
-    # Sanity-check that the SA exists.
-    if ! kubectl get serviceaccount "$SA_NAME" -n "$SA_NAMESPACE" >/dev/null 2>&1; then
-      echo "ServiceAccount $SA_NAMESPACE/$SA_NAME not found." >&2
-      exit 1
-    fi
-
-    # Create a long-lived token Secret bound to the SA (K8s 1.24+).
-    cat <<EOF | kubectl apply -f -
-    apiVersion: v1
-    kind: Secret
-    metadata:
-      name: ${TOKEN_SECRET}
-      namespace: ${SA_NAMESPACE}
-      annotations:
-        kubernetes.io/service-account.name: ${SA_NAME}
-    type: kubernetes.io/service-account-token
-    EOF
-
-    sleep 2
-    TOKEN=$(kubectl get secret "$TOKEN_SECRET" -n "$SA_NAMESPACE" \
-      -o jsonpath='{.data.token}' | base64 -d)
-    CA_B64=$(kubectl get secret "$TOKEN_SECRET" -n "$SA_NAMESPACE" \
-      -o jsonpath='{.data.ca\.crt}')
-    SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
-
-    # Append this cluster to $KUBECONFIG_OUT. Write the CA to a temp file
-    # rather than process substitution (<(...) doesn't work under sh/dash).
-    CA_FILE=$(mktemp)
-    trap 'rm -f "$CA_FILE"' EXIT
-    echo "$CA_B64" | base64 -d > "$CA_FILE"
-
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-cluster "$CLUSTER_NAME" \
-      --server="$SERVER" \
-      --certificate-authority="$CA_FILE" \
-      --embed-certs=true
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-credentials "holmes-$CLUSTER_NAME" \
-      --token="$TOKEN"
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-context "$CLUSTER_NAME" \
-      --cluster="$CLUSTER_NAME" --user="holmes-$CLUSTER_NAME"
-
-    # Verify the new context can talk to the API server.
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl --context="$CLUSTER_NAME" \
-      get pods -A --request-timeout=10s | head -5
-    ```
-
-=== "Create a new ServiceAccount"
-
-    Use this when the target cluster doesn't have a Holmes SA yet. We render the same ServiceAccount + ClusterRole + ClusterRoleBinding that the Holmes Helm chart installs (so the SA gets exactly the read-only role Holmes normally runs with — nodes, metrics, RBAC inspection, Prometheus CRDs, no Secrets), apply it, then run the same token + kubeconfig script as the other tab.
-
-    **Render and apply the SA, ClusterRole and ClusterRoleBinding from the Helm chart:**
+??? info "Don't have a Holmes ServiceAccount on the target cluster yet?"
+    Render and apply one from the Helm chart first — this gives the SA the same read-only role Holmes normally runs with (nodes, metrics, RBAC inspection, Prometheus CRDs, no Secrets):
 
     ```bash
     helm template robusta \
@@ -175,76 +115,102 @@ Run the following against **each target cluster** (switch your local `kubectl` c
     kubectl apply -f sa.yaml
     ```
 
-    This creates `robusta-holmes-service-account` in the `default` namespace plus `robusta-holmes-cluster-role` and `robusta-holmes-cluster-role-binding`. The chart version (`0.31.1`) can be bumped to whatever is current.
+    This creates `robusta-holmes-service-account` in the `default` namespace plus `robusta-holmes-cluster-role` and `robusta-holmes-cluster-role-binding`. Bump the chart version (`0.31.1`) to whatever is current.
 
-    > **On clusters that already have Robusta installed via Helm:** `kubectl apply` will warn about a missing `kubectl.kubernetes.io/last-applied-configuration` annotation and "configure" the existing objects. The resources are functionally identical, but you've now created a co-management situation between Helm and `kubectl apply`. To keep them separate, change the release name in the `helm template` command (e.g. `helm template holmes-mcp …`) so it renders `holmes-mcp-holmes-*` resources alongside Helm's `robusta-holmes-*` ones. Update `SA_NAME` below to match.
+    **On clusters that already have Robusta installed via Helm:** `kubectl apply` will warn about a missing `kubectl.kubernetes.io/last-applied-configuration` annotation and "configure" the existing objects. The resources are functionally identical, but you've now created a co-management situation between Helm and `kubectl apply`. To keep them separate, change the release name in the `helm template` command (e.g. `helm template holmes-mcp …`) so it renders `holmes-mcp-holmes-*` resources alongside Helm's `robusta-holmes-*` ones. Update `SA_NAME` below to match.
 
-    **Then generate the token and kubeconfig** (same as the other tab):
+Now mint a long-lived token for the SA and append a context to `./holmes-kubeconfig`:
 
-    ```bash
-    CLUSTER_NAME=prod
-    SA_NAME=robusta-holmes-service-account
-    SA_NAMESPACE=default
-    KUBECONFIG_OUT=./holmes-kubeconfig
-    TOKEN_SECRET="${SA_NAME}-mcp-token"
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-    cat <<EOF | kubectl apply -f -
-    apiVersion: v1
-    kind: Secret
-    metadata:
-      name: ${TOKEN_SECRET}
-      namespace: ${SA_NAMESPACE}
-      annotations:
-        kubernetes.io/service-account.name: ${SA_NAME}
-    type: kubernetes.io/service-account-token
-    EOF
+CLUSTER_NAME=prod                                 # appears in MCP tool calls
+SA_NAME=robusta-holmes-service-account            # SA to mint a token for
+SA_NAMESPACE=default                              # namespace of that SA
+KUBECONFIG_OUT=./holmes-kubeconfig
+TOKEN_SECRET="${SA_NAME}-mcp-token"
 
-    sleep 2
-    TOKEN=$(kubectl get secret "$TOKEN_SECRET" -n "$SA_NAMESPACE" \
-      -o jsonpath='{.data.token}' | base64 -d)
-    CA_B64=$(kubectl get secret "$TOKEN_SECRET" -n "$SA_NAMESPACE" \
-      -o jsonpath='{.data.ca\.crt}')
-    SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+# Sanity-check that the SA exists.
+if ! kubectl get serviceaccount "$SA_NAME" -n "$SA_NAMESPACE" >/dev/null 2>&1; then
+  echo "ServiceAccount $SA_NAMESPACE/$SA_NAME not found." >&2
+  exit 1
+fi
 
-    CA_FILE=$(mktemp)
-    trap 'rm -f "$CA_FILE"' EXIT
-    echo "$CA_B64" | base64 -d > "$CA_FILE"
+# Create a long-lived token Secret bound to the SA (K8s 1.24+).
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${TOKEN_SECRET}
+  namespace: ${SA_NAMESPACE}
+  annotations:
+    kubernetes.io/service-account.name: ${SA_NAME}
+type: kubernetes.io/service-account-token
+EOF
 
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-cluster "$CLUSTER_NAME" \
-      --server="$SERVER" \
-      --certificate-authority="$CA_FILE" \
-      --embed-certs=true
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-credentials "holmes-$CLUSTER_NAME" \
-      --token="$TOKEN"
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-context "$CLUSTER_NAME" \
-      --cluster="$CLUSTER_NAME" --user="holmes-$CLUSTER_NAME"
+sleep 2
+TOKEN=$(kubectl get secret "$TOKEN_SECRET" -n "$SA_NAMESPACE" \
+  -o jsonpath='{.data.token}' | base64 -d)
+CA_B64=$(kubectl get secret "$TOKEN_SECRET" -n "$SA_NAMESPACE" \
+  -o jsonpath='{.data.ca\.crt}')
+SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 
-    # Verify the new context can talk to the API server.
-    KUBECONFIG="$KUBECONFIG_OUT" kubectl --context="$CLUSTER_NAME" \
-      get pods -A --request-timeout=10s | head -5
-    ```
+# Write the CA to a temp file rather than process substitution
+# (<(...) doesn't work under sh/dash).
+CA_FILE=$(mktemp)
+trap 'rm -f "$CA_FILE"' EXIT
+echo "$CA_B64" | base64 -d > "$CA_FILE"
 
-**Common pitfalls:**
+KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-cluster "$CLUSTER_NAME" \
+  --server="$SERVER" \
+  --certificate-authority="$CA_FILE" \
+  --embed-certs=true
+KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-credentials "holmes-$CLUSTER_NAME" \
+  --token="$TOKEN"
+KUBECONFIG="$KUBECONFIG_OUT" kubectl config set-context "$CLUSTER_NAME" \
+  --cluster="$CLUSTER_NAME" --user="holmes-$CLUSTER_NAME"
 
-- **Network reachability** — the Holmes pod must be able to reach every cluster's API server. Public LBs, private LBs over VPN, and `kubectl` proxy URLs all work; localhost endpoints (like `kind`'s `https://127.0.0.1:PORT`) do not.
-- **Embedded certs** — always use `--embed-certs=true`. File-path references won't resolve inside the pod.
-- **Cloud auth plugins** — replace `exec` blocks (EKS/GKE/AKS) with the SA token approach above. The MCP server image doesn't carry cloud CLIs.
-- **Context names** — these are what the LLM sees; keep them short and descriptive.
+# Verify the new context can talk to the API server.
+KUBECONFIG="$KUBECONFIG_OUT" kubectl --context="$CLUSTER_NAME" \
+  get pods -A --request-timeout=10s | head -5
+```
 
-### Step 2: Create the kubeconfig Secret
+### Step 2: Set the default context In the Kubeconfig file
+
+```bash
+# List what's available — pick one name from the output
+KUBECONFIG=./holmes-kubeconfig kubectl config get-contexts -o name
+
+# Set it (replace <DEFAULT_CLUSTER> with one of the names above)
+KUBECONFIG=./holmes-kubeconfig kubectl config use-context <DEFAULT_CLUSTER>
+
+# Confirm
+KUBECONFIG=./holmes-kubeconfig kubectl config current-context
+```
+
+
+### Step 3: Create the kubeconfig Secret
 
 ```bash
 kubectl create secret generic k8s-mcp-kubeconfig \
-  --from-file=kubeconfig=./holmes-kubeconfig \
+  --from-file=kubeconfig=holmes-kubeconfig \
   -n YOUR_NAMESPACE
 ```
 
-### Step 3: Deploy
+To validate the secret:
 
-Two settings make this mode work and are easy to miss:
+```bash
+kubectl get secret k8s-mcp-kubeconfig -n YOUR_NAMESPACE \
+  -o jsonpath='{.data.kubeconfig}' | base64 -d \
+  | grep -E '^current-context: \S' \
+  && echo "OK: Secret populated with a default context" \
+  || echo "FAIL: Secret is empty or missing current-context — fix before deploying"
+```
 
-- `serviceAccount.createClusterRoleBinding: false` — Holmes is authenticating with the kubeconfig's tokens, not the pod's own ServiceAccount, so no in-cluster RBAC is needed.
-- `extraArgs: ["--kubeconfig", "/etc/kubernetes/kubeconfig", "--cluster-provider", "kubeconfig"]` — **required**. When the MCP server detects it's running in a pod it defaults to the in-cluster strategy and ignores any mounted kubeconfig. These flags force the kubeconfig provider so multi-cluster discovery works. Setting just `KUBECONFIG` as an env var is not enough.
+### Step 4: Deploy
+
+Adjust your values.yaml file in the holmes "hub" cluster where you want multi cluster access:
 
 === "Holmes Helm Chart"
 
@@ -264,6 +230,68 @@ Two settings make this mode work and are easy to miss:
       kubernetes:
         enabled: true
 
+        # Field is camelCase. `llm_instructions` (snake_case) is silently ignored.
+        llmInstructions: |
+          This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
+
+          ## MANDATORY FIRST STEP — read this before any other tool call
+
+          Before doing ANYTHING else for a Kubernetes question (resource lookup, log retrieval, event check, status check, "is X running?", "why is X failing?", etc.):
+
+          1. Call `configuration_contexts_list` to enumerate every cluster context. Do this FIRST, on every fresh investigation, even if the user named a cluster or you think you already know which cluster applies. No exceptions.
+          2. Treat the returned list as the complete search space. The resource the user is asking about may live on ANY of these clusters.
+          3. For every subsequent tool call, pass the explicit `context` argument. Never rely on an implicit default.
+
+          ## Multi-cluster search procedure (when a resource is not on the first cluster)
+
+          If any resource lookup returns "not found" on a given context:
+
+          - **Immediately** re-issue the same lookup against every OTHER context returned by `configuration_contexts_list`.
+          - Do this WITHOUT pausing, WITHOUT asking the user "should I check other clusters?", and WITHOUT explaining what you're about to do. Just do it.
+          - Only after all contexts have been queried may you conclude that a resource truly does not exist.
+          - If a tool call against one context fails (auth, network, timeout), say so explicitly and CONTINUE with the remaining contexts. One failure must not short-circuit the search.
+
+          ## Forbidden behaviors (your answer is incorrect if you do any of these)
+
+          - Skipping `configuration_contexts_list` and jumping straight to a resource query.
+          - Reporting "resource not found" without having queried EVERY context from `configuration_contexts_list`.
+          - Asking the user "should I check the other clusters?" — the answer is always yes; do it without asking.
+          - Assuming the first/default cluster is the only one to check.
+          - Omitting the cluster name from your final answer when reporting findings.
+
+          ## Required output discipline
+
+          Every finding must be labeled with the cluster/context name it came from.
+
+          - Correct: "Found `payment-service` deployment on cluster **prod-eu** (3/3 ready). It does NOT exist on **prod-us** or **prod-ap**."
+          - Incorrect: "Found payment-service deployment, 3/3 ready." (missing cluster attribution)
+
+          ## When to Use This MCP Server
+
+          Use the Kubernetes MCP when investigating:
+          - Pod failures, crash loops, or scheduling issues
+          - Resource consumption and node capacity problems
+          - Deployment rollout issues or scaling problems
+          - Kubernetes events and cluster-level diagnostics
+          - Helm release status and management
+
+          ## Investigation Workflow
+
+          1. **List clusters FIRST** — call `configuration_contexts_list` (mandatory; see top of this document). All subsequent tool calls must include an explicit `context`.
+          2. **List namespaces** on the candidate cluster(s) to identify where the resource of interest could live.
+          3. **Check events**: look for warnings and errors. If the resource was not on the first cluster, fan out and check events on every other cluster too.
+          4. **Inspect pods**: get status, logs, resource usage — from the cluster where the resource actually exists.
+          5. **Examine resources**: get detailed definitions to identify misconfigurations.
+          6. **Check node health**: review node status and resource consumption on the relevant cluster.
+
+          ## Important Guidelines
+
+          - Always specify BOTH the namespace AND the cluster `context` when querying namespaced resources.
+          - Check events first — they often reveal the root cause quickly.
+          - Use pod logs to understand application-level failures.
+          - Compare resource requests/limits with actual usage via top commands.
+          - When investigating scheduling issues, check node capacity and taints on the cluster where the pod lives.
+
         serviceAccount:
           create: true
           name: "k8s-mcp-sa"
@@ -282,6 +310,12 @@ Two settings make this mode work and are easy to miss:
             - "/etc/kubernetes/kubeconfig"
             - "--cluster-provider"
             - "kubeconfig"
+
+          # Block configuration_view: it returns the raw kubeconfig (all
+          # tokens) to any caller. The LLM only needs context names via
+          # configuration_contexts_list, not the credentials themselves.
+          serverConfig: |
+            disabled_tools = ["configuration_view"]
     ```
 
     ```bash
@@ -307,6 +341,68 @@ Two settings make this mode work and are easy to miss:
         kubernetes:
           enabled: true
 
+          # Field is camelCase. `llm_instructions` (snake_case) is silently ignored.
+          llmInstructions: |
+            This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
+
+            ## MANDATORY FIRST STEP — read this before any other tool call
+
+            Before doing ANYTHING else for a Kubernetes question (resource lookup, log retrieval, event check, status check, "is X running?", "why is X failing?", etc.):
+
+            1. Call `configuration_contexts_list` to enumerate every cluster context. Do this FIRST, on every fresh investigation, even if the user named a cluster or you think you already know which cluster applies. No exceptions.
+            2. Treat the returned list as the complete search space. The resource the user is asking about may live on ANY of these clusters.
+            3. For every subsequent tool call, pass the explicit `context` argument. Never rely on an implicit default.
+
+            ## Multi-cluster search procedure (when a resource is not on the first cluster)
+
+            If any resource lookup returns "not found" on a given context:
+
+            - **Immediately** re-issue the same lookup against every OTHER context returned by `configuration_contexts_list`.
+            - Do this WITHOUT pausing, WITHOUT asking the user "should I check other clusters?", and WITHOUT explaining what you're about to do. Just do it.
+            - Only after all contexts have been queried may you conclude that a resource truly does not exist.
+            - If a tool call against one context fails (auth, network, timeout), say so explicitly and CONTINUE with the remaining contexts. One failure must not short-circuit the search.
+
+            ## Forbidden behaviors (your answer is incorrect if you do any of these)
+
+            - Skipping `configuration_contexts_list` and jumping straight to a resource query.
+            - Reporting "resource not found" without having queried EVERY context from `configuration_contexts_list`.
+            - Asking the user "should I check the other clusters?" — the answer is always yes; do it without asking.
+            - Assuming the first/default cluster is the only one to check.
+            - Omitting the cluster name from your final answer when reporting findings.
+
+            ## Required output discipline
+
+            Every finding must be labeled with the cluster/context name it came from.
+
+            - Correct: "Found `payment-service` deployment on cluster **prod-eu** (3/3 ready). It does NOT exist on **prod-us** or **prod-ap**."
+            - Incorrect: "Found payment-service deployment, 3/3 ready." (missing cluster attribution)
+
+            ## When to Use This MCP Server
+
+            Use the Kubernetes MCP when investigating:
+            - Pod failures, crash loops, or scheduling issues
+            - Resource consumption and node capacity problems
+            - Deployment rollout issues or scaling problems
+            - Kubernetes events and cluster-level diagnostics
+            - Helm release status and management
+
+            ## Investigation Workflow
+
+            1. **List clusters FIRST** — call `configuration_contexts_list` (mandatory; see top of this document). All subsequent tool calls must include an explicit `context`.
+            2. **List namespaces** on the candidate cluster(s) to identify where the resource of interest could live.
+            3. **Check events**: look for warnings and errors. If the resource was not on the first cluster, fan out and check events on every other cluster too.
+            4. **Inspect pods**: get status, logs, resource usage — from the cluster where the resource actually exists.
+            5. **Examine resources**: get detailed definitions to identify misconfigurations.
+            6. **Check node health**: review node status and resource consumption on the relevant cluster.
+
+            ## Important Guidelines
+
+            - Always specify BOTH the namespace AND the cluster `context` when querying namespaced resources.
+            - Check events first — they often reveal the root cause quickly.
+            - Use pod logs to understand application-level failures.
+            - Compare resource requests/limits with actual usage via top commands.
+            - When investigating scheduling issues, check node capacity and taints on the cluster where the pod lives.
+
           serviceAccount:
             create: true
             name: "k8s-mcp-sa"
@@ -324,29 +420,31 @@ Two settings make this mode work and are easy to miss:
               - "/etc/kubernetes/kubeconfig"
               - "--cluster-provider"
               - "kubeconfig"
+
+            # Block configuration_view: it returns the raw kubeconfig (all
+            # tokens) to any caller. The LLM only needs context names via
+            # configuration_contexts_list, not the credentials themselves.
+            serverConfig: |
+              disabled_tools = ["configuration_view"]
     ```
 
     ```bash
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-### Step 4: Verify
+The `llmInstructions` block above helps holmes with multi cluster awareness.
 
-Confirm the MCP server sees every context you added:
+### Step 5: Route chats to the right cluster (Robusta UI)
 
-```bash
-kubectl port-forward -n YOUR_NAMESPACE svc/holmes-k8s-mcp-server 8000:8000
-# In another terminal:
-curl -s http://localhost:8000/mcp -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
-       "params":{"name":"configuration_contexts_list","arguments":{}}}'
-```
+Only needed if you use the [Robusta platform](https://platform.robusta.dev) with Slack or Teams. Go to **Settings → HolmesGPT → Multi-Agent Routing** and fill in:
 
-You should get back every context name from your kubeconfig. Once that's good, ask Holmes something like "list pods in the staging cluster" and watch it pass `context: staging` into its tool calls.
+- **Routing Agent** — prompt for picking the cluster from chat context. Example:
 
-> **Including the home cluster:** if you want Holmes to also be able to investigate the cluster it's running in, add that cluster to the kubeconfig too — the in-cluster ServiceAccount is no longer used in this mode.
+    > If the `cluster_name` or `cluster` field is available in the chat context, route to that cluster. Otherwise, use the <your-hub-holmes> cluster/agent for the question.
 
-## OAuth / OIDC Setup (Microsoft Entra ID)
+Your "Hub" holmes instance now have access to multiple clusters.
+
+## Per-User Auth (OAuth / OIDC)
 
 Use OAuth/OIDC when cluster access is managed through Microsoft Entra ID (Azure AD) — for example, enterprise environments with centralized SSO.
 
@@ -490,7 +588,6 @@ kubectl create secret generic mcp-oauth-credentials \
               enabled: true
               client_id:     "<CLIENT_ID>"
               client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
-
     ```
 
     ```bash
