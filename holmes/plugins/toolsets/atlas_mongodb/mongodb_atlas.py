@@ -86,8 +86,9 @@ class MongoDBAtlasToolset(Toolset):
             )
             return True, ""
         except Exception:
-            logging.exception(
-                "Invalid Atlas config. Failed to set up MongoDBAtlas toolset"
+            logging.warning(
+                "Invalid Atlas config. Failed to set up MongoDBAtlas toolset",
+                exc_info=True,
             )
             return False, "Invalid Atlas config"
 
@@ -138,7 +139,7 @@ class ReturnProjectAlerts(MongoDBAtlasBaseTool):
             response = self.toolset._session.get(url=url)
             return self.return_result(response, params)
         except Exception as e:
-            logging.exception(self.get_parameterized_one_liner(params))
+            logging.warning(self.get_parameterized_one_liner(params), exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 data=f"Exception {self.name}: {str(e)}",
@@ -163,7 +164,7 @@ class ReturnProjectProcesses(MongoDBAtlasBaseTool):
             response = self.toolset._session.get(url)
             return self.return_result(response, params)
         except Exception as e:
-            logging.exception(self.get_parameterized_one_liner(params))
+            logging.warning(self.get_parameterized_one_liner(params), exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
@@ -197,7 +198,7 @@ class ReturnProjectSlowQueries(MongoDBAtlasBaseTool):
             response = self.toolset._session.get(url)
             return self.return_result(response, params, "slowQueries")
         except Exception as e:
-            logging.exception(self.get_parameterized_one_liner(params))
+            logging.warning(self.get_parameterized_one_liner(params), exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
@@ -247,7 +248,7 @@ class ReturnEventsFromProject(MongoDBAtlasBaseTool):
                     params=params,
                 )
         except Exception as e:
-            logging.exception(self.get_parameterized_one_liner(params))
+            logging.warning(self.get_parameterized_one_liner(params), exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
@@ -301,7 +302,7 @@ class ReturnLogsForProcessInProject(MongoDBAtlasBaseTool):
                     params=params,
                 )
         except Exception as e:
-            logging.exception(self.get_parameterized_one_liner(params))
+            logging.warning(self.get_parameterized_one_liner(params), exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",
@@ -340,7 +341,7 @@ class ReturnEventTypeFromProject(MongoDBAtlasBaseTool):
             )
             return self.return_result(response, params)
         except Exception as e:
-            logging.exception(self.get_parameterized_one_liner(params))
+            logging.warning(self.get_parameterized_one_liner(params), exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Exception {self.name}: {str(e)}",

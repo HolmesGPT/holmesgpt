@@ -112,7 +112,7 @@ def parse_json_lines(raw_text) -> List[Dict[str, Any]]:
                                 item.pop("userData", None)
             json_objects.append(obj)
         except json.JSONDecodeError:
-            logging.error(f"Failed to decode JSON from line: {line}")
+            logging.warning(f"Failed to decode JSON from line: {line}")
     return json_objects
 
 

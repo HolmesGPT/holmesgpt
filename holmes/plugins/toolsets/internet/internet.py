@@ -97,7 +97,7 @@ def scrape(url: str, headers: Dict[str, str]) -> Tuple[Optional[str], Optional[s
         response.raise_for_status()
     except Timeout:
         error_message = f"Failed to load {url}. Timeout after {INTERNET_TOOLSET_TIMEOUT_SECONDS} seconds"
-        logging.error(
+        logging.warning(
             error_message,
             exc_info=True,
         )
@@ -146,7 +146,7 @@ def html_to_markdown(page_source: str):
     try:
         md = markdownify(page_source)
     except OSError as e:
-        logging.error(
+        logging.warning(
             f"There was an error in converting the HTML to markdown. Falling back to returning the raw HTML. Error: {str(e)}"
         )
         return page_source
@@ -198,7 +198,7 @@ class FetchWebpage(Tool):
         content, mime_type = scrape(url, additional_headers)
 
         if not content:
-            logging.error(f"Failed to retrieve content from {url}")
+            logging.warning(f"Failed to retrieve content from {url}")
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to retrieve content from {url}",

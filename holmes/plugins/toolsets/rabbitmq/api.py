@@ -163,7 +163,7 @@ def make_request(
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        logging.error(f"Request failed for {method} {url}: {e}")
+        logging.warning(f"Request failed for {method} {url}: {e}")
         raise  # Re-raise after logging for upstream handling
 
 
@@ -269,7 +269,7 @@ def get_cluster_status(config: RabbitMQClusterConfig) -> ClusterStatus:
         config.connection_status = ClusterConnectionStatus.SUCCESS
         config.connection_error = None
     except Exception as e:
-        logging.error(
+        logging.warning(
             f"Failed to get primary cluster status from {config.api_url}: {e}"
         )
         config.connection_status = ClusterConnectionStatus.ERROR

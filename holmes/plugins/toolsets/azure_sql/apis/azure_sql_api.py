@@ -31,7 +31,7 @@ class AzureSQLAPIClient:
             )
             return token_struct
         except Exception as e:
-            logging.error(f"Failed to get access token: {str(e)}")
+            logging.warning(f"Failed to get access token: {str(e)}")
             raise ConnectionError(f"Azure authentication failed: {str(e)}") from e
 
     def execute_query(
@@ -89,13 +89,13 @@ class AzureSQLAPIClient:
             error_msg = (
                 f"ODBC Error connecting to {server_name}.{database_name}: {str(e)}"
             )
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             raise ConnectionError(error_msg) from e
         except Exception as e:
             error_msg = (
                 f"Failed to execute query on {server_name}.{database_name}: {str(e)}"
             )
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             raise
         finally:
             # Ensure resources are properly cleaned up

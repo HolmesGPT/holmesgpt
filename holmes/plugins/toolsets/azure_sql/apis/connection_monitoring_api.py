@@ -105,7 +105,7 @@ class ConnectionMonitoringAPI:
             return result
 
         except Exception as e:
-            logging.error(f"Failed to get connection metrics: {str(e)}")
+            logging.warning(f"Failed to get connection metrics: {str(e)}")
             return {"error": str(e)}
 
     def get_active_connections(
@@ -147,7 +147,7 @@ class ConnectionMonitoringAPI:
             return self.sql_api_client.execute_query(server_name, database_name, query)
         except Exception as e:
             formatted_error = self._format_sql_error(e)
-            logging.error(f"Failed to get active connections: {formatted_error}")
+            logging.warning(f"Failed to get active connections: {formatted_error}")
             return []
 
     def get_connection_summary(self, server_name: str, database_name: str) -> Dict:
@@ -174,7 +174,7 @@ class ConnectionMonitoringAPI:
             return result[0] if result else {}
         except Exception as e:
             formatted_error = self._format_sql_error(e)
-            logging.error(f"Failed to get connection summary: {formatted_error}")
+            logging.warning(f"Failed to get connection summary: {formatted_error}")
             return {"error": formatted_error}
 
     def get_failed_connections(
@@ -249,5 +249,5 @@ class ConnectionMonitoringAPI:
             }
         except Exception as e:
             formatted_error = self._format_sql_error(e)
-            logging.error(f"Failed to get connection pool stats: {formatted_error}")
+            logging.warning(f"Failed to get connection pool stats: {formatted_error}")
             return {"error": formatted_error}

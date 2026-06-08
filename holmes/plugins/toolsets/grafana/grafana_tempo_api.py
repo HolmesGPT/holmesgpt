@@ -117,7 +117,7 @@ class GrafanaTempoAPI:
             # Extract detailed error message from response
             response = e.response
             if response is not None:
-                logger.error(
+                logger.warning(
                     f"HTTP error {response.status_code} for {url}: {response.text}"
                 )
                 raise TempoAPIError(
@@ -126,10 +126,10 @@ class GrafanaTempoAPI:
                     url=url,
                 )
             else:
-                logger.error(f"Request failed for {url}: {e}")
+                logger.warning(f"Request failed for {url}: {e}")
                 raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed for {url}: {e}")
+            logger.warning(f"Request failed for {url}: {e}")
             raise
 
     def query_echo_endpoint(self) -> bool:
@@ -168,7 +168,7 @@ class GrafanaTempoAPI:
             return response.status_code == 200
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed for {url}: {e}")
+            logger.warning(f"Request failed for {url}: {e}")
             return False
 
     def query_trace_by_id_v2(

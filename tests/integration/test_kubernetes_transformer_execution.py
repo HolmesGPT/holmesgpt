@@ -265,11 +265,11 @@ toolsets:
                         assert result.status == StructuredToolResultStatus.SUCCESS
                         assert result.data == test_output
 
-                        # Should log error about transformer failure (generic Exception -> error log)
-                        mock_logging.error.assert_called()
-                        error_call = mock_logging.error.call_args[0][0]
-                        assert "failing_summarize" in error_call
-                        assert "failed" in error_call
+                        # Should log warning about transformer failure (generic Exception -> warning log)
+                        mock_logging.warning.assert_called()
+                        warning_call = mock_logging.warning.call_args[0][0]
+                        assert "failing_summarize" in warning_call
+                        assert "failed" in warning_call
 
             finally:
                 os.unlink(tmp_file_path)

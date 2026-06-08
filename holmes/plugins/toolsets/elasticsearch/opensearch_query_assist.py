@@ -40,7 +40,7 @@ class PplQueryAssistTool(Tool):
             )
 
         except Exception as e:
-            logging.exception(f"error using {self.name} tool")
+            logging.warning(f"error using {self.name} tool", exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to generate PPL query: {str(e)}",

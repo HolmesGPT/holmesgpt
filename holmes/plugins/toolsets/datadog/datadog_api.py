@@ -382,7 +382,7 @@ def fetch_openapi_spec(
         elif version in spec_urls:
             versions_to_fetch = [version]
         else:
-            logging.error(f"Invalid version: {version}")
+            logging.warning(f"Invalid version: {version}")
             return None
 
         for ver in versions_to_fetch:
@@ -426,7 +426,7 @@ def fetch_openapi_spec(
                         f"Failed to fetch spec for {ver}: HTTP {response.status_code}"
                     )
             except Exception as e:
-                logging.error(f"Failed to fetch spec for {ver}: {e}")
+                logging.warning(f"Failed to fetch spec for {ver}: {e}")
                 if version != "both":
                     return None
 
@@ -441,7 +441,7 @@ def fetch_openapi_spec(
             return None
 
     except Exception as e:
-        logging.error(f"Error fetching OpenAPI spec: {e}")
+        logging.warning(f"Error fetching OpenAPI spec: {e}")
         return None
 
 

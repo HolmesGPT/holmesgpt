@@ -98,7 +98,7 @@ class StorageAnalysisAPI:
             return result
 
         except Exception as e:
-            logging.error(f"Failed to get storage metrics: {str(e)}")
+            logging.warning(f"Failed to get storage metrics: {str(e)}")
             return {"error": str(e)}
 
     def get_database_size_details(
@@ -137,7 +137,7 @@ class StorageAnalysisAPI:
         try:
             return self.sql_api_client.execute_query(server_name, database_name, query)
         except Exception as e:
-            logging.error(f"Failed to get database size details: {str(e)}")
+            logging.warning(f"Failed to get database size details: {str(e)}")
             return [{"error": str(e)}]
 
     def get_storage_summary(self, server_name: str, database_name: str) -> Dict:
@@ -164,7 +164,7 @@ class StorageAnalysisAPI:
             )
             return result[0] if result else {}
         except Exception as e:
-            logging.error(f"Failed to get storage summary: {str(e)}")
+            logging.warning(f"Failed to get storage summary: {str(e)}")
             return {"error": str(e)}
 
     def get_table_space_usage(
@@ -209,7 +209,7 @@ class StorageAnalysisAPI:
         try:
             return self.sql_api_client.execute_query(server_name, database_name, query)
         except Exception as e:
-            logging.error(f"Failed to get table space usage: {str(e)}")
+            logging.warning(f"Failed to get table space usage: {str(e)}")
             return []
 
     def get_storage_growth_trend(self, server_name: str, database_name: str) -> Dict:

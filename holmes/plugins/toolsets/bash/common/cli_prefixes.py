@@ -86,4 +86,4 @@ def save_cli_bash_tools_approved_prefixes(prefixes: List[str]) -> None:
         with open(prefixes_file, "w") as f:
             yaml.safe_dump({"approved_prefixes": updated}, f, default_flow_style=False)
     except Exception as e:
-        logging.error(f"Failed to save approved prefixes: {e}")
+        logging.warning(f"Failed to save approved prefixes: {e}")

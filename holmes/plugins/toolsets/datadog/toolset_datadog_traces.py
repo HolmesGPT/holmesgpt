@@ -80,7 +80,7 @@ class DatadogTracesToolset(Toolset):
             success, error_msg = self._perform_healthcheck(dd_config)
             return success, error_msg
         except Exception as e:
-            logging.exception("Failed to set up Datadog traces toolset")
+            logging.warning("Failed to set up Datadog traces toolset", exc_info=True)
             return False, f"Invalid Datadog Traces configuration: {e}"
 
     def _perform_healthcheck(self, dd_config: DatadogTracesConfig) -> Tuple[bool, str]:
@@ -119,7 +119,7 @@ class DatadogTracesToolset(Toolset):
             return True, ""
 
         except DataDogRequestError as e:
-            logging.error(
+            logging.warning(
                 f"Datadog API error during healthcheck: {e.status_code} - {e.response_text}"
             )
             if e.status_code == 403:
@@ -130,7 +130,7 @@ class DatadogTracesToolset(Toolset):
             else:
                 return False, f"Datadog API error: {e.status_code} - {e.response_text}"
         except Exception as e:
-            logging.exception("Failed during Datadog traces health check")
+            logging.warning("Failed during Datadog traces health check", exc_info=True)
             return False, f"Datadog Traces health check failed: {e}"
 
 
@@ -305,7 +305,7 @@ class GetSpans(BaseDatadogTracesTool):
             )
 
         except DataDogRequestError as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
             if e.status_code == 429:
                 error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
             elif e.status_code == 403:
@@ -328,7 +328,7 @@ class GetSpans(BaseDatadogTracesTool):
             )
 
         except Exception as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Unexpected error: {str(e)}",
@@ -672,7 +672,7 @@ class AggregateSpans(BaseDatadogTracesTool):
             )
 
         except DataDogRequestError as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
             if e.status_code == 429:
                 error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
             elif e.status_code == 403:
@@ -695,7 +695,7 @@ class AggregateSpans(BaseDatadogTracesTool):
             )
 
         except Exception as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Unexpected error: {str(e)}",

@@ -328,7 +328,7 @@ class NewRelicToolset(Toolset):
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
             self.enable_multi_account = nr_config.enable_multi_account or False
         except Exception as e:
-            logging.exception("Failed to parse New Relic configuration")
+            logging.warning("Failed to parse New Relic configuration", exc_info=True)
             return False, f"Invalid New Relic configuration: {e}"
 
         # Health check: run a minimal NRQL query so we catch bad credentials or
@@ -341,7 +341,7 @@ class NewRelicToolset(Toolset):
                 "SELECT count(*) FROM NrAuditEvent SINCE 1 day ago LIMIT 1"
             )
         except Exception as e:
-            logging.exception("New Relic health check failed")
+            logging.warning("New Relic health check failed", exc_info=True)
             return False, f"New Relic health check failed: {e}"
 
         # Tool list uses enable_multi_account flag.

@@ -105,7 +105,7 @@ class AlertMonitoringAPI:
 
         except Exception as e:
             error_msg = f"Failed to retrieve active alerts: {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return {"error": error_msg}
 
     def _get_active_alerts_fallback(
@@ -173,7 +173,7 @@ class AlertMonitoringAPI:
 
         except Exception as e:
             error_msg = f"Failed to retrieve alerts using fallback method: {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return {"error": error_msg}
 
     def get_alert_history(
@@ -347,7 +347,7 @@ class AlertMonitoringAPI:
 
         except Exception as e:
             error_msg = f"Failed to retrieve alert history: {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return {"error": error_msg}
 
     def _get_alert_history_fallback(
@@ -434,7 +434,7 @@ class AlertMonitoringAPI:
                 alerts.sort(key=lambda x: x.get("fired_time", ""), reverse=True)
 
             except Exception as e:
-                logging.error(f"Failed to process activity logs: {e}")
+                logging.warning(f"Failed to process activity logs: {e}")
                 alerts = []
 
             # Analyze patterns
@@ -457,7 +457,7 @@ class AlertMonitoringAPI:
 
         except Exception as e:
             error_msg = f"Failed to retrieve alert history using fallback: {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return {"error": error_msg}
 
     def _format_alert(self, alert, scope: str) -> Dict[str, Any]:

@@ -121,7 +121,7 @@ class TodoWriteTool(Tool):
             )
 
         except Exception as e:
-            logging.exception("error using todowrite tool")
+            logging.warning("error using todowrite tool", exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to process tasks: {str(e)}",

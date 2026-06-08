@@ -108,7 +108,7 @@ class DatadogLogsToolset(Toolset):
             return True, ""
 
         except DataDogRequestError as e:
-            logging.error(
+            logging.warning(
                 f"Datadog API error during healthcheck: {e.status_code} - {e.response_text}"
             )
             if e.status_code == 403:
@@ -119,7 +119,7 @@ class DatadogLogsToolset(Toolset):
             else:
                 return False, f"Datadog API error: {e.status_code} - {e.response_text}"
         except Exception as e:
-            logging.exception("Failed during Datadog logs health check")
+            logging.warning("Failed during Datadog logs health check", exc_info=True)
             return False, f"Datadog Logs health check failed: {e}"
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
@@ -137,7 +137,7 @@ class DatadogLogsToolset(Toolset):
             return success, error_msg
 
         except Exception as e:
-            logging.exception("Failed to set up Datadog Logs toolset")
+            logging.warning("Failed to set up Datadog Logs toolset", exc_info=True)
             return (False, f"Invalid Datadog Logs configuration: {e}")
 
     def _reload_instructions(self):
@@ -261,7 +261,7 @@ class GetLogs(Tool):
             )
 
         except DataDogRequestError as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
             if e.status_code == 429:
                 error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
             elif e.status_code == 403:
@@ -284,7 +284,7 @@ class GetLogs(Tool):
             )
 
         except Exception as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Unexpected error: {str(e)}",

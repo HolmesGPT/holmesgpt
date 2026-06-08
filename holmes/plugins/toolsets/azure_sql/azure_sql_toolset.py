@@ -120,7 +120,7 @@ class AzureSQLToolset(BaseAzureSQLToolset):
 
             except Exception as e:
                 message = f"Failed to set up Azure authentication: {str(e)}"
-                logging.error(message)
+                logging.warning(message)
                 errors.append(message)
                 return False, message
 
@@ -156,7 +156,7 @@ class AzureSQLToolset(BaseAzureSQLToolset):
 
             return len(all_errors) == 0, "\n".join(all_errors)
         except Exception as e:
-            logging.exception("Failed to set up Azure SQL toolset")
+            logging.warning("Failed to set up Azure SQL toolset", exc_info=True)
             return False, str(e)
 
     def _reload_llm_instructions(self):

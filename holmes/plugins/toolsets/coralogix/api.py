@@ -154,7 +154,7 @@ def execute_dataprime_query(
         return cleaned_results, None
 
     except Exception as e:
-        logging.error("Failed to execute DataPrime query", exc_info=True)
+        logging.warning("Failed to execute DataPrime query", exc_info=True)
         return None, str(e)
 
 

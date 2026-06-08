@@ -196,7 +196,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             )
 
         except DataDogRequestError as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
 
             if e.status_code == 429:
                 error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
@@ -238,7 +238,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             )
 
         except Exception as e:
-            logging.exception(
+            logging.warning(
                 f"Failed to query Datadog metrics for params: {params}", exc_info=True
             )
             return StructuredToolResult(
@@ -427,7 +427,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
             )
 
         except DataDogRequestError as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
 
             if e.status_code == 429:
                 error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
@@ -467,7 +467,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
             )
 
         except Exception as e:
-            logging.exception(
+            logging.warning(
                 f"Failed to query Datadog metrics for params: {params}", exc_info=True
             )
 
@@ -586,7 +586,7 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
             )
 
         except Exception as e:
-            logging.exception(
+            logging.warning(
                 f"Failed to query Datadog metric metadata for params: {params}",
                 exc_info=True,
             )
@@ -660,7 +660,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
             )
 
         except DataDogRequestError as e:
-            logging.exception(e, exc_info=True)
+            logging.warning(e, exc_info=True)
 
             if e.status_code == 404:
                 error_msg = f"Metric '{params.get('metric_name', 'unknown')}' not found. Please check the metric name."
@@ -691,7 +691,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
             )
 
         except Exception as e:
-            logging.exception(
+            logging.warning(
                 f"Failed to query Datadog metric tags for params: {params}",
                 exc_info=True,
             )
@@ -748,11 +748,11 @@ class DatadogMetricsToolset(Toolset):
                 return True, ""
             else:
                 error_msg = "Datadog API key validation failed"
-                logging.error(f"Datadog Metrics health check failed: {error_msg}")
+                logging.warning(f"Datadog Metrics health check failed: {error_msg}")
                 return False, f"Datadog Metrics health check failed: {error_msg}"
 
         except Exception as e:
-            logging.exception("Failed during Datadog metrics health check")
+            logging.warning("Failed during Datadog metrics health check", exc_info=True)
             return False, f"Datadog Metrics health check failed: {e}"
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
@@ -770,7 +770,7 @@ class DatadogMetricsToolset(Toolset):
             return success, error_msg
 
         except Exception as e:
-            logging.exception("Failed to set up Datadog Metrics toolset")
+            logging.warning("Failed to set up Datadog Metrics toolset", exc_info=True)
             return (False, f"Invalid Datadog Metrics configuration: {e}")
 
     def _reload_instructions(self):

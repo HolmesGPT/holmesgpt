@@ -65,7 +65,9 @@ class BaseGrafanaToolset(Toolset):
                 )
                 continue
             except Exception as e:
-                logging.exception(f"Failed to set up grafana toolset {self.name}")
+                logging.warning(
+                    f"Failed to set up grafana toolset {self.name}", exc_info=True
+                )
                 return False, f"Failed to set up {self.name}: {e}"
 
         logging.warning(
@@ -140,7 +142,9 @@ class BaseMultiInstanceGrafanaToolset(BaseGrafanaToolset):
                 )
                 continue
             except Exception as e:
-                logging.exception(f"Failed to set up grafana toolset {self.name}")
+                logging.warning(
+                    f"Failed to set up grafana toolset {self.name}", exc_info=True
+                )
                 return False, f"Failed to set up {self.name}: {e}"
         else:
             if last_error:

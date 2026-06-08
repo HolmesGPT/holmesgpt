@@ -105,7 +105,7 @@ class ConnectionFailureAPI:
 
         except Exception as e:
             error_msg = f"Failed to analyze connection failures: {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return {"error": error_msg}
 
     def _get_connection_metrics(
@@ -172,7 +172,7 @@ class ConnectionFailureAPI:
             return metrics_data
 
         except Exception as e:
-            logging.error(f"Failed to get connection metrics: {e}")
+            logging.warning(f"Failed to get connection metrics: {e}")
             return {"error": str(e)}
 
     def _get_server_connection_metrics(
@@ -289,7 +289,7 @@ class ConnectionFailureAPI:
             }
 
         except Exception as e:
-            logging.error(f"Failed to analyze connection activity logs: {e}")
+            logging.warning(f"Failed to analyze connection activity logs: {e}")
             return {"error": str(e), "events": [], "total_events": 0}
 
     def _analyze_connection_patterns(
@@ -442,7 +442,7 @@ class ConnectionFailureAPI:
                     )
 
         except Exception as e:
-            logging.error(f"Failed to analyze connection patterns: {e}")
+            logging.warning(f"Failed to analyze connection patterns: {e}")
             analysis["error"] = str(e)
 
         return analysis

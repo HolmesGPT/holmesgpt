@@ -101,7 +101,7 @@ class FetchNotion(Tool):
         content, _ = scrape(url, additional_headers)
 
         if not content:
-            logging.error("Failed to retrieve Notion content (empty response) for %s", url)
+            logging.warning("Failed to retrieve Notion content (empty response) for %s", url)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to retrieve content from {url}",
@@ -113,7 +113,7 @@ class FetchNotion(Tool):
             parsed = json.loads(content)
         except json.JSONDecodeError:
             # Log URL only — the body may contain authenticated page text.
-            logging.error("Notion API returned non-JSON response for %s", url)
+            logging.warning("Notion API returned non-JSON response for %s", url)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Notion API returned non-JSON response for {url}",

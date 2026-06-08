@@ -47,7 +47,7 @@ class FetchRobustaFinding(Tool):
             return self._dal.get_issue_data(finding_id)
         else:
             error = f"Failed to find a finding with finding_id={finding_id}: Holmes' data access layer is not enabled."
-            logging.error(error)
+            logging.warning(error)
             return {"error": error}
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -67,8 +67,7 @@ class FetchRobustaFinding(Tool):
                     params=params,
                 )
         except Exception as e:
-            logging.error(e)
-            logging.error(
+            logging.warning(
                 f"There was an internal error while fetching finding {finding_id}. {str(e)}"
             )
 
@@ -227,7 +226,7 @@ class FetchResourceRecommendation(Tool):
                 )
         except Exception as e:
             msg = f"There was an error while fetching top recommendations for {params}. {str(e)}"
-            logging.exception(msg)
+            logging.warning(msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=msg,
@@ -366,7 +365,7 @@ class FetchConfigurationChangesMetadata(Tool):
                 )
         except Exception as e:
             msg = f"There was an internal error while fetching changes for {params}. {str(e)}"
-            logging.exception(msg)
+            logging.warning(msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 data=msg,
@@ -482,7 +481,7 @@ class FetchResourceIssuesMetadata(Tool):
                 )
         except Exception as e:
             msg = f"There was an internal error while fetching issues for {params}. {str(e)}"
-            logging.exception(msg)
+            logging.warning(msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 data=msg,

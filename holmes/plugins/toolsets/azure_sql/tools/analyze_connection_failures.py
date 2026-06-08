@@ -262,7 +262,7 @@ class AnalyzeConnectionFailures(BaseAzureSQLTool):
             )
 
         except Exception as e:
-            logging.error(
+            logging.warning(
                 f"Error in analyze_connection_failures: {str(e)}", exc_info=True
             )
             return StructuredToolResult(

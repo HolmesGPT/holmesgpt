@@ -60,7 +60,7 @@ class SkillsFetcher(Tool):
 
         if not skill_id or not skill_id.strip():
             err_msg = "Skill link cannot be empty. Please provide a valid skill path."
-            logging.error(err_msg)
+            logging.warning(err_msg)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=err_msg,
@@ -83,7 +83,7 @@ class SkillsFetcher(Tool):
             f"Skill '{skill_id}' not found. "
             f"Available: {', '.join(self.available_skills) if self.available_skills else 'none'}"
         )
-        logging.error(err_msg)
+        logging.warning(err_msg)
         return StructuredToolResult(
             status=StructuredToolResultStatus.ERROR,
             error=err_msg,
@@ -157,7 +157,7 @@ class SkillsFetcher(Tool):
                     return self._format_skill_result(skill, params)
                 else:
                     err_msg = f"Skill with UUID '{link}' not found in remote storage."
-                    logging.error(err_msg)
+                    logging.warning(err_msg)
                     return StructuredToolResult(
                         status=StructuredToolResultStatus.ERROR,
                         error=err_msg,
@@ -165,7 +165,7 @@ class SkillsFetcher(Tool):
                     )
             except Exception as e:
                 err_msg = f"Failed to fetch skill with UUID '{link}': {str(e)}"
-                logging.error(err_msg)
+                logging.warning(err_msg)
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
                     error=err_msg,
@@ -173,7 +173,7 @@ class SkillsFetcher(Tool):
                 )
         else:
             err_msg = "Skill link appears to be a UUID, but no remote data access layer (dal) is enabled."
-            logging.error(err_msg)
+            logging.warning(err_msg)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=err_msg,

@@ -150,7 +150,7 @@ class GetTopDataIOQueries(BaseAzureSQLTool):
             )
         except Exception as e:
             error_msg = f"Failed to get top data I/O queries: {str(e)}"
-            logging.error(error_msg)
+            logging.warning(error_msg)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,

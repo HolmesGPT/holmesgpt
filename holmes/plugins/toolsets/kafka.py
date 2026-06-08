@@ -414,7 +414,7 @@ class ListKafkaConsumers(BaseKafkaTool):
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
             error_msg = f"Failed to list consumer groups on cluster '{kafka_cluster_name}': {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -502,7 +502,7 @@ class DescribeConsumerGroup(BaseKafkaTool):
                 )
         except Exception as e:
             error_msg = f"Failed to describe consumer group '{group_id}' on cluster '{kafka_cluster_name}': {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -644,7 +644,7 @@ class ListTopics(BaseKafkaTool):
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
             error_msg = f"Failed to list topics on cluster '{kafka_cluster_name}': {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -716,7 +716,7 @@ class DescribeTopic(BaseKafkaTool):
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
             error_msg = f"Failed to describe topic '{topic_name}' on cluster '{kafka_cluster_name}': {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -938,7 +938,7 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
             error_msg = (
                 f"Failed to find consumer groups for topic '{topic_name}' on cluster '{kafka_cluster_name}': {str(e)}"
             )
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -1068,7 +1068,7 @@ class ConsumeMessages(BaseKafkaTool):
                 f"Failed to consume messages from topics '{params.get('topics', 'unknown')}' "
                 f"on cluster '{params.get('kafka_cluster_name', 'unknown')}': {str(e)}"
             )
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -1125,7 +1125,7 @@ class ListBrokers(BaseKafkaTool):
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
             error_msg = f"Failed to list brokers on cluster '{kafka_cluster_name}': {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -1228,7 +1228,7 @@ class DescribeConfigs(BaseKafkaTool):
                 f"Failed to describe configs for {resource_type} '{resource_name}' "
                 f"on cluster '{kafka_cluster_name}': {str(e)}"
             )
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -1319,7 +1319,7 @@ class ClusterOverview(BaseKafkaTool):
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
             error_msg = f"Failed to get cluster overview for '{kafka_cluster_name}': {str(e)}"
-            logging.error(error_msg, exc_info=True)
+            logging.warning(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_msg,
@@ -1453,10 +1453,10 @@ class KafkaToolset(Toolset):
                     message = (
                         f"Failed to set up Kafka client for {cluster.name}: {str(e)}"
                     )
-                    logging.error(message)
+                    logging.warning(message)
                     errors.append(message)
 
             return len(self.clients) > 0, "\n".join(errors)
         except Exception as e:
-            logging.exception("Failed to set up Kafka toolset")
+            logging.warning("Failed to set up Kafka toolset", exc_info=True)
             return False, str(e)
