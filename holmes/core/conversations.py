@@ -16,29 +16,24 @@ def add_or_update_system_prompt(
     conversation_history: List[Dict[str, Any]],
     system_prompt: Optional[str],
 ):
-    """Add or replace the system prompt in conversation history.
+    """Ensure HolmesGPT's generated system prompt occupies position 0.
 
-    Only replaces an existing system prompt if it's the first message.
-    Otherwise inserts at position 0 if no system message exists.
+    HolmesGPT owns its system prompt and regenerates it every turn, so we always
+    install it at the head of the conversation: overwrite an existing leading
+    system message (e.g. a relay-supplied content-less stub) or insert one when
+    the history doesn't start with a system message. Non-leading system messages
+    (e.g. the marker that compaction appends to the end of the history) are left
+    untouched. A None system_prompt (ENABLED_PROMPTS=none) is a deliberate no-op.
     """
     if system_prompt is None:
         return conversation_history
 
     if not conversation_history:
         conversation_history.append({"role": "system", "content": system_prompt})
-    elif conversation_history[0]["role"] == "system":
+    elif conversation_history[0].get("role") == "system":
         conversation_history[0]["content"] = system_prompt
     else:
-        existing_system_prompt = next(
-            (
-                message
-                for message in conversation_history
-                if message.get("role") == "system"
-            ),
-            None,
-        )
-        if not existing_system_prompt:
-            conversation_history.insert(0, {"role": "system", "content": system_prompt})
+        conversation_history.insert(0, {"role": "system", "content": system_prompt})
 
     return conversation_history
 

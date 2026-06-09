@@ -316,6 +316,107 @@ class TestServerFlows:
             expected_global_instructions=extract_instructions(global_instructions),
         )
 
+    def test_chat_messages_overwrites_empty_system_stub(self, mock_ai, mock_config):
+        """ROB-288: the relay sends a content-less leading system stub
+        ([{"role": "system", "content": ""}, ...]). build_chat_messages must
+        overwrite position 0 with HolmesGPT's real generated system prompt.
+
+        Locks in the behavior the relay-side fix (PR #582) relies on.
+        """
+        conversation_history = [
+            {"role": "system", "content": ""},
+            {"role": "user", "content": "earlier question"},
+            {"role": "assistant", "content": "earlier answer"},
+        ]
+
+        messages = build_chat_messages(
+            ask="follow up question",
+            conversation_history=conversation_history,
+            ai=mock_ai,
+            config=mock_config,
+        )
+
+        system_messages = [m for m in messages if m.get("role") == "system"]
+        assert len(system_messages) == 1
+        assert messages[0]["role"] == "system"
+        # The empty stub was replaced by the real generated prompt.
+        assert messages[0]["content"]
+        assert "You are HolmesGPT" in messages[0]["content"]
+        assert "test-cluster" in messages[0]["content"]
+        # The new ask is appended last.
+        assert messages[-1]["role"] == "user"
+        assert "follow up question" in get_user_message_from_messages(
+            messages, get_last=True
+        )
+
+    def test_chat_messages_inserts_system_when_first_is_user(
+        self, mock_ai, mock_config
+    ):
+        """A history starting with a user turn (no system message) gets HolmesGPT's
+        generated system prompt inserted at position 0; the user turn is kept."""
+        conversation_history = [
+            {"role": "user", "content": "earlier question"},
+            {"role": "assistant", "content": "earlier answer"},
+        ]
+
+        messages = build_chat_messages(
+            ask="follow up",
+            conversation_history=conversation_history,
+            ai=mock_ai,
+            config=mock_config,
+        )
+
+        assert messages[0]["role"] == "system"
+        assert "You are HolmesGPT" in messages[0]["content"]
+        assert messages[1] == {"role": "user", "content": "earlier question"}
+
+    def test_chat_messages_tolerates_first_message_without_role(
+        self, mock_ai, mock_config
+    ):
+        """A first message missing its 'role' key must not crash (no KeyError);
+        HolmesGPT's system prompt is inserted at position 0."""
+        conversation_history = [{"content": "message with no role key"}]
+
+        messages = build_chat_messages(
+            ask="hello",
+            conversation_history=conversation_history,
+            ai=mock_ai,
+            config=mock_config,
+        )
+
+        assert messages[0]["role"] == "system"
+        assert "You are HolmesGPT" in messages[0]["content"]
+
+    def test_chat_messages_preserves_trailing_compaction_marker(
+        self, mock_ai, mock_config
+    ):
+        """A non-leading system message (e.g. the marker compaction appends to the
+        end of the history) must be preserved, not stripped."""
+        compaction_marker = (
+            "The conversation history has been compacted to preserve available "
+            "space in the context window. Continue."
+        )
+        conversation_history = [
+            {"role": "system", "content": "old system prompt"},
+            {"role": "user", "content": "earlier question"},
+            {"role": "assistant", "content": "summary"},
+            {"role": "system", "content": compaction_marker},
+        ]
+
+        messages = build_chat_messages(
+            ask="follow up",
+            conversation_history=conversation_history,
+            ai=mock_ai,
+            config=mock_config,
+        )
+
+        # Leading system prompt is regenerated...
+        assert messages[0]["role"] == "system"
+        assert "You are HolmesGPT" in messages[0]["content"]
+        # ...but the trailing compaction marker is left intact.
+        assert any(m.get("content") == compaction_marker for m in messages)
+
+
 class TestUserPromptComponents:
     """Test that user prompts include all expected components via generate_user_prompt."""
 

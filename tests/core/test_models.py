@@ -6,12 +6,17 @@ from pydantic import ValidationError
 from holmes.core.models import ChatRequest, ChatRequestBaseModel
 
 
-class TestCheckFirstItemRole:
-    """Tests for the check_first_item_role mode='before' validator.
+class TestParseRawJsonBody:
+    """Tests for the parse_raw_json_body mode='before' validator.
 
     Regression coverage for "'bytes' object has no attribute 'get'": FastAPI
     hands the validator the raw request body (bytes/str) instead of a parsed
     dict when the client omits the Content-Type: application/json header.
+
+    The validator no longer requires conversation_history to start with a
+    system message (ROB-288): build_chat_messages() installs HolmesGPT's own
+    system prompt at position 0, so a missing or non-system first message is
+    tolerated.
     """
 
     def test_dict_input_with_system_role_first(self):
@@ -25,11 +30,13 @@ class TestCheckFirstItemRole:
         )
         assert model.conversation_history[0]["role"] == "system"
 
-    def test_dict_input_without_system_role_first_raises(self):
-        with pytest.raises(ValidationError, match="must contain 'role': 'system'"):
-            ChatRequestBaseModel.model_validate(
-                {"conversation_history": [{"role": "user", "content": "hi"}]}
-            )
+    def test_dict_input_without_system_role_first_is_tolerated(self):
+        """A non-system first message is accepted; HolmesGPT installs its own
+        system prompt at position 0 later, in build_chat_messages()."""
+        model = ChatRequestBaseModel.model_validate(
+            {"conversation_history": [{"role": "user", "content": "hi"}]}
+        )
+        assert model.conversation_history[0]["role"] == "user"
 
     def test_bytes_json_body_is_parsed(self):
         """A JSON body sent as raw bytes (missing Content-Type) must still validate."""
@@ -48,12 +55,13 @@ class TestCheckFirstItemRole:
         model = ChatRequestBaseModel.model_validate(raw)
         assert model.model == "gpt-5.4"
 
-    def test_bytes_json_body_enforces_system_role(self):
+    def test_bytes_json_body_without_system_role_is_tolerated(self):
+        """A bytes body whose history doesn't start with system still validates."""
         raw = json.dumps(
             {"conversation_history": [{"role": "user", "content": "hi"}]}
         ).encode("utf-8")
-        with pytest.raises(ValidationError, match="must contain 'role': 'system'"):
-            ChatRequestBaseModel.model_validate(raw)
+        model = ChatRequestBaseModel.model_validate(raw)
+        assert model.conversation_history[0]["role"] == "user"
 
     def test_non_json_bytes_raises_validation_error_not_attribute_error(self):
         """Garbage (non-JSON) bytes must produce a clean ValidationError, not a 500."""
