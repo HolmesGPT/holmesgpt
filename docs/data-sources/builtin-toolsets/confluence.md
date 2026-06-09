@@ -314,6 +314,17 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Multiple Instances
+
+```multi-instance
+toolset: confluence
+name: Confluence
+config: |
+  api_url: "https://yourcompany.atlassian.net"
+  user: "your-email@example.com"
+  api_key: "your-api-token"
+```
+
 ## Configuration Reference
 
 `subtype` is set at the toolset level (sibling of `enabled:` and `config:`); the rest of the fields below go inside `config:`.
