@@ -172,7 +172,11 @@ def test_holmes_check(
     setup_failures = shared_test_infrastructure.get("setup_failures", {})
     if test_case.id in setup_failures:
         request.node.user_properties.append(("is_setup_failure", True))
-        pytest.fail(f"Test setup failed: {setup_failures[test_case.id]}")
+        # In strict setup mode the session already aborted before reaching here, so
+        # this only runs in non-strict mode: skip the test rather than failing it so a
+        # setup failure (e.g. missing cluster/cloud service) does not count as a test
+        # failure and the rest of the suite still runs.
+        pytest.skip(f"Test setup failed: {setup_failures[test_case.id]}")
 
     print(f"\n🧪 TEST: {test_case.id}")
     print("   CONFIGURATION:")

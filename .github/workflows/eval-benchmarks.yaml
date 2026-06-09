@@ -25,6 +25,11 @@ on:
         description: 'Number of iterations per test (max 10)'
         required: false
         default: '5'
+      skip_setup_failures:
+        description: 'Do not abort on setup failures. Tests whose setup fails are skipped and the rest still run.'
+        required: false
+        type: boolean
+        default: false
 
   # Run weekly on Sunday at 2 AM UTC
   schedule:
@@ -87,6 +92,11 @@ jobs:
             # Add iterations if specified
             if [ -n "$ITERATIONS" ] && [ "$ITERATIONS" != "1" ]; then
               CMD="$CMD --iterations $ITERATIONS"
+            fi
+
+            # Skip tests with setup failures instead of aborting the whole run
+            if [ "${{ github.event.inputs.skip_setup_failures }}" == "true" ]; then
+              CMD="$CMD --no-strict-setup"
             fi
           else
             # Scheduled run: use fast-benchmark with default models
