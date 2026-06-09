@@ -1,6 +1,15 @@
 certificate: "" # base64 encoded
 logLevel: INFO
 
+# Robusta platform MCP endpoint (toolset: robusta_platform_mcp).
+# By default Holmes derives this as "<ROBUSTA_API_ENDPOINT>/api/platform-mcp",
+# which routes via the public platform ingress. In self-hosted clusters where
+# Holmes runs alongside the platform, you can point it straight at the in-cluster
+# platform-mcp Service to avoid the public ingress round-trip. The value is used
+# verbatim and MUST include the /api/platform-mcp path:
+#   additionalEnvVars:
+#     - name: ROBUSTA_MCP_ENDPOINT
+#       value: "http://platform-mcp.<platform-namespace>.svc.cluster.local/api/platform-mcp"
 additionalEnvVars: []
 additional_env_vars: []
 # Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
