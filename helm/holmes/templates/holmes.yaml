@@ -137,6 +137,10 @@ spec:
           - name: IS_OPENSHIFT
             value: "True"
           {{- end }}
+          {{- if .Values.robustaPlatformMcpUrl }}
+          - name: ROBUSTA_MCP_ENDPOINT
+            value: {{ .Values.robustaPlatformMcpUrl | quote }}
+          {{- end }}
           {{- $skillPaths := .Values.customSkillPaths | default list }}
           {{- if .Values.customSkills }}
           {{- $skillPaths = append $skillPaths "/etc/holmes/skills" }}
