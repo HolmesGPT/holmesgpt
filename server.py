@@ -61,7 +61,7 @@ from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.utils.holmes_status import update_holmes_status_in_db
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
-from holmes.utils.log import EndpointFilter
+from holmes.utils.log import EndpointFilter, install_secret_redaction
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.frontend_tools import (
@@ -93,6 +93,11 @@ def init_logging():
         format=logging_format, level=logging_level, datefmt=logging_datefmt
     )
     logging.getLogger().setLevel(logging_level)
+
+    # Strip API keys / tokens from all log records (messages and tracebacks)
+    # before they reach any backend. LiteLLM appends the key as a URL query
+    # param and httpx echoes it inside HTTPStatusError messages/tracebacks.
+    install_secret_redaction()
 
     httpx_logger = logging.getLogger("httpx")
     if httpx_logger:
