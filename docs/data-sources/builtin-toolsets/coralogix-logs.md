@@ -122,6 +122,16 @@ Configure both the Coralogix DataPrime toolset (for logs/traces) and the Prometh
 
 **Note**: Both toolsets use the same API key. Helm-tab users only need to create one Kubernetes secret — the env var feeds both the `coralogix` toolset's `api_key` field and the Prometheus toolset's `Authorization` header.
 
+## Multiple Instances
+
+```multi-instance
+toolset: coralogix
+name: Coralogix
+config: |
+  api_key: "<your Coralogix API key>"
+  domain: "eu2.coralogix.com"
+```
+
 ## Recommended: Customize Coralogix Instructions
 
 By specifying details about your Coralogix metrics, logs, and traces, you can significantly speed up and improve investigations. This allows Holmes to work with your environment directly, rather than spending time discovering labels, mappings, and metric names on its own.

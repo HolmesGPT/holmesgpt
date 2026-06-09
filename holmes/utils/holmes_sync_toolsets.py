@@ -56,11 +56,13 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if not toolset.installation_instructions:
             instructions = get_config_schema_for_toolset(toolset)
             toolset.installation_instructions = instructions
-        # Use toolset's own meta if set (e.g., database with subtype),
-        # otherwise fall back to writing the toolset type if available.
-        meta = toolset.meta
-        if meta is None and toolset.type:
-            meta = {"type": toolset.type.value}
+        # Use toolset's own meta if set (e.g., database with subtype, or a
+        # multi-instance toolset's per-instance health), and always carry the
+        # toolset type alongside it so setting other meta keys doesn't drop it.
+        meta = dict(toolset.meta) if toolset.meta else {}
+        if toolset.type:
+            meta.setdefault("type", toolset.type.value)
+        meta = meta or None
         if isinstance(toolset, RemoteMCPToolset):
             oauth_config = toolset.get_oauth_config()
             if oauth_config:

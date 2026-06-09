@@ -188,6 +188,16 @@ You should receive a JSON response. If you get an authentication error, check yo
 | `health_check_table` | `sys_user` | Table queried on startup to verify connectivity and permissions. Change this if your API key doesn't have access to the default table. |
 | `api_version` | `v2` | Table API version segment. Defaults to `v2` (`api/now/v2/table/...`). Set to empty string to use the unversioned path (`api/now/table/...`) if your instance doesn't support v2. |
 
+## Multiple Instances
+
+```multi-instance
+toolset: servicenow/tables
+name: ServiceNow
+config: |
+  api_url: <your servicenow instance URL>
+  api_key: <your servicenow API key>
+```
+
 ## Capabilities
 
 | Tool Name | Description |
