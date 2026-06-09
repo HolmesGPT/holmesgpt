@@ -190,6 +190,19 @@ By enabling this toolset, HolmesGPT can analyze Azure SQL Database performance, 
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Multiple Instances
+
+```multi-instance
+toolset: azure/sql
+name: Azure SQL
+config: |
+  database:
+    subscription_id: "your-subscription-id"
+    resource_group: "your-resource-group"
+    server_name: "your-azure-sql-server-name"
+    database_name: "your-azure-sql-database-name"
+```
+
 ## Roles / Access controls
 
 The service principal requires these roles:

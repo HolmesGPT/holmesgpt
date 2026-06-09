@@ -1,247 +1,204 @@
-"""Tests for multi-instance Grafana configuration and basic-auth support."""
+"""Multi-instance proof for Grafana (dashboards/loki/tempo) via the NEW wrapper.
 
-import base64
-import logging
-from typing import Any
-from unittest.mock import MagicMock
+The previously hand-rolled Grafana dashboard multi-instance support was reverted;
+all three Grafana toolsets are now plain single-instance toolsets made
+multi-instance by `multi_instance(...)`. Verifies flat backwards-compat, routing
+surface, and per-instance wire calls (each instance → its own host + Bearer key).
+"""
+
+import re
 
 import pytest
-import requests
 import responses
-from pydantic import ValidationError
-from requests.auth import HTTPBasicAuth
 
-from holmes.core.llm import LLM
-from holmes.core.tools import StructuredToolResultStatus, ToolInvokeContext
-from holmes.plugins.toolsets.grafana.common import (
-    GrafanaInstance,
-    MultiInstanceGrafanaConfig as GrafanaConfig,
-    build_auth,
-    build_headers,
+from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import GrafanaLokiToolset
+from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
+from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import GrafanaTempoToolset
+from holmes.plugins.toolsets.multi_instance import (
+    INSTANCE_PARAM_NAME,
+    ListInstancesTool,
+    multi_instance,
 )
-from holmes.plugins.toolsets.grafana.toolset_grafana import (
-    GrafanaDashboardConfig,
-    GrafanaToolset,
-)
+from tests.conftest import create_mock_tool_invoke_context
 
 
-def _ctx() -> ToolInvokeContext:
-    return ToolInvokeContext(
-        llm=MagicMock(spec=LLM),
-        max_token_count=100_000,
-        tool_call_id="t1",
-        tool_name="x",
-    )
+def _reg(rsps, method, url_regex, body):
+    rsps.add(method, re.compile(url_regex), json=body, status=200)
 
 
-class TestLegacySingleInstanceShape:
-    def test_top_level_api_url_synthesizes_default_instance(self):
-        cfg = GrafanaConfig(api_url="http://grafana", api_key="k1")
-        assert cfg.instances is not None
-        assert len(cfg.instances) == 1
-        inst = cfg.instances[0]
-        assert inst.name == "default"
-        assert inst.api_url == "http://grafana"
-        assert inst.api_key == "k1"
-        # Globals applied
-        assert inst.verify_ssl is True
-        assert inst.timeout_seconds == 30
-        assert inst.max_retries == 3
+class TestGrafanaDashboards:
+    EU = "https://graf-eu.example.com"
+    US = "https://graf-us.example.com"
 
-    def test_legacy_url_alias_still_works(self):
-        # The deprecated `url` field still maps to `api_url` at the top level.
-        cfg = GrafanaConfig(url="http://grafana")  # type: ignore[call-arg]
-        assert cfg.instances[0].api_url == "http://grafana"
+    def _mock(self, rsps):
+        # health (/api/dashboards/tags) + search (/api/search) on both hosts
+        _reg(rsps, responses.GET, r"https://graf-(eu|us)\.example\.com/api/(dashboards/tags|search).*", [])
 
-    def test_missing_api_url_and_instances_rejected(self):
-        with pytest.raises(ValidationError, match="instances.+api_url"):
-            GrafanaConfig()
-
-
-class TestMultiInstanceShape:
-    def test_basic_multi_instance(self):
-        cfg = GrafanaConfig(
-            instances=[
-                {"name": "prod-eu", "api_url": "http://eu"},
-                {"name": "prod-us", "api_url": "http://us"},
-            ]
+    def _build(self, rsps):
+        self._mock(rsps)
+        ts = multi_instance(GrafanaToolset)
+        ok, _ = ts.prerequisites_callable(
+            {"instances": [
+                {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
+                {"name": "us", "api_url": self.US, "api_key": "k_us"},
+            ]}
         )
-        assert [i.name for i in cfg.instances] == ["prod-eu", "prod-us"]
+        assert ok is True
+        return ts
 
-    def test_global_credentials_inherited(self):
-        cfg = GrafanaConfig(
-            username="admin",
-            password="pw",
-            instances=[
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b", "api_key": "k"},  # own auth
-            ],
+    def test_flat_backwards_compatible(self):
+        ts = multi_instance(GrafanaToolset)
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            self._mock(rsps)
+            ok, _ = ts.prerequisites_callable({"api_url": self.EU, "api_key": "k"})
+        assert ok is True
+        assert list(ts._children) == ["default"]
+        assert not any(isinstance(t, ListInstancesTool) for t in ts.tools)
+        assert all(INSTANCE_PARAM_NAME not in t.parameters for t in ts.tools)
+
+    def test_tool_surface(self):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+        assert any(t.name == "grafana_dashboards_list_instances" for t in ts.tools)
+        for tool in ts.tools:
+            if not isinstance(tool, ListInstancesTool):
+                assert INSTANCE_PARAM_NAME in tool.parameters
+
+    @pytest.mark.parametrize("instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")])
+    def test_each_instance_calls_its_own_grafana(self, instance, host, key):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+            tool = next(t for t in ts.tools if t.name == "grafana_search_dashboards")
+            tool.invoke({"query": "x", INSTANCE_PARAM_NAME: instance}, create_mock_tool_invoke_context())
+            last = rsps.calls[-1].request
+            assert last.url.startswith(f"{host}/api/search")
+            assert last.headers.get("Authorization") == f"Bearer {key}"
+
+
+class TestGrafanaLoki:
+    EU = "http://loki-eu.svc:3100"
+    US = "http://loki-us.svc:3100"
+
+    def _mock(self, rsps):
+        _reg(rsps, responses.GET, r"http://loki-(eu|us)\.svc:3100/loki/api/v1/.*", {"data": {"result": []}})
+        _reg(rsps, responses.POST, r"http://loki-(eu|us)\.svc:3100/loki/api/v1/.*", {"data": {"result": []}})
+
+    def _build(self, rsps):
+        self._mock(rsps)
+        ts = multi_instance(GrafanaLokiToolset)
+        ok, _ = ts.prerequisites_callable(
+            {"instances": [
+                {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
+                {"name": "us", "api_url": self.US, "api_key": "k_us"},
+            ]}
         )
-        assert cfg.instances[0].username == "admin"
-        assert cfg.instances[0].password == "pw"
-        # Instance with its own auth doesn't inherit username/password
-        assert cfg.instances[1].username is None
-        assert cfg.instances[1].api_key == "k"
+        assert ok is True
+        return ts
 
-    def test_global_timeout_inherited_unless_overridden(self):
-        cfg = GrafanaConfig(
-            timeout_seconds=45,
-            instances=[
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b", "timeout_seconds": 120},
-            ],
-        )
-        assert cfg.instances[0].timeout_seconds == 45
-        assert cfg.instances[1].timeout_seconds == 120
+    def test_tool_surface(self):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+        assert any(t.name == "grafana_loki_list_instances" for t in ts.tools)
 
-    def test_duplicate_names_rejected(self):
-        with pytest.raises(ValidationError, match="Duplicate Grafana instance name"):
-            GrafanaConfig(
-                instances=[
-                    {"name": "dup", "api_url": "http://a"},
-                    {"name": "dup", "api_url": "http://b"},
-                ]
+    @pytest.mark.parametrize("instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")])
+    def test_each_instance_calls_its_own_loki(self, instance, host, key):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+            tool = next(t for t in ts.tools if t.name == "grafana_loki_query")
+            tool.invoke(
+                {"query": '{job="x"}', INSTANCE_PARAM_NAME: instance},
+                create_mock_tool_invoke_context(),
             )
+            hosts = [c.request.url for c in rsps.calls if c.request.url.startswith(f"{host}/loki")]
+            assert hosts, f"no call to {host}"
+            assert rsps.calls[-1].request.headers.get("Authorization") == f"Bearer {key}"
 
-    def test_top_level_api_url_with_instances_logs_warning(self, caplog):
-        with caplog.at_level(logging.WARNING):
-            GrafanaConfig(
-                api_url="http://ignored",
-                instances=[{"name": "real", "api_url": "http://real"}],
+
+class TestGrafanaBasicAuth:
+    """Basic auth (username/password) restored from master.
+
+    The Grafana toolset authenticates via `api_key` (Bearer) OR `username`+`password`
+    (HTTP basic auth). Verifies a top-level username/password falls through to every
+    instance and is sent as `Authorization: Basic ...` on the wire, while a per-instance
+    api_key still wins for the instance that sets it.
+    """
+
+    import base64
+
+    EU = "https://gba-eu.example.com"
+    US = "https://gba-us.example.com"
+
+    def _mock(self, rsps):
+        _reg(rsps, responses.GET, r"https://gba-(eu|us)\.example\.com/api/(dashboards/tags|search).*", [])
+
+    def _build(self, rsps):
+        self._mock(rsps)
+        ts = multi_instance(GrafanaToolset)
+        ok, _ = ts.prerequisites_callable(
+            {
+                "username": "admin",
+                "password": "prom-operator",
+                "instances": [
+                    {"name": "eu", "api_url": self.EU},
+                    {"name": "us", "api_url": self.US, "api_key": "tok_us"},
+                ],
+            }
+        )
+        assert ok is True
+        return ts
+
+    def test_global_basic_auth_falls_through(self):
+        expected = "Basic " + self.base64.b64encode(b"admin:prom-operator").decode()
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+            tool = next(t for t in ts.tools if t.name == "grafana_search_dashboards")
+            tool.invoke({"query": "x", INSTANCE_PARAM_NAME: "eu"}, create_mock_tool_invoke_context())
+            last = rsps.calls[-1].request
+            assert last.headers.get("Authorization") == expected
+
+    def test_per_instance_api_key_overrides_global_basic_auth(self):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+            tool = next(t for t in ts.tools if t.name == "grafana_search_dashboards")
+            tool.invoke({"query": "x", INSTANCE_PARAM_NAME: "us"}, create_mock_tool_invoke_context())
+            last = rsps.calls[-1].request
+            # instance set its own api_key -> Bearer, NOT inherited basic auth
+            assert last.headers.get("Authorization") == "Bearer tok_us"
+
+
+class TestGrafanaTempo:
+    EU = "http://tempo-eu.svc:3200"
+    US = "http://tempo-us.svc:3200"
+
+    def _mock(self, rsps):
+        _reg(rsps, responses.GET, r"http://tempo-(eu|us)\.svc:3200/api/.*", {"traces": []})
+
+    def _build(self, rsps):
+        self._mock(rsps)
+        ts = multi_instance(GrafanaTempoToolset)
+        ok, _ = ts.prerequisites_callable(
+            {"instances": [
+                {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
+                {"name": "us", "api_url": self.US, "api_key": "k_us"},
+            ]}
+        )
+        assert ok is True
+        return ts
+
+    def test_tool_surface(self):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+        assert any(t.name == "grafana_tempo_list_instances" for t in ts.tools)
+
+    @pytest.mark.parametrize("instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")])
+    def test_each_instance_calls_its_own_tempo(self, instance, host, key):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            ts = self._build(rsps)
+            tool = next(t for t in ts.tools if t.name == "tempo_search_traces_by_query")
+            tool.invoke(
+                {"q": '{ .service.name = "x" }', INSTANCE_PARAM_NAME: instance},
+                create_mock_tool_invoke_context(),
             )
-        assert any("top-level `api_url` is ignored" in m for m in caplog.messages)
-
-
-class TestAuthXor:
-    def test_api_key_and_basic_auth_rejected_together(self):
-        with pytest.raises(ValidationError, match="api_key.+username.+password"):
-            GrafanaConfig(
-                instances=[
-                    {
-                        "name": "bad",
-                        "api_url": "http://x",
-                        "api_key": "k",
-                        "username": "u",
-                        "password": "p",
-                    }
-                ]
-            )
-
-    def test_username_without_password_rejected(self):
-        with pytest.raises(ValidationError, match="username.+password.+together"):
-            GrafanaConfig(
-                instances=[{"name": "bad", "api_url": "http://x", "username": "u"}]
-            )
-
-    def test_password_without_username_rejected(self):
-        with pytest.raises(ValidationError, match="username.+password.+together"):
-            GrafanaConfig(
-                instances=[{"name": "bad", "api_url": "http://x", "password": "p"}]
-            )
-
-
-class TestBuildAuth:
-    def test_basic_auth_returned_when_creds_set(self):
-        inst = GrafanaInstance(
-            name="x", api_url="http://x", username="u", password="p"
-        )
-        auth = build_auth(inst)
-        assert isinstance(auth, HTTPBasicAuth)
-        assert auth.username == "u"
-        assert auth.password == "p"
-
-    def test_none_when_no_basic_auth(self):
-        inst = GrafanaInstance(name="x", api_url="http://x", api_key="k")
-        assert build_auth(inst) is None
-
-
-class TestRequestConstruction:
-    def test_basic_auth_on_the_wire(self):
-        cfg = GrafanaConfig(
-            username="u", password="p",
-            instances=[{"name": "x", "api_url": "http://x.example"}],
-        )
-        inst = cfg.instances[0]
-        with responses.RequestsMock() as rsps:
-            rsps.add(responses.GET, "http://x.example/probe", json={})
-            requests.get(
-                "http://x.example/probe",
-                headers=build_headers(inst.api_key, inst.additional_headers),
-                auth=build_auth(inst),
-            )
-            auth_header = rsps.calls[0].request.headers["Authorization"]
-            assert auth_header.startswith("Basic ")
-            decoded = base64.b64decode(auth_header.split(maxsplit=1)[1]).decode()
-            assert decoded == "u:p"
-
-
-def _toolset_with(**config: Any) -> GrafanaToolset:
-    """Build a GrafanaToolset with state populated directly (no network probe)."""
-    ts = GrafanaToolset()
-    ts._grafana_config = GrafanaDashboardConfig(**config)
-    ts._instances = {i.name: i for i in ts._grafana_config.instances}
-    return ts
-
-
-class TestGetInstance:
-    def test_auto_select_single_instance(self):
-        ts = _toolset_with(api_url="http://x")
-        inst = ts._get_instance({})
-        assert inst.name == "default"
-
-    def test_multi_instance_requires_param(self):
-        ts = _toolset_with(
-            instances=[
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]
-        )
-        with pytest.raises(ValueError, match="required"):
-            ts._get_instance({})
-
-    def test_unknown_name_rejected(self):
-        ts = _toolset_with(
-            instances=[
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]
-        )
-        with pytest.raises(ValueError, match="Unknown grafana_instance"):
-            ts._get_instance({"grafana_instance": "missing"})
-
-    def test_known_name_resolves(self):
-        ts = _toolset_with(
-            instances=[
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]
-        )
-        inst = ts._get_instance({"grafana_instance": "b"})
-        assert inst.api_url == "http://b"
-
-
-class TestToolPathThreading:
-    """End-to-end: a tool call uses the resolved instance's auth and URL."""
-
-    def test_dashboard_tool_threads_basic_auth(self):
-        ts = _toolset_with(
-            username="admin",
-            password="admin",
-            instances=[{"name": "prod", "api_url": "http://prod.example"}],
-        )
-
-        get_dashboard_tags = next(
-            t for t in ts.tools if t.name == "grafana_get_dashboard_tags"
-        )
-        with responses.RequestsMock() as rsps:
-            rsps.add(
-                responses.GET,
-                "http://prod.example/api/dashboards/tags",
-                json=[{"term": "production"}],
-            )
-            r = get_dashboard_tags._invoke({"grafana_instance": "prod"}, _ctx())
-            assert r.status == StructuredToolResultStatus.SUCCESS
-            auth_header = rsps.calls[0].request.headers["Authorization"]
-            assert auth_header.startswith("Basic ")
-            decoded = base64.b64decode(auth_header.split(maxsplit=1)[1]).decode()
-            assert decoded == "admin:admin"
+            calls = [c.request for c in rsps.calls if c.request.url.startswith(f"{host}/api")]
+            assert calls, f"no call to {host}"
+            assert calls[-1].headers.get("Authorization") == f"Bearer {key}"
