@@ -1674,6 +1674,8 @@
       
         
       
+        
+      
     
     
     
@@ -3237,6 +3239,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiple-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Instances
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#specific-providers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3740,6 +3753,34 @@
           </ul>
         </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../multi-instance-toolsets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multiple Instances
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -5477,6 +5518,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiple-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Instances
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#specific-providers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5741,13 +5793,13 @@
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
 <p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd_1" name="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd" type="radio">
-<input id="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd_2" name="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd" type="radio">
-<input id="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd_3" name="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd" type="radio">
+<input checked="checked" id="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e_1" name="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e" type="radio">
+<input id="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e_2" name="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e" type="radio">
+<input id="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e_3" name="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd_1">Holmes CLI</label>
-<label for="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd_2">Holmes Helm Chart</label>
-<label for="__tabbed_5097a28f_042f_44f3_a68b_2a3480f23edd_3">Robusta Helm Chart</label>
+<label for="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e_1">Holmes CLI</label>
+<label for="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e_2">Holmes Helm Chart</label>
+<label for="__tabbed_ab634e29_6e95_49f7_9edb_423bd4403e4e_3">Robusta Helm Chart</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block">
@@ -5815,6 +5867,20 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>svc<span class="w"> </span>--all-namespaces<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{range .items[*]}{.metadata.name}{&quot;.&quot;}{.metadata.namespace}{&quot;.svc.cluster.local:&quot;}{.spec.ports[0].port}{&quot;\n&quot;}{end}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>prometheus<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-Ev<span class="w"> </span><span class="s1">&#39;operat|alertmanager|node|coredns|kubelet|kube-scheduler|etcd|controller&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span><span class="s1">&#39;{print &quot;http://&quot;$1}&#39;</span>
 </span></code></pre></div>
 <p>This will print all possible Prometheus service URLs in your cluster. Pick the one that matches your deployment.</p>
+<h2 id="multiple-instances">Multiple Instances<a class="headerlink" href="#multiple-instances" title="Permanent link">&para;</a></h2>
+<p>The Prometheus toolset can connect to more than one Prometheus instance. List each one under <code>instances:</code> with a unique <code>name</code>. Any config field set outside <code>instances:</code> becomes a default that every instance inherits, so shared settings only need to be written once.</p>
+<pre><code class="language-yaml">toolsets:
+  prometheus/metrics:
+    enabled: true
+    config:
+      instances:
+        - name: prod
+          prometheus_url: http://&lt;your-prometheus-service&gt;:9090
+        - name: staging
+          prometheus_url: http://&lt;your-prometheus-service&gt;:9090
+</code></pre>
+<p>When more than one instance is configured, HolmesGPT automatically adds an <code>instance</code> parameter to every Prometheus tool (so it can pick which instance to query) and a <code>prometheus_metrics_list_instances</code> tool to list the configured instances. With a single instance — including the flat config without <code>instances:</code> — the tools are unchanged and fully backwards compatible.</p>
+<p>See <a href="/data-sources/multi-instance-toolsets/">Multiple Instances</a> for the full behaviour, including global defaults and health reporting.</p>
 <h2 id="specific-providers">Specific Providers<a class="headerlink" href="#specific-providers" title="Permanent link">&para;</a></h2>
 <h3 id="coralogix-prometheus">Coralogix Prometheus<a class="headerlink" href="#coralogix-prometheus" title="Permanent link">&para;</a></h3>
 <p>To use a Coralogix PromQL endpoint with HolmesGPT:</p>

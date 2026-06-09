@@ -1674,6 +1674,8 @@
       
         
       
+        
+      
     
     
     
@@ -3449,6 +3451,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiple-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Instances
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#capabilities" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3667,6 +3680,34 @@
           </ul>
         </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../multi-instance-toolsets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multiple Instances
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -5476,6 +5517,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiple-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Instances
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#capabilities" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5778,6 +5830,22 @@
 </tr>
 </tbody>
 </table>
+<h2 id="multiple-instances">Multiple Instances<a class="headerlink" href="#multiple-instances" title="Permanent link">&para;</a></h2>
+<p>The ServiceNow toolset can connect to more than one ServiceNow instance. List each one under <code>instances:</code> with a unique <code>name</code>. Any config field set outside <code>instances:</code> becomes a default that every instance inherits, so shared settings only need to be written once.</p>
+<pre><code class="language-yaml">toolsets:
+  servicenow/tables:
+    enabled: true
+    config:
+      instances:
+        - name: prod
+          api_url: &lt;your servicenow instance URL&gt;
+          api_key: &lt;your servicenow API key&gt;
+        - name: staging
+          api_url: &lt;your servicenow instance URL&gt;
+          api_key: &lt;your servicenow API key&gt;
+</code></pre>
+<p>When more than one instance is configured, HolmesGPT automatically adds an <code>instance</code> parameter to every ServiceNow tool (so it can pick which instance to query) and a <code>servicenow_tables_list_instances</code> tool to list the configured instances. With a single instance — including the flat config without <code>instances:</code> — the tools are unchanged and fully backwards compatible.</p>
+<p>See <a href="/data-sources/multi-instance-toolsets/">Multiple Instances</a> for the full behaviour, including global defaults and health reporting.</p>
 <h2 id="capabilities">Capabilities<a class="headerlink" href="#capabilities" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

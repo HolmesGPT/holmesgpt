@@ -1674,6 +1674,8 @@
       
         
       
+        
+      
     
     
     
@@ -2345,6 +2347,17 @@
     <span class="md-ellipsis">
       
         Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Instances
       
     </span>
   </a>
@@ -3595,6 +3608,34 @@
           </ul>
         </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../multi-instance-toolsets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multiple Instances
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -5315,6 +5356,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiple-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Instances
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#recommended-customize-coralogix-instructions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5554,6 +5606,22 @@
 </div>
 </div>
 <p><strong>Note</strong>: Both toolsets use the same API key. Helm-tab users only need to create one Kubernetes secret — the env var feeds both the <code>coralogix</code> toolset's <code>api_key</code> field and the Prometheus toolset's <code>Authorization</code> header.</p>
+<h2 id="multiple-instances">Multiple Instances<a class="headerlink" href="#multiple-instances" title="Permanent link">&para;</a></h2>
+<p>The Coralogix toolset can connect to more than one Coralogix instance. List each one under <code>instances:</code> with a unique <code>name</code>. Any config field set outside <code>instances:</code> becomes a default that every instance inherits, so shared settings only need to be written once.</p>
+<pre><code class="language-yaml">toolsets:
+  coralogix:
+    enabled: true
+    config:
+      instances:
+        - name: prod
+          api_key: &quot;&lt;your Coralogix API key&gt;&quot;
+          domain: &quot;eu2.coralogix.com&quot;
+        - name: staging
+          api_key: &quot;&lt;your Coralogix API key&gt;&quot;
+          domain: &quot;eu2.coralogix.com&quot;
+</code></pre>
+<p>When more than one instance is configured, HolmesGPT automatically adds an <code>instance</code> parameter to every Coralogix tool (so it can pick which instance to query) and a <code>coralogix_list_instances</code> tool to list the configured instances. With a single instance — including the flat config without <code>instances:</code> — the tools are unchanged and fully backwards compatible.</p>
+<p>See <a href="/data-sources/multi-instance-toolsets/">Multiple Instances</a> for the full behaviour, including global defaults and health reporting.</p>
 <h2 id="recommended-customize-coralogix-instructions">Recommended: Customize Coralogix Instructions<a class="headerlink" href="#recommended-customize-coralogix-instructions" title="Permanent link">&para;</a></h2>
 <p>By specifying details about your Coralogix metrics, logs, and traces, you can significantly speed up and improve investigations. This allows Holmes to work with your environment directly, rather than spending time discovering labels, mappings, and metric names on its own.</p>
 <p>To configure this:</p>
@@ -5561,13 +5629,13 @@
 <li>
 <p>Open the Robusta platform — pick your region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d_1" name="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d" type="radio">
-<input id="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d_2" name="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d" type="radio">
-<input id="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d_3" name="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d" type="radio">
+<input checked="checked" id="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60_1" name="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60" type="radio">
+<input id="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60_2" name="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60" type="radio">
+<input id="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60_3" name="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d_1">US</label>
-<label for="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d_2">EU</label>
-<label for="__tabbed_158e7814_6e47_4b27_a3c9_e6aaacef848d_3">AP</label>
+<label for="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60_1">US</label>
+<label for="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60_2">EU</label>
+<label for="__tabbed_14df0a39_2091_4646_b20c_b91b16f5cb60_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><p><a href="https://platform.robusta.dev/">platform.robusta.dev</a></p></div>
