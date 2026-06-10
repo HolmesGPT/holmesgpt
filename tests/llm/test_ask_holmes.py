@@ -15,6 +15,7 @@ from holmes.core.models import ChatRequest
 from holmes.core.prompt import PromptComponent, build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
+from holmes.core.tools_utils.frontend_tools import inject_frontend_tools
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
@@ -37,6 +38,7 @@ from tests.llm.utils.test_case_utils import (
     check_and_skip_test,
     create_eval_llm,
     get_models,
+    load_frontend_tools,
 )
 
 TEST_CASES_FOLDER = Path(
@@ -204,6 +206,34 @@ def ask_holmes(
             llm=create_eval_llm(model=model, tracer=tracer),
             tool_results_dir=tool_results_dir,
         )
+
+        # Inject client-defined tools the same way the server does for the
+        # `frontend_tools` field of /api/chat requests (e.g. the Robusta UI's
+        # skill-suggestion tool). Must happen before building messages so the
+        # system prompt reflects the injected tools. The client may also ship
+        # a system prompt snippet alongside its tools (mirroring the
+        # `additional_system_prompt` request field).
+        frontend_payload = load_frontend_tools(test_case)
+        if frontend_payload:
+            print(
+                f"\n🖥️  FRONTEND TOOLS ({len(frontend_payload.tools)}): "
+                + ", ".join(t.name for t in frontend_payload.tools)
+                + (
+                    " (+ additional system prompt)"
+                    if frontend_payload.additional_system_prompt
+                    else ""
+                )
+            )
+            ai, _ = inject_frontend_tools(ai, frontend_payload.tools)
+            if frontend_payload.additional_system_prompt:
+                additional_system_prompt = "\n\n".join(
+                    p
+                    for p in [
+                        additional_system_prompt,
+                        frontend_payload.additional_system_prompt,
+                    ]
+                    if p
+                )
 
         # Todos (TodoWrite) are disabled by default in evals; turn off the
         # related prompt instructions/reminder unless the test opts in. The

@@ -11,6 +11,7 @@ from typing_extensions import Dict
 
 from holmes.config import Config
 from holmes.core.llm import DefaultLLM
+from holmes.core.models import FrontendToolDefinition, FrontendToolMode
 from holmes.core.prompt import append_file_to_user_prompt
 from holmes.core.resource_instruction import ResourceInstructions
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
@@ -162,6 +163,13 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     cluster_name: Optional[str] = None
     include_files: Optional[List[str]] = None  # matches include_files option of the CLI
     skills: Optional[Dict[str, Any]] = None  # Optional skill catalog override
+    frontend_tools: Optional[Union[str, List[Dict[str, Any]]]] = (
+        None  # Client-defined tools injected into the LLM, mirroring the
+        # `frontend_tools` field of the /api/chat request. Either an inline
+        # list of FrontendToolDefinition dicts or a path (relative to the
+        # test folder) to a YAML file containing one. Only noop-mode tools
+        # are supported in evals (there is no client to execute pause tools).
+    )
     allow_toolset_failures: Optional[bool] = (
         False  # Allow toolsets to fail prerequisite checks (default False)
     )
@@ -172,6 +180,62 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
         None  # Store original prompt(s)
     )
     test_type: Optional[str] = None  # The type of test to run
+
+
+class FrontendPayload(BaseModel):
+    """What a frontend client contributes to a chat request: client-defined
+    tools plus an optional system prompt snippet (mirrors the
+    `frontend_tools` / `additional_system_prompt` fields of /api/chat)."""
+
+    tools: List[FrontendToolDefinition] = []
+    additional_system_prompt: Optional[str] = None
+
+
+def load_frontend_tools(
+    test_case: "AskHolmesTestCase",
+) -> Optional[FrontendPayload]:
+    """Resolve the test case's `frontend_tools` field into a FrontendPayload.
+
+    The field is either an inline list of FrontendToolDefinition dicts or a
+    path (relative to the test folder) to a YAML file containing one under a
+    top-level `frontend_tools` key. The file form may also carry an
+    `additional_system_prompt` key with the prompt snippet the frontend
+    client sends alongside its tools.
+    """
+    raw = test_case.frontend_tools
+    if not raw:
+        return None
+
+    additional_system_prompt = None
+    if isinstance(raw, str):
+        tools_path = Path(test_case.folder) / raw
+        if not tools_path.exists():
+            raise FileNotFoundError(
+                f"frontend_tools file not found for test {test_case.id}: {tools_path}"
+            )
+        with open(tools_path, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        if isinstance(raw, dict):
+            additional_system_prompt = raw.get("additional_system_prompt")
+            raw = raw.get("frontend_tools")
+
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"frontend_tools for test {test_case.id} must resolve to a list of "
+            f"tool definitions, got: {type(raw)}"
+        )
+
+    definitions = [FrontendToolDefinition(**tool) for tool in raw]
+    for definition in definitions:
+        if definition.mode != FrontendToolMode.NOOP:
+            raise ValueError(
+                f"frontend_tools in evals must use mode 'noop' (tool "
+                f"'{definition.name}' uses '{definition.mode.value}'): evals have "
+                "no client to execute pause-mode tools."
+            )
+    return FrontendPayload(
+        tools=definitions, additional_system_prompt=additional_system_prompt
+    )
 
 
 def check_and_skip_test(
