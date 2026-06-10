@@ -224,8 +224,10 @@ class GetLogs(Tool):
             # a specific limit. An explicit request is honored up to the Datadog
             # API page maximum (previously it was silently clamped down to the
             # config value, making larger fetches inexpressible).
-            limit = params.get("limit") or self.toolset.dd_config.default_limit
-            limit = min(limit, DATADOG_LOGS_API_PAGE_MAX)
+            limit = params.get("limit")
+            if limit is None:
+                limit = self.toolset.dd_config.default_limit
+            limit = max(1, min(limit, DATADOG_LOGS_API_PAGE_MAX))
             params["limit"] = limit
             sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 

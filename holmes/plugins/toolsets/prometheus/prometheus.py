@@ -1034,7 +1034,9 @@ def metadata_limit_param() -> ToolParameter:
 
 
 def get_metadata_limit(params: dict) -> int:
-    limit = params.get("limit") or PROMETHEUS_METADATA_API_LIMIT
+    limit = params.get("limit")
+    if limit is None:
+        limit = PROMETHEUS_METADATA_API_LIMIT
     return max(1, int(limit))
 
 

@@ -31,6 +31,10 @@ class TestMetadataLimit:
     def test_invalid_limit_clamped_to_one(self):
         assert get_metadata_limit({"limit": -5}) == 1
 
+    def test_explicit_zero_clamped_to_one_not_default(self):
+        # An explicit 0 must not be silently replaced with the default
+        assert get_metadata_limit({"limit": 0}) == 1
+
     def test_all_metadata_tools_expose_limit_param(self):
         toolset = PrometheusToolset()
         for tool_cls in (

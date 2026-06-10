@@ -70,3 +70,10 @@ class TestFetchLogsLimit:
                 {"query": "*", "limit": 5000}, create_mock_tool_invoke_context()
             )
             assert _page_limit_of_last_call(rsps) == DATADOG_LOGS_API_PAGE_MAX
+
+    def test_explicit_zero_clamped_to_one_not_default(self):
+        # An explicit 0 must not be silently replaced with the default
+        with responses.RequestsMock() as rsps:
+            tool = _build(rsps)
+            tool.invoke({"query": "*", "limit": 0}, create_mock_tool_invoke_context())
+            assert _page_limit_of_last_call(rsps) == 1
