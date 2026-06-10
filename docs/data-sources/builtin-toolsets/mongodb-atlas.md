@@ -58,6 +58,17 @@ By enabling this toolset, HolmesGPT can access MongoDB Atlas projects and proces
             project_id: "<your-project-id>"
     ```
 
+## Multiple Instances
+
+```multi-instance
+toolset: MongoDBAtlas
+name: MongoDB Atlas
+config: |
+  public_key: "<your-public-api-key>"
+  private_key: "<your-private-api-key>"
+  project_id: "<your-project-id>"
+```
+
 ## Setting up MongoDB Atlas API Keys
 
 1. **Log into MongoDB Atlas** and navigate to your organization

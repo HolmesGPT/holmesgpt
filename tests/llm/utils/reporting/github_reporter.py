@@ -66,6 +66,22 @@ def _fmt_tokens(value: Optional[int]) -> str:
     return "—"
 
 
+def _fmt_denied_commands(commands: Optional[List[str]]) -> str:
+    """Format denied bash commands for a markdown table cell.
+
+    Each command is wrapped in backticks and pipe/newline characters are escaped
+    so they don't break the surrounding table. Multiple commands are stacked with
+    <br>. Returns an em dash when there are none.
+    """
+    if not commands:
+        return "—"
+    rendered = []
+    for cmd in commands:
+        safe = str(cmd).replace("|", "\\|").replace("\n", " ").replace("`", "")
+        rendered.append(f"`{safe}`")
+    return "<br>".join(rendered)
+
+
 def _format_diff_pct(diff: Optional[float]) -> str:
     """Format a diff percentage with arrow indicator, bold if >25%."""
     if diff is None:
@@ -502,9 +518,20 @@ def generate_markdown_report(
         if ask_holmes_mock_failures > 0:
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
+
+    # Warn (above the table) when the run attempted bash commands that were denied
+    # by the eval's allow/deny list. These are listed in the "Denied commands" column.
+    denied_total = sum(len(r.get("denied_commands") or []) for r in sorted_results)
+    if denied_total > 0:
+        plural = "s" if denied_total != 1 else ""
+        markdown += (
+            f"\n> ⚠️ **Warning:** this eval run contains {denied_total} denied "
+            f"bash command{plural}.\n"
+        )
+
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Skill Generated | Skills Read | Compactions | Src |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Skill Generated | Skills Read | Compactions | Denied commands | Src |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
@@ -520,6 +547,7 @@ def generate_markdown_report(
     total_compactions = 0
     total_turns = 0
     total_tools = 0
+    total_denied_commands = 0
     time_count = 0
     turns_count = 0
     tools_count = 0
@@ -640,7 +668,13 @@ def generate_markdown_report(
         skills_read_count = result.get("skills_read_count", 0) or 0
         skills_read_str = str(skills_read_count) if skills_read_count else "—"
 
-        markdown += f"| {primary_status_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {skill_generated_str} | {skills_read_str} | {compactions_str} | {source_str} |\n"
+        # Bash commands HolmesGPT tried to run that were denied by the eval's
+        # allow/deny list (no interactive approver exists during evals).
+        denied_commands = result.get("denied_commands") or []
+        total_denied_commands += len(denied_commands)
+        denied_commands_str = _fmt_denied_commands(denied_commands)
+
+        markdown += f"| {primary_status_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {skill_generated_str} | {skills_read_str} | {compactions_str} | {denied_commands_str} | {source_str} |\n"
 
         # If this test ran a closed-loop replay (rerun_with_memory: true and
         # a memory was actually captured), emit a second row labeled
@@ -715,6 +749,7 @@ def generate_markdown_report(
             )
 
             # Replay shares the parent row's Src link — same test_case.yaml.
+            # Denied commands aren't tracked separately for replays.
             markdown += (
                 f"| {replay_status} | {replay_name} | "
                 f"{r_time_str} | {r_turns_str} | {r_tools_str} | {r_cost_str} | "
@@ -722,7 +757,7 @@ def generate_markdown_report(
                 f"{r_output_str} | {r_max_completion_str} | {r_cached_str} | "
                 f"{r_non_cached_str} | {r_reasoning_str} | "
                 f"{replay_skill_generated_str} | {replay_skills_read_str} | "
-                f"{r_compactions_str} | {source_str} |\n"
+                f"{r_compactions_str} | — | {source_str} |\n"
             )
 
     # Add summary row
@@ -754,12 +789,10 @@ def generate_markdown_report(
     skills_read_total_str = (
         f"**{total_skills_read}**" if total_skills_read else "—"
     )
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | {skill_generated_total_str} | {skills_read_total_str} | **{total_compactions_str}** | |\n"
+    total_denied_str = str(total_denied_commands) if total_denied_commands > 0 else "—"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | {skill_generated_total_str} | {skills_read_total_str} | **{total_compactions_str}** | **{total_denied_str}** | |\n"
 
-    # Skills mechanism net-win summary. Aggregates the rows where a memory
-    # was emitted and (when applicable) replayed, so the bottom-line
-    # "is this feature paying for itself" answer is visible without
-    # eyeballing every row.
+    # Collapsed skills-mechanism stats (counts + mean replay delta only).
     markdown += _generate_skills_summary(sorted_results)
 
     # Add footer explaining when no baseline available

@@ -528,6 +528,208 @@ toolsets:
 2. `poetry run pytest -k "test_name" --no-cov` — run full test
 3. Verify cleanup: `kubectl get namespace app-NNN` should return NotFound
 
+## Running Kubernetes Evals in the Claude Code Sandbox
+
+The sandbox does not ship with a running Kubernetes cluster, kubectl, helm, or a
+running docker daemon. To run k8s-based evals (e.g.
+`tests/llm/fixtures/test_ask_holmes/227_count_configmaps_per_namespace/test_case.yaml`,
+which uses `kubectl create namespace` / `kubectl create configmap` in `before_test`),
+run `./scripts/setup-sandbox-k8s.sh`. It brings up **k3s in a container** (KIND does
+NOT work — the inner node's systemd cannot mount `/sys/fs/cgroup/systemd` under the
+sandbox's cgroup v1 and restart-loops with "Failed to mount API filesystems"),
+installs `kubectl` / `helm` / a static `jq`, and patches two sandbox-specific
+issues that would otherwise prevent any pod from starting:
+
+- The sandbox MITMs HTTPS to public registries with an internal CA
+  (`egress-gateway-ca-*.crt`, `swp-ca-*.crt`). k3s's containerd doesn't
+  trust those, so the inner cluster can't pull `rancher/mirrored-pause`
+  and every pod sandbox fails. Fix: bind-mount the host CA bundle into
+  k3s and write a `registries.yaml` pointing containerd at it. The
+  script also mirrors `docker.io` through `mirror.gcr.io` to dodge
+  Docker Hub's 100/6h anonymous pull limit (the sandbox shares an
+  outbound IP across sessions).
+- The sandbox strips `CAP_SYS_RESOURCE` from our user. K3s's pause
+  container has `oomScoreAdj: -998`; setting a negative `oom_score_adj`
+  requires CAP_SYS_RESOURCE. runc's `nsexec` fails with `failed to
+  update /proc/self/oom_score_adj: Permission denied`, the child dies,
+  the parent gets `can't get final child's PID from pipe: EOF`. Fix:
+  wrap `/bin/runc` inside the k3s container with a shim that uses `jq`
+  to strip `.process.oomScoreAdj` from the OCI config before
+  `runc create` runs.
+
+Verified end-to-end with the `llm and regression` test suite against a
+freshly-bootstrapped cluster under opus-4.6: **10 of 11 regression evals pass**
+in ~256s wall at -n 4. The eleventh (`176_network_policy_blocking_traffic_no_skills`)
+cannot pass here — see the limitations section. Skip via `-m "llm and regression and not network"`.
+
+**LLM provider env (OpenRouter — Anthropic / OpenAI keys are not in env):**
+
+Two non-obvious requirements for the classifier scoring step:
+
+- `api_base: https://openrouter.ai/api/v1` is **required** on every `model_list.yaml`
+  entry. The autoevals/braintrust correctness classifier bypasses litellm and calls
+  the raw OpenAI SDK — without `api_base` it hits `api.openai.com` and 401s with the
+  OpenRouter key.
+- Always use the `openai/<provider>/<model>` prefix in the `model:` field — including
+  for Anthropic models routed through OpenRouter. Two problems get solved at once:
+  - litellm's native Anthropic provider appends `/v1/messages` to `api_base`, which
+    doubles the path to `/api/v1/v1/messages` and 404s. Forcing the `openai/` prefix
+    routes through litellm's OpenAI-compatible path (`/chat/completions`) instead,
+    which OpenRouter speaks fine for all models.
+  - The autoevals classifier passes the post-prefix string straight to OpenRouter as
+    a model ID, and `openrouter/openai/gpt-4.1` is rejected as "not a valid model ID";
+    `openai/gpt-4.1` is accepted.
+
+```bash
+cat > /tmp/model_list.yaml << 'EOF'
+opus-4.6:
+  model: openai/anthropic/claude-opus-4.6
+  api_key: "{{ env.OPENROUTER_API_KEY }}"
+  api_base: https://openrouter.ai/api/v1
+gpt-4.1:
+  model: openai/gpt-4.1
+  api_key: "{{ env.OPENROUTER_API_KEY }}"
+  api_base: https://openrouter.ai/api/v1
+gpt-4.1-mini:
+  model: openai/gpt-4.1-mini
+  api_key: "{{ env.OPENROUTER_API_KEY }}"
+  api_base: https://openrouter.ai/api/v1
+EOF
+
+# BRAINTRUST_API_KEY / BRAINTRUST_SERVICE_TOKEN must be UNSET — the read-only
+# service token in this env refuses to create experiments and crashes the test.
+unset BRAINTRUST_API_KEY
+unset BRAINTRUST_SERVICE_TOKEN
+
+export MODEL=gpt-4.1-mini MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
+export CLASSIFIER_MODEL=gpt-4.1 RUN_LIVE=true OPENAI_API_KEY=dummy
+```
+
+Then run the regression suite using the invocation that `setup-sandbox-k8s.sh`
+prints on success. Wall time is ~65s for a single k8s eval with gpt-4.1-mini
+(~$0.03 OpenRouter spend); opus-4.6 is ~90s per run. The full 11-eval
+`llm and regression` suite under opus-4.6 runs in ~256s wall at -n 4 (~$3.30).
+Budget accordingly when looping.
+
+**What does NOT work in the sandbox:**
+
+- `kind create cluster` — inner container restart-loops on cgroup v1 (systemd mount fails)
+- k3s without the `oomScoreAdj` runc wrapper — pod sandboxes never start; runc's
+  nsexec fails with `failed to update /proc/self/oom_score_adj: Permission denied`
+  because `CAP_SYS_RESOURCE` is stripped
+- k3s without the host-CA bind-mount + `registries.yaml` — image pulls fail because
+  the sandbox MITMs HTTPS with a CA the k3s container doesn't trust
+- NetworkPolicy enforcement, period — both k3s's built-in NP controller
+  (kube-router) and Calico's felix fail because `ipset` is restricted in this
+  kernel (`ipset list -name` returns "Kernel error received: Invalid argument").
+  Calico's eBPF dataplane also doesn't help: `/sys/fs` isn't a shared mount,
+  so the `mount-bpffs` init container can't run. The
+  `176_network_policy_blocking_traffic_no_skills` eval is the only regression
+  test affected — it asserts a NetworkPolicy actually blocks traffic, which we
+  cannot enforce here. Skip it via `-m "llm and regression and not network"`
+  or `--deselect`
+- `BRAINTRUST_API_KEY` / `BRAINTRUST_SERVICE_TOKEN` set — unset both or the test crashes
+- `model_list.yaml` entries without `api_base` — classifier 401s against `api.openai.com`
+- `openrouter/openai/<model>` prefix in `model:` — OpenRouter rejects as invalid model ID
+- `anthropic/<model>` prefix in `model:` — litellm's Anthropic provider hits
+  `/api/v1/v1/messages` (doubled path) and 404s; use `openai/anthropic/<model>` instead
+- Assuming Anthropic / OpenAI keys are present — only `OPENROUTER_API_KEY` is available
+
+**Caveats and gotchas (things that DO work but with strings attached):**
+
+- **`oomScoreAdj` rewrite is a behavioural fudge.** The wrapper rewrites
+  `oomScoreAdj: -998` (set by k3s on the pause container and a few system pods like
+  coredns/local-path-provisioner) to `0`. User pods are unaffected — kubelet derives
+  their `oomScoreAdj` from QoS class (0 for Guaranteed, ~999 Burstable, ~1000
+  BestEffort), all non-negative so the `s/:-[0-9]+/0/` regex never matches them.
+  In practice this means: under sustained memory pressure on the k3s container,
+  the kernel OOM killer may pick a pause/coredns container before a user
+  container that it would normally protect, which can tear the pod sandbox out
+  from under a workload. Doesn't happen at the ~20-pod scale the regression
+  suite hits here, but be aware if you write a memory-stress eval, or an eval
+  that asserts directly on `/proc/<pid>/oom_score_adj` of a system pod.
+- **The runc wrapper survives `docker restart k3s-server` but NOT
+  `docker rm`.** The wrapper lives on the container's writable layer at
+  `/bin/runc` (with the original at `/bin/runc.real`). A fresh container
+  starts with stock runc and pods get stuck again — re-run
+  `./scripts/setup-sandbox-k8s.sh`; it's idempotent and reinstalls the
+  wrapper. To verify the wrapper is active: `docker exec k3s-server head -3
+  /bin/runc` should show the shebang + comment, not a binary.
+- **The sandbox itself is reclaimed after a period of inactivity.** dockerd,
+  the k3s container, kubectl, and helm all disappear when the session container
+  is reclaimed. Re-run `./scripts/setup-sandbox-k8s.sh`. Anything you didn't
+  commit and push is also gone — including local kubeconfigs and `model_list.yaml`.
+- **`CAP_SYS_RESOURCE` removal blocks more than just `oomScoreAdj`.** Anything
+  that tries to raise rlimits (`RLIMIT_NOFILE`, `RLIMIT_NPROC`) also fails. The
+  hard ulimit for open files is pinned at 4096 and not even root can raise it;
+  `prlimit --pid $$ --nofile=65536:65536` returns "Operation not permitted".
+  In practice this is fine for the regression suite (small workloads), but a
+  test that spins up a process requiring tens of thousands of fds (a DB under
+  load, an HTTP load-generator, etc.) will hit it. Do NOT pass `--ulimit
+  nofile=65536:65536` to the k3s `docker run` line — it will fail the container
+  start with `error setting rlimit type 7: operation not permitted`.
+- **Parallel pytest workers cause image-pull contention.** With `-n 4` the first
+  setup wave creates ~25 pods simultaneously and containerd pulls all the
+  unique images in parallel through the sandbox proxy. The first parallel
+  regression run takes ~80s of setup (mostly image pull) per worker; a second
+  run on the same cluster reuses the image cache and is much faster. If you're
+  iterating, **do NOT** delete the k3s container between runs.
+- **Docker Hub anonymous pull rate limit can fail eval setup.** The sandbox
+  shares an outbound IP across sessions, so anonymous Docker Hub pulls are
+  subject to the 100-pulls-per-6h limit (`429 Too Many Requests: toomanyrequests:
+  You have reached your unauthenticated pull rate limit`). Symptoms: eval
+  setup times out with pods stuck `ImagePullBackOff`. The setup script works
+  around this by configuring containerd to pull `docker.io` images through
+  **`mirror.gcr.io`** (Google's public pull-through cache for Docker Hub
+  `library/*` and the k8s ecosystem) before falling back to
+  `registry-1.docker.io`. The mirror has no rate limit and needs no
+  credentials. If a workload pulls an image the mirror doesn't have and
+  the fallback still 429s, additional mitigations:
+  - Pre-pull the image on the host (`docker pull python:3.9-slim`) and
+    side-load into k3s with `docker save ... | docker exec -i k3s-server
+    ctr -n k8s.io images import -` (the same image-import gotcha applies —
+    do them one at a time).
+  - Add a Docker Hub auth block to `/tmp/k3s-output/registries.yaml`:
+    ```yaml
+    configs:
+      "registry-1.docker.io":
+        auth:
+          username: <hub-user>
+          password: <hub-pat>
+        tls:
+          ca_file: /etc/ssl/certs/ca-certificates.crt
+    ```
+  - Re-run after the 6h window expires.
+- **Sandbox network policy controls outbound access.** All recipe pulls
+  (`get.helm.sh`, `dl.k8s.io`, `kind.sigs.k8s.io`, `openrouter.ai`,
+  `registry-1.docker.io`, `ghcr.io` Calico images, etc.) succeed under the
+  default policy that was active during verification, but if a future
+  environment uses a stricter policy some installs may fail. The k3s
+  `registries.yaml` only covers `docker.io`, `registry.k8s.io`, and `quay.io`;
+  if a workload pulls from another registry (e.g. `ghcr.io`) extend
+  `registries.yaml` with the same `ca_file:` block for it.
+- **Eval `before_test` scripts can `kubectl exec` pods you just created.** If
+  your test_case.yaml does that, the inner pod has to actually run — make
+  sure the wrapper is in place before launching pytest, not after.
+- **`docker save` / `ctr images import` for side-loading images is unreliable**
+  in this combination. Some images import cleanly, others fail with
+  `content digest ...: not found` (saw this with the multi-image tar bundle).
+  If you need to pre-seed an image, save and import one at a time. Pulling
+  through containerd with the registries.yaml fix is more reliable than
+  side-loading.
+- **kubeconfig regenerates if the k3s container is removed and recreated.**
+  Refresh `~/.kube/config` from `/tmp/k3s-output/kubeconfig.yaml` (or via
+  `docker cp k3s-server:/output/kubeconfig.yaml ~/.kube/config`) after any
+  container recreation, or kubectl will fail with "x509: certificate signed
+  by unknown authority".
+- **NetworkPolicy enforcement isn't recoverable in this sandbox.** Both
+  approaches I tried bottom out on `ipset`: k3s's kube-router skips its NP
+  controller at startup, and Calico's felix logs the same kernel error
+  continuously. Calico's eBPF dataplane is blocked separately by `/sys/fs`
+  not being a shared mount, so the `mount-bpffs` init container can't run.
+  Don't waste cycles installing another CNI for NP support — it won't work
+  until the sandbox kernel allows ipset/netlink-NFNL_SUBSYS_IPSET operations.
+
 ## Reading CodeRabbit Review Comments
 
 In the sandbox environment, `gh` CLI is not available and the GitHub REST API will quickly rate-limit unauthenticated requests. Use the following approach:

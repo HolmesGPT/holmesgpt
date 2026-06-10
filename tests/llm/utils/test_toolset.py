@@ -43,6 +43,7 @@ class TestToolsetManager:
         allow_toolset_failures: bool = False,
         toolsets_config_path: Optional[str] = None,
         additional_skill_paths: Optional[list] = None,
+        enable_todo: bool = False,
     ):
         self.test_case_folder = test_case_folder
         self.allow_toolset_failures = allow_toolset_failures
@@ -53,6 +54,7 @@ class TestToolsetManager:
         # available skills so the agent can fetch them via the standard
         # fetch_skill tool.
         self.additional_skill_paths = list(additional_skill_paths or [])
+        self.enable_todo = enable_todo
 
         # Initialize components
         self._initialize_toolsets()
@@ -177,6 +179,11 @@ class TestToolsetManager:
                 or toolset.name in mcp_toolsets
                 or toolset.name in database_toolsets
             ):
+                continue
+            # Todos (TodoWrite tool) are disabled by default in evals. Drop the
+            # core_investigation toolset entirely unless the test opts in via
+            # enable_todo, so the tool isn't even offered to the LLM.
+            if toolset.name == "core_investigation" and not self.enable_todo:
                 continue
             # Replace SkillsToolset with one that has test folder search path
             if toolset.name == "skills":

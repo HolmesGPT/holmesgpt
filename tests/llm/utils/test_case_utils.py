@@ -150,6 +150,9 @@ class HolmesTestCase(BaseModel):
     max_tokens: Optional[int] = (
         None  # Maximum total tokens allowed; test fails if exceeded
     )
+    enable_todo: bool = (
+        False  # Enable the TodoWrite/todos feature (disabled by default in evals)
+    )
     # SUGGEST_RUNBOOKS is injected on every run, so memory emission can occur
     # on any eval. This field controls the assertion:
     # - True  → the test fails if the LLM emits zero memories

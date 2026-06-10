@@ -1,5 +1,5 @@
 
-user_prompt: "What day and time is it?"
+user_prompt: "What day and time is it? Rely only on the information already provided to you in this prompt - there is no need to verify it or look it up with any tool."
 expected_output:
   - June 23rd 2025
   - 11:34 UTC

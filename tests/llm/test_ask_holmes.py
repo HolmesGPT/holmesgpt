@@ -12,7 +12,7 @@ import pytest
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
-from holmes.core.prompt import build_initial_ask_messages
+from holmes.core.prompt import PromptComponent, build_initial_ask_messages
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -20,6 +20,7 @@ from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
+from tests.llm.utils.denied_commands import extract_denied_commands
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
 from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.mock_dal import load_test_dal
@@ -434,6 +435,7 @@ def ask_holmes(
             allow_toolset_failures=getattr(test_case, "allow_toolset_failures", False),
             toolsets_config_path=getattr(test_case, "toolsets_config_path", None),
             additional_skill_paths=additional_skill_paths,
+            enable_todo=getattr(test_case, "enable_todo", False),
         )
 
         tool_executor = ToolExecutor(toolset_manager.toolsets)
@@ -454,6 +456,16 @@ def ask_holmes(
 
         if inject_suggest_runbooks:
             ai = inject_suggest_runbooks_tool(ai)
+
+        # Todos (TodoWrite) are disabled by default in evals; turn off the
+        # related prompt instructions/reminder unless the test opts in. The
+        # TodoWrite tool itself is dropped by TestToolsetManager (above).
+        prompt_component_overrides = None
+        if not getattr(test_case, "enable_todo", False):
+            prompt_component_overrides = {
+                PromptComponent.TODOWRITE_INSTRUCTIONS: False,
+                PromptComponent.TODOWRITE_REMINDER: False,
+            }
 
         test_type = (
             test_case.test_type
@@ -494,6 +506,8 @@ def ask_holmes(
                     tool_executor=ai.tool_executor,
                     skills=skills,
                     system_prompt_additions=additional_system_prompt,
+                    cluster_name=test_case.cluster_name,
+                    prompt_component_overrides=prompt_component_overrides,
                 )
         else:
             chat_request = ChatRequest(
@@ -518,6 +532,7 @@ def ask_holmes(
                 global_instructions=global_instructions,
                 skills=skills,
                 additional_system_prompt=additional_system_prompt,
+                prompt_component_overrides=prompt_component_overrides,
             )
 
         # Create LLM completion trace within current context
@@ -540,5 +555,13 @@ def ask_holmes(
                     request.node.user_properties.append(
                         ("tool_call_count", len(result.tool_calls))
                     )
+                    # Bash commands HolmesGPT tried to run but were denied (the eval
+                    # has no interactive approver and the bash toolset enforces an
+                    # allow/deny list). Surfaced as a column in the eval report.
+                    denied_commands = extract_denied_commands(result.tool_calls)
+                    if denied_commands:
+                        request.node.user_properties.append(
+                            ("denied_commands", denied_commands)
+                        )
 
         return result

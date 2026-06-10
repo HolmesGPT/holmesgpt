@@ -248,6 +248,9 @@ markdown_extensions:
               - name: robusta-region
                 class: robusta-region
                 format: !!python/name:docs.custom_fences.robusta_region_fence_format
+              - name: multi-instance
+                class: multi-instance
+                format: !!python/name:docs.custom_fences.multi_instance_fence_format
     - pymdownx.tabbed:
           alternate_style: true
           combine_header_slug: true
