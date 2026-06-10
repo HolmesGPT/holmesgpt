@@ -77,16 +77,16 @@ healthy_script() {
   local HR="$4"
   cat <<EOS
 #!/bin/sh
-echo "\$(date -u) INFO  [boot] $NAME starting"
+echo "INFO  [boot] $NAME starting"
 i=1
 while [ \$i -le 700 ]; do
-  echo "\$(date -u) INFO  [rpc] op=\$((i*13%99991)) status=ok backlog=\$(($BKL + i%35)) hit_ratio=0.\$(($HR + i%3)) \$(($LAT + i%29))ms"
+  echo "INFO  [rpc] op=\$((i*13%99991)) status=ok backlog=\$(($BKL + i%35)) hit_ratio=0.\$(($HR + i%3)) \$(($LAT + i%29))ms"
   i=\$((i+1))
 done
 c=0
 while true; do
   c=\$((c+1))
-  echo "\$(date -u) INFO  [rpc] op=\$((c*13%99991+100000)) status=ok backlog=\$(($BKL + c%35)) hit_ratio=0.\$(($HR + c%3)) \$(($LAT + c%29))ms"
+  echo "INFO  [rpc] op=\$((c*13%99991+100000)) status=ok backlog=\$(($BKL + c%35)) hit_ratio=0.\$(($HR + c%3)) \$(($LAT + c%29))ms"
   sleep 5
 done
 EOS
@@ -134,17 +134,17 @@ echo "Creating 3 silently degrading services..."
 # shipping-quote: latency creeps 20ms -> ~480ms across 700 lines, then steady ~480ms
 mk_service shipping-quote shipping-quote "$(cat <<'EOS'
 #!/bin/sh
-echo "$(date -u) INFO  [boot] shipping-quote starting"
+echo "INFO  [boot] shipping-quote starting"
 i=1
 while [ $i -le 700 ]; do
   L=$((20 + i*460/700 + i%13))
-  echo "$(date -u) INFO  [rpc] op=$((i*13%99991)) status=ok backlog=$((9 + i%35)) hit_ratio=0.$((90 + i%3)) ${L}ms"
+  echo "INFO  [rpc] op=$((i*13%99991)) status=ok backlog=$((9 + i%35)) hit_ratio=0.$((90 + i%3)) ${L}ms"
   i=$((i+1))
 done
 c=0
 while true; do
   c=$((c+1))
-  echo "$(date -u) INFO  [rpc] op=$((c*13%99991+100000)) status=ok backlog=$((9 + c%35)) hit_ratio=0.$((90 + c%3)) $((480 + c%13))ms"
+  echo "INFO  [rpc] op=$((c*13%99991+100000)) status=ok backlog=$((9 + c%35)) hit_ratio=0.$((90 + c%3)) $((480 + c%13))ms"
   sleep 5
 done
 EOS
@@ -153,17 +153,17 @@ EOS
 # feed-builder: backlog grows 40 -> ~1900 across 700 lines, then steady ~1900
 mk_service feed-builder feed-builder "$(cat <<'EOS'
 #!/bin/sh
-echo "$(date -u) INFO  [boot] feed-builder starting"
+echo "INFO  [boot] feed-builder starting"
 i=1
 while [ $i -le 700 ]; do
   D=$((40 + i*1860/700 + i%9))
-  echo "$(date -u) INFO  [rpc] op=$((i*17%99991)) status=ok backlog=${D} hit_ratio=0.$((91 + i%3)) $((18 + i%21))ms"
+  echo "INFO  [rpc] op=$((i*17%99991)) status=ok backlog=${D} hit_ratio=0.$((91 + i%3)) $((18 + i%21))ms"
   i=$((i+1))
 done
 c=0
 while true; do
   c=$((c+1))
-  echo "$(date -u) INFO  [rpc] op=$((c*17%99991+100000)) status=ok backlog=$((1900 + c%9)) hit_ratio=0.$((91 + c%3)) $((18 + c%21))ms"
+  echo "INFO  [rpc] op=$((c*17%99991+100000)) status=ok backlog=$((1900 + c%9)) hit_ratio=0.$((91 + c%3)) $((18 + c%21))ms"
   sleep 5
 done
 EOS
@@ -172,17 +172,17 @@ EOS
 # thumbnail-cache: hit ratio collapses 0.97 -> 0.41 across 700 lines, then steady ~0.41
 mk_service thumbnail-cache thumbnail-cache "$(cat <<'EOS'
 #!/bin/sh
-echo "$(date -u) INFO  [boot] thumbnail-cache starting"
+echo "INFO  [boot] thumbnail-cache starting"
 i=1
 while [ $i -le 700 ]; do
   R=$((97 - i*56/700))
-  echo "$(date -u) INFO  [rpc] op=$((i*19%99991)) status=ok backlog=$((12 + i%35)) hit_ratio=0.$R $((6 + i%9))ms"
+  echo "INFO  [rpc] op=$((i*19%99991)) status=ok backlog=$((12 + i%35)) hit_ratio=0.$R $((6 + i%9))ms"
   i=$((i+1))
 done
 c=0
 while true; do
   c=$((c+1))
-  echo "$(date -u) INFO  [rpc] op=$((c*19%99991+100000)) status=ok backlog=$((12 + c%35)) hit_ratio=0.$((41 - c%2)) $((6 + c%9))ms"
+  echo "INFO  [rpc] op=$((c*19%99991+100000)) status=ok backlog=$((12 + c%35)) hit_ratio=0.$((41 - c%2)) $((6 + c%9))ms"
   sleep 5
 done
 EOS
