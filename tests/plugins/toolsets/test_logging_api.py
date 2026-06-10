@@ -179,6 +179,60 @@ class TestPodLoggingTool:
         assert actual_params.limit == 50
 
 
+class TestTruncationFallback:
+    """PodLoggingTool only truncates in-tool when spill-to-disk is unavailable."""
+
+    @staticmethod
+    def _make_tool_with_long_logs() -> PodLoggingTool:
+        mock_toolset = MagicMock(spec=KubernetesLogsToolset)
+        mock_toolset.name = "test-logging-backend"
+        mock_toolset.fetch_pod_logs.return_value = StructuredToolResult(
+            data="ERROR: Database connection failed\n" * 2000,
+            status=StructuredToolResultStatus.SUCCESS,
+        )
+        return PodLoggingTool(mock_toolset)
+
+    @staticmethod
+    def _make_token_counting_llm() -> MagicMock:
+        mock_llm = MagicMock(spec=DefaultLLM)
+        mock_llm.count_tokens.side_effect = lambda msgs: MagicMock(
+            total_tokens=len(str(msgs[0].get("content", ""))) // 4
+        )
+        return mock_llm
+
+    def test_skips_truncation_when_spill_available(self, tmp_path):
+        """With a tool_results_dir set, logs are returned in full so the core
+        spill mechanism can save them to disk instead of dropping data."""
+        tool = self._make_tool_with_long_logs()
+        context = create_mock_tool_invoke_context(
+            llm=self._make_token_counting_llm(),
+            max_token_count=1000,
+            tool_results_dir=tmp_path,
+        )
+
+        result = tool._invoke(
+            {"namespace": "default", "pod_name": "test-pod"}, context=context
+        )
+
+        assert TRUNCATION_PROMPT_PREFIX not in str(result.data)
+        assert len(str(result.data)) == len("ERROR: Database connection failed\n" * 2000)
+
+    def test_truncates_when_spill_unavailable(self):
+        """Without a tool_results_dir, the old lossy truncation still protects
+        the context window."""
+        tool = self._make_tool_with_long_logs()
+        context = create_mock_tool_invoke_context(
+            llm=self._make_token_counting_llm(),
+            max_token_count=1000,
+        )
+
+        result = tool._invoke(
+            {"namespace": "default", "pod_name": "test-pod"}, context=context
+        )
+
+        assert str(result.data).startswith(TRUNCATION_PROMPT_PREFIX)
+
+
 class TestTruncateLogs:
     """Test truncate_logs function behavior."""
 

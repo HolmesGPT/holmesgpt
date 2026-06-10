@@ -11,6 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -265,6 +266,13 @@ class ToolInvokeContext(BaseModel):
         str
     ] = []  # Bash prefixes approved during this session
     request_context: Optional[Dict[str, Any]] = None
+    # Directory where oversized tool results are spilled to disk and can be read
+    # back by the LLM (see spill_oversized_tool_result). Set only when filesystem
+    # result storage is enabled AND the model can read files back (bash toolset
+    # available). When set, tools should prefer returning full data over lossy
+    # in-tool truncation/summarization: the core spill mechanism will save the
+    # full result to disk and hand the LLM a readable pointer.
+    tool_results_dir: Optional[Path] = None
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""

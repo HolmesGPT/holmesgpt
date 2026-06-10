@@ -59,6 +59,12 @@ def truncate_logs(
     tool_call_id: str,
     tool_name: str,
 ):
+    """Lossily trim logs from the top until the result fits within token_limit.
+
+    Only used as a fallback when spill-to-disk is unavailable (see
+    PodLoggingTool._invoke): the truncated logs are dropped and cannot be
+    recovered by the LLM, so spilling the full result to disk is preferred.
+    """
     original_token_count = count_tool_response_tokens(
         llm=llm,
         structured_tool_result=logging_structured_tool_result,
@@ -202,14 +208,20 @@ If you hit the log limit and see lots of repetitive INFO logs, use exclude_filte
             params=structured_params,
         )
 
-        truncate_logs(
-            logging_structured_tool_result=result,
-            llm=context.llm,
-            token_limit=context.max_token_count,
-            structured_params=structured_params,
-            tool_call_id=context.tool_call_id,
-            tool_name=context.tool_name,
-        )
+        # When spill-to-disk is available, return the full logs: oversized
+        # results are saved to disk by spill_oversized_tool_result and the LLM
+        # gets a preview plus a file path it can cat/grep, instead of silently
+        # losing everything above the token limit. Only fall back to lossy
+        # in-place truncation when the result cannot be spilled.
+        if not context.tool_results_dir:
+            truncate_logs(
+                logging_structured_tool_result=result,
+                llm=context.llm,
+                token_limit=context.max_token_count,
+                structured_params=structured_params,
+                tool_call_id=context.tool_call_id,
+                tool_name=context.tool_name,
+            )
 
         return result
 

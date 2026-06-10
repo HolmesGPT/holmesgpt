@@ -144,6 +144,7 @@ def create_mock_tool_invoke_context(
     llm: Optional[LLM] = None,
     tool_call_id: str = "test_call_123",
     tool_name: str = "test_tool",
+    tool_results_dir: Optional[Path] = None,
 ) -> ToolInvokeContext:
     """
     Create a mock ToolInvokeContext for testing purposes.
@@ -155,6 +156,7 @@ def create_mock_tool_invoke_context(
         llm: Optional LLM instance. If None, uses MockLLM
         tool_call_id: Tool call ID for testing
         tool_name: Tool name for testing
+        tool_results_dir: Optional directory where oversized results are spilled
 
     Returns:
         ToolInvokeContext instance suitable for testing
@@ -169,4 +171,5 @@ def create_mock_tool_invoke_context(
         max_token_count=max_token_count,
         tool_call_id=tool_call_id,
         tool_name=tool_name,
+        tool_results_dir=tool_results_dir,
     )
