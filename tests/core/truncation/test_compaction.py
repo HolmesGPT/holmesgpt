@@ -53,7 +53,7 @@ def test_conversation_history_compaction_system_prompt_untouched():
 
         assert compacted_history[2]["role"] == "assistant"
 
-        assert compacted_history[3]["role"] == "system"
+        assert compacted_history[3]["role"] == "user"
         assert "compacted" in compacted_history[3]["content"].lower()
 
 
@@ -76,7 +76,7 @@ def test_conversation_history_compaction():
 
         assert compacted_history[1]["role"] == "assistant"
 
-        assert compacted_history[2]["role"] == "system"
+        assert compacted_history[2]["role"] == "user"
         assert "compacted" in compacted_history[2]["content"].lower()
 
         original_tokens = llm.count_tokens(conversation_history)
@@ -87,6 +87,91 @@ def test_conversation_history_compaction():
         )
         print(compacted_history[1]["content"])
         assert compacted_tokens.total_tokens < expected_max_compacted_token_count
+
+
+# --- Regression test: post-compaction message shape (no LLM required) ---
+#
+# claude-opus-4.6 and newer reject any request whose conversation ends on an
+# assistant turn: "This model does not support assistant message prefill"
+# (HTTP 400). The post-compaction history used to end with
+# [..., assistant summary, system marker]; Anthropic folds trailing system
+# messages, so the request effectively ended on the assistant summary and
+# every compaction-triggering investigation on opus-4.6 crashed mid-loop.
+# The continuation marker must therefore be a user message.
+
+
+def _fake_llm_for_compaction(summary_text="Summary of the investigation so far."):
+    """Minimal LLM stub for compact_conversation_history (no network)."""
+
+    class FakeUsage:
+        total_tokens = 100
+
+    class FakeMessage:
+        def model_dump(self, **kwargs):
+            return {"role": "assistant", "content": summary_text}
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeResponse:
+        choices = [FakeChoice()]
+        usage = None  # RequestStats.from_response handles missing usage
+
+    class FakeLLM:
+        def count_tokens(self, messages):
+            return FakeUsage()
+
+        def get_context_window_size(self):
+            return 128000
+
+        def get_maximum_output_token(self):
+            return 4096
+
+        def completion(self, messages, **kwargs):
+            return FakeResponse()
+
+    return FakeLLM()
+
+
+def test_compacted_history_must_end_with_user_message():
+    """The next LLM call after compaction must not end on an assistant turn."""
+    conversation_history = [
+        {"role": "system", "content": "You are an investigation agent."},
+        {"role": "user", "content": "Why is my payment service failing?"},
+        {"role": "assistant", "content": "Let me check the pods."},
+        {"role": "assistant", "content": "I found several restarts, digging into logs."},
+    ]
+
+    result = compact_conversation_history(
+        original_conversation_history=conversation_history,
+        llm=_fake_llm_for_compaction(),  # type: ignore[arg-type]
+    )
+    messages = result.messages_after_compaction
+
+    # Shape: [system prompt, last user prompt, assistant summary, continuation marker]
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert "compacted" in messages[-1]["content"].lower()
+
+    # The critical invariant: the conversation must NOT end on the assistant
+    # summary (directly, or via a trailing system message that providers fold),
+    # otherwise opus >= 4.6 rejects the next request as assistant prefill.
+    assert messages[-1]["role"] == "user"
+
+
+def test_compacted_history_without_system_prompt_ends_with_user_message():
+    conversation_history = [
+        {"role": "user", "content": "Investigate the checkout latency."},
+        {"role": "assistant", "content": "Checking metrics now."},
+    ]
+
+    result = compact_conversation_history(
+        original_conversation_history=conversation_history,
+        llm=_fake_llm_for_compaction(),  # type: ignore[arg-type]
+    )
+    messages = result.messages_after_compaction
+
+    assert [m["role"] for m in messages] == ["user", "assistant", "user"]
+    assert messages[-1]["role"] == "user"
 
 
 # --- Unit tests for _strip_images_for_compaction (no LLM required) ---
