@@ -35,7 +35,9 @@ from holmes.plugins.toolsets.subagent.subagent_toolset import (
     DELEGATE_TASK_TOOL_NAME,
     SUBAGENT_PREAMBLE,
     DelegateTaskTool,
+    SubAgentConfig,
     SubAgentToolset,
+    build_subagent_system_prompt,
 )
 
 LIMIT_PATCH = "holmes.core.tool_calling_llm.compact_if_necessary"
@@ -333,3 +335,83 @@ class TestCloneWithoutTools:
         assert DELEGATE_TASK_TOOL_NAME not in clone.tools_by_name
         # original untouched
         assert DELEGATE_TASK_TOOL_NAME in real_executor.tools_by_name
+
+
+class TestLeanChildPrompt:
+    def test_skips_generic_scaffolding_keeps_toolset_instructions(self, real_executor):
+        echo_ts = next(ts for ts in real_executor.enabled_toolsets if ts.name == "echo")
+        echo_ts.llm_instructions = "Use echo_tool with the value parameter."
+        prompt = build_subagent_system_prompt(real_executor)
+        assert prompt.startswith(SUBAGENT_PREAMBLE)
+        # generic_ask scaffolding must not be present
+        assert "five whys" not in prompt
+        assert "TodoWrite" not in prompt
+        assert "MANDATORY" not in prompt
+        # per-toolset operating instructions must be present
+        assert "Use echo_tool with the value parameter." in prompt
+        assert "## echo" in prompt
+
+
+class TestChildModelSelection:
+    def _tool(self, real_executor):
+        sub_ts = next(ts for ts in real_executor.enabled_toolsets if ts.name == "subagent")
+        return sub_ts.tools[0], sub_ts
+
+    def test_defaults_to_parent_llm(self, mock_llm, real_executor, monkeypatch):
+        monkeypatch.delenv("HOLMES_SUBAGENT_MODEL", raising=False)
+        tool, _ = self._tool(real_executor)
+        ctx = _make_invoke_context(mock_llm, real_executor)
+        assert tool._get_child_llm(ctx) is mock_llm
+
+    def test_env_var_model_inherits_parent_connection(self, mock_llm, real_executor, monkeypatch):
+        monkeypatch.setenv("HOLMES_SUBAGENT_MODEL", "openai/anthropic/claude-haiku-4.5")
+        mock_llm.api_key = "parent-key"
+        mock_llm.api_base = "https://parent.example/api/v1"
+        mock_llm.api_version = None
+        mock_llm.tracer = None
+
+        built = {}
+
+        class FakeDefaultLLM:
+            def __init__(self, model, api_key=None, api_base=None, api_version=None, tracer=None):
+                built.update(model=model, api_key=api_key, api_base=api_base)
+                self.model = model
+
+        import holmes.core.llm as llm_mod
+        monkeypatch.setattr(llm_mod, "DefaultLLM", FakeDefaultLLM)
+
+        tool, sub_ts = self._tool(real_executor)
+        ctx = _make_invoke_context(mock_llm, real_executor)
+        child = tool._get_child_llm(ctx)
+        assert child.model == "openai/anthropic/claude-haiku-4.5"
+        assert built["api_key"] == "parent-key"
+        assert built["api_base"] == "https://parent.example/api/v1"
+        # cached: second call returns the same instance
+        assert tool._get_child_llm(ctx) is child
+
+    def test_toolset_config_takes_precedence_over_env(self, mock_llm, real_executor, monkeypatch):
+        monkeypatch.setenv("HOLMES_SUBAGENT_MODEL", "env-model")
+
+        class FakeDefaultLLM:
+            def __init__(self, model, **kwargs):
+                self.model = model
+
+        import holmes.core.llm as llm_mod
+        monkeypatch.setattr(llm_mod, "DefaultLLM", FakeDefaultLLM)
+
+        tool, sub_ts = self._tool(real_executor)
+        sub_ts.config = {"model": "config-model"}
+        ctx = _make_invoke_context(mock_llm, real_executor)
+        assert tool._get_child_llm(ctx).model == "config-model"
+        sub_ts.config = None
+
+    def test_same_model_as_parent_reuses_parent(self, mock_llm, real_executor, monkeypatch):
+        monkeypatch.setenv("HOLMES_SUBAGENT_MODEL", "gpt-4o")
+        mock_llm.model = "gpt-4o"
+        tool, _ = self._tool(real_executor)
+        ctx = _make_invoke_context(mock_llm, real_executor)
+        assert tool._get_child_llm(ctx) is mock_llm
+
+    def test_config_parsing(self):
+        cfg = SubAgentConfig(**{"model": "m", "api_base": "b", "unknown_extra": 1})
+        assert cfg.model == "m" and cfg.api_base == "b"
