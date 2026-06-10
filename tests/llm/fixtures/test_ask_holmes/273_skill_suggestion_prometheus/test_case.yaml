@@ -30,7 +30,6 @@ tags:
   - metrics
   - skills
   - medium
-  - no-cicd
 
 port_forwards:
   - namespace: app-273
