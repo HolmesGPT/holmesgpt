@@ -15,8 +15,7 @@ accurate.
 
 import logging
 import os
-import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from holmes.common.env_vars import load_bool
 from holmes.core.llm_usage import RequestStats
@@ -34,51 +33,10 @@ logger = logging.getLogger(__name__)
 
 DELEGATE_TASK_TOOL_NAME = "delegate_task"
 SUBAGENTS_ENABLED_ENV_VAR = "HOLMES_ENABLE_SUBAGENTS"
-# Bypass the per-model gate below (used for A/B benchmarking).
-SUBAGENTS_FORCE_ENV_VAR = "HOLMES_SUBAGENTS_FORCE"
 
 # Max agentic iterations for a single sub-agent. Sub-agent tasks are focused,
 # so they need far fewer steps than a full investigation.
 SUBAGENT_MAX_STEPS = int(os.environ.get("HOLMES_SUBAGENT_MAX_STEPS", "40"))
-
-# Models at or above this Opus version investigate wide/deep tasks efficiently
-# in a single context: measured A/B (evals 272-274) shows delegation gives them
-# no accuracy gain while roughly doubling tokens and latency. Sub-agents are
-# therefore not offered to these models even when HOLMES_ENABLE_SUBAGENTS is
-# set, unless HOLMES_SUBAGENTS_FORCE=true.
-_MIN_GATED_OPUS_VERSION = (4, 6)
-_OPUS_VERSION_RE = re.compile(r"opus[-_.]?(\d+)(?:[.\-_](\d+))?")
-
-
-def is_model_self_sufficient(model: Optional[str]) -> bool:
-    """True when the model handles wide investigations better without sub-agents.
-
-    Matches Claude Opus >= 4.6 in any of its model-id spellings
-    (claude-opus-4.6, claude-opus-4-6-v1, openai/anthropic/claude-opus-4.6,
-    us.anthropic.claude-opus-5-..., etc.).
-    """
-    if not model:
-        return False
-    match = _OPUS_VERSION_RE.search(model.lower())
-    if not match:
-        return False
-    major = int(match.group(1))
-    minor = int(match.group(2)) if match.group(2) else 0
-    if major > 20:
-        # Date stuck directly after "opus" (e.g. claude-3-opus-20240229);
-        # the family version precedes "opus" and is < 4.6.
-        return False
-    if minor > 99:
-        # Date in the minor slot (e.g. claude-opus-4-20250514 is Opus 4.0).
-        minor = 0
-    return (major, minor) >= _MIN_GATED_OPUS_VERSION
-
-
-def subagents_enabled_for_model(model: Optional[str]) -> bool:
-    """Whether the delegate_task tool should be offered to this model."""
-    if load_bool(SUBAGENTS_FORCE_ENV_VAR, False):
-        return True
-    return not is_model_self_sufficient(model)
 
 SUBAGENT_PREAMBLE = """You are a sub-agent investigator working for a lead investigation agent.
 The lead agent delegated one focused task to you. You do NOT see the original user question or the lead agent's conversation — your task description below is your entire context.
@@ -104,11 +62,18 @@ When you are done investigating, reply with your final report as plain text (no 
 class DelegateTaskTool(Tool):
     name: str = DELEGATE_TASK_TOOL_NAME
     description: str = (
-        "Delegate a self-contained investigation task to a sub-agent that runs in parallel "
-        "with other sub-agents and has its own fresh context window. The sub-agent has the "
-        "same investigation tools as you (except delegation) but sees ONLY the prompt you "
-        "give it. Returns the sub-agent's final report. To run several sub-agents in "
-        "parallel, request multiple delegate_task calls in a single response."
+        "Delegate a self-contained investigation task to a sub-agent with its own fresh "
+        "context window and the same investigation tools as you (except delegation). "
+        "Sub-agents run concurrently when you request several delegate_task calls in a "
+        "single response, and each returns a final report. The sub-agent sees ONLY the "
+        "prompt you give it.\n\n"
+        "Use this ONLY when the investigation exceeds what you can cover thoroughly in "
+        "your own context — e.g. many targets that each require reading substantial "
+        "evidence (full log histories, large data dumps), where holding everything "
+        "yourself would force you to skim, sample, or drop detail. Each sub-agent is a "
+        "full extra agent run with real token and latency cost: for anything you can "
+        "investigate well yourself — including wide audits with modest per-target "
+        "evidence — do NOT delegate; investigate directly."
     )
     parameters: Dict[str, ToolParameter] = {
         "description": ToolParameter(

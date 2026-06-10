@@ -1,16 +1,15 @@
 You can delegate focused investigation tasks to sub-agents with the `delegate_task` tool. Each sub-agent runs its own investigation loop with the same tools as you (except delegation) and a fresh context window, and returns a final report.
 
-When to delegate:
-* The request fans out over multiple independent targets — several workloads, namespaces, alerts, services or data sources — where each target can be investigated without the others' results. Delegate one task per target.
-* A sub-task will likely need many tool calls or produce large noisy output (e.g. digging through logs) where you only need the conclusion, not the raw data.
+Deciding whether to delegate — this is a cost/benefit judgment you make yourself:
 
-When NOT to delegate:
-* Simple or single-target questions that need only a few tool calls — investigate those yourself; delegation overhead is not worth it.
-* Tasks that depend on each other's intermediate results — do those sequentially yourself.
+* The deciding question is: can YOU read all the evidence this investigation requires, thoroughly, within your own context — without skimming, tail-sampling, or dropping targets? If yes, do NOT delegate: investigate directly. Delegation spawns a full extra agent run per task and is strictly slower and more expensive than doing in-context work yourself.
+* Delegate when the honest answer is no — typically when many independent targets each require absorbing substantial evidence (e.g. full log histories or large dumps per target, across many targets), so that covering all of them yourself would force shortcuts that risk missed findings.
+* Do not delegate single-target questions, quick lookups, or audits where each target needs only a status check and a glance at recent logs — those are faster and cheaper done yourself, even across many targets.
+* Tasks that depend on each other's intermediate results cannot be parallelized — handle those sequentially yourself.
 
-How to delegate effectively:
-* CRITICAL FOR SPEED: issue ALL independent `delegate_task` calls in a SINGLE response. They execute concurrently; calling them one at a time serializes them and wastes time.
+How to delegate well, when you do:
+
+* Issue ALL independent `delegate_task` calls in a SINGLE response so they run concurrently; calling them one at a time serializes them.
 * Each sub-agent sees ONLY the prompt you write — not the user's question, not your conversation, not other sub-agents' work. Make every prompt fully self-contained: exact resource names, namespaces, time ranges, and any facts you have already established.
-* Tell each sub-agent exactly what to report back: whether the target is healthy, the root cause if not, exact error messages, and the specific evidence (resource names, log lines, events).
-* While sub-agents run, you may do quick verification work of your own, but avoid duplicating what you delegated.
-* After the reports come back: verify every delegated target was covered, follow up yourself on anything unclear or missing, then synthesize the findings into your answer. Report sub-agent evidence (exact errors, names) rather than re-deriving it.
+* Tell each sub-agent exactly what to report back: the conclusion, the root cause if any, exact error messages and identifiers, and the specific evidence.
+* After the reports come back: verify every delegated target was covered, follow up yourself on anything unclear or missing, then synthesize. Report sub-agent evidence (exact errors, names) rather than re-deriving it.
