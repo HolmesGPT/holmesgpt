@@ -7,7 +7,11 @@ expected_output:
 #  - "Should execute a Prometheus query with topk() to limit the number of series"
   - "Should identify the high CPU consumers (z-cpu-heavy pods) as the top users"
 #  - "Should mention that data was limited or aggregated due to high cardinality"
-  - "Should include a prometheus graph visualization"
+  # The embedded promql placeholder IS the graph: post-processing re-runs the
+  # query and renders it as a chart. Spelled out for the judge because it
+  # intermittently ruled that the placeholder "does not equate to a
+  # visualization" while accepting it in other iterations of the same output.
+  - "Should include a prometheus graph visualization. An embedded promql placeholder such as << {\"type\": \"promql\", \"tool_name\": \"execute_prometheus_range_query\", \"tool_call_id\": \"...\"} >> in the output IS the graph visualization and fully satisfies this requirement."
 
 tags:
   - kubernetes
