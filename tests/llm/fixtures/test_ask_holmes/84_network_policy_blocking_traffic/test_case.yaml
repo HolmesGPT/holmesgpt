@@ -1,5 +1,6 @@
 user_prompt: "Why is the frontend getting timeouts connecting to backend in namespace app-84?"
 tags:
+  - opus-test
   - kubernetes
   - network
   - hard

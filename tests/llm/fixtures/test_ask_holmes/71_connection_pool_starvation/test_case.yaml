@@ -1,5 +1,6 @@
 user_prompt: "Whats wrong with backend-service pod in namespace-71?"
 tags:
+  - opus-test
   - logs
   - context_window
   - medium

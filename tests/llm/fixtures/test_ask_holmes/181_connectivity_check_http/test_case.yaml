@@ -1,5 +1,6 @@
 user_prompt: "Try these addresses accessible via https, and if so, what is the status code of each: google.com and burgergooglenetworkspam.co.uk"
 tags:
+  - opus-test
   - question-answer
   - network
   - hard
