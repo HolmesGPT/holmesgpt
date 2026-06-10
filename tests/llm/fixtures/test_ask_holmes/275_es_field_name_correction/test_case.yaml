@@ -28,15 +28,11 @@
 # wrong→right correction is reliably triggered.
 user_prompt: 'In the elasticsearch index ''app-275-logs-qe7p2k4d'', run a `term: { level: "ERROR" }` query and tell me how many hits come back. If that returns zero, find the right field for log level and re-run the query.'
 
-# Replay prompt: a natural, un-biased version of the same question. The
-# primary pass uses the biased phrasing above to force the wrong→right
-# correction (and reliably emit a memory). The replay simulates a future
-# investigation asking the question naturally — which is when the
-# captured skill should actually short-circuit the failed call. Without
-# this softer phrasing the agent on replay just follows the explicit
-# recovery instructions in the primary prompt and never bothers
-# fetching the skill.
-replay_user_prompt: "In the elasticsearch index 'app-275-logs-qe7p2k4d', how many ERROR-level log entries are there for the checkout-275 service?"
+# The replay re-asks the exact same question, so the primary-vs-replay
+# metrics in the report compare with-skill vs without-skill on identical
+# input. With the captured skill loaded the agent should skip (or
+# instantly recover from) the wrong-field dead end instead of
+# re-discovering the schema through the mapping.
 
 expected_output:
   - "There are 10 entries with ERROR severity / level in app-275-logs-qe7p2k4d"

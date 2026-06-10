@@ -30,20 +30,15 @@ user_prompt: |
   fields it has (with their types), and using the index's actual field
   names tell me how many documents in it are ERROR level.
 
-# Replay: a natural question that needs the schema knowledge but doesn't
-# ask for it. With the discovery skill loaded, the agent knows the level
-# lives in the `lvl` keyword field and can term-query directly — no
-# mapping inspection needed.
-replay_user_prompt: |
-  How many ERROR-level documents are in the elasticsearch index
-  'app-278-events-n8c3v6q1'?
+# The replay re-asks the exact same question (with-skill vs without-skill
+# on identical input). The captured discovery skill carries the schema
+# (lvl/txt/app/ts and their types), so the replay agent can answer the
+# field-inventory part from the skill and term-query `lvl` directly for
+# the count — and is judged against the same expected_output.
 
 expected_output:
   - "The index has fields lvl (keyword), txt (text), app (keyword) and ts (date)"
   - "There are 9 ERROR-level documents in app-278-events-n8c3v6q1 (level is stored in the `lvl` field)"
-
-expected_replay_output:
-  - "There are 9 ERROR-level documents in app-278-events-n8c3v6q1"
 
 frontend_tools: ../../shared/skill_suggestion_tool.yaml
 

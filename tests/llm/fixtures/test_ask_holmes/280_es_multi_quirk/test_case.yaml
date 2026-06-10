@@ -38,16 +38,10 @@ user_prompt: |
      and report the count. If the @timestamp filter returns zero or
      errors, find the right timestamp field and re-run.
 
-# Replay prompt: a natural version that doesn't prescribe any of the
-# failure paths. With the captured skill(s) pre-loaded, the agent should
-# fetch them and answer each question using the right field directly.
-replay_user_prompt: |
-  For the three app-280 elasticsearch log indices, please tell me:
-  (1) how many ERROR-level entries are in app-280-logs-a-p6t1z8k3?
-  (2) how many entries are at ERROR or FATAL severity in
-      app-280-logs-b-p6t1z8k3?
-  (3) how many ERROR-level entries are there from today in
-      app-280-logs-c-p6t1z8k3?
+# The replay re-asks the exact same question (with-skill vs without-skill
+# on identical input). With the captured skill(s) pre-loaded the agent
+# should fetch them and go straight to the right field in each index
+# instead of re-walking the three wrong→right corrections.
 
 expected_output:
   - "There are 10 ERROR entries in app-280-logs-a-p6t1z8k3 (uses `severity` keyword, not `level`)"

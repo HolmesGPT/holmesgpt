@@ -24,13 +24,14 @@
 
 user_prompt: 'In the elasticsearch index ''app-277-logs-7h9k4f2p'', run a `range: { "@timestamp": { gte: "2026-06-03T00:00:00" } }` query filtered to level=ERROR and tell me the count. If the @timestamp filter returns zero or errors, find the right timestamp field and re-run.'
 
-# Note: an earlier iteration set a softer replay_user_prompt ("how many
-# ERROR-level entries are there from today?") matching the 261/263
-# pattern, but the data showed it regressed this eval — replay loaded
-# the captured skill but answered wrong (the "from today" phrasing
-# without an explicit date made the agent compute the range wrong, even
-# with the skill loaded). The biased phrasing above is what was working
-# in prior runs, so the replay reuses it.
+# The replay re-asks the exact same question (with-skill vs without-skill
+# on identical input). Note: an earlier iteration replayed a softer
+# rephrasing ("how many ERROR-level entries are there from today?") but
+# the data showed it regressed this eval — replay loaded the captured
+# skill yet answered wrong (the "from today" phrasing without an explicit
+# date made the agent compute the range wrong, even with the skill
+# loaded). Replaying the identical prompt avoids that and is now the
+# framework-wide behavior.
 
 expected_output:
   - "There are 7 ERROR-level log entries from today in app-277-logs-7h9k4f2p (timestamp stored under the custom `ingest_ts` keyword field, not the standard `@timestamp` date field)"

@@ -7,7 +7,7 @@ from contextlib import ExitStack
 from datetime import datetime
 from os import path
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 from unittest.mock import patch
 
 import pytest
@@ -299,16 +299,12 @@ def test_ask_holmes(
                         # Replay simulates a FUTURE investigation: the
                         # captured skills are available, but the
                         # SuggestSkills tool (and its prompt snippet) are
-                        # not re-injected.
+                        # not re-injected. It asks the EXACT same question
+                        # as the primary run, so the primary-vs-replay
+                        # metrics in the report are a clean with-skill vs
+                        # without-skill comparison on identical input.
                         inject_frontend=False,
                         additional_skill_paths=[skills_dir],
-                        # Use the softer replay-only prompt when set, so the
-                        # agent has to actually decide to use a skill
-                        # instead of following any failure-path instructions
-                        # baked into the primary prompt.
-                        override_user_prompt=getattr(
-                            test_case, "replay_user_prompt", None
-                        ),
                         request=request,
                     )
                     replay_duration = time.time() - replay_start
@@ -349,10 +345,11 @@ def test_ask_holmes(
 
         # Score replay correctness with the same judge — but separately, so
         # the original correctness reading is preserved.
-        # When the replay asks a different question than the primary, the
-        # fixture declares `expected_replay_output` to specify what the
-        # replay's answer should contain. Falls back to the primary's
-        # `expected_output` when they ask the same question.
+        # The replay asks the same question, so it is judged against the
+        # primary's `expected_output` by default. Fixtures whose
+        # expected_output includes SuggestSkills-specific criteria (which
+        # can never hold on replay — the tool isn't injected there) declare
+        # `expected_replay_output` with the answer-only criteria instead.
         expected = (
             getattr(test_case, "expected_replay_output", None)
             or test_case.expected_output
@@ -417,13 +414,12 @@ def ask_holmes(
     additional_system_prompt,
     request=None,
     additional_skill_paths: Optional[List[str]] = None,
-    override_user_prompt: Optional[Union[str, List[str]]] = None,
     inject_frontend: bool = True,
 ) -> LLMResult:
-    # The closed-loop replay pass overrides the prompt (replay_user_prompt)
-    # and skips frontend tool injection (no SuggestSkills on replay), while
-    # injecting the captured suggestions as skills via additional_skill_paths.
-    user_prompt = override_user_prompt or test_case.user_prompt
+    # The closed-loop replay pass asks the same user_prompt but skips
+    # frontend tool injection (no SuggestSkills on replay), while injecting
+    # the captured suggestions as skills via additional_skill_paths.
+    user_prompt = test_case.user_prompt
 
     with eval_span.start_span(
         "Initialize Toolsets",

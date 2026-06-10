@@ -199,17 +199,12 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     user_prompt: Union[
         str, List[str]
     ]  # The user's question(s) to ask holmes - can be single string or array
-    # Optional alternative prompt used on the closed-loop replay pass. When
-    # set, the replay run uses this prompt instead of `user_prompt`. This
-    # lets the primary pass use a phrasing that reliably triggers the
-    # wrong→right correction (so SuggestSkills fires and a skill is
-    # captured), while the replay simulates a future investigation asking
-    # the same question more naturally — which is when the captured skill
-    # should actually pay off. If unset, the replay uses `user_prompt`.
-    replay_user_prompt: Optional[Union[str, List[str]]] = None
-    # Optional alternative expected_output for the replay pass. Needed when
-    # the replay asks a different question than the primary. If unset, the
-    # replay is judged against the original `expected_output`.
+    # Optional alternative expected_output for the closed-loop replay pass
+    # (which always re-asks the exact same `user_prompt`, so primary vs
+    # replay metrics compare with-skill vs without-skill on identical
+    # input). Needed when `expected_output` includes SuggestSkills-specific
+    # criteria that can never hold on replay — the tool is not injected
+    # there. If unset, the replay is judged against `expected_output`.
     expected_replay_output: Optional[Union[str, List[str]]] = None
     cluster_name: Optional[str] = None
     include_files: Optional[List[str]] = None  # matches include_files option of the CLI
