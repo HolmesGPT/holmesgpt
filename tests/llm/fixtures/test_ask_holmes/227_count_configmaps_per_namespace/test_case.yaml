@@ -10,6 +10,7 @@ expected_output:
   - The answer must state that the total across all namespaces is exactly 644 ConfigMaps
 
 tags:
+  - skills
   - kubernetes
   - counting
   - regression
@@ -63,3 +64,8 @@ after_test: |
   for NS in payments inventory shipping analytics notifications; do
     kubectl delete namespace "app-227-$NS" || true
   done
+
+# No-spam guard: the SuggestSkills frontend tool is injected (mirroring the
+# Robusta UI in production) and must NOT fire on this routine investigation.
+frontend_tools: ../../shared/skill_suggestion_tool.yaml
+memories_generated: false

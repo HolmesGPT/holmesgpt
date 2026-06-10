@@ -22,6 +22,23 @@ user_prompt: |
 
 frontend_tools: ../../shared/skill_suggestion_tool.yaml
 
+# Closed-loop validation: the primary pass must emit at least one skill
+# suggestion; the replay pass re-runs the question with that skill loaded
+# and must fetch it and answer correctly.
+#
+# Note: no replay_forbidden_tools here. Opus reliably issues fetch_skill
+# and a mappings lookup in parallel in the same turn (it can't see the
+# skill content before the parallel call lands), so a strict
+# "no elasticsearch_mappings on replay" assertion fails even though the
+# skill is fetched, followed, and cuts the replay from 5 tool calls to 3.
+# 278_es_schema_discovery keeps that strict assertion (faithful port).
+memories_generated: true
+rerun_with_memory: true
+
+# The replay has no SuggestSkills tool, so it is judged on the answer only.
+expected_replay_output:
+  - "Must report the error code PMT-ERR-7K3M9X"
+
 include_tool_calls: true
 
 expected_output:

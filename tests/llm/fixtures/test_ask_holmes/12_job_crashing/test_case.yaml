@@ -36,5 +36,11 @@ after_test: |
   kubectl delete secret java-api-checker-logs-script -n app-12 --ignore-not-found
   kubectl delete namespace app-12 --ignore-not-found
 tags:
+  - skills
   - easy
   - regression
+
+# No-spam guard: the SuggestSkills frontend tool is injected (mirroring the
+# Robusta UI in production) and must NOT fire on this routine investigation.
+frontend_tools: ../../shared/skill_suggestion_tool.yaml
+memories_generated: false

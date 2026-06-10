@@ -1,12 +1,12 @@
 # Three microservices in namespace app-272. Order processing is handled by
-# the non-obviously-named "fulfillment-core" deployment, exposed through the
+# the non-obviously-named "atlas-core" deployment, exposed through the
 # "orders-api" service. Holmes must discover this topology mapping (the
 # durable know-how the suggested skill should capture).
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: fulfillment-core-app
+  name: atlas-core-app
 stringData:
   run.sh: |
     #!/bin/sh
@@ -51,22 +51,22 @@ stringData:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fulfillment-core
+  name: atlas-core
   labels:
-    app: fulfillment-core
+    app: atlas-core
     domain: orders
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: fulfillment-core }
+    matchLabels: { app: atlas-core }
   template:
     metadata:
       labels:
-        app: fulfillment-core
+        app: atlas-core
         domain: orders
     spec:
       containers:
-        - name: fulfillment-core
+        - name: atlas-core
           image: busybox:1.36
           command: ["sh", "/scripts/run.sh"]
           volumeMounts:
@@ -78,14 +78,14 @@ spec:
       volumes:
         - name: scripts
           secret:
-            secretName: fulfillment-core-app
+            secretName: atlas-core-app
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: orders-api
 spec:
-  selector: { app: fulfillment-core }
+  selector: { app: atlas-core }
   ports:
     - port: 80
       targetPort: 8080

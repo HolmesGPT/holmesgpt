@@ -2,6 +2,7 @@ user_prompt: "What is the issue with redis?"
 expected_output:
   - The PersistentVolumeClaim (pvc) is misconfigured
 tags:
+  - skills
   - easy
   - kubernetes
   - regression
@@ -30,3 +31,8 @@ before_test: |
 after_test: |
   kubectl delete -f manifest.yaml -n app-24
   kubectl delete namespace app-24 || true
+
+# No-spam guard: the SuggestSkills frontend tool is injected (mirroring the
+# Robusta UI in production) and must NOT fire on this routine investigation.
+frontend_tools: ../../shared/skill_suggestion_tool.yaml
+memories_generated: false

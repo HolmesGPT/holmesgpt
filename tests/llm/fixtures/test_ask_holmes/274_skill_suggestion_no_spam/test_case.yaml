@@ -14,6 +14,10 @@ user_prompt: |
 
 frontend_tools: ../../shared/skill_suggestion_tool.yaml
 
+# Hard assertion (in addition to the judge criterion below): any
+# SuggestSkills emission on this trivial lookup fails the test.
+memories_generated: false
+
 include_tool_calls: true
 
 expected_output:

@@ -12,6 +12,7 @@ expected_output:
   - The payment-api pod experienced failures caused by database connection pool exhaustion
 
 tags:
+  - skills
   - logs
   - kubernetes
   - easy
@@ -87,3 +88,11 @@ before_test: |
 after_test: |
   # Delete namespace in background to avoid hanging
   kubectl delete namespace app-101 --wait=false || true
+
+# No-spam guard relaxed: under the current SuggestSkills spec, capturing the
+# namespace's Loki label conventions discovered during this investigation is
+# compliant behavior (checklist item: label names looked up to organize a
+# data source), so suggestion emission here is neither required nor banned.
+# The stricter consolidated-skills-per-domain tool treated this eval as a
+# zero-emission baseline; our tool intentionally captures such conventions.
+frontend_tools: ../../shared/skill_suggestion_tool.yaml

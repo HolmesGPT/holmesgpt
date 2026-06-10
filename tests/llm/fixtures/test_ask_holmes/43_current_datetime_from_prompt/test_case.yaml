@@ -5,6 +5,12 @@ expected_output:
   - 11:34 UTC
 mocked_date: "2025-06-23T11:34:00Z"
 tags:
+  - skills
   - datetime
   - easy
   - regression
+
+# No-spam guard: the SuggestSkills frontend tool is injected (mirroring the
+# Robusta UI in production) and must NOT fire on this routine investigation.
+frontend_tools: ../../shared/skill_suggestion_tool.yaml
+memories_generated: false

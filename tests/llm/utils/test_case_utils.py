@@ -154,12 +154,63 @@ class HolmesTestCase(BaseModel):
     enable_todo: bool = (
         False  # Enable the TodoWrite/todos feature (disabled by default in evals)
     )
+    # Hard assertion on SuggestSkills emission (requires the tool to be
+    # injected via `frontend_tools`):
+    # - True  → the test fails if the LLM emits zero skill suggestions
+    # - False → the test fails if the LLM emits any skill suggestions
+    # - None  → no count enforcement (legacy / unspecified)
+    # The emitted suggestions are also surfaced to the LLM judge alongside
+    # `expected_output`, so suggestion content quality is scored by the judge.
+    memories_generated: Optional[bool] = None
+    # When memories_generated=True and the first pass actually emitted
+    # suggestions, also run the same prompt a SECOND time with those
+    # suggestions rendered as SKILL.md files and injected into the
+    # SkillsToolset's search paths. The replay run checks that (a) the agent
+    # fetched the skill (proving it judged the suggestion relevant) and
+    # (b) the answer is still correct. Provides a closed-loop validation
+    # that the captured skill actually helps future investigations.
+    rerun_with_memory: Optional[bool] = False
+    # Pre-loaded skills directory (relative to the test fixture folder). When
+    # set, the path is added to the SkillsToolset's search paths BEFORE the
+    # primary pass — letting an eval simulate "the customer already has
+    # skill X saved" without going through the SuggestSkills→replay flow.
+    # Used by evals that test how the agent behaves when handed an
+    # externally-authored skill (e.g. a misleading one).
+    pre_loaded_skills_path: Optional[str] = None
+    # When set, asserts that the number of SKILL.md files written from the
+    # primary pass's captured suggestions equals this value. None disables
+    # the check.
+    expected_skill_count: Optional[int] = None
+    # Controls whether the closed-loop replay strictly requires the agent
+    # to call `fetch_skill`. True (default) is right for evals where the
+    # captured skill is supposed to short-circuit rediscovery — if the agent
+    # ignores the skill, the eval fails. When False, the replay is still
+    # scored on correctness; only the skill-load assertion is relaxed.
+    require_skill_load_on_replay: bool = True
+    # Tool names that must NOT appear in the replay's tool calls. Used by
+    # discovery-style evals to assert the captured skill actually obviated
+    # the exploration it encodes (e.g. with the index schema saved in the
+    # skill, the replay must not call elasticsearch_mappings again).
+    # None/empty disables the check.
+    replay_forbidden_tools: Optional[List[str]] = None
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):
     user_prompt: Union[
         str, List[str]
     ]  # The user's question(s) to ask holmes - can be single string or array
+    # Optional alternative prompt used on the closed-loop replay pass. When
+    # set, the replay run uses this prompt instead of `user_prompt`. This
+    # lets the primary pass use a phrasing that reliably triggers the
+    # wrong→right correction (so SuggestSkills fires and a skill is
+    # captured), while the replay simulates a future investigation asking
+    # the same question more naturally — which is when the captured skill
+    # should actually pay off. If unset, the replay uses `user_prompt`.
+    replay_user_prompt: Optional[Union[str, List[str]]] = None
+    # Optional alternative expected_output for the replay pass. Needed when
+    # the replay asks a different question than the primary. If unset, the
+    # replay is judged against the original `expected_output`.
+    expected_replay_output: Optional[Union[str, List[str]]] = None
     cluster_name: Optional[str] = None
     include_files: Optional[List[str]] = None  # matches include_files option of the CLI
     skills: Optional[Dict[str, Any]] = None  # Optional skill catalog override

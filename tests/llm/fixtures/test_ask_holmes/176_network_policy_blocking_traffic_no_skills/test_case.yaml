@@ -1,5 +1,6 @@
 user_prompt: "Why is the frontend getting timeouts connecting to backend in namespace app-176?"
 tags:
+  - skills
   - kubernetes
   - network
   - easy
@@ -36,3 +37,8 @@ before_test: |
   fi
 after_test: |
   kubectl delete namespace app-176 || true
+
+# No-spam guard: the SuggestSkills frontend tool is injected (mirroring the
+# Robusta UI in production) and must NOT fire on this routine investigation.
+frontend_tools: ../../shared/skill_suggestion_tool.yaml
+memories_generated: false

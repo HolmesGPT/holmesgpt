@@ -1,5 +1,6 @@
 user_prompt: "Show me the errors in the logs of my-app-51"
 tags:
+  - skills
   - logs
   - easy
   - regression
@@ -38,3 +39,8 @@ after_test: |
   # Note: namespace deletion can be slow, using --wait=false for speed
   kubectl delete namespace ask-holmes-namespace-51 --wait=false || echo "WARNING: Failed to delete namespace (exit code: $?)"
   echo "Cleanup completed"
+
+# No-spam guard: the SuggestSkills frontend tool is injected (mirroring the
+# Robusta UI in production) and must NOT fire on this routine investigation.
+frontend_tools: ../../shared/skill_suggestion_tool.yaml
+memories_generated: false
