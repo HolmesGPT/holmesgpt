@@ -117,8 +117,12 @@ TRACE_TOKEN_USAGE = load_bool("TRACE_TOKEN_USAGE", False)
 
 
 MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
+# Ceiling for the model-requested max_points override on range queries.
+# Results that exceed the inline token budget are summarized and (when
+# storage is available) spilled to disk, so a high-resolution request can't
+# blow up the context window — the cap mainly bounds Prometheus load.
 MAX_GRAPH_POINTS_HARD_LIMIT = float(
-    os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 2)
+    os.environ.get("MAX_GRAPH_POINTS_HARD_LIMIT", MAX_GRAPH_POINTS * 10)
 )
 
 # Limit each tool response to N% of the total context window.
