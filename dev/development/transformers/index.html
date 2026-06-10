@@ -6064,6 +6064,10 @@
 
 
 <h1 id="tool-output-transformers">Tool Output Transformers<a class="headerlink" href="#tool-output-transformers" title="Permanent link">&para;</a></h1>
+<div class="admonition warning">
+<p class="admonition-title">Legacy feature — not recommended</p>
+<p>The <code>llm_summarize</code> transformer is a legacy feature. It is disabled by default and we don't recommend enabling it: summarization is lossy (the original tool output cannot be recovered afterwards) and it adds latency and cost to every large tool call. HolmesGPT now handles oversized tool results by <a href="../../reference/context-management/">spilling them to disk</a>, which preserves the full data for the model to read back. This page is kept for users with existing transformer configurations.</p>
+</div>
 <p>HolmesGPT supports <strong>transformers</strong> that can process tool outputs before they're sent to the primary LLM. This enables automatic summarization of large outputs, reducing context window usage while preserving essential information.</p>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>Transformers are functions that take a tool's raw output and transform it before returning to the LLM. The primary use case is the <code>llm_summarize</code> transformer, which uses a fast secondary model to summarize lengthy outputs from tools like <code>kubectl describe</code>, log queries, or metrics collection.</p>
