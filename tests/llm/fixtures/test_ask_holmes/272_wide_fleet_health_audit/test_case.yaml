@@ -1,0 +1,126 @@
+user_prompt:
+  - "We run one service in each of the 10 namespaces matching app-272-*. Run a complete health audit covering every one of them - check actual runtime behavior in the logs, not just pod status. For each service report whether it is healthy, and for each unhealthy one give the root cause including the exact error code or message you found in its logs or events."
+
+expected_output:
+  - The answer must state that checkout-api (namespace app-272-checkout) is crashing/restarting (CrashLoopBackOff) because it cannot connect to redis at session-cache:6379, and must include the exact error code ERR-CHK-31c9f2
+  - The answer must state that payment-gateway (namespace app-272-payments) is running but NOT ready (failing readiness probe), with TLS handshake failures to the acquirer endpoint due to an expired certificate, and must include the exact error code ERR-PAY-77b4ea
+  - The answer must state that inventory-sync (namespace app-272-inventory) is unhealthy or degraded EVEN THOUGH its pod is Running and Ready, because its logs show repeated database deadlocks on the stock_levels table, and must include the exact error code ERR-INV-4e8d21
+  - The answer must state that order-archiver (namespace app-272-orders) cannot start due to a missing ConfigMap named archiver-settings (CreateContainerConfigError)
+  - The answer must state that search-api, media-resizer, email-dispatcher, geo-lookup, session-gc and audit-log are all healthy
+
+tags:
+  - kubernetes
+  - logs
+  - benchmark
+
+# 10 namespaces, one service each, ~1000 lines of noisy logs per service:
+# - checkout-api: crashloops (redis unreachable, code in logs)
+# - payment-gateway: running but readiness failing (TLS error code in logs)
+# - inventory-sync: Running AND Ready but logs show DB deadlocks (code in logs)
+# - order-archiver: CreateContainerConfigError (missing ConfigMap)
+# - 6 healthy noisy services
+before_test: |
+  set -e
+  kubectl apply -f manifests.yaml
+
+  echo "Waiting for planted states..."
+
+  # All healthy controls must be Ready
+  for APP_NS in "search-api:app-272-search" "media-resizer:app-272-media" "email-dispatcher:app-272-email" "geo-lookup:app-272-geo" "session-gc:app-272-sessions" "audit-log:app-272-audit" "inventory-sync:app-272-inventory"; do
+    APP="${APP_NS%%:*}"
+    NS="${APP_NS##*:}"
+    OK=false
+    for i in $(seq 1 90); do
+      if kubectl wait --for=condition=ready pod -l app="$APP" -n "$NS" --timeout=5s 2>/dev/null; then
+        OK=true; break
+      fi
+      sleep 1
+    done
+    if [ "$OK" = false ]; then
+      echo "ERROR: $APP never became ready"
+      kubectl get pods -n "$NS"
+      exit 1
+    fi
+    echo "$APP ready"
+  done
+
+  # inventory-sync must have the deadlock error code in its logs
+  OK=false
+  for i in $(seq 1 60); do
+    if kubectl logs -n app-272-inventory -l app=inventory-sync --tail=-1 2>/dev/null | grep -q "ERR-INV-4e8d21"; then
+      OK=true; break
+    fi
+    sleep 2
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: inventory-sync error code never appeared in logs"
+    exit 1
+  fi
+  echo "inventory-sync logging deadlock errors while Ready"
+
+  # order-archiver must be in CreateContainerConfigError
+  OK=false
+  for i in $(seq 1 90); do
+    REASON=$(kubectl get pods -n app-272-orders -l app=order-archiver -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)
+    if [ "$REASON" = "CreateContainerConfigError" ]; then
+      OK=true; break
+    fi
+    sleep 2
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: order-archiver never reached CreateContainerConfigError (last: $REASON)"
+    kubectl get pods -n app-272-orders
+    exit 1
+  fi
+  echo "order-archiver in CreateContainerConfigError"
+
+  # payment-gateway: Running but NOT ready, error code in logs
+  OK=false
+  for i in $(seq 1 120); do
+    PHASE=$(kubectl get pods -n app-272-payments -l app=payment-gateway -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
+    READY=$(kubectl get pods -n app-272-payments -l app=payment-gateway -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
+    if [ "$PHASE" = "Running" ] && [ "$READY" = "false" ]; then
+      if kubectl logs -n app-272-payments -l app=payment-gateway --tail=-1 2>/dev/null | grep -q "ERR-PAY-77b4ea"; then
+        OK=true; break
+      fi
+    fi
+    sleep 2
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: payment-gateway never reached Running+NotReady with error code in logs"
+    kubectl get pods -n app-272-payments
+    exit 1
+  fi
+  echo "payment-gateway running but not ready"
+
+  # checkout-api: must have crashed at least once with the code in logs
+  OK=false
+  for i in $(seq 1 150); do
+    RESTARTS=$(kubectl get pods -n app-272-checkout -l app=checkout-api -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || true)
+    if [ -n "$RESTARTS" ] && [ "$RESTARTS" -ge 1 ] 2>/dev/null; then
+      if kubectl logs -n app-272-checkout -l app=checkout-api --tail=5 2>/dev/null | grep -q "ERR-CHK-31c9f2" || \
+         kubectl logs -n app-272-checkout -l app=checkout-api --tail=5 --previous 2>/dev/null | grep -q "ERR-CHK-31c9f2"; then
+        OK=true; break
+      fi
+    fi
+    sleep 2
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: checkout-api never crashed with error code in logs (restarts: $RESTARTS)"
+    kubectl get pods -n app-272-checkout
+    exit 1
+  fi
+  echo "checkout-api crashing with error code present"
+
+  # Sanity: healthy services have substantial log volume
+  LINES=$(kubectl logs -n app-272-search -l app=search-api --tail=-1 2>/dev/null | wc -l)
+  if [ "$LINES" -lt 400 ]; then
+    echo "ERROR: search-api log volume too low ($LINES lines)"
+    exit 1
+  fi
+  echo "log volume ok ($LINES lines for search-api)"
+
+  echo "Setup complete"
+
+after_test: |
+  kubectl delete namespace app-272-checkout app-272-payments app-272-inventory app-272-orders app-272-search app-272-media app-272-email app-272-geo app-272-sessions app-272-audit --ignore-not-found=true

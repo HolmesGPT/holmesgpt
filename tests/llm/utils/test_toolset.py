@@ -227,8 +227,11 @@ if [ "{{ kind }}" = "secret" ] || [ "{{ kind }}" = "secrets" ]; then echo "Not a
             if definition:
                 toolset.config = definition.config
                 toolset.enabled = definition.enabled
-            elif custom_definitions:
-                # toolsets.yaml exists but this toolset isn't explicitly listed - disable it
+            elif custom_definitions and toolset.name != "subagent":
+                # toolsets.yaml exists but this toolset isn't explicitly listed - disable it.
+                # Exception: the subagent toolset is toggled by HOLMES_ENABLE_SUBAGENTS
+                # (set per ENV_CONFIGS arm for A/B evals), so unless a test explicitly
+                # configures it, we keep its env-driven enabled state.
                 toolset.enabled = False
 
             configured.append(toolset)

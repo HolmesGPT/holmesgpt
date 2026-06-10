@@ -65,6 +65,7 @@ from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
     make_robusta_platform_mcp_toolset,
 )
 from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
+from holmes.plugins.toolsets.subagent.subagent_toolset import SubAgentToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
@@ -104,6 +105,7 @@ def load_python_toolsets(
     logging.debug("loading python toolsets")
     toolsets: list[Toolset] = [
         CoreInvestigationToolset(),  # Load first for higher priority
+        SubAgentToolset(),
         InternetToolset(),
         ConnectivityCheckToolset(),
         RobustaToolset(dal),

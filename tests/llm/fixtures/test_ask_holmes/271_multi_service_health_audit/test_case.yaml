@@ -1,0 +1,117 @@
+user_prompt:
+  - "We run one service in each of the namespaces matching app-271-*. Audit every one of them and report for each service: is it healthy, and if not, the precise root cause including the exact error code or message you found in its logs or events."
+
+expected_output:
+  - The answer must state that checkout-api (namespace app-271-checkout) is unhealthy/crashing (CrashLoopBackOff or repeatedly restarting) because it cannot connect to its redis/session store at session-cache:6379, and must include the exact error code ERR-CHK-4f7a2d91
+  - The answer must state that inventory-sync (namespace app-271-inventory) is failing to pull its container image ghcr.io/acme-platform/inventory-sync:2.4.1 (ImagePullBackOff / ErrImagePull / image not found)
+  - The answer must state that payment-gateway (namespace app-271-payments) is running but NOT ready (failing readiness probe), and must include the exact error code ERR-PAY-8c31e6b0 and mention the TLS handshake failure / expired certificate with the acquirer endpoint
+  - The answer must state that user-profile (namespace app-271-profiles) is Pending/unschedulable because no node can satisfy its CPU request (insufficient CPU)
+  - The answer must state that notification-relay (namespace app-271-notifications) is healthy with no issues
+
+tags:
+  - kubernetes
+  - benchmark
+
+# Setup creates 5 namespaces, each with one deployment:
+# - checkout-api: crashloops with a redis connection error (code in logs)
+# - inventory-sync: ImagePullBackOff (nonexistent image)
+# - payment-gateway: running but readiness probe failing (code in logs)
+# - user-profile: Pending, unschedulable (insufficient CPU)
+# - notification-relay: healthy control
+before_test: |
+  set -e
+  kubectl apply -f manifests.yaml
+
+  echo "Waiting for planted failure states to materialize..."
+
+  # notification-relay must be Ready (healthy control)
+  OK=false
+  for i in $(seq 1 90); do
+    if kubectl wait --for=condition=ready pod -l app=notification-relay -n app-271-notifications --timeout=5s 2>/dev/null; then
+      OK=true; break
+    fi
+    sleep 1
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: notification-relay never became ready"
+    kubectl get pods -n app-271-notifications
+    exit 1
+  fi
+  echo "notification-relay ready"
+
+  # inventory-sync must be in an image pull error state
+  OK=false
+  for i in $(seq 1 90); do
+    REASON=$(kubectl get pods -n app-271-inventory -l app=inventory-sync -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)
+    if [ "$REASON" = "ImagePullBackOff" ] || [ "$REASON" = "ErrImagePull" ]; then
+      OK=true; break
+    fi
+    sleep 2
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: inventory-sync never reached image pull failure (last reason: $REASON)"
+    kubectl get pods -n app-271-inventory
+    exit 1
+  fi
+  echo "inventory-sync in $REASON"
+
+  # user-profile must be Pending/unschedulable
+  OK=false
+  for i in $(seq 1 60); do
+    PHASE=$(kubectl get pods -n app-271-profiles -l app=user-profile -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
+    if [ "$PHASE" = "Pending" ]; then
+      OK=true; break
+    fi
+    sleep 1
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: user-profile is not Pending (phase: $PHASE)"
+    kubectl get pods -n app-271-profiles
+    exit 1
+  fi
+  echo "user-profile pending"
+
+  # payment-gateway must be Running but NOT ready, with the error code in logs
+  OK=false
+  for i in $(seq 1 120); do
+    PHASE=$(kubectl get pods -n app-271-payments -l app=payment-gateway -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
+    READY=$(kubectl get pods -n app-271-payments -l app=payment-gateway -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || true)
+    if [ "$PHASE" = "Running" ] && [ "$READY" = "false" ]; then
+      if kubectl logs -n app-271-payments -l app=payment-gateway --tail=-1 2>/dev/null | grep -q "ERR-PAY-8c31e6b0"; then
+        OK=true; break
+      fi
+    fi
+    sleep 2
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: payment-gateway never reached Running+NotReady with error code in logs"
+    kubectl get pods -n app-271-payments
+    kubectl logs -n app-271-payments -l app=payment-gateway --tail=20 || true
+    exit 1
+  fi
+  echo "payment-gateway running but not ready, error code present"
+
+  # checkout-api must have crashed at least twice with the error code in logs
+  OK=false
+  for i in $(seq 1 150); do
+    RESTARTS=$(kubectl get pods -n app-271-checkout -l app=checkout-api -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || true)
+    if [ -n "$RESTARTS" ] && [ "$RESTARTS" -ge 2 ] 2>/dev/null; then
+      if kubectl logs -n app-271-checkout -l app=checkout-api --tail=10 2>/dev/null | grep -q "ERR-CHK-4f7a2d91" || \
+         kubectl logs -n app-271-checkout -l app=checkout-api --tail=10 --previous 2>/dev/null | grep -q "ERR-CHK-4f7a2d91"; then
+        OK=true; break
+      fi
+    fi
+    sleep 2
+  done
+  if [ "$OK" = false ]; then
+    echo "ERROR: checkout-api never crashlooped with error code in logs (restarts: $RESTARTS)"
+    kubectl get pods -n app-271-checkout
+    kubectl logs -n app-271-checkout -l app=checkout-api --tail=10 || true
+    exit 1
+  fi
+  echo "checkout-api crashlooping with error code present"
+
+  echo "Setup complete"
+
+after_test: |
+  kubectl delete namespace app-271-checkout app-271-inventory app-271-payments app-271-profiles app-271-notifications --ignore-not-found=true

@@ -776,6 +776,7 @@ class ToolCallingLLM:
                 tool_call_id=tool_call_id,
                 session_approved_prefixes=session_approved_prefixes or [],
                 request_context=request_context,
+                tool_executor=self.tool_executor,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
@@ -1324,6 +1325,17 @@ class ToolCallingLLM:
                         raise LLMInterruptedError()
 
                     tool_call_result: ToolCallResult = future.result()
+
+                    # Fold in LLM usage incurred inside the tool itself (e.g. a
+                    # sub-agent delegation) so reported costs/tokens stay honest.
+                    if tool_call_result.result.llm_usage:
+                        try:
+                            stats += RequestStats(**tool_call_result.result.llm_usage)
+                        except Exception:
+                            logging.warning(
+                                f"Failed to accumulate llm_usage from tool {tool_call_result.tool_name}",
+                                exc_info=True,
+                            )
 
                     tool_result_dict = tool_call_result.to_client_dict()
 

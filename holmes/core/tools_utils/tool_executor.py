@@ -125,6 +125,19 @@ class ToolExecutor:
 
         return clone
 
+    def clone_without_tools(self, tool_names: List[str]) -> "ToolExecutor":
+        """Create a shallow clone with the given tools removed.
+
+        Used by sub-agent delegation to hand a child agentic loop the same
+        tools as the parent minus the delegation tool itself, preventing
+        unbounded recursive delegation.
+        """
+        clone = self._clone_base()
+        for name in tool_names:
+            clone.tools_by_name.pop(name, None)
+            clone._tool_to_toolset.pop(name, None)
+        return clone
+
     # ── Tool listing ───────────────────────────────────────────────────
 
     @sentry_sdk.trace
