@@ -235,7 +235,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | Control | Description |
 |---------|-------------|
 | **Tool separation** | Read-only tools auto-approve; only `run_kubectl_command` (mutations) requires human approval |
-| **Path policy** | `read_file_from_container` can never read secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) |
+| **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
 | **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
 | **Image allowlist** | `run_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
 | **Verb allowlist** | `run_kubectl_command` only accepts an allowlisted set of verbs |
