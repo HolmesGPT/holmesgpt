@@ -36,6 +36,8 @@ from holmes.plugins.toolsets.subagent.subagent_toolset import (
     SUBAGENT_PREAMBLE,
     DelegateTaskTool,
     SubAgentToolset,
+    is_model_self_sufficient,
+    subagents_enabled_for_model,
 )
 
 LIMIT_PATCH = "holmes.core.tool_calling_llm.compact_if_necessary"
@@ -333,3 +335,67 @@ class TestCloneWithoutTools:
         assert DELEGATE_TASK_TOOL_NAME not in clone.tools_by_name
         # original untouched
         assert DELEGATE_TASK_TOOL_NAME in real_executor.tools_by_name
+
+    def test_clone_without_toolset(self, real_executor):
+        clone = real_executor.clone_without_toolset("subagent")
+        assert DELEGATE_TASK_TOOL_NAME not in clone.tools_by_name
+        assert all(ts.name != "subagent" for ts in clone.toolsets)
+        assert all(ts.name != "subagent" for ts in clone.enabled_toolsets)
+        assert clone.get_tool_by_name("echo_tool") is not None
+        # original untouched
+        assert DELEGATE_TASK_TOOL_NAME in real_executor.tools_by_name
+        assert any(ts.name == "subagent" for ts in real_executor.toolsets)
+
+
+class TestModelGating:
+    """Sub-agents are withheld from Opus >= 4.6: those models investigate
+    more efficiently in a single context (A/B evals 272-274)."""
+
+    @pytest.mark.parametrize(
+        "model,gated",
+        [
+            ("anthropic/claude-opus-4.6", True),
+            ("openai/anthropic/claude-opus-4.6", True),
+            ("claude-opus-4-6-v1:0", True),
+            ("us.anthropic.claude-opus-4-7-20270101-v1:0", True),
+            ("anthropic/claude-opus-4.8", True),
+            ("anthropic/claude-opus-5", True),
+            ("anthropic/claude-opus-4-5-20251101", False),
+            ("claude-opus-4-20250514", False),  # Opus 4.0, date in minor slot
+            ("claude-3-opus-20240229", False),  # date directly after "opus"
+            ("anthropic/claude-sonnet-4-5-20250929", False),
+            ("gpt-4.1", False),
+            (None, False),
+        ],
+    )
+    def test_is_model_self_sufficient(self, model, gated):
+        assert is_model_self_sufficient(model) is gated
+
+    def test_force_override(self, monkeypatch):
+        monkeypatch.setenv("HOLMES_SUBAGENTS_FORCE", "true")
+        assert subagents_enabled_for_model("anthropic/claude-opus-4.6") is True
+
+    def test_gated_by_default_for_opus(self, monkeypatch):
+        monkeypatch.delenv("HOLMES_SUBAGENTS_FORCE", raising=False)
+        assert subagents_enabled_for_model("anthropic/claude-opus-4.6") is False
+        assert subagents_enabled_for_model("anthropic/claude-sonnet-4-5") is True
+
+    def test_loop_withholds_delegate_tool_for_opus(self, real_executor, mock_llm, monkeypatch):
+        monkeypatch.delenv("HOLMES_SUBAGENTS_FORCE", raising=False)
+        mock_llm.model = "openai/anthropic/claude-opus-4.6"
+        ai = ToolCallingLLM(
+            tool_executor=real_executor, max_steps=10, llm=mock_llm, tool_results_dir=None
+        )
+        tool_names = [t["function"]["name"] for t in ai._get_tools()]
+        assert DELEGATE_TASK_TOOL_NAME not in tool_names
+        # toolset also gone, so its prompt instructions won't render
+        assert all(ts.name != "subagent" for ts in ai.tool_executor.toolsets)
+
+    def test_loop_keeps_delegate_tool_for_other_models(self, real_executor, mock_llm, monkeypatch):
+        monkeypatch.delenv("HOLMES_SUBAGENTS_FORCE", raising=False)
+        mock_llm.model = "anthropic/claude-sonnet-4-5"
+        ai = ToolCallingLLM(
+            tool_executor=real_executor, max_steps=10, llm=mock_llm, tool_results_dir=None
+        )
+        tool_names = [t["function"]["name"] for t in ai._get_tools()]
+        assert DELEGATE_TASK_TOOL_NAME in tool_names

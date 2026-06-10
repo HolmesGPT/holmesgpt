@@ -138,6 +138,26 @@ class ToolExecutor:
             clone._tool_to_toolset.pop(name, None)
         return clone
 
+    def clone_without_toolset(self, toolset_name: str) -> "ToolExecutor":
+        """Create a shallow clone with an entire toolset removed.
+
+        Unlike clone_without_tools, this also drops the toolset from the
+        toolsets/enabled_toolsets lists, so prompt builders that render
+        per-toolset LLM instructions from this executor won't include it.
+        Used to withhold sub-agent delegation from models that perform
+        better without it.
+        """
+        clone = self._clone_base()
+        clone.toolsets = [ts for ts in self.toolsets if ts.name != toolset_name]
+        clone.enabled_toolsets = [
+            ts for ts in self.enabled_toolsets if ts.name != toolset_name
+        ]
+        for tool_name, ts in list(clone._tool_to_toolset.items()):
+            if ts.name == toolset_name:
+                clone.tools_by_name.pop(tool_name, None)
+                clone._tool_to_toolset.pop(tool_name, None)
+        return clone
+
     # ── Tool listing ───────────────────────────────────────────────────
 
     @sentry_sdk.trace

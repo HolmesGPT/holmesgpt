@@ -198,13 +198,46 @@ class ToolCallingLLM:
         tool_results_dir: Optional[Path],
         tracer=None,
     ):
-        self.tool_executor = tool_executor
+        self.tool_executor = self._apply_model_tool_gates(tool_executor, llm)
         self.max_steps = max_steps
         self.tracer = tracer
         self.llm = llm
         self.tool_results_dir = tool_results_dir
 
         self._skill_in_use: bool = False
+
+    @staticmethod
+    def _apply_model_tool_gates(
+        tool_executor: ToolExecutor, llm: LLM
+    ) -> ToolExecutor:
+        """Withhold model-gated toolsets from models that perform better without them.
+
+        Sub-agent delegation measurably helps mid-capability models on wide
+        investigations but gives Opus >= 4.6 no accuracy gain at roughly double
+        the tokens and latency, so the subagent toolset is removed for those
+        models (tools AND prompt instructions). See
+        holmes/plugins/toolsets/subagent/subagent_toolset.py for the gate.
+        """
+        # Imported here to avoid a circular import (the toolset lazily imports
+        # this module to run child loops).
+        from holmes.plugins.toolsets.subagent.subagent_toolset import (
+            subagents_enabled_for_model,
+        )
+
+        enabled_toolsets = getattr(tool_executor, "enabled_toolsets", None) or []
+        has_subagent_toolset = any(
+            getattr(ts, "name", None) == "subagent" for ts in enabled_toolsets
+        )
+        if has_subagent_toolset and not subagents_enabled_for_model(
+            getattr(llm, "model", None)
+        ):
+            logging.info(
+                f"Sub-agent delegation withheld for model {getattr(llm, 'model', None)}: "
+                "the model investigates more efficiently without it "
+                "(set HOLMES_SUBAGENTS_FORCE=true to override)"
+            )
+            return tool_executor.clone_without_toolset("subagent")
+        return tool_executor
 
     def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
         """Return a shallow copy with a different ToolExecutor.
