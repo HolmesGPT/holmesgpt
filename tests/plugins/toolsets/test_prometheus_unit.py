@@ -3,12 +3,63 @@ import logging
 import pytest
 
 from holmes.plugins.toolsets.prometheus.prometheus import (
+    PROMETHEUS_METADATA_API_LIMIT,
     AzurePrometheusConfig,
+    GetAllLabels,
+    GetLabelValues,
+    GetMetricMetadata,
+    GetMetricNames,
+    GetSeries,
     PrometheusConfig,
     PrometheusToolset,
     adjust_step_for_max_points,
     get_config_field,
+    get_metadata_limit,
+    mark_metadata_truncation,
 )
+
+
+class TestMetadataLimit:
+    """Metadata API limits are defaults the model can raise, not hard ceilings."""
+
+    def test_default_limit(self):
+        assert get_metadata_limit({}) == PROMETHEUS_METADATA_API_LIMIT
+
+    def test_explicit_limit_honored(self):
+        assert get_metadata_limit({"limit": 2500}) == 2500
+
+    def test_invalid_limit_clamped_to_one(self):
+        assert get_metadata_limit({"limit": -5}) == 1
+
+    def test_all_metadata_tools_expose_limit_param(self):
+        toolset = PrometheusToolset()
+        for tool_cls in (
+            GetMetricNames,
+            GetLabelValues,
+            GetAllLabels,
+            GetSeries,
+            GetMetricMetadata,
+        ):
+            tool = tool_cls(toolset=toolset)
+            assert "limit" in tool.parameters, tool.name
+
+    def test_truncation_marker_set_when_list_fills_limit(self):
+        data = {"data": ["a", "b", "c"]}
+        mark_metadata_truncation(data, limit=3, refine_hint="use match[] to filter.")
+        assert data["_truncated"] is True
+        assert "higher 'limit'" in data["_message"]
+        assert "use match[] to filter." in data["_message"]
+
+    def test_truncation_marker_set_for_dict_results(self):
+        # /api/v1/metadata returns a dict keyed by metric name
+        data = {"data": {"up": [], "node_cpu_seconds_total": []}}
+        mark_metadata_truncation(data, limit=2, refine_hint="filter by metric name.")
+        assert data["_truncated"] is True
+
+    def test_no_marker_below_limit(self):
+        data = {"data": ["a"]}
+        mark_metadata_truncation(data, limit=3, refine_hint="hint")
+        assert "_truncated" not in data
 
 
 @pytest.mark.parametrize(

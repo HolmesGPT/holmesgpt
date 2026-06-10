@@ -35,6 +35,10 @@ from holmes.plugins.toolsets.utils import (
     toolset_name_for_one_liner,
 )
 
+# Maximum page size accepted by Datadog's POST /api/v2/logs/events/search.
+# Results beyond one page are reachable via the cursor parameter.
+DATADOG_LOGS_API_PAGE_MAX = 1000
+
 
 def format_logs(raw_logs: list[dict]) -> str:
     # Use similar structure to Datadog Log Explorer
@@ -179,7 +183,7 @@ class GetLogs(Tool):
             required=False,
         ),
         "limit": ToolParameter(
-            description=f"Maximum number of log records to return. Defaults to {DEFAULT_LOG_LIMIT}. This value is user-configured and represents the maximum allowed limit.",
+            description=f"Maximum number of log records to return. Defaults to the configured default_limit ({DEFAULT_LOG_LIMIT} unless overridden). Values above {DATADOG_LOGS_API_PAGE_MAX} are capped at {DATADOG_LOGS_API_PAGE_MAX} (the Datadog API page maximum); use the cursor to fetch further pages.",
             type="integer",
             required=False,
         ),
@@ -216,8 +220,12 @@ class GetLogs(Tool):
             from_time_ms = from_time_int * 1000
             to_time_ms = to_time_int * 1000
 
-            config_limit = self.toolset.dd_config.default_limit
-            limit = min(params.get("limit", config_limit), config_limit)
+            # The configured default_limit applies when the LLM doesn't ask for
+            # a specific limit. An explicit request is honored up to the Datadog
+            # API page maximum (previously it was silently clamped down to the
+            # config value, making larger fetches inexpressible).
+            limit = params.get("limit") or self.toolset.dd_config.default_limit
+            limit = min(limit, DATADOG_LOGS_API_PAGE_MAX)
             params["limit"] = limit
             sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
 
