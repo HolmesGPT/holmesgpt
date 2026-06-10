@@ -12,6 +12,8 @@ import html
 import re
 import uuid
 
+import yaml  # type: ignore
+
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform)\.robusta\.dev\b")
 MARKDOWN_LINK_RE = re.compile(r"^\[([^\]]+)\]\(([^)\s]+)\)(\{[^}]*\})?$")
@@ -214,4 +216,85 @@ def robusta_region_fence_format(source, language, css_class, options, md, **kwar
         f'<div class="tabbed-labels">\n{labels_html}</div>\n'
         f'<div class="tabbed-content">\n{blocks_html}</div>\n'
         "</div>"
+    )
+
+
+# Central page that documents how multi-instance toolsets work. Linked from every
+# rendered ``multi-instance`` block so each toolset page doesn't repeat the prose.
+MULTI_INSTANCE_DOC_URL = "/data-sources/multi-instance-toolsets/"
+
+
+def _reindent(text: str, spaces: int) -> str:
+    """Dedent ``text`` to its common leading whitespace, then indent every
+    non-empty line by ``spaces``. Used to nest a flat config example under
+    ``instances:`` at the correct YAML depth."""
+    lines = text.strip("\n").split("\n")
+    nonempty = [ln for ln in lines if ln.strip()]
+    base = min((len(ln) - len(ln.lstrip()) for ln in nonempty), default=0)
+    pad = " " * spaces
+    return "\n".join(pad + ln[base:] if ln.strip() else "" for ln in lines)
+
+
+def multi_instance_fence_format(source, language, css_class, options, md, **kwargs):
+    """Render the standard "Multiple Instances" section for a toolset.
+
+    The fence body is YAML with three keys:
+
+        ```multi-instance
+        toolset: grafana/dashboards   # the toolset key used in config examples
+        name: Grafana                 # human-readable name (optional; derived from toolset)
+        config: |                     # a single-instance config example for this toolset
+          api_url: <your grafana url>
+          api_key: <your api key>
+        ```
+
+    It emits a note admonition that:
+    - explains the toolset can connect to several instances via ``instances:``;
+    - shows the supplied config example nested under ``instances:`` (two entries);
+    - notes the auto-injected ``instance`` parameter and ``<toolset>_list_instances``
+      tool that appear when more than one instance is configured;
+    - links to the central Multiple Instances page for the full behaviour.
+
+    The same component renders identically for every toolset, so each page imports
+    it in one fenced block instead of repeating the prose.
+    """
+    spec = yaml.safe_load(source) or {}
+    toolset = str(spec.get("toolset", "")).strip()
+    name = str(spec.get("name") or toolset or "this").strip()
+    config = str(spec.get("config", "")).strip()
+    if not toolset or not config:
+        raise ValueError(
+            "multi-instance fence requires 'toolset' and 'config' keys in its YAML body"
+        )
+
+    # The wrapper names the discovery tool by replacing '/' with '_' in the toolset name.
+    list_tool = spec.get("list_tool") or (toolset.replace("/", "_") + "_list_instances")
+
+    fields = _reindent(config, 10)
+    yaml_example = (
+        "toolsets:\n"
+        f"  {toolset}:\n"
+        "    enabled: true\n"
+        "    config:\n"
+        "      instances:\n"
+        f"        - name: prod\n{fields}\n"
+        f"        - name: staging\n{fields}\n"
+    )
+
+    name_e = html.escape(name)
+    list_tool_e = html.escape(str(list_tool))
+    return (
+        f"<p>The {name_e} toolset can connect to more than one {name_e} instance. "
+        "List each one under <code>instances:</code> with a unique <code>name</code>. "
+        "Any config field set outside <code>instances:</code> becomes a default that "
+        "every instance inherits, so shared settings only need to be written once.</p>\n"
+        f'<pre><code class="language-yaml">{html.escape(yaml_example)}</code></pre>\n'
+        "<p>When more than one instance is configured, HolmesGPT automatically adds an "
+        f"<code>instance</code> parameter to every {name_e} tool (so it can pick which "
+        f"instance to query) and a <code>{list_tool_e}</code> tool to list the configured "
+        "instances. With a single instance — including the flat config without "
+        "<code>instances:</code> — the tools are unchanged and fully backwards "
+        "compatible.</p>\n"
+        f'<p>See <a href="{MULTI_INSTANCE_DOC_URL}">Multiple Instances</a> for the full '
+        "behaviour, including global defaults and health reporting.</p>"
     )

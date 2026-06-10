@@ -439,7 +439,7 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.1"
+    image: "github-mcp:1.0.4"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 

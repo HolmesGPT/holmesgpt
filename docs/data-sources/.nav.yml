@@ -2,6 +2,7 @@ nav:
   - index.md
   - Recommended Setup: recommended-setup.md
   - Built-in Toolsets: builtin-toolsets
+  - Multiple Instances: multi-instance-toolsets.md
   - HTTP Connectors: api-toolsets.md
   - Database Connectors: database-connectors.md
   - Custom Toolsets: custom-toolsets.md

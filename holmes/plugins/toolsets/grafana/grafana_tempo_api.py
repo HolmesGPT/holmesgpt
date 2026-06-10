@@ -9,6 +9,7 @@ import requests  # type: ignore
 
 from holmes.plugins.toolsets.grafana.common import (
     GrafanaTempoConfig,
+    build_auth,
     build_headers,
     get_base_url,
 )
@@ -57,6 +58,7 @@ class GrafanaTempoAPI:
         self.config = config
         self.base_url = get_base_url(config)
         self.headers = build_headers(config.api_key, config.additional_headers)
+        self.auth = build_auth(config)
 
     def _make_request(
         self,
@@ -104,6 +106,7 @@ class GrafanaTempoAPI:
             response = requests.get(
                 url,
                 headers=self.headers,
+                auth=self.auth,
                 params=params,
                 timeout=timeout,
                 verify=self.config.verify_ssl,
@@ -156,6 +159,7 @@ class GrafanaTempoAPI:
             response = requests.get(
                 url,
                 headers=self.headers,
+                auth=self.auth,
                 timeout=self.config.timeout_seconds,
                 verify=self.config.verify_ssl,
             )
