@@ -126,7 +126,7 @@ def update_test_results(
         test_case: Optional test case for score calculation
         eval_span: Optional Braintrust span for evaluation
         caplog: Optional caplog for evaluation
-        suggested_memories: Optional list of suggest_runbooks memories
+        suggested_memories: Optional list of suggest_skills memories
             captured during this run. When provided, the memories are
             surfaced to the LLM judge alongside ``expected_output`` so memory
             content quality is scored against the eval's expectations. Pass
@@ -182,7 +182,7 @@ def update_test_results(
                     evaluation_output += f"### Step {i}:\n{intermediate}\n\n"
                 evaluation_output += f"## Final Output:\n{output}"
 
-        # Surface the suggest_runbooks memories the LLM emitted (if any) to
+        # Surface the suggest_skills memories the LLM emitted (if any) to
         # the judge, so memory content quality is scored against the eval's
         # ``expected_output`` exactly like the final answer.
         if suggested_memories is not None:
@@ -190,7 +190,7 @@ def update_test_results(
             if suggested_memories:
                 memory_block += (
                     f"The LLM emitted {len(suggested_memories)} memory "
-                    "suggestion(s) via the suggest_runbooks tool. Score "
+                    "suggestion(s) via the suggest_skills tool. Score "
                     "these against the eval's expected_output: if a memory "
                     "is required by expected_output but missing here (or "
                     "the emitted memory captures the wrong thing), the "
@@ -202,7 +202,7 @@ def update_test_results(
             else:
                 memory_block += (
                     "The LLM emitted NO memory suggestions via the "
-                    "suggest_runbooks tool this turn.\n"
+                    "suggest_skills tool this turn.\n"
                 )
 
             evaluation_output += memory_block

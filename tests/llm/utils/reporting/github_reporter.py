@@ -659,7 +659,7 @@ def generate_markdown_report(
         max_prompt_str = _fmt_tokens(max_prompt)
         compactions_str = str(num_compactions) if num_compactions > 0 else "—"
 
-        # SUGGEST_RUNBOOKS is always injected; the count is how many
+        # SUGGEST_SKILLS is always injected; the count is how many
         # env-specific corrections the LLM judged worth capturing this run.
         memories_count = result.get("memories_count", 0) or 0
         skill_generated_str = str(memories_count) if memories_count else "—"
@@ -697,7 +697,7 @@ def generate_markdown_report(
             else:
                 replay_status = ":x:"
             replay_name = f"{test_case_name} [replay]"
-            # Replay never injects suggest_runbooks, so Skill Generated is
+            # Replay never injects suggest_skills, so Skill Generated is
             # always "—" on the replay row.
             replay_skill_generated_str = "—"
             r_skills_read_count = result.get("replay_skills_read_count", 0) or 0

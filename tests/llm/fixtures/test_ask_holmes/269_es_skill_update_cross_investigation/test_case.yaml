@@ -13,7 +13,7 @@
 # What we want to verify:
 #   1. The agent discovers the new ingest_ts quirk (mapping inspection
 #      because @timestamp doesn't exist) and emits it via
-#      suggest_runbooks with skill_domain="elasticsearch".
+#      suggest_skills with skill_domain="elasticsearch".
 #   2. The harness MERGES this new quirk into the existing
 #      quirks-for-querying-elasticsearch/SKILL.md rather than creating
 #      a second domain skill or clobbering the pre-existing one.

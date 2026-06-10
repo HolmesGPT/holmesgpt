@@ -16,7 +16,7 @@
 # returns zero hits (this index has only `severity`, no `level`) and
 # the agent has to read the mapping and re-query with `severity:"ERROR"`
 # to recover. THAT correction is the durable env-specific lesson the
-# suggest_runbooks tool should capture.
+# suggest_skills tool should capture.
 #
 # An earlier iteration tried a softer phrasing ("how many ERROR-level
 # entries are there") and discovered the agent solves it on the first

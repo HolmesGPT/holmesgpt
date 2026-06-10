@@ -40,9 +40,9 @@ from tests.llm.utils.test_case_utils import (
     get_models,
 )
 from tests.llm.utils.tool_suggestions_config import (
-    append_suggest_runbooks_system_prompt,
+    append_suggest_skills_system_prompt,
     extract_suggested_memories,
-    inject_suggest_runbooks_tool,
+    inject_suggest_skills_tool,
     write_memories_as_skill_files,
 )
 
@@ -127,10 +127,10 @@ def test_ask_holmes(
                     model,  # positional arg
                     tracer,  # positional arg
                     eval_span,  # positional arg
-                    additional_system_prompt=append_suggest_runbooks_system_prompt(
+                    additional_system_prompt=append_suggest_skills_system_prompt(
                         additional_system_prompt
                     ),
-                    inject_suggest_runbooks=True,
+                    inject_suggest_skills=True,
                     additional_skill_paths=preloaded_paths,
                     request=request,
                     retry_enabled=retry_enabled,
@@ -221,13 +221,13 @@ def test_ask_holmes(
                 f"Test {test_case.id} expected at least one memory but the "
                 f"LLM emitted zero. The eval is designed to teach an "
                 f"env-specific tool-call correction; if Holmes isn't "
-                f"capturing it the suggest_runbooks prompt/tool needs "
+                f"capturing it the suggest_skills prompt/tool needs "
                 f"tightening."
             )
         else:
             assert actual == 0, (
                 f"Test {test_case.id} expected NO memories but the LLM "
-                f"emitted {actual}. This usually means the suggest_runbooks "
+                f"emitted {actual}. This usually means the suggest_skills "
                 f"tool/prompt is being too eager. "
                 f"Memories:\n{suggested_memories}"
             )
@@ -310,7 +310,7 @@ def test_ask_holmes(
                         tracer=tracer,
                         eval_span=replay_span,
                         additional_system_prompt=additional_system_prompt,
-                        inject_suggest_runbooks=False,  # skip on replay
+                        inject_suggest_skills=False,  # skip on replay
                         additional_skill_paths=[skills_dir],
                         # Use the softer replay-only prompt when set, so the
                         # agent has to actually decide to use a skill
@@ -432,7 +432,7 @@ def ask_holmes(
     tracer,
     eval_span,
     additional_system_prompt,
-    inject_suggest_runbooks: bool = True,
+    inject_suggest_skills: bool = True,
     additional_skill_paths: Optional[list] = None,
     override_user_prompt: Optional[Union[str, List[str]]] = None,
     request=None,
@@ -472,8 +472,8 @@ def ask_holmes(
             tool_results_dir=tool_results_dir,
         )
 
-        if inject_suggest_runbooks:
-            ai = inject_suggest_runbooks_tool(ai)
+        if inject_suggest_skills:
+            ai = inject_suggest_skills_tool(ai)
 
         # Todos (TodoWrite) are disabled by default in evals; turn off the
         # related prompt instructions/reminder unless the test opts in. The

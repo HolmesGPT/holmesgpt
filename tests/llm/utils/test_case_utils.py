@@ -153,7 +153,7 @@ class HolmesTestCase(BaseModel):
     enable_todo: bool = (
         False  # Enable the TodoWrite/todos feature (disabled by default in evals)
     )
-    # SUGGEST_RUNBOOKS is injected on every run, so memory emission can occur
+    # SUGGEST_SKILLS is injected on every run, so memory emission can occur
     # on any eval. This field controls the assertion:
     # - True  → the test fails if the LLM emits zero memories
     # - False → the test fails if the LLM emits any memories
@@ -173,7 +173,7 @@ class HolmesTestCase(BaseModel):
     # Pre-loaded skills directory (relative to the test fixture folder). When
     # set, the path is added to the SkillsToolset's search paths BEFORE the
     # primary pass — letting an eval simulate "the customer already has
-    # skill X saved" without going through the suggest_runbooks→replay flow.
+    # skill X saved" without going through the suggest_skills→replay flow.
     # Used by evals that test how the agent behaves when handed an
     # externally-authored skill (e.g. a misleading one, or one captured
     # from a different investigation).
@@ -209,7 +209,7 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     # Optional alternative prompt used on the closed-loop replay pass. When set,
     # the replay run uses this prompt instead of `user_prompt`. This lets the
     # primary pass use a biased phrasing that reliably triggers the
-    # wrong→right correction (so the suggest_runbooks tool fires and a memory
+    # wrong→right correction (so the suggest_skills tool fires and a memory
     # is captured), while the replay simulates a future investigation asking
     # the same question in a more natural way — which is when the captured
     # skill should actually pay off by short-circuiting the failed call. If

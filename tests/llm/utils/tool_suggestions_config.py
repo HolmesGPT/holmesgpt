@@ -1,6 +1,6 @@
 """Tool suggestions wiring for LLM eval runs.
 
-Always injects the SUGGEST_RUNBOOKS frontend noop tool and its system-prompt
+Always injects the SUGGEST_SKILLS frontend noop tool and its system-prompt
 block so every eval has access to the "capture an env-specific tool-call
 correction" skill. Memory emission is recorded on the run for the GitHub
 report and (for evals that opt in via ``rerun_with_memory``) replayed
@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool
 
-SUGGEST_RUNBOOKS_TOOL_NAME = "suggest_runbooks"
+SUGGEST_SKILLS_TOOL_NAME = "suggest_skills"
 
 
 # Description shown to the LLM as the tool's description.
@@ -39,7 +39,7 @@ SUGGEST_RUNBOOKS_TOOL_NAME = "suggest_runbooks"
 # What is NOT worth saving: generic methodology the model already knows,
 # generic mistakes any LLM self-corrects, transient incident facts, and
 # anything derivable from the user's question or training data.
-SUGGEST_RUNBOOKS_TOOL_DESCRIPTION = (
+SUGGEST_SKILLS_TOOL_DESCRIPTION = (
     "Call this tool to save environment-specific knowledge you gained "
     "during this investigation that would let a FUTURE investigation in "
     "this environment skip tool calls. Each suggestion is one entry; "
@@ -81,12 +81,11 @@ SUGGEST_RUNBOOKS_TOOL_DESCRIPTION = (
     "can accept or ignore. Never say \"I'll remember\", \"noted\", \"saved\", "
     "or acknowledge this tool in any way — even if the user explicitly asks "
     "you to remember something. Just call the tool silently and continue your "
-    "response as if it doesn't exist. Never refer to these as \"runbooks\" — "
-    "they are \"skills\"."
+    "response as if it doesn't exist."
 )
 
 
-SUGGEST_RUNBOOKS_NOOP_RESPONSE = (
+SUGGEST_SKILLS_NOOP_RESPONSE = (
     "Tool returned silently — no data, no acknowledgement to make. "
     "The investigation is not over yet: the user has NOT seen your "
     "answer. Your next message must contain your final answer text "
@@ -95,7 +94,7 @@ SUGGEST_RUNBOOKS_NOOP_RESPONSE = (
 )
 
 
-SUGGEST_RUNBOOKS_TOOL_PARAMETERS: Dict[str, Any] = {
+SUGGEST_SKILLS_TOOL_PARAMETERS: Dict[str, Any] = {
     "type": "object",
     "properties": {
         "suggestions": {
@@ -235,14 +234,14 @@ SUGGEST_RUNBOOKS_TOOL_PARAMETERS: Dict[str, Any] = {
 }
 
 
-# System prompt addition appended whenever the SUGGEST_RUNBOOKS tool is injected.
+# System prompt addition appended whenever the SUGGEST_SKILLS tool is injected.
 #
 # This carries the GOAL and the concrete pattern examples; the tool's own
 # description states the action. Together they push the model to fire
 # specifically on env-specific tool-call corrections it just learned, and
 # to skip generic methodology the model already knows from training.
-SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
-    f"GOAL of the {SUGGEST_RUNBOOKS_TOOL_NAME} tool — speed up FUTURE "
+SUGGEST_SKILLS_SYSTEM_PROMPT = (
+    f"GOAL of the {SUGGEST_SKILLS_TOOL_NAME} tool — speed up FUTURE "
     f"investigations in THIS environment. Future-you (or another LLM) will "
     f"face the same kind of question against the same data sources. Two "
     f"kinds of knowledge gained this turn are worth saving:\n"
@@ -322,7 +321,7 @@ SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
     f"source. Cross-domain corrections (e.g. \"join Kubernetes pod name "
     f"with Loki log stream\") are rare; only invent a new domain if the "
     f"correction genuinely doesn't fit any existing one.\n\n"
-    f"Do NOT call {SUGGEST_RUNBOOKS_TOOL_NAME} for:\n"
+    f"Do NOT call {SUGGEST_SKILLS_TOOL_NAME} for:\n"
     f"- Generic METHODOLOGY a fresh LLM already knows "
     f"(\"check pod status first\", \"use --previous for crashed pods\", "
     f"\"filter by namespace\"). Note: the act of *inspecting the mapping* "
@@ -347,7 +346,7 @@ SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
     f"inspection, label/metric/index listing, document sampling) to learn "
     f"stable env facts a future run would otherwise have to re-learn "
     f"before querying?\n"
-    f"  STEP 2. If either — invoke {SUGGEST_RUNBOOKS_TOOL_NAME} NOW, "
+    f"  STEP 2. If either — invoke {SUGGEST_SKILLS_TOOL_NAME} NOW, "
     f"BEFORE writing your final answer, with one suggestion per lesson "
     f"and the right `kind` on each. The tool returns silently — no data, "
     f"no acknowledgement.\n"
@@ -360,7 +359,7 @@ SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
     f"current user, the tool call surfaces a save-able skill chip for "
     f"future investigations.\n\n"
     f"CRITICAL — silent operation: NEVER acknowledge calling "
-    f"{SUGGEST_RUNBOOKS_TOOL_NAME} in your response. Do not say "
+    f"{SUGGEST_SKILLS_TOOL_NAME} in your response. Do not say "
     f"\"Got it\", \"I'll remember\", \"going forward\", \"from now on\", "
     f"\"noted\", or anything similar. The user sees suggestions as UI "
     f"chips and decides whether to save them; your response must read as "
@@ -370,30 +369,30 @@ SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
 )
 
 
-def inject_suggest_runbooks_tool(ai: Any) -> Any:
-    """Return a clone of ``ai`` with the SUGGEST_RUNBOOKS frontend noop tool
+def inject_suggest_skills_tool(ai: Any) -> Any:
+    """Return a clone of ``ai`` with the SUGGEST_SKILLS frontend noop tool
     injected. Always injects — callers that don't want the tool (e.g. the
     closed-loop replay pass) should simply skip this call.
     """
     tool = build_frontend_noop_tool(
-        name=SUGGEST_RUNBOOKS_TOOL_NAME,
-        description=SUGGEST_RUNBOOKS_TOOL_DESCRIPTION,
-        parameters=SUGGEST_RUNBOOKS_TOOL_PARAMETERS,
-        canned_response=SUGGEST_RUNBOOKS_NOOP_RESPONSE,
+        name=SUGGEST_SKILLS_TOOL_NAME,
+        description=SUGGEST_SKILLS_TOOL_DESCRIPTION,
+        parameters=SUGGEST_SKILLS_TOOL_PARAMETERS,
+        canned_response=SUGGEST_SKILLS_NOOP_RESPONSE,
     )
     cloned_executor = ai.tool_executor.clone_with_extra_tools([tool])
     return ai.with_executor(cloned_executor)
 
 
-def append_suggest_runbooks_system_prompt(
+def append_suggest_skills_system_prompt(
     additional_system_prompt: Optional[str],
 ) -> str:
-    """Append the SUGGEST_RUNBOOKS system prompt block to the caller's
+    """Append the SUGGEST_SKILLS system prompt block to the caller's
     existing system prompt (or return it standalone if there isn't one).
     """
     if additional_system_prompt:
-        return f"{additional_system_prompt}\n\n{SUGGEST_RUNBOOKS_SYSTEM_PROMPT}"
-    return SUGGEST_RUNBOOKS_SYSTEM_PROMPT
+        return f"{additional_system_prompt}\n\n{SUGGEST_SKILLS_SYSTEM_PROMPT}"
+    return SUGGEST_SKILLS_SYSTEM_PROMPT
 
 
 def _slugify(text: str) -> str:
@@ -692,7 +691,7 @@ def write_memories_as_skill_files(
 
 
 def extract_suggested_memories(tool_calls: Optional[List[Any]]) -> List[Dict[str, Any]]:
-    """Pull the parsed ``suggestions`` arrays out of any SUGGEST_RUNBOOKS calls
+    """Pull the parsed ``suggestions`` arrays out of any SUGGEST_SKILLS calls
     found in the LLM tool-call history. Each dict is one suggestion; multiple
     calls are flattened in the order they occurred.
     """
@@ -701,7 +700,7 @@ def extract_suggested_memories(tool_calls: Optional[List[Any]]) -> List[Dict[str
 
     memories: List[Dict[str, Any]] = []
     for tc in tool_calls:
-        if getattr(tc, "tool_name", None) != SUGGEST_RUNBOOKS_TOOL_NAME:
+        if getattr(tc, "tool_name", None) != SUGGEST_SKILLS_TOOL_NAME:
             continue
         params = _extract_tool_call_params(tc)
         if not params:
@@ -741,7 +740,7 @@ def _extract_tool_call_params(tool_call: Any) -> Optional[Dict[str, Any]]:
                 return parsed
         except (ValueError, json.JSONDecodeError):
             logging.debug(
-                "Could not parse SUGGEST_RUNBOOKS arguments from tool call description"
+                "Could not parse SUGGEST_SKILLS arguments from tool call description"
             )
 
     return None

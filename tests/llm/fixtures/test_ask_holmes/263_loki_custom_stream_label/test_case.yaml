@@ -16,7 +16,7 @@
 # it as the first query. That selector returns no streams (Promtail emits
 # `acme_service` instead of `service`) and the agent has to list labels
 # and retry. THAT correction is the durable env-specific lesson the
-# suggest_runbooks tool should capture.
+# suggest_skills tool should capture.
 #
 # An earlier iteration tried a softer phrasing ("how many error-level
 # lines does checkout emit") and the agent skipped the failure path

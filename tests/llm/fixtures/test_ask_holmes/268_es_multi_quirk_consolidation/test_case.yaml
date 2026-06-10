@@ -1,6 +1,6 @@
 # Test: multi-quirk consolidation. The agent investigates three different
 # elasticsearch quirks across three sibling indices in ONE conversation,
-# and the suggest_runbooks mechanism is expected to capture all three as
+# and the suggest_skills mechanism is expected to capture all three as
 # entries under a single `skill_domain: "elasticsearch"` skill — not as
 # three independent single-quirk skills.
 #
@@ -22,7 +22,7 @@
 #
 # The user_prompt asks one question per index in one message. The agent
 # must discover each quirk to answer each question. After answering,
-# suggest_runbooks should fire ONCE per quirk (three entries total),
+# suggest_skills should fire ONCE per quirk (three entries total),
 # every entry tagged `skill_domain: "elasticsearch"`. The harness
 # consolidates them into a single SKILL.md.
 #

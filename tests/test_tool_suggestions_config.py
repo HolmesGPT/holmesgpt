@@ -1,4 +1,4 @@
-"""Unit tests for the SUGGEST_RUNBOOKS wiring used by LLM evals."""
+"""Unit tests for the SUGGEST_SKILLS wiring used by LLM evals."""
 
 from __future__ import annotations
 
@@ -7,22 +7,22 @@ import json
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from tests.llm.utils.tool_suggestions_config import (
-    SUGGEST_RUNBOOKS_NOOP_RESPONSE,
-    SUGGEST_RUNBOOKS_SYSTEM_PROMPT,
-    SUGGEST_RUNBOOKS_TOOL_NAME,
-    append_suggest_runbooks_system_prompt,
+    SUGGEST_SKILLS_NOOP_RESPONSE,
+    SUGGEST_SKILLS_SYSTEM_PROMPT,
+    SUGGEST_SKILLS_TOOL_NAME,
+    append_suggest_skills_system_prompt,
     extract_suggested_memories,
 )
 
 
 def test_append_system_prompt_standalone():
-    assert append_suggest_runbooks_system_prompt(None) == SUGGEST_RUNBOOKS_SYSTEM_PROMPT
+    assert append_suggest_skills_system_prompt(None) == SUGGEST_SKILLS_SYSTEM_PROMPT
 
 
 def test_append_system_prompt_extends_existing():
-    appended = append_suggest_runbooks_system_prompt("EXISTING")
+    appended = append_suggest_skills_system_prompt("EXISTING")
     assert appended.startswith("EXISTING")
-    assert SUGGEST_RUNBOOKS_SYSTEM_PROMPT in appended
+    assert SUGGEST_SKILLS_SYSTEM_PROMPT in appended
 
 
 def _make_tool_call(tool_name: str, params):
@@ -32,7 +32,7 @@ def _make_tool_call(tool_name: str, params):
         description=f"{tool_name}({json.dumps(params)})",
         result=StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
-            data=SUGGEST_RUNBOOKS_NOOP_RESPONSE,
+            data=SUGGEST_SKILLS_NOOP_RESPONSE,
             params=params,
         ),
     )
@@ -61,7 +61,7 @@ def test_extract_suggested_memories_from_params():
             }
         ]
     }
-    tcr = _make_tool_call(SUGGEST_RUNBOOKS_TOOL_NAME, payload)
+    tcr = _make_tool_call(SUGGEST_SKILLS_TOOL_NAME, payload)
     memories = extract_suggested_memories([tcr])
     assert len(memories) == 1
     assert "checkout-service" in memories[0]["title"]
@@ -380,8 +380,8 @@ def test_extract_suggested_memories_falls_back_to_description():
         params = None
 
     class FakeToolCall:
-        tool_name = SUGGEST_RUNBOOKS_TOOL_NAME
-        description = f"{SUGGEST_RUNBOOKS_TOOL_NAME}({json.dumps(payload)})"
+        tool_name = SUGGEST_SKILLS_TOOL_NAME
+        description = f"{SUGGEST_SKILLS_TOOL_NAME}({json.dumps(payload)})"
         result = FakeResult()
         params = None
 

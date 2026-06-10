@@ -11,7 +11,7 @@
 # uses the conventional terminology to bias the agent into running a
 # `level:` term query first. That query returns zero hits and the agent
 # must read the mapping and re-query. THAT correction is the durable
-# env-specific lesson the suggest_runbooks tool should capture.
+# env-specific lesson the suggest_skills tool should capture.
 
 user_prompt: 'In the elasticsearch index ''app-264-logs-9j2k4p7m'', run a `terms: { level: ["ERROR", "FATAL"] }` query and tell me how many hits come back. If that returns zero, find the right field for log severity and re-run the query.'
 
