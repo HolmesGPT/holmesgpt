@@ -220,6 +220,15 @@ throttled.
   where this matters; (2) operators should monitor for direct calls to
   `run_kubectl_command` that don't originate from HolmesGPT (see §6.6) as a
   detection for both misconfiguration and bypass.
+    - *Which CNIs enforce NetworkPolicy:* Calico, Cilium, Antrea, and Weave Net
+      enforce `NetworkPolicy` out of the box; plain Flannel does **not** without an
+      add-on (e.g. Calico-for-policy). Managed clusters vary — EKS needs the VPC CNI
+      network-policy controller (or Calico/Cilium) enabled, GKE needs "Network Policy"
+      (Calico) or Dataplane V2 (Cilium), AKS needs a network-policy engine selected at
+      cluster creation. To check quickly, look for a known policy-controller workload
+      (`kubectl get ds -A | grep -E 'calico-node|cilium|antrea|weave'`), or apply a
+      deny-all `NetworkPolicy` in a scratch namespace and confirm a previously-reachable
+      pod becomes unreachable.
 - **Resource exhaustion from diagnostic pods.** The per-pod memory cap and 60s
   timeout (§6.3, §3.2) bound a *single* `run_diagnostic_image` invocation, but the
   server imposes no global concurrency or rate limit — an LLM (or a prompt-injected
@@ -227,7 +236,9 @@ throttled.
   Mitigations not yet implemented in the server: a server-side concurrency/rate cap
   (or queue) on `run_diagnostic_image`, and a `ResourceQuota`/`LimitRange` on the
   MCP server's namespace. Recommended for multi-tenant or resource-constrained
-  clusters.
+  clusters. *Status: tracked separately — not blocking this PR. The
+  `ResourceQuota`/`LimitRange` is an operator-side deployment control available
+  today; the server-side concurrency cap is a follow-up enhancement.*
 
 ### 6.5 Things that are correct by construction
 
