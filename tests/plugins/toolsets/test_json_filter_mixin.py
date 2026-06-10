@@ -10,9 +10,8 @@ from holmes.plugins.toolsets.json_filter_mixin import _truncate_to_depth
 def _build_tool(data):
     toolset = GrafanaToolset()
     toolset._grafana_config = GrafanaDashboardConfig(url="http://example.com")
-    toolset._instances = {i.name: i for i in toolset._grafana_config.instances}
     tool = GetDashboardByUID(toolset)
-    tool._make_grafana_request = lambda instance, endpoint, params: StructuredToolResult(
+    tool._make_grafana_request = lambda endpoint, params: StructuredToolResult(
         status=StructuredToolResultStatus.SUCCESS,
         data=data,
         params=params,
@@ -37,11 +36,7 @@ def test_jq_filter_applies_before_returning_data():
     )
 
     assert result.status is StructuredToolResultStatus.SUCCESS
-    # GetDashboardByUID wraps non-dict filter results with the Grafana UI URL.
-    assert result.data == {
-        "grafana_url": "http://example.com/d/abc",
-        "results": "CPU",
-    }
+    assert result.data == "CPU"
 
 
 def test_invalid_jq_returns_error():
@@ -92,10 +87,9 @@ def test_max_depth_zero_preserves_upstream_error():
     """If upstream already failed, the guard must not clobber the original error field."""
     toolset = GrafanaToolset()
     toolset._grafana_config = GrafanaDashboardConfig(url="http://example.com")
-    toolset._instances = {i.name: i for i in toolset._grafana_config.instances}
     tool = GetDashboardByUID(toolset)
     upstream_error = "HTTP 503: Elasticsearch cluster unreachable"
-    tool._make_grafana_request = lambda instance, endpoint, params: StructuredToolResult(
+    tool._make_grafana_request = lambda endpoint, params: StructuredToolResult(
         status=StructuredToolResultStatus.ERROR,
         error=upstream_error,
         data={"status_code": 503, "body": "unreachable"},
@@ -110,14 +104,14 @@ def test_max_depth_zero_preserves_upstream_error():
 
 
 def test_max_depth_omitted_returns_full_data():
-    """Omitting max_depth must return the full, untouched payload (plus the Grafana UI URL)."""
+    """Omitting max_depth must return the full, untouched payload."""
     data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
     tool = _build_tool(data)
 
     result = tool._invoke({"uid": "abc"}, context=None)
 
     assert result.status is StructuredToolResultStatus.SUCCESS
-    assert result.data == {"grafana_url": "http://example.com/d/abc", **data}
+    assert result.data == data
 
 
 def test_max_depth_description_does_not_lure_zero():
