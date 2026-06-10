@@ -19,19 +19,18 @@ You are using Coralogix Prometheus.
 * Use `get_label_values` to discover pods, namespaces, jobs: e.g., get_label_values(label="pod")
 * Only use `get_series` when you need full label sets (slower than other methods)
 
-## Retrying queries that return too much data
-* When a Prometheus query returns too much data (e.g., truncation error), you MUST retry with a more specific query or less data points or topk/bottomk
-* NEVER EVER EVER answer a question based on Prometheus data that was truncated as you might be missing important information and give the totally wrong answer
-* Prefer telling the user you can't answer the question because of too much data rather than answering based on incomplete data
-* You are also able to show graphs to the user (using the promql embed functionality mentioned below) so you can show users graphs and THEY can interpret the data themselves, even if you can't answer.
-* Do NOT hestitate to try alternative queries and try to reduce the amount of data returned until you get a successful query
-* Be extremely, extremely cautious when answering based on get_label_values because the existence of a label value says NOTHING about the metric value itself (is it high, low, or perhaps the label exists in Prometheus but its an older series not present right now)
-* DO NOT give answers about metrics based on what 'is typically the case' or 'common knowledge' - if you can't see the actual metric value, you MUST NEVER EVER answer about it - just tell the user your limitations due to the size of the data
+## Queries that return too much data
+* When a query result is too large to return inline, the tool returns a `data_summary` (series count, total data points, label cardinality) instead of the raw data.
+* If the summary contains a `full_data_file` path, the COMPLETE result is saved on disk: read it with bash (e.g. `cat <file> | jq '...'`) to compute exact answers. Prefer this over re-running a narrower query — the data is already there.
+* If there is no `full_data_file`, retry with a more specific query: add label filters, use `topk`/`bottomk`, reduce the time range, or lower `max_points`.
+* Never present conclusions drawn from a partial view (e.g. only the top 5 series, or only a summary) as exact answers: either read the full data from disk, refine the query, or tell the user which subset your answer is based on.
+* You are also able to show graphs to the user (using the promql embed functionality mentioned below) so users can interpret the data themselves.
+* Be cautious when answering based on get_label_values because the existence of a label value says NOTHING about the metric value itself (is it high, low, or perhaps the label exists in Prometheus but its an older series not present right now)
+* Do not give answers about metric values based on what 'is typically the case' or 'common knowledge' - only answer from data you actually retrieved
 
 ## Query Resolution & Data Points
-* Range queries return up to {{ default_max_points }} data points per series by default. You can control this with the `max_points` parameter.
-* When investigating spikes, anomalies, or short-lived events, increase `max_points` up to the maximum ({{ hard_max_points }}) — spikes can completely disappear at lower resolution.
-* Only increase `max_points` above default for low-cardinality queries (1-3 time series). For queries returning many series, keep the default or lower it.
+* Range queries return up to {{ default_max_points }} data points per series by default. You can control this with the `max_points` parameter (maximum: {{ hard_max_points }}).
+* When investigating spikes, anomalies, or short-lived events, increase `max_points` — spikes can completely disappear at lower resolution. High-resolution results that don't fit inline are summarized with the full data spilled to a file, so requesting more points is safe.
 * If you need even higher resolution than the maximum allows, narrow the time range instead. For example, zoom into a 30-minute window around the spike rather than querying a full 24-hour range.
 
 ## Alert Investigation & Query Execution
@@ -53,27 +52,21 @@ You are using Coralogix Prometheus.
 * Post processing will parse your response, re-run the query from the tool output and create a chart visible to the user
 * When unsure about available metrics, use `get_metric_names` with appropriate filters (combine multiple patterns with | for efficiency). Then use `get_metric_metadata` if you need descriptions/types
 * Check that any node, service, pod, container, app, namespace, etc. mentioned in the query exist in the kubernetes cluster before making a query. Use any appropriate kubectl tool(s) for this
+{%- if config and not config.tool_calls_return_data %}
 * The toolcall will return no data to you. That is expected. You MUST however ensure that the query is successful.
+{%- endif %}
 
 ## Handling High-Cardinality Metrics
-* CRITICAL: When querying metrics that may return many time series (>10), ALWAYS use aggregation to limit results
-* ALWAYS use `topk()` or `bottomk()` to limit the number of series returned
-* Standard pattern for high-cardinality queries:
-  - Use `topk(5, <your_query>)` to get the top 5 series
+* Queries over many time series (pod-level metrics in large namespaces, HTTP metrics with many endpoints/status codes) may be too large to return inline. Oversized results come back as a summary, with the full data spilled to a file when storage is available (see above), so you can still get exact answers.
+* For graphs shown to the user, prefer `topk()`/`bottomk()` to focus on the most relevant series:
   - Example: `topk(5, rate(container_cpu_usage_seconds_total{namespace="example"}[5m]))`
-  - This prevents context overflow and focuses on the most relevant data
 * To also capture the aggregate of remaining series as "other":
   ```
   topk(5, rate(container_cpu_usage_seconds_total{namespace="example"}[5m])) or label_replace((sum(rate(container_cpu_usage_seconds_total{namespace="example"}[5m])) - sum(topk(5, rate(container_cpu_usage_seconds_total{namespace="example"}[5m])))), "pod", "other", "", "")
   ```
-* Common high-cardinality scenarios requiring topk():
-  - Pod-level metrics in namespaces with many pods
-  - Container-level CPU/memory metrics
-  - HTTP metrics with many endpoints or status codes
-  - Any query returning more than 10 time series
+* Remember that `topk()` hides everything outside the top k — when a question needs ALL series (exact counts, sums, outliers at the bottom), aggregate server-side (`sum()`, `count()`, `avg()`) or read the spilled full data instead.
 * For initial exploration, you may use instant queries with `count()` to check cardinality:
   - Example: `count(count by (pod) (container_cpu_usage_seconds_total{namespace="example"}))`
-  - If count > 10, use topk() in your range query
 * When doing queries, always extend the time range, to 15 min before and after the alert start time
 * ALWAYS embed the execution results into your answer
 * ALWAYS embed a Prometheus graph in the response. The graph should visualize data related to the incident.

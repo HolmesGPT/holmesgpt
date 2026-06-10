@@ -30,6 +30,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
+from holmes.core.tools_utils.filesystem_result_storage import save_large_result
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.core.tools_utils.tool_context_window_limiter import get_pct_token_count
 from holmes.plugins.prompts import load_and_render_prompt
@@ -847,6 +848,67 @@ def create_data_summary_for_large_result(
             "label_cardinality": label_summary,
             "suggestion": f'Consider using topk({min(5, num_items)}, {query}) to limit results. To also capture remaining data as \'other\': topk({min(5, num_items)}, {query}) or label_replace((sum({query}) - sum(topk({min(5, num_items)}, {query}))), "instance", "other", "", "")',
         }
+
+
+def summarize_large_query_result(
+    response_data: "MetricsBasedResponse",
+    result_data: Dict,
+    query: str,
+    token_count: int,
+    token_limit: int,
+    is_range_query: bool,
+    context: ToolInvokeContext,
+) -> None:
+    """Handle a query result too large to return inline.
+
+    Replaces the inline data with a cardinality summary and, when spill-to-disk
+    is available, saves the complete result to a file the LLM can read back
+    with bash (cat/jq). Without spill, the data is dropped and the summary's
+    suggestion (topk etc.) is the only recovery path.
+    """
+    response_data.data = None
+    response_data.data_summary = create_data_summary_for_large_result(
+        result_data, query, token_count, is_range_query=is_range_query
+    )
+
+    file_path = None
+    if context.tool_results_dir:
+        file_path = save_large_result(
+            tool_results_dir=context.tool_results_dir,
+            tool_name=context.tool_name,
+            tool_call_id=context.tool_call_id,
+            content=json.dumps(result_data, indent=2),
+            is_json=True,
+        )
+    if file_path:
+        response_data.data_summary["full_data_file"] = file_path
+        response_data.data_summary["how_to_read_full_data"] = (
+            f"The complete query result is saved to {file_path} "
+            f"(pre-approved to read, no user approval needed). "
+            f"Use bash to read or filter it, for example: "
+            f"`cat {file_path} | jq '.result[].metric'` or "
+            f"`cat {file_path} | jq '[.result[] | {{metric, last: .values[-1]}}]'`. "
+            f"Prefer reading this file over re-running a narrower query when you "
+            f"need exact or complete data."
+        )
+
+    query_type = "range" if is_range_query else "instant"
+    series_count = response_data.data_summary.get(
+        "series_count", response_data.data_summary.get("result_count", 0)
+    )
+    logging.info(
+        f"Prometheus {query_type} query returned large dataset: "
+        f"{series_count} series/results, {token_count:,} tokens (limit: {token_limit:,}). "
+        + (
+            f"Full data saved to {file_path}, returning summary with file pointer."
+            if file_path
+            else "Returning summary instead of full data."
+        )
+    )
+    # Also add token info to the summary for debugging
+    response_data.data_summary["_debug_info"] = (
+        f"Data size: {token_count:,} tokens exceeded limit of {token_limit:,} tokens"
+    )
 
 
 class MetricsBasedResponse(BaseModel):
@@ -1672,26 +1734,16 @@ class ExecuteInstantQuery(BasePrometheusTool):
                         if custom_token_limit < token_limit:
                             token_limit = custom_token_limit
 
-                    # Provide summary if data is too large
+                    # Provide summary (and spill full data to disk) if data is too large
                     if token_count > token_limit:
-                        response_data.data = None
-                        response_data.data_summary = (
-                            create_data_summary_for_large_result(
-                                result_data,
-                                query,
-                                token_count,
-                                is_range_query=False,
-                            )
-                        )
-                        logging.info(
-                            f"Prometheus instant query returned large dataset: "
-                            f"{response_data.data_summary.get('result_count', 0)} results, "
-                            f"{token_count:,} tokens (limit: {token_limit:,}). "
-                            f"Returning summary instead of full data."
-                        )
-                        # Also add token info to the summary for debugging
-                        response_data.data_summary["_debug_info"] = (
-                            f"Data size: {token_count:,} tokens exceeded limit of {token_limit:,} tokens"
+                        summarize_large_query_result(
+                            response_data=response_data,
+                            result_data=result_data,
+                            query=query,
+                            token_count=token_count,
+                            token_limit=token_limit,
+                            is_range_query=False,
+                            context=context,
                         )
                     else:
                         response_data.data = result_data
@@ -1932,23 +1984,16 @@ class ExecuteRangeQuery(BasePrometheusTool):
                         if custom_token_limit < token_limit:
                             token_limit = custom_token_limit
 
-                    # Provide summary if data is too large
+                    # Provide summary (and spill full data to disk) if data is too large
                     if token_count > token_limit:
-                        response_data.data = None
-                        response_data.data_summary = (
-                            create_data_summary_for_large_result(
-                                result_data, query, token_count, is_range_query=True
-                            )
-                        )
-                        logging.info(
-                            f"Prometheus range query returned large dataset: "
-                            f"{response_data.data_summary.get('series_count', 0)} series, "
-                            f"{token_count:,} tokens (limit: {token_limit:,}). "
-                            f"Returning summary instead of full data."
-                        )
-                        # Also add character info to the summary for debugging
-                        response_data.data_summary["_debug_info"] = (
-                            f"Data size: {token_count:,} tokens exceeded limit of {token_limit:,} tokens"
+                        summarize_large_query_result(
+                            response_data=response_data,
+                            result_data=result_data,
+                            query=query,
+                            token_count=token_count,
+                            token_limit=token_limit,
+                            is_range_query=True,
+                            context=context,
                         )
                     else:
                         response_data.data = result_data

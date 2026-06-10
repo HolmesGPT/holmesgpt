@@ -1,14 +1,18 @@
+import json
 import logging
 
 import pytest
 
 from holmes.plugins.toolsets.prometheus.prometheus import (
     AzurePrometheusConfig,
+    MetricsBasedResponse,
     PrometheusConfig,
     PrometheusToolset,
     adjust_step_for_max_points,
     get_config_field,
+    summarize_large_query_result,
 )
+from tests.conftest import create_mock_tool_invoke_context
 
 
 @pytest.mark.parametrize(
@@ -213,6 +217,98 @@ def clean_azure_env(monkeypatch):
     for name in AZURE_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
+
+
+class TestSummarizeLargeQueryResult:
+    """Large query results are summarized, and the full data is spilled to
+    disk when a tool_results_dir is available."""
+
+    @staticmethod
+    def _make_response_and_data():
+        response = MetricsBasedResponse(
+            status="success",
+            tool_name="execute_prometheus_range_query",
+            description="test",
+            query="rate(container_cpu_usage_seconds_total[5m])",
+        )
+        result_data = {
+            "resultType": "matrix",
+            "result": [
+                {
+                    "metric": {"pod": f"pod-{i}", "namespace": "default"},
+                    "values": [[1700000000 + j * 60, str(j)] for j in range(10)],
+                }
+                for i in range(20)
+            ],
+        }
+        return response, result_data
+
+    def test_spills_full_data_to_disk_when_available(self, tmp_path):
+        response, result_data = self._make_response_and_data()
+        context = create_mock_tool_invoke_context(
+            tool_name="execute_prometheus_range_query",
+            tool_results_dir=tmp_path,
+        )
+
+        summarize_large_query_result(
+            response_data=response,
+            result_data=result_data,
+            query=response.query,
+            token_count=100_000,
+            token_limit=25_000,
+            is_range_query=True,
+            context=context,
+        )
+
+        assert response.data is None
+        assert response.data_summary is not None
+        assert response.data_summary["series_count"] == 20
+        file_path = response.data_summary["full_data_file"]
+        assert "cat" in response.data_summary["how_to_read_full_data"]
+        with open(file_path) as f:
+            saved = json.load(f)
+        assert saved == result_data  # full data preserved on disk
+
+    def test_summary_only_when_spill_unavailable(self):
+        response, result_data = self._make_response_and_data()
+        context = create_mock_tool_invoke_context(
+            tool_name="execute_prometheus_range_query",
+        )
+
+        summarize_large_query_result(
+            response_data=response,
+            result_data=result_data,
+            query=response.query,
+            token_count=100_000,
+            token_limit=25_000,
+            is_range_query=True,
+            context=context,
+        )
+
+        assert response.data is None
+        assert response.data_summary is not None
+        assert "full_data_file" not in response.data_summary
+        assert "topk" in response.data_summary["suggestion"]
+
+    def test_instant_query_summary_with_spill(self, tmp_path):
+        response, result_data = self._make_response_and_data()
+        context = create_mock_tool_invoke_context(
+            tool_name="execute_prometheus_instant_query",
+            tool_results_dir=tmp_path,
+        )
+
+        summarize_large_query_result(
+            response_data=response,
+            result_data=result_data,
+            query=response.query,
+            token_count=100_000,
+            token_limit=25_000,
+            is_range_query=False,
+            context=context,
+        )
+
+        assert response.data_summary["result_count"] == 20
+        assert response.data_summary["full_data_file"]
 
 
 class TestGetConfigField:
