@@ -66,7 +66,7 @@ stringData:
     echo "$(date -u) INFO  [boot] checkout-api 3.8.2 starting"
     echo "$(date -u) INFO  [boot] loaded routes: /cart /checkout /quote /coupon"
     i=1
-    while [ $i -le 450 ]; do
+    while [ $i -le 700 ]; do
       echo "$(date -u) INFO  [http] 200 GET /cart/items session=s-$((i*13%9973)) $((i%37+4))ms"
       echo "$(date -u) INFO  [http] 200 POST /quote basket=b-$((i*7%4999)) items=$((i%9+1)) $((i%53+9))ms"
       i=$((i+1))
@@ -124,7 +124,7 @@ stringData:
     echo "$(date -u) INFO  [boot] payment-gateway 5.1.0 starting"
     echo "$(date -u) INFO  [boot] PCI mode strict, readiness gated on acquirer connectivity"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [http] 200 GET /api/v1/status probe=lb $((i%7+2))ms"
       echo "$(date -u) INFO  [queue] settlement backlog size=$((i%11))"
       if [ $((i % 60)) -eq 0 ]; then
@@ -135,7 +135,7 @@ stringData:
     c=0
     while true; do
       c=$((c+1))
-      echo "$(date -u) INFO  [http] 200 GET /api/v1/status probe=lb 3ms"
+      echo "$(date -u) INFO  [http] 200 GET /api/v1/status probe=lb $((c%7+2))ms"
       if [ $((c % 12)) -eq 0 ]; then
         echo "$(date -u) ERROR [acquirer-client] ERR-PAY-77b4ea TLS handshake with acquirer.bank-partners.net:443 failed: certificate has expired (retrying in 10s)"
       fi
@@ -194,7 +194,7 @@ stringData:
     echo "$(date -u) INFO  [boot] inventory-sync 2.3.7 starting"
     echo "$(date -u) INFO  [boot] source=wms-feed target=stock_levels interval=30s"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [sync] delta batch $((i)) applied rows=$((i*3%97+5)) $((i%61+11))ms"
       if [ $((i % 70)) -eq 0 ]; then
         echo "$(date -u) ERROR [db] ERR-INV-4e8d21 deadlock detected on table stock_levels - batch $((i)) ABANDONED after 3 retries, $((i%80+20)) stock level updates LOST"
@@ -204,7 +204,7 @@ stringData:
     c=0
     while true; do
       c=$((c+1))
-      echo "$(date -u) INFO  [sync] delta batch $((c+500)) applied rows=42 13ms"
+      echo "$(date -u) INFO  [sync] delta batch $((c+800)) applied rows=$((c*3%97+5)) $((c%61+11))ms"
       if [ $((c % 10)) -eq 0 ]; then
         echo "$(date -u) ERROR [db] ERR-INV-4e8d21 deadlock detected on table stock_levels - batch $((c+500)) ABANDONED after 3 retries, 47 stock level updates LOST"
       fi
@@ -286,15 +286,17 @@ stringData:
     #!/bin/sh
     echo "$(date -u) INFO  [boot] search-api 7.2.1 starting, 12 shards"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [http] 200 GET /search?q=q$((i*17%9931)) shard=$((i%12)) hits=$((i*3%211)) $((i%43+6))ms"
       if [ $((i % 90)) -eq 0 ]; then
         echo "$(date -u) WARN  [cache] query cache miss ratio 0.$((i%9+1))$((i%7)) above soft target (informational)"
       fi
       i=$((i+1))
     done
+    c=0
     while true; do
-      echo "$(date -u) INFO  [http] 200 GET /search?q=trending shard=4 hits=87 12ms"
+      c=$((c+1))
+      echo "$(date -u) INFO  [http] 200 GET /search?q=q$((c*17%9931)) shard=$((c%12)) hits=$((c*3%211)) $((c%43+6))ms"
       sleep 4
     done
 ---
@@ -341,12 +343,14 @@ stringData:
     #!/bin/sh
     echo "$(date -u) INFO  [boot] media-resizer 1.4.9 starting, workers=4"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [job] resized asset=img-$((i*29%99991)) profile=thumb$((i%3+1)) $((i%210+40))ms"
       i=$((i+1))
     done
+    c=0
     while true; do
-      echo "$(date -u) INFO  [job] resized asset=img-58812 profile=thumb2 95ms"
+      c=$((c+1))
+      echo "$(date -u) INFO  [job] resized asset=img-$((58000+c)) profile=thumb$((c%3+1)) $((c%210+40))ms"
       sleep 6
     done
 ---
@@ -393,12 +397,14 @@ stringData:
     #!/bin/sh
     echo "$(date -u) INFO  [boot] email-dispatcher 2.0.3 starting, smtp pool=8"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [send] msg=m-$((i*31%99989)) template=tpl-$((i%14)) accepted by relay in $((i%33+10))ms"
       i=$((i+1))
     done
+    c=0
     while true; do
-      echo "$(date -u) INFO  [send] msg=m-4123 template=tpl-3 accepted by relay in 18ms"
+      c=$((c+1))
+      echo "$(date -u) INFO  [send] msg=m-$((4000+c)) template=tpl-$((c%14)) accepted by relay in $((c%33+10))ms"
       sleep 5
     done
 ---
@@ -445,12 +451,14 @@ stringData:
     #!/bin/sh
     echo "$(date -u) INFO  [boot] geo-lookup 0.9.12 starting, dataset=2026-05"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [http] 200 GET /v1/locate ip=10.$((i%250)).$((i*7%250)).$((i*13%250)) cc=resolved $((i%9+1))ms"
       i=$((i+1))
     done
+    c=0
     while true; do
-      echo "$(date -u) INFO  [http] 200 GET /v1/locate ip=10.4.88.19 cc=resolved 2ms"
+      c=$((c+1))
+      echo "$(date -u) INFO  [http] 200 GET /v1/locate ip=10.$((c%250)).$((c*7%250)).$((c*13%250)) cc=resolved $((c%9+1))ms"
       sleep 5
     done
 ---
@@ -497,12 +505,14 @@ stringData:
     #!/bin/sh
     echo "$(date -u) INFO  [boot] session-gc 1.1.0 starting, sweep interval=15s"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [sweep] pass $((i)) expired=$((i*3%77)) retained=$((i*11%4000+200)) $((i%25+5))ms"
       i=$((i+1))
     done
+    c=0
     while true; do
-      echo "$(date -u) INFO  [sweep] pass complete expired=31 retained=2841 9ms"
+      c=$((c+1))
+      echo "$(date -u) INFO  [sweep] pass $((c+800)) expired=$((c*3%77)) retained=$((c*11%4000+200)) $((c%25+5))ms"
       sleep 5
     done
 ---
@@ -549,12 +559,14 @@ stringData:
     #!/bin/sh
     echo "$(date -u) INFO  [boot] audit-log 4.0.1 starting, sink=s3://corp-audit/2026"
     i=1
-    while [ $i -le 500 ]; do
+    while [ $i -le 800 ]; do
       echo "$(date -u) INFO  [ingest] event=evt-$((i*37%999983)) actor=u$((i*3%4200)) action=$((i%5)) persisted $((i%19+2))ms"
       i=$((i+1))
     done
+    c=0
     while true; do
-      echo "$(date -u) INFO  [ingest] event=evt-88211 actor=u1042 action=2 persisted 4ms"
+      c=$((c+1))
+      echo "$(date -u) INFO  [ingest] event=evt-$((c*37%999983)) actor=u$((c*3%4200)) action=$((c%5)) persisted $((c%19+2))ms"
       sleep 5
     done
 ---

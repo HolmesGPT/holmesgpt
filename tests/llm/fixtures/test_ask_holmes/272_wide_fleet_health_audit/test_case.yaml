@@ -13,7 +13,7 @@ tags:
   - logs
   - benchmark
 
-# 10 namespaces, one service each, ~1000 lines of noisy logs per service:
+# 10 namespaces, one service each, ~1600 lines of noisy logs per service:
 # - checkout-api: crashloops (redis unreachable, code in logs)
 # - payment-gateway: running but readiness failing (TLS error code in logs)
 # - inventory-sync: Running AND Ready but logs show DB deadlocks (code in logs)
@@ -114,7 +114,7 @@ before_test: |
 
   # Sanity: healthy services have substantial log volume
   LINES=$(kubectl logs -n app-272-search -l app=search-api --tail=-1 2>/dev/null | wc -l)
-  if [ "$LINES" -lt 400 ]; then
+  if [ "$LINES" -lt 700 ]; then
     echo "ERROR: search-api log volume too low ($LINES lines)"
     exit 1
   fi
