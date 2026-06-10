@@ -881,13 +881,21 @@ def summarize_large_query_result(
             is_json=True,
         )
     if file_path:
+        # Range results (matrix) have per-series "values"; instant results
+        # (vector) have a single "value".
+        if is_range_query:
+            value_example = f"`cat {file_path} | jq '[.result[] | {{metric, last: .values[-1]}}]'`"
+        else:
+            value_example = (
+                f"`cat {file_path} | jq '[.result[] | {{metric, value: .value}}]'`"
+            )
         response_data.data_summary["full_data_file"] = file_path
         response_data.data_summary["how_to_read_full_data"] = (
             f"The complete query result is saved to {file_path} "
             f"(pre-approved to read, no user approval needed). "
             f"Use bash to read or filter it, for example: "
             f"`cat {file_path} | jq '.result[].metric'` or "
-            f"`cat {file_path} | jq '[.result[] | {{metric, last: .values[-1]}}]'`. "
+            f"{value_example}. "
             f"Prefer reading this file over re-running a narrower query when you "
             f"need exact or complete data."
         )

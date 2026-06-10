@@ -307,8 +307,12 @@ class TestSummarizeLargeQueryResult:
             context=context,
         )
 
+        assert response.data is None
         assert response.data_summary["result_count"] == 20
         assert response.data_summary["full_data_file"]
+        # Instant (vector) results have a single "value" per series, not "values"
+        assert ".value" in response.data_summary["how_to_read_full_data"]
+        assert ".values[-1]" not in response.data_summary["how_to_read_full_data"]
 
 
 class TestGetConfigField:
