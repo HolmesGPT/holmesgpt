@@ -212,7 +212,22 @@ throttled.
   of approval and will run `run_kubectl_command` if called directly. The chart pins
   the image so the tool-name↔approval-list mapping can't silently drift; overriding
   the image tag re-opens that. The server-side backstop is the all-or-nothing
-  `allowArbitraryKubectlCommands` toggle.
+  `allowArbitraryKubectlCommands` toggle. Two operational caveats follow from this:
+  (1) the NetworkPolicy (§3.4) is what stops a non-HolmesGPT client from calling the
+  server directly — but it is **inert where the CNI doesn't enforce NetworkPolicy**,
+  in which case the approval boundary can be bypassed by anything that can reach the
+  pod; enforce a NetworkPolicy-capable CNI (or add host/firewall-level restrictions)
+  where this matters; (2) operators should monitor for direct calls to
+  `run_kubectl_command` that don't originate from HolmesGPT (see §6.6) as a
+  detection for both misconfiguration and bypass.
+- **Resource exhaustion from diagnostic pods.** The per-pod memory cap and 60s
+  timeout (§6.3, §3.2) bound a *single* `run_diagnostic_image` invocation, but the
+  server imposes no global concurrency or rate limit — an LLM (or a prompt-injected
+  one) could launch many diagnostic pods in parallel and pressure node resources.
+  Mitigations not yet implemented in the server: a server-side concurrency/rate cap
+  (or queue) on `run_diagnostic_image`, and a `ResourceQuota`/`LimitRange` on the
+  MCP server's namespace. Recommended for multi-tenant or resource-constrained
+  clusters.
 
 ### 6.5 Things that are correct by construction
 
@@ -220,6 +235,32 @@ throttled.
 - Prefix matching: `_path_is_under` uses `root.rstrip("/") + "/"`, so
   `/var/run/secrets-public` doesn't match `/var/run/secrets`.
 - Deny-wins-ties: hard-denied → configured-deny → allow, in that order.
+
+### 6.6 Audit logging — current state and recommendations
+
+For a tool that can mutate the cluster, an audit trail matters (incident
+investigation, compliance, anomaly detection). What exists today, and where the
+gaps are:
+
+- **MCP server logs (today):** the server logs every executed kubectl invocation
+  (`Executing kubectl with args: [...]`) and every refusal (denied path, blocked
+  flag, non-pre-approved command, non-allowlisted image) at `INFO`/`WARNING` via
+  `LOG_LEVEL`. So command invocation, the matched tool, target pod/namespace/path,
+  and policy/deny hits are captured **at the server**. Execution *outcome* is in the
+  tool result returned to HolmesGPT, not separately logged.
+- **HolmesGPT side (today):** approval decisions (who approved `run_kubectl_command`
+  and when) live in the HolmesGPT/Robusta interaction history, not in the MCP server.
+- **Kubernetes audit (today):** because every action goes through the
+  ServiceAccount, the cluster's own API audit log captures the authoritative record
+  of what hit the apiserver (verb, resource, user=the SA, timestamp), if cluster
+  audit logging is enabled.
+- **Gaps / recommendations:** the server does not forward its logs anywhere by
+  default and does not emit a single structured "actor + tool + target + approval +
+  outcome" audit event. For production: ship the MCP server's stdout to centralized
+  logging, enable Kubernetes API audit logging for the SA, retain per your
+  compliance window, and alert on anomalous patterns (bursts of
+  `run_diagnostic_image`, repeated policy-deny `WARNING`s, or any direct
+  `run_kubectl_command` not correlated with a HolmesGPT approval — see §6.4).
 
 ---
 
@@ -245,11 +286,30 @@ throttled.
 
 There are **no LLM evals specific to this toolset yet**. The regression eval suite
 doesn't exercise it (it's an opt-in addon, off by default, and not in the eval
-toolsets). See §9 of the review notes / the PR discussion for the plan: the three
-auto-approved tools are naturally eval-able (they don't prompt), while the gated
-`run_kubectl_command` needs either an auto-approve harness hook or a non-LLM test,
-because evals run non-interactively and a human-approval gate would block the
-mutation path.
+toolsets). The existing tests in §7 validate **authorization** (that approvals are
+required, that policy refuses the right things) — they do **not** validate **LLM
+behavior** (does the model pick the right tool, construct a safe command, reach for
+the no-approval tools before the gated one).
+
+**Plan / acceptance checklist** (tracked separately — not blocking this PR):
+
+1. **Auto-approved tools first** (no harness change needed; they don't prompt):
+   - [ ] `read_file_from_container`: model reads a named file and reports a unique
+     injected value (hallucination-proof), and is refused on a secret/`/proc` path.
+   - [ ] `run_preapproved_kubectl_command`: model runs `ps`/`df`-style diagnostics
+     and reports a discoverable fact; non-allowlisted command is refused.
+   - [ ] `run_diagnostic_image`: model launches `nicolaka/netshoot` to probe
+     DNS/HTTP and reports the result; non-allowlisted image is refused.
+   - [ ] Tool-selection: model uses the **built-in** k8s tools for `get`/`describe`/
+     `logs`, not this server.
+2. **Gated `run_kubectl_command`** (needs a harness enhancement to auto-approve a
+   named tool non-interactively so the mutation path can run in CI):
+   - [ ] Model reaches for a pre-approved tool first and only falls back to
+     `run_kubectl_command` when necessary.
+   - [ ] With auto-approval enabled in the harness, a `rollout restart` / `scale`
+     actually mutates and the model verifies the result.
+3. **Harness work:** add an eval-only "auto-approve these tool names" hook (or a
+   non-LLM integration test that drives the MCP server directly) so #2 is runnable.
 
 ## 9. Backwards compatibility
 
