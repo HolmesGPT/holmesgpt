@@ -406,6 +406,24 @@ def test_ask_holmes(
             f"incomplete.\nActual: {replay_output[:500]}"
         )
 
+        # Discovery-kind evals: the captured skill encodes facts (e.g. an
+        # index schema) that should make specific exploration calls
+        # unnecessary on replay. If the agent still made them, the skill
+        # content didn't actually obviate the rediscovery it was saved for.
+        forbidden = getattr(test_case, "replay_forbidden_tools", None) or []
+        if forbidden:
+            replay_tool_names = [
+                getattr(tc, "tool_name", "?") for tc in replay_tool_calls
+            ]
+            violations = [t for t in replay_tool_names if t in forbidden]
+            assert not violations, (
+                f"Test {test_case.id} replay: the agent called "
+                f"{violations} even though the captured skill should have "
+                f"made those calls unnecessary. Either the skill content "
+                f"is missing the facts, or the agent didn't trust it. "
+                f"Replay tool calls: {replay_tool_names}"
+            )
+
 
 # TODO: can this call real ask_holmes so more of the logic is captured
 def ask_holmes(

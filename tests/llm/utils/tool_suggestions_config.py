@@ -20,54 +20,63 @@ SUGGEST_RUNBOOKS_TOOL_NAME = "suggest_runbooks"
 
 # Description shown to the LLM as the tool's description.
 #
-# Purpose — narrow: capture ONLY tool-call access-pattern corrections.
+# Purpose: capture env-specific knowledge that lets a FUTURE investigation
+# in this environment skip tool calls. Two kinds qualify:
 #
-# The LLM already knows generic debugging methodology, the standard kubectl
-# verbs, "check pod status first", etc. Suggesting that back to itself is
-# noise. The durable, model-doesn't-know-this thing is: in THIS environment,
-# the LLM tried a tool call with parameters that were wrong (empty result,
-# error, irrelevant data), and only succeeded after adjusting params in a
-# way that an LLM with no exposure to this environment would not have
-# guessed. That correction — the environment-specific call shape — is the
-# only thing worth saving so the next investigation skips the failed
-# attempt and goes straight to the working call.
+# - "correction": the LLM tried a tool call with parameters a fresh LLM
+#   would default to, got the wrong answer (empty/error/irrelevant), and
+#   succeeded only after adjusting parameters in an env-specific way.
+#   Saving the wrong→right pair lets the next run skip the failed attempt.
 #
-# If the investigation succeeded on the first try, or if the correction was
-# a generic mistake any LLM would self-correct (e.g. a typo, forgetting a
-# flag documented in --help), there is nothing to save: emit ZERO suggestions.
+# - "discovery": the LLM had to spend exploratory calls (inspect a mapping,
+#   list labels/metrics/indices, sample documents) to learn STABLE facts
+#   about this environment before it could issue the real query — even
+#   though nothing failed. Saving the facts + resulting call shape lets the
+#   next run skip the exploration entirely. This is the "Holmes re-learns
+#   the schema from scratch in every chat" cost the mechanism exists to
+#   eliminate.
+#
+# What is NOT worth saving: generic methodology the model already knows,
+# generic mistakes any LLM self-corrects, transient incident facts, and
+# anything derivable from the user's question or training data.
 SUGGEST_RUNBOOKS_TOOL_DESCRIPTION = (
-    "Call this tool ONLY if, during this investigation, you called a tool "
-    "with the wrong parameters (empty result, error, or irrelevant data), "
-    "and then succeeded by calling the same tool (or a sibling tool) with "
-    "different parameters that required environment-specific knowledge — "
-    "knowledge a fresh LLM would NOT have guessed without trying the wrong "
-    "way first.\n\n"
-    "Each suggestion captures one such correction so the NEXT investigation "
-    "skips the failed attempt and goes straight to the call shape that "
-    "works in this environment.\n\n"
-    "Do NOT call this tool — emit zero suggestions — when:\n"
-    "  - All your tool calls succeeded on the first try (nothing to learn).\n"
-    "  - The correction was a generic mistake any LLM would self-correct "
-    "(typo, missing `-n <namespace>`, forgetting `--previous` for a crashed "
-    "container — these are in the model's training data already).\n"
-    "  - You want to record the ROOT CAUSE you found (that's transient — "
-    "once fixed it's gone; we are not saving conclusions).\n"
-    "  - You want to record generic methodology like \"first check pods, "
-    "then logs\" — the model already knows this.\n"
-    "  - You want to record an alert/symptom→cause mapping.\n\n"
-    "DO call this tool when the correction was something like:\n"
-    "  - The label/selector used to identify this team's apps is non-standard "
-    "(e.g. `service.team/component=checkout` instead of `app=checkout`) — "
-    "first PromQL/log query returned empty, second with the right label "
-    "worked.\n"
-    "  - The metric/log/trace this service emits is on a non-default path, "
-    "port, index, or stream — first query hit the wrong location.\n"
-    "  - A custom annotation, CRD field, or dashboard UID is the only way "
-    "to find a piece of data in this environment.\n"
-    "  - A specific tool needs a specific filter to return relevant data here "
-    "(unfiltered call returned huge/irrelevant data; filtered call worked).\n\n"
-    "Before suggesting, review the skills already fetched from the catalog "
-    "this turn. Do NOT propose a skill that duplicates one already captured.\n\n"
+    "Call this tool to save environment-specific knowledge you gained "
+    "during this investigation that would let a FUTURE investigation in "
+    "this environment skip tool calls. Each suggestion is one entry; "
+    "declare its `kind`:\n\n"
+    "kind=\"correction\" — you called a tool with parameters a fresh LLM "
+    "would default to, got an empty result / error / irrelevant data, and "
+    "succeeded only after changing a parameter in a way that required "
+    "environment-specific knowledge (custom label scheme, renamed metric, "
+    "non-standard field name, alias-only index, custom CRD...). Capture "
+    "the failed call shape AND the working call shape.\n\n"
+    "kind=\"discovery\" — nothing failed, but you had to spend exploratory "
+    "tool calls (inspecting a schema/mapping, listing labels, metrics, "
+    "indices or streams, sampling documents) to learn STABLE facts about "
+    "this environment before you could issue the real query. Capture the "
+    "facts and the direct call shape they enable, so the next "
+    "investigation queries immediately instead of re-exploring. Set "
+    "failed_call to the empty string \"\" for this kind.\n\n"
+    "Do NOT call this tool — emit zero suggestions — for:\n"
+    "  - Generic mistakes any LLM would self-correct (typo, missing "
+    "`-n <namespace>`, forgetting `--previous` — already in training "
+    "data).\n"
+    "  - Facts derivable from the user's question, from tool descriptions, "
+    "or from general training data.\n"
+    "  - Transient values: current counts, statuses, the ROOT CAUSE of "
+    "this incident (once fixed it's gone — we save how to FIND things, "
+    "not what was wrong today).\n"
+    "  - Routine Kubernetes resource enumeration (listing/describing "
+    "pods, namespaces, configmaps, PVCs...). Resource state is transient "
+    "inventory, not schema — do NOT save it as a discovery. Only save a "
+    "Kubernetes lesson when it's a stable CONVENTION (a custom label "
+    "scheme, CRD, or annotation that is the only way to find something "
+    "here).\n"
+    "  - Generic methodology (\"check pods first\", \"inspect the mapping "
+    "when a query returns empty\") — the act of exploring is generic; "
+    "only the FACT discovered is env-specific and worth saving.\n"
+    "  - Alert/symptom→cause mappings.\n"
+    "  - Knowledge that duplicates a skill you already fetched this turn.\n\n"
     "CRITICAL: This tool is silent. The user sees suggestions as UI chips they "
     "can accept or ignore. Never say \"I'll remember\", \"noted\", \"saved\", "
     "or acknowledge this tool in any way — even if the user explicitly asks "
@@ -98,6 +107,20 @@ SUGGEST_RUNBOOKS_TOOL_PARAMETERS: Dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["correction", "discovery"],
+                        "description": (
+                            "correction = a wrong→right tool-call pair: the "
+                            "default call failed/returned nothing and an "
+                            "env-specific parameter change made it work. "
+                            "discovery = stable environment facts (schema, "
+                            "field names, label sets, index layout) learned "
+                            "through exploratory calls that succeeded — "
+                            "saving them lets the next investigation skip "
+                            "the exploration and query directly."
+                        ),
+                    },
                     "skill_domain": {
                         "type": "string",
                         "description": (
@@ -142,25 +165,34 @@ SUGGEST_RUNBOOKS_TOOL_PARAMETERS: Dict[str, Any] = {
                     "failed_call": {
                         "type": "string",
                         "description": (
-                            "Concrete shape of the call you tried that did "
-                            "NOT work, with the exact parameter that was "
-                            'wrong (e.g. "PromQL: sum(rate(http_requests_'
-                            'total{app=\\"checkout\\"}[5m])) — returned empty '
-                            'because the label is service.team/component, '
-                            'not app"). Omit incident-specific values; keep '
-                            "the call-shape and the wrong parameter name."
+                            "For kind=correction: concrete shape of the call "
+                            "you tried that did NOT work, with the exact "
+                            "parameter that was wrong (e.g. \"PromQL: "
+                            'sum(rate(http_requests_total{app=\\"checkout\\"}'
+                            "[5m])) — returned empty because the label is "
+                            'service.team/component, not app"). Omit '
+                            "incident-specific values; keep the call-shape "
+                            "and the wrong parameter name. "
+                            "For kind=discovery: pass the empty string \"\"."
                         ),
                     },
                     "working_call": {
                         "type": "string",
                         "description": (
-                            "Concrete shape of the call that DID work, with "
-                            "the env-specific parameter that made it work "
-                            "(e.g. \"PromQL: sum(rate(http_requests_total"
-                            "{service.team/component=\\\"checkout\\\"}[5m]))"
-                            " — use service.team/component label\"). This "
-                            "is the durable lesson: the call shape a future "
-                            "investigation should reach for first."
+                            "For kind=correction: concrete shape of the call "
+                            "that DID work, with the env-specific parameter "
+                            "that made it work (e.g. \"PromQL: sum(rate("
+                            "http_requests_total{service.team/component="
+                            "\\\"checkout\\\"}[5m])) — use service.team/"
+                            "component label\"). "
+                            "For kind=discovery: the discovered environment "
+                            "facts PLUS the direct call shape they enable "
+                            "(e.g. \"Index app-x-logs-* fields: lvl(keyword: "
+                            "ERROR/WARN/INFO), txt(text), app(keyword), "
+                            "ts(date). Query levels with term lvl=<LEVEL>; "
+                            "no mapping inspection needed\"). This is the "
+                            "durable lesson: what a future investigation "
+                            "should reach for first."
                         ),
                     },
                     "why_env_specific": {
@@ -187,6 +219,7 @@ SUGGEST_RUNBOOKS_TOOL_PARAMETERS: Dict[str, Any] = {
                     },
                 },
                 "required": [
+                    "kind",
                     "skill_domain",
                     "title",
                     "when_to_use",
@@ -211,12 +244,22 @@ SUGGEST_RUNBOOKS_TOOL_PARAMETERS: Dict[str, Any] = {
 SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
     f"GOAL of the {SUGGEST_RUNBOOKS_TOOL_NAME} tool — speed up FUTURE "
     f"investigations in THIS environment. Future-you (or another LLM) will "
-    f"face the same kind of question; if during this investigation you "
-    f"called a tool the way a fresh LLM would default to, got the wrong "
-    f"answer or an empty result, and only succeeded after discovering an "
-    f"env-specific call shape, capture that correction so the next run "
-    f"skips the failed attempt.\n\n"
-    f"CAPTURE the correction when you encounter patterns like:\n"
+    f"face the same kind of question against the same data sources. Two "
+    f"kinds of knowledge gained this turn are worth saving:\n"
+    f"1. kind=correction — you called a tool the way a fresh LLM would "
+    f"default to, got the wrong answer or an empty result, and only "
+    f"succeeded after discovering an env-specific call shape. Capture the "
+    f"wrong→right pair so the next run skips the failed attempt.\n"
+    f"2. kind=discovery — nothing failed, but you spent exploratory calls "
+    f"(inspecting schemas/mappings, listing labels, metrics, indices or "
+    f"streams, sampling documents) to learn STABLE environment facts "
+    f"before you could issue the real query. Capture the facts and the "
+    f"direct call shape they enable so the next run queries immediately "
+    f"instead of re-exploring. Ask yourself at the end of any "
+    f"investigation that touched a data source: \"which of my tool calls "
+    f"would I repeat verbatim next time just to re-learn what I now "
+    f"know?\" — those calls' findings are the discovery to save.\n\n"
+    f"CAPTURE a correction when you encounter patterns like:\n"
     f"- Non-standard label / selector schemes — e.g. apps identified by "
     f"`service.team/component=X` or a custom team prefix rather than the "
     f"conventional `app=X`. You tried `app=X`, got empty, listed labels, "
@@ -239,11 +282,30 @@ SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
     f"`apps.platform.io/App` and you only find them via `kubectl get apps`.\n"
     f"- Tool routing quirks specific to this stack — API base URL, "
     f"required filters/routing keys, version of the wire format, etc.\n\n"
+    f"CAPTURE a discovery when you encounter patterns like:\n"
+    f"- You inspected an index/table schema or mapping to learn its field "
+    f"names and types before querying — save the schema summary and the "
+    f"resulting query shape (kind=discovery, failed_call=\"\").\n"
+    f"- You listed label names/values, metric names, index names, or log "
+    f"streams to find out what exists here before the real query — save "
+    f"the inventory facts you actually used.\n"
+    f"- You sampled a document/series/row to learn the data shape (value "
+    f"conventions, units, enum values) before filtering on it.\n"
+    f"Do NOT capture the exploration METHOD (everyone knows to inspect a "
+    f"mapping) — capture the env-specific FACTS it returned, stated so a "
+    f"future run can query directly without repeating the exploration. "
+    f"And do NOT capture transient inventory as discovery: listing pods, "
+    f"namespaces, configmaps or other Kubernetes resources is routine "
+    f"state inspection, not schema — those facts change daily and saving "
+    f"them would mislead future runs. The line: schemas, field names, "
+    f"label/metric naming conventions, and addressing rules are stable "
+    f"and capturable; resource state and counts are not.\n\n"
     f"For each capture, the `failed_call` and `working_call` fields should "
     f"contain the CONCRETE call shape (tool name + the parameter that was "
-    f"wrong vs the parameter that worked). Things you did NOT know before "
-    f"this investigation began — write them down so you don't have to "
-    f"rediscover them.\n\n"
+    f"wrong vs the parameter that worked; for discoveries, working_call = "
+    f"the facts + direct call shape, failed_call = \"\"). Things you did "
+    f"NOT know before this investigation began — write them down so you "
+    f"don't have to rediscover them.\n\n"
     f"CONSOLIDATION — quirks group by data source, not one skill per "
     f"quirk. Every suggestion you emit must include a `skill_domain` "
     f"field naming the underlying tool family (e.g. `elasticsearch`, "
@@ -271,26 +333,29 @@ SUGGEST_RUNBOOKS_SYSTEM_PROMPT = (
     f"- Root-cause conclusions from THIS incident — they're transient; "
     f"once fixed they don't recur. We capture how to FIND things, not "
     f"what was wrong this time.\n"
-    f"- Investigations that succeeded on the first try with default "
-    f"parameters — there was no correction to teach.\n\n"
+    f"- Investigations that answered directly with default parameters and "
+    f"no exploration — nothing was learned about this environment.\n\n"
     f"WORKFLOW — when you have gathered enough information to answer "
     f"the user, follow this order:\n"
-    f"  STEP 1. Scan your tool-call history this turn. Did any call "
-    f"return empty / wrong / irrelevant data, followed by a successful "
-    f"call with DIFFERENT parameters (different label name, different "
-    f"field name, different metric prefix, different index/alias, "
-    f"different path, etc.)? AND was the difference env-specific (a "
-    f"custom convention, prefix, schema, or routing this team uses "
-    f"that a fresh LLM would not have known)?\n"
-    f"  STEP 2. If yes — invoke {SUGGEST_RUNBOOKS_TOOL_NAME} NOW, BEFORE "
-    f"writing your final answer. The call must include the failed_call "
-    f"shape, the working_call shape, and a one-line why_env_specific. "
-    f"The tool returns silently — no data, no acknowledgement.\n"
+    f"  STEP 1. Scan your tool-call history this turn for BOTH kinds:\n"
+    f"  (a) corrections — did any call return empty / wrong / irrelevant "
+    f"data, followed by a successful call with DIFFERENT parameters "
+    f"(different label name, field name, metric prefix, index/alias, "
+    f"path, etc.), where the difference was env-specific (a custom "
+    f"convention this team uses that a fresh LLM would not have known)?\n"
+    f"  (b) discoveries — did you spend exploratory calls (mapping/schema "
+    f"inspection, label/metric/index listing, document sampling) to learn "
+    f"stable env facts a future run would otherwise have to re-learn "
+    f"before querying?\n"
+    f"  STEP 2. If either — invoke {SUGGEST_RUNBOOKS_TOOL_NAME} NOW, "
+    f"BEFORE writing your final answer, with one suggestion per lesson "
+    f"and the right `kind` on each. The tool returns silently — no data, "
+    f"no acknowledgement.\n"
     f"  STEP 3. THEN, in your next assistant message, write your final "
     f"answer text to the user. The tool call from STEP 2 is invisible "
     f"to the user; only your STEP 3 answer text is what they see.\n"
-    f"Skipping STEP 2 when a real correction happened is a defect. "
-    f"Mentioning the correction in your STEP 3 prose is NOT a "
+    f"Skipping STEP 2 when a real correction or discovery happened is a "
+    f"defect. Mentioning the lesson in your STEP 3 prose is NOT a "
     f"substitute for emitting the tool call — the prose is read by the "
     f"current user, the tool call surfaces a save-able skill chip for "
     f"future investigations.\n\n"
@@ -412,14 +477,26 @@ def _parse_quirks_from_skill_md(skill_md_path: str) -> List[Dict[str, Any]]:
                 return ""
             return mm.group(1).strip().lstrip("-").strip()
 
+        failed_call = _extract("Failed call shape (avoid)")
+        # working_call lives under different labels per kind.
+        working_call = _extract("Working call shape") or _extract(
+            "Environment facts and call shape"
+        )
+        importance = _extract("Importance").lower() or "medium"
+        if importance not in ("low", "medium", "high"):
+            importance = "medium"
+
         quirks.append(
             {
+                # Kind round-trips structurally: correction entries have a
+                # failed-call section, discovery entries don't.
+                "kind": "correction" if failed_call else "discovery",
                 "title": title,
                 "when_to_use": _extract("When to use"),
-                "failed_call": _extract("Failed call shape (avoid)"),
-                "working_call": _extract("Working call shape"),
+                "failed_call": failed_call,
+                "working_call": working_call,
                 "why_env_specific": _extract("Why this is env-specific"),
-                "importance": "medium",
+                "importance": importance,
             }
         )
     return quirks
@@ -527,19 +604,38 @@ def write_memories_as_skill_files(
             f"# Known quirks for querying {domain}",
             "",
             (
-                "This skill collects every env-specific correction this "
-                f"team's investigations have discovered for {domain}. "
-                "Each entry lists the wrong call shape (the default a "
-                "fresh agent would try), the working shape, and why the "
-                "correction is non-obvious. Scan the entries below and "
-                "use the relevant one when you issue your query."
+                "This skill collects the env-specific lessons this team's "
+                f"investigations have learned about {domain}. Correction "
+                "entries list a wrong call shape (the default a fresh "
+                "agent would try) and the working shape; discovery "
+                "entries list stable environment facts (schemas, field "
+                "names, label sets) and the direct call shape they "
+                "enable."
+            ),
+            "",
+            (
+                "DIRECTIVE — these entries are VERIFIED FACTS about this "
+                "environment, captured from real tool results in earlier "
+                "investigations. They are not examples. Treat them as "
+                "current: issue your query directly using them, and do "
+                "NOT re-run schema/mapping inspection, label listing, or "
+                "sampling to confirm what an entry already tells you. "
+                "Re-verify only if a query built on an entry returns an "
+                "error or an implausibly empty result."
             ),
             "",
         ]
 
         for entry_idx, mem in enumerate(merged_quirks, start=1):
-            title = str(mem.get("title") or f"quirk-{entry_idx}")
+            # Titles become `## N. <title>` headings; collapse any
+            # newlines the LLM emitted so the heading (and the parse
+            # round-trip that splits on headings) stays intact.
+            title = " ".join(
+                str(mem.get("title") or f"quirk-{entry_idx}").split()
+            )
             when_to_use = str(mem.get("when_to_use") or "").strip()
+            failed_call = str(mem.get("failed_call") or "").strip()
+            importance = str(mem.get("importance") or "medium").strip()
             body_parts += [
                 "---",
                 "",
@@ -547,17 +643,33 @@ def write_memories_as_skill_files(
                 "",
                 f"**When to use:** {when_to_use}" if when_to_use else "",
                 "",
-                "**Failed call shape (avoid):**",
-                "",
-                str(mem.get("failed_call") or "").strip(),
-                "",
-                "**Working call shape:**",
-                "",
-                str(mem.get("working_call") or "").strip(),
-                "",
+            ]
+            # Correction entries carry the wrong→right pair; discovery
+            # entries have no failed call — just the facts + call shape.
+            if failed_call:
+                body_parts += [
+                    "**Failed call shape (avoid):**",
+                    "",
+                    failed_call,
+                    "",
+                    "**Working call shape:**",
+                    "",
+                    str(mem.get("working_call") or "").strip(),
+                    "",
+                ]
+            else:
+                body_parts += [
+                    "**Environment facts and call shape:**",
+                    "",
+                    str(mem.get("working_call") or "").strip(),
+                    "",
+                ]
+            body_parts += [
                 "**Why this is env-specific:**",
                 "",
                 str(mem.get("why_env_specific") or "").strip(),
+                "",
+                f"**Importance:** {importance}",
                 "",
             ]
 

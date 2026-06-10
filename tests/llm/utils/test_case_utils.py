@@ -194,6 +194,12 @@ class HolmesTestCase(BaseModel):
     # still scored on correctness; only the skill-load assertion is
     # relaxed.
     require_skill_load_on_replay: bool = True
+    # Tool names that must NOT appear in the replay's tool calls. Used by
+    # discovery-kind evals to assert the captured skill actually obviated
+    # the exploration it encodes (e.g. with the index schema saved in the
+    # skill, the replay must not call elasticsearch_mappings again).
+    # None/empty disables the check.
+    replay_forbidden_tools: Optional[List[str]] = None
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):

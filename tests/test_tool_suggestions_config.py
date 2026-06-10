@@ -234,6 +234,123 @@ def test_write_memories_dedupes_existing_quirks(tmp_path):
     assert len(parsed) == 1, f"expected 1 unique quirk, got {len(parsed)}"
 
 
+def test_write_memories_discovery_kind_renders_facts_section(tmp_path):
+    """Discovery entries (no failed call) render an environment-facts
+    section instead of the wrong→right pair, and round-trip through the
+    parser with kind and importance preserved.
+    """
+    import os
+    from tests.llm.utils.tool_suggestions_config import (
+        write_memories_as_skill_files,
+        _parse_quirks_from_skill_md,
+    )
+
+    memories = [
+        {
+            "kind": "discovery",
+            "skill_domain": "elasticsearch",
+            "title": "app-z events schema: lvl/txt/app/ts",
+            "when_to_use": "Any query against app-z-events-* indices",
+            "failed_call": "",
+            "working_call": (
+                "Fields: lvl(keyword: ERROR/WARN/INFO), txt(text), "
+                "app(keyword), ts(date). Filter levels with term lvl=<LEVEL>; "
+                "no mapping inspection needed."
+            ),
+            "why_env_specific": "Compact custom field names, not ECS.",
+            "importance": "high",
+        }
+    ]
+    written = write_memories_as_skill_files(memories, str(tmp_path))
+    assert len(written) == 1
+    skill_md_path = os.path.join(written[0], "SKILL.md")
+    content = open(skill_md_path).read()
+
+    assert "**Environment facts and call shape:**" in content
+    assert "**Failed call shape (avoid):**" not in content
+    assert "**Importance:** high" in content
+
+    parsed = _parse_quirks_from_skill_md(skill_md_path)
+    assert len(parsed) == 1
+    assert parsed[0]["kind"] == "discovery"
+    assert parsed[0]["importance"] == "high"
+    assert "term lvl=<LEVEL>" in parsed[0]["working_call"]
+
+
+def test_write_memories_mixed_kinds_merge_and_roundtrip(tmp_path):
+    """A correction and a discovery in the same domain consolidate into one
+    skill; a later write merges without losing either entry's kind.
+    """
+    import os
+    from tests.llm.utils.tool_suggestions_config import (
+        write_memories_as_skill_files,
+        _parse_quirks_from_skill_md,
+    )
+
+    correction = {
+        "kind": "correction",
+        "skill_domain": "elasticsearch",
+        "title": "app-A uses 'severity' not 'level'",
+        "when_to_use": "Level queries on app-A",
+        "failed_call": "term level=ERROR",
+        "working_call": "term severity=ERROR",
+        "why_env_specific": "Custom schema.",
+        "importance": "medium",
+    }
+    discovery = {
+        "kind": "discovery",
+        "skill_domain": "elasticsearch",
+        "title": "app-B events schema",
+        "when_to_use": "Any app-B query",
+        "failed_call": "",
+        "working_call": "Fields: lvl(keyword), txt(text). term lvl=<LEVEL>.",
+        "why_env_specific": "Compact field names.",
+        "importance": "high",
+    }
+
+    written1 = write_memories_as_skill_files([correction], str(tmp_path))
+    written2 = write_memories_as_skill_files([discovery], str(tmp_path))
+    assert written1 == written2  # merged into the same domain skill
+
+    parsed = _parse_quirks_from_skill_md(
+        os.path.join(written1[0], "SKILL.md")
+    )
+    kinds = {q["title"]: q["kind"] for q in parsed}
+    assert kinds["app-A uses 'severity' not 'level'"] == "correction"
+    assert kinds["app-B events schema"] == "discovery"
+    # Correction entry kept its failed call through the merge rewrite.
+    correction_entry = next(q for q in parsed if q["kind"] == "correction")
+    assert "term level=ERROR" in correction_entry["failed_call"]
+
+
+def test_write_memories_sanitizes_multiline_titles(tmp_path):
+    """A title containing newlines must not break the `## N. title` heading
+    (and therefore the merge parser's entry splitting)."""
+    import os
+    from tests.llm.utils.tool_suggestions_config import (
+        write_memories_as_skill_files,
+        _parse_quirks_from_skill_md,
+    )
+
+    mem = [{
+        "kind": "correction",
+        "skill_domain": "loki",
+        "title": "Streams use\nacme_service label",
+        "when_to_use": "x",
+        "failed_call": "{service='checkout'}",
+        "working_call": "{acme_service='checkout'}",
+        "why_env_specific": "y",
+        "importance": "low",
+    }]
+    written = write_memories_as_skill_files(mem, str(tmp_path))
+    parsed = _parse_quirks_from_skill_md(
+        os.path.join(written[0], "SKILL.md")
+    )
+    assert len(parsed) == 1
+    assert parsed[0]["title"] == "Streams use acme_service label"
+    assert parsed[0]["importance"] == "low"
+
+
 def test_extract_suggested_memories_ignores_other_tools():
     other = _make_tool_call("kubectl_get", {"resource": "pods"})
     assert extract_suggested_memories([other]) == []
