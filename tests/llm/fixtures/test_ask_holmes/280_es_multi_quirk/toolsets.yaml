@@ -1,5 +1,3 @@
-# Shared Elasticsearch toolset configuration for eval tests
-# Copy this content to test toolsets.yaml files
 toolsets:
   elasticsearch/data:
     enabled: true

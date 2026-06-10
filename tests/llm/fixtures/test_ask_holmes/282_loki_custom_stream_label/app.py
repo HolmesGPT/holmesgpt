@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Log producer for the 263_loki_custom_stream_label eval.
+"""Log producer for the 282_loki_custom_stream_label eval.
 
 Writes a fixed-size set of JSON log lines to /var/log/checkout.log so the
 sidecar Promtail can ingest them into Loki under the `acme_service`

@@ -122,11 +122,12 @@ def write_suggestions_as_skill_files(
         skill_dir = os.path.join(target_dir, f"{idx:02d}-{slug}")
         os.makedirs(skill_dir, exist_ok=True)
 
-        # YAML frontmatter must escape embedded single quotes and newlines.
+        # YAML frontmatter must escape embedded single quotes and newlines;
+        # the name is quoted so numeric/boolean-looking slugs stay strings.
         safe_description = symptoms.replace("'", "''").replace("\n", " ")
         frontmatter = (
             "---\n"
-            f"name: {slug}\n"
+            f"name: '{slug}'\n"
             f"description: '{safe_description}'\n"
             "---\n"
         )

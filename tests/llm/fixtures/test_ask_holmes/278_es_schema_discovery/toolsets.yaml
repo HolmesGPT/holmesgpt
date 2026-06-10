@@ -1,4 +1,3 @@
-# Shared Elasticsearch toolset configuration for eval tests
 toolsets:
   elasticsearch/data:
     enabled: true

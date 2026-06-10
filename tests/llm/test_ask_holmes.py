@@ -22,6 +22,7 @@ from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
 from tests.llm.utils.braintrust import log_to_braintrust
+from tests.llm.utils.classifiers import evaluate_correctness
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
 from tests.llm.utils.denied_commands import extract_denied_commands
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
@@ -43,6 +44,7 @@ from tests.llm.utils.skill_suggestions import (
 from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.test_case_utils import (
     AskHolmesTestCase,
+    Evaluation,
     check_and_skip_test,
     create_eval_llm,
     get_models,
@@ -170,6 +172,22 @@ def test_ask_holmes(
         else None,
     )
 
+    # Hard yes/no skill-suggestion count check. Content quality is scored by
+    # the LLM judge via update_test_results above (the judge sees the emitted
+    # suggestions and the eval's expected_output together). The correctness
+    # score is reset to 0 BEFORE the Braintrust logging below and before the
+    # assertions fire, so both Braintrust and the GitHub markdown report
+    # reflect the failure even though the judge already wrote a 1.
+    memory_check_failed = False
+    if test_case.memories_generated is not None:
+        actual_memories = len(suggested_memories)
+        memory_check_failed = (
+            test_case.memories_generated and actual_memories < 1
+        ) or (not test_case.memories_generated and actual_memories != 0)
+        if memory_check_failed:
+            update_property(request, "actual_correctness_score", 0)
+            scores["correctness"] = 0
+
     if eval_span:
         log_to_braintrust(
             eval_span=eval_span,
@@ -178,6 +196,21 @@ def test_ask_holmes(
             result=result,
             scores=scores,
             suggested_memories=suggested_memories,
+        )
+
+    if memory_check_failed:
+        if test_case.memories_generated:
+            raise AssertionError(
+                f"Test {test_case.id} expected at least one skill suggestion "
+                f"but the LLM emitted zero. The eval is designed to teach an "
+                f"env-specific lesson; if Holmes isn't capturing it the "
+                f"SuggestSkills prompt/tool needs tightening."
+            )
+        raise AssertionError(
+            f"Test {test_case.id} expected NO skill suggestions but the "
+            f"LLM emitted {len(suggested_memories)}. This usually means the "
+            f"SuggestSkills tool/prompt is being too eager. "
+            f"Suggestions:\n{suggested_memories}"
         )
 
     # Get expected for assertion message
@@ -196,34 +229,6 @@ def test_ask_holmes(
             f"Test {test_case.id} exceeded token limit: "
             f"used {actual_tokens} tokens, max allowed is {test_case.max_tokens}"
         )
-
-    # Hard yes/no skill-suggestion check. Content quality is scored by the
-    # LLM judge via update_test_results above (the judge sees the emitted
-    # suggestions and the eval's expected_output together). The correctness
-    # score is reset to 0 BEFORE the assertion fires so the GitHub markdown
-    # report reflects the failure even though the judge already wrote a 1.
-    if test_case.memories_generated is not None:
-        actual = len(suggested_memories)
-        memory_check_failed = (
-            test_case.memories_generated and actual < 1
-        ) or (not test_case.memories_generated and actual != 0)
-        if memory_check_failed:
-            update_property(request, "actual_correctness_score", 0)
-            scores["correctness"] = 0
-        if test_case.memories_generated:
-            assert actual >= 1, (
-                f"Test {test_case.id} expected at least one skill suggestion "
-                f"but the LLM emitted zero. The eval is designed to teach an "
-                f"env-specific lesson; if Holmes isn't capturing it the "
-                f"SuggestSkills prompt/tool needs tightening."
-            )
-        else:
-            assert actual == 0, (
-                f"Test {test_case.id} expected NO skill suggestions but the "
-                f"LLM emitted {actual}. This usually means the SuggestSkills "
-                f"tool/prompt is being too eager. "
-                f"Suggestions:\n{suggested_memories}"
-            )
 
     # The primary pass succeeded — all primary assertions above passed. We
     # flag it explicitly so the report can show the primary row as ✅ even
@@ -344,9 +349,6 @@ def test_ask_holmes(
 
         # Score replay correctness with the same judge — but separately, so
         # the original correctness reading is preserved.
-        from tests.llm.utils.classifiers import evaluate_correctness
-        from tests.llm.utils.test_case_utils import Evaluation
-
         # When the replay asks a different question than the primary, the
         # fixture declares `expected_replay_output` to specify what the
         # replay's answer should contain. Falls back to the primary's

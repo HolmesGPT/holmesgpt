@@ -76,7 +76,7 @@ def test_write_suggestions_as_skill_files(tmp_path):
 
     first = open(os.path.join(written[0], "SKILL.md")).read()
     assert first.startswith("---\n")
-    assert "name: querying-app-logs-in-elasticsearch" in first
+    assert "name: 'querying-app-logs-in-elasticsearch'" in first
     # The symptoms field becomes the catalog description the agent sees
     assert "description: 'Any investigation that searches application logs'" in first
     assert "`svc.keyword`" in first
@@ -89,7 +89,7 @@ def test_write_handles_missing_fields(tmp_path):
     written = write_suggestions_as_skill_files([{}], str(tmp_path))
     assert len(written) == 1
     content = open(os.path.join(written[0], "SKILL.md")).read()
-    assert "name: skill-1" in content
+    assert "name: 'skill-1'" in content
     assert "**Importance:** medium" in content
 
 
