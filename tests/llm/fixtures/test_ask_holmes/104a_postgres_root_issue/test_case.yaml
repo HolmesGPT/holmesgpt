@@ -4,6 +4,7 @@ expected_output:
   The `postgres` pod is failing because it is attempting to start the PostgreSQL server as the `root` user, which is not permitted.
 
 tags:
+  - opus-test
   - hard
   - database
 

@@ -1,5 +1,6 @@
 user_prompt: "Is this specific web address accessible: https://www.google.com/favicon.ico? What about https://www.google.com/favicon.webp?"
 tags:
+  - opus-test
   - question-answer
   - network
   - hard

@@ -17,5 +17,6 @@ evaluation:
   correctness: 1
 
 tags:
+  - opus-test
   - logs
   - easy
