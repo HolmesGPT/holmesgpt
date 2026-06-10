@@ -287,11 +287,6 @@ class ChatRequestBaseModel(BaseModel):
         # attribute 'get'". Parse JSON payloads so a valid body still works; pass
         # through anything we can't treat as JSON (Pydantic then raises a clean
         # validation error).
-        #
-        # We intentionally do NOT require conversation_history to start with a
-        # system message: build_chat_messages() -> add_or_update_system_prompt()
-        # always installs HolmesGPT's freshly generated system prompt at
-        # position 0, overwriting a leading stub or inserting one when absent.
         if isinstance(values, (bytes, bytearray, str)):
             try:
                 values = json.loads(values)
