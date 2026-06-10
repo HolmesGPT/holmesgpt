@@ -2,9 +2,10 @@
 #
 # This mirrors the tool the Robusta UI sends in the `frontend_tools` field of
 # /api/chat requests (robusta-frontend: src/features/holmes/callable-tools/
-# suggest-runbooks.ts). Keep the two definitions in sync: this file is the
+# suggest-skills.ts, prompt snippet in src/store/holmes/chat/
+# additional-system-prompt.ts). Keep the definitions in sync: this file is the
 # place to iterate on the tool name/description with evals, and the frontend
-# file is where the winning version ships.
+# files are where the winning version ships.
 #
 # Reference in a test_case.yaml with:
 #   frontend_tools: ../../shared/skill_suggestion_tool.yaml
