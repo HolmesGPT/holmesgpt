@@ -26,12 +26,14 @@ from pydantic import AnyUrl, PrivateAttr
 
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import ToolsetTag
+from holmes.core.tools import StructuredToolResult, ToolInvokeContext, ToolsetTag
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
+    RemoteMCPTool,
     RemoteMCPToolset,
 )
+from holmes.version import get_version
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +53,51 @@ def _without_authorization(headers: Dict[str, str]) -> Optional[Dict[str, str]]:
     return sanitized or None
 
 
+class RobustaPlatformMCPTool(RemoteMCPTool):
+    """RemoteMCPTool that forwards per-call invocation context to platform-mcp.
+
+    `MCPTool._invoke` only passes `context.request_context` down to header
+    rendering — the rest of `ToolInvokeContext` (tool_call_id,
+    max_token_count) never reaches `_render_headers`. Remote tool execution
+    needs those per call: the single-tool token budget is a function of the
+    CALLER's LLM and cannot be derived on the executor. So we enrich
+    request_context before delegating; `_render_headers` maps the keys to
+    X-Robusta-* headers.
+    """
+
+    def _invoke(
+        self, params: dict, context: ToolInvokeContext
+    ) -> StructuredToolResult:
+        enriched = {
+            **(context.request_context or {}),
+            "tool_call_id": context.tool_call_id,
+            "max_token_count": context.max_token_count,
+        }
+        return super()._invoke(
+            params, context.model_copy(update={"request_context": enriched})
+        )
+
+
 class RobustaPlatformMCPToolset(RemoteMCPToolset):
     """RemoteMCPToolset wired to the relay `/api/platform-mcp` endpoint with
     dynamic session-token auth."""
 
     _dal: Optional[SupabaseDal] = PrivateAttr(default=None)
+
+    def _load_remote_tools(self, request_context=None):
+        # Same discovery as the base class, but construct our tool subclass
+        # so every invocation carries the per-call context headers.
+        import asyncio
+
+        if request_context:
+            tools_result = asyncio.run(
+                self._get_server_tools_with_context(request_context)
+            )
+        else:
+            tools_result = asyncio.run(self._get_server_tools())
+        return [
+            RobustaPlatformMCPTool.create(tool, self) for tool in tools_result.tools
+        ]
 
     def _render_headers(
         self, request_context: Optional[Dict[str, Any]] = None
@@ -76,6 +118,18 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
             conversation_id = request_context.get("conversation_id")
             if conversation_id:
                 headers["X-Robusta-Conversation-Id"] = str(conversation_id)
+            tool_call_id = request_context.get("tool_call_id")
+            if tool_call_id:
+                headers["X-Robusta-Tool-Call-Id"] = str(tool_call_id)
+            max_token_count = request_context.get("max_token_count")
+            if max_token_count:
+                headers["X-Robusta-Max-Tool-Tokens"] = str(max_token_count)
+
+        # Always sent, independent of any feature flag: the executor version
+        # gate and per-user RBAC on the relay depend on these.
+        headers["X-Robusta-Holmes-Version"] = get_version()
+        user_id = (request_context or {}).get("user_id")
+        headers["X-Robusta-User-Id"] = str(user_id) if user_id else "None"
 
         dal = self._dal
         if dal is None or not dal.enabled:
@@ -131,6 +185,7 @@ def make_robusta_platform_mcp_toolset(
         docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/robusta-platform-mcp/",
         icon_url="https://cdn.prod.website-files.com/633e9bac8f71dfb7a8e4c9a6/646be7710db810b14133bdb5_logo.svg",
         enabled=True,
+        is_core=True,  # never remotely exposable (circular dependency)
         tags=[ToolsetTag.CORE],
         tools=[],
         config={

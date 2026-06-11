@@ -766,6 +766,23 @@ class Toolset(BaseModel):
         default_factory=list,
         description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
     )
+    expose_remotely: bool = Field(
+        default=False,
+        description=(
+            "Publish this toolset's tools so Holmes instances in other clusters "
+            "can run them here via relay's platform-mcp (cross-cluster remote "
+            "tool execution). Only meaningful for toolsets that must run inside "
+            "this cluster (kubectl, in-cluster prometheus, ...)."
+        ),
+    )
+    is_core: bool = Field(
+        default=False,
+        description=(
+            "Marks internal agent-machinery toolsets (TodoWrite, skills, "
+            "platform-mcp client) that must NEVER be exposed remotely, "
+            "regardless of expose_remotely. Not user-overridable."
+        ),
+    )
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
@@ -803,6 +820,10 @@ class Toolset(BaseModel):
         # such as env-var substitution.
         for field in override.model_fields_set:
             if field == "name" or field not in self.__class__.model_fields:
+                continue
+            # is_core marks internal agent-machinery toolsets; user config can
+            # never set or unset it (a core toolset must stay core).
+            if field == "is_core":
                 continue
             value = getattr(override, field)
             if value in (None, [], {}, ""):

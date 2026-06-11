@@ -211,6 +211,19 @@ ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
 CONVERSATION_WORKER_MAX_CONCURRENT = int(
     os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
 )
+
+# Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
+# Tool calls run in their own pool so they never compete with user chats.
+TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10))
+# Hard cap on the uncompressed serialized tool result returned to the caller.
+REMOTE_TOOL_RESULT_MAX_BYTES = int(
+    os.environ.get("REMOTE_TOOL_RESULT_MAX_BYTES", 1024 * 1024)
+)
+# Results whose data exceeds this many chars are stored gzip+base64 in the DB
+# (relay inflates before replying, callers always see plain text).
+REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS = int(
+    os.environ.get("REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS", 100_000)
+)
 # Only used when realtime is disabled or disconnected. When realtime is enabled
 # and connected, Holmes relies on Postgres Changes notifications and does not
 # poll.

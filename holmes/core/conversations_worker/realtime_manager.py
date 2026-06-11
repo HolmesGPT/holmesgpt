@@ -188,17 +188,43 @@ def _install_realtime_log_filter_if_needed() -> None:
         lg.addFilter(_RealtimeConnectivityWarningFilter())
 
 
-class RealtimeManager:
+class RealtimeWorker:
+    """Owns ALL generic Supabase Realtime plumbing for the holmes:submit
+    channel — connection, auth refresh, reconnection, subscribe states —
+    and routes received broadcasts to the right worker:
+
+      * 'pending_conversations' -> conversation_worker.claim_pending_conversations()
+      * 'pending_tool_calls'    -> tool_call_worker.claim_pending_tool_calls()
+
+    Both routing targets MUST be non-blocking (they just wake the worker's
+    claim loop). On (re)subscribe both workers are notified so anything
+    missed during a disconnect gets drained.
+    """
+
     def __init__(
         self,
         dal: "SupabaseDal",
         holmes_id: str,
-        on_new_pending: Callable[[], None],
+        conversation_worker: Optional[Any] = None,
+        tool_call_worker: Optional[Any] = None,
         use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
+        on_new_pending: Optional[Callable[[], None]] = None,
+        on_new_tool_calls: Optional[Callable[[], None]] = None,
     ) -> None:
         self.dal = dal
         self.holmes_id = holmes_id
+        # Routing targets. The worker objects are the primary surface;
+        # the raw callables remain as low-level overrides (tests).
+        if on_new_pending is None and conversation_worker is not None:
+            on_new_pending = conversation_worker.claim_pending_conversations
+        if on_new_pending is None:
+            raise ValueError(
+                "RealtimeWorker needs a conversation_worker or on_new_pending"
+            )
         self.on_new_pending = on_new_pending
+        if on_new_tool_calls is None and tool_call_worker is not None:
+            on_new_tool_calls = tool_call_worker.claim_pending_tool_calls
+        self.on_new_tool_calls = on_new_tool_calls
         self._use_broadcast = use_broadcast
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -578,7 +604,7 @@ class RealtimeManager:
             try:
                 change = payload.get("data", {}) or {}
                 logging.info(
-                    "RealtimeManager: Postgres change notification: %s",
+                    "RealtimeWorker: Postgres change notification: %s",
                     change.get("type"),
                 )
                 self.on_new_pending()
@@ -635,7 +661,7 @@ class RealtimeManager:
         except asyncio.TimeoutError:
             logging.warning("Timed out waiting for pg-changes subscribe ack")
 
-        logging.info("RealtimeManager connected: mode=pgchanges topic=%s", topic)
+        logging.info("RealtimeWorker connected: mode=pgchanges topic=%s", topic)
 
     async def _subscribe_via_broadcast(self) -> None:
         """Option 2: Broadcast channel per account + cluster.
@@ -654,7 +680,7 @@ class RealtimeManager:
         def _on_broadcast(payload: Dict[str, Any]) -> None:
             try:
                 logging.info(
-                    "RealtimeManager: Broadcast notification: %s",
+                    "RealtimeWorker: Broadcast notification: %s",
                     payload.get("event"),
                 )
                 self.on_new_pending()
@@ -668,6 +694,25 @@ class RealtimeManager:
             event="pending_conversations",
             callback=_on_broadcast,
         )
+
+        if self.on_new_tool_calls is not None:
+
+            def _on_tool_calls_broadcast(payload: Dict[str, Any]) -> None:
+                try:
+                    logging.info(
+                        "RealtimeWorker: pending_tool_calls notification: %s",
+                        payload.get("event"),
+                    )
+                    self.on_new_tool_calls()
+                except Exception:
+                    logging.exception(
+                        "Error in pending_tool_calls callback", exc_info=True
+                    )
+
+            self._channel.on_broadcast(
+                event="pending_tool_calls",
+                callback=_on_tool_calls_broadcast,
+            )
 
         subscribed = asyncio.Event()
 
@@ -684,6 +729,14 @@ class RealtimeManager:
                         "on_new_pending callback failed in broadcast subscribe",
                         exc_info=True,
                     )
+                if self.on_new_tool_calls is not None:
+                    try:
+                        self.on_new_tool_calls()
+                    except Exception:
+                        logging.debug(
+                            "on_new_tool_calls callback failed in broadcast subscribe",
+                            exc_info=True,
+                        )
             elif any(
                 s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")
             ):
@@ -703,7 +756,7 @@ class RealtimeManager:
         except asyncio.TimeoutError:
             logging.warning("Timed out waiting for broadcast subscribe ack")
 
-        logging.info("RealtimeManager connected: mode=broadcast topic=%s", topic)
+        logging.info("RealtimeWorker connected: mode=broadcast topic=%s", topic)
 
     async def _shutdown_async(self) -> None:
         self._connected = False

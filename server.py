@@ -58,7 +58,10 @@ from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
-from holmes.utils.holmes_status import update_holmes_status_in_db
+from holmes.utils.holmes_status import (
+    refresh_holmes_status,
+    update_holmes_status_in_db,
+)
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
@@ -214,6 +217,13 @@ def _toolset_status_refresh_loop():
                 )
 
             time.sleep(sleep_time)
+            try:
+                # Heartbeat: re-upsert HolmesStatus so updated_at signals
+                # liveness (platform-mcp filters remote-tool clusters on it),
+                # preserving the verified realtime flag.
+                refresh_holmes_status(dal, config)
+            except Exception:
+                logging.error("Failed to refresh holmes status", exc_info=True)
             try:
                 changes = config.refresh_tool_executor(
                     dal,

@@ -1099,6 +1099,67 @@ class SupabaseDal:
             )
             return []
 
+    def claim_tool_calls(self, holmes_id: str) -> List[Dict]:
+        """
+        Atomically claim all pending remote tool calls targeting this cluster.
+        Returns claimed RemoteToolCalls rows (status='queued', assignee=holmes_id).
+        Stale pending rows (>5 minutes) are swept to 'timeout' server-side.
+        """
+        if not self.enabled:
+            return []
+
+        try:
+            res = self.client.rpc(
+                "claim_tool_calls",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_id": self.cluster,
+                    "_assignee": holmes_id,
+                },
+            ).execute()
+            if not res.data:
+                return []
+            if isinstance(res.data, list):
+                return res.data
+            return [res.data]
+        except Exception:
+            logging.exception("Supabase error while claiming tool calls", exc_info=True)
+            return []
+
+    def post_remote_tool_call_result(
+        self,
+        tool_call_id: str,
+        assignee: str,
+        status: str,
+        tool_response: Dict,
+    ) -> bool:
+        """
+        Publish a remote tool call result: tool_response + terminal status
+        ('completed'/'failed') in one atomic, assignee-guarded UPDATE.
+        Returns False when the row was reassigned/stopped (stale worker) —
+        callers must log and drop, never retry.
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            res = self.client.rpc(
+                "post_remote_tool_call_result",
+                {
+                    "_id": tool_call_id,
+                    "_account_id": self.account_id,
+                    "_assignee": assignee,
+                    "_status": status,
+                    "_tool_response": tool_response,
+                },
+            ).execute()
+            return bool(res.data)
+        except Exception:
+            logging.exception(
+                "Supabase error while posting remote tool call result", exc_info=True
+            )
+            return False
+
     def post_conversation_events(
         self,
         conversation_id: str,
