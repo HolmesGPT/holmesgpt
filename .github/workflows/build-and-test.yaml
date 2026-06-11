@@ -111,7 +111,18 @@ jobs:
           poetry config virtualenvs.create false
 
       - name: Install dependencies
-        run: poetry install --no-root --with dev
+        # The actions/cache restore of ~/.cache/pypoetry can hold poisoned
+        # package metadata, making poetry fail with "Unable to find
+        # installation candidates" for packages that are live on PyPI
+        # (seen repeatedly with leb128 / mkdocs-awesome-nav). On failure,
+        # clear poetry's PyPI cache and retry once with fresh metadata.
+        run: |
+          poetry install --no-root --with dev || {
+            echo "::warning::poetry install failed - clearing poetry PyPI cache and retrying"
+            poetry cache clear --all PyPI -n || true
+            poetry cache clear --all pypi -n || true
+            poetry install --no-root --with dev
+          }
 
       - name: Run tests
         shell: bash
@@ -187,7 +198,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip "setuptools<75" "pyinstaller>=6.11"
 
-          poetry install --no-root
+          # Retry with a fresh poetry PyPI cache on failure - the restored
+          # ~/.cache/pypoetry can hold poisoned metadata (see "Install
+          # dependencies" in the test job above).
+          poetry install --no-root || {
+            echo "::warning::poetry install failed - clearing poetry PyPI cache and retrying"
+            poetry cache clear --all PyPI -n || true
+            poetry cache clear --all pypi -n || true
+            poetry install --no-root
+          }
 
           sudo apt-get install -y binutils
           pyinstaller holmes_cli.py \
