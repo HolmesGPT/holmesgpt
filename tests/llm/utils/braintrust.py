@@ -47,6 +47,9 @@ def log_to_braintrust(
         result: LLMResult for ask_holmes tests, CompactionResult for compaction tests
         scores: Dictionary of scores (e.g., correctness)
         error: Exception if the test failed
+        suggested_memories: Skill suggestions captured from SuggestSkills calls
+            during the run; pass when the test collects them so the count and
+            contents are logged in the span metadata
     """
 
     # Prepare tags
