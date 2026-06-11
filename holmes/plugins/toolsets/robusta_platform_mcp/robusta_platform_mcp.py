@@ -18,6 +18,7 @@ The user can opt out via the standard toolset disable mechanism:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -92,8 +93,6 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
     def _load_remote_tools(self, request_context=None):
         # Same discovery as the base class, but construct our tool subclass
         # so every invocation carries the per-call context headers.
-        import asyncio
-
         if request_context:
             tools_result = asyncio.run(
                 self._get_server_tools_with_context(request_context)

@@ -7,6 +7,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 from urllib.parse import urljoin
 
 import dateutil.parser
+import re
 import requests  # type: ignore
 from prometrix.auth import PrometheusAuthorization
 from prometrix.connect.aws_connect import AWSPrometheusConnect
@@ -2035,8 +2036,42 @@ class PrometheusToolset(Toolset):
             tags=[
                 ToolsetTag.CORE,
             ],
+            # Intent to expose for cross-cluster remote tool calls; the
+            # per-instance locality heuristic (remote_exposure_default) narrows
+            # this to the in-cluster instances only.
+            expose_remotely=True,
         )
         self._reload_llm_instructions()
+
+    # In-cluster URL host patterns: only instances pointed at a server INSIDE
+    # the cluster are useful to run remotely (an external SaaS endpoint is
+    # reachable from the caller directly). See design doc Business Logic B.
+    _IN_CLUSTER_HOST_RE = re.compile(
+        r"(\.svc(\.cluster\.local)?$|\.svc[:/]|\.cluster\.local$|"
+        r"^localhost$|^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[01])\.)"
+    )
+
+    def remote_exposure_default(self, instance_config=None):
+        """Expose a prometheus instance remotely only when its URL is
+        in-cluster. Auto-detected URLs are always in-cluster. A configured
+        URL is judged by host: *.svc / *.cluster.local / localhost / RFC1918
+        => in-cluster (expose); anything else (public DNS / SaaS) => don't.
+        None when undeterminable (fall back to expose_remotely)."""
+        from urllib.parse import urlparse
+
+        url = (instance_config or {}).get("prometheus_url") if instance_config else None
+        if not url:
+            # No explicit URL => auto-detected at runtime => in-cluster.
+            return True
+        try:
+            host = urlparse(str(url)).hostname or ""
+        except Exception:
+            return None
+        if not host:
+            return None
+        if "." not in host and ":" not in host:
+            return True  # single-label hostname => in-cluster service name
+        return bool(self._IN_CLUSTER_HOST_RE.search(host))
 
     def _reload_llm_instructions(self):
         template_file_path = os.path.abspath(

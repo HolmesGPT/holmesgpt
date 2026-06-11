@@ -226,6 +226,7 @@ class RealtimeWorker:
             on_new_tool_calls = tool_call_worker.claim_pending_tool_calls
         self.on_new_tool_calls = on_new_tool_calls
         self._use_broadcast = use_broadcast
+
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -239,6 +240,16 @@ class RealtimeWorker:
         self._last_auth_jwt: Optional[str] = None
         # Set from the async loop to wake the sleep in _run() on stop().
         self._async_stop: Optional[asyncio.Event] = None
+
+    def _wake_all(self) -> None:
+        """Wake BOTH workers. Used at every (re)subscribe / reconnect / WAL
+        notification so missed conversations AND remote tool calls are
+        re-drained — the pgchanges path can't tell which kind of row changed,
+        and a reconnect must recover both. Event-specific broadcast callbacks
+        stay specific; this is the drain-everything path."""
+        self.on_new_pending()
+        if self.on_new_tool_calls is not None:
+            self.on_new_tool_calls()
 
     # ---- public ----
 
@@ -348,10 +359,10 @@ class RealtimeWorker:
                     )
                     self._connected = False
                     try:
-                        self.on_new_pending()
+                        self._wake_all()
                     except Exception:
                         logging.debug(
-                            "on_new_pending failed during reconnect",
+                            "wake_all failed during reconnect",
                             exc_info=True,
                         )
                     success = await self._full_reconnect()
@@ -607,7 +618,7 @@ class RealtimeWorker:
                     "RealtimeWorker: Postgres change notification: %s",
                     change.get("type"),
                 )
-                self.on_new_pending()
+                self._wake_all()
             except Exception:
                 logging.exception("Error in realtime pg change callback", exc_info=True)
 
@@ -636,10 +647,10 @@ class RealtimeWorker:
                 self._connected = True
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in pg subscribe",
+                        "wake_all failed in pg subscribe",
                         exc_info=True,
                     )
             elif any(
@@ -648,10 +659,10 @@ class RealtimeWorker:
                 self._connected = False
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in pg error handler",
+                        "wake_all failed in pg error handler",
                         exc_info=True,
                     )
 
@@ -723,30 +734,22 @@ class RealtimeWorker:
                 self._connected = True
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in broadcast subscribe",
+                        "wake_all failed in broadcast subscribe",
                         exc_info=True,
                     )
-                if self.on_new_tool_calls is not None:
-                    try:
-                        self.on_new_tool_calls()
-                    except Exception:
-                        logging.debug(
-                            "on_new_tool_calls callback failed in broadcast subscribe",
-                            exc_info=True,
-                        )
             elif any(
                 s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")
             ):
                 self._connected = False
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in broadcast error handler",
+                        "wake_all failed in broadcast error handler",
                         exc_info=True,
                     )
 

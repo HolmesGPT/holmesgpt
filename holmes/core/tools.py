@@ -784,6 +784,20 @@ class Toolset(BaseModel):
         ),
     )
 
+    def remote_exposure_default(
+        self, instance_config: Optional[Dict[str, Any]] = None
+    ) -> Optional[bool]:
+        """Per-instance locality heuristic for remote exposure.
+
+        Returns True/False to force/forbid remote exposure of a given
+        instance regardless of the toolset-level ``expose_remotely``, or
+        None for "no opinion" (fall back to ``expose_remotely``). Default:
+        no opinion. Toolsets that are only useful in-cluster for some
+        configs (e.g. prometheus: in-cluster URL vs external SaaS) override
+        this. See design doc Business Logic B.
+        """
+        return None
+
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
 

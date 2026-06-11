@@ -189,10 +189,21 @@ class ToolCallWorker:
             return
         logging.info("ToolCallWorker: claimed %d tool call(s)", len(claimed))
         pool = self._pool
-        if pool is None:
+        if pool is None or not self._running:
             return
         for row in claimed:
-            pool.submit(self._execute_safe, row)
+            if not self._running:
+                return
+            try:
+                pool.submit(self._execute_safe, row)
+            except RuntimeError:
+                # Pool shut down between the claim and here (stop() raced).
+                # The row stays 'queued' and relay times it out → 'stopped'.
+                logging.warning(
+                    "ToolCallWorker: pool shut down; dropping claimed row %s",
+                    row.get("id"),
+                )
+                return
 
     # ---- execution ----
 
