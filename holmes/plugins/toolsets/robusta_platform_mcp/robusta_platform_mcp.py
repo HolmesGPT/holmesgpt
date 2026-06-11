@@ -182,9 +182,21 @@ def refresh_platform_mcp_tools(tool_executor: Any) -> bool:
                 exc_info=True,
             )
             return False
+        def _signature(tools):
+            # Names alone are not enough: when a cluster joins, the dynamic
+            # remote_* tool keeps its NAME but its schema changes (the
+            # agent_name enum grows). Compare full schemas.
+            return {
+                t.name: (
+                    t.description,
+                    {k: p.model_dump() for k, p in (t.parameters or {}).items()},
+                )
+                for t in tools
+            }
+
         old_names = {t.name for t in toolset.tools}
         new_names = {t.name for t in new_tools}
-        if old_names == new_names:
+        if _signature(toolset.tools) == _signature(new_tools):
             return False
         for name in old_names - new_names:
             # Only remove entries this toolset owns.
