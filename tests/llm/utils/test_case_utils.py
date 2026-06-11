@@ -181,6 +181,14 @@ class HolmesTestCase(BaseModel):
     # primary pass's captured suggestions equals this value. None disables
     # the check.
     expected_skill_count: Optional[int] = None
+    # Names of skills loaded in the agent's context (e.g. via
+    # pre_loaded_skills_path) that the agent must propose a CORRECTION for:
+    # each listed name must appear as some suggestion's `updates_skill`
+    # field. This is the deterministic half of testing skill updates; the
+    # corrected content itself is judged via expected_output, which the LLM
+    # judge sees together with the emitted suggestions. None disables the
+    # check.
+    expected_skill_updates: Optional[List[str]] = None
     # Controls whether the closed-loop replay strictly requires the agent
     # to call `fetch_skill`. True (default) is right for evals where the
     # captured skill is supposed to short-circuit rediscovery — if the agent

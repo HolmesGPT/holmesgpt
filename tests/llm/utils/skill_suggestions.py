@@ -117,6 +117,7 @@ def write_suggestions_as_skill_files(
         instructions = str(suggestion.get("instructions") or "").strip()
         importance = str(suggestion.get("importance") or "medium").strip()
         alerts = suggestion.get("alerts") or []
+        updates_skill = str(suggestion.get("updates_skill") or "").strip()
 
         slug = _slugify(title)
         skill_dir = os.path.join(target_dir, f"{idx:02d}-{slug}")
@@ -165,6 +166,13 @@ def write_suggestions_as_skill_files(
             body_parts += [instructions, ""]
         if alerts:
             body_parts += [f"**Applies to alerts:** {', '.join(alerts)}", ""]
+        if updates_skill:
+            # Provenance marker: this suggestion corrects an existing skill
+            # (the production UI offers it as an update via updateRunbook).
+            # In the replay the corrected SKILL.md is simply loaded alongside
+            # whatever else is on the search path; the marker tells the
+            # agent which earlier skill it supersedes.
+            body_parts += [f"**Supersedes skill:** {updates_skill}", ""]
         body_parts += [f"**Importance:** {importance}", ""]
 
         skill_md = os.path.join(skill_dir, "SKILL.md")

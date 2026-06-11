@@ -99,3 +99,18 @@ def test_write_escapes_quotes_and_newlines_in_description(tmp_path):
     )
     content = open(os.path.join(written[0], "SKILL.md")).read()
     assert "description: 'it''s multiline'" in content
+
+
+def test_write_renders_updates_skill_marker(tmp_path):
+    written = write_suggestions_as_skill_files(
+        [dict(SUGGESTION, updates_skill="app-279-error-log-querying")],
+        str(tmp_path),
+    )
+    content = open(os.path.join(written[0], "SKILL.md")).read()
+    assert "**Supersedes skill:** app-279-error-log-querying" in content
+
+
+def test_write_omits_updates_skill_marker_for_new_skills(tmp_path):
+    written = write_suggestions_as_skill_files([SUGGESTION], str(tmp_path))
+    content = open(os.path.join(written[0], "SKILL.md")).read()
+    assert "Supersedes skill" not in content

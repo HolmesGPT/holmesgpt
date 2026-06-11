@@ -8,17 +8,24 @@
 #      `lvl: "ERR"` query returns zero, it falls back to inspecting the
 #      mapping and re-querying with the real field.
 #   2. The final answer is still correct (10 ERROR entries).
+#   3. The agent proposes a CORRECTION to the bad skill: a SuggestSkills
+#      call whose suggestion sets `updates_skill` to the loaded skill's
+#      name (`app-279-error-log-querying`), so the user is offered an
+#      update to the saved skill instead of a duplicate. Enforced
+#      deterministically via `expected_skill_updates` below; the
+#      corrected content is judged via expected_output (the judge sees
+#      the emitted suggestions).
 #
 # This is the regression test for "what if a customer accumulates a
 # misleading skill". The bad SKILL.md ships with the fixture in
 # ./bad_skill and is loaded into the SkillsToolset via
-# `pre_loaded_skills_path`. No memory emission is enforced — emitting a
-# corrective memory is nice-to-have but not required by this test.
+# `pre_loaded_skills_path`.
 
 user_prompt: "In the elasticsearch index 'app-279-logs-j2h9d4w7', how many ERROR-level log entries are there for the checkout-279 service?"
 
 expected_output:
   - "There are 10 ERROR-level entries in app-279-logs-j2h9d4w7 (the pre-loaded skill named the wrong field; the real field is `severity`)"
+  - "Must emit a SuggestSkills suggestion correcting the bad skill: its instructions must say the severity field is `severity` with full-word values like `ERROR` (not `lvl` with `ERR`)"
 
 # Pre-load a deliberately-misleading skill before the primary pass. The
 # agent will see this skill in the SkillsToolset listing and likely
@@ -26,6 +33,12 @@ expected_output:
 # answer despite the bad guidance.
 
 pre_loaded_skills_path: ./bad_skill
+
+# The corrective suggestion must reference the loaded bad skill by name
+# through `updates_skill` — proposing a parallel duplicate fails.
+memories_generated: true
+expected_skill_updates:
+  - app-279-error-log-querying
 
 tags:
   - elasticsearch

@@ -24,6 +24,9 @@ additional_system_prompt: |
   (b) write a query or filter that returned nothing or failed, then correct it?
   (c) discover where certain data lives or how it is named in this environment?
   (d) work out which workload, service, or resource implements something the user named differently (e.g. the user said "orders" but the workload handling orders has an unrelated name)?
+  (e) discover that a skill already loaded in your context is wrong, stale, or incomplete — its query failed, returned nothing, or contradicted what you observed?
+
+  For case (e), suggest a CORRECTED version of that skill and set its `updates_skill` field to the existing skill's exact name — the UI offers it to the user as an update to the saved skill rather than a new one.
 
   If ANY of these happened, your next tool call MUST be SuggestSkills — capturing the reusable data-source know-how you discovered (never incident facts — see the tool description) — and only then do you write the final answer. Going straight from investigation to final answer in these cases is an error. Only skip the SuggestSkills call when the investigation used nothing but knowledge you already had at the start.
 
@@ -56,7 +59,9 @@ frontend_tools:
       - Names of resources that happened to be broken today
       - Generic knowledge about how tools or platforms work (you already know that)
       - A recap or summary of the investigation
-      - Anything that duplicates skills already loaded in your context
+      - An unchanged restatement of a skill already loaded in your context
+
+      EXCEPTION — correcting a loaded skill: if a skill loaded in your context proved wrong, stale, or incomplete during this investigation (its query failed, returned nothing, or contradicted the data you observed), DO suggest a corrected version. Write the full corrected skill (not a delta) and set `updates_skill` to the existing skill's exact name so the user is offered an update to the saved skill instead of a duplicate.
 
       If nothing non-obvious was learned (e.g. standard tools worked on the first try), do not call this tool at all.
 
@@ -100,6 +105,15 @@ frontend_tools:
                   future question about this data source; never mention this
                   incident, its root cause, error codes, or the specific
                   resources that were broken today.
+              updates_skill:
+                type: string
+                description: >-
+                  Exact name of a skill already loaded in your context that
+                  this suggestion corrects or supersedes. Set it ONLY when
+                  this investigation proved that skill wrong, stale, or
+                  incomplete; the suggestion is then offered to the user as
+                  an update to the saved skill instead of a new one. Omit
+                  for brand-new skills.
               alerts:
                 type: array
                 items:

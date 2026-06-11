@@ -188,6 +188,25 @@ def test_ask_holmes(
             update_property(request, "actual_correctness_score", 0)
             scores["correctness"] = 0
 
+    # Deterministic skill-UPDATE check: every skill named in
+    # expected_skill_updates must be referenced by some suggestion's
+    # `updates_skill` field — i.e. the agent recognized that a loaded skill
+    # was wrong and proposed a correction to it, not a parallel duplicate.
+    missing_skill_updates: List[str] = []
+    if test_case.expected_skill_updates:
+        actual_updates = {
+            str(s.get("updates_skill") or "").strip()
+            for s in suggested_memories
+        }
+        missing_skill_updates = [
+            name
+            for name in test_case.expected_skill_updates
+            if name not in actual_updates
+        ]
+        if missing_skill_updates:
+            update_property(request, "actual_correctness_score", 0)
+            scores["correctness"] = 0
+
     if eval_span:
         log_to_braintrust(
             eval_span=eval_span,
@@ -210,6 +229,16 @@ def test_ask_holmes(
             f"Test {test_case.id} expected NO skill suggestions but the "
             f"LLM emitted {len(suggested_memories)}. This usually means the "
             f"SuggestSkills tool/prompt is being too eager. "
+            f"Suggestions:\n{suggested_memories}"
+        )
+
+    if missing_skill_updates:
+        raise AssertionError(
+            f"Test {test_case.id} expected suggestion(s) correcting the "
+            f"loaded skill(s) {missing_skill_updates} (via the "
+            f"`updates_skill` field), but no emitted suggestion referenced "
+            f"them. The agent either proposed a duplicate skill instead of "
+            f"an update, or failed to flag the bad skill at all. "
             f"Suggestions:\n{suggested_memories}"
         )
 
