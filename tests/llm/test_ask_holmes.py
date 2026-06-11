@@ -305,7 +305,15 @@ def test_ask_holmes(
                         # without-skill comparison on identical input.
                         inject_frontend=False,
                         additional_skill_paths=[skills_dir],
-                        request=request,
+                        # Do NOT pass `request` here: ask_holmes appends
+                        # holmes_duration / num_llm_calls / tool_call_count
+                        # to user_properties when given a request, and the
+                        # report reads the LAST value per key — so the
+                        # replay's numbers would overwrite the PRIMARY
+                        # run's Time/Turns/Tools columns in the report.
+                        # Replay metrics are recorded separately below
+                        # under replay_* keys.
+                        request=None,
                     )
                     replay_duration = time.time() - replay_start
                     # The replay runs as its own Braintrust trace (named

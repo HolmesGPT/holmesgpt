@@ -136,19 +136,26 @@ def write_suggestions_as_skill_files(
             "",
             f"# {title}",
             "",
-            # Ported from the consolidated-skills-per-domain harness: without
-            # this directive, agents re-run schema/mapping inspection to
-            # verify what the skill already tells them, defeating the
-            # token-saving purpose of the captured skill.
+            # Without this directive, agents spend their first turns
+            # re-running schema/mapping inspection to verify what the skill
+            # already tells them, defeating the token-saving purpose of the
+            # captured skill. The directive deliberately does NOT forbid
+            # verification — a skill can be stale or incomplete — it just
+            # must never be a blocking first step: act on the skill
+            # immediately and verify alongside or on failure, so the answer
+            # arrives faster.
             (
-                "DIRECTIVE — the facts below are VERIFIED knowledge about "
-                "this environment, captured from real tool results in an "
-                "earlier investigation. They are not examples. Treat them "
-                "as current: issue your query directly using them, and do "
-                "NOT re-run schema/mapping inspection, label listing, or "
-                "sampling to confirm what this skill already tells you. "
-                "Re-verify only if a query built on this skill returns an "
-                "error or an implausibly empty result."
+                "DIRECTIVE — the facts below were captured from real tool "
+                "results in an earlier investigation of this environment. "
+                "They are not examples. Act on them immediately: build your "
+                "first real query from this skill instead of starting with "
+                "schema/mapping inspection, label listing, or sampling. If "
+                "you want to confirm a detail, do it in parallel with that "
+                "first query — never as a blocking step before it. If a "
+                "query built on this skill errors, returns implausibly "
+                "empty results, or the data contradicts the skill, "
+                "re-inspect the source and trust what you observe over "
+                "what the skill says."
             ),
             "",
         ]
