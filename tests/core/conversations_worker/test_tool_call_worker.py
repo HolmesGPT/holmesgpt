@@ -7,9 +7,12 @@ importantly — multi-instance resolution (the path that was dead before
 
 import base64
 import gzip
+import random
+import string
 from typing import Optional
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
 from holmes.core.conversations_worker.tool_call_worker import (
     ToolCallWorker,
     serialize_tool_response,
@@ -21,6 +24,9 @@ from holmes.core.tools import (
     Toolset,
     ToolsetStatusEnum,
 )
+from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset
+from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
+from holmes.version import get_version
 
 
 # ---- result serialization ----
@@ -53,6 +59,16 @@ def test_compress_boundary_uses_chars_not_bytes():
     # Just over the threshold by chars triggers compression.
     p = serialize_tool_response(_ok("z" * 100_001), 0.1, compress_threshold=100_000)
     assert p["compressed"]
+
+
+def test_incompressible_result_stays_plain():
+    # Random printable text (~6.6 bits/char entropy): gzip can't beat the
+    # +33% base64 overhead, so the payload must stay uncompressed.
+    rng = random.Random(310)
+    noise = "".join(rng.choices(string.printable, k=120_000))
+    p = serialize_tool_response(_ok(noise), 0.1, compress_threshold=100_000)
+    assert not p["compressed"] and p["data_gz_b64"] is None
+    assert p["data"] == noise
 
 
 # ---- multi-instance resolution in _execute ----
@@ -103,8 +119,6 @@ def _worker_with_tool(exposed_instances: Optional[list], is_core=False):
 
 
 def _row(instance=None, version=None):
-    from holmes.version import get_version
-
     return {
         "id": "row-1",
         "user_id": None,
@@ -172,9 +186,6 @@ def test_is_core_toolset_rejected():
 
 
 def test_multi_instance_exposed_filters_by_locality():
-    from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset
-    from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
-
     wrapper = MultiInstanceToolset(PrometheusToolset)
     # Two healthy instances post-prerequisite: one in-cluster, one external SaaS.
     wrapper._children = {"local": PrometheusToolset(), "saas": PrometheusToolset()}
@@ -185,12 +196,25 @@ def test_multi_instance_exposed_filters_by_locality():
     assert wrapper.remote_exposed_instances() == ["local"]
 
 
+def test_prometheus_single_instance_locality_narrows_exposure():
+    """Unwrapped (single-instance) prometheus must apply the locality
+    heuristic in prerequisites: SaaS URL => not exposed; in-cluster => exposed."""
+    saas = PrometheusToolset()
+    with patch.object(PrometheusToolset, "_is_healthy", return_value=(True, "")):
+        saas.prerequisites_callable({"prometheus_url": "https://prometheus.grafana.net"})
+        assert saas.expose_remotely is False
+
+        local = PrometheusToolset()
+        local.prerequisites_callable(
+            {"prometheus_url": "http://prometheus.monitoring.svc:9090"}
+        )
+        assert local.expose_remotely is True
+
+
 # ---- _wake_all routes to both workers ----
 
 
 def test_realtime_worker_wake_all_fires_both():
-    from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
-
     pending = MagicMock()
     tool_calls = MagicMock()
     rw = RealtimeWorker(
@@ -205,8 +229,6 @@ def test_realtime_worker_wake_all_fires_both():
 
 
 def test_realtime_worker_wake_all_tolerates_no_tool_worker():
-    from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
-
     pending = MagicMock()
     rw = RealtimeWorker(dal=MagicMock(), holmes_id="h", on_new_pending=pending)
     rw._wake_all()  # must not raise when on_new_tool_calls is None

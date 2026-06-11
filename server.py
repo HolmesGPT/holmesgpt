@@ -223,8 +223,10 @@ def _toolset_status_refresh_loop():
             try:
                 # Heartbeat: re-upsert HolmesStatus so updated_at signals
                 # liveness (platform-mcp filters remote-tool clusters on it),
-                # preserving the verified realtime flag.
-                refresh_holmes_status(dal, config)
+                # preserving the verified realtime flag. Skip when the DAL is
+                # disabled (no supabase credentials) — nothing to heartbeat.
+                if dal.enabled:
+                    refresh_holmes_status(dal, config)
             except Exception:
                 logging.error("Failed to refresh holmes status", exc_info=True)
             try:

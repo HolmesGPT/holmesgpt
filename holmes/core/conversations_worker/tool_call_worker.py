@@ -67,7 +67,9 @@ def serialize_tool_response(
     - Uncompressed data larger than max_bytes (1MB) is rejected with a
       narrow-the-query error.
     - Data over compress_threshold chars is stored gzip+base64 so the DB row,
-      WAL and realtime traffic stay small; relay inflates before replying.
+      WAL and realtime traffic stay small; relay inflates before replying —
+      but only when the base64 of the gzip is actually smaller than the
+      original text (incompressible data would otherwise grow ~33%).
     """
     data, _is_json = result.stringify_data(compact=False)
     data = data or ""
@@ -97,11 +99,13 @@ def serialize_tool_response(
         return payload
 
     if len(data) > compress_threshold:
-        payload["data_gz_b64"] = base64.b64encode(
+        gz_b64 = base64.b64encode(
             gzip.compress(data.encode("utf-8", errors="replace"))
         ).decode("ascii")
-        payload["compressed"] = True
-        payload["data"] = None
+        if len(gz_b64) < len(data):
+            payload["data_gz_b64"] = gz_b64
+            payload["compressed"] = True
+            payload["data"] = None
 
     return payload
 

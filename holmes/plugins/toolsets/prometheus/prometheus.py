@@ -4,7 +4,7 @@ import os
 import time
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import dateutil.parser
 import re
@@ -2051,14 +2051,14 @@ class PrometheusToolset(Toolset):
         r"^localhost$|^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[01])\.)"
     )
 
-    def remote_exposure_default(self, instance_config=None):
+    def remote_exposure_default(
+        self, instance_config: Optional[Dict[str, Any]] = None
+    ) -> Optional[bool]:
         """Expose a prometheus instance remotely only when its URL is
         in-cluster. Auto-detected URLs are always in-cluster. A configured
         URL is judged by host: *.svc / *.cluster.local / localhost / RFC1918
         => in-cluster (expose); anything else (public DNS / SaaS) => don't.
         None when undeterminable (fall back to expose_remotely)."""
-        from urllib.parse import urlparse
-
         url = (instance_config or {}).get("prometheus_url") if instance_config else None
         if not url:
             # No explicit URL => auto-detected at runtime => in-cluster.
@@ -2210,6 +2210,18 @@ class PrometheusToolset(Toolset):
             if isinstance(self.config, AzurePrometheusConfig):
                 self._disable_azure_incompatible_tools()
             self._reload_llm_instructions()
+
+            # Single-instance path of the locality heuristic: the wrapper's
+            # remote_exposed_instances() applies it per instance, but an
+            # unwrapped prometheus (one instance, flat config) would otherwise
+            # publish remotely even when pointed at an external SaaS endpoint.
+            # Judge the resolved config (auto-discovered URLs included).
+            exposure = self.remote_exposure_default(
+                self.config.model_dump(exclude_none=True)
+            )
+            if exposure is not None:
+                self.expose_remotely = exposure
+
             return self._is_healthy()
         except Exception as e:
             logging.exception("Failed to set up prometheus")

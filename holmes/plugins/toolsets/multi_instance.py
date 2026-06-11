@@ -239,8 +239,11 @@ class MultiInstanceToolset(Toolset):
         # Mirror display metadata from the child so the wrapper is transparent.
         self.llm_instructions = template.llm_instructions
         # Mirror remote-exposure intent from the child class default; per-instance
-        # overrides are resolved in remote_exposed_instances().
+        # overrides are resolved in remote_exposed_instances(). is_core must be
+        # mirrored too so a wrapped internal toolset stays hard-excluded from
+        # remote publication and execution.
         self.expose_remotely = template.expose_remotely
+        self.is_core = template.is_core
         self._child_cls = child_cls
         self._children: Dict[str, Toolset] = {}
         self._instance_configs: Dict[str, Dict[str, Any]] = {}
