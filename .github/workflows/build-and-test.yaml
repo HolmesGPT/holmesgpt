@@ -118,9 +118,11 @@ jobs:
         # clear poetry's PyPI cache and retry once with fresh metadata.
         run: |
           poetry install --no-root --with dev || {
-            echo "::warning::poetry install failed - clearing poetry PyPI cache and retrying"
-            poetry cache clear --all PyPI -n || true
-            poetry cache clear --all pypi -n || true
+            echo "::warning::poetry install failed - wiping poetry cache and retrying"
+            # rm -rf, NOT `poetry cache clear`: in non-interactive mode the
+            # clear command's "Delete N entries?" confirm defaults to No and
+            # silently deletes nothing (verified in run 27331464951).
+            rm -rf ~/.cache/pypoetry/cache ~/.cache/pypoetry/artifacts
             poetry install --no-root --with dev
           }
 
@@ -202,9 +204,10 @@ jobs:
           # ~/.cache/pypoetry can hold poisoned metadata (see "Install
           # dependencies" in the test job above).
           poetry install --no-root || {
-            echo "::warning::poetry install failed - clearing poetry PyPI cache and retrying"
-            poetry cache clear --all PyPI -n || true
-            poetry cache clear --all pypi -n || true
+            echo "::warning::poetry install failed - wiping poetry cache and retrying"
+            # rm -rf, NOT `poetry cache clear`: see "Install dependencies"
+            # in the test job above.
+            rm -rf ~/.cache/pypoetry/cache ~/.cache/pypoetry/artifacts
             poetry install --no-root
           }
 
