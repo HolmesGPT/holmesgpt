@@ -1098,6 +1098,9 @@ class ToolCallingLLM:
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
+        # Last non-empty assistant text, used to recover the answer if the
+        # loop terminates on an empty final turn (see #1676).
+        last_substantive_content: Optional[str] = None
         if iteration_offset < 0:
             raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
@@ -1245,6 +1248,12 @@ class ToolCallingLLM:
                 )
             )
 
+            # Remember the most recent non-empty assistant text so we can
+            # recover it if the loop terminates on an empty final turn.
+            iteration_content = getattr(response_message, "content", None)
+            if iteration_content and iteration_content.strip():
+                last_substantive_content = iteration_content
+
             yield self._emit_token_count(
                 messages, tools, full_response, limit_result, metadata, stats
             )
@@ -1263,10 +1272,21 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
+                # When the terminating turn has no text (content=None / ""),
+                # fall back to the last non-empty assistant text (see #1676).
+                final_content = response_message.content
+                if not (final_content and final_content.strip()):
+                    if last_substantive_content is not None:
+                        logging.info(
+                            "Final LLM turn had empty content; recovering the "
+                            "last non-empty assistant message as the answer "
+                            "(see #1676)."
+                        )
+                        final_content = last_substantive_content
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
-                        "content": response_message.content,
+                        "content": final_content,
                         "messages": messages,
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,

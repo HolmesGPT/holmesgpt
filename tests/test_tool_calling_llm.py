@@ -283,6 +283,76 @@ class TestMultiIterationHappyPath:
         assert len(token_counts) >= 1  # at least one TOKEN_COUNT event
 
 
+class TestEmptyFinalTurnRecovery:
+    """The model emits its answer in a turn that also carries a trailing tool
+    call, then closes the loop with an empty turn (content=None / "" and no
+    tool calls). The answer must be recovered from the last substantive turn
+    instead of being lost as an empty result (see #1676)."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_recovers_answer_when_final_turn_is_none(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        tc = _make_mock_tool_call()
+        # Turn 1: real answer AND a trailing tool call (e.g. TodoWrite).
+        resp_answer_with_tool = _make_llm_response(
+            content="## Summary\nThe job was already cleaned up.", tool_calls=[tc]
+        )
+        # Turn 2: empty closing turn — no text, no tool calls.
+        resp_empty_final = _make_llm_response(content=None, tool_calls=None)
+        mock_llm.completion.side_effect = [resp_answer_with_tool, resp_empty_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        result = ai.call([{"role": "user", "content": "Investigate this error"}])
+
+        assert result.result == "## Summary\nThe job was already cleaned up."
+        assert result.num_llm_calls == 2
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_recovers_answer_when_final_turn_is_blank(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        tc = _make_mock_tool_call()
+        resp_answer_with_tool = _make_llm_response(
+            content="All pods are healthy.", tool_calls=[tc]
+        )
+        resp_blank_final = _make_llm_response(content="   ", tool_calls=None)
+        mock_llm.completion.side_effect = [resp_answer_with_tool, resp_blank_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "status?"}])
+        )
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        assert answer_ends[0].data["content"] == "All pods are healthy."
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_empty_final_with_no_prior_text_stays_empty(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        # No substantive content ever produced → nothing to recover; the empty
+        # terminal content is preserved (downstream coalesces None elsewhere).
+        tc = _make_mock_tool_call()
+        resp_silent_with_tool = _make_llm_response(content=None, tool_calls=[tc])
+        resp_empty_final = _make_llm_response(content=None, tool_calls=None)
+        mock_llm.completion.side_effect = [resp_silent_with_tool, resp_empty_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "status?"}])
+        )
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        assert not (answer_ends[0].data["content"] or "").strip()
+
+
 # ---------------------------------------------------------------------------
 # Test 3: Approval callback flow (call() → call_stream() → _prompt_for_approval_decisions)
 # ---------------------------------------------------------------------------
