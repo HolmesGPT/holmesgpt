@@ -197,7 +197,14 @@ async def _run(user_prompt: str, model: str, cluster_name: Optional[str]) -> SDK
                 if isinstance(block, TextBlock) and block.text.strip():
                     final_text = block.text
                 elif isinstance(block, ToolUseBlock):
-                    tool_calls.append(_describe_tool_use(block))
+                    tc = _describe_tool_use(block)
+                    tool_calls.append(tc)
+                    if audit_path:
+                        try:
+                            with open(audit_path, "a") as fh:
+                                fh.write(f"[tooluse] {tc.description}\n")
+                        except Exception:
+                            pass
         elif isinstance(msg, ResultMessage):
             num_turns = msg.num_turns or 0
             if msg.result:
