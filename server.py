@@ -637,7 +637,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                             ("total_tokens", llm_call.total_tokens),
                             ("total_cost", llm_call.total_cost),
                         )
-                        if value
+                        if value is not None
                     }
                 )
 
