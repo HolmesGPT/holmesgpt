@@ -1,4 +1,4 @@
-"""Unit tests for RealtimeManager's testable (non-async) surface."""
+"""Unit tests for RealtimeWorker's testable (non-async) surface."""
 import asyncio
 import logging
 import os
@@ -13,7 +13,7 @@ from realtime._async.channel import ChannelStates
 from websockets.exceptions import WebSocketException
 
 from holmes.core.conversations_worker.realtime_manager import (
-    RealtimeManager,
+    RealtimeWorker,
     _build_ssl_context,
     _install_realtime_log_filter_if_needed,
     _install_ssl_patch_if_needed,
@@ -30,7 +30,7 @@ def _make_manager():
     dal.url = "https://sp.stg.example"
     dal.account_id = "acc-1"
     dal.cluster = "cluster-1"
-    return RealtimeManager(dal=dal, holmes_id="h-test", on_new_pending=MagicMock())
+    return RealtimeWorker(dal=dal, holmes_id="h-test", on_new_pending=MagicMock())
 
 
 def test_initial_state_is_disconnected():

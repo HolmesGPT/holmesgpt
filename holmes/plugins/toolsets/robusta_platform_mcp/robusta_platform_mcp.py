@@ -26,7 +26,12 @@ from pydantic import AnyUrl, PrivateAttr
 
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import StructuredToolResult, ToolInvokeContext, ToolsetTag
+from holmes.core.tools import (
+    StructuredToolResult,
+    ToolInvokeContext,
+    ToolsetStatusEnum,
+    ToolsetTag,
+)
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
@@ -151,6 +156,63 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
 
         headers["Authorization"] = f"Bearer {account_id} {token}"
         return headers
+
+
+def refresh_platform_mcp_tools(tool_executor: Any) -> bool:
+    """Re-discover platform-mcp tools and patch them into a live ToolExecutor.
+
+    The dynamic remote-tool surface changes while Holmes runs (a new cluster
+    publishes its tools; an account flag flips): without this, a caller only
+    sees the tool list discovered at startup until the pod restarts. Called
+    from the periodic toolset-refresh loop in server.py.
+
+    Returns True when the tool list changed.
+    """
+    for toolset in getattr(tool_executor, "toolsets", []):
+        if not isinstance(toolset, RobustaPlatformMCPToolset):
+            continue
+        if toolset.status != ToolsetStatusEnum.ENABLED:
+            return False
+        try:
+            new_tools = toolset._load_remote_tools()
+        except Exception:
+            logger.warning(
+                "robusta_platform_mcp: periodic tool re-discovery failed; "
+                "keeping the previous tool list",
+                exc_info=True,
+            )
+            return False
+        old_names = {t.name for t in toolset.tools}
+        new_names = {t.name for t in new_tools}
+        if old_names == new_names:
+            return False
+        for name in old_names - new_names:
+            # Only remove entries this toolset owns.
+            if tool_executor._tool_to_toolset.get(name) is toolset:
+                tool_executor.tools_by_name.pop(name, None)
+                tool_executor._tool_to_toolset.pop(name, None)
+        toolset.tools = new_tools
+        for tool in new_tools:
+            owner = tool_executor._tool_to_toolset.get(tool.name)
+            if owner is not None and owner is not toolset:
+                logger.warning(
+                    "robusta_platform_mcp: not overriding tool '%s' owned by "
+                    "toolset '%s'",
+                    tool.name,
+                    owner.name,
+                )
+                continue
+            if tool.icon_url is None and toolset.icon_url is not None:
+                tool.icon_url = toolset.icon_url
+            tool_executor.tools_by_name[tool.name] = tool
+            tool_executor._tool_to_toolset[tool.name] = toolset
+        logger.info(
+            "robusta_platform_mcp: tool list refreshed (added=%s removed=%s)",
+            sorted(new_names - old_names),
+            sorted(old_names - new_names),
+        )
+        return True
+    return False
 
 
 def make_robusta_platform_mcp_toolset(

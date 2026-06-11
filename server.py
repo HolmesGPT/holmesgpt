@@ -58,6 +58,9 @@ from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
+from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
+    refresh_platform_mcp_tools,
+)
 from holmes.utils.holmes_status import (
     refresh_holmes_status,
     update_holmes_status_in_db,
@@ -224,6 +227,21 @@ def _toolset_status_refresh_loop():
                 refresh_holmes_status(dal, config)
             except Exception:
                 logging.error("Failed to refresh holmes status", exc_info=True)
+            try:
+                # Re-discover platform-mcp tools so the dynamic remote-tool
+                # surface (new clusters, flipped account flag) reaches a
+                # RUNNING caller without a pod restart.
+                executor = config.create_tool_executor(
+                    dal,
+                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+                    enable_all_toolsets_possible=False,
+                    reuse_executor=True,
+                )
+                refresh_platform_mcp_tools(executor)
+            except Exception:
+                logging.error(
+                    "Failed to refresh platform-mcp tools", exc_info=True
+                )
             try:
                 changes = config.refresh_tool_executor(
                     dal,
