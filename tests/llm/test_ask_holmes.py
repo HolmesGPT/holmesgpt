@@ -197,6 +197,27 @@ def ask_holmes(
         )
         toolset_span.log(metadata={"toolset_names": enabled_toolsets})
 
+    # Experimental: run the investigation on the Claude Agent SDK engine instead
+    # of ToolCallingLLM, to A/B the agent architecture on the same evals/judge.
+    from holmes.core.claude_sdk_engine import is_sdk_engine_enabled, run_investigation
+
+    if is_sdk_engine_enabled():
+        with tracer.start_trace("Holmes Run", span_type=SpanType.TASK):
+            start_time = time.time()
+            result = run_investigation(
+                user_prompt=test_case.user_prompt,
+                model=model,
+                cluster_name=test_case.cluster_name,
+            )
+            holmes_duration = time.time() - start_time
+            eval_span.log(metadata={"holmes_duration": holmes_duration})
+            if request:
+                request.node.user_properties.append(("holmes_duration", holmes_duration))
+                if result.num_llm_calls is not None:
+                    request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
+                request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
+        return result
+
     with tool_result_storage() as tool_results_dir:
         ai = ToolCallingLLM(
             tool_executor=tool_executor,
