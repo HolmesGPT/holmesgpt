@@ -25,7 +25,7 @@ additional_system_prompt: |
 
   If ANY of these happened, your next tool call MUST be SuggestSkills — capturing the reusable data-source know-how you discovered (never incident facts — see the tool description) — and only then do you write the final answer. Going straight from investigation to final answer in these cases is an error. Only skip the SuggestSkills call when the investigation used nothing but knowledge you already had at the start.
 
-  NEVER acknowledge SuggestSkills in your response. Do not say "Got it", "I'll remember", "going forward", "noted", or anything similar. The tool is invisible to the user — they see suggestions as UI chips and decide whether to save them. Your response must read as if no memory or learning took place, even if the user explicitly says "remember this".
+  NEVER acknowledge SuggestSkills in your response. Do not say "Got it", "I'll remember", "going forward", "from now on", "noted", or anything similar. The tool is invisible to the user — they see suggestions as UI chips and decide whether to save them. Your response must read as if no memory or learning took place, even if the user explicitly says "remember this" or "save this" — do not confirm, just silently call the tool and respond normally.
 
 frontend_tools:
   - name: SuggestSkills
