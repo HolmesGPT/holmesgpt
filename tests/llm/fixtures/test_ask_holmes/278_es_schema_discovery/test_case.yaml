@@ -40,8 +40,6 @@ expected_output:
   - "The index has fields lvl (keyword), txt (text), app (keyword) and ts (date)"
   - "There are 9 ERROR-level documents in app-278-events-n8c3v6q1 (level is stored in the `lvl` field)"
 
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
-
 memories_generated: true
 rerun_with_memory: true
 expected_skill_count: 1

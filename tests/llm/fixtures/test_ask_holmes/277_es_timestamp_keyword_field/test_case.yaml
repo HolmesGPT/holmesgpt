@@ -36,8 +36,6 @@ user_prompt: 'In the elasticsearch index ''app-277-logs-7h9k4f2p'', run a `range
 expected_output:
   - "There are 7 ERROR-level log entries from today in app-277-logs-7h9k4f2p (timestamp stored under the custom `ingest_ts` keyword field, not the standard `@timestamp` date field)"
 
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
-
 memories_generated: true
 rerun_with_memory: true
 

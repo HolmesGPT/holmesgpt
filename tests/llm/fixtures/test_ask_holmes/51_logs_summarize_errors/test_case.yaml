@@ -40,7 +40,12 @@ after_test: |
   kubectl delete namespace ask-holmes-namespace-51 --wait=false || echo "WARNING: Failed to delete namespace (exit code: $?)"
   echo "Cleanup completed"
 
-# No-spam guard: the SuggestSkills frontend tool is injected (mirroring the
-# Robusta UI in production) and must NOT fire on this routine investigation.
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
+# The SuggestSkills frontend tool is available to the agent in every eval by
+# default (it mirrors the tool the Robusta UI attaches to each chat request,
+# letting the agent propose reusable environment know-how as "skills"). This
+# investigation is routine and teaches nothing reusable about the environment,
+# so a well-behaved agent must NOT propose any skill here.
+# `memories_generated: false` fails the test if it proposes one anyway -
+# guarding against skill spam, where users get flooded with low-value
+# suggestion chips after ordinary investigations.
 memories_generated: false

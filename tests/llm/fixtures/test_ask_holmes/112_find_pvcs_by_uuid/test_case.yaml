@@ -37,4 +37,3 @@ after_test: |
 # this annotation" is compliant env-specific addressing knowledge under the
 # current SuggestSkills spec. Suggestion emission here is neither required
 # nor banned.
-frontend_tools: ../../shared/skill_suggestion_tool.yaml

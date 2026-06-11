@@ -20,8 +20,6 @@ user_prompt: |
   index in Elasticsearch for errors from the checkout service in the last
   hour and tell me the exact error code.
 
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
-
 # Closed-loop validation: the primary pass must emit at least one skill
 # suggestion; the replay pass re-runs the question with that skill loaded
 # and must fetch it and answer correctly.

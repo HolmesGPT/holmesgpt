@@ -215,6 +215,10 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
         # list of FrontendToolDefinition dicts or a path (relative to the
         # test folder) to a YAML file containing one. Only noop-mode tools
         # are supported in evals (there is no client to execute pause tools).
+        # When UNSET, every eval gets the shared SuggestSkills fixture
+        # (tests/llm/fixtures/shared/skill_suggestion_tool.yaml) by default,
+        # because the Robusta UI attaches that tool to every chat request in
+        # production. Set `frontend_tools: []` to opt a test out.
     )
     allow_toolset_failures: Optional[bool] = (
         False  # Allow toolsets to fail prerequisite checks (default False)
@@ -237,6 +241,14 @@ class FrontendPayload(BaseModel):
     additional_system_prompt: Optional[str] = None
 
 
+# Injected into every eval whose test_case.yaml does not set `frontend_tools`,
+# mirroring production where the Robusta UI sends the SuggestSkills tool with
+# every chat request. Tests opt out with `frontend_tools: []`.
+DEFAULT_FRONTEND_TOOLS_PATH = (
+    Path(__file__).parent.parent / "fixtures" / "shared" / "skill_suggestion_tool.yaml"
+)
+
+
 def load_frontend_tools(
     test_case: "AskHolmesTestCase",
 ) -> Optional[FrontendPayload]:
@@ -249,6 +261,11 @@ def load_frontend_tools(
     client sends alongside its tools.
     """
     raw = test_case.frontend_tools
+    if raw is None:
+        # Unset -> production default: the Robusta UI sends the SuggestSkills
+        # tool with every chat request, so evals inject it unless the test
+        # explicitly opts out with `frontend_tools: []`.
+        raw = str(DEFAULT_FRONTEND_TOOLS_PATH)
     if not raw:
         return None
 

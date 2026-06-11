@@ -18,8 +18,6 @@ user_prompt: 'In the elasticsearch index ''app-276-logs-9j2k4p7m'', run a `terms
 expected_output:
   - "There are 8 entries with ERROR or FATAL severity in app-276-logs-9j2k4p7m (the index encodes log level as a numeric severity_num integer, not a text level field)"
 
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
-
 memories_generated: true
 rerun_with_memory: true
 

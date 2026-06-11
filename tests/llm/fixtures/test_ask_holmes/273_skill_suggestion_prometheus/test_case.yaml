@@ -14,8 +14,6 @@ user_prompt: |
   app-273). Use the Prometheus metrics to find which service is failing and
   tell me the exact failure reason recorded in the metrics.
 
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
-
 # Closed-loop validation: the captured metric/label-conventions skill must
 # be fetched on replay and the answer must stay correct.
 memories_generated: true

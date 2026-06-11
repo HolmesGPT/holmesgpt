@@ -16,8 +16,17 @@ def _make_test_case(folder: str, frontend_tools) -> AskHolmesTestCase:
     )
 
 
-def test_no_frontend_tools_returns_none(tmp_path):
-    assert load_frontend_tools(_make_test_case(str(tmp_path), None)) is None
+def test_unset_frontend_tools_defaults_to_shared_suggest_skills(tmp_path):
+    # Unset mirrors production: the Robusta UI sends the SuggestSkills tool
+    # with every chat request, so evals inject the shared fixture by default.
+    payload = load_frontend_tools(_make_test_case(str(tmp_path), None))
+    assert payload is not None
+    assert [t.name for t in payload.tools] == ["SuggestSkills"]
+    assert payload.additional_system_prompt
+
+
+def test_empty_list_opts_out_of_default(tmp_path):
+    assert load_frontend_tools(_make_test_case(str(tmp_path), [])) is None
 
 
 def test_inline_frontend_tools(tmp_path):

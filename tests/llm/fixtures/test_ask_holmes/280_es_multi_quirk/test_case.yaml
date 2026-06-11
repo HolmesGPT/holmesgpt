@@ -48,8 +48,6 @@ expected_output:
   - "There are 8 ERROR-or-FATAL entries in app-280-logs-b-p6t1z8k3 (uses `severity_num` integer where 5=ERROR, 6=FATAL)"
   - "There are 7 ERROR entries from today in app-280-logs-c-p6t1z8k3 (uses `ingest_ts` keyword for timestamps, not `@timestamp`)"
 
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
-
 memories_generated: true
 rerun_with_memory: true
 

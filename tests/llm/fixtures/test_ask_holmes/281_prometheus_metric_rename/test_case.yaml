@@ -18,8 +18,6 @@ user_prompt: "How many messages have been consumed in total on the 'payments' Ka
 expected_output:
   - "The payments topic has 47823 messages consumed"
 
-frontend_tools: ../../shared/skill_suggestion_tool.yaml
-
 memories_generated: true
 rerun_with_memory: true
 

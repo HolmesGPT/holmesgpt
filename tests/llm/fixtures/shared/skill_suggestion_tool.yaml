@@ -7,8 +7,10 @@
 # place to iterate on the tool name/description with evals, and the frontend
 # files are where the winning version ships.
 #
-# Reference in a test_case.yaml with:
-#   frontend_tools: ../../shared/skill_suggestion_tool.yaml
+# Injected into EVERY ask_holmes eval by default (see load_frontend_tools in
+# tests/llm/utils/test_case_utils.py) because the Robusta UI sends this tool
+# with every chat request in production. A test can opt out with:
+#   frontend_tools: []
 #
 # `additional_system_prompt` below mirrors the prompt snippet the frontend
 # sends alongside the tool (additional-system-prompt.ts).
