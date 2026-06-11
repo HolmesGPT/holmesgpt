@@ -66,6 +66,25 @@ def _fmt_tokens(value: Optional[int]) -> str:
     return "—"
 
 
+def _fmt_event_icons(
+    skills_written: int, skills_read: int, compactions: int
+) -> str:
+    """Compact event markers appended to the Status cell so rows with
+    special events can be spotted while skimming, without scrolling right
+    to the dedicated columns: ✍️ skill(s) written (SuggestSkills emitted),
+    📖 skill(s) read (fetch_skill called), 🗜️ context compaction occurred.
+    Returns an empty string when none apply.
+    """
+    icons = ""
+    if skills_written:
+        icons += "✍️"
+    if skills_read:
+        icons += "📖"
+    if compactions:
+        icons += "🗜️"
+    return f" {icons}" if icons else ""
+
+
 def _fmt_denied_commands(commands: Optional[List[str]]) -> str:
     """Format denied bash commands for a markdown table cell.
 
@@ -675,7 +694,12 @@ def generate_markdown_report(
         total_denied_commands += len(denied_commands)
         denied_commands_str = _fmt_denied_commands(denied_commands)
 
-        markdown += f"| {primary_status_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {skill_generated_str} | {skills_read_str} | {compactions_str} | {denied_commands_str} | {source_str} |\n"
+        # Event markers next to the status icon make special rows skimmable.
+        primary_events = _fmt_event_icons(
+            memories_count, skills_read_count, num_compactions
+        )
+
+        markdown += f"| {primary_status_symbol}{primary_events} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {skill_generated_str} | {skills_read_str} | {compactions_str} | {denied_commands_str} | {source_str} |\n"
 
         # If this test ran a closed-loop replay (rerun_with_memory: true and
         # a memory was actually captured), emit a second row labeled
@@ -697,7 +721,19 @@ def generate_markdown_report(
                 replay_status = ":heavy_minus_sign:"
             else:
                 replay_status = ":x:"
-            replay_name = f"{test_case_name} [replay]"
+            # The replay runs as its own Braintrust trace; link the [replay]
+            # row to it rather than reusing the primary trace's link.
+            replay_braintrust_url = get_braintrust_url(
+                result.get("replay_braintrust_span_id"),
+                result.get("replay_braintrust_root_span_id"),
+            )
+            if replay_braintrust_url:
+                replay_name = (
+                    f"[{result['test_case_name']} \\[replay\\]]"
+                    f"({replay_braintrust_url})"
+                )
+            else:
+                replay_name = f"{test_case_name} [replay]"
             # Replay never injects suggest_skills, so Skill Generated is
             # always "—" on the replay row.
             replay_skill_generated_str = "—"
@@ -749,10 +785,16 @@ def generate_markdown_report(
                 str(r_num_compactions) if r_num_compactions > 0 else "—"
             )
 
+            # Replays never write skills (SuggestSkills isn't injected), so
+            # only the read/compaction markers can apply.
+            replay_events = _fmt_event_icons(
+                0, r_skills_read_count, r_num_compactions
+            )
+
             # Replay shares the parent row's Src link — same test_case.yaml.
             # Denied commands aren't tracked separately for replays.
             markdown += (
-                f"| {replay_status} | {replay_name} | "
+                f"| {replay_status}{replay_events} | {replay_name} | "
                 f"{r_time_str} | {r_turns_str} | {r_tools_str} | {r_cost_str} | "
                 f"{r_total_tokens_str} | {r_input_str} | {r_max_prompt_str} | "
                 f"{r_output_str} | {r_max_completion_str} | {r_cached_str} | "

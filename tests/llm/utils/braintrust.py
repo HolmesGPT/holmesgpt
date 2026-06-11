@@ -240,9 +240,11 @@ def get_braintrust_url(
     # Build URL with available parameters
     url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{encoded_experiment_name}?c="
 
-    # Add span IDs if available
+    # Add span IDs if available. In Braintrust's experiment URLs `r` selects
+    # the row (the trace's root span id) and `s` selects a span inside that
+    # trace — passing them the other way round opens the experiment without
+    # focusing the row, which looks like the link "isn't filtering".
     if span_id and root_span_id:
-        # Use span_id as r parameter and root_span_id as s parameter
-        url += f"&r={span_id}&s={root_span_id}"
+        url += f"&r={root_span_id}&s={span_id}"
 
     return url

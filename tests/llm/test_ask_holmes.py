@@ -308,6 +308,22 @@ def test_ask_holmes(
                         request=request,
                     )
                     replay_duration = time.time() - replay_start
+                    # The replay runs as its own Braintrust trace (named
+                    # "<id>[replay][<model>]"); record its span ids so the
+                    # report's [replay] row can link to it instead of the
+                    # primary trace.
+                    if hasattr(replay_span, "id"):
+                        update_property(
+                            request,
+                            "replay_braintrust_span_id",
+                            str(replay_span.id),
+                        )
+                    if hasattr(replay_span, "root_span_id"):
+                        update_property(
+                            request,
+                            "replay_braintrust_root_span_id",
+                            str(replay_span.root_span_id),
+                        )
             except Exception as e:
                 update_property(request, "replay_error", str(e)[:300])
                 raise

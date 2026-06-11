@@ -886,6 +886,10 @@ def _collect_test_results_from_stats(terminalreporter):
                 "replay_skill_loaded": user_props.get("replay_skill_loaded"),
                 "replay_skills_read_count": user_props.get("replay_skills_read_count", 0),
                 "replay_skill_count": user_props.get("replay_skill_count", 0),
+                "replay_braintrust_span_id": user_props.get("replay_braintrust_span_id"),
+                "replay_braintrust_root_span_id": user_props.get(
+                    "replay_braintrust_root_span_id"
+                ),
                 "replay_turns": user_props.get("replay_turns"),
                 "replay_tool_calls_count": user_props.get("replay_tool_calls_count"),
                 "replay_duration": user_props.get("replay_duration"),
