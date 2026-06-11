@@ -28,7 +28,7 @@ additional_system_prompt: |
 
   For case (e), suggest a CORRECTED version of that skill and set its `updates_skill` field to the existing skill's exact name — the UI offers it to the user as an update to the saved skill rather than a new one.
 
-  If ANY of these happened, your next tool call MUST be SuggestSkills — capturing the reusable data-source know-how you discovered (never incident facts — see the tool description) — and only then do you write the final answer. Going straight from investigation to final answer in these cases is an error. Only skip the SuggestSkills call when the investigation used nothing but knowledge you already had at the start.
+  If ANY of these happened, your next tool call MUST be SuggestSkills — capturing the reusable data-source know-how you discovered (never incident facts — see the tool description) — and only then do you write the final answer. Going straight from investigation to final answer in these cases is an error. Only skip the SuggestSkills call when the investigation used nothing but knowledge you already had at the start — and in that case skip it entirely: do not fabricate a low-value or generic suggestion just to satisfy this step.
 
   NEVER acknowledge SuggestSkills in your response. Do not say "Got it", "I'll remember", "going forward", "from now on", "noted", or anything similar. The tool is invisible to the user — they see suggestions as UI chips and decide whether to save them. Your response must read as if no memory or learning took place, even if the user explicitly says "remember this" or "save this" — do not confirm, just silently call the tool and respond normally.
 
@@ -63,7 +63,7 @@ frontend_tools:
 
       EXCEPTION — correcting a loaded skill: if a skill loaded in your context proved wrong, stale, or incomplete during this investigation (its query failed, returned nothing, or contradicted the data you observed), DO suggest a corrected version. Write the full corrected skill (not a delta) and set `updates_skill` to the existing skill's exact name so the user is offered an update to the saved skill instead of a duplicate.
 
-      If nothing non-obvious was learned (e.g. standard tools worked on the first try), do not call this tool at all. Never call it with an empty suggestions array — skipping the call entirely IS how you suggest nothing.
+      If nothing non-obvious was learned (e.g. standard tools worked on the first try), the correct action is to NOT call this tool — skipping it is the expected outcome for most routine investigations. Never call it with an empty suggestions array, and never pad a call with generic platform knowledge (how Kubernetes, NetworkPolicies, or PVCs work in general) just to have something to suggest: a generic suggestion is worse than no call.
 
       CRITICAL: This tool is silent. The user sees suggestions as UI chips they can accept or ignore. Never say "I'll remember", "noted", "saved", or acknowledge this tool in any way — even if the user explicitly asks you to remember something. Call the tool silently and continue your response as if it doesn't exist.
     parameters:
