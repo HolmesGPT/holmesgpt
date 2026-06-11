@@ -41,6 +41,7 @@ tags:
   - elasticsearch
   - medium
   - transparency
+  - regression
   - multi-cluster
 
 setup_timeout: 300
