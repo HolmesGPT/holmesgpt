@@ -47,6 +47,8 @@ frontend_tools:
 
       Suggest a skill ONLY if you discovered something non-obvious — usually via schema exploration, trial and error, or a failed query you then corrected. Each suggestion must generalize beyond this conversation: ask yourself "will this exact text save time on a DIFFERENT question about the same data source?" If the answer is no, do not suggest it.
 
+      Scope each skill to a whole DATA SOURCE ("Elasticsearch quirks in this environment", "Loki query conventions"), never to one index, namespace, or service. The title and symptoms decide when the skill gets loaded in future investigations — if they mention a specific index or namespace, the skill will never be loaded for questions about other indices, even though the gotchas are the same. Put the specific index/field/label names inside the instructions; keep the title and symptoms broad enough to match ANY future query against that data source.
+
       NEVER include in a skill:
       - Facts about this specific incident: root causes, error messages or codes, counts, timestamps, specific log lines
       - Names of resources that happened to be broken today
@@ -68,18 +70,23 @@ frontend_tools:
               title:
                 type: string
                 description: >-
-                  Short name for the skill, named after the data source or
-                  environment area it covers (e.g. "Querying application logs
-                  in Elasticsearch", "Prometheus label conventions for the
-                  payments cluster"). Never name it after an incident.
+                  Short name for the skill, named after the data source it
+                  covers as a whole (e.g. "Elasticsearch quirks in this
+                  environment", "Loki query conventions", "Prometheus metric
+                  and label conventions"). Never name it after an incident,
+                  and never scope it to one index, namespace, or service —
+                  those specifics belong in the instructions.
               symptoms:
                 type: string
                 description: >-
-                  When to load this skill — what kind of question,
-                  investigation, or data-source access makes it relevant
-                  (e.g. "any investigation that searches application logs in
-                  Elasticsearch"). Describe situations where the skill
-                  applies, not incident symptoms.
+                  When to load this skill. Make it a broad trigger covering
+                  the entire data source, e.g. "Before querying Elasticsearch
+                  in this environment, fetch this skill to learn its
+                  schema/field-name gotchas". Never restrict it to a specific
+                  index, namespace, or service name — a narrowly-scoped
+                  trigger means the skill never gets loaded for other
+                  questions about the same data source, where the gotchas
+                  still apply.
               instructions:
                 type: string
                 description: >-
