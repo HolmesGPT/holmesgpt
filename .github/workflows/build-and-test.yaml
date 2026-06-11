@@ -111,20 +111,29 @@ jobs:
           poetry config virtualenvs.create false
 
       - name: Install dependencies
-        # The actions/cache restore of ~/.cache/pypoetry can hold poisoned
-        # package metadata, making poetry fail with "Unable to find
-        # installation candidates" for packages that are live on PyPI
-        # (seen repeatedly with leb128 / mkdocs-awesome-nav). On failure,
-        # clear poetry's PyPI cache and retry once with fresh metadata.
+        # poetry 1.4.0 resolves download links via PyPI's legacy JSON API,
+        # which intermittently returns no files for a random package from
+        # GitHub's Azure region ("Unable to find installation candidates" -
+        # seen with leb128, botocore, mkdocs-awesome-nav, all live on PyPI
+        # with hashes matching poetry.lock). The bad response is sticky, so
+        # plain retries and cache wipes don't help (runs 27331464951,
+        # 27331677651). Workaround: install the exact failing pin with pip
+        # (which uses the modern simple API) so the next poetry attempt
+        # sees it as satisfied and skips it.
         run: |
-          poetry install --no-root --with dev || {
-            echo "::warning::poetry install failed - wiping poetry cache and retrying"
-            # rm -rf, NOT `poetry cache clear`: in non-interactive mode the
-            # clear command's "Delete N entries?" confirm defaults to No and
-            # silently deletes nothing (verified in run 27331464951).
-            rm -rf ~/.cache/pypoetry/cache ~/.cache/pypoetry/artifacts
-            poetry install --no-root --with dev
-          }
+          for attempt in 1 2 3 4 5; do
+            poetry install --no-root --with dev 2>&1 | tee /tmp/poetry-install.log
+            [ "${PIPESTATUS[0]}" -eq 0 ] && exit 0
+            pin=$(sed -n 's/.*Unable to find installation candidates for \([^ ]*\) (\([^)]*\)).*/\1==\2/p' /tmp/poetry-install.log | head -1)
+            if [ -n "$pin" ]; then
+              echo "::warning::poetry could not fetch $pin - installing it with pip and retrying poetry (attempt $attempt)"
+              python -m pip install --no-deps "$pin"
+            else
+              echo "::warning::poetry install failed (attempt $attempt) - retrying"
+              sleep 5
+            fi
+          done
+          poetry install --no-root --with dev
 
       - name: Run tests
         shell: bash
@@ -203,13 +212,22 @@ jobs:
           # Retry with a fresh poetry PyPI cache on failure - the restored
           # ~/.cache/pypoetry can hold poisoned metadata (see "Install
           # dependencies" in the test job above).
-          poetry install --no-root || {
-            echo "::warning::poetry install failed - wiping poetry cache and retrying"
-            # rm -rf, NOT `poetry cache clear`: see "Install dependencies"
-            # in the test job above.
-            rm -rf ~/.cache/pypoetry/cache ~/.cache/pypoetry/artifacts
-            poetry install --no-root
-          }
+          # pip-fallback retry loop - see "Install dependencies" in the
+          # test job above for why ("Unable to find installation
+          # candidates" flake in poetry 1.4.0's legacy PyPI JSON API).
+          for attempt in 1 2 3 4 5; do
+            poetry install --no-root 2>&1 | tee /tmp/poetry-install.log
+            [ "${PIPESTATUS[0]}" -eq 0 ] && break
+            pin=$(sed -n 's/.*Unable to find installation candidates for \([^ ]*\) (\([^)]*\)).*/\1==\2/p' /tmp/poetry-install.log | head -1)
+            if [ -n "$pin" ]; then
+              echo "::warning::poetry could not fetch $pin - installing it with pip and retrying poetry (attempt $attempt)"
+              python -m pip install --no-deps "$pin"
+            else
+              echo "::warning::poetry install failed (attempt $attempt) - retrying"
+              sleep 5
+            fi
+            [ "$attempt" -eq 5 ] && poetry install --no-root
+          done
 
           sudo apt-get install -y binutils
           pyinstaller holmes_cli.py \
