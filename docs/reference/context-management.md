@@ -67,3 +67,15 @@ In practice:
 
 - Mechanism 1 prevents any single tool from blowing up the context.
 - Mechanism 2 prevents the cumulative conversation from growing unbounded.
+
+## Output Token Limit
+
+**Function:** `get_maximum_output_token()` in `holmes/core/llm.py`, sent as `max_tokens` by `DefaultLLM.completion()`
+
+Every LLM request includes an explicit output-token limit. It is the same value mechanism 2 reserves when budgeting input space (`max_output_tokens` in the threshold check above), so the enforced cap matches the reserved budget. Without an explicit limit, some providers fall back to small defaults (for example, litellm defaults Anthropic-family models that are missing from its cost map — such as proxy aliases — to 4096), which truncates long answers mid-response with `finish_reason: "length"`.
+
+The value is resolved in this order:
+
+1. `max_tokens` or `max_completion_tokens` set in the model's args (model list / `custom_args`) — always wins.
+2. `OVERRIDE_MAX_OUTPUT_TOKEN` environment variable.
+3. Computed: `min(64000, context_window / 5)`, further capped by the model's `max_output_tokens` from litellm's cost map when the model is known.

@@ -693,6 +693,22 @@ class DefaultLLM(LLM):
         if temperature is not None:
             self.args.setdefault("temperature", temperature)
 
+        # Always send an explicit output-token limit: without one, litellm falls
+        # back to provider defaults (4096 for Anthropic models missing from its
+        # cost map, e.g. proxy aliases), silently truncating long answers with
+        # finish_reason="length". Sends the same budget that input limiting and
+        # compaction already reserve (overridable via OVERRIDE_MAX_OUTPUT_TOKEN).
+        # An explicit max_tokens / max_completion_tokens in model args wins;
+        # `: null` sentinels are stripped like temperature above. litellm
+        # translates max_tokens per provider (max_completion_tokens for OpenAI
+        # reasoning models, maxTokens for Bedrock, maxOutputTokens for Gemini).
+        if self.args.get("max_tokens", ...) is None:
+            self.args.pop("max_tokens", None)
+        if self.args.get("max_completion_tokens", ...) is None:
+            self.args.pop("max_completion_tokens", None)
+        if "max_completion_tokens" not in self.args:
+            self.args.setdefault("max_tokens", self.get_maximum_output_token())
+
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
