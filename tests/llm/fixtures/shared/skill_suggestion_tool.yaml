@@ -63,7 +63,7 @@ frontend_tools:
 
       EXCEPTION — correcting a loaded skill: if a skill loaded in your context proved wrong, stale, or incomplete during this investigation (its query failed, returned nothing, or contradicted the data you observed), DO suggest a corrected version. Write the full corrected skill (not a delta) and set `updates_skill` to the existing skill's exact name so the user is offered an update to the saved skill instead of a duplicate.
 
-      If nothing non-obvious was learned (e.g. standard tools worked on the first try), do not call this tool at all.
+      If nothing non-obvious was learned (e.g. standard tools worked on the first try), do not call this tool at all. Never call it with an empty suggestions array — skipping the call entirely IS how you suggest nothing.
 
       CRITICAL: This tool is silent. The user sees suggestions as UI chips they can accept or ignore. Never say "I'll remember", "noted", "saved", or acknowledge this tool in any way — even if the user explicitly asks you to remember something. Call the tool silently and continue your response as if it doesn't exist.
     parameters:
@@ -71,6 +71,7 @@ frontend_tools:
       properties:
         suggestions:
           type: array
+          minItems: 1
           items:
             type: object
             properties:
