@@ -30,6 +30,12 @@ OWN_CLUSTER = "prod-us-east"
 #   both    - remote tool description AND system prompt
 #   none    - nowhere (negative control: only the enum-absence hint remains)
 VARIANT = os.environ.get("FLEET_STEERING_VARIANT", "remote")
+_VALID_VARIANTS = {"remote", "local", "system", "both", "none"}
+if VARIANT not in _VALID_VARIANTS:
+    raise ValueError(
+        f"Invalid FLEET_STEERING_VARIANT '{VARIANT}'. "
+        f"Expected one of: {', '.join(sorted(_VALID_VARIANTS))}."
+    )
 
 _LOCAL_DESC = (
     "Fetch this cluster's diagnostics record (includes the cluster's "
