@@ -1,17 +1,25 @@
-# Test: Kafka metrics in this cluster are exposed under a non-standard
-# name. The upstream Kafka JMX exporter publishes
-# `kafka_server_brokertopicmetrics_messagesinpersec_total` (or similar
-# `kafka_topic_*` shapes), but this team's exporter renames everything
-# under the `acme_kafka_*` prefix via prom relabeling. A fresh LLM
-# defaulting to the upstream names returns zero series and has to
-# enumerate metric names (`{__name__=~"kafka.*"}` → empty, then
-# `{__name__=~".*kafka.*"}` or `label_values(__name__)`) to discover
-# the real prefix `acme_kafka_*`.
+# Test: consumed-by-topic Kafka metrics in this cluster live ONLY under
+# the team-renamed `acme_kafka_*` prefix, and the metric surface is
+# salted with NEAR-MISSES the agent must rule out one by one:
+#   - `kafka_server_brokertopicmetrics_messagesin_total{topic=...}` —
+#     upstream-shaped and per-topic, but produced-side (broker ingest),
+#     not consumed. Answering from it gives 48102, not 47823.
+#   - `kafka_consumer_records_consumed_total{client_id=...}` — consumed,
+#     but per client process with no topic dimension, and it resets on
+#     restart, so it cannot answer "total consumed on topic X".
+#   - `acme_kafka_msgs_produced_total{topic=...}` — right prefix, wrong
+#     direction.
+# The only series that answers the question is
+# `acme_kafka_msgs_consumed_total{topic="payments"} 47823`.
 #
-# The LLM should capture this lesson: "Kafka metrics in this cluster
-# live under the `acme_kafka_*` prefix, not the upstream `kafka_*`
-# names — always discover the real metric name via label enumeration
-# before querying."
+# Earlier versions of this eval had a single acme_kafka metric and no
+# decoys; the agent found it with one broad regex, didn't consider the
+# discovery skill-worthy, and memories_generated failed ~4 of 5 runs.
+# The near-misses make the discovery genuinely costly — several wrong
+# turns before the right series — so the agent should both answer 47823
+# AND capture the lesson: "consumed-per-topic lives only in
+# acme_kafka_msgs_consumed_total; the upstream-named kafka_* series in
+# this cluster are produced-side or per-client decoys."
 
 user_prompt: "How many messages have been consumed in total on the 'payments' Kafka topic in the app-281 cluster?"
 
@@ -22,9 +30,10 @@ memories_generated: true
 rerun_with_memory: true
 
 description: |
-  Forces a wrong→right metric-name correction. The upstream Kafka exporter
-  name is renamed to a non-standard team-specific prefix, so default PromQL
-  returns no series and the agent must discover via metadata.
+  Forces a wrong→right metric-name correction with decoys. Upstream-named
+  kafka_* series exist but are produced-side or per-client; the only
+  consumed-per-topic series is the team-renamed acme_kafka_msgs_consumed_total,
+  so the agent must rule out several near-misses before answering.
 
 tags:
   - prometheus
@@ -44,9 +53,11 @@ before_test: |
 
   # Static-text metrics exporter. A Python http.server keeps the
   # surface area small and avoids ConfigMap-as-file-mount edge cases
-  # an earlier nginx version of this eval ran into. The exporter
-  # publishes Kafka-shape metrics under the team's `acme_kafka_*`
-  # prefix — the upstream `kafka_*` names do not appear anywhere.
+  # an earlier nginx version of this eval ran into. The exporter mixes
+  # upstream-named kafka_* decoys (produced-side / per-client) with the
+  # team-renamed acme_kafka_* series; only acme_kafka_msgs_consumed_total
+  # answers consumed-per-topic. HELP texts state each metric's semantics
+  # neutrally — no hint that a rename happened.
   cat <<'EOF' | kubectl apply -n app-281 -f -
   apiVersion: v1
   kind: ConfigMap
@@ -57,7 +68,22 @@ before_test: |
       #!/usr/bin/env python3
       from http.server import BaseHTTPRequestHandler, HTTPServer
       METRICS = (
-          "# HELP acme_kafka_msgs_consumed_total Total Kafka messages consumed by topic (acme team renamed metric)\n"
+          "# HELP kafka_server_brokertopicmetrics_messagesin_total Messages produced into each topic (broker ingest side)\n"
+          "# TYPE kafka_server_brokertopicmetrics_messagesin_total counter\n"
+          'kafka_server_brokertopicmetrics_messagesin_total{topic="payments"} 48102\n'
+          'kafka_server_brokertopicmetrics_messagesin_total{topic="checkout"} 11890\n'
+          'kafka_server_brokertopicmetrics_messagesin_total{topic="inventory"} 6517\n'
+          "# HELP kafka_consumer_records_consumed_total Records consumed per client process since process start (resets on restart)\n"
+          "# TYPE kafka_consumer_records_consumed_total counter\n"
+          'kafka_consumer_records_consumed_total{client_id="payments-svc-1"} 9382\n'
+          'kafka_consumer_records_consumed_total{client_id="payments-svc-2"} 12077\n'
+          'kafka_consumer_records_consumed_total{client_id="checkout-svc-1"} 4541\n'
+          "# HELP acme_kafka_msgs_produced_total Messages produced per topic\n"
+          "# TYPE acme_kafka_msgs_produced_total counter\n"
+          'acme_kafka_msgs_produced_total{topic="payments"} 48102\n'
+          'acme_kafka_msgs_produced_total{topic="checkout"} 11890\n'
+          'acme_kafka_msgs_produced_total{topic="inventory"} 6517\n'
+          "# HELP acme_kafka_msgs_consumed_total Messages consumed per topic\n"
           "# TYPE acme_kafka_msgs_consumed_total counter\n"
           'acme_kafka_msgs_consumed_total{topic="payments"} 47823\n'
           'acme_kafka_msgs_consumed_total{topic="checkout"} 11204\n'
