@@ -319,31 +319,40 @@ def test_ask_holmes(
                     span_type=SpanType.EVAL,
                 ) as replay_span:
                     replay_start = time.time()
-                    replay_result = ask_holmes(
-                        test_case=test_case,
-                        model=model,
-                        tracer=tracer,
-                        eval_span=replay_span,
-                        additional_system_prompt=additional_system_prompt,
-                        # Replay simulates a FUTURE investigation: the
-                        # captured skills are available, but the
-                        # SuggestSkills tool (and its prompt snippet) are
-                        # not re-injected. It asks the EXACT same question
-                        # as the primary run, so the primary-vs-replay
-                        # metrics in the report are a clean with-skill vs
-                        # without-skill comparison on identical input.
-                        inject_frontend=False,
-                        additional_skill_paths=[skills_dir],
-                        # Do NOT pass `request` here: ask_holmes appends
-                        # holmes_duration / num_llm_calls / tool_call_count
-                        # to user_properties when given a request, and the
-                        # report reads the LAST value per key — so the
-                        # replay's numbers would overwrite the PRIMARY
-                        # run's Time/Turns/Tools columns in the report.
-                        # Replay metrics are recorded separately below
-                        # under replay_* keys.
-                        request=None,
-                    )
+                    try:
+                        replay_result = ask_holmes(
+                            test_case=test_case,
+                            model=model,
+                            tracer=tracer,
+                            eval_span=replay_span,
+                            additional_system_prompt=additional_system_prompt,
+                            # Replay simulates a FUTURE investigation: the
+                            # captured skills are available, but the
+                            # SuggestSkills tool (and its prompt snippet) are
+                            # not re-injected. It asks the EXACT same question
+                            # as the primary run, so the primary-vs-replay
+                            # metrics in the report are a clean with-skill vs
+                            # without-skill comparison on identical input.
+                            inject_frontend=False,
+                            additional_skill_paths=[skills_dir],
+                            # Do NOT pass `request` here: ask_holmes appends
+                            # holmes_duration / num_llm_calls / tool_call_count
+                            # to user_properties when given a request, and the
+                            # report reads the LAST value per key — so the
+                            # replay's numbers would overwrite the PRIMARY
+                            # run's Time/Turns/Tools columns in the report.
+                            # Replay metrics are recorded separately below
+                            # under replay_* keys.
+                            request=None,
+                        )
+                    except Exception as e:
+                        # The rerun itself crashed — record an error row on
+                        # the replay trace so it isn't left empty in
+                        # Braintrust.
+                        log_to_braintrust(
+                            replay_span, test_case, model, result=None, error=e
+                        )
+                        raise
                     replay_duration = time.time() - replay_start
                     # The replay runs as its own Braintrust trace (named
                     # "<id>[replay][<model>]"); record its span ids so the
@@ -361,101 +370,130 @@ def test_ask_holmes(
                             "replay_braintrust_root_span_id",
                             str(replay_span.root_span_id),
                         )
+                    replay_tool_calls = replay_result.tool_calls or []
+                    replay_fetch_skill_count = count_fetch_skill_calls(
+                        replay_tool_calls
+                    )
+                    fetch_skill_called = replay_fetch_skill_count > 0
+                    # Capture the full LLMResult stats for the replay so the
+                    # GitHub report can show side-by-side duration / tokens /
+                    # cost vs the original run.
+                    update_property(
+                        request, "replay_turns", replay_result.num_llm_calls
+                    )
+                    update_property(
+                        request, "replay_tool_calls_count", len(replay_tool_calls)
+                    )
+                    update_property(request, "replay_skill_loaded", fetch_skill_called)
+                    update_property(
+                        request, "replay_skills_read_count", replay_fetch_skill_count
+                    )
+                    update_property(request, "replay_skill_count", len(written))
+                    update_property(request, "replay_duration", replay_duration)
+                    for attr in (
+                        "total_cost",
+                        "total_tokens",
+                        "prompt_tokens",
+                        "completion_tokens",
+                        "cached_tokens",
+                        "reasoning_tokens",
+                        "max_completion_tokens_per_call",
+                        "max_prompt_tokens_per_call",
+                        "num_compactions",
+                    ):
+                        value = getattr(replay_result, attr, None)
+                        if value is not None:
+                            update_property(request, f"replay_{attr}", value)
+                    replay_output = replay_result.result or ""
+                    update_property(request, "replay_answer", replay_output)
+
+                    # Score replay correctness with the same judge — but
+                    # separately, so the original correctness reading is
+                    # preserved.
+                    # The replay asks the same question, so it is judged
+                    # against the primary's `expected_output` by default.
+                    # Fixtures whose expected_output includes
+                    # SuggestSkills-specific criteria (which can never hold
+                    # on replay — the tool isn't injected there) declare
+                    # `expected_replay_output` with the answer-only criteria
+                    # instead.
+                    expected = (
+                        getattr(test_case, "expected_replay_output", None)
+                        or test_case.expected_output
+                    )
+                    if not isinstance(expected, list):
+                        expected = [expected]
+                    evaluation_type = "strict"
+                    if hasattr(test_case, "evaluation") and isinstance(
+                        test_case.evaluation.correctness, Evaluation
+                    ):
+                        evaluation_type = test_case.evaluation.correctness.type
+                    replay_eval = evaluate_correctness(
+                        output=replay_output,
+                        expected_elements=expected,
+                        parent_span=replay_span,
+                        evaluation_type=evaluation_type,
+                        caplog=caplog,
+                    )
+                    update_property(
+                        request, "replay_correctness", int(replay_eval.score)
+                    )
+
+                    # Record the replay row (answer, expected, correctness
+                    # score, token/cost metadata) on its own Braintrust trace
+                    # BEFORE the hard assertions below — a failed replay
+                    # otherwise leaves an empty trace with no way to see what
+                    # the model actually answered.
+                    log_to_braintrust(
+                        replay_span,
+                        test_case,
+                        model,
+                        result=replay_result,
+                        scores={"correctness": replay_eval.score},
+                        expected_override=str(expected),
+                    )
+
+                    # Hard assertions: the agent must have fetched the skill
+                    # (so we know the captured suggestion was actually
+                    # consulted) and the answer must still be correct.
+                    require_load = getattr(
+                        test_case, "require_skill_load_on_replay", True
+                    )
+                    assert (not require_load) or fetch_skill_called, (
+                        f"Test {test_case.id} replay: the LLM did NOT call fetch_skill, "
+                        f"so the captured skill was ignored. Either the skill "
+                        f"name/description wasn't relevant enough, or the agent isn't "
+                        f"using available skills for this kind of question. Replay tool "
+                        f"calls: {[getattr(tc, 'tool_name', '?') for tc in replay_tool_calls]}"
+                    )
+                    assert int(replay_eval.score) == 1, (
+                        f"Test {test_case.id} replay: the answer was wrong even with "
+                        f"the skill available. Skill content may be misleading or "
+                        f"incomplete.\nActual: {replay_output[:500]}"
+                    )
+
+                    # Discovery-style evals: the captured skill encodes facts
+                    # (e.g. an index schema) that should make specific
+                    # exploration calls unnecessary on replay. If the agent
+                    # still made them, the skill content didn't actually
+                    # obviate the rediscovery it was saved for.
+                    forbidden = (
+                        getattr(test_case, "replay_forbidden_tools", None) or []
+                    )
+                    if forbidden:
+                        replay_tool_names = [
+                            getattr(tc, "tool_name", "?") for tc in replay_tool_calls
+                        ]
+                        offending = [t for t in replay_tool_names if t in forbidden]
+                        assert not offending, (
+                            f"Test {test_case.id} replay: the agent called "
+                            f"{offending} even though the captured skill should have "
+                            f"made those calls unnecessary. Replay tool calls: "
+                            f"{replay_tool_names}"
+                        )
             except Exception as e:
                 update_property(request, "replay_error", str(e)[:300])
                 raise
-
-        replay_tool_calls = replay_result.tool_calls or []
-        replay_fetch_skill_count = count_fetch_skill_calls(replay_tool_calls)
-        fetch_skill_called = replay_fetch_skill_count > 0
-        # Capture the full LLMResult stats for the replay so the GitHub
-        # report can show side-by-side duration / tokens / cost vs the
-        # original run.
-        update_property(request, "replay_turns", replay_result.num_llm_calls)
-        update_property(request, "replay_tool_calls_count", len(replay_tool_calls))
-        update_property(request, "replay_skill_loaded", fetch_skill_called)
-        update_property(
-            request, "replay_skills_read_count", replay_fetch_skill_count
-        )
-        update_property(request, "replay_skill_count", len(written))
-        update_property(request, "replay_duration", replay_duration)
-        for attr in (
-            "total_cost",
-            "total_tokens",
-            "prompt_tokens",
-            "completion_tokens",
-            "cached_tokens",
-            "reasoning_tokens",
-            "max_completion_tokens_per_call",
-            "max_prompt_tokens_per_call",
-            "num_compactions",
-        ):
-            value = getattr(replay_result, attr, None)
-            if value is not None:
-                update_property(request, f"replay_{attr}", value)
-        replay_output = replay_result.result or ""
-        update_property(request, "replay_answer", replay_output)
-
-        # Score replay correctness with the same judge — but separately, so
-        # the original correctness reading is preserved.
-        # The replay asks the same question, so it is judged against the
-        # primary's `expected_output` by default. Fixtures whose
-        # expected_output includes SuggestSkills-specific criteria (which
-        # can never hold on replay — the tool isn't injected there) declare
-        # `expected_replay_output` with the answer-only criteria instead.
-        expected = (
-            getattr(test_case, "expected_replay_output", None)
-            or test_case.expected_output
-        )
-        if not isinstance(expected, list):
-            expected = [expected]
-        evaluation_type = "strict"
-        if hasattr(test_case, "evaluation") and isinstance(
-            test_case.evaluation.correctness, Evaluation
-        ):
-            evaluation_type = test_case.evaluation.correctness.type
-        replay_eval = evaluate_correctness(
-            output=replay_output,
-            expected_elements=expected,
-            parent_span=eval_span,
-            evaluation_type=evaluation_type,
-            caplog=caplog,
-        )
-        update_property(request, "replay_correctness", int(replay_eval.score))
-
-        # Hard assertions: the agent must have fetched the skill (so we
-        # know the captured suggestion was actually consulted) and the
-        # answer must still be correct.
-        require_load = getattr(test_case, "require_skill_load_on_replay", True)
-        assert (not require_load) or fetch_skill_called, (
-            f"Test {test_case.id} replay: the LLM did NOT call fetch_skill, "
-            f"so the captured skill was ignored. Either the skill "
-            f"name/description wasn't relevant enough, or the agent isn't "
-            f"using available skills for this kind of question. Replay tool "
-            f"calls: {[getattr(tc, 'tool_name', '?') for tc in replay_tool_calls]}"
-        )
-        assert int(replay_eval.score) == 1, (
-            f"Test {test_case.id} replay: the answer was wrong even with "
-            f"the skill available. Skill content may be misleading or "
-            f"incomplete.\nActual: {replay_output[:500]}"
-        )
-
-        # Discovery-style evals: the captured skill encodes facts (e.g. an
-        # index schema) that should make specific exploration calls
-        # unnecessary on replay. If the agent still made them, the skill
-        # content didn't actually obviate the rediscovery it was saved for.
-        forbidden = getattr(test_case, "replay_forbidden_tools", None) or []
-        if forbidden:
-            replay_tool_names = [
-                getattr(tc, "tool_name", "?") for tc in replay_tool_calls
-            ]
-            offending = [t for t in replay_tool_names if t in forbidden]
-            assert not offending, (
-                f"Test {test_case.id} replay: the agent called "
-                f"{offending} even though the captured skill should have "
-                f"made those calls unnecessary. Replay tool calls: "
-                f"{replay_tool_names}"
-            )
 
 
 # TODO: can this call real ask_holmes so more of the logic is captured

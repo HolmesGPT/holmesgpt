@@ -34,6 +34,7 @@ def log_to_braintrust(
     scores: Optional[dict] = None,
     error: Optional[Exception] = None,
     suggested_memories: Optional[List[Any]] = None,
+    expected_override: Optional[str] = None,
 ) -> None:
     """Log evaluation data to Braintrust.
 
@@ -50,6 +51,9 @@ def log_to_braintrust(
         suggested_memories: Skill suggestions captured from SuggestSkills calls
             during the run; pass when the test collects them so the count and
             contents are logged in the span metadata
+        expected_override: Replaces the test case's expected_output in the
+            logged row. Used by the closed-loop replay, which is judged
+            against expected_replay_output when the fixture declares one.
     """
 
     # Prepare tags
@@ -182,6 +186,9 @@ def log_to_braintrust(
     else:
         input_data = ""
         expected = ""
+
+    if expected_override is not None:
+        expected = expected_override
 
     # Collect images from tool call results as Braintrust Attachments
     tool_call_images: list[Attachment] = []
