@@ -51,10 +51,11 @@ class SDKResult:
     result: Optional[str] = None
     tool_calls: List[Any] = field(default_factory=list)
     num_llm_calls: Optional[int] = None
-    # Wall-clock seconds spent spawning the claude CLI process before the
-    # session was ready (init handshake received). A per-eval artifact: a real
-    # deployment holds a persistent client, so eval timing excludes it.
-    startup_seconds: float = 0.0
+    # Investigation wall-clock, measured directly from session-ready (the CLI's
+    # init handshake) to completion — CLI process spawn is not investigation
+    # time (a real deployment holds a persistent client). None if the session
+    # never became ready (caller should fall back to its own wall measurement).
+    investigation_seconds: Optional[float] = None
     total_cost: float = 0.0
     total_tokens: int = 0
     prompt_tokens: int = 0
@@ -406,15 +407,15 @@ async def _run(
     result = SDKResult()
     err_detail: Optional[str] = None
     init_info: Optional[str] = None
-    t_spawn = time.monotonic()
+    t_ready: Optional[float] = None
 
     try:
         async for msg in query(prompt=prompt_stream(), options=options):
             if isinstance(msg, SystemMessage):
                 # The CLI's `init` system message reports the model/tools/session
                 # it actually negotiated — invaluable when a run errors opaquely.
-                if not result.startup_seconds:
-                    result.startup_seconds = time.monotonic() - t_spawn
+                if t_ready is None:
+                    t_ready = time.monotonic()  # session ready: clock starts here
                 data = getattr(msg, "data", {}) or {}
                 if getattr(msg, "subtype", "") == "init" or "model" in data:
                     init_info = (
@@ -469,6 +470,8 @@ async def _run(
     result.result = final_text
     result.tool_calls = tool_calls
     result.num_llm_calls = num_turns
+    if t_ready is not None:
+        result.investigation_seconds = time.monotonic() - t_ready
     return result
 
 
