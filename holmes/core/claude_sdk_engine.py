@@ -442,11 +442,17 @@ async def _run(
                     )
                 result.total_cost = float(msg.total_cost_usd or 0.0)
                 usage = msg.usage or {}
-                result.prompt_tokens = int(usage.get("input_tokens", 0) or 0)
-                result.completion_tokens = int(usage.get("output_tokens", 0) or 0)
+                # Match litellm/baseline semantics so report columns compare
+                # apples-to-apples: prompt_tokens INCLUDES cached and
+                # cache-creation tokens (Anthropic reports them separately;
+                # litellm folds them into prompt_tokens).
+                in_tok = int(usage.get("input_tokens", 0) or 0)
                 cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+                cache_creation = int(usage.get("cache_creation_input_tokens", 0) or 0)
+                result.prompt_tokens = in_tok + cache_read + cache_creation
+                result.completion_tokens = int(usage.get("output_tokens", 0) or 0)
                 result.cached_tokens = cache_read or None
-                result.total_tokens = result.prompt_tokens + result.completion_tokens + cache_read
+                result.total_tokens = result.prompt_tokens + result.completion_tokens
     except Exception as e:  # surface the real failure instead of blanking the row
         err_detail = f"{type(e).__name__}: {str(e)[:600]}"
         logger.error("SDK engine query failed", exc_info=True)
