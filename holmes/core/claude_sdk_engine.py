@@ -185,6 +185,7 @@ async def _run(
         ClaudeAgentOptions,
         HookMatcher,
         ResultMessage,
+        SystemMessage,
         TextBlock,
         ToolUseBlock,
         query,
@@ -197,12 +198,25 @@ async def _run(
     data_source_section, extra_env = discover_data_sources(test_folder)
 
     # Capture the CLI's stderr so an opaque is_error result is debuggable.
+    # --debug is verbose, so keep a generous tail in memory and mirror the full
+    # stream to a file for post-mortem.
     stderr_lines: List[str] = []
+    stderr_file = os.environ.get("HOLMES_SDK_CLI_STDERR_LOG", "/tmp/holmes_sdk_cli_stderr.log")
+    try:
+        open(stderr_file, "w").close()  # truncate per run
+    except Exception:
+        stderr_file = None
 
     def _capture_stderr(line: str) -> None:
         if line and line.strip():
             stderr_lines.append(line.rstrip())
-            del stderr_lines[:-40]  # keep last 40 lines
+            del stderr_lines[:-250]  # keep last 250 lines
+            if stderr_file:
+                try:
+                    with open(stderr_file, "a") as fh:
+                        fh.write(line.rstrip() + "\n")
+                except Exception:
+                    pass
 
     async def trace_bash(input_data: dict, tool_use_id: Optional[str], context: Any):
         # Optional debug trace of bash commands run (lead + workers).
@@ -240,6 +254,25 @@ async def _run(
         # key and uses the model_list creds), so a placeholder is correct; never
         # inherit an empty ANTHROPIC_API_KEY (CI sets it empty when using OpenRouter).
         "ANTHROPIC_API_KEY": (os.environ.get("ANTHROPIC_API_KEY") or "").strip() or "sk-ant-proxy-placeholder",
+        # The CLI uses a separate small/"haiku" model for background essentials
+        # (e.g. summarisation). Its default name (claude-3-5-haiku-*) is NOT in
+        # our proxy model_list, so such a call 404s and can fail the whole run.
+        # Pin every model alias the CLI might pick to the main model, which the
+        # proxy always resolves. (Explicit ANTHROPIC_AUTH_TOKEN from ambient env
+        # is cleared so it can't shadow our placeholder key on the proxy hop.)
+        "ANTHROPIC_SMALL_FAST_MODEL": model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+        "ANTHROPIC_AUTH_TOKEN": "",
+        # Disable Claude Code's automatic API-side context management ("microcompact":
+        # it sends a top-level `context_management` field once the context grows large
+        # enough). LiteLLM 1.83.7's /v1/messages translation for non-Anthropic backends
+        # (we route opus-4.6 through OpenRouter) rejects that field with HTTP 400
+        # "context_management: Extra inputs are not permitted", which crashed every
+        # multi-turn eval (large kubectl/log output trips the threshold). The CLI's own
+        # local compaction still works, and opus-4.6 has a 1M context window.
+        "DISABLE_MICROCOMPACT": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "PATH": os.environ["PATH"],
         "HOME": os.environ.get("HOME", "/tmp"),
@@ -271,10 +304,23 @@ async def _run(
     num_turns = 0
     result = SDKResult()
     err_detail: Optional[str] = None
+    init_info: Optional[str] = None
 
     try:
         async for msg in query(prompt=prompt_stream(), options=options):
-            if isinstance(msg, AssistantMessage):
+            if isinstance(msg, SystemMessage):
+                # The CLI's `init` system message reports the model/tools/session
+                # it actually negotiated — invaluable when a run errors opaquely.
+                data = getattr(msg, "data", {}) or {}
+                if getattr(msg, "subtype", "") == "init" or "model" in data:
+                    init_info = (
+                        f"subtype={getattr(msg, 'subtype', '?')} "
+                        f"model={data.get('model')} "
+                        f"tools={data.get('tools')} "
+                        f"mcp_servers={data.get('mcp_servers')} "
+                        f"apiKeySource={data.get('apiKeySource')}"
+                    )
+            elif isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock) and block.text.strip():
                         final_text = block.text
@@ -300,15 +346,20 @@ async def _run(
         err_detail = f"{type(e).__name__}: {str(e)[:600]}"
         logger.error("SDK engine query failed", exc_info=True)
 
-    if not final_text and err_detail:
+    if err_detail:
         # Put the real error where the eval report shows it (the "Actual" column),
         # so a transport/CLI failure is debuggable rather than a blank row.
-        stderr_tail = "\n".join(stderr_lines[-25:]) or "(no stderr)"
-        final_text = (
-            f"[claude-sdk engine error] {err_detail}\n"
+        # ALWAYS append (even when a partial assistant turn produced text): an
+        # is_error/exception means the run did not complete normally, and the
+        # CLI --debug stderr is the only window into why.
+        stderr_tail = "\n".join(stderr_lines[-120:]) or "(no stderr)"
+        banner = (
+            f"\n\n[claude-sdk engine error] {err_detail}\n"
+            f"CLI init: {init_info or '(no init message received)'}\n"
             f"CLI stderr tail:\n{stderr_tail}\n"
             f"proxy log tail:\n{_proxy_log_tail()}"
         )
+        final_text = (final_text + banner) if final_text else banner.lstrip()
         logger.error("claude-sdk CLI stderr tail:\n%s", stderr_tail)
 
     result.result = final_text

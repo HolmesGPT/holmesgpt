@@ -1196,7 +1196,10 @@ jobs:
           print('SDK proxy models:', [m['model_name'] for m in ml])
           PY
 
-          nohup poetry run litellm --config /tmp/litellm_proxy.yaml \
+          # Serve the LiteLLM proxy via our wrapper (strips the `context_management`
+          # field newer claude CLIs send, which LiteLLM's non-Anthropic backend
+          # translation 400s on), not the bare `litellm` CLI.
+          nohup poetry run python -m holmes.core.sdk_proxy --config /tmp/litellm_proxy.yaml \
             --port 4001 --host 127.0.0.1 > /tmp/litellm_proxy.log 2>&1 &
 
           # Wait for the proxy to answer an Anthropic-format request for our model.

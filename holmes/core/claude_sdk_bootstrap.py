@@ -19,6 +19,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -152,20 +153,29 @@ def _start_proxy(probe_model: str) -> bool:
         return False
     models = _write_proxy_config(model_list)
     logger.info(f"Starting LiteLLM proxy for SDK engine (models: {models})")
+    # Launch via our wrapper (holmes.core.sdk_proxy), not the bare `litellm` CLI:
+    # it serves the same LiteLLM proxy app but with an ASGI middleware that strips
+    # the `context_management` field newer claude CLIs send (LiteLLM 1.83.7's
+    # non-Anthropic backend translation 400s on it). Same interpreter => same venv.
     with open(PROXY_LOG, "w") as log_fh:
         subprocess.Popen(
-            ["litellm", "--config", PROXY_CONFIG, "--port", str(PROXY_PORT), "--host", PROXY_HOST],
+            [sys.executable, "-m", "holmes.core.sdk_proxy",
+             "--config", PROXY_CONFIG, "--port", str(PROXY_PORT), "--host", PROXY_HOST],
             stdout=log_fh, stderr=subprocess.STDOUT, start_new_session=True,
         )
     import json
     import urllib.request
 
-    # Probe with a TOOL-USE request (not a trivial message): the claude CLI
-    # always sends tool definitions, and the failure mode we must catch is the
-    # provider/route mishandling Anthropic tool-use. A trivial probe would pass
-    # while every real eval fails. We require the model to emit a tool_use block.
+    # Probe with a request that mirrors what the claude CLI actually sends, so a
+    # broken route fails the bootstrap loudly instead of every eval silently:
+    #  * TOOL-USE definitions (the CLI always sends them; we require a tool_use
+    #    block back to confirm Anthropic tool-use round-trips through the route).
+    #  * a top-level `context_management` field (newer CLIs send it once context
+    #    grows; LiteLLM's non-Anthropic backend 400s on it). Our sdk_proxy wrapper
+    #    must strip it — if it doesn't, this probe surfaces the 400 here.
     probe_body = json.dumps({
         "model": probe_model, "max_tokens": 256,
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
         "tools": [{
             "name": "run_cmd", "description": "Run a shell command",
             "input_schema": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]},
