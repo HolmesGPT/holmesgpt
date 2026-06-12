@@ -453,6 +453,7 @@ async def _run(
     result = SDKResult()
     err_detail: Optional[str] = None
     init_info: Optional[str] = None
+    llm_calls: List[dict] = []
     t_ready: Optional[float] = None
 
     try:
@@ -472,11 +473,31 @@ async def _run(
                         f"apiKeySource={data.get('apiKeySource')}"
                     )
             elif isinstance(msg, AssistantMessage):
+                text_head = ""
+                tools_requested: List[str] = []
                 for block in msg.content:
                     if isinstance(block, TextBlock) and block.text.strip():
                         final_text = block.text
+                        text_head = block.text[:300]
                     elif isinstance(block, ToolUseBlock):
                         tool_calls.append(_describe_tool_use(block))
+                        tools_requested.append(getattr(block, "name", "?"))
+                # One entry per LLM call (sub-agent calls included, tagged via
+                # parent_tool_use_id) so per-call tokens/model render in Braintrust.
+                u = getattr(msg, "usage", None) or {}
+                llm_calls.append({
+                    "model": getattr(msg, "model", None),
+                    "stop_reason": getattr(msg, "stop_reason", None),
+                    "sub_agent": bool(getattr(msg, "parent_tool_use_id", None)),
+                    "tools_requested": tools_requested,
+                    "text_head": text_head,
+                    "usage": {
+                        k: u.get(k)
+                        for k in ("input_tokens", "output_tokens",
+                                  "cache_read_input_tokens", "cache_creation_input_tokens")
+                        if isinstance(u, dict) and u.get(k) is not None
+                    },
+                })
             elif isinstance(msg, ResultMessage):
                 num_turns = msg.num_turns or 0
                 if msg.result:
@@ -524,7 +545,22 @@ async def _run(
     result.num_llm_calls = num_turns
     for inv in tool_invocations:
         inv.pop("_t0", None)  # PostToolUse never fired (interrupted/denied call)
-    result.metadata = {"tool_invocations": tool_invocations}
+    result.metadata = {"tool_invocations": tool_invocations, "llm_calls": llm_calls}
+    if llm_calls:
+        # True usage totals: sum per-call usage (the ResultMessage usage the
+        # branch above parses reflects only part of the session and undercounts).
+        # prompt_tokens is cache-inclusive, matching litellm/baseline semantics.
+        p = c = cr = 0
+        for call in llm_calls:
+            u = call.get("usage") or {}
+            cr_i = u.get("cache_read_input_tokens") or 0
+            p += (u.get("input_tokens") or 0) + cr_i + (u.get("cache_creation_input_tokens") or 0)
+            c += u.get("output_tokens") or 0
+            cr += cr_i
+        if p + c > 0:  # some transports zero per-message usage; keep ResultMessage totals then
+            result.prompt_tokens, result.completion_tokens = p, c
+            result.cached_tokens = cr or None
+            result.total_tokens = p + c
     if t_ready is not None:
         result.investigation_seconds = time.monotonic() - t_ready
     if not os.environ.get("HOLMES_SDK_KEEP_WORKSPACE"):

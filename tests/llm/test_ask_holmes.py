@@ -229,6 +229,32 @@ def ask_holmes(
                             "duration_s": inv.get("duration_s"),
                         },
                     )
+            # One gen_ai.chat span per LLM call (mirrors the baseline's per-call
+            # spans) with per-call token metrics, model, and sub-agent tagging.
+            for call in (result.metadata or {}).get("llm_calls", []):
+                usage = call.get("usage") or {}
+                cache_read = usage.get("cache_read_input_tokens") or 0
+                cache_creation = usage.get("cache_creation_input_tokens") or 0
+                prompt = (usage.get("input_tokens") or 0) + cache_read + cache_creation
+                completion = usage.get("output_tokens") or 0
+                with llm_span.start_span(
+                    name="gen_ai.chat", type=SpanType.LLM.value
+                ) as call_span:
+                    call_span.log(
+                        output=call.get("text_head", ""),
+                        metadata={
+                            "model": call.get("model"),
+                            "stop_reason": call.get("stop_reason"),
+                            "sub_agent": call.get("sub_agent", False),
+                            "tools_requested": call.get("tools_requested", []),
+                        },
+                        metrics={
+                            "prompt_tokens": prompt,
+                            "completion_tokens": completion,
+                            "total_tokens": prompt + completion,
+                            "prompt_cached_tokens": cache_read,
+                        },
+                    )
             # Investigation time is measured directly by the engine from
             # session-ready to completion (CLI process spawn is not
             # investigation time — a deployment holds a persistent client).

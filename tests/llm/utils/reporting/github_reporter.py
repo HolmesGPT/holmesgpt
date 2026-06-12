@@ -490,8 +490,18 @@ def generate_markdown_report(
     turns_count = 0
     tools_count = 0
 
+    # Tag rows with their env config (e.g. [baseline] / [sdk]) when the run
+    # compares multiple configs — otherwise each test appears twice with
+    # indistinguishable rows. Single-config runs render identically to master.
+    unique_env_configs = {r.get("env_config", "default") for r in sorted_results}
+    show_env_config = len(unique_env_configs) > 1
+
     for result in sorted_results:
         test_case_name = result["test_case_name"]
+        if show_env_config:
+            test_case_name = (
+                f"{test_case_name} \\[{result.get('env_config', 'default')}\\]"
+            )
         model = result.get("model", "")
 
         braintrust_url = get_braintrust_url(
