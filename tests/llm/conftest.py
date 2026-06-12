@@ -553,6 +553,32 @@ def check_llm_api_with_test_call():
     return True, None
 
 
+def pytest_configure(config):
+    """Bootstrap the Claude Agent SDK engine when requested.
+
+    Activated by HOLMES_ENGINE=claude-sdk or the committed flag file
+    tests/llm/.claude_sdk_engine. The xdist controller installs the CLI/SDK and
+    starts the LiteLLM proxy; workers only attach to it (no install races).
+    """
+    from holmes.core.claude_sdk_bootstrap import (
+        attach_sdk_env,
+        engine_requested,
+        ensure_sdk_runtime,
+    )
+
+    if not engine_requested():
+        return
+    probe = (os.environ.get("MODEL") or "opus-4.6").split(",")[0].strip()
+    is_worker = hasattr(config, "workerinput")
+    ok = attach_sdk_env() if is_worker else ensure_sdk_runtime(probe_model=probe)
+    if not ok:
+        raise pytest.UsageError(
+            "claude-sdk engine requested but its runtime could not be prepared "
+            "(see log for CLI/SDK/proxy bootstrap errors)."
+        )
+    log("🤖 Claude Agent SDK engine active for this session")
+
+
 def pytest_collection_modifyitems(config, items):
     """
     Hook to modify test collection. Runs BEFORE any tests start.

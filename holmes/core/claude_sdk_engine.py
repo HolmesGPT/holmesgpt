@@ -229,10 +229,13 @@ async def _run(
         "ANTHROPIC_BASE_URL": os.environ["ANTHROPIC_BASE_URL"],
         "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY", "dummy"),
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        "KUBECONFIG": os.environ.get("KUBECONFIG", ""),
         "PATH": os.environ["PATH"],
         "HOME": os.environ.get("HOME", "/tmp"),
     }
+    # Only forward KUBECONFIG if set & non-empty; otherwise let kubectl fall back
+    # to ~/.kube/config (passing KUBECONFIG="" can break cluster access).
+    if os.environ.get("KUBECONFIG"):
+        sub_env["KUBECONFIG"] = os.environ["KUBECONFIG"]
     sub_env.update(extra_env)
 
     options = ClaudeAgentOptions(
