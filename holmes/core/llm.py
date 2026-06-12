@@ -43,6 +43,7 @@ from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
+from holmes.utils.litellm_compat import get_litellm_version, is_litellm_compatible
 
 if TYPE_CHECKING:
     from holmes.config import Config
@@ -927,14 +928,46 @@ class LLMModelRegistry:
                 self._load_default_robusta_config()
                 return
 
+            local_litellm_version = get_litellm_version()
+
             default_model = None
+            loaded_count = 0
             for model_name, model_data in robusta_models.models.items():
+                min_litellm_version = model_data.metadata.min_litellm_version
+                if not is_litellm_compatible(
+                    min_litellm_version, local_litellm_version
+                ):
+                    logging.warning(
+                        "Skipping Robusta AI model %r: requires litellm >= %s but "
+                        "this Holmes runs litellm %s. Upgrade Holmes to use it.",
+                        model_name,
+                        min_litellm_version or "an unspecified version",
+                        local_litellm_version or "unknown",
+                    )
+                    continue
+
                 logging.info(f"Loading Robusta AI model: {model_name}")
                 self._llms[model_name] = self._create_robusta_model_entry(
                     model_name=model_name, model_data=model_data
                 )
+                loaded_count += 1
                 if model_data.is_default:
                     default_model = model_name
+
+            # Safety net: if litellm-compatibility gating filtered out every
+            # model the platform offered, don't leave Holmes with nothing — fall
+            # back to the default Robusta config so the agent still works.
+            if loaded_count == 0:
+                logging.error(
+                    "All %d Robusta AI models were filtered out by litellm "
+                    "compatibility gating (local litellm %s). Falling back to the "
+                    "default Robusta AI model. Upgrade Holmes to unlock the "
+                    "platform models.",
+                    len(robusta_models.models),
+                    local_litellm_version or "unknown",
+                )
+                self._load_default_robusta_config()
+                return
 
             if default_model:
                 logging.info(f"Setting default Robusta AI model to: {default_model}")

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from holmes import get_version  # type: ignore
+from holmes.utils.litellm_compat import get_litellm_version
 from holmes.common.env_vars import (
     ENABLE_CONVERSATION_WORKER,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
@@ -61,6 +62,7 @@ class HolmesMetadata:
     supports_realtime_conversations: bool = False
     requires_realtime_broadcast: bool = False
     namespace: Optional[str] = None
+    litellm_version: Optional[str] = None
 
 
 def update_holmes_status_in_db(
@@ -97,6 +99,7 @@ def update_holmes_status_in_db(
         supports_realtime_conversations=supports_realtime,
         requires_realtime_broadcast=requires_broadcast,
         namespace=_detect_runner_namespace(),
+        litellm_version=get_litellm_version(),
     )
 
     dal.upsert_holmes_status(

@@ -311,6 +311,17 @@ raw = buf.getvalue()  # Contains full ANSI escape sequences
 
 When reverting or fixing a suspect PR, read its full diff (`git show --stat <commit>`) before deciding what to change — a PR often has multiple effects, and reverting only the file you noticed leaves the others still acting on the model.
 
+## LiteLLM Version Pin
+
+The `litellm` pin in `pyproject.toml` must stay **in lockstep** with relay's pin
+(`relay/pyproject.toml`). Holmes routes inference through relay's gateway, so the
+**older** of the two litellm versions determines real model compatibility.
+**NEVER use the 1.88.x line** — it dropped the Claude 4.7+ temperature guard.
+Per-model minimum litellm versions and the rationale live in relay's
+`docs/litellm-model-compatibility.md`. Holmes reports its litellm version via
+`HolmesStatus.metadata.litellm_version` and self-gates models it can't run
+(`holmes/core/llm.py`, `configure_robusta_ai_model`).
+
 ## Security Notes
 
 - All tools have read-only access by design

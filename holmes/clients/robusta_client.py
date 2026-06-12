@@ -16,11 +16,20 @@ class HolmesInfo(BaseModel):
     latest_version: Optional[str] = None
 
 
+class RobustaModelMetadata(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    # Minimum litellm version required to run this model correctly. Set by relay
+    # (see relay/docs/litellm-model-compatibility.md). Missing/None means the
+    # model is treated as unavailable (fail closed).
+    min_litellm_version: Optional[str] = None
+
+
 class RobustaModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
     model: str
     holmes_args: Optional[dict[str, Any]] = None
     is_default: bool = False
+    metadata: RobustaModelMetadata = RobustaModelMetadata()
 
 
 class RobustaModelsResponse(BaseModel):

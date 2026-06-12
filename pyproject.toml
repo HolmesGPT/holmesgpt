@@ -10,7 +10,9 @@ packages = [{ include = "holmes" }]
 holmes = "holmes.main:run"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+# Capped at <3.14 because litellm (>=1.83.14) requires Python <3.14. Widen this
+# again only if/when litellm drops the cap.
+python = ">=3.10,<3.14"
 openai = "^2.8.0"
 jiter = "!=0.13.0"  # Exclude 0.13.0 due to corrupted Windows wheel (RECORD file issue)
 jinja2 = "^3.1.2"
@@ -33,8 +35,13 @@ bs4 = "^0.0.2"
 markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
-# Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
-litellm = "1.83.7"
+# Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates).
+# Keep this in lockstep with relay's litellm pin (relay/pyproject.toml): Holmes
+# routes inference through relay's gateway, so the OLDER of the two versions
+# determines real model compatibility. NEVER use the 1.88.x line — it dropped the
+# Claude 4.7+ temperature guard. Move to 1.89.0 (full Opus 4.8 + Fable 5 support)
+# once stable. See relay/docs/litellm-model-compatibility.md.
+litellm = "1.87.2"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
