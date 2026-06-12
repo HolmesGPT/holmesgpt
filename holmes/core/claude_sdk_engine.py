@@ -37,7 +37,8 @@ _QUERY_HINTS = {
     "grafana/loki": "Loki HTTP API. Query logs with `GET /loki/api/v1/query_range?query=<logql>&start=<rfc3339>&end=<rfc3339>&limit=N`. List labels with `GET /loki/api/v1/labels`.",
     "loki": "Loki HTTP API. `GET /loki/api/v1/query_range?query=<logql>&start=&end=&limit=`.",
     "prometheus": "Prometheus HTTP API. Instant: `GET /api/v1/query?query=<promql>`. Range: `GET /api/v1/query_range?query=&start=&end=&step=`. Metadata: `GET /api/v1/label/__name__/values`.",
-    "grafana": "Grafana HTTP API under /api (datasources, dashboards). Auth with the API key as `Authorization: Bearer <key>`.",
+    "grafana": "Grafana HTTP API under /api (datasources, dashboards). Auth with the API key as `Authorization: Bearer <key>`. To render a dashboard/panel as an image: `GET /render/d-solo/<uid>/<slug>?panelId=<n>&width=1000&height=500` (PNG; save to a file and Read it).",
+    "rabbitmq": "RabbitMQ management HTTP API. Health/overview: `GET /api/overview` with basic auth (`curl -u $USER:$PASS`).",
     "datadog": "Datadog HTTP API (api.datadoghq.com). Auth with DD-API-KEY and DD-APPLICATION-KEY headers. Logs: `POST /api/v2/logs/events/search`.",
 }
 
@@ -71,7 +72,7 @@ Investigation discipline:
 * When analyzing behavior over time, read the FULL history (complete logs/series), not just the most recent lines — trends are invisible in a tail sample.
 * Be calibrated: distinguish sustained trends and real failures from normal jitter or steady-but-high/low values. Do not report stable values or noise as problems.
 * Treat error messages as exact diagnostic evidence: `authentication failed`/`password authentication failed` for user X means X EXISTS; `role/user does not exist` means it is absent. These are mutually exclusive — never hedge one as the other.
-* Adjacent / similarly-named entities — be transparent AND useful. If the exact resource/service the user named has NO data, but you find data for a similarly-named one (same prefix, sibling service, etc.): (1) explicitly state, using the user's verbatim name, that you found no data for that exact entity; (2) report what you DID find in the related entity; (3) clearly label those findings as coming from the different, related entity — phrases like "I found logs for X (a different service from <user's name>)". Never silently merge the user's name into the entity you actually found. This disclosure is required even when a close match exists.
+* Adjacent / similarly-named entities — be transparent AND useful. If the user's name AS WRITTEN matches no data exactly (names differing in case, separators, or punctuation are DIFFERENT names, e.g. `foowebjob` vs `Foo.WebJob`), but you find data for a similarly-named one: (1) explicitly state, using the user's verbatim name, that you found no data for that exact entity; (2) report what you DID find in the related entity; (3) clearly label those findings as coming from the different, related entity — phrases like "I found logs for X (a different service from <user's name>)". Never silently merge the user's name into the entity you actually found. This disclosure is required even when a close match exists, and must LEAD your final answer.
 * For Kubernetes permission errors (`Error from server (Forbidden)`), say so explicitly and identify the missing resource/verb rather than treating it as "no problem found".
 * Use hedging language (possible, likely, may) for root-cause claims you cannot directly confirm from tool output; present directly-observed errors as facts.
 * Back every claim with concrete evidence: exact resource names, namespaces, error messages/codes, log lines, counts.
@@ -120,56 +121,109 @@ def _load_toolset_configs(test_folder: Optional[str]) -> Dict[str, dict]:
 
 def discover_data_sources(
     test_folder: Optional[str],
-) -> Tuple[str, Dict[str, str]]:
-    """Inspect the eval's declared toolsets and produce (prompt_section, env).
+) -> Tuple[str, Dict[str, str], Dict[str, dict]]:
+    """Inspect the eval's declared toolsets and produce (prompt_section, env, mcp_servers).
 
     prompt_section: human-readable "Available data sources" block listing each
     enabled HTTP data source's URL, auth env var, and a query hint.
     env: extra environment variables (resolved credential values) to expose to
     the agent's bash so it can curl with them.
+    mcp_servers: SDK-native MCP server definitions for toolsets of type `mcp`.
     """
     configs = _load_toolset_configs(test_folder)
     lines: List[str] = []
     env: Dict[str, str] = {}
+    mcp_servers: Dict[str, dict] = {}
 
     for name, entry in sorted(configs.items()):
-        if not entry.get("enabled", False):
+        # Presence in an eval's toolsets.yaml means enabled unless explicitly
+        # disabled — same semantics as the baseline harness (cfg.get("enabled", True)).
+        if not entry.get("enabled", True):
             continue
         cfg = entry.get("config") or {}
-        url = cfg.get("api_url") or cfg.get("url") or cfg.get("host")
-        if not url:
-            continue  # not an HTTP data source (e.g. kubernetes/core, bash)
 
-        # Resolve env refs in url/credentials; pass referenced vars through.
-        auth_vars: List[str] = []
-        for key, val in cfg.items():
-            if not isinstance(val, str):
-                continue
-            for var in _ENV_REF_RE.findall(val):
-                if var in os.environ:
-                    env[var] = os.environ[var]
-                if key != "api_url" and key != "url":
+        if entry.get("type") == "mcp":
+            # Wire MCP toolsets natively: the Claude Agent SDK speaks MCP itself.
+            if cfg.get("mode", "stdio") == "stdio" and cfg.get("command"):
+                mcp_servers[name] = {
+                    "type": "stdio",
+                    "command": cfg["command"],
+                    "args": cfg.get("args") or [],
+                    "env": cfg.get("env") or {},
+                }
+            continue
+
+        for url, creds in _walk_endpoints(cfg):
+            # Resolve {{ env.X }} refs; pass referenced vars through. Literal
+            # credential values get exported under generated env var names so
+            # the agent can use them without secrets appearing in the prompt.
+            auth_vars: List[str] = []
+            for key, val in creds.items():
+                refs = _ENV_REF_RE.findall(val)
+                if refs:
+                    for var in refs:
+                        if var in os.environ:
+                            env[var] = os.environ[var]
+                        auth_vars.append(var)
+                else:
+                    var = re.sub(r"[^A-Z0-9]+", "_", f"{name}_{key}".upper()).strip("_")
+                    env[var] = val
                     auth_vars.append(var)
-        resolved_url = _ENV_REF_RE.sub(lambda m: os.environ.get(m.group(1), m.group(0)), url)
+            resolved_url = _ENV_REF_RE.sub(
+                lambda m: os.environ.get(m.group(1), m.group(0)), url
+            )
 
-        family = name.split("/")[0]
-        hint = _QUERY_HINTS.get(name) or _QUERY_HINTS.get(family) or ""
-        auth_note = ""
-        if auth_vars:
-            auth_note = f" Auth: credential(s) in env var(s) {', '.join('$' + v for v in dict.fromkeys(auth_vars))}."
-        line = f"- **{name}** at `{resolved_url}`.{auth_note}"
-        if hint:
-            line += f" {hint}"
-        lines.append(line)
+            family = name.split("/")[0]
+            hint = _QUERY_HINTS.get(name) or _QUERY_HINTS.get(family) or ""
+            auth_note = ""
+            if auth_vars:
+                auth_note = f" Auth: credential(s) in env var(s) {', '.join('$' + v for v in dict.fromkeys(auth_vars))}."
+            line = f"- **{name}** at `{resolved_url}`.{auth_note}"
+            if hint:
+                line += f" {hint}"
+            lines.append(line)
 
     if not lines:
-        return "", env
+        return "", env, mcp_servers
     section = (
         "\n\n# Available data sources\n"
         "These HTTP data sources are reachable from your Bash environment via curl. "
         "Use them to gather evidence:\n" + "\n".join(lines)
     )
-    return section, env
+    return section, env, mcp_servers
+
+
+_CRED_KEYS = ("username", "password", "api_key", "token", "user", "headers")
+
+
+def _walk_endpoints(cfg: Any, _depth: int = 0):
+    """Recursively yield (url, {cred_key: raw_value}) for every dict in the
+    toolset config that carries a URL-ish key (api_url, url, host, *_url) —
+    handles both flat configs and nested shapes like rabbitmq's clusters list."""
+    if _depth > 4:
+        return
+    if isinstance(cfg, list):
+        for item in cfg:
+            yield from _walk_endpoints(item, _depth + 1)
+        return
+    if not isinstance(cfg, dict):
+        return
+    url = None
+    for key, val in cfg.items():
+        if isinstance(val, str) and val and (
+            key in ("api_url", "url", "host") or key.endswith("_url")
+        ):
+            url = val
+            break
+    if url:
+        creds = {
+            k: v for k, v in cfg.items()
+            if isinstance(v, str) and v and k in _CRED_KEYS
+        }
+        yield url, creds
+    else:
+        for val in cfg.values():
+            yield from _walk_endpoints(val, _depth + 1)
 
 
 async def _run(
@@ -195,7 +249,7 @@ async def _run(
     max_turns = int(os.environ.get("HOLMES_SDK_MAX_TURNS", "120"))
     audit_path = os.environ.get("HOLMES_SDK_AUDIT_LOG")
 
-    data_source_section, extra_env = discover_data_sources(test_folder)
+    data_source_section, extra_env, mcp_servers = discover_data_sources(test_folder)
 
     # Capture the CLI's stderr so an opaque is_error result is debuggable.
     # --debug is verbose, so keep a generous tail in memory and mirror the full
@@ -283,11 +337,17 @@ async def _run(
         sub_env["KUBECONFIG"] = os.environ["KUBECONFIG"]
     sub_env.update(extra_env)
 
+    # MCP toolsets from the eval are wired natively (the SDK speaks MCP);
+    # `mcp__<server>` in allowed_tools whitelists every tool the server exposes.
+    allowed = ["Bash", "Read", "Grep", "Glob", "TodoWrite", "Task"]
+    allowed += [f"mcp__{n}" for n in mcp_servers]
+
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         model=model,
         max_turns=max_turns,
-        allowed_tools=["Bash", "Read", "Grep", "Glob", "TodoWrite", "Task"],
+        allowed_tools=allowed,
+        mcp_servers=mcp_servers or {},
         hooks={"PreToolUse": [HookMatcher(hooks=[trace_bash])]} if audit_path else None,
         agents=agents,
         cli_path=_resolve_cli_path(),
