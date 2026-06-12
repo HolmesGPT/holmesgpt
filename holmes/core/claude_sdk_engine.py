@@ -289,15 +289,23 @@ async def _run(
                 except Exception:
                     pass
 
-    async def trace_bash(input_data: dict, tool_use_id: Optional[str], context: Any):
-        # Optional debug trace of bash commands run (lead + workers).
-        if audit_path and input_data.get("tool_name") == "Bash":
-            try:
-                cmd = (input_data.get("tool_input") or {}).get("command", "")
+    # Always-on, command-level audit trail of every tool invocation — lead agent
+    # AND sub-agent workers (PreToolUse hooks fire for both, unlike the lead-only
+    # ToolUseBlocks in the message stream). Attached to the result and logged to
+    # Braintrust so every eval run is auditable at full-command level.
+    tool_invocations: List[dict] = []
+
+    async def trace_tools(input_data: dict, tool_use_id: Optional[str], context: Any):
+        try:
+            name = input_data.get("tool_name", "?")
+            raw = input_data.get("tool_input") or {}
+            if len(tool_invocations) < 400:
+                tool_invocations.append({"tool": name, "input": str(raw)[:1500]})
+            if audit_path:
                 with open(audit_path, "a") as fh:
-                    fh.write(cmd.replace("\n", " ") + "\n")
-            except Exception:
-                pass
+                    fh.write(f"{name}\t{str(raw)[:1500]}".replace("\n", " ") + "\n")
+        except Exception:
+            pass
         return {}
 
     agents = {
@@ -408,7 +416,7 @@ async def _run(
         max_turns=max_turns,
         allowed_tools=allowed,
         mcp_servers=mcp_servers or {},
-        hooks={"PreToolUse": [HookMatcher(hooks=[trace_bash])]} if audit_path else None,
+        hooks={"PreToolUse": [HookMatcher(hooks=[trace_tools])]},
         agents=agents,
         cwd=workspace,
         cli_path=_resolve_cli_path(),
@@ -495,6 +503,7 @@ async def _run(
     result.result = final_text
     result.tool_calls = tool_calls
     result.num_llm_calls = num_turns
+    result.metadata = {"tool_invocations": tool_invocations}
     if t_ready is not None:
         result.investigation_seconds = time.monotonic() - t_ready
     if not os.environ.get("HOLMES_SDK_KEEP_WORKSPACE"):

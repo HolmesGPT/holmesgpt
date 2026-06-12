@@ -112,6 +112,13 @@ def log_to_braintrust(
         metadata["tools_used"] = list({tc.tool_name for tc in result.tool_calls})
         # Note: holmes_duration is logged separately directly to eval_span in ask_holmes()
 
+    # Command-level audit trail (SDK engine: every tool invocation incl. full
+    # inputs, lead agent and sub-agents) so eval runs are auditable in Braintrust
+    # without re-running. Baseline results don't carry this field.
+    result_md = result.metadata if result and getattr(result, "metadata", None) else None
+    if isinstance(result_md, dict) and result_md.get("tool_invocations"):
+        metadata["tool_invocations"] = result_md["tool_invocations"]
+
     # Number of LLM round trips (turns), used by the PR-vs-benchmark comparison
     if result and getattr(result, "num_llm_calls", None) is not None:
         metadata["num_llm_calls"] = result.num_llm_calls
