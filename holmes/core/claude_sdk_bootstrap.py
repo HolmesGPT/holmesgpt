@@ -227,7 +227,8 @@ def attach_sdk_env(timeout_s: int = 180) -> bool:
         return False
     os.environ["HOLMES_ENGINE"] = "claude-sdk"
     os.environ["ANTHROPIC_BASE_URL"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
-    os.environ.setdefault("ANTHROPIC_API_KEY", "dummy")
+    if not (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
+        os.environ["ANTHROPIC_API_KEY"] = "sk-ant-proxy-placeholder"
     os.environ.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
     return True
 
@@ -248,6 +249,7 @@ def ensure_sdk_runtime(probe_model: str = "opus-4.6") -> bool:
         return False
     os.environ["HOLMES_ENGINE"] = "claude-sdk"
     os.environ["ANTHROPIC_BASE_URL"] = f"http://{PROXY_HOST}:{PROXY_PORT}"
-    os.environ.setdefault("ANTHROPIC_API_KEY", "dummy")
+    if not (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
+        os.environ["ANTHROPIC_API_KEY"] = "sk-ant-proxy-placeholder"
     os.environ.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
     return True

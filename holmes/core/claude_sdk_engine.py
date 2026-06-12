@@ -227,7 +227,11 @@ async def _run(
 
     sub_env = {
         "ANTHROPIC_BASE_URL": os.environ["ANTHROPIC_BASE_URL"],
-        "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY", "dummy"),
+        # The CLI requires a NON-EMPTY api key or it reports "Not logged in" and
+        # every turn errors. We always talk to the local proxy (which ignores the
+        # key and uses the model_list creds), so a placeholder is correct; never
+        # inherit an empty ANTHROPIC_API_KEY (CI sets it empty when using OpenRouter).
+        "ANTHROPIC_API_KEY": (os.environ.get("ANTHROPIC_API_KEY") or "").strip() or "sk-ant-proxy-placeholder",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "PATH": os.environ["PATH"],
         "HOME": os.environ.get("HOME", "/tmp"),
