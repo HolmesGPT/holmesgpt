@@ -1320,10 +1320,18 @@ jobs:
           # "vs benchmark" columns silently come back empty.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+          # A/B the SDK engine against the baseline (master's ToolCallingLLM) in a
+          # single run: HOLMES_ENGINE is toggled per-arm by apply_env_config, so the
+          # report breaks out pass rate / cost / latency / tokens per arm on the same
+          # evals, commit, infra, and judge. (This branch always has the SDK flag file,
+          # so the proxy is bootstrapped regardless; the baseline arm just doesn't use it.)
+          ENV_CONFIGS: "baseline:HOLMES_ENGINE=|sdk:HOLMES_ENGINE=claude-sdk"
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
           GENERATE_REGRESSIONS_FILE: "true"
-          EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
+          # Broadened from the default `regression` (14) to a larger cross-section
+          # (~55 evals) for a meatier SDK-vs-baseline A/B on this proving branch.
+          EVAL_MARKER_EXPR: "regression or easy"
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
           EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
         run: |
