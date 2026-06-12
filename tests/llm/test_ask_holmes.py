@@ -208,6 +208,8 @@ def ask_holmes(
                 user_prompt=test_case.user_prompt,
                 model=model,
                 cluster_name=test_case.cluster_name,
+                test_folder=test_case.folder,
+                mocked_date=getattr(test_case, "mocked_date", None),
             )
             holmes_duration = time.time() - start_time
             eval_span.log(metadata={"holmes_duration": holmes_duration})
