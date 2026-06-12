@@ -1290,6 +1290,9 @@ jobs:
           ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Needed by the claude-sdk engine's LiteLLM proxy when the model_list
+          # routes through OpenRouter (os.environ/OPENROUTER_API_KEY).
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

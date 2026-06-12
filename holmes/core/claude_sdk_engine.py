@@ -256,30 +256,56 @@ async def _run(
     tool_calls: List[Any] = []
     num_turns = 0
     result = SDKResult()
+    err_detail: Optional[str] = None
 
-    async for msg in query(prompt=prompt_stream(), options=options):
-        if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock) and block.text.strip():
-                    final_text = block.text
-                elif isinstance(block, ToolUseBlock):
-                    tool_calls.append(_describe_tool_use(block))
-        elif isinstance(msg, ResultMessage):
-            num_turns = msg.num_turns or 0
-            if msg.result:
-                final_text = msg.result
-            result.total_cost = float(msg.total_cost_usd or 0.0)
-            usage = msg.usage or {}
-            result.prompt_tokens = int(usage.get("input_tokens", 0) or 0)
-            result.completion_tokens = int(usage.get("output_tokens", 0) or 0)
-            cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
-            result.cached_tokens = cache_read or None
-            result.total_tokens = result.prompt_tokens + result.completion_tokens + cache_read
+    try:
+        async for msg in query(prompt=prompt_stream(), options=options):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock) and block.text.strip():
+                        final_text = block.text
+                    elif isinstance(block, ToolUseBlock):
+                        tool_calls.append(_describe_tool_use(block))
+            elif isinstance(msg, ResultMessage):
+                num_turns = msg.num_turns or 0
+                if msg.result:
+                    final_text = msg.result
+                if getattr(msg, "is_error", False):
+                    err_detail = (
+                        "; ".join(getattr(msg, "errors", None) or [])
+                        or f"is_error subtype={getattr(msg, 'subtype', '?')}"
+                    )
+                result.total_cost = float(msg.total_cost_usd or 0.0)
+                usage = msg.usage or {}
+                result.prompt_tokens = int(usage.get("input_tokens", 0) or 0)
+                result.completion_tokens = int(usage.get("output_tokens", 0) or 0)
+                cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+                result.cached_tokens = cache_read or None
+                result.total_tokens = result.prompt_tokens + result.completion_tokens + cache_read
+    except Exception as e:  # surface the real failure instead of blanking the row
+        err_detail = f"{type(e).__name__}: {str(e)[:600]}"
+        logger.error("SDK engine query failed", exc_info=True)
+
+    if not final_text and err_detail:
+        # Put the real error where the eval report shows it (the "Actual" column),
+        # so a transport/CLI failure is debuggable rather than a blank row.
+        final_text = f"[claude-sdk engine error] {err_detail}\nproxy log tail:\n{_proxy_log_tail()}"
 
     result.result = final_text
     result.tool_calls = tool_calls
     result.num_llm_calls = num_turns
     return result
+
+
+def _proxy_log_tail(n: int = 25) -> str:
+    for path in ("/tmp/holmes_sdk_litellm_proxy.log", "/tmp/litellm_proxy.log"):
+        try:
+            lines = Path(path).read_text().splitlines()
+            if lines:
+                return "\n".join(lines[-n:])
+        except Exception:
+            continue
+    return "(no proxy log)"
 
 
 def _describe_tool_use(block: Any) -> Any:
