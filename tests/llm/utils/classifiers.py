@@ -1,4 +1,6 @@
+import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
@@ -217,6 +219,12 @@ Possible choices:
         prompt_template=prompt_prefix,
         choice_scores={"A": 1, "B": 0},
         use_cot=True,
+        # With use_cot the judge writes its rationale inside the same JSON
+        # tool call as the choice. autoevals' default max_tokens=512 truncates
+        # that JSON on long rationales (large evaluation outputs like
+        # 95_skill_memory_leak_detection), crashing scoring with
+        # JSONDecodeError before any metric is recorded.
+        max_tokens=4096,
         model=params.model,
         api_key=params.api_key if not params.is_azure else None,
         base_url=params.api_base if not params.is_azure else None,
@@ -226,8 +234,8 @@ Possible choices:
         with parent_span.start_span(
             name="Correctness", type=SpanTypeAttribute.SCORE
         ) as span:
-            correctness_eval = classifier(
-                input=prompt_prefix, output=output, expected=expected_elements_str
+            correctness_eval = _run_classifier_with_retry(
+                classifier, prompt_prefix, output, expected_elements_str
             )
 
             span.log(
@@ -241,8 +249,35 @@ Possible choices:
             )
             return correctness_eval
     else:
-        return classifier(
-            input=prompt_prefix, output=output, expected=expected_elements_str
+        return _run_classifier_with_retry(
+            classifier, prompt_prefix, output, expected_elements_str
         )
+
+
+def _run_classifier_with_retry(
+    classifier, prompt_prefix: str, output: str, expected_elements_str: str
+):
+    """Call the LLM judge, retrying when its response is malformed.
+
+    The judge occasionally returns a truncated tool call (seen with large
+    evaluation outputs, e.g. 95_skill_memory_leak_detection), and autoevals
+    crashes parsing it with json.JSONDecodeError before any score or metric
+    is recorded for the test. Truncation is transient, so retry a couple of
+    times before letting the error propagate.
+    """
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            return classifier(
+                input=prompt_prefix, output=output, expected=expected_elements_str
+            )
+        except json.JSONDecodeError as e:
+            if attempt == attempts:
+                raise
+            logging.getLogger("classifier").warning(
+                f"Correctness judge returned malformed JSON "
+                f"(attempt {attempt}/{attempts}): {e}. Retrying."
+            )
+            time.sleep(2 * attempt)
 
 
