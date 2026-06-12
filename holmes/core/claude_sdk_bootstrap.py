@@ -52,6 +52,30 @@ def _model_list_path() -> Optional[str]:
     return p if Path(p).is_file() else None
 
 
+def _normalize_for_proxy(model: str, api_base: str) -> str:
+    """Route OpenRouter-backed models through LiteLLM's native `openrouter/`
+    provider for the Messages-API proxy.
+
+    The model_list often uses `openai/<vendor>/<model>` (OpenAI-compat) because
+    that's what the autoevals classifier needs. But the claude CLI hits the
+    proxy's /v1/messages with tool definitions, and LiteLLM's openai-compat
+    translation mishandles Anthropic tool-use round-trips (turns fail with an
+    empty is_error result). The `openrouter/` provider handles it correctly.
+    So when the endpoint is OpenRouter, strip a leading openai/ and prefix
+    openrouter/.
+    """
+    if "openrouter.ai" not in (api_base or ""):
+        return model
+    if model.startswith("openrouter/"):
+        return model
+    # Target the `openai/<vendor>/<model>` form (e.g. openai/anthropic/claude-opus-4.6)
+    # used so the autoevals classifier works; rewrite to openrouter/<vendor>/<model>.
+    # Leave plain `openai/<model>` (no vendor segment) untouched.
+    if model.startswith("openai/") and model.count("/") >= 2:
+        return "openrouter/" + model[len("openai/"):]
+    return model
+
+
 def _write_proxy_config(model_list_path: str) -> list:
     import yaml
 
@@ -65,6 +89,15 @@ def _write_proxy_config(model_list_path: str) -> list:
             if isinstance(v, str):
                 v = _ENV_REF_RE.sub(r"os.environ/\1", v)
             lp[k] = v
+        api_base = lp.get("api_base", "")
+        if "model" in lp:
+            normalized = _normalize_for_proxy(lp["model"], api_base)
+            if normalized != lp["model"]:
+                lp["model"] = normalized
+                # openrouter/ provider uses its own base + OPENROUTER_API_KEY;
+                # a leftover openai api_base would mis-route it.
+                lp.pop("api_base", None)
+                lp.setdefault("api_key", "os.environ/OPENROUTER_API_KEY")
         ml.append({"model_name": name, "litellm_params": lp})
     Path(PROXY_CONFIG).write_text(
         yaml.safe_dump({"model_list": ml, "litellm_settings": {"drop_params": True}})
@@ -127,26 +160,44 @@ def _start_proxy(probe_model: str) -> bool:
     import json
     import urllib.request
 
-    for _ in range(60):
+    # Probe with a TOOL-USE request (not a trivial message): the claude CLI
+    # always sends tool definitions, and the failure mode we must catch is the
+    # provider/route mishandling Anthropic tool-use. A trivial probe would pass
+    # while every real eval fails. We require the model to emit a tool_use block.
+    probe_body = json.dumps({
+        "model": probe_model, "max_tokens": 256,
+        "tools": [{
+            "name": "run_cmd", "description": "Run a shell command",
+            "input_schema": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]},
+        }],
+        "messages": [{"role": "user", "content": "Use the run_cmd tool to run: echo ok"}],
+    }).encode()
+
+    deadline = time.time() + 180
+    last_detail = ""
+    while time.time() < deadline:
         if _port_open(PROXY_HOST, PROXY_PORT):
             try:
                 req = urllib.request.Request(
                     f"http://{PROXY_HOST}:{PROXY_PORT}/v1/messages",
-                    data=json.dumps({
-                        "model": probe_model, "max_tokens": 5,
-                        "messages": [{"role": "user", "content": "ping"}],
-                    }).encode(),
+                    data=probe_body,
                     headers={"content-type": "application/json", "x-api-key": "dummy",
                              "anthropic-version": "2023-06-01"},
                 )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    if resp.status == 200:
-                        logger.info("SDK proxy is up (200).")
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    payload = json.loads(resp.read().decode())
+                    blocks = payload.get("content") or []
+                    if any(isinstance(b, dict) and b.get("type") == "tool_use" for b in blocks):
+                        logger.info("SDK proxy handles tool-use (probe OK).")
                         return True
-            except Exception:
-                pass
+                    last_detail = f"no tool_use in probe response: {str(payload)[:300]}"
+            except Exception as e:
+                last_detail = f"{type(e).__name__}: {str(e)[:300]}"
         time.sleep(3)
-    logger.error("SDK proxy did not become ready. Log tail:\n" + _tail(PROXY_LOG))
+    logger.error(
+        f"SDK proxy tool-use probe failed ({last_detail}). Proxy log tail:\n"
+        + _tail(PROXY_LOG)
+    )
     return False
 
 

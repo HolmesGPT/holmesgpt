@@ -1179,6 +1179,15 @@ jobs:
                   if isinstance(v, str):
                       v = re.sub(r'\{\{\s*env\.([A-Z0-9_]+)\s*\}\}', r'os.environ/\1', v)
                   lp[k] = v
+              # Route OpenRouter-backed models via LiteLLM's openrouter/ provider
+              # so the /v1/messages proxy handles Anthropic tool-use correctly
+              # (the openai-compat path breaks tool-use round-trips).
+              m = lp.get('model', '')
+              if ('openrouter.ai' in (lp.get('api_base') or '')
+                      and m.startswith('openai/') and m.count('/') >= 2):
+                  lp['model'] = 'openrouter/' + m[len('openai/'):]
+                  lp.pop('api_base', None)
+                  lp.setdefault('api_key', 'os.environ/OPENROUTER_API_KEY')
               ml.append({'model_name': name, 'litellm_params': lp})
           yaml.safe_dump(
               {'model_list': ml, 'litellm_settings': {'drop_params': True}},
