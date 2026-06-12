@@ -255,7 +255,7 @@ Possible choices:
 
 
 def _run_classifier_with_retry(
-    classifier, prompt_prefix: str, output: str, expected_elements_str: str
+    classifier, prompt_prefix: str, output: Optional[str], expected_elements_str: str
 ):
     """Call the LLM judge, retrying when its response is malformed.
 
@@ -265,11 +265,12 @@ def _run_classifier_with_retry(
     is recorded for the test. Truncation is transient, so retry a couple of
     times before letting the error propagate.
     """
+    safe_output = output or ""
     attempts = 3
     for attempt in range(1, attempts + 1):
         try:
             return classifier(
-                input=prompt_prefix, output=output, expected=expected_elements_str
+                input=prompt_prefix, output=safe_output, expected=expected_elements_str
             )
         except json.JSONDecodeError as e:
             if attempt == attempts:
