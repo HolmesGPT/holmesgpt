@@ -18,6 +18,8 @@ provider). Selected via HOLMES_ENGINE=claude-sdk.
 import logging
 import os
 import re
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -152,10 +154,16 @@ def discover_data_sources(
         if entry.get("type") == "mcp":
             # Wire MCP toolsets natively: the Claude Agent SDK speaks MCP itself.
             if cfg.get("mode", "stdio") == "stdio" and cfg.get("command"):
+                # Absolutize relative arg paths now: the CLI runs in a scratch
+                # workspace, not the repo, so cwd-relative script paths would break.
+                args = [
+                    str(Path(a).resolve()) if Path(a).exists() else a
+                    for a in (cfg.get("args") or [])
+                ]
                 mcp_servers[name] = {
                     "type": "stdio",
                     "command": cfg["command"],
-                    "args": cfg.get("args") or [],
+                    "args": args,
                     "env": cfg.get("env") or {},
                 }
             continue
@@ -384,6 +392,14 @@ async def _run(
     allowed = ["Bash", "Read", "Grep", "Glob", "TodoWrite", "Task"]
     allowed += [f"mcp__{n}" for n in mcp_servers]
 
+    # Run each investigation in a fresh scratch workspace. The CLI auto-loads
+    # project context (CLAUDE.md, settings, directory listing) from its cwd —
+    # inheriting the harness cwd injected ~34k tokens of repo content into
+    # EVERY investigation (measured: 35,300 vs 1,309 first-call prompt tokens)
+    # and exposed the repo (incl. eval fixtures) to the agent. The scratch dir
+    # is also where the agent saves large tool output for Read/Grep analysis.
+    workspace = tempfile.mkdtemp(prefix="holmes-sdk-ws-")
+
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         model=model,
@@ -392,6 +408,7 @@ async def _run(
         mcp_servers=mcp_servers or {},
         hooks={"PreToolUse": [HookMatcher(hooks=[trace_bash])]} if audit_path else None,
         agents=agents,
+        cwd=workspace,
         cli_path=_resolve_cli_path(),
         env=sub_env,
         stderr=_capture_stderr,
@@ -478,6 +495,8 @@ async def _run(
     result.num_llm_calls = num_turns
     if t_ready is not None:
         result.investigation_seconds = time.monotonic() - t_ready
+    if not os.environ.get("HOLMES_SDK_KEEP_WORKSPACE"):
+        shutil.rmtree(workspace, ignore_errors=True)
     return result
 
 
