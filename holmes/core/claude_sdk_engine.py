@@ -196,6 +196,14 @@ async def _run(
 
     data_source_section, extra_env = discover_data_sources(test_folder)
 
+    # Capture the CLI's stderr so an opaque is_error result is debuggable.
+    stderr_lines: List[str] = []
+
+    def _capture_stderr(line: str) -> None:
+        if line and line.strip():
+            stderr_lines.append(line.rstrip())
+            del stderr_lines[:-40]  # keep last 40 lines
+
     async def trace_bash(input_data: dict, tool_use_id: Optional[str], context: Any):
         # Optional debug trace of bash commands run (lead + workers).
         if audit_path and input_data.get("tool_name") == "Bash":
@@ -251,6 +259,8 @@ async def _run(
         agents=agents,
         cli_path=_resolve_cli_path(),
         env=sub_env,
+        stderr=_capture_stderr,
+        extra_args={"debug": None},
     )
 
     async def prompt_stream():
@@ -293,7 +303,13 @@ async def _run(
     if not final_text and err_detail:
         # Put the real error where the eval report shows it (the "Actual" column),
         # so a transport/CLI failure is debuggable rather than a blank row.
-        final_text = f"[claude-sdk engine error] {err_detail}\nproxy log tail:\n{_proxy_log_tail()}"
+        stderr_tail = "\n".join(stderr_lines[-25:]) or "(no stderr)"
+        final_text = (
+            f"[claude-sdk engine error] {err_detail}\n"
+            f"CLI stderr tail:\n{stderr_tail}\n"
+            f"proxy log tail:\n{_proxy_log_tail()}"
+        )
+        logger.error("claude-sdk CLI stderr tail:\n%s", stderr_tail)
 
     result.result = final_text
     result.tool_calls = tool_calls
