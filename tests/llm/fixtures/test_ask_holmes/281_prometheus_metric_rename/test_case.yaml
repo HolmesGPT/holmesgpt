@@ -12,22 +12,21 @@
 # The only series that answers the question is
 # `acme_kafka_msgs_consumed_total{topic="payments"} 47823`.
 #
-# Earlier versions of this eval had a single acme_kafka metric and no
-# decoys; the agent found it with one broad regex, didn't consider the
-# discovery skill-worthy, and memories_generated failed ~4 of 5 runs.
-# The near-misses make the discovery genuinely costly — several wrong
-# turns before the right series — so the agent should both answer 47823
-# AND capture the lesson: "consumed-per-topic lives only in
-# acme_kafka_msgs_consumed_total; the upstream-named kafka_* series in
-# this cluster are produced-side or per-client decoys."
+# This started as a skill-suggestion eval, but the decoys turned out to
+# be the hard part: opus-4.6 repeatedly answers from the per-client
+# series (9382+12077=21459, reasoning from the client_id naming
+# convention) instead of ruling it out and finding the per-topic
+# acme_kafka series. The decoys are realistic — Kafka's client-side
+# `records-consumed-total` JMX metric really is per-client and resets on
+# restart, and the broker-side `MessagesIn` metric really is
+# produced-side — so this is now a plain hard eval on answer
+# correctness: failing it means the model got fooled by a metric surface
+# any real Kafka + custom-relabeling environment could present.
 
 user_prompt: "How many messages have been consumed in total on the 'payments' Kafka topic in the app-281 cluster?"
 
 expected_output:
   - "The payments topic has 47823 messages consumed"
-
-memories_generated: true
-rerun_with_memory: true
 
 description: |
   Forces a wrong→right metric-name correction with decoys. Upstream-named
@@ -38,8 +37,8 @@ description: |
 tags:
   - prometheus
   - kubernetes
-  - medium
-  - skills
+  - kafka
+  - hard
 
 port_forwards:
   - namespace: app-281
