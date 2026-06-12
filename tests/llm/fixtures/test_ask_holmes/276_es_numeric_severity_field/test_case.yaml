@@ -29,7 +29,7 @@ tags:
   # opus-4.6 asserts what the numeric severity values mean without sampling
   # documents to verify; fable-5 checks the inferred encoding against the
   # [LEVEL] prefixes in the message field (verified on 280, same mechanism).
-  - model-gap
+  - fable-not-opus
 
 setup_timeout: 300
 

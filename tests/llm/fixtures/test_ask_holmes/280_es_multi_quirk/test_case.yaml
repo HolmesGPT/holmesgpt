@@ -59,7 +59,7 @@ tags:
   # opus-4.6 fails answer correctness by asserting the numeric severity
   # encoding without sampling documents; fable-5 verifies the encoding
   # against the [LEVEL] message prefixes and answers all three correctly.
-  - model-gap
+  - fable-not-opus
 
 setup_timeout: 300
 
