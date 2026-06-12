@@ -310,6 +310,34 @@ async def _run(
         )
     system_prompt += data_source_section
 
+    # Experimental (env-gated): parallel hypothesis racing for ambiguous root causes.
+    if os.environ.get("HOLMES_HYPOTHESIS_RACING", "").lower() in ("1", "true"):
+        system_prompt += (
+            "\n\nHypothesis racing: if after initial triage the root cause is ambiguous "
+            "between 2-3 plausible hypotheses, dispatch one `worker` Task per hypothesis "
+            "IN PARALLEL (all in one turn), each tasked to confirm or refute ONE hypothesis "
+            "with direct evidence, then adjudicate on their findings."
+        )
+
+    # Experimental (env-gated): persistent per-cluster memory across investigations.
+    memory_file = os.environ.get("HOLMES_MEMORY_FILE")
+    if memory_file:
+        try:
+            mem = Path(memory_file).read_text()[:8000]
+        except Exception:
+            mem = ""
+        if mem.strip():
+            system_prompt += (
+                "\n\n# Cluster memory (facts learned in previous investigations — "
+                "trust but verify anything load-bearing)\n" + mem
+            )
+        system_prompt += (
+            f"\n\nAfter giving your final answer, append concise NEW durable facts you "
+            f"learned about this cluster (topology, namespaces, services, known issues) "
+            f"to {memory_file} via Bash — one bullet per fact, no duplicates of what is "
+            f"already there; skip entirely if nothing new."
+        )
+
     sub_env = {
         "ANTHROPIC_BASE_URL": os.environ["ANTHROPIC_BASE_URL"],
         # The CLI requires a NON-EMPTY api key or it reports "Not logged in" and
