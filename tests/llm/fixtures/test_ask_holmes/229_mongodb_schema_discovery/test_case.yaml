@@ -21,7 +21,7 @@ tags:
 setup_timeout: 180
 
 port_forwards:
-  - namespace: app-227
+  - namespace: app-229
     service: mongodb
     local_port: 10227
     remote_port: 27017
@@ -32,16 +32,16 @@ before_test: |
   echo "⏳ Setting up MongoDB in cluster..."
 
   # Create namespace
-  kubectl create namespace app-227 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-229 --dry-run=client -o yaml | kubectl apply -f -
 
   # Deploy MongoDB
-  kubectl apply -f mongodb.yaml -n app-227
+  kubectl apply -f mongodb.yaml -n app-229
 
   # Wait for MongoDB to be ready
   echo "⏳ Waiting for MongoDB pod to be ready..."
   POD_READY=false
   for i in {1..60}; do
-    if kubectl wait --for=condition=ready pod -l app=mongodb -n app-227 --timeout=5s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=mongodb -n app-229 --timeout=5s 2>/dev/null; then
       echo "✅ MongoDB pod is ready!"
       POD_READY=true
       break
@@ -51,8 +51,8 @@ before_test: |
 
   if [ "$POD_READY" = false ]; then
     echo "❌ MongoDB pod failed to become ready after 60 seconds"
-    kubectl get pods -n app-227
-    kubectl logs -l app=mongodb -n app-227 --tail=20
+    kubectl get pods -n app-229
+    kubectl logs -l app=mongodb -n app-229 --tail=20
     exit 1
   fi
 
@@ -60,7 +60,7 @@ before_test: |
   echo "⏳ Waiting for MongoDB to accept connections..."
   MONGO_READY=false
   for i in {1..30}; do
-    if kubectl exec -n app-227 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+    if kubectl exec -n app-229 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
       echo "✅ MongoDB is accepting connections!"
       MONGO_READY=true
       break
@@ -70,13 +70,13 @@ before_test: |
 
   if [ "$MONGO_READY" = false ]; then
     echo "❌ MongoDB not accepting connections after 60 seconds"
-    kubectl logs -l app=mongodb -n app-227 --tail=20
+    kubectl logs -l app=mongodb -n app-229 --tail=20
     exit 1
   fi
 
   # Seed data into MongoDB
   echo "⏳ Creating collections and inserting test data..."
-  kubectl exec -n app-227 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin shopdb --eval '
+  kubectl exec -n app-229 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin shopdb --eval '
   // Create transactions collection
   db.transactions.drop();
   db.transactions.insertMany([
@@ -108,7 +108,7 @@ before_test: |
   '
 
   # Verify the needle is queryable
-  RESULT=$(kubectl exec -n app-227 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin shopdb --quiet --eval '
+  RESULT=$(kubectl exec -n app-229 deployment/mongodb -- mongosh -u holmes -p holmespass --authenticationDatabase admin shopdb --quiet --eval '
   var doc = db.transactions.findOne({ status: "failed" });
   print(doc.verification_code);
   ')
@@ -125,5 +125,5 @@ before_test: |
 
 after_test: |
   echo "⏳ Cleaning up MongoDB..."
-  kubectl delete namespace app-227 --ignore-not-found=true --wait=false 2>/dev/null || true
+  kubectl delete namespace app-229 --ignore-not-found=true --wait=false 2>/dev/null || true
   echo "✅ Cleanup initiated"

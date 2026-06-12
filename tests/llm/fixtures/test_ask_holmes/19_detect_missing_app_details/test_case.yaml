@@ -8,3 +8,54 @@ expected_output: |
 tags:
   - easy
   - transparency
+
+# The look-alike resource the eval asks Holmes to surface. It must really exist
+# and crashloop, with a discoverable cause in its logs — the eval previously
+# shipped without this infra, so both engines failed it no matter what they did.
+before_test: |
+  kubectl create namespace app-19 --dry-run=client -o yaml | kubectl apply -f -
+  cat << 'EOF' | kubectl apply -f -
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: db-certs-authenticator
+    namespace: app-19
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: db-certs-authenticator
+    template:
+      metadata:
+        labels:
+          app: db-certs-authenticator
+      spec:
+        containers:
+        - name: authenticator
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - >
+              echo 'Loading TLS material for database mutual auth';
+              echo 'FATAL: cannot load CA bundle /etc/certs/db-ca.pem: open /etc/certs/db-ca.pem: no such file or directory' >&2;
+              exit 1
+  EOF
+  CRASHING=false
+  for i in $(seq 1 90); do
+    REASON=$(kubectl get pods -n app-19 -l app=db-certs-authenticator -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)
+    if [ "$REASON" = "CrashLoopBackOff" ]; then
+      echo "✅ db-certs-authenticator is crashlooping"
+      CRASHING=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$CRASHING" = false ]; then
+    echo "❌ db-certs-authenticator did not reach CrashLoopBackOff"
+    kubectl get pods -n app-19
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-19 --ignore-not-found

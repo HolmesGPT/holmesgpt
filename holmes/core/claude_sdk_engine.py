@@ -298,7 +298,10 @@ async def _run(
         # that so time-relative evals resolve against the same reference time.
         system_prompt += f"\n\nThe current date and time is {mocked_date}."
     if cluster_name:
-        system_prompt += f"\n\nYour kubectl context is the cluster `{cluster_name}`."
+        system_prompt += (
+            f"\n\nYour kubectl context is the cluster `{cluster_name}`."
+            f" If the user asks about a DIFFERENT cluster/environment, state up front that this agent is connected to `{cluster_name}` and not the cluster they named, label any findings as coming from `{cluster_name}`, and suggest they may need the agent/data source for that other cluster."
+        )
     system_prompt += data_source_section
 
     sub_env = {
@@ -327,6 +330,10 @@ async def _run(
         # multi-turn eval (large kubectl/log output trips the threshold). The CLI's own
         # local compaction still works, and opus-4.6 has a 1M context window.
         "DISABLE_MICROCOMPACT": "1",
+        # The CLI caps MCP tool output at 25k tokens by default; eval MCP servers
+        # intentionally return oversized payloads with trailing image attachments
+        # (e.g. 236_image_spill_to_disk), and the cap silently drops the image.
+        "MAX_MCP_OUTPUT_TOKENS": "100000",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "PATH": os.environ["PATH"],
         "HOME": os.environ.get("HOME", "/tmp"),
