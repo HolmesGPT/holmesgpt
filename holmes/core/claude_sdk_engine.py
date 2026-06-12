@@ -290,20 +290,36 @@ async def _run(
                     pass
 
     # Always-on, command-level audit trail of every tool invocation — lead agent
-    # AND sub-agent workers (PreToolUse hooks fire for both, unlike the lead-only
-    # ToolUseBlocks in the message stream). Attached to the result and logged to
-    # Braintrust so every eval run is auditable at full-command level.
+    # AND sub-agent workers (Pre/PostToolUse hooks fire for both, unlike the
+    # lead-only ToolUseBlocks in the message stream). PreToolUse records the
+    # input; PostToolUse pairs the output and duration by tool_use_id. Attached
+    # to the result and rendered as child spans in Braintrust, so every eval
+    # run is auditable at full command + output level.
     tool_invocations: List[dict] = []
+    _pending_inv: Dict[str, dict] = {}
 
-    async def trace_tools(input_data: dict, tool_use_id: Optional[str], context: Any):
+    async def trace_tools_pre(input_data: dict, tool_use_id: Optional[str], context: Any):
         try:
             name = input_data.get("tool_name", "?")
             raw = input_data.get("tool_input") or {}
+            inv = {"tool": name, "input": str(raw)[:1500], "_t0": time.monotonic()}
             if len(tool_invocations) < 400:
-                tool_invocations.append({"tool": name, "input": str(raw)[:1500]})
+                tool_invocations.append(inv)
+                if tool_use_id:
+                    _pending_inv[tool_use_id] = inv
             if audit_path:
                 with open(audit_path, "a") as fh:
                     fh.write(f"{name}\t{str(raw)[:1500]}".replace("\n", " ") + "\n")
+        except Exception:
+            pass
+        return {}
+
+    async def trace_tools_post(input_data: dict, tool_use_id: Optional[str], context: Any):
+        try:
+            inv = _pending_inv.pop(tool_use_id, None) if tool_use_id else None
+            if inv is not None:
+                inv["output"] = str(input_data.get("tool_response", ""))[:2000]
+                inv["duration_s"] = round(time.monotonic() - inv.pop("_t0"), 2)
         except Exception:
             pass
         return {}
@@ -416,7 +432,10 @@ async def _run(
         max_turns=max_turns,
         allowed_tools=allowed,
         mcp_servers=mcp_servers or {},
-        hooks={"PreToolUse": [HookMatcher(hooks=[trace_tools])]},
+        hooks={
+            "PreToolUse": [HookMatcher(hooks=[trace_tools_pre])],
+            "PostToolUse": [HookMatcher(hooks=[trace_tools_post])],
+        },
         agents=agents,
         cwd=workspace,
         cli_path=_resolve_cli_path(),
@@ -503,6 +522,8 @@ async def _run(
     result.result = final_text
     result.tool_calls = tool_calls
     result.num_llm_calls = num_turns
+    for inv in tool_invocations:
+        inv.pop("_t0", None)  # PostToolUse never fired (interrupted/denied call)
     result.metadata = {"tool_invocations": tool_invocations}
     if t_ready is not None:
         result.investigation_seconds = time.monotonic() - t_ready

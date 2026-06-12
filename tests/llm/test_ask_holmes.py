@@ -202,7 +202,7 @@ def ask_holmes(
     from holmes.core.claude_sdk_engine import is_sdk_engine_enabled, run_investigation
 
     if is_sdk_engine_enabled():
-        with tracer.start_trace("Holmes Run", span_type=SpanType.TASK):
+        with tracer.start_trace("Holmes Run", span_type=SpanType.TASK) as llm_span:
             start_time = time.time()
             result = run_investigation(
                 user_prompt=test_case.user_prompt,
@@ -211,6 +211,24 @@ def ask_holmes(
                 test_folder=test_case.folder,
                 mocked_date=getattr(test_case, "mocked_date", None),
             )
+            # Render the engine's command-level audit trail as child spans so
+            # every tool call (incl. sub-agent workers) is inspectable in the
+            # Braintrust trace tree, like the baseline's per-tool spans. Spans
+            # are emitted post-hoc, so tree position — not span timing — is the
+            # source of truth for when a call ran (duration_s is in metadata).
+            for inv in (result.metadata or {}).get("tool_invocations", []):
+                with llm_span.start_span(
+                    name=f"holmesgpt.tool.{inv.get('tool', 'unknown')}",
+                    type=SpanType.TOOL.value,
+                ) as tool_span:
+                    tool_span.log(
+                        input=inv.get("input", ""),
+                        output=inv.get("output", ""),
+                        metadata={
+                            "holmesgpt.tool.name": inv.get("tool"),
+                            "duration_s": inv.get("duration_s"),
+                        },
+                    )
             # Investigation time is measured directly by the engine from
             # session-ready to completion (CLI process spawn is not
             # investigation time — a deployment holds a persistent client).
