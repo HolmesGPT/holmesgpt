@@ -18,6 +18,7 @@ provider). Selected via HOLMES_ENGINE=claude-sdk.
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -50,6 +51,10 @@ class SDKResult:
     result: Optional[str] = None
     tool_calls: List[Any] = field(default_factory=list)
     num_llm_calls: Optional[int] = None
+    # Wall-clock seconds spent spawning the claude CLI process before the
+    # session was ready (init handshake received). A per-eval artifact: a real
+    # deployment holds a persistent client, so eval timing excludes it.
+    startup_seconds: float = 0.0
     total_cost: float = 0.0
     total_tokens: int = 0
     prompt_tokens: int = 0
@@ -64,6 +69,7 @@ SDK_SYSTEM_PROMPT = """You are HolmesGPT, an SRE/DevOps investigation agent. You
 
 Tools and how to reach data:
 * Bash: run kubectl for the Kubernetes cluster (get/describe/logs/top/events), and curl for HTTP data-source APIs. Standard CLI (grep, jq, awk, sort, wc, date) is available.
+* Batch independent read-only commands into ONE Bash invocation (chain with `;`) instead of one command per turn — every extra turn costs a full model round trip.
 * For any HTTP data source listed under "Available data sources" below, query it with curl. Credentials, when needed, are in the named environment variables — reference them in the command (e.g. `curl -H "Authorization: ApiKey $ELASTICSEARCH_API_KEY" ...`); do not print their values.
 * Read/Grep/Glob operate on the local filesystem if you save tool output to files.
 
@@ -372,12 +378,15 @@ async def _run(
     result = SDKResult()
     err_detail: Optional[str] = None
     init_info: Optional[str] = None
+    t_spawn = time.monotonic()
 
     try:
         async for msg in query(prompt=prompt_stream(), options=options):
             if isinstance(msg, SystemMessage):
                 # The CLI's `init` system message reports the model/tools/session
                 # it actually negotiated — invaluable when a run errors opaquely.
+                if not result.startup_seconds:
+                    result.startup_seconds = time.monotonic() - t_spawn
                 data = getattr(msg, "data", {}) or {}
                 if getattr(msg, "subtype", "") == "init" or "model" in data:
                     init_info = (

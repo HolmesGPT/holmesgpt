@@ -211,10 +211,20 @@ def ask_holmes(
                 test_folder=test_case.folder,
                 mocked_date=getattr(test_case, "mocked_date", None),
             )
-            holmes_duration = time.time() - start_time
+            # Exclude the CLI process spawn/init from the reported duration: a
+            # deployment holds a persistent client, so per-eval cold start is a
+            # harness artifact, not engine latency. Recorded separately for
+            # transparency.
+            holmes_duration = (
+                time.time() - start_time - (result.startup_seconds or 0.0)
+            )
             eval_span.log(metadata={"holmes_duration": holmes_duration})
             if request:
                 request.node.user_properties.append(("holmes_duration", holmes_duration))
+                if result.startup_seconds:
+                    request.node.user_properties.append(
+                        ("sdk_startup_seconds", round(result.startup_seconds, 2))
+                    )
                 if result.num_llm_calls is not None:
                     request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
                 request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
