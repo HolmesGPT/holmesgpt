@@ -92,6 +92,46 @@ You are part of the HolmesGPT product: when users ask how to connect/enable an i
 
 Give a final answer with specific, actionable findings."""
 
+# Ablation registry: each id maps to the EXACT prompt line for that accreted
+# rule. build_system_prompt(remove_ids) deletes those lines by exact match, so
+# removing nothing returns SDK_SYSTEM_PROMPT byte-for-byte (no default drift).
+# Controlled per-run via HOLMES_PROMPT_REMOVE_RULES (comma-separated ids), so
+# ablation arms are just ENV_CONFIGS settings. R1/R2/R8 are the durable
+# "principles"; R3-R7,R9 are the suite-traceable rules under test.
+_RULE_LINES = {
+    "R9": "* Batch independent read-only commands into ONE Bash invocation (chain with `;`) instead of one command per turn — every extra turn costs a full model round trip.",
+    "R1": "* Something \"Running\"/\"Ready\" is not necessarily healthy — check the application's actual runtime behavior in its logs, not just status.",
+    "R2": "* When analyzing behavior over time, read the FULL history (complete logs/series), not just the most recent lines — trends are invisible in a tail sample.",
+    "R3": "* Be calibrated: distinguish sustained trends and real failures from normal jitter or steady-but-high/low values. Do not report stable values or noise as problems.",
+    "R4": "* Treat error messages as exact diagnostic evidence: `authentication failed`/`password authentication failed` for user X means X EXISTS; `role/user does not exist` means it is absent. These are mutually exclusive — never hedge one as the other.",
+    "R5": "* Adjacent / similarly-named entities — be transparent AND useful. If the user's name AS WRITTEN matches no data exactly (names differing in case, separators, or punctuation are DIFFERENT names, e.g. `foowebjob` vs `Foo.WebJob`), but you find data for a similarly-named one: (1) explicitly state, using the user's verbatim name, that you found no data for that exact entity; (2) report what you DID find in the related entity; (3) clearly label those findings as coming from the different, related entity — phrases like \"I found logs for X (a different service from <user's name>)\". Never silently merge the user's name into the entity you actually found. This disclosure is required even when a close match exists, and must LEAD your final answer.",
+    "R6": "* For Kubernetes permission errors (`Error from server (Forbidden)`), say so explicitly and identify the missing resource/verb rather than treating it as \"no problem found\".",
+    "R7": "* Use hedging language (possible, likely, may) for root-cause claims you cannot directly confirm from tool output; present directly-observed errors as facts.",
+    "R8": "* Back every claim with concrete evidence: exact resource names, namespaces, error messages/codes, log lines, counts.",
+}
+# Fail fast at import if any line drifts from the canonical prompt text.
+for _rid, _line in _RULE_LINES.items():
+    assert _line in SDK_SYSTEM_PROMPT, f"rule registry drift: {_rid} not found in prompt"
+
+
+def build_system_prompt(remove_ids=()) -> str:
+    """Return SDK_SYSTEM_PROMPT with the given rule lines removed (exact match,
+    with their leading newline). Empty remove_ids => byte-identical prompt."""
+    p = SDK_SYSTEM_PROMPT
+    for rid in remove_ids:
+        line = _RULE_LINES.get(rid)
+        if line:
+            p = p.replace("\n" + line, "")
+    return p
+
+
+def _prompt_remove_ids() -> tuple:
+    raw = (os.environ.get("HOLMES_PROMPT_REMOVE_RULES") or "").strip()
+    if not raw:
+        return ()
+    return tuple(x.strip() for x in raw.split(",") if x.strip())
+
+
 WORKER_AGENT_PROMPT = """You are a focused investigation worker. You receive ONE self-contained task from a lead agent and see only that task — not the user's original question.
 
 * Investigate thoroughly with your tools (kubectl, curl for HTTP data sources) before answering; never guess when a tool can verify. Credentials are in the named env vars; reference them, don't print them.
@@ -335,7 +375,7 @@ async def _run(
         )
     }
 
-    system_prompt = SDK_SYSTEM_PROMPT
+    system_prompt = build_system_prompt(_prompt_remove_ids())
     if mocked_date:
         # The baseline harness patches the prompt builder to inject "now"; mirror
         # that so time-relative evals resolve against the same reference time.

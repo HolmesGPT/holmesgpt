@@ -1291,8 +1291,8 @@ jobs:
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           # TEMP (divergence measurement): both models, SDK engine, 3 iters over
           # the ablation candidate pool. Revert to commented values after the run.
-          MODEL: "opus-4.6,opus-4.8"  # was: ${{ steps.eval-params.outputs.model }}
-          ITERATIONS: "3"  # was: ${{ steps.eval-params.outputs.iterations }}
+          MODEL: "opus-4.8"  # was: ${{ steps.eval-params.outputs.model }}
+          ITERATIONS: "5"  # was: ${{ steps.eval-params.outputs.iterations }}
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Needed by the claude-sdk engine's LiteLLM proxy when the model_list
@@ -1328,7 +1328,10 @@ jobs:
           # evals, commit, infra, and judge. (This branch always has the SDK flag file,
           # so the proxy is bootstrapped regardless; the baseline arm just doesn't use it.)
           # TEMP (divergence measurement): SDK engine only — divergence is model-vs-model.
-          ENV_CONFIGS: "sdk:HOLMES_ENGINE=claude-sdk"  # was: "baseline:HOLMES_ENGINE=|sdk:HOLMES_ENGINE=claude-sdk"
+          # TEMP (prompt ablation): 3 SDK prompt arms — full (no removal), principles-only
+          # (keep R1/R2/R8), max-lean (remove all R1-R9). HOLMES_ENGINE stays claude-sdk
+          # (flag file). Revert to "baseline:HOLMES_ENGINE=|sdk:HOLMES_ENGINE=claude-sdk".
+          ENV_CONFIGS: "full:|principles:HOLMES_PROMPT_REMOVE_RULES=R3,R4,R5,R6,R7,R9|lean:HOLMES_PROMPT_REMOVE_RULES=R1,R2,R3,R4,R5,R6,R7,R8,R9"
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
           GENERATE_REGRESSIONS_FILE: "true"
@@ -1336,7 +1339,9 @@ jobs:
           # ablation candidate pool (rule-coverage backbone + hard discriminators).
           # Revert to: EVAL_MARKER_EXPR "regression or easy", EVAL_FILTER outputs.filter
           EVAL_MARKER_EXPR: "llm"
-          EVAL_FILTER: "19_detect_missing or 249_overconfidence or 254_elasticsearch_dr or 259_wrong_cluster or 39_failed_toolset or 228_appropriate or 41_setup_argo or 81_service_account or 272_wide_fleet or 274_silent_degradation or 271_multi_service or 15_failed_readiness or 20_long_log or 33_cpu_metrics or 25_misconfigured_ingress or 270_namespace_collision or 260_global_es or 235_elasticsearch_cluster_mismatch or 08_sock_shop or 68_cascading or 67_performance_degradation or 273_large_fleet"
+          # Ablation oracle: the 3 evals that discriminate 4.6/4.8 (249,235,273) +
+          # rule-coverage guards (254,259,19,228) to catch collateral regressions.
+          EVAL_FILTER: "249_overconfidence or 235_elasticsearch_cluster_mismatch or 273_large_fleet or 254_elasticsearch_dr or 259_wrong_cluster or 19_detect_missing or 228_appropriate"
           EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
