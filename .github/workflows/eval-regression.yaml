@@ -1289,8 +1289,10 @@ jobs:
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
-          MODEL: ${{ steps.eval-params.outputs.model }}
-          ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
+          # TEMP (divergence measurement): both models, SDK engine, 3 iters over
+          # the ablation candidate pool. Revert to commented values after the run.
+          MODEL: "opus-4.6,opus-4.8"  # was: ${{ steps.eval-params.outputs.model }}
+          ITERATIONS: "3"  # was: ${{ steps.eval-params.outputs.iterations }}
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Needed by the claude-sdk engine's LiteLLM proxy when the model_list
@@ -1325,14 +1327,16 @@ jobs:
           # report breaks out pass rate / cost / latency / tokens per arm on the same
           # evals, commit, infra, and judge. (This branch always has the SDK flag file,
           # so the proxy is bootstrapped regardless; the baseline arm just doesn't use it.)
-          ENV_CONFIGS: "baseline:HOLMES_ENGINE=|sdk:HOLMES_ENGINE=claude-sdk"
+          # TEMP (divergence measurement): SDK engine only — divergence is model-vs-model.
+          ENV_CONFIGS: "sdk:HOLMES_ENGINE=claude-sdk"  # was: "baseline:HOLMES_ENGINE=|sdk:HOLMES_ENGINE=claude-sdk"
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
           GENERATE_REGRESSIONS_FILE: "true"
-          # Broadened from the default `regression` (14) to a larger cross-section
-          # (~55 evals) for a meatier SDK-vs-baseline A/B on this proving branch.
-          EVAL_MARKER_EXPR: "regression or easy"
-          EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
+          # TEMP (divergence measurement): all-llm marker narrowed by -k to the
+          # ablation candidate pool (rule-coverage backbone + hard discriminators).
+          # Revert to: EVAL_MARKER_EXPR "regression or easy", EVAL_FILTER outputs.filter
+          EVAL_MARKER_EXPR: "llm"
+          EVAL_FILTER: "19_detect_missing or 249_overconfidence or 254_elasticsearch_dr or 259_wrong_cluster or 39_failed_toolset or 228_appropriate or 41_setup_argo or 81_service_account or 272_wide_fleet or 274_silent_degradation or 271_multi_service or 15_failed_readiness or 20_long_log or 33_cpu_metrics or 25_misconfigured_ingress or 270_namespace_collision or 260_global_es or 235_elasticsearch_cluster_mismatch or 08_sock_shop or 68_cascading or 67_performance_degradation or 273_large_fleet"
           EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
