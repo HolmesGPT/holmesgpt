@@ -211,50 +211,66 @@ def ask_holmes(
                 test_folder=test_case.folder,
                 mocked_date=getattr(test_case, "mocked_date", None),
             )
-            # Render the engine's command-level audit trail as child spans so
-            # every tool call (incl. sub-agent workers) is inspectable in the
-            # Braintrust trace tree, like the baseline's per-tool spans. Spans
-            # are emitted post-hoc, so tree position — not span timing — is the
-            # source of truth for when a call ran (duration_s is in metadata).
-            for inv in (result.metadata or {}).get("tool_invocations", []):
-                with llm_span.start_span(
-                    name=f"holmesgpt.tool.{inv.get('tool', 'unknown')}",
-                    type=SpanType.TOOL.value,
-                ) as tool_span:
-                    tool_span.log(
-                        input=inv.get("input", ""),
-                        output=inv.get("output", ""),
-                        metadata={
-                            "holmesgpt.tool.name": inv.get("tool"),
-                            "duration_s": inv.get("duration_s"),
-                        },
+            # Render the engine's audit trail as child spans in true execution
+            # order with real timestamps. Tool spans carry their measured
+            # start/end; an LLM call's span covers the gap from the previous
+            # event to the message's arrival (its actual API latency).
+            md = result.metadata or {}
+            events = [
+                ("tool", inv.get("t0w"), inv)
+                for inv in md.get("tool_invocations", [])
+            ] + [
+                ("llm", call.get("t_end"), call)
+                for call in md.get("llm_calls", [])
+            ]
+            events.sort(key=lambda e: e[1] or 0)
+            prev_end = md.get("session_start_wall") or start_time
+            for kind, anchor, item in events:
+                if kind == "tool":
+                    t0 = item.get("t0w") or prev_end
+                    t1 = item.get("t1w") or t0
+                    with llm_span.start_span(
+                        name=f"holmesgpt.tool.{item.get('tool', 'unknown')}",
+                        type=SpanType.TOOL.value,
+                    ) as tool_span:
+                        tool_span.log(
+                            input=item.get("input", ""),
+                            output=item.get("output", ""),
+                            metadata={"holmesgpt.tool.name": item.get("tool")},
+                            metrics={"start": t0, "end": t1},
+                        )
+                else:
+                    t1 = item.get("t_end") or prev_end
+                    t0 = min(prev_end, t1)
+                    usage = item.get("usage") or {}
+                    cache_read = usage.get("cache_read_input_tokens") or 0
+                    prompt = (
+                        (usage.get("input_tokens") or 0)
+                        + cache_read
+                        + (usage.get("cache_creation_input_tokens") or 0)
                     )
-            # One gen_ai.chat span per LLM call (mirrors the baseline's per-call
-            # spans) with per-call token metrics, model, and sub-agent tagging.
-            for call in (result.metadata or {}).get("llm_calls", []):
-                usage = call.get("usage") or {}
-                cache_read = usage.get("cache_read_input_tokens") or 0
-                cache_creation = usage.get("cache_creation_input_tokens") or 0
-                prompt = (usage.get("input_tokens") or 0) + cache_read + cache_creation
-                completion = usage.get("output_tokens") or 0
-                with llm_span.start_span(
-                    name="gen_ai.chat", type=SpanType.LLM.value
-                ) as call_span:
-                    call_span.log(
-                        output=call.get("text_head", ""),
-                        metadata={
-                            "model": call.get("model"),
-                            "stop_reason": call.get("stop_reason"),
-                            "sub_agent": call.get("sub_agent", False),
-                            "tools_requested": call.get("tools_requested", []),
-                        },
-                        metrics={
-                            "prompt_tokens": prompt,
-                            "completion_tokens": completion,
-                            "total_tokens": prompt + completion,
-                            "prompt_cached_tokens": cache_read,
-                        },
-                    )
+                    completion = usage.get("output_tokens") or 0
+                    with llm_span.start_span(
+                        name="gen_ai.chat", type=SpanType.LLM.value
+                    ) as call_span:
+                        call_span.log(
+                            output=item.get("text_head", ""),
+                            metadata={
+                                "model": item.get("model"),
+                                "stop_reason": item.get("stop_reason"),
+                                "sub_agent": item.get("sub_agent", False),
+                                "tools_requested": item.get("tools_requested", []),
+                            },
+                            metrics={
+                                "start": t0,
+                                "end": t1,
+                                "prompt_tokens": prompt,
+                                "completion_tokens": completion,
+                                "total_tokens": prompt + completion,
+                                "prompt_cached_tokens": cache_read,
+                            },
+                        )
+                prev_end = max(prev_end, t1)
             # Investigation time is measured directly by the engine from
             # session-ready to completion (CLI process spawn is not
             # investigation time — a deployment holds a persistent client).

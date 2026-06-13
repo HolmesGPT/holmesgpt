@@ -302,7 +302,8 @@ async def _run(
         try:
             name = input_data.get("tool_name", "?")
             raw = input_data.get("tool_input") or {}
-            inv = {"tool": name, "input": str(raw)[:1500], "_t0": time.monotonic()}
+            inv = {"tool": name, "input": str(raw)[:1500],
+                   "_t0": time.monotonic(), "t0w": time.time()}
             if len(tool_invocations) < 400:
                 tool_invocations.append(inv)
                 if tool_use_id:
@@ -319,6 +320,7 @@ async def _run(
             inv = _pending_inv.pop(tool_use_id, None) if tool_use_id else None
             if inv is not None:
                 inv["output"] = str(input_data.get("tool_response", ""))[:2000]
+                inv["t1w"] = time.time()
                 inv["duration_s"] = round(time.monotonic() - inv.pop("_t0"), 2)
         except Exception:
             pass
@@ -454,6 +456,8 @@ async def _run(
     err_detail: Optional[str] = None
     init_info: Optional[str] = None
     llm_calls: List[dict] = []
+    llm_calls_by_id: Dict[str, dict] = {}
+    wall_ready: Optional[float] = None
     t_ready: Optional[float] = None
 
     try:
@@ -463,6 +467,7 @@ async def _run(
                 # it actually negotiated — invaluable when a run errors opaquely.
                 if t_ready is None:
                     t_ready = time.monotonic()  # session ready: clock starts here
+                    wall_ready = time.time()
                 data = getattr(msg, "data", {}) or {}
                 if getattr(msg, "subtype", "") == "init" or "model" in data:
                     init_info = (
@@ -482,22 +487,36 @@ async def _run(
                     elif isinstance(block, ToolUseBlock):
                         tool_calls.append(_describe_tool_use(block))
                         tools_requested.append(getattr(block, "name", "?"))
-                # One entry per LLM call (sub-agent calls included, tagged via
-                # parent_tool_use_id) so per-call tokens/model render in Braintrust.
+                # One entry per LLM call. The CLI emits a SEPARATE AssistantMessage
+                # event per content block (text and tool_use arrive as distinct
+                # events sharing one message_id), so merge by message_id or each
+                # API call gets logged — and its tokens counted — multiple times.
                 u = getattr(msg, "usage", None) or {}
-                llm_calls.append({
-                    "model": getattr(msg, "model", None),
-                    "stop_reason": getattr(msg, "stop_reason", None),
-                    "sub_agent": bool(getattr(msg, "parent_tool_use_id", None)),
-                    "tools_requested": tools_requested,
-                    "text_head": text_head,
-                    "usage": {
-                        k: u.get(k)
-                        for k in ("input_tokens", "output_tokens",
-                                  "cache_read_input_tokens", "cache_creation_input_tokens")
-                        if isinstance(u, dict) and u.get(k) is not None
-                    },
-                })
+                usage = {
+                    k: u.get(k)
+                    for k in ("input_tokens", "output_tokens",
+                              "cache_read_input_tokens", "cache_creation_input_tokens")
+                    if isinstance(u, dict) and u.get(k) is not None
+                }
+                mid = getattr(msg, "message_id", None)
+                entry = llm_calls_by_id.get(mid) if mid else None
+                if entry is None:
+                    entry = {
+                        "model": getattr(msg, "model", None),
+                        "tools_requested": [],
+                        "text_head": "",
+                        "sub_agent": bool(getattr(msg, "parent_tool_use_id", None)),
+                    }
+                    llm_calls.append(entry)
+                    if mid:
+                        llm_calls_by_id[mid] = entry
+                entry.setdefault("t_end", time.time())  # anchor at first event of this message
+                entry["stop_reason"] = getattr(msg, "stop_reason", None) or entry.get("stop_reason")
+                entry["tools_requested"] += tools_requested
+                if text_head:
+                    entry["text_head"] = text_head
+                if usage:  # later events carry the same/final usage; last wins
+                    entry["usage"] = usage
             elif isinstance(msg, ResultMessage):
                 num_turns = msg.num_turns or 0
                 if msg.result:
@@ -545,7 +564,11 @@ async def _run(
     result.num_llm_calls = num_turns
     for inv in tool_invocations:
         inv.pop("_t0", None)  # PostToolUse never fired (interrupted/denied call)
-    result.metadata = {"tool_invocations": tool_invocations, "llm_calls": llm_calls}
+    result.metadata = {
+        "tool_invocations": tool_invocations,
+        "llm_calls": llm_calls,
+        "session_start_wall": wall_ready,
+    }
     if llm_calls:
         # True usage totals: sum per-call usage (the ResultMessage usage the
         # branch above parses reflects only part of the session and undercounts).
