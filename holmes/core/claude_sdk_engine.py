@@ -72,7 +72,6 @@ SDK_SYSTEM_PROMPT = """You are HolmesGPT, an SRE/DevOps investigation agent. You
 
 Tools and how to reach data:
 * Bash: run kubectl for the Kubernetes cluster (get/describe/logs/top/events), and curl for HTTP data-source APIs. Standard CLI (grep, jq, awk, sort, wc, date) is available.
-* Batch independent read-only commands into ONE Bash invocation (chain with `;`) instead of one command per turn — every extra turn costs a full model round trip.
 * For any HTTP data source listed under "Available data sources" below, query it with curl. Credentials, when needed, are in the named environment variables — reference them in the command (e.g. `curl -H "Authorization: ApiKey $ELASTICSEARCH_API_KEY" ...`); do not print their values.
 * Read/Grep/Glob operate on the local filesystem if you save tool output to files.
 
@@ -97,9 +96,10 @@ Give a final answer with specific, actionable findings."""
 # removing nothing returns SDK_SYSTEM_PROMPT byte-for-byte (no default drift).
 # Controlled per-run via HOLMES_PROMPT_REMOVE_RULES (comma-separated ids), so
 # ablation arms are just ENV_CONFIGS settings. R1/R2/R8 are the durable
-# "principles"; R3-R7,R9 are the suite-traceable rules under test.
+# "principles"; R3-R7 are the suite-traceable rules. (R9, a command-batching
+# rule, was removed after ablation: no defending eval + it fought opus-4.8's
+# native parallel tool use.)
 _RULE_LINES = {
-    "R9": "* Batch independent read-only commands into ONE Bash invocation (chain with `;`) instead of one command per turn — every extra turn costs a full model round trip.",
     "R1": "* Something \"Running\"/\"Ready\" is not necessarily healthy — check the application's actual runtime behavior in its logs, not just status.",
     "R2": "* When analyzing behavior over time, read the FULL history (complete logs/series), not just the most recent lines — trends are invisible in a tail sample.",
     "R3": "* Be calibrated: distinguish sustained trends and real failures from normal jitter or steady-but-high/low values. Do not report stable values or noise as problems.",
