@@ -1,13 +1,17 @@
 # Kubernetes Remediation (MCP)
 
---8<-- "snippets/kubernetes_toolset_picker.md"
+The Kubernetes Remediation MCP server is what lets Holmes **act on your cluster** — restart pods, scale deployments, drain nodes, patch and edit resources, and more — plus run **deeper diagnostics** than read-only access allows: reading files and processes *inside* running containers and launching short-lived troubleshooting pods (netshoot/busybox/curl).
 
-The Kubernetes Remediation MCP server lets Holmes **diagnose and act** on a cluster beyond what the Holmes pod's own limited RBAC allows — read files and processes it can't reach, run diagnostic pods, and **remediate** (restart pods, scale deployments, drain nodes, and more).
+It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md) (which already covers `get`/`describe`/`logs`), extending Holmes from read-only investigation to investigation **and** remediation — with every mutating action gated behind human approval.
 
-This toolset is **additive**: keep your existing read-only Kubernetes toolset ([built-in](kubernetes.md) or [MCP](kubernetes-mcp.md)) enabled for diagnosis, and enable this one alongside it for deeper diagnostics and write actions.
+!!! info "What this adds over the built-in Kubernetes toolset"
 
-!!! info "Approval legibility through tool separation"
-    Each tool is *either* always auto-approved *or* always approval-gated. The read-only / data-gathering tools run immediately; the single mutating fallback (`run_kubectl_command`) always pauses for a human. The split is encoded in the tool set, so the model never has to guess.
+    | Capability | Built-in | + Remediation MCP |
+    |---|---|---|
+    | Read resources (`get` / `describe` / `logs`) | ✅ | — *(keep using the built-in)* |
+    | Read files & processes inside containers | ❌ | ✅ auto-approved |
+    | Run diagnostic pods (netshoot/busybox/curl) | ❌ | ✅ auto-approved |
+    | Write actions (restart / scale / drain / patch / …) | ❌ | ✅ **human-approved** |
 
 ## Available Tools
 
@@ -19,9 +23,7 @@ This toolset is **additive**: keep your existing read-only Kubernetes toolset ([
 | `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
 | `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
 
-**Prefer the no-approval tools.** They run immediately and cover most diagnosis. Reach for `run_kubectl_command` only when a pre-approved tool can't do the job — and expect a wait while a human approves it.
-
-**Don't use this server for reads.** For `get`/`describe`/`logs`, the built-in Kubernetes toolset is faster and needs no approval.
+Each tool is *either* always auto-approved *or* always human-approved — the split is fixed, so the model never has to guess whether an action is safe to take on its own. The read-only and diagnostic tools run immediately; the mutating fallback (`run_kubectl_command`) always pauses for a human.
 
 ## Prerequisites
 
