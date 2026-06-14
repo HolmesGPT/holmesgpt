@@ -71,6 +71,8 @@ jobs:
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           # This name must match MASTER_EXPERIMENT_PREFIX in braintrust_history.py
           EXPERIMENT_ID: "master-${{ github.run_id }}"
