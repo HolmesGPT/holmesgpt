@@ -58,7 +58,6 @@ def build_remote_tools_meta(toolset: Toolset) -> Any:
     return {
         "schema_version": REMOTE_TOOLS_SCHEMA_VERSION,
         "holmes_version": get_version(),
-        "llm_instructions": toolset.llm_instructions or None,
         "exposed_instances": exposed_instances,
         "tools": tools,
     }
@@ -121,6 +120,13 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
             if oauth_config:
                 meta = meta or {}
                 meta["oauth_config"] = oauth_config
+
+        # Publish llm_instructions at the top level of meta for EVERY toolset
+        # (not just remotely-exposed ones) — other projects consume it from
+        # here. platform-mcp also reads it from this top-level key.
+        if toolset.llm_instructions:
+            meta = meta or {}
+            meta["llm_instructions"] = toolset.llm_instructions
 
         remote_tools = build_remote_tools_meta(toolset)
         if remote_tools:
