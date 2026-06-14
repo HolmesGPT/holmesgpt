@@ -31,7 +31,7 @@ not of its arguments.
 |---|---|---|---|
 | `read_file_from_container` | No | **Auto** | server path policy |
 | `run_preapproved_kubectl_command` | No | **Auto** | server command allowlist |
-| `run_diagnostic_image` | No (data-gathering pod) | **Auto** | server image allowlist |
+| `run_preapproved_diagnostic_image` | No (data-gathering pod) | **Auto** | server image allowlist |
 | `get_remediation_mcp_config` | No | **Auto** | — |
 | `run_kubectl_command` | Yes | **Human approval** | HolmesGPT `approval_required_tools` + server guards |
 
@@ -69,7 +69,7 @@ This keeps the agent generic and puts the security-sensitive logic in one place
   excludes `cat` (use `read_file_from_container`) and `env` (leaks secrets).
 - Still applies the dangerous-flag blocklist and shell-char rejection (defense in depth).
 
-**`run_diagnostic_image(image, namespace, command=None, name=None)`**
+**`run_preapproved_diagnostic_image(image, namespace, command=None, name=None)`**
 - `image` is matched on **repository** against `KUBECTL_DIAGNOSTIC_IMAGES`
   (default pinned: `nicolaka/netshoot:v0.13`, `busybox:1.37.0`,
   `curlimages/curl:8.11.1`); the server runs the **pinned tag** so the model can
@@ -167,7 +167,7 @@ path) did **not** protect them. A value like `pod="--kubeconfig=/tmp/evil"` woul
 parsed by kubectl as a flag, not a pod name — flag injection in an auto-approved
 tool. **Fix:** `_validate_identifier` rejects any `namespace`/`pod`/`container`/pod-
 `name` that begins with `-` (these are never legitimately flag-like), applied across
-`read_file_from_container` and `run_diagnostic_image`.
+`read_file_from_container` and `run_preapproved_diagnostic_image`.
 
 ### 6.2 The path denylist is a string filter — `/proc` and symlinks routed around it (fixed)
 
@@ -191,7 +191,7 @@ Two concrete bypasses existed:
 
 ### 6.3 Diagnostic pods are launched hardened (fixed)
 
-`run_diagnostic_image` now injects a server-controlled `--overrides` (strategic
+`run_preapproved_diagnostic_image` now injects a server-controlled `--overrides` (strategic
 merge) that sets `automountServiceAccountToken: false` (the pod never needs API
 access; removes an escalation vector), `allowPrivilegeEscalation: false`, and a
 memory limit + requests. It deliberately does **not** drop capabilities, force
@@ -230,11 +230,11 @@ throttled.
       deny-all `NetworkPolicy` in a scratch namespace and confirm a previously-reachable
       pod becomes unreachable.
 - **Resource exhaustion from diagnostic pods.** The per-pod memory cap and 60s
-  timeout (§6.3, §3.2) bound a *single* `run_diagnostic_image` invocation, but the
+  timeout (§6.3, §3.2) bound a *single* `run_preapproved_diagnostic_image` invocation, but the
   server imposes no global concurrency or rate limit — an LLM (or a prompt-injected
   one) could launch many diagnostic pods in parallel and pressure node resources.
   Mitigations not yet implemented in the server: a server-side concurrency/rate cap
-  (or queue) on `run_diagnostic_image`, and a `ResourceQuota`/`LimitRange` on the
+  (or queue) on `run_preapproved_diagnostic_image`, and a `ResourceQuota`/`LimitRange` on the
   MCP server's namespace. Recommended for multi-tenant or resource-constrained
   clusters. *Status: tracked separately — not blocking this PR. The
   `ResourceQuota`/`LimitRange` is an operator-side deployment control available
@@ -270,7 +270,7 @@ gaps are:
   outcome" audit event. For production: ship the MCP server's stdout to centralized
   logging, enable Kubernetes API audit logging for the SA, retain per your
   compliance window, and alert on anomalous patterns (bursts of
-  `run_diagnostic_image`, repeated policy-deny `WARNING`s, or any direct
+  `run_preapproved_diagnostic_image`, repeated policy-deny `WARNING`s, or any direct
   `run_kubectl_command` not correlated with a HolmesGPT approval — see §6.4).
 
 ---
@@ -309,7 +309,7 @@ the no-approval tools before the gated one).
      injected value (hallucination-proof), and is refused on a secret/`/proc` path.
    - [ ] `run_preapproved_kubectl_command`: model runs `ps`/`df`-style diagnostics
      and reports a discoverable fact; non-allowlisted command is refused.
-   - [ ] `run_diagnostic_image`: model launches `nicolaka/netshoot` to probe
+   - [ ] `run_preapproved_diagnostic_image`: model launches `nicolaka/netshoot` to probe
      DNS/HTTP and reports the result; non-allowlisted image is refused.
    - [ ] Tool-selection: model uses the **built-in** k8s tools for `get`/`describe`/
      `logs`, not this server.

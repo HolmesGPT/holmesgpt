@@ -19,7 +19,7 @@ It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md)
 |------|----------|----------|--------------|
 | `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
 | `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
-| `run_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. |
+| `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. |
 | `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
 | `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
 
@@ -239,7 +239,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | **Tool separation** | Read-only tools auto-approve; only `run_kubectl_command` (mutations) requires human approval |
 | **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
 | **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
-| **Image allowlist** | `run_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
+| **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
 | **Verb allowlist** | `run_kubectl_command` only accepts an allowlisted set of verbs |
 | **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token`, `--as` are always blocked |
 | **Shell injection protection** | Shell metacharacters are rejected; `shell=False` |
@@ -255,7 +255,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | `allowedCommands` | `edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec` | Hard verb allowlist for `run_kubectl_command` |
 | `dangerousFlags` | `--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid` | Blocked flags |
 | `preapprovedCommands` | `exec * -- ps*,...,exec * -- ss*` | `run_preapproved_kubectl_command` allowlist |
-| `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_diagnostic_image` allowlist |
+| `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist |
 | `fileReadAllowedPaths` | `/` | `read_file_from_container` allow roots |
 | `fileReadDeniedPaths` | `/var/run/secrets/,/run/secrets/,...` | secret-mount denylist |
 | `allowArbitraryKubectlCommands` | `true` | enable the approval-gated fallback |

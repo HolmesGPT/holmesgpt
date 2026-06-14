@@ -39,7 +39,7 @@ class _EchoTool(Tool):
 READ_ONLY_TOOLS = [
     "read_file_from_container",
     "run_preapproved_kubectl_command",
-    "run_diagnostic_image",
+    "run_preapproved_diagnostic_image",
     "get_remediation_mcp_config",
 ]
 APPROVAL_TOOL = "run_kubectl_command"

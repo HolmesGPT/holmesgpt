@@ -687,7 +687,7 @@ mcpAddons:
       dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
       # Pre-approved read-only commands for run_preapproved_kubectl_command (auto-approved)
       preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
-      # Pre-approved troubleshooting images for run_diagnostic_image (auto-approved)
+      # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
       diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
       # read_file_from_container path policy (allow roots minus secret/token mounts)
       fileReadAllowedPaths: "/"
@@ -712,7 +712,7 @@ mcpAddons:
 
     # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
     # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
-    # run_diagnostic_image, get_remediation_mcp_config) run immediately.
+    # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
     approvalRequiredTools:
       - "run_kubectl_command"
 

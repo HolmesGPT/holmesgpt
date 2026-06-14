@@ -93,5 +93,5 @@ def test_llm_instructions_mention_the_tool_split():
     text = (TEMPLATE_DIR / "_helpers.tpl").read_text()
     assert "run_kubectl_command" in text
     assert "read_file_from_container" in text
-    assert "run_diagnostic_image" in text
+    assert "run_preapproved_diagnostic_image" in text
     assert "run_preapproved_kubectl_command" in text

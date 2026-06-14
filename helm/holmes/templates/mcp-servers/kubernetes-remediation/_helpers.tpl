@@ -15,7 +15,7 @@ These run immediately, no human needed:
 
 - `read_file_from_container` — read a single file from inside a container (config files, on-disk logs, /proc). Secret/token mounts are always refused.
 - `run_preapproved_kubectl_command` — run a read-only diagnostic command (ps/top/df/ls/netstat/ss via exec). Use `read_file_from_container` instead of `cat`.
-- `run_diagnostic_image` — launch a short-lived pod from a pre-approved troubleshooting image (nicolaka/netshoot, busybox, curlimages/curl) for network/DNS/HTTP probing. The pod is auto-deleted.
+- `run_preapproved_diagnostic_image` — launch a short-lived pod from a pre-approved troubleshooting image (nicolaka/netshoot, busybox, curlimages/curl) for network/DNS/HTTP probing. The pod is auto-deleted.
 - `get_remediation_mcp_config` — inspect the live effective policy.
 
 ## run_kubectl_command always pauses for a human
@@ -30,7 +30,7 @@ Non-allowlisted images, non-pre-approved read commands, denied file paths (secre
 
 - `read_file_from_container(namespace="prod", pod="api-xxx", path="/app/config.yaml")`
 - `run_preapproved_kubectl_command(args=["exec","api-xxx","-n","prod","--","ps","aux"])`
-- `run_diagnostic_image(image="nicolaka/netshoot", namespace="prod", command=["dig","my-svc"])`
+- `run_preapproved_diagnostic_image(image="nicolaka/netshoot", namespace="prod", command=["dig","my-svc"])`
 - `run_kubectl_command(args=["rollout","restart","deployment/api","-n","prod"])`
 {{- end -}}
 {{- end -}}
