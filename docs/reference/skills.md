@@ -13,11 +13,13 @@ Holmes ships with [built-in skills](#built-in-skills) that work out of the box. 
 
 ## Loading Custom Skills
 
-First, pick how you run Holmes — the instructions below differ between them. Your selection is remembered across all pages on this site.
+Setup differs depending on how you run Holmes. Use the selector below to choose yours, and the matching instructions appear. Your choice is remembered across the whole site, and you can change it anytime.
 
 - **Holmes Helm Chart** — the open-source HolmesGPT [standalone Helm chart](../installation/kubernetes-installation.md).
 - **Robusta Helm Chart** — HolmesGPT bundled with the Robusta platform (HolmesGPT Enterprise). If you installed Robusta and Holmes came with it, this is you.
 - **Holmes CLI** — running `holmes` locally on your machine (also covers the Python SDK).
+
+<div class="deployment-picker" markdown="1">
 
 === "Holmes Helm Chart"
 
@@ -323,6 +325,8 @@ First, pick how you run Holmes — the instructions below differ between them. Y
     )
     catalog = config.get_skill_catalog()
     ```
+
+</div>
 
 Holmes scans each path up to 2 levels deep for `SKILL.md` files.
 

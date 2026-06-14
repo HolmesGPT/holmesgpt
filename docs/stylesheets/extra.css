@@ -68,3 +68,61 @@
 [data-md-color-scheme="slate"] .tabbed-set {
   border-color: #404040;
 }
+
+/* ── Deployment picker (docs/javascripts/deploy-picker.js) ─────────────── */
+/* A gated "Which Holmes are you running?" selector that replaces the outer
+   deployment tab strip. Styles only take effect once the script adds
+   `.is-enhanced`, so a no-JS reader still sees all the content. */
+.deployment-selector {
+  margin: 1.2em 0 1.5em;
+  padding: 1em 1.1em 1.1em;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+  background: var(--md-code-bg-color);
+}
+.deployment-selector__question {
+  margin: 0 0 0.7em;
+  font-weight: 700;
+}
+.deployment-selector__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+.deployment-selector__option {
+  cursor: pointer;
+  padding: 0.5em 1em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--md-default-fg-color);
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 2rem;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.deployment-selector__option:hover {
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-fg-color);
+}
+.deployment-selector__option.is-active {
+  color: var(--md-primary-bg-color);
+  background: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+}
+.deployment-selector__prompt {
+  margin: 0.9em 0 0;
+  font-size: 0.75rem;
+  color: var(--md-default-fg-color--light);
+}
+/* Hide the prompt once a deployment is chosen. */
+.deployment-picker.is-enhanced:not(.no-selection) .deployment-selector__prompt {
+  display: none;
+}
+/* Replace the native outer tab strip with our selector, and hard-gate the
+   content until a choice is made. */
+.deployment-picker.is-enhanced > .tabbed-set > .tabbed-labels {
+  display: none;
+}
+.deployment-picker.is-enhanced.no-selection > .tabbed-set > .tabbed-content {
+  display: none;
+}
