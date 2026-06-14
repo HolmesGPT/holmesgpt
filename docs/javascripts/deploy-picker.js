@@ -35,9 +35,9 @@
  * MkDocs Material tabs.
  */
 // Authoritative key for the picker; survives inner-tab clicks.
-var DEPLOY_KEY = "holmesgpt-deployment";
+const DEPLOY_KEY = "holmesgpt-deployment";
 // Shared with tabsync.js so deployment tabs on other pages stay in sync.
-var SHARED_KEY = "holmesgpt-tab-pref";
+const SHARED_KEY = "holmesgpt-tab-pref";
 
 function slugifyDeployment(text) {
   return text
@@ -60,8 +60,11 @@ function readPreferredDeployment(isKnownSlug) {
   // tabsync key (only if it still holds a valid deployment slug).
   var params = new URLSearchParams(window.location.search);
   var fromUrl = params.get("tab");
-  if (fromUrl && isKnownSlug(fromUrl.toLowerCase())) {
-    return fromUrl.toLowerCase();
+  if (fromUrl) {
+    var slugged = slugifyDeployment(fromUrl);
+    if (isKnownSlug(slugged)) {
+      return slugged;
+    }
   }
   var dedicated = readStored(DEPLOY_KEY);
   if (dedicated && isKnownSlug(dedicated)) {
@@ -81,10 +84,10 @@ function upgradeDeploymentPicker(picker) {
   if (!outerSet) {
     return;
   }
-  var radios = Array.prototype.slice.call(
+  var radios = Array.from(
     outerSet.querySelectorAll(":scope > input[type='radio']")
   );
-  var labels = Array.prototype.slice.call(
+  var labels = Array.from(
     outerSet.querySelectorAll(":scope > .tabbed-labels > label")
   );
   if (!labels.length) {
