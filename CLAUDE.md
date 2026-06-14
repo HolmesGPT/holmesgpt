@@ -855,7 +855,7 @@ When writing documentation in the `docs/` directory:
 
 ## Robusta Platform/API URLs in Docs
 
-Whenever you reference `api.robusta.dev` or `platform.robusta.dev` in a docs page, use the `robusta-region` custom fence so readers can pick US/EU/AP. **Never hardcode a single region** — the Robusta platform is hosted in multiple regions and a bare `api.robusta.dev` link silently breaks for EU/AP users.
+Whenever you reference `api.robusta.dev`, `platform.robusta.dev`, or `sp.robusta.dev` (the Supabase host) in a docs page, use the `robusta-region` custom fence so readers can pick US/EU/AP. **Never hardcode a single region** — the Robusta platform is hosted in multiple regions and a bare `api.robusta.dev` link silently breaks for EU/AP users.
 
 The fence (defined in `docs/custom_fences.py`, registered in `mkdocs.yml`) takes a US URL as input and emits a three-tab picker with the domain rewritten per region. Pick the input shape that matches your context:
 
@@ -886,6 +886,6 @@ The fence (defined in `docs/custom_fences.py`, registered in `mkdocs.yml`) takes
     ```
     ````
 
-Author the URL once using the US domain (`api.robusta.dev` / `platform.robusta.dev`); the fence handles the `.eu` / `.ap` rewrites. If you add a new region or rename one, update `ROBUSTA_REGIONS` in `docs/custom_fences.py` — that single change propagates to every page.
+Author the URL once using the US domain (`api.robusta.dev` / `platform.robusta.dev` / `sp.robusta.dev`); the fence handles the `.eu` / `.ap` rewrites. The set of rewritten hosts lives in `ROBUSTA_DOMAIN_RE` in `docs/custom_fences.py` — add a host there if you need another subdomain covered. If you add a new region or rename one, update `ROBUSTA_REGIONS` in the same file — that single change propagates to every page.
 
-Existing usages (greppable starting points): `docs/ai-providers/robusta-ai.md`, `docs/installation/ui-installation.md`, `docs/reference/environment-variables.md`, `docs/data-sources/builtin-toolsets/coralogix-logs.md`, `docs/data-sources/builtin-toolsets/kubernetes-mcp.md`.
+Existing usages (greppable starting points): `docs/ai-providers/robusta-ai.md`, `docs/installation/ui-installation.md`, `docs/reference/environment-variables.md`, `docs/reference/troubleshooting.md`, `docs/data-sources/builtin-toolsets/coralogix-logs.md`, `docs/data-sources/builtin-toolsets/kubernetes-mcp.md`.
