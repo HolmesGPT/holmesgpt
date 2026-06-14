@@ -217,6 +217,13 @@ Possible choices:
         prompt_template=prompt_prefix,
         choice_scores={"A": 1, "B": 0},
         use_cot=True,
+        # With use_cot the judge writes its rationale inside the same JSON
+        # tool call as the choice. autoevals' default max_tokens=512 truncates
+        # that JSON on long rationales (large evaluation outputs like
+        # 95_skill_memory_leak_detection), crashing scoring with
+        # JSONDecodeError before any metric is recorded. Set the limit far
+        # above any realistic rationale length so truncation cannot happen.
+        max_tokens=16384,
         model=params.model,
         api_key=params.api_key if not params.is_azure else None,
         base_url=params.api_base if not params.is_azure else None,
@@ -227,7 +234,7 @@ Possible choices:
             name="Correctness", type=SpanTypeAttribute.SCORE
         ) as span:
             correctness_eval = classifier(
-                input=prompt_prefix, output=output, expected=expected_elements_str
+                input=prompt_prefix, output=output or "", expected=expected_elements_str
             )
 
             span.log(
@@ -242,7 +249,7 @@ Possible choices:
             return correctness_eval
     else:
         return classifier(
-            input=prompt_prefix, output=output, expected=expected_elements_str
+            input=prompt_prefix, output=output or "", expected=expected_elements_str
         )
 
 

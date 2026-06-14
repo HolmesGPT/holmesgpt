@@ -310,3 +310,57 @@ class TestConfigEditorCompat:
         ts = multi_instance(_FakeToolset)
         assert ts.config_classes == _FakeToolset.config_classes
         assert ts.config_classes  # non-empty
+
+
+class _RuntimeInstructionsToolset(_FakeToolset):
+    """Fake child that builds llm_instructions at prerequisite time, like
+    Confluence does — the content depends on the configured endpoint."""
+
+    def prerequisites_callable(self, config):
+        ok, msg = super().prerequisites_callable(config)
+        if ok:
+            self.llm_instructions = f"Base URL: {config['api_url']}"
+        return ok, msg
+
+
+class TestLlmInstructionsPropagation:
+    def test_runtime_instructions_reach_wrapper_for_flat_config(self):
+        # Regression test: ConfluenceToolset builds llm_instructions inside
+        # prerequisites_callable. The wrapper used to mirror instructions only
+        # from the unconfigured template in __init__, so the system prompt had
+        # no usage instructions and the LLM had to guess request URLs.
+        ts = multi_instance(_RuntimeInstructionsToolset)
+        ts.prerequisites_callable({"api_url": "http://one"})
+        assert ts.llm_instructions == "Base URL: http://one"
+
+    def test_runtime_instructions_labelled_per_instance_when_multi(self):
+        ts = multi_instance(_RuntimeInstructionsToolset)
+        ts.prerequisites_callable(
+            {"instances": [
+                {"name": "eu", "api_url": "http://eu"},
+                {"name": "us", "api_url": "http://us"},
+            ]}
+        )
+        assert "### Instance `eu`" in ts.llm_instructions
+        assert "Base URL: http://eu" in ts.llm_instructions
+        assert "### Instance `us`" in ts.llm_instructions
+        assert "Base URL: http://us" in ts.llm_instructions
+
+    def test_template_instructions_kept_when_children_build_none(self):
+        # Children that never set llm_instructions must not clobber the
+        # template-derived (static) instructions mirrored in __init__.
+        ts = multi_instance(_FakeToolset)
+        ts.llm_instructions = "static instructions"
+        ts.prerequisites_callable({"api_url": "http://one"})
+        assert ts.llm_instructions == "static instructions"
+
+    def test_offline_instances_contribute_no_instructions(self):
+        ts = multi_instance(_RuntimeInstructionsToolset)
+        ts.prerequisites_callable(
+            {"instances": [
+                {"name": "good", "api_url": "http://good"},
+                {"name": "bad"},
+            ]}
+        )
+        assert "http://good" in ts.llm_instructions
+        assert "bad" not in ts.llm_instructions
