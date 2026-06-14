@@ -38,11 +38,7 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
 )
-from holmes.core.supabase_dal import (
-    CONVERSATIONS_TABLE,
-    SupabaseConnectionException,
-    SupabaseDnsException,
-)
+from holmes.core.supabase_dal import CONVERSATIONS_TABLE, SupabaseDnsException
 
 if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
@@ -53,7 +49,6 @@ if TYPE_CHECKING:
 # is treated as a real defect and surfaced.
 _TRANSIENT_RECONNECT_EXCEPTIONS: tuple = (
     SupabaseDnsException,
-    SupabaseConnectionException,
     PGAPIError,
     WebSocketException,
     asyncio.TimeoutError,

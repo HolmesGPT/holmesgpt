@@ -328,14 +328,14 @@ class SupabaseDal:
                 ]
             ):
                 # The platform resolved but refused/reset the connection - almost
-                # always an outbound firewall. Log an actionable error before
-                # raising so the firewall hint is visible even when a caller (e.g.
-                # the reconnect loop) only logs a generic transient warning.
-                logging.error(
+                # always an outbound firewall. Log an actionable hint before
+                # raising. Kept at WARNING (not ERROR) on purpose so it doesn't
+                # raise a Sentry alert.
+                logging.warning(
                     "Holmes failed to connect to the Robusta platform at %s. "
                     "This is almost always an outbound firewall/egress policy "
                     "blocking traffic to the Robusta platform - please allowlist "
-                    "outbound HTTPS to '*.robusta.dev'. See the error below for a "
+                    "outbound HTTPS to '*.robusta.dev'. See the details below for a "
                     "command to confirm the block.",
                     self.url,
                 )

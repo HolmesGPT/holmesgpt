@@ -43,7 +43,7 @@ class TestSignIn:
             "[Errno 104] Connection reset by peer"
         )
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             with pytest.raises(SupabaseConnectionException) as exc_info:
                 mock_dal.sign_in()
 
@@ -52,10 +52,10 @@ class TestSignIn:
         assert "robusta.dev" in message
         # The diagnostic curl targets the configured platform url.
         assert "curl -vk https://sp.eu.robusta.dev/auth/v1/health" in message
-        # An actionable ERROR is logged even before the exception propagates, so
-        # the firewall hint is visible even if a caller downgrades the raise.
+        # An actionable hint is logged before the exception propagates. It is kept
+        # at WARNING (not ERROR) so it doesn't raise a Sentry alert.
         assert any(
-            r.levelno == logging.ERROR and "firewall" in r.getMessage().lower()
+            r.levelno == logging.WARNING and "firewall" in r.getMessage().lower()
             for r in caplog.records
         )
 

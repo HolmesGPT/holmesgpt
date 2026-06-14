@@ -22,7 +22,7 @@ from holmes.core.conversations_worker.realtime_manager import (
     broadcast_submit_topic,
     pg_changes_topic,
 )
-from holmes.core.supabase_dal import SupabaseConnectionException, SupabaseDnsException
+from holmes.core.supabase_dal import SupabaseDnsException
 
 
 def _make_manager():
@@ -504,7 +504,6 @@ def test_transient_reconnect_exception_tuple_contents():
     # Lock down the expected transient set so future edits don't silently
     # widen the warning-only catch.
     assert SupabaseDnsException in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert SupabaseConnectionException in _TRANSIENT_RECONNECT_EXCEPTIONS
     assert PGAPIError in _TRANSIENT_RECONNECT_EXCEPTIONS
     assert WebSocketException in _TRANSIENT_RECONNECT_EXCEPTIONS
     assert asyncio.TimeoutError in _TRANSIENT_RECONNECT_EXCEPTIONS
