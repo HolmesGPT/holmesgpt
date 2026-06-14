@@ -11,14 +11,6 @@ Holmes ships with [built-in skills](#built-in-skills) that work out of the box. 
 1. **Loading skills from a GitHub repository** — keep skills version-controlled in your own repo; Holmes pulls them on startup.
 2. **Defining skills inline in your Helm values** — quickest way to add a skill or two, no extra repo needed.
 
-## How It Works
-
-1. Holmes receives a question or alert.
-2. It compares the issue against skill descriptions in the catalog.
-3. If a skill matches, Holmes fetches it via `fetch_skill`.
-4. It follows the steps, calling tools to gather data.
-5. It reports findings with a checklist of completed and skipped steps.
-
 ## Loading Custom Skills
 
 First, pick how you run Holmes — the instructions below differ between them. Your selection is remembered across all pages on this site.
