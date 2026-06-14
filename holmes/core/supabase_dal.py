@@ -161,9 +161,10 @@ class SupabaseConnectionException(Exception):
             "- i.e. allowlist '*.robusta.dev' (for SaaS this includes the "
             "'sp.<region>.robusta.dev' and 'api.<region>.robusta.dev' subdomains for "
             "your region).\n"
-            "To confirm, run this from inside the Holmes pod - a firewall block "
-            "shows 'Connection reset by peer', while a reachable endpoint returns "
-            f"JSON:\n  curl -vk {health_url}\n"
+            "To confirm, run this from another pod in the same namespace (the Holmes "
+            "pod itself will be crash-looping) - a firewall block shows 'Connection "
+            "reset by peer', while a reachable endpoint returns JSON:\n"
+            f"  curl -vk {health_url}\n"
             f"More details: {FIREWALL_TROUBLESHOOTING_URL}\n"
         )
         super().__init__(message)
