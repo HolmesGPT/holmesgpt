@@ -287,6 +287,7 @@ class MultiInstanceToolset(Toolset):
 
         self._build_tools()
         self._publish_instance_meta()
+        self._publish_llm_instructions()
         return self._aggregate(failures, successes)
 
     def _publish_instance_meta(self) -> None:
@@ -318,6 +319,29 @@ class MultiInstanceToolset(Toolset):
         meta = dict(self.meta or {})
         meta["instances"] = instances_meta
         self.meta = meta
+
+    def _publish_llm_instructions(self) -> None:
+        """Mirror the children's runtime-built llm_instructions onto the wrapper.
+
+        Some toolsets (e.g. Confluence) only build their llm_instructions inside
+        prerequisites_callable because the content depends on the configured
+        endpoint (base URL, whitelisted paths, auth mode). The static mirror
+        taken from the template in __init__ predates that, so without this the
+        system prompt renders no usage instructions for the toolset and the
+        LLM has to guess request URLs.
+        """
+        sections: List[str] = []
+        multi = (len(self._children) + len(self._offline_instances)) > 1
+        for name, child in self._children.items():
+            if child.llm_instructions:
+                if multi:
+                    sections.append(f"### Instance `{name}`\n\n{child.llm_instructions}")
+                else:
+                    sections.append(child.llm_instructions)
+        # Keep the template-derived instructions when no child built any, so
+        # toolsets with static instructions are unaffected.
+        if sections:
+            self.llm_instructions = "\n\n".join(sections)
 
     def _forward_overrides(self, child: Toolset) -> None:
         """Propagate toolset-level overrides so the child enforces them too."""

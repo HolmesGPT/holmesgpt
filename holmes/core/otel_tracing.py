@@ -183,6 +183,13 @@ class OTelSpan:
 
         return OTelSpan(new_span, self._tracer, token)
 
+    # Braintrust-style metric names → OTel GenAI semantic convention attributes
+    _METRIC_ATTR_MAP = {
+        "prompt_tokens": ATTR_GEN_AI_USAGE_INPUT_TOKENS,
+        "completion_tokens": ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+        "total_tokens": ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
+    }
+
     def log(self, *args: Any, **kwargs: Any) -> None:
         """Log attributes to the span.
 
@@ -190,6 +197,9 @@ class OTelSpan:
             input: Stored as the ``input`` span attribute (truncated to 4096 chars).
             output: Stored as the ``output`` span attribute (truncated to 4096 chars).
             metadata: A ``dict`` whose entries are set as individual span attributes.
+            metrics: A ``dict`` of numeric values set as span attributes; names
+                with a GenAI semantic convention equivalent (e.g. ``prompt_tokens``)
+                are renamed to it.
         """
         if "input" in kwargs:
             val = str(kwargs["input"])
@@ -203,6 +213,10 @@ class OTelSpan:
                     self._span.set_attribute(k, v)
                 else:
                     self._span.set_attribute(k, str(v))
+        if "metrics" in kwargs and isinstance(kwargs["metrics"], dict):
+            for k, v in kwargs["metrics"].items():
+                if isinstance(v, (int, float)):
+                    self._span.set_attribute(self._METRIC_ATTR_MAP.get(k, k), v)
 
     def end(self) -> None:
         """End the span and detach from context."""

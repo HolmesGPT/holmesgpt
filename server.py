@@ -110,6 +110,42 @@ init_logging()
 # Initialize tracer — auto-detects OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set
 server_tracer = TracingFactory.create_tracer(trace_type=os.environ.get("HOLMES_TRACE_BACKEND"))
 
+# Opt-in: let API callers route a request's trace spans into a named tracing
+# experiment via the `X-Braintrust-Experiment` header. Off by default so
+# external callers cannot influence experiment routing unless the operator
+# explicitly enables it.
+ALLOW_PER_REQUEST_EXPERIMENT = (
+    os.environ.get("HOLMES_ALLOW_PER_REQUEST_EXPERIMENT", "false").lower() == "true"
+)
+_request_experiment_lock = threading.Lock()
+_request_experiment_name: Optional[str] = None
+
+
+def open_experiment_from_request(http_request: Request) -> None:
+    """Open (or switch to) the tracing experiment named in the request header.
+
+    Without an open experiment, `server_tracer.start_trace` has no tracing
+    context to attach to and returns a no-op span — so server-side spans are
+    silently dropped. This lets a driver (e.g. an eval harness firing many
+    /api/chat calls) group all spans for one logical run under a dedicated
+    experiment name.
+
+    The experiment context is process-global (Braintrust tracks a current
+    experiment per process), so this assumes one logical client per server
+    process — e.g. a server spawned per run. Repeating the current name is a
+    no-op; a new name switches the experiment.
+    """
+    global _request_experiment_name
+    if not ALLOW_PER_REQUEST_EXPERIMENT:
+        return
+    name = http_request.headers.get("X-Braintrust-Experiment")
+    if not name:
+        return
+    with _request_experiment_lock:
+        if name != _request_experiment_name:
+            server_tracer.start_experiment(experiment_name=name)
+            _request_experiment_name = name
+
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
 
@@ -414,6 +450,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
             f"streaming={chat_request.stream}"
         )
 
+        open_experiment_from_request(http_request)
+
         skills = config.get_skill_catalog()
 
         prompt_component_overrides = None
@@ -585,6 +623,23 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
                 # Record usage event for non-streaming path (fire-and-forget).
                 record_from_llm_result(recorder_state, llm_call)
+
+                # Attach token usage and cost to the investigation span.
+                # Tracing backends derive their token/cost columns from span
+                # metrics; without these the columns stay empty even though
+                # the span itself is recorded.
+                trace_span.log(
+                    metrics={
+                        name: value
+                        for name, value in (
+                            ("prompt_tokens", llm_call.prompt_tokens),
+                            ("completion_tokens", llm_call.completion_tokens),
+                            ("total_tokens", llm_call.total_tokens),
+                            ("total_cost", llm_call.total_cost),
+                        )
+                        if value is not None
+                    }
+                )
 
                 # Record investigation metrics
                 otel_metrics = TracingFactory.get_metrics()
