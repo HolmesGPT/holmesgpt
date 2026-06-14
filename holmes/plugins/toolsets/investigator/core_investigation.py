@@ -140,10 +140,10 @@ class CoreInvestigationToolset(Toolset):
             name="core_investigation",
             description="Core investigation tools for task management and planning",
             enabled=True,
-            is_core=True,  # agent-loop machinery; never remotely exposable
             tools=[TodoWriteTool()],
             tags=[ToolsetTag.CORE],
         )
+        self._is_core = True  # agent-loop machinery; never remotely exposable
 
     def _reload_instructions(self):
         template_file_path = os.path.abspath(

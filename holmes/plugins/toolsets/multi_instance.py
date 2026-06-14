@@ -243,7 +243,7 @@ class MultiInstanceToolset(Toolset):
         # mirrored too so a wrapped internal toolset stays hard-excluded from
         # remote publication and execution.
         self.expose_remotely = template.expose_remotely
-        self.is_core = template.is_core
+        self._is_core = template.is_core
         self._child_cls = child_cls
         self._children: Dict[str, Toolset] = {}
         self._instance_configs: Dict[str, Dict[str, Any]] = {}

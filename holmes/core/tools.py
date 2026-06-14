@@ -775,15 +775,6 @@ class Toolset(BaseModel):
             "this cluster (kubectl, in-cluster prometheus, ...)."
         ),
     )
-    is_core: bool = Field(
-        default=False,
-        description=(
-            "Marks internal agent-machinery toolsets (TodoWrite, skills, "
-            "platform-mcp client) that must NEVER be exposed remotely, "
-            "regardless of expose_remotely. Not user-overridable."
-        ),
-    )
-
     def remote_exposure_default(
         self, instance_config: Optional[Dict[str, Any]] = None
     ) -> Optional[bool]:
@@ -797,6 +788,18 @@ class Toolset(BaseModel):
         this. See design doc Business Logic B.
         """
         return None
+
+    # Marks internal agent-machinery toolsets (TodoWrite, skills, platform-mcp
+    # client) that must NEVER be exposed remotely, regardless of
+    # expose_remotely. Deliberately a PrivateAttr + read-only property rather
+    # than a model field: with `extra="forbid"` a user config can neither set
+    # nor unset it (a core toolset must stay core). Subclasses / the
+    # multi-instance wrapper set ``self._is_core`` directly.
+    _is_core: bool = PrivateAttr(default=False)
+
+    @property
+    def is_core(self) -> bool:
+        return self._is_core
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None
@@ -834,10 +837,6 @@ class Toolset(BaseModel):
         # such as env-var substitution.
         for field in override.model_fields_set:
             if field == "name" or field not in self.__class__.model_fields:
-                continue
-            # is_core marks internal agent-machinery toolsets; user config can
-            # never set or unset it (a core toolset must stay core).
-            if field == "is_core":
                 continue
             value = getattr(override, field)
             if value in (None, [], {}, ""):

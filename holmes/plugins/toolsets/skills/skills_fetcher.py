@@ -208,5 +208,5 @@ class SkillsToolset(Toolset):
                 ToolsetTag.CORE,
             ],
             enabled=True,
-            is_core=True,  # agent-loop machinery; never remotely exposable
         )
+        self._is_core = True  # agent-loop machinery; never remotely exposable

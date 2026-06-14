@@ -258,7 +258,6 @@ def make_robusta_platform_mcp_toolset(
         docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/robusta-platform-mcp/",
         icon_url="https://cdn.prod.website-files.com/633e9bac8f71dfb7a8e4c9a6/646be7710db810b14133bdb5_logo.svg",
         enabled=True,
-        is_core=True,  # never remotely exposable (circular dependency)
         tags=[ToolsetTag.CORE],
         tools=[],
         config={
@@ -266,6 +265,7 @@ def make_robusta_platform_mcp_toolset(
             "url": mcp_base,
         },
     )
+    toolset._is_core = True  # never remotely exposable (circular dependency)
     toolset._dal = dal
     toolset._mcp_config = config
     return toolset
