@@ -1154,7 +1154,19 @@ class SupabaseDal:
                 },
             ).execute()
             return bool(res.data)
-        except Exception:
+        except Exception as e:
+            # The RPC raises a "MISMATCH ..." / "not found" error when a stale
+            # or duplicate worker posts after the row was reassigned, stopped,
+            # or already finished (first result wins). That's expected — log
+            # calmly and return False so the caller drops the result. Anything
+            # else is a real error worth a stack trace.
+            msg = str(e)
+            if "MISMATCH" in msg or "not found" in msg:
+                logging.info(
+                    "Remote tool call result rejected (stale/duplicate worker): %s",
+                    msg,
+                )
+                return False
             logging.exception(
                 "Supabase error while posting remote tool call result", exc_info=True
             )
