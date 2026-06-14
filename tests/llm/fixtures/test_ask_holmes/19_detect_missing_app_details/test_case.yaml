@@ -6,5 +6,6 @@ expected_output: |
 
   Responses that ONLY say "could not find it" without offering the adjacent finding are insufficient. Responses that diagnose db-certs-authenticator as if it were personal-certs-validator without disclosing the name mismatch are also insufficient.
 tags:
+  - additional-tests
   - easy
   - transparency

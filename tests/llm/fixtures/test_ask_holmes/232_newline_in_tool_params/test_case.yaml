@@ -18,5 +18,6 @@ include_tool_calls: true
 skills: {}
 
 tags:
+  - additional-tests
   - fast
   - easy
