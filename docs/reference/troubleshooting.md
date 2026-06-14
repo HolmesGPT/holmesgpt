@@ -77,7 +77,7 @@ Replace the value with whichever field is named in your error message. Multiple 
 
 HolmesGPT crashes on startup while signing in to the Robusta platform, with a traceback ending in:
 
-```
+```text
 httpx.ConnectError: [Errno 104] Connection reset by peer
 ```
 
