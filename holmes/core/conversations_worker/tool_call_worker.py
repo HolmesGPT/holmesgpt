@@ -29,6 +29,7 @@ from holmes.common.env_vars import (
     REMOTE_TOOL_RESULT_MAX_BYTES,
     TOOL_CALLER_MAX_CONCURRENT,
 )
+from holmes.core.conversations_worker.models import RemoteToolCallStatus
 from holmes.core.tools import (
     PrerequisiteCacheMode,
     StructuredToolResult,
@@ -215,17 +216,17 @@ class ToolCallWorker:
         row_id = row.get("id")
         try:
             response = self._execute(row)
-            status = "completed"
+            status = RemoteToolCallStatus.COMPLETED
         except Exception as e:
             logging.exception(
                 "ToolCallWorker: unexpected failure executing %s", row_id
             )
             response = _error_response(f"executor failure: {e}")
-            status = "failed"
+            status = RemoteToolCallStatus.FAILED
         ok = self.dal.post_remote_tool_call_result(
             tool_call_id=row_id,
             assignee=self.holmes_id,
-            status=status,
+            status=status.value,
             tool_response=response,
         )
         if not ok:
@@ -301,7 +302,7 @@ class ToolCallWorker:
             tool_number=None,
             user_approved=False,
             llm=self._get_llm(),
-            max_token_count=int(tool_request.get("max_token_count") or 16000),
+            max_token_count=int(tool_request.get("max_token_count")),
             tool_call_id=str(tool_request.get("tool_call_id") or row.get("id") or ""),
             tool_name=tool_name,
             session_approved_prefixes=[],
