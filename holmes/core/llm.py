@@ -6,7 +6,6 @@ import time
 
 display_logger = logging.getLogger("holmes.display.llm")
 from abc import abstractmethod
-from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
 
 import boto3
@@ -778,7 +777,13 @@ class DefaultLLM(LLM):
             raise Exception(f"Unexpected type returned by the LLM {type(result)}")
 
     def get_maximum_output_token(self) -> int:
-        max_output_tokens = floor(min(64000, self.get_context_window_size() / 5))
+        # Reserve output budget = max(64k, 12% of the context window). The 64k
+        # floor keeps small and unknown models usable (the 200k fallback window
+        # gives 12% = 24k, so they stay at 64k), while large windows scale up:
+        # a 1M-context model reserves 120k. The crossover is ~533k. This value
+        # is still capped below to the model's real max_output_tokens when the
+        # model is known to litellm.
+        max_output_tokens = max(64000, self.get_context_window_size() * 12 // 100)
 
         if OVERRIDE_MAX_OUTPUT_TOKEN:
             logging.debug(

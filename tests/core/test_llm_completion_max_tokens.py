@@ -67,9 +67,16 @@ class TestCompletionMaxTokensHandling:
         self, mock_completion
     ):
         """Row 1, customer scenario: proxy-aliased model unknown to litellm with
-        max_context_size: 1000000 must get min(64000, 1000000/5) = 64000, not
-        litellm's 4096 Anthropic fallback."""
+        max_context_size: 1000000 must get max(64000, 12% of 1000000) = 120000,
+        not litellm's 4096 Anthropic fallback."""
         llm = _make_llm({}, model="proxy/some-claude-alias", max_context_size=1_000_000)
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["max_tokens"] == 120000
+
+    def test_small_context_unknown_model_holds_64k_floor(self, mock_completion):
+        """A 200k-context model (12% = 24k) stays at the 64k floor, not below it."""
+        llm = _make_llm({}, model="proxy/some-claude-alias", max_context_size=200_000)
         llm.completion(messages=[{"role": "user", "content": "hi"}])
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["max_tokens"] == 64000
@@ -124,7 +131,7 @@ class TestCompletionMaxTokensHandling:
 
     def test_known_model_capped_at_litellm_model_max(self, mock_completion):
         """Row 7: for models litellm knows, the injected limit never exceeds the
-        model's real max_output_tokens (gpt-4o: 16384 < 128000/5)."""
+        model's real max_output_tokens (gpt-4o caps at 16384, below the 64k floor)."""
         llm = _make_llm({}, model="gpt-4o")
         llm.completion(messages=[{"role": "user", "content": "hi"}])
         kwargs = mock_completion.call_args.kwargs

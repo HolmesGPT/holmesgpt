@@ -78,4 +78,4 @@ The value is resolved in this order:
 
 1. `max_tokens` or `max_completion_tokens` set in the model's args (model list / `custom_args`) — always wins.
 2. `OVERRIDE_MAX_OUTPUT_TOKEN` environment variable.
-3. Computed: `min(64000, context_window / 5)`, further capped by the model's `max_output_tokens` from litellm's cost map when the model is known.
+3. Computed: `max(64000, 12% of the context window)` — so a 200k-context (or unknown) model reserves 64k and a 1M-context model reserves 120k — further capped by the model's `max_output_tokens` from litellm's cost map when the model is known.
