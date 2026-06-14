@@ -87,11 +87,11 @@ This means an **outbound firewall or egress policy is blocking traffic from your
 
 Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the `robusta.dev` domain (`*.robusta.dev`), which covers the `api.*` and `sp.*` subdomains across all regions.
 
-To confirm the block, run the health check from a temporary pod in the same namespace — the HolmesGPT pod itself crashes on this error (`CrashLoopBackOff`), so `kubectl exec` into it won't work. Reuse the **same image your Holmes deployment runs** (it includes `curl`, is already cached on the node so no extra image is pulled, and shares Holmes's CA and network config). Pick your region below; a firewall block shows `Connection reset by peer`, while a reachable endpoint returns JSON:
+To confirm the block, run the one-off pod below. It **auto-detects the Holmes pod's namespace and image** and curls the platform from a fresh pod — the HolmesGPT pod itself crashes on this error (`CrashLoopBackOff`), so `kubectl exec` into it won't work. Reusing Holmes's own image means nothing new is pulled (the same firewall may also block image pulls) and it shares Holmes's CA and network config. Just pick your region — a firewall block shows `Connection reset by peer`, while a reachable endpoint returns JSON:
 
 ```robusta-region {lang=bash}
-HOLMES_IMAGE=$(kubectl get deploy <holmes-deployment> -n <holmes-namespace> -o jsonpath='{.spec.template.spec.containers[0].image}')
-kubectl run holmes-egress-check --rm -it --restart=Never -n <holmes-namespace> --image="$HOLMES_IMAGE" --command -- curl -vk https://sp.robusta.dev/auth/v1/health
+read -r NS IMG <<<"$(kubectl get pods -A -l app=holmes -o jsonpath='{.items[0].metadata.namespace} {.items[0].spec.containers[0].image}')"
+kubectl run holmes-egress-check --rm -it --restart=Never -n "$NS" --image="$IMG" --command -- curl -vk https://sp.robusta.dev/auth/v1/health
 ```
 
 If the same logs also show a LiteLLM warning about failing to fetch the model cost map from `raw.githubusercontent.com`, that is the same firewall blocking GitHub egress — point Holmes at a region-local mirror with [`LITELLM_MODEL_COST_MAP_URL`](environment-variables.md#litellm_model_cost_map_url).
