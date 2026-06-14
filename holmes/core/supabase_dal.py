@@ -1086,7 +1086,18 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        try:
+        # Retry a few times on transient infrastructure errors (DNS/cache
+        # overflows in the Supabase proxy, 5xx gateway errors, etc.) so a
+        # transient hiccup doesn't skip a poll cycle and leave queued
+        # conversations unclaimed. There are no semantic/mismatch errors to
+        # exclude here — every failure is treated as transient.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim() -> List[Dict]:
             res = self.client.rpc(
                 "claim_conversations",
                 {
@@ -1100,9 +1111,13 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim()
         except Exception:
             logging.exception(
-                "Supabase error while claiming conversations", exc_info=True
+                "Supabase error while claiming conversations (after retries)",
+                exc_info=True,
             )
             return []
 
@@ -1214,31 +1229,66 @@ class SupabaseDal:
         previous events in the conversation with seq < new_seq as compacted=true
         (global per conversation, not scoped to request_sequence).
         """
+        # Lazy imports avoid a circular import: conversations_worker pulls in
+        # conversations.py → config → llm → supabase_dal at module load time.
+        from holmes.core.conversations_worker.models import (
+            ConversationReassignedError,
+        )
+
         if not self.enabled:
             return None
 
-        try:
-            res = self.client.rpc(
-                "post_conversation_events",
-                {
-                    "_account_id": self.account_id,
-                    "_conversation_id": conversation_id,
-                    "_assignee": assignee,
-                    "_request_sequence": request_sequence,
-                    "_events": events,
-                    "_compact": compact,
-                },
-            ).execute()
-            if res.data is None:
-                return None
-            if isinstance(res.data, list):
-                if not res.data:
+        # Retry a few times on transient infrastructure errors (DNS/cache
+        # overflows in the Supabase proxy, 5xx gateway errors, etc.) so a
+        # transient hiccup doesn't drop a batch of conversation events.
+        # Mismatch errors are NOT retried — they mean the row was reassigned
+        # (assignee / request_sequence / status guard failed) and the worker
+        # should exit cleanly rather than hammer a stale transition.
+        @retry(
+            retry=retry_if_not_exception_type(ConversationReassignedError),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _post() -> Optional[int]:
+            try:
+                res = self.client.rpc(
+                    "post_conversation_events",
+                    {
+                        "_account_id": self.account_id,
+                        "_conversation_id": conversation_id,
+                        "_assignee": assignee,
+                        "_request_sequence": request_sequence,
+                        "_events": events,
+                        "_compact": compact,
+                    },
+                ).execute()
+                if res.data is None:
                     return None
-                return int(res.data[0]) if not isinstance(res.data[0], dict) else None
-            return int(res.data)
+                if isinstance(res.data, list):
+                    if not res.data:
+                        return None
+                    return (
+                        int(res.data[0])
+                        if not isinstance(res.data[0], dict)
+                        else None
+                    )
+                return int(res.data)
+            except ConversationReassignedError:
+                raise
+            except Exception as e:
+                if "mismatch" in str(e).lower():
+                    raise ConversationReassignedError(str(e)) from e
+                raise
+
+        try:
+            return _post()
+        except ConversationReassignedError:
+            raise
         except Exception:
             logging.exception(
-                "Supabase error while posting conversation events", exc_info=True
+                "Supabase error while posting conversation events (after retries)",
+                exc_info=True,
             )
             raise
 

@@ -63,6 +63,61 @@ def test_post_conversation_events_default_compact_false():
     assert params["_compact"] is False
 
 
+def test_post_conversation_events_retries_transient_error_then_succeeds():
+    """A transient Supabase error should be retried and eventually succeed."""
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(
+            side_effect=[
+                Exception("502 Bad Gateway"),
+                MagicMock(data=7),
+            ]
+        )
+    )
+    seq = dal.post_conversation_events(
+        conversation_id="c",
+        assignee="h",
+        request_sequence=1,
+        events=[{"event": "x", "data": {}, "ts": "t"}],
+    )
+    assert seq == 7
+    assert dal.client.rpc.return_value.execute.call_count == 2
+
+
+def test_post_conversation_events_raises_after_exhausting_retries():
+    """Persistent transient errors exhaust retries and re-raise (caller handles)."""
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
+    )
+    with pytest.raises(Exception, match="502 Bad Gateway"):
+        dal.post_conversation_events(
+            conversation_id="c",
+            assignee="h",
+            request_sequence=1,
+            events=[{"event": "x", "data": {}, "ts": "t"}],
+        )
+    assert dal.client.rpc.return_value.execute.call_count == 3
+
+
+def test_post_conversation_events_does_not_retry_mismatch():
+    """MISMATCH errors must not be retried — the row was reassigned."""
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(
+            side_effect=Exception("MISMATCH Assignee expected h-old, got h-new")
+        )
+    )
+    with pytest.raises(ConversationReassignedError, match="MISMATCH"):
+        dal.post_conversation_events(
+            conversation_id="c",
+            assignee="h",
+            request_sequence=1,
+            events=[{"event": "x", "data": {}, "ts": "t"}],
+        )
+    assert dal.client.rpc.return_value.execute.call_count == 1
+
+
 # ---- get_conversation_events (RPC-based, returns flat list) ----
 
 
@@ -122,6 +177,32 @@ def test_claim_conversations_uses_assignee_param():
     assert params["_assignee"] == "my-pod-1"
     assert params["_account_id"] == "acc-1"
     assert params["_cluster_id"] == "cluster-1"
+
+
+def test_claim_conversations_retries_transient_error_then_succeeds():
+    """A transient Supabase error should be retried and eventually succeed."""
+    dal = _build_dal()
+    claimed = [{"conversation_id": "c1"}]
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(
+            side_effect=[
+                Exception("502 Bad Gateway"),
+                MagicMock(data=claimed),
+            ]
+        )
+    )
+    assert dal.claim_conversations(holmes_id="h") == claimed
+    assert dal.client.rpc.return_value.execute.call_count == 2
+
+
+def test_claim_conversations_returns_empty_after_exhausting_retries():
+    """Persistent transient errors exhaust retries and return [] (not raise)."""
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
+    )
+    assert dal.claim_conversations(holmes_id="h") == []
+    assert dal.client.rpc.return_value.execute.call_count == 3
 
 
 # ---- update_conversation_status ----
