@@ -30,6 +30,14 @@ on:
         description: 'Number of iterations (1-10)'
         required: false
         default: '1'
+      engine:
+        description: "Investigation engine: '' (baseline ToolCallingLLM) or 'claude-sdk' (Claude Agent SDK)"
+        required: false
+        default: ''
+      subagent_model:
+        description: 'Optional model for SDK sub-agents (claude-sdk engine only). Empty = same as lead.'
+        required: false
+        default: ''
       is_pr_trusted:
         description: 'Allow running on fork PRs (use with caution - grants fork code access to secrets)'
         required: false
@@ -1129,6 +1137,96 @@ jobs:
           kubectl get pods -n kube-system --no-headers | head -5 || true
           kubectl get pods -n calico-system --no-headers || true
 
+      # Optional: run the investigation on the Claude Agent SDK engine instead of
+      # the baseline ToolCallingLLM. Installs the claude CLI + SDK and starts a
+      # local LiteLLM proxy that exposes the Anthropic Messages API (which the SDK
+      # speaks) backed by the same model_list used for the baseline. Everything
+      # downstream (KIND cluster, before_test, judge, report) is unchanged, so the
+      # eval report is directly comparable to master.
+      - name: Setup Claude Agent SDK engine
+        if: steps.check-tests.outputs.should-run == 'true' && github.event.inputs.engine == 'claude-sdk'
+        working-directory: code
+        shell: bash
+        env:
+          SDK_MODEL: ${{ steps.eval-params.outputs.model }}
+          SUBAGENT_MODEL: ${{ github.event.inputs.subagent_model }}
+          # Provider keys the model_list may reference via os.environ/<X>.
+          # Unset secrets resolve to empty strings (harmless); most model_list
+          # secrets embed keys literally, in which case these go unused.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -e
+          npm install -g @anthropic-ai/claude-code
+          poetry run pip install -q claude-agent-sdk 'litellm[proxy]'
+          # Pin the CLI path for the SDK (npm global shim).
+          CLAUDE_BIN="$(command -v claude || true)"
+          echo "Using claude CLI at: ${CLAUDE_BIN:-<not found on PATH>}"
+          [ -n "$CLAUDE_BIN" ] && echo "HOLMES_CLAUDE_CLI_PATH=$CLAUDE_BIN" >> "$GITHUB_ENV"
+
+          # Convert the Holmes model_list.yaml (flat dict) into a LiteLLM proxy
+          # config (model_list array), preserving model/api_key/api_base and
+          # converting any {{ env.X }} refs to LiteLLM's os.environ/X form.
+          poetry run python - << 'PY'
+          import re, yaml
+          src = yaml.safe_load(open('/tmp/model_list.yaml')) or {}
+          ml = []
+          for name, e in src.items():
+              if not isinstance(e, dict):
+                  continue
+              lp = {}
+              for k, v in e.items():
+                  if isinstance(v, str):
+                      v = re.sub(r'\{\{\s*env\.([A-Z0-9_]+)\s*\}\}', r'os.environ/\1', v)
+                  lp[k] = v
+              # Route OpenRouter-backed models via LiteLLM's openrouter/ provider
+              # so the /v1/messages proxy handles Anthropic tool-use correctly
+              # (the openai-compat path breaks tool-use round-trips).
+              m = lp.get('model', '')
+              if ('openrouter.ai' in (lp.get('api_base') or '')
+                      and m.startswith('openai/') and m.count('/') >= 2):
+                  lp['model'] = 'openrouter/' + m[len('openai/'):]
+                  lp.pop('api_base', None)
+                  lp.setdefault('api_key', 'os.environ/OPENROUTER_API_KEY')
+              ml.append({'model_name': name, 'litellm_params': lp})
+          yaml.safe_dump(
+              {'model_list': ml, 'litellm_settings': {'drop_params': True}},
+              open('/tmp/litellm_proxy.yaml', 'w'),
+          )
+          print('SDK proxy models:', [m['model_name'] for m in ml])
+          PY
+
+          # Serve the LiteLLM proxy via our wrapper (strips the `context_management`
+          # field newer claude CLIs send, which LiteLLM's non-Anthropic backend
+          # translation 400s on), not the bare `litellm` CLI.
+          nohup poetry run python -m holmes.core.sdk_proxy --config /tmp/litellm_proxy.yaml \
+            --port 4001 --host 127.0.0.1 > /tmp/litellm_proxy.log 2>&1 &
+
+          # Wait for the proxy to answer an Anthropic-format request for our model.
+          UP=0
+          for i in $(seq 1 60); do
+            CODE=$(curl -s -m 8 -o /dev/null -w '%{http_code}' \
+              http://127.0.0.1:4001/v1/messages \
+              -H 'x-api-key: dummy' -H 'anthropic-version: 2023-06-01' \
+              -H 'content-type: application/json' \
+              -d '{"model":"'"${SDK_MODEL:-opus-4.6}"'","max_tokens":5,"messages":[{"role":"user","content":"ping"}]}' 2>/dev/null || true)
+            if [ "$CODE" = "200" ]; then UP=1; echo "SDK proxy is up (200)"; break; fi
+            sleep 3
+          done
+          if [ "$UP" != "1" ]; then
+            echo "SDK proxy did not come up; last code=$CODE. Proxy log:"
+            tail -40 /tmp/litellm_proxy.log
+            exit 1
+          fi
+
+          # Hand the engine selection to the Run tests step via the job env.
+          echo "HOLMES_ENGINE=claude-sdk" >> "$GITHUB_ENV"
+          echo "ANTHROPIC_BASE_URL=http://127.0.0.1:4001" >> "$GITHUB_ENV"
+          echo "ANTHROPIC_API_KEY=dummy" >> "$GITHUB_ENV"
+          if [ -n "$SUBAGENT_MODEL" ]; then
+            echo "HOLMES_SUBAGENT_MODEL=$SUBAGENT_MODEL" >> "$GITHUB_ENV"
+          fi
+
       - name: Update progress - KIND ready, starting evals
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != '' && steps.initial-comment.outputs.comment_id != ''
         uses: actions/github-script@v7
@@ -1195,6 +1293,9 @@ jobs:
           ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Needed by the claude-sdk engine's LiteLLM proxy when the model_list
+          # routes through OpenRouter (os.environ/OPENROUTER_API_KEY).
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -1219,10 +1320,20 @@ jobs:
           # "vs benchmark" columns silently come back empty.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+          # A/B the SDK engine against the baseline (master's ToolCallingLLM) in a
+          # single run: HOLMES_ENGINE is toggled per-arm by apply_env_config, so the
+          # report breaks out pass rate / cost / latency / tokens per arm on the same
+          # evals, commit, infra, and judge. (This branch always has the SDK flag file,
+          # so the proxy is bootstrapped regardless; the baseline arm just doesn't use it.)
+          # TEMP (divergence measurement): SDK engine only — divergence is model-vs-model.
+          ENV_CONFIGS: "baseline:HOLMES_ENGINE=|sdk:HOLMES_ENGINE=claude-sdk"
           UPLOAD_DATASET: "true"
           EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
           GENERATE_REGRESSIONS_FILE: "true"
-          EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
+          # TEMP (divergence measurement): all-llm marker narrowed by -k to the
+          # ablation candidate pool (rule-coverage backbone + hard discriminators).
+          # Revert to: EVAL_MARKER_EXPR "regression or easy", EVAL_FILTER outputs.filter
+          EVAL_MARKER_EXPR: "regression or easy"
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
           EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
         run: |

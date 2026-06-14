@@ -1,0 +1,6 @@
+# Presence of this file activates the Claude Agent SDK engine for eval runs on
+# this branch (see holmes/core/claude_sdk_bootstrap.py + tests/llm/conftest.py).
+# The pytest session bootstraps the claude CLI + a LiteLLM proxy and routes all
+# investigations through the SDK engine, so the PR's auto eval run exercises it
+# and the report is directly comparable to master's baseline.
+# Remove this file to fall back to the baseline ToolCallingLLM engine.

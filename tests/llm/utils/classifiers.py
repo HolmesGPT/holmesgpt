@@ -217,6 +217,11 @@ Possible choices:
         prompt_template=prompt_prefix,
         choice_scores={"A": 1, "B": 0},
         use_cot=True,
+        # autoevals defaults to max_tokens=512; with use_cot=True the judge's
+        # rationale for multi-element rubrics over long outputs exceeds that,
+        # truncating the tool-call JSON and crashing scoring with
+        # json.decoder.JSONDecodeError mid-eval.
+        max_tokens=4096,
         model=params.model,
         api_key=params.api_key if not params.is_azure else None,
         base_url=params.api_base if not params.is_azure else None,

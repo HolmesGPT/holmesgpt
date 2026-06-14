@@ -164,7 +164,11 @@ def compact_conversation_history(
 
     compacted_conversation_history.append(
         {
-            "role": "system",
+            # Must be a user message so the conversation does not end on the
+            # assistant summary: Anthropic treats a trailing assistant message
+            # as prefill, which claude-opus-4.6 and newer reject with
+            # "This model does not support assistant message prefill".
+            "role": "user",
             "content": "The conversation history has been compacted to preserve available space in the context window. Continue.",
         }
     )

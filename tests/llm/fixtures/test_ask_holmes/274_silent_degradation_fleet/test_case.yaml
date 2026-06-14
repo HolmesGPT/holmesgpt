@@ -1,0 +1,28 @@
+user_prompt:
+  - "All 24 services in the app-274-* namespaces pass their health checks, but users report the platform is getting slower. Review the runtime behavior of every single service - audit all 24, do not sample or skip any. Identify which services show degrading or abnormal behavior over time in their logs, and for each one describe the degradation with concrete numbers (what changed, from what value to what value). Also confirm which services are behaving normally."
+
+expected_output:
+  - The answer must identify shipping-quote (namespace app-274-shipping-quote) as degrading, with request latency growing over time from roughly 20-35ms up to roughly 480-500ms
+  - The answer must identify feed-builder (namespace app-274-feed-builder) as degrading, with its backlog/queue depth growing over time from roughly 40-60 up to roughly 1900
+  - The answer must identify thumbnail-cache (namespace app-274-thumbnail-cache) as degrading, with its hit ratio collapsing over time from roughly 0.97 down to roughly 0.41
+  - The answer must NOT report sitemap-gen as degrading (it is consistently slow at ~440-470ms, which is stable, not degrading)
+  - The answer must NOT report rate-meter as degrading (its backlog is consistently high at ~1840-1880, which is stable, not degrading)
+  - The answer must NOT report session-gc as degrading (its hit ratio is consistently low at ~0.43-0.45, which is stable, not degrading)
+  - The answer must not flag any of the other services as degrading or unhealthy
+
+tags:
+  - kubernetes
+  - logs
+  - benchmark
+
+# 24 services, ALL Running and Ready, none ever logs ERROR/WARN. Three degrade
+# silently over their log history (latency creep, backlog growth, hit-ratio
+# collapse). Healthy decoys (sitemap-gen slow-but-stable, rate-meter
+# high-backlog-but-stable, session-gc low-ratio-but-stable) match the degraded
+# end states, so pod status, error grepping and tail sampling cannot
+# discriminate - the full log history of every service must be analyzed.
+before_test: |
+  bash setup.sh
+
+after_test: |
+  kubectl get ns -o name | grep 'namespace/app-274-' | xargs -r kubectl delete --ignore-not-found=true

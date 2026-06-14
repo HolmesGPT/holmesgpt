@@ -1,0 +1,604 @@
+# Wide fleet health audit eval: 10 namespaces, one service each.
+# 4 planted failures + 6 healthy controls. Every service emits ~1000 lines of
+# realistic noisy logs so a single-context investigation must absorb a large
+# evidence volume. App scripts live in Secrets (not inline commands/ConfigMaps)
+# so the LLM cannot read verification codes from pod specs — it must use logs.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-checkout
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-payments
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-inventory
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-orders
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-search
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-media
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-email
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-geo
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-sessions
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-272-audit
+---
+# checkout-api: crashes after startup because its session store
+# (redis at session-cache:6379) does not exist. Code ERR-CHK-31c9f2 in logs only.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: checkout-api-app
+  namespace: app-272-checkout
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] checkout-api 3.8.2 starting"
+    echo "$(date -u) INFO  [boot] loaded routes: /cart /checkout /quote /coupon"
+    i=1
+    while [ $i -le 700 ]; do
+      echo "$(date -u) INFO  [http] 200 GET /cart/items session=s-$((i*13%9973)) $((i%37+4))ms"
+      echo "$(date -u) INFO  [http] 200 POST /quote basket=b-$((i*7%4999)) items=$((i%9+1)) $((i%53+9))ms"
+      i=$((i+1))
+    done
+    sleep 20
+    echo "$(date -u) WARN  [sess-store] redis connect attempt 1/3 to session-cache:6379 timed out"
+    echo "$(date -u) WARN  [sess-store] redis connect attempt 2/3 to session-cache:6379 timed out"
+    echo "$(date -u) WARN  [sess-store] redis connect attempt 3/3 to session-cache:6379 timed out"
+    echo "$(date -u) FATAL [sess-store] ERR-CHK-31c9f2 could not connect to redis at session-cache:6379: connection refused - shutting down"
+    exit 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: app-272-checkout
+  labels:
+    app: checkout-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout-api
+  template:
+    metadata:
+      labels:
+        app: checkout-api
+    spec:
+      containers:
+        - name: checkout-api
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: checkout-api-app
+---
+# payment-gateway: runs but never becomes ready; readiness is gated on acquirer
+# connectivity which fails with an expired certificate. Code ERR-PAY-77b4ea in logs.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: payment-gateway-app
+  namespace: app-272-payments
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] payment-gateway 5.1.0 starting"
+    echo "$(date -u) INFO  [boot] PCI mode strict, readiness gated on acquirer connectivity"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [http] 200 GET /api/v1/status probe=lb $((i%7+2))ms"
+      echo "$(date -u) INFO  [queue] settlement backlog size=$((i%11))"
+      if [ $((i % 60)) -eq 0 ]; then
+        echo "$(date -u) ERROR [acquirer-client] ERR-PAY-77b4ea TLS handshake with acquirer.bank-partners.net:443 failed: certificate has expired (retrying in 10s)"
+      fi
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [http] 200 GET /api/v1/status probe=lb $((c%7+2))ms"
+      if [ $((c % 12)) -eq 0 ]; then
+        echo "$(date -u) ERROR [acquirer-client] ERR-PAY-77b4ea TLS handshake with acquirer.bank-partners.net:443 failed: certificate has expired (retrying in 10s)"
+      fi
+      sleep 2
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-gateway
+  namespace: app-272-payments
+  labels:
+    app: payment-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-gateway
+  template:
+    metadata:
+      labels:
+        app: payment-gateway
+    spec:
+      containers:
+        - name: payment-gateway
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/service-ready"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: payment-gateway-app
+---
+# inventory-sync: pod is Running AND Ready, but the application is broken —
+# periodic database deadlocks. Only discoverable by reading logs.
+# Code ERR-INV-4e8d21.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: inventory-sync-app
+  namespace: app-272-inventory
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] inventory-sync 2.3.7 starting"
+    echo "$(date -u) INFO  [boot] source=wms-feed target=stock_levels interval=30s"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [sync] delta batch $((i)) applied rows=$((i*3%97+5)) $((i%61+11))ms"
+      if [ $((i % 70)) -eq 0 ]; then
+        echo "$(date -u) ERROR [db] ERR-INV-4e8d21 deadlock detected on table stock_levels - batch $((i)) ABANDONED after 3 retries, $((i%80+20)) stock level updates LOST"
+      fi
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [sync] delta batch $((c+800)) applied rows=$((c*3%97+5)) $((c%61+11))ms"
+      if [ $((c % 10)) -eq 0 ]; then
+        echo "$(date -u) ERROR [db] ERR-INV-4e8d21 deadlock detected on table stock_levels - batch $((c+500)) ABANDONED after 3 retries, 47 stock level updates LOST"
+      fi
+      sleep 2
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-sync
+  namespace: app-272-inventory
+  labels:
+    app: inventory-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-sync
+  template:
+    metadata:
+      labels:
+        app: inventory-sync
+    spec:
+      containers:
+        - name: inventory-sync
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: inventory-sync-app
+---
+# order-archiver: cannot start - references a ConfigMap that does not exist
+# -> CreateContainerConfigError (root cause in pod events/describe)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-archiver
+  namespace: app-272-orders
+  labels:
+    app: order-archiver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-archiver
+  template:
+    metadata:
+      labels:
+        app: order-archiver
+    spec:
+      containers:
+        - name: order-archiver
+          image: busybox:1.36.1
+          command: ["sh", "-c", "sleep infinity"]
+          envFrom:
+            - configMapRef:
+                name: archiver-settings
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+---
+# ----- healthy control services (noisy logs, no errors) -----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: search-api-app
+  namespace: app-272-search
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] search-api 7.2.1 starting, 12 shards"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [http] 200 GET /search?q=q$((i*17%9931)) shard=$((i%12)) hits=$((i*3%211)) $((i%43+6))ms"
+      if [ $((i % 90)) -eq 0 ]; then
+        echo "$(date -u) WARN  [cache] query cache miss ratio 0.$((i%9+1))$((i%7)) above soft target (informational)"
+      fi
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [http] 200 GET /search?q=q$((c*17%9931)) shard=$((c%12)) hits=$((c*3%211)) $((c%43+6))ms"
+      sleep 4
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-api
+  namespace: app-272-search
+  labels:
+    app: search-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: search-api
+  template:
+    metadata:
+      labels:
+        app: search-api
+    spec:
+      containers:
+        - name: search-api
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: search-api-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: media-resizer-app
+  namespace: app-272-media
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] media-resizer 1.4.9 starting, workers=4"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [job] resized asset=img-$((i*29%99991)) profile=thumb$((i%3+1)) $((i%210+40))ms"
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [job] resized asset=img-$((58000+c)) profile=thumb$((c%3+1)) $((c%210+40))ms"
+      sleep 6
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-resizer
+  namespace: app-272-media
+  labels:
+    app: media-resizer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: media-resizer
+  template:
+    metadata:
+      labels:
+        app: media-resizer
+    spec:
+      containers:
+        - name: media-resizer
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: media-resizer-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: email-dispatcher-app
+  namespace: app-272-email
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] email-dispatcher 2.0.3 starting, smtp pool=8"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [send] msg=m-$((i*31%99989)) template=tpl-$((i%14)) accepted by relay in $((i%33+10))ms"
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [send] msg=m-$((4000+c)) template=tpl-$((c%14)) accepted by relay in $((c%33+10))ms"
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-dispatcher
+  namespace: app-272-email
+  labels:
+    app: email-dispatcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: email-dispatcher
+  template:
+    metadata:
+      labels:
+        app: email-dispatcher
+    spec:
+      containers:
+        - name: email-dispatcher
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: email-dispatcher-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: geo-lookup-app
+  namespace: app-272-geo
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] geo-lookup 0.9.12 starting, dataset=2026-05"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [http] 200 GET /v1/locate ip=10.$((i%250)).$((i*7%250)).$((i*13%250)) cc=resolved $((i%9+1))ms"
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [http] 200 GET /v1/locate ip=10.$((c%250)).$((c*7%250)).$((c*13%250)) cc=resolved $((c%9+1))ms"
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: geo-lookup
+  namespace: app-272-geo
+  labels:
+    app: geo-lookup
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: geo-lookup
+  template:
+    metadata:
+      labels:
+        app: geo-lookup
+    spec:
+      containers:
+        - name: geo-lookup
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: geo-lookup-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: session-gc-app
+  namespace: app-272-sessions
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] session-gc 1.1.0 starting, sweep interval=15s"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [sweep] pass $((i)) expired=$((i*3%77)) retained=$((i*11%4000+200)) $((i%25+5))ms"
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [sweep] pass $((c+800)) expired=$((c*3%77)) retained=$((c*11%4000+200)) $((c%25+5))ms"
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-gc
+  namespace: app-272-sessions
+  labels:
+    app: session-gc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: session-gc
+  template:
+    metadata:
+      labels:
+        app: session-gc
+    spec:
+      containers:
+        - name: session-gc
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: session-gc-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audit-log-app
+  namespace: app-272-audit
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] audit-log 4.0.1 starting, sink=s3://corp-audit/2026"
+    i=1
+    while [ $i -le 800 ]; do
+      echo "$(date -u) INFO  [ingest] event=evt-$((i*37%999983)) actor=u$((i*3%4200)) action=$((i%5)) persisted $((i%19+2))ms"
+      i=$((i+1))
+    done
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [ingest] event=evt-$((c*37%999983)) actor=u$((c*3%4200)) action=$((c%5)) persisted $((c%19+2))ms"
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-log
+  namespace: app-272-audit
+  labels:
+    app: audit-log
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-log
+  template:
+    metadata:
+      labels:
+        app: audit-log
+    spec:
+      containers:
+        - name: audit-log
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: audit-log-app

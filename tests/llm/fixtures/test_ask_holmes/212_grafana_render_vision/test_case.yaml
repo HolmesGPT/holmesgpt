@@ -4,8 +4,11 @@ user_prompt: "Look at the 'Fulfillment Service Dashboard' in Grafana. Visually r
 
 include_tool_calls: true
 
+# Outcome-based: the deployment ID is only visible in the rendered image, so
+# reporting it proves rendering happened regardless of which mechanism (a
+# render tool or Grafana's /render API) produced the image.
 expected_output:
-  - "Must call grafana_render_panel or grafana_render_dashboard tool to visually render the dashboard"
+  - "Must visually render the dashboard or its panels to an image (any mechanism, e.g. a Grafana render tool or Grafana's /render HTTP API) and describe what is seen"
   - "Must mention the 'Service Health' panel"
   - "Must report the deployment ID: deploy-8x3m9k"
   - "Must mention 'Order Processing Latency' or 'Inventory Sync Status' panel"

@@ -1,0 +1,30 @@
+user_prompt:
+  - "We run one service in each of the 24 namespaces matching app-273-*. Audit every single one of them - do not sample or skip any. For each service check its actual runtime behavior in its logs, not just pod status, and report whether it is healthy. For every unhealthy service give the root cause including the exact error code or message you found in its logs or events."
+
+expected_output:
+  - The answer must state that auth-svc (namespace app-273-auth) is crashing/restarting because it cannot reach its token-signing KMS endpoint kms.internal:8200, and must include the exact error code ERR-AUTH-92c4e1
+  - The answer must state that cart-svc (namespace app-273-cart) is unhealthy or degraded EVEN THOUGH its pod is Running and Ready, because its logs show cart snapshots being dropped due to exceeded quota on bucket cart-snapshots, and must include the exact error code ERR-CART-55ab07
+  - The answer must state that rate-limiter (namespace app-273-ratelimit) is unhealthy or degraded EVEN THOUGH its pod is Running and Ready, because its logs show the policy engine running out of memory and falling back to allow-all (rate limits not enforced), and must include the exact error code ERR-RATE-c813f9
+  - The answer must state that invoice-gen (namespace app-273-invoices) is running but NOT ready, because its PDF renderer pool is exhausted (0/4 workers alive), and must include the exact error code ERR-INVC-d27b44
+  - The answer must state that geo-cache (namespace app-273-geocache) cannot start due to a missing ConfigMap named geo-cache-settings (CreateContainerConfigError)
+  - The answer must state that img-optimizer (namespace app-273-imgopt) is failing to pull its container image (ImagePullBackOff / ErrImagePull)
+  - The answer must identify the remaining 18 services (search-api, media-resizer, email-dispatcher, geo-lookup, session-gc, audit-log, catalog-api, review-svc, wishlist-svc, shipping-quote, tax-calc, currency-svc, loyalty-svc, feed-builder, ab-config, push-relay, sitemap-gen, thumbnail-cache) as healthy, and must NOT report any of them as unhealthy
+
+tags:
+  - kubernetes
+  - logs
+  - benchmark
+
+# 24 namespaces, one service each. 6 planted failures:
+# - auth-svc: crashloop (KMS unreachable, code in logs)
+# - cart-svc: Ready but silently dropping data (code in logs only)
+# - rate-limiter: Ready but failing open (code in logs only)
+# - invoice-gen: Running but readiness failing (code in logs)
+# - geo-cache: CreateContainerConfigError (missing ConfigMap)
+# - img-optimizer: ImagePullBackOff
+# Plus 18 healthy noisy controls. Tests audit thoroughness at fleet scale.
+before_test: |
+  bash setup.sh
+
+after_test: |
+  kubectl get ns -o name | grep 'namespace/app-273-' | xargs -r kubectl delete --ignore-not-found=true

@@ -611,6 +611,38 @@ prints on success. Wall time is ~65s for a single k8s eval with gpt-4.1-mini
 `llm and regression` suite under opus-4.6 runs in ~256s wall at -n 4 (~$3.30).
 Budget accordingly when looping.
 
+**Tool-call visibility when debugging evals:**
+
+- The right tool for this is **Braintrust**: with a *writable* `BRAINTRUST_API_KEY`
+  set, each eval run creates an experiment whose trace contains the full
+  per-iteration tool-call sequence (tool name, args, output) plus per-LLM-call
+  token counts. Use it whenever you need to understand *what Holmes actually did*
+  in an eval rather than just whether it passed.
+- In THIS sandbox that does not work: the only Braintrust credential available is
+  `BRAINTRUST_SERVICE_TOKEN`, which is **read-only** — `braintrust.init()` fails
+  with "Missing create experiment access" (re-verified 2026-06-10). Keep both
+  Braintrust env vars unset here (see above) and use these fallbacks instead:
+  - `poetry run holmes ask --model <m> --no-interactive "<the eval's user_prompt>"`
+    against the eval's live infrastructure prints every tool invocation one-liner
+    as it happens (including nested sub-agent `delegate_task` activity) — the
+    fastest way to watch Holmes's behavior live.
+  - Failed evals print `tools_called` in the pytest failure output; `evals_report.md`
+    has per-run Turns/Tools/token columns even for passing runs.
+
+**A/B comparisons of agent behavior (e.g. sub-agents on/off):**
+
+Use the `ENV_CONFIGS` mechanism — every test runs once per named config and the
+terminal/markdown reports break results out per config:
+
+```bash
+export ENV_CONFIGS='baseline:|subagents:HOLMES_ENABLE_SUBAGENTS=true'
+ITERATIONS=3 poetry run pytest -k "272_wide" --no-cov
+```
+
+`before_test`/`after_test` run once per unique test case per session (shared
+session-scoped fixture), so all arms/iterations share one infrastructure setup —
+safe for parallel xdist workers, but it means arms are not infra-isolated.
+
 **What does NOT work in the sandbox:**
 
 - `kind create cluster` — inner container restart-loops on cgroup v1 (systemd mount fails)

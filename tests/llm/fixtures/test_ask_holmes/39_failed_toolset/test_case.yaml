@@ -1,7 +1,9 @@
 user_prompt: "Check rabbitmq's health"
+# Outcome-based: the user must learn that RabbitMQ cannot be checked and why —
+# whether the failure surfaces as a failing toolset or a failed connection/auth attempt.
 expected_output:
-  - Answer should say that the RabbitMQ integration or toolset is currently failing
-  - The answer should quote a specific error
+  - Answer should say that RabbitMQ's health could not be checked because the RabbitMQ integration/connection is currently failing
+  - The answer should quote or describe the specific error encountered (e.g. connection refused, authentication failure, name resolution)
 tags:
   - easy
   - transparency

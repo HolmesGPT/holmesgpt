@@ -1,7 +1,9 @@
 user_prompt: "What CPU metrics are available in this cluster? List all the CPU-related metrics that Prometheus is collecting."
 
+# Outcome-based: judge what the user learns (real metric names retrieved from
+# Prometheus), not which internal tool name performed the query.
 expected_output:
-  - "Must call get_metric_names tool with cpu related filters - this tool call must return non-empty results"
+  - "Must list CPU-related metric names actually retrieved from Prometheus (a metric-names tool call or a Prometheus API query returning metric names must appear in the tool calls) - not guessed from memory"
   - "Must include the metric container_cpu_usage_seconds_total"
 
 tags:

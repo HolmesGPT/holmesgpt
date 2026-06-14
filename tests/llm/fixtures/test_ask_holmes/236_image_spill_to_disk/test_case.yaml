@@ -7,9 +7,12 @@ user_prompt: |
   Fetch report "report-2024-001" from the report service and tell me
   the verification code shown in the attached image.
 
+# Outcome-based: the verification code only exists inside the attached image,
+# so reporting it proves the report was fetched and the image actually read,
+# regardless of the recovery mechanism (read_image_file, direct image load, ...).
 expected_output:
   - "Must report the verification code from the image: IMGVERIFY-7Q3X9P"
-  - "Must have called read_image_file tool to load the spilled image from disk"
+  - "Must have fetched report report-2024-001 from the report service (a report-service/MCP tool call must appear in the tool calls)"
 
 include_tool_calls: true
 

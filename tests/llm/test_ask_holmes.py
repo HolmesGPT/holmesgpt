@@ -197,6 +197,97 @@ def ask_holmes(
         )
         toolset_span.log(metadata={"toolset_names": enabled_toolsets})
 
+    # Experimental: run the investigation on the Claude Agent SDK engine instead
+    # of ToolCallingLLM, to A/B the agent architecture on the same evals/judge.
+    from holmes.core.claude_sdk_engine import is_sdk_engine_enabled, run_investigation
+
+    if is_sdk_engine_enabled():
+        with tracer.start_trace("Holmes Run", span_type=SpanType.TASK) as llm_span:
+            start_time = time.time()
+            result = run_investigation(
+                user_prompt=test_case.user_prompt,
+                model=model,
+                cluster_name=test_case.cluster_name,
+                test_folder=test_case.folder,
+                mocked_date=getattr(test_case, "mocked_date", None),
+            )
+            # Render the engine's audit trail as child spans in true execution
+            # order with real timestamps. Tool spans carry their measured
+            # start/end; an LLM call's span covers the gap from the previous
+            # event to the message's arrival (its actual API latency).
+            md = result.metadata or {}
+            events = [
+                ("tool", inv.get("t0w"), inv)
+                for inv in md.get("tool_invocations", [])
+            ] + [
+                ("llm", call.get("t_end"), call)
+                for call in md.get("llm_calls", [])
+            ]
+            events.sort(key=lambda e: e[1] or 0)
+            prev_end = md.get("session_start_wall") or start_time
+            for kind, anchor, item in events:
+                if kind == "tool":
+                    t0 = item.get("t0w") or prev_end
+                    t1 = item.get("t1w") or t0
+                    with llm_span.start_span(
+                        name=f"holmesgpt.tool.{item.get('tool', 'unknown')}",
+                        type=SpanType.TOOL.value,
+                    ) as tool_span:
+                        tool_span.log(
+                            input=item.get("input", ""),
+                            output=item.get("output", ""),
+                            metadata={"holmesgpt.tool.name": item.get("tool")},
+                            metrics={"start": t0, "end": t1},
+                        )
+                else:
+                    t1 = item.get("t_end") or prev_end
+                    t0 = min(prev_end, t1)
+                    usage = item.get("usage") or {}
+                    cache_read = usage.get("cache_read_input_tokens") or 0
+                    prompt = (
+                        (usage.get("input_tokens") or 0)
+                        + cache_read
+                        + (usage.get("cache_creation_input_tokens") or 0)
+                    )
+                    completion = usage.get("output_tokens") or 0
+                    with llm_span.start_span(
+                        name="gen_ai.chat", type=SpanType.LLM.value
+                    ) as call_span:
+                        call_span.log(
+                            output=item.get("text_head", ""),
+                            metadata={
+                                "model": item.get("model"),
+                                "stop_reason": item.get("stop_reason"),
+                                "sub_agent": item.get("sub_agent", False),
+                                "tools_requested": item.get("tools_requested", []),
+                            },
+                            metrics={
+                                "start": t0,
+                                "end": t1,
+                                "prompt_tokens": prompt,
+                                "completion_tokens": completion,
+                                "total_tokens": prompt + completion,
+                                "prompt_cached_tokens": cache_read,
+                            },
+                        )
+                prev_end = max(prev_end, t1)
+            # Investigation time is measured directly by the engine from
+            # session-ready to completion (CLI process spawn is not
+            # investigation time — a deployment holds a persistent client).
+            # Fall back to wall time if the session never became ready.
+            holmes_duration = (
+                result.investigation_seconds
+                if result.investigation_seconds is not None
+                else time.time() - start_time
+            )
+            eval_span.log(metadata={"holmes_duration": holmes_duration})
+            if request:
+                request.node.user_properties.append(("holmes_duration", holmes_duration))
+                if result.num_llm_calls is not None:
+                    request.node.user_properties.append(("num_llm_calls", result.num_llm_calls))
+                request.node.user_properties.append(("tool_call_count", len(result.tool_calls)))
+        return result
+
     with tool_result_storage() as tool_results_dir:
         ai = ToolCallingLLM(
             tool_executor=tool_executor,

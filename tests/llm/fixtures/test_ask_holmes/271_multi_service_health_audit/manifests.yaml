@@ -1,0 +1,253 @@
+# Multi-service health audit eval.
+# 5 namespaces, one service each, four distinct planted failures + one healthy control.
+# App scripts live in Secrets (not inline commands / ConfigMaps) so the LLM cannot
+# read verification codes from the pod spec — it must fetch logs.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-271-checkout
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-271-inventory
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-271-payments
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-271-profiles
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-271-notifications
+---
+# checkout-api: crashes because its session store (redis at session-cache:6379)
+# does not exist. Verification code ERR-CHK-4f7a2d91 is only in the logs.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: checkout-api-app
+  namespace: app-271-checkout
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] checkout-api 3.8.2 starting"
+    echo "$(date -u) INFO  [boot] loaded routes: /cart /checkout /quote /coupon"
+    echo "$(date -u) INFO  [boot] feature flags: express_pay=on gift_wrap=off"
+    i=1
+    while [ $i -le 140 ]; do
+      echo "$(date -u) INFO  [http] 200 GET /cart/items session=s-1$i 12ms"
+      echo "$(date -u) INFO  [http] 200 POST /quote basket=b-7$i 31ms"
+      i=$((i+1))
+    done
+    sleep 15
+    echo "$(date -u) WARN  [sess-store] redis connect attempt 1/3 to session-cache:6379 timed out"
+    echo "$(date -u) WARN  [sess-store] redis connect attempt 2/3 to session-cache:6379 timed out"
+    echo "$(date -u) WARN  [sess-store] redis connect attempt 3/3 to session-cache:6379 timed out"
+    echo "$(date -u) FATAL [sess-store] ERR-CHK-4f7a2d91 could not connect to redis at session-cache:6379: connection refused - shutting down"
+    exit 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: app-271-checkout
+  labels:
+    app: checkout-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout-api
+  template:
+    metadata:
+      labels:
+        app: checkout-api
+    spec:
+      containers:
+        - name: checkout-api
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: checkout-api-app
+---
+# inventory-sync: image does not exist anywhere -> ImagePullBackOff
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-sync
+  namespace: app-271-inventory
+  labels:
+    app: inventory-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-sync
+  template:
+    metadata:
+      labels:
+        app: inventory-sync
+    spec:
+      containers:
+        - name: inventory-sync
+          image: ghcr.io/acme-platform/inventory-sync:2.4.1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+---
+# payment-gateway: process runs but never becomes ready; readiness gate file is
+# never written because the TLS handshake with the card acquirer fails.
+# Verification code ERR-PAY-8c31e6b0 is only in the logs.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: payment-gateway-app
+  namespace: app-271-payments
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] payment-gateway 5.1.0 starting"
+    echo "$(date -u) INFO  [boot] PCI mode strict, vault sidecar disabled"
+    echo "$(date -u) INFO  [boot] readiness gated on acquirer connectivity"
+    c=0
+    while true; do
+      c=$((c+1))
+      echo "$(date -u) INFO  [http] 200 GET /api/v1/status probe=lb 3ms"
+      echo "$(date -u) INFO  [queue] settlement backlog size=$((c % 7))"
+      if [ $((c % 20)) -eq 0 ]; then
+        echo "$(date -u) ERROR [acquirer-client] ERR-PAY-8c31e6b0 TLS handshake with acquirer.bank-partners.net:443 failed: certificate has expired (retrying in 10s)"
+      fi
+      sleep 0.5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-gateway
+  namespace: app-271-payments
+  labels:
+    app: payment-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-gateway
+  template:
+    metadata:
+      labels:
+        app: payment-gateway
+    spec:
+      containers:
+        - name: payment-gateway
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/service-ready"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: payment-gateway-app
+---
+# user-profile: unschedulable - no node can satisfy a 1000-CPU request
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-profile
+  namespace: app-271-profiles
+  labels:
+    app: user-profile
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-profile
+  template:
+    metadata:
+      labels:
+        app: user-profile
+    spec:
+      containers:
+        - name: user-profile
+          image: busybox:1.36.1
+          command: ["sh", "-c", "sleep infinity"]
+          resources:
+            requests:
+              cpu: "1000"
+              memory: 128Mi
+---
+# notification-relay: healthy control service
+apiVersion: v1
+kind: Secret
+metadata:
+  name: notification-relay-app
+  namespace: app-271-notifications
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "$(date -u) INFO  [boot] notification-relay 1.9.4 build 7d3f9c2 starting"
+    echo "$(date -u) INFO  [boot] connected to broker amqp://msg-broker.platform:5672"
+    echo "$(date -u) INFO  [boot] listening on :8085"
+    while true; do
+      echo "$(date -u) INFO  [dispatch] delivered batch size=14 ok=14 failed=0"
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-relay
+  namespace: app-271-notifications
+  labels:
+    app: notification-relay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-relay
+  template:
+    metadata:
+      labels:
+        app: notification-relay
+    spec:
+      containers:
+        - name: notification-relay
+          image: busybox:1.36.1
+          command: ["sh", "/opt/app/run.sh"]
+          volumeMounts:
+            - name: app
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: notification-relay-app
