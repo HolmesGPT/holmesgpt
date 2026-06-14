@@ -131,6 +131,35 @@ class SupabaseDnsException(Exception):
         super().__init__(message)
 
 
+class SupabaseConnectionException(Exception):
+    """Raised when Holmes cannot open a connection to the Robusta platform.
+
+    The hostname resolved but the TCP/TLS connection was reset, refused or timed
+    out. In practice this is almost always an outbound firewall / egress policy
+    blocking traffic from the cluster to the Robusta platform - not a DNS lookup
+    or TLS certificate problem.
+    """
+
+    def __init__(self, error: Exception, url: str):
+        health_url = f"{url.rstrip('/')}/auth/v1/health"
+        message = (
+            f"\n{error.__class__.__name__}: {error}\n"
+            f"Failed to connect to the Robusta platform at <{url}>.\n"
+            "The address resolved but the connection was reset/refused/timed out. "
+            "This is almost always an outbound firewall or egress policy blocking "
+            "traffic from your cluster to the Robusta platform (it is not a DNS or "
+            "TLS certificate issue).\n"
+            "Please allow outbound HTTPS (port 443) traffic to the Robusta platform "
+            "- i.e. allowlist '*.robusta.dev' (for SaaS this includes the "
+            "'sp.<region>.robusta.dev' and 'api.<region>.robusta.dev' subdomains for "
+            "your region).\n"
+            "To confirm, run this from inside the Holmes pod - a firewall block "
+            "shows 'Connection reset by peer', while a reachable endpoint returns "
+            f"JSON:\n  curl -vk {health_url}\n"
+        )
+        super().__init__(message)
+
+
 class SupabaseDal:
     def __init__(self, cluster: str):
         self.enabled = self.__init_config()
@@ -284,6 +313,33 @@ class SupabaseDal:
                 ]
             ):
                 raise SupabaseDnsException(e, self.url) from e
+            if isinstance(e, (ConnectionError, TimeoutError)) or any(
+                conn_indicator in error_msg
+                for conn_indicator in [
+                    "connection reset by peer",
+                    "connection reset",
+                    "connection refused",
+                    "connection aborted",
+                    "connection timed out",
+                    "network is unreachable",
+                    "no route to host",
+                    "errno 104",  # ECONNRESET
+                    "errno 111",  # ECONNREFUSED
+                ]
+            ):
+                # The platform resolved but refused/reset the connection - almost
+                # always an outbound firewall. Log an actionable error before
+                # raising so the firewall hint is visible even when a caller (e.g.
+                # the reconnect loop) only logs a generic transient warning.
+                logging.error(
+                    "Holmes failed to connect to the Robusta platform at %s. "
+                    "This is almost always an outbound firewall/egress policy "
+                    "blocking traffic to the Robusta platform - please allowlist "
+                    "outbound HTTPS to '*.robusta.dev'. See the error below for a "
+                    "command to confirm the block.",
+                    self.url,
+                )
+                raise SupabaseConnectionException(e, self.url) from e
             raise
 
     def get_resource_recommendation(

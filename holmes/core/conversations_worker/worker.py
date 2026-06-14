@@ -31,7 +31,7 @@ from holmes.core.conversations_worker.models import (
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeManager
 from holmes.core.models import ChatRequest
-from holmes.core.supabase_dal import SupabaseDnsException
+from holmes.core.supabase_dal import SupabaseConnectionException, SupabaseDnsException
 from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
@@ -275,6 +275,7 @@ class ConversationWorker:
                 result = self.dal.is_realtime_enabled()
             except (
                 SupabaseDnsException,
+                SupabaseConnectionException,
                 PGAPIError,
                 ConnectionError,
                 TimeoutError,

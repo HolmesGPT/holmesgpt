@@ -1,5 +1,6 @@
 """Unit tests for SupabaseDal.get_resource_recommendation method."""
 
+import logging
 from unittest.mock import Mock, patch
 
 import pytest
@@ -8,8 +9,96 @@ from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.supabase_dal import (
     GROUPED_ISSUES_TABLE,
     ISSUES_TABLE,
+    SupabaseConnectionException,
     SupabaseDal,
+    SupabaseDnsException,
 )
+
+
+class TestSignIn:
+    """Tests for SupabaseDal.sign_in() error classification.
+
+    A firewall / egress policy that blocks the cluster from reaching the Robusta
+    platform surfaces as a connection reset/refused during sign-in. Holmes should
+    convert that into a SupabaseConnectionException whose message points the user
+    at their firewall, instead of leaking a raw httpx traceback. Genuine auth
+    errors must still propagate unchanged.
+    """
+
+    @pytest.fixture
+    def mock_dal(self):
+        with patch("holmes.core.supabase_dal.create_client"):
+            dal = SupabaseDal(cluster="test-cluster")
+            dal.enabled = True
+            dal.client = Mock()
+            dal.url = "https://sp.eu.robusta.dev"
+            dal.email = "user@example.com"
+            dal.password = "secret"
+            return dal
+
+    def test_connection_reset_raises_firewall_exception(self, mock_dal, caplog):
+        # The exact error Aviva hit at startup (ROB-273): httpx surfaces the
+        # firewall block as "[Errno 104] Connection reset by peer".
+        mock_dal.client.auth.sign_in_with_password.side_effect = Exception(
+            "[Errno 104] Connection reset by peer"
+        )
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SupabaseConnectionException) as exc_info:
+                mock_dal.sign_in()
+
+        message = str(exc_info.value)
+        assert "firewall" in message.lower()
+        assert "robusta.dev" in message
+        # The diagnostic curl targets the configured platform url.
+        assert "curl -vk https://sp.eu.robusta.dev/auth/v1/health" in message
+        # An actionable ERROR is logged even before the exception propagates, so
+        # the firewall hint is visible even if a caller downgrades the raise.
+        assert any(
+            r.levelno == logging.ERROR and "firewall" in r.getMessage().lower()
+            for r in caplog.records
+        )
+
+    def test_connection_refused_raises_firewall_exception(self, mock_dal):
+        mock_dal.client.auth.sign_in_with_password.side_effect = (
+            ConnectionRefusedError("[Errno 111] Connection refused")
+        )
+        with pytest.raises(SupabaseConnectionException):
+            mock_dal.sign_in()
+
+    def test_timeout_raises_firewall_exception(self, mock_dal):
+        mock_dal.client.auth.sign_in_with_password.side_effect = TimeoutError(
+            "connection timed out"
+        )
+        with pytest.raises(SupabaseConnectionException):
+            mock_dal.sign_in()
+
+    def test_dns_error_still_raises_dns_exception(self, mock_dal):
+        mock_dal.client.auth.sign_in_with_password.side_effect = Exception(
+            "Temporary failure in name resolution"
+        )
+        with pytest.raises(SupabaseDnsException):
+            mock_dal.sign_in()
+
+    def test_auth_error_is_not_wrapped(self, mock_dal):
+        # A genuine credential error is not a connectivity/firewall problem;
+        # wrapping it would mislead the user, so it must propagate unchanged.
+        original = ValueError("Invalid login credentials")
+        mock_dal.client.auth.sign_in_with_password.side_effect = original
+        with pytest.raises(ValueError) as exc_info:
+            mock_dal.sign_in()
+        assert exc_info.value is original
+
+    def test_successful_sign_in_returns_user_id(self, mock_dal):
+        session = Mock(access_token="access-token", refresh_token="refresh-token")
+        res = Mock(session=session, user=Mock(id="user-123"))
+        mock_dal.client.auth.sign_in_with_password.return_value = res
+
+        assert mock_dal.sign_in() == "user-123"
+        mock_dal.client.auth.set_session.assert_called_once_with(
+            "access-token", "refresh-token"
+        )
+        mock_dal.client.postgrest.auth.assert_called_once_with("access-token")
 
 
 class TestIsRealtimeEnabled:
