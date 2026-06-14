@@ -5280,6 +5280,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#output-token-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Token Limit
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -5377,6 +5388,15 @@ They run at different points in the pipeline and serve different purposes.</p>
 <li>Mechanism 1 prevents any single tool from blowing up the context.</li>
 <li>Mechanism 2 prevents the cumulative conversation from growing unbounded.</li>
 </ul>
+<h2 id="output-token-limit">Output Token Limit<a class="headerlink" href="#output-token-limit" title="Permanent link">&para;</a></h2>
+<p><strong>Function:</strong> <code>get_maximum_output_token()</code> in <code>holmes/core/llm.py</code>, enforced by <code>DefaultLLM.completion()</code> as <code>max_tokens</code> (or forwarded as <code>max_completion_tokens</code> when the model args already provide it)</p>
+<p>Every LLM request includes an explicit output-token limit. It is the same value mechanism 2 reserves when budgeting input space (<code>max_output_tokens</code> in the threshold check above), so the enforced cap matches the reserved budget. Without an explicit limit, some providers fall back to small defaults (for example, litellm defaults Anthropic-family models that are missing from its cost map — such as proxy aliases — to 4096), which truncates long answers mid-response with <code>finish_reason: "length"</code>.</p>
+<p>The value is resolved in this order:</p>
+<ol>
+<li>A non-null <code>max_tokens</code> or <code>max_completion_tokens</code> in the model's args (model list / <code>custom_args</code>) takes precedence (a <code>null</code> value is stripped, so it does not block the computed default below).</li>
+<li><code>OVERRIDE_MAX_OUTPUT_TOKEN</code> environment variable.</li>
+<li>Computed: <code>max(64000, 12% of the context window)</code> — so a 200k-context (or unknown) model reserves 64k and a 1M-context model reserves 120k — further capped by the model's <code>max_output_tokens</code> from litellm's cost map when the model is known.</li>
+</ol>
 
 
 
