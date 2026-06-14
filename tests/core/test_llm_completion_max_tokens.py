@@ -81,6 +81,18 @@ class TestCompletionMaxTokensHandling:
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["max_tokens"] == 64000
 
+    def test_unknown_model_no_args_no_context_uses_fallback_not_4096(
+        self, mock_completion
+    ):
+        """Customer's exact bug: a model litellm doesn't know, with no max_tokens and
+        no context override, must send the fallback-derived 64000 (max(64k, 12% of the
+        200k fallback window)) — NOT litellm's silent 4096 Anthropic default."""
+        llm = _make_llm({}, model="proxy/unknown-claude", max_context_size=None)
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["max_tokens"] == 64000
+        assert kwargs["max_tokens"] != 4096
+
     def test_injected_limit_matches_get_maximum_output_token(self, mock_completion):
         """Row 1: the enforced limit is exactly the budget input limiting reserves."""
         llm = _make_llm({})
