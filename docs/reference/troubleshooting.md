@@ -85,13 +85,12 @@ This means an **outbound firewall or egress policy is blocking traffic from your
 
 **Solution:**
 
-Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the `robusta.dev` domain (`*.robusta.dev`). This covers the `sp.<region>.robusta.dev` and `api.<region>.robusta.dev` subdomains for your region (no infix for US, `eu` for EU, `ap` for AP).
+Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the `robusta.dev` domain (`*.robusta.dev`), which covers the `api.*` and `sp.*` subdomains across all regions.
 
-To confirm the block, run the health check from inside the HolmesGPT pod. A firewall block shows `Connection reset by peer`, while a reachable endpoint returns JSON:
+To confirm the block, run the health check from inside the HolmesGPT pod (select your region below). A firewall block shows `Connection reset by peer`, while a reachable endpoint returns JSON:
 
-```bash
-# Use the host for your region: sp.robusta.dev (US), sp.eu.robusta.dev (EU), sp.ap.robusta.dev (AP)
-kubectl exec -it <holmes-pod> -- curl -vk https://sp.eu.robusta.dev/auth/v1/health
+```robusta-region {lang=bash}
+kubectl exec -it <holmes-pod> -- curl -vk https://sp.robusta.dev/auth/v1/health
 ```
 
 If the same logs also show a LiteLLM warning about failing to fetch the model cost map from `raw.githubusercontent.com`, that is the same firewall blocking GitHub egress — point Holmes at a region-local mirror with [`LITELLM_MODEL_COST_MAP_URL`](environment-variables.md#litellm_model_cost_map_url).
