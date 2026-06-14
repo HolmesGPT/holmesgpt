@@ -1143,33 +1143,54 @@ class SupabaseDal:
         if not self.enabled:
             return False
 
+        # The RPC raises 'MISMATCH ...' / 'not found' when a stale or duplicate
+        # worker posts after the row was reassigned, stopped, or already
+        # finished (first result wins). That's terminal — surface it as this
+        # sentinel so tenacity does NOT retry it (retrying can't help).
+        class _ResultRejected(Exception):
+            pass
+
+        # Retry a few times on transient infrastructure errors (DNS/cache
+        # overflows in the Supabase proxy, 5xx gateway errors, etc.) so a
+        # transient hiccup doesn't drop a finished tool result. Mismatch /
+        # not-found are excluded from retry (see above).
+        @retry(
+            retry=retry_if_not_exception_type(_ResultRejected),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _post() -> bool:
+            try:
+                res = self.client.rpc(
+                    "post_remote_tool_call_result",
+                    {
+                        "_id": tool_call_id,
+                        "_account_id": self.account_id,
+                        "_assignee": assignee,
+                        "_status": status,
+                        "_tool_response": tool_response,
+                    },
+                ).execute()
+                return bool(res.data)
+            except Exception as e:
+                msg = str(e).lower()
+                if "mismatch" in msg or "not found" in msg:
+                    raise _ResultRejected(str(e)) from e
+                raise
+
         try:
-            res = self.client.rpc(
-                "post_remote_tool_call_result",
-                {
-                    "_id": tool_call_id,
-                    "_account_id": self.account_id,
-                    "_assignee": assignee,
-                    "_status": status,
-                    "_tool_response": tool_response,
-                },
-            ).execute()
-            return bool(res.data)
-        except Exception as e:
-            # The RPC raises a "MISMATCH ..." / "not found" error when a stale
-            # or duplicate worker posts after the row was reassigned, stopped,
-            # or already finished (first result wins). That's expected — log
-            # calmly and return False so the caller drops the result. Anything
-            # else is a real error worth a stack trace.
-            msg = str(e)
-            if "MISMATCH" in msg or "not found" in msg:
-                logging.info(
-                    "Remote tool call result rejected (stale/duplicate worker): %s",
-                    msg,
-                )
-                return False
+            return _post()
+        except _ResultRejected as e:
+            # Stale/duplicate worker: log calmly and drop (first result wins).
+            logging.info(
+                "Remote tool call result rejected (stale/duplicate worker): %s", e
+            )
+            return False
+        except Exception:
             logging.exception(
-                "Supabase error while posting remote tool call result", exc_info=True
+                "Supabase error while posting remote tool call result (after retries)",
+                exc_info=True,
             )
             return False
 
