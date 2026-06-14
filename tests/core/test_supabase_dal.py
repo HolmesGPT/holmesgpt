@@ -7,6 +7,7 @@ import pytest
 from postgrest.exceptions import APIError as PGAPIError
 
 from holmes.core.supabase_dal import (
+    FIREWALL_TROUBLESHOOTING_URL,
     GROUPED_ISSUES_TABLE,
     ISSUES_TABLE,
     SupabaseConnectionException,
@@ -52,12 +53,17 @@ class TestSignIn:
         assert "robusta.dev" in message
         # The diagnostic curl targets the configured platform url.
         assert "curl -vk https://sp.eu.robusta.dev/auth/v1/health" in message
+        # Both the exception and the log point the user at the troubleshooting docs.
+        assert FIREWALL_TROUBLESHOOTING_URL in message
         # An actionable hint is logged before the exception propagates. It is kept
         # at WARNING (not ERROR) so it doesn't raise a Sentry alert.
-        assert any(
-            r.levelno == logging.WARNING and "firewall" in r.getMessage().lower()
+        warnings = [
+            r
             for r in caplog.records
-        )
+            if r.levelno == logging.WARNING and "firewall" in r.getMessage().lower()
+        ]
+        assert warnings
+        assert any(FIREWALL_TROUBLESHOOTING_URL in r.getMessage() for r in warnings)
 
     def test_connection_refused_raises_firewall_exception(self, mock_dal):
         mock_dal.client.auth.sign_in_with_password.side_effect = (

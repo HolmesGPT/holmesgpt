@@ -73,6 +73,29 @@ export LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields"
 
 Replace the value with whichever field is named in your error message. Multiple fields can be passed, e.g. `"provider_specific_fields,reasoning_content"`.
 
+## 7. Startup Fails with `Connection reset by peer` { #firewall-blocking-robusta-platform }
+
+HolmesGPT crashes on startup while signing in to the Robusta platform, with a traceback ending in:
+
+```
+httpx.ConnectError: [Errno 104] Connection reset by peer
+```
+
+This means an **outbound firewall or egress policy is blocking traffic from your cluster to the Robusta platform**. The hostname resolves and the TLS certificate is valid, so it is not a DNS or certificate problem — the connection itself is being reset or refused.
+
+**Solution:**
+
+Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the `robusta.dev` domain (`*.robusta.dev`). This covers the `sp.<region>.robusta.dev` and `api.<region>.robusta.dev` subdomains for your region (no infix for US, `eu` for EU, `ap` for AP).
+
+To confirm the block, run the health check from inside the HolmesGPT pod. A firewall block shows `Connection reset by peer`, while a reachable endpoint returns JSON:
+
+```bash
+# Use the host for your region: sp.robusta.dev (US), sp.eu.robusta.dev (EU), sp.ap.robusta.dev (AP)
+kubectl exec -it <holmes-pod> -- curl -vk https://sp.eu.robusta.dev/auth/v1/health
+```
+
+If the same logs also show a LiteLLM warning about failing to fetch the model cost map from `raw.githubusercontent.com`, that is the same firewall blocking GitHub egress — point Holmes at a region-local mirror with [`LITELLM_MODEL_COST_MAP_URL`](environment-variables.md#litellm_model_cost_map_url).
+
 ---
 
 ## Still stuck?

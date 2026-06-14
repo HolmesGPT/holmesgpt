@@ -120,6 +120,14 @@ class RobustaToken(BaseModel):
     password: str
 
 
+# Troubleshooting guide for an outbound firewall blocking egress to the Robusta
+# platform (surfaces as a connection reset during sign-in). Linked from the log
+# and exception so users can find the fix.
+FIREWALL_TROUBLESHOOTING_URL = (
+    "https://holmesgpt.dev/reference/troubleshooting/#firewall-blocking-robusta-platform"
+)
+
+
 class SupabaseDnsException(Exception):
     def __init__(self, error: Exception, url: str):
         message = (
@@ -156,6 +164,7 @@ class SupabaseConnectionException(Exception):
             "To confirm, run this from inside the Holmes pod - a firewall block "
             "shows 'Connection reset by peer', while a reachable endpoint returns "
             f"JSON:\n  curl -vk {health_url}\n"
+            f"More details: {FIREWALL_TROUBLESHOOTING_URL}\n"
         )
         super().__init__(message)
 
@@ -335,9 +344,10 @@ class SupabaseDal:
                     "Holmes failed to connect to the Robusta platform at %s. "
                     "This is almost always an outbound firewall/egress policy "
                     "blocking traffic to the Robusta platform - please allowlist "
-                    "outbound HTTPS to '*.robusta.dev'. See the details below for a "
-                    "command to confirm the block.",
+                    "outbound HTTPS to '*.robusta.dev'. See %s and the details "
+                    "below for a command to confirm the block.",
                     self.url,
+                    FIREWALL_TROUBLESHOOTING_URL,
                 )
                 raise SupabaseConnectionException(e, self.url) from e
             raise
