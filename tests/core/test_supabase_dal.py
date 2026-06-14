@@ -51,8 +51,8 @@ class TestSignIn:
         message = str(exc_info.value)
         assert "firewall" in message.lower()
         assert "robusta.dev" in message
-        # The diagnostic curl targets the configured platform url.
-        assert "curl -vk https://sp.eu.robusta.dev/auth/v1/health" in message
+        # The message stays short and defers the how-to-fix details to the docs.
+        assert "curl" not in message
         # Both the exception and the log point the user at the troubleshooting docs.
         assert FIREWALL_TROUBLESHOOTING_URL in message
         # An actionable hint is logged before the exception propagates. It is kept

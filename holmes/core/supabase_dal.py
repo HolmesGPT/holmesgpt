@@ -150,23 +150,12 @@ class SupabaseConnectionException(Exception):
     """
 
     def __init__(self, error: Exception, url: str):
-        health_url = f"{url.rstrip('/')}/auth/v1/health"
         message = (
             f"\n{error.__class__.__name__}: {error}\n"
-            f"Failed to connect to the Robusta platform at <{url}>.\n"
-            "The address resolved but the connection was reset/refused/timed out. "
-            "This is almost always an outbound firewall or egress policy blocking "
-            "traffic from your cluster to the Robusta platform (it is not a DNS or "
-            "TLS certificate issue).\n"
-            "Please allow outbound HTTPS (port 443) traffic to the Robusta platform "
-            "- i.e. allowlist '*.robusta.dev' (for SaaS this includes the "
-            "'sp.<region>.robusta.dev' and 'api.<region>.robusta.dev' subdomains for "
-            "your region).\n"
-            "To confirm, run this from another pod in the same namespace (the Holmes "
-            "pod itself will be crash-looping) - a firewall block shows 'Connection "
-            "reset by peer', while a reachable endpoint returns JSON:\n"
-            f"  curl -vk {health_url}\n"
-            f"More details: {FIREWALL_TROUBLESHOOTING_URL}\n"
+            f"Could not connect to the Robusta platform at <{url}>.\n"
+            "This usually means an outbound firewall is blocking egress to the "
+            "platform - allowlist outbound HTTPS to '*.robusta.dev'.\n"
+            f"See {FIREWALL_TROUBLESHOOTING_URL} for troubleshooting steps.\n"
         )
         super().__init__(message)
 
@@ -339,15 +328,13 @@ class SupabaseDal:
                 ]
             ):
                 # The platform resolved but refused/reset the connection - almost
-                # always an outbound firewall. Log an actionable hint before
-                # raising. Kept at WARNING (not ERROR) on purpose so it doesn't
-                # raise a Sentry alert.
+                # always an outbound firewall. Log a short hint (kept at WARNING,
+                # not ERROR, so it doesn't raise a Sentry alert) and point at the
+                # docs for the full troubleshooting steps.
                 logging.warning(
-                    "Holmes failed to connect to the Robusta platform at %s. "
-                    "This is almost always an outbound firewall/egress policy "
-                    "blocking traffic to the Robusta platform - please allowlist "
-                    "outbound HTTPS to '*.robusta.dev'. See %s and the details "
-                    "below for a command to confirm the block.",
+                    "Could not connect to the Robusta platform at %s - this usually "
+                    "means an outbound firewall is blocking egress. Allowlist "
+                    "outbound HTTPS to '*.robusta.dev'. See %s",
                     self.url,
                     FIREWALL_TROUBLESHOOTING_URL,
                 )
