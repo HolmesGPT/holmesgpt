@@ -81,10 +81,14 @@ def _make_mock_tool_call(tool_call_id="tc_1", tool_name="kubectl_get", arguments
     return tc
 
 
-def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20):
+def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20, finish_reason=None):
     """Create a mock LLM response matching litellm ModelResponse shape."""
     resp = MagicMock()
     resp.choices = [MagicMock()]
+    # Only set a real finish_reason when asked; otherwise leave it as a MagicMock
+    # so the isinstance(str) guard in call_stream skips it (existing behavior).
+    if finish_reason is not None:
+        resp.choices[0].finish_reason = finish_reason
     msg = MagicMock()
     msg.content = content
     msg.tool_calls = tool_calls
@@ -654,6 +658,60 @@ class TestNoToolsPath:
         tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
         assert len(start_tools) == 0
         assert len(tool_results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Output token limit reached (ROB-340)
+# ---------------------------------------------------------------------------
+
+
+class TestOutputTokenLimitReached:
+    """call_stream emits OUTPUT_TOKEN_LIMIT_REACHED right before ANSWER_END when
+    the final reply is truncated by the output token cap (finish_reason ==
+    'length'), and omits it when the reply finishes normally (ROB-340)."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_emits_event_when_truncated(self, _mock_limit, make_ai, mock_llm):
+        resp = _make_llm_response(
+            content="The history of comp", tool_calls=None, finish_reason="length"
+        )
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "Write a long essay"}])
+        )
+
+        limit_events = _events_of_type(
+            events, StreamEvents.OUTPUT_TOKEN_LIMIT_REACHED
+        )
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+
+        assert len(limit_events) == 1
+        assert limit_events[0].data["finish_reason"] == "length"
+        # passthrough limiter reports maximum_output_token=4096
+        assert limit_events[0].data["max_output_tokens"] == 4096
+        assert len(answer_ends) == 1
+        # The truncation event must precede ANSWER_END so the client can flag the
+        # answer as cut off as it finalizes.
+        assert events.index(limit_events[0]) < events.index(answer_ends[0])
+        # ANSWER_END still carries finish_reason in metadata for usage tracking.
+        assert answer_ends[0].data["metadata"]["finish_reason"] == "length"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_no_event_when_finished_normally(self, _mock_limit, make_ai, mock_llm):
+        resp = _make_llm_response(
+            content="All good", tool_calls=None, finish_reason="stop"
+        )
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "hi"}])
+        )
+
+        assert _events_of_type(events, StreamEvents.OUTPUT_TOKEN_LIMIT_REACHED) == []
+        assert len(_events_of_type(events, StreamEvents.ANSWER_END)) == 1
 
 
 # ---------------------------------------------------------------------------

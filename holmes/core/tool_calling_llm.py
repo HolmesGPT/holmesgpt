@@ -1263,6 +1263,21 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
+
+                # The model stopped because it hit the output token cap
+                # (finish_reason == "length"), so this reply is truncated. Emit a
+                # dedicated event right before ANSWER_END so clients can tell the
+                # user the answer was cut off rather than silently presenting a
+                # partial response (ROB-340).
+                if metadata.get("finish_reason") == "length":
+                    yield StreamMessage(
+                        event=StreamEvents.OUTPUT_TOKEN_LIMIT_REACHED,
+                        data={
+                            "max_output_tokens": limit_result.maximum_output_token,
+                            "finish_reason": "length",
+                        },
+                    )
+
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
