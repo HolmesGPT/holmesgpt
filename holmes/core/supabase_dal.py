@@ -1138,7 +1138,15 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        try:
+        # Retry transient infrastructure errors (Supabase proxy DNS/cache
+        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
                 "claim_conversations",
                 {
@@ -1152,9 +1160,13 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim_with_retry()
         except Exception:
             logging.exception(
-                "Supabase error while claiming conversations", exc_info=True
+                "Supabase error while claiming conversations (after retries)",
+                exc_info=True,
             )
             return []
 
@@ -1201,22 +1213,16 @@ class SupabaseDal:
         if not self.enabled:
             return False
 
-        # The RPC raises 'MISMATCH ...' / 'not found' when a stale or duplicate
-        # worker posts after the row was reassigned, stopped, or already
-        # finished (first result wins). That's terminal — surface it as the
-        # _RemoteToolResultRejected sentinel so tenacity does NOT retry it.
-
-        # Retry a few times on transient infrastructure errors (DNS/cache
-        # overflows in the Supabase proxy, 5xx gateway errors, etc.) so a
-        # transient hiccup doesn't drop a finished tool result. Mismatch /
-        # not-found are excluded from retry (see above).
+        # Retry transient infrastructure errors so a hiccup doesn't drop a
+        # finished tool result. MISMATCH / not-found mean the row was
+        # reassigned/stopped/already-finished — terminal, never retried.
         @retry(
             retry=retry_if_not_exception_type(_RemoteToolResultRejected),
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
             reraise=True,
         )
-        def _post() -> bool:
+        def _post_with_retry() -> bool:
             try:
                 res = self.client.rpc(
                     "post_remote_tool_call_result",
@@ -1236,7 +1242,7 @@ class SupabaseDal:
                 raise
 
         try:
-            return _post()
+            return _post_with_retry()
         except _RemoteToolResultRejected as e:
             # Stale/duplicate worker: log calmly and drop (first result wins).
             logging.info(
@@ -1266,31 +1272,63 @@ class SupabaseDal:
         previous events in the conversation with seq < new_seq as compacted=true
         (global per conversation, not scoped to request_sequence).
         """
+        # Lazy imports avoid a circular import: conversations_worker pulls in
+        # conversations.py → config → llm → supabase_dal at module load time.
+        from holmes.core.conversations_worker.models import (
+            ConversationReassignedError,
+        )
+
         if not self.enabled:
             return None
 
-        try:
-            res = self.client.rpc(
-                "post_conversation_events",
-                {
-                    "_account_id": self.account_id,
-                    "_conversation_id": conversation_id,
-                    "_assignee": assignee,
-                    "_request_sequence": request_sequence,
-                    "_events": events,
-                    "_compact": compact,
-                },
-            ).execute()
-            if res.data is None:
-                return None
-            if isinstance(res.data, list):
-                if not res.data:
+        # Retry transient infrastructure errors so a hiccup doesn't drop a
+        # batch of events. MISMATCH means the row was reassigned — never
+        # retried, raised as ConversationReassignedError so the worker exits.
+        @retry(
+            retry=retry_if_not_exception_type(ConversationReassignedError),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _post_with_retry() -> Optional[int]:
+            try:
+                res = self.client.rpc(
+                    "post_conversation_events",
+                    {
+                        "_account_id": self.account_id,
+                        "_conversation_id": conversation_id,
+                        "_assignee": assignee,
+                        "_request_sequence": request_sequence,
+                        "_events": events,
+                        "_compact": compact,
+                    },
+                ).execute()
+                if res.data is None:
                     return None
-                return int(res.data[0]) if not isinstance(res.data[0], dict) else None
-            return int(res.data)
+                if isinstance(res.data, list):
+                    if not res.data:
+                        return None
+                    return (
+                        int(res.data[0])
+                        if not isinstance(res.data[0], dict)
+                        else None
+                    )
+                return int(res.data)
+            except ConversationReassignedError:
+                raise
+            except Exception as e:
+                if "mismatch" in str(e).lower():
+                    raise ConversationReassignedError(str(e)) from e
+                raise
+
+        try:
+            return _post_with_retry()
+        except ConversationReassignedError:
+            raise
         except Exception:
             logging.exception(
-                "Supabase error while posting conversation events", exc_info=True
+                "Supabase error while posting conversation events (after retries)",
+                exc_info=True,
             )
             raise
 
@@ -1325,19 +1363,16 @@ class SupabaseDal:
             )
             return False
 
-        # Retry a few times on transient infrastructure errors (DNS/cache
-        # overflows in the Supabase proxy, 5xx gateway errors, etc.).  Without
-        # this a transient hiccup leaves the conversation stuck in a non-terminal
-        # state (e.g. "Failed to mark conversation ... complete").  Mismatch
-        # errors are NOT retried — they mean the row was reassigned and the
-        # worker should exit cleanly rather than hammer a stale transition.
+        # Retry transient infrastructure errors so a hiccup doesn't leave the
+        # conversation stuck in a non-terminal state. MISMATCH means the row
+        # was reassigned — never retried, raised as ConversationReassignedError.
         @retry(
             retry=retry_if_not_exception_type(ConversationReassignedError),
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
             reraise=True,
         )
-        def _update() -> bool:
+        def _update_with_retry() -> bool:
             try:
                 res = self.client.rpc(
                     "update_conversation_status",
@@ -1351,15 +1386,12 @@ class SupabaseDal:
                 ).execute()
                 return bool(res.data)
             except Exception as e:
-                # The RPC raises MISMATCH errors when assignee, request_sequence,
-                # or status guards fail — propagate these so the worker can exit
-                # cleanly rather than retrying a stale transition.
                 if "mismatch" in str(e).lower():
                     raise ConversationReassignedError(str(e)) from e
                 raise
 
         try:
-            return _update()
+            return _update_with_retry()
         except ConversationReassignedError:
             raise
         except Exception:
@@ -1393,18 +1425,16 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        # Retry a few times on transient infrastructure errors (DNS/cache
-        # overflows in the Supabase proxy, 5xx gateway errors, etc.).  The
-        # caller's fallback when this returns [] is to mark the conversation
-        # failed for lack of a user question, so a transient hiccup here
-        # would cause a spurious permanent failure.
+        # Retry transient infrastructure errors. The caller treats [] as "no
+        # user question" and fails the conversation, so a hiccup here would
+        # cause a spurious permanent failure.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
             reraise=True,
         )
-        def _fetch() -> List[Dict]:
+        def _fetch_with_retry() -> List[Dict]:
             res = self.client.rpc(
                 "get_conversation_events",
                 {
@@ -1417,7 +1447,7 @@ class SupabaseDal:
             return res.data or []
 
         try:
-            return _fetch()
+            return _fetch_with_retry()
         except Exception:
             logging.exception(
                 "Supabase error while fetching conversation events (after retries)",
