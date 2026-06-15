@@ -48,23 +48,21 @@ class TestSignIn:
             with pytest.raises(SupabaseConnectionException) as exc_info:
                 mock_dal.sign_in()
 
+        # The exception stays a thin technical wrapper - it names the platform and
+        # the underlying error but carries none of the actionable guidance.
         message = str(exc_info.value)
-        assert "firewall" in message.lower()
-        assert "robusta.dev" in message
-        # The message stays short and defers the how-to-fix details to the docs.
+        assert "Robusta platform" in message
         assert "curl" not in message
-        # The exception carries the troubleshooting docs link...
-        assert FIREWALL_TROUBLESHOOTING_URL in message
-        # ...and a short WARNING heads-up is logged (kept at WARNING, not ERROR, so
-        # it doesn't raise a Sentry alert).
-        assert any(
-            r.levelno == logging.WARNING and "firewall" in r.getMessage().lower()
-            for r in caplog.records
-        )
-        # The docs URL should appear once (in the exception), not also in the log.
-        assert all(
-            FIREWALL_TROUBLESHOOTING_URL not in r.getMessage() for r in caplog.records
-        )
+        assert "*.robusta.dev" not in message
+        assert FIREWALL_TROUBLESHOOTING_URL not in message
+
+        # All the firewall guidance - cause, the allowlist fix, and the docs link -
+        # is logged at WARNING (not ERROR, so it doesn't raise a Sentry alert)
+        # before the exception is raised.
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("firewall" in r.getMessage().lower() for r in warnings)
+        assert any("*.robusta.dev" in r.getMessage() for r in warnings)
+        assert any(FIREWALL_TROUBLESHOOTING_URL in r.getMessage() for r in warnings)
 
     def test_connection_refused_raises_firewall_exception(self, mock_dal):
         mock_dal.client.auth.sign_in_with_password.side_effect = (
