@@ -58,7 +58,13 @@ from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
-from holmes.utils.holmes_status import update_holmes_status_in_db
+from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
+    refresh_platform_mcp_tools,
+)
+from holmes.utils.holmes_status import (
+    refresh_holmes_status,
+    update_holmes_status_in_db,
+)
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
@@ -250,6 +256,30 @@ def _toolset_status_refresh_loop():
                 )
 
             time.sleep(sleep_time)
+            try:
+                # Heartbeat: re-upsert HolmesStatus so updated_at signals
+                # liveness (platform-mcp filters remote-tool clusters on it),
+                # preserving the verified realtime flag. Skip when the DAL is
+                # disabled (no supabase credentials) — nothing to heartbeat.
+                if dal.enabled:
+                    refresh_holmes_status(dal, config)
+            except Exception:
+                logging.error("Failed to refresh holmes status", exc_info=True)
+            try:
+                # Re-discover platform-mcp tools so the dynamic remote-tool
+                # surface (new clusters, flipped account flag) reaches a
+                # RUNNING caller without a pod restart.
+                executor = config.create_tool_executor(
+                    dal,
+                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+                    enable_all_toolsets_possible=False,
+                    reuse_executor=True,
+                )
+                refresh_platform_mcp_tools(executor)
+            except Exception:
+                logging.error(
+                    "Failed to refresh platform-mcp tools", exc_info=True
+                )
             try:
                 changes = config.refresh_tool_executor(
                     dal,
