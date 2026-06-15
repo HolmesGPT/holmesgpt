@@ -1,5 +1,6 @@
 toolsets:
   kubernetes/logs:
+    expose_remotely: true  # cluster-local; callable cross-cluster via platform-mcp
     description: "Read pod logs"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
