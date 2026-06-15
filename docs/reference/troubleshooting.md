@@ -81,10 +81,6 @@ HolmesGPT crashes on startup while signing in to the Robusta platform, with a tr
 httpx.ConnectError: [Errno 104] Connection reset by peer
 ```
 
-In the pod's logs (`kubectl logs`) it looks like this:
-
-![HolmesGPT startup log showing a "Connection reset by peer" firewall error followed by the firewall troubleshooting guidance](../assets/firewall-connection-reset-log.png)
-
 This means an **outbound firewall or egress policy is blocking traffic from your cluster to the Robusta platform**. The hostname resolves and the TLS certificate is valid, so it is not a DNS or certificate problem — the connection itself is being reset or refused.
 
 **Solution:**
