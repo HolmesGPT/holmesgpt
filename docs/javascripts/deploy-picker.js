@@ -65,8 +65,11 @@ function readPreferredDeployment() {
   // tabsync key (only if it still holds a valid deployment slug).
   var params = new URLSearchParams(window.location.search);
   var fromUrl = params.get("tab");
-  if (fromUrl && isKnownSlug(slugify(fromUrl))) {
-    return slugify(fromUrl);
+  if (fromUrl) {
+    var fromUrlSlug = slugify(fromUrl);
+    if (isKnownSlug(fromUrlSlug)) {
+      return fromUrlSlug;
+    }
   }
   var dedicated = readStored(DEPLOY_KEY);
   if (dedicated && isKnownSlug(dedicated)) {

@@ -109,6 +109,11 @@
   border-color: var(--md-accent-fg-color);
   color: var(--md-accent-fg-color);
 }
+.deployment-selector__option:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
+  border-color: var(--md-accent-fg-color);
+}
 .deployment-selector__option.is-active {
   color: var(--md-primary-bg-color);
   background: var(--md-primary-fg-color);
