@@ -283,6 +283,20 @@ class ChatRequestBaseModel(BaseModel):
     # where the "role" field is expected to be "system".
     @model_validator(mode="before")
     def check_first_item_role(cls, values):
+        # A mode="before" validator receives the raw input, which is not always
+        # a dict. FastAPI hands us the raw request body (bytes/str) instead of a
+        # parsed dict when the client omits the "Content-Type: application/json"
+        # header, which previously crashed here with
+        # "'bytes' object has no attribute 'get'". Parse JSON payloads so a valid
+        # body still works, and skip the check for anything we can't treat as a
+        # mapping (Pydantic then raises a clean validation error).
+        if isinstance(values, (bytes, bytearray, str)):
+            try:
+                values = json.loads(values)
+            except (ValueError, TypeError):
+                return values
+        if not isinstance(values, dict):
+            return values
         conversation_history = values.get("conversation_history")
         if (
             conversation_history
@@ -290,6 +304,11 @@ class ChatRequestBaseModel(BaseModel):
             and len(conversation_history) > 0
         ):
             first_item = conversation_history[0]
+            # The first item may not be a dict (e.g. {"conversation_history": ["bad"]}).
+            # Skip the role check rather than crashing on .get(); Pydantic then
+            # raises a clean ValidationError for the malformed item shape.
+            if not isinstance(first_item, dict):
+                return values
             if not first_item.get("role") == "system":
                 raise ValueError(
                     "The first item in conversation_history must contain 'role': 'system'"

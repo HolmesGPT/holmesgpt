@@ -439,7 +439,7 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.1"
+    image: "github-mcp:1.0.4"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -476,9 +476,12 @@ mcpAddons:
 
       # Toolsets to enable (comma-separated list of toolset names)
       # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
-      # Default: repos, issues, pull_requests, actions (covers most investigation needs)
+      # Default: repos, issues, pull_requests, actions, context (covers most investigation needs).
+      # 'context' exposes the read-only get_me tool, which Holmes uses to validate
+      # the GitHub token at startup (a bad PAT marks the toolset disabled instead of
+      # appearing connected). Keep 'context' enabled unless you have a reason not to.
       # Ignored when `tools` below is set (tools takes precedence as a hard allowlist).
-      toolsets: "repos,issues,pull_requests,actions"
+      toolsets: "repos,issues,pull_requests,actions,context"
 
       # Individual tools to enable (comma-separated, optional).
       # When set, restricts Holmes to EXACTLY this list of tools — takes precedence

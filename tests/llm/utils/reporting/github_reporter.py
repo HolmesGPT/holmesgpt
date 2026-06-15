@@ -63,6 +63,22 @@ def _fmt_tokens(value: Optional[int]) -> str:
     return "—"
 
 
+def _fmt_denied_commands(commands: Optional[List[str]]) -> str:
+    """Format denied bash commands for a markdown table cell.
+
+    Each command is wrapped in backticks and pipe/newline characters are escaped
+    so they don't break the surrounding table. Multiple commands are stacked with
+    <br>. Returns an em dash when there are none.
+    """
+    if not commands:
+        return "—"
+    rendered = []
+    for cmd in commands:
+        safe = str(cmd).replace("|", "\\|").replace("\n", " ").replace("`", "")
+        rendered.append(f"`{safe}`")
+    return "<br>".join(rendered)
+
+
 def _format_diff_pct(diff: Optional[float]) -> str:
     """Format a diff percentage with arrow indicator, bold if >25%."""
     if diff is None:
@@ -440,9 +456,20 @@ def generate_markdown_report(
         if ask_holmes_mock_failures > 0:
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
+
+    # Warn (above the table) when the run attempted bash commands that were denied
+    # by the eval's allow/deny list. These are listed in the "Denied commands" column.
+    denied_total = sum(len(r.get("denied_commands") or []) for r in sorted_results)
+    if denied_total > 0:
+        plural = "s" if denied_total != 1 else ""
+        markdown += (
+            f"\n> ⚠️ **Warning:** this eval run contains {denied_total} denied "
+            f"bash command{plural}.\n"
+        )
+
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions | Src |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions | Denied commands | Src |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
@@ -458,6 +485,7 @@ def generate_markdown_report(
     total_compactions = 0
     total_turns = 0
     total_tools = 0
+    total_denied_commands = 0
     time_count = 0
     turns_count = 0
     tools_count = 0
@@ -559,7 +587,13 @@ def generate_markdown_report(
         max_prompt_str = _fmt_tokens(max_prompt)
         compactions_str = str(num_compactions) if num_compactions > 0 else "—"
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} | {source_str} |\n"
+        # Bash commands HolmesGPT tried to run that were denied by the eval's
+        # allow/deny list (no interactive approver exists during evals).
+        denied_commands = result.get("denied_commands") or []
+        total_denied_commands += len(denied_commands)
+        denied_commands_str = _fmt_denied_commands(denied_commands)
+
+        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} | {denied_commands_str} | {source_str} |\n"
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
@@ -575,7 +609,8 @@ def generate_markdown_report(
     max_completion_max_str = _fmt_tokens(max_completion_per_call_max)
     max_prompt_max_str = _fmt_tokens(max_prompt_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** | |\n"
+    total_denied_str = str(total_denied_commands) if total_denied_commands > 0 else "—"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** | **{total_denied_str}** | |\n"
 
     # Add footer explaining when no baseline available
     if not benchmark and not master:

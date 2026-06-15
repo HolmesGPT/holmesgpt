@@ -32,6 +32,7 @@ def _make_llm(args: dict) -> DefaultLLM:
     llm.tracer = None
     llm.name = None
     llm.is_robusta_model = False
+    llm.max_context_size = None
     return llm
 
 

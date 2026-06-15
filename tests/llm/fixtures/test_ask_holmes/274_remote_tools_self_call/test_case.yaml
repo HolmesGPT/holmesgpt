@@ -1,0 +1,31 @@
+# ROB-310 self-call repro + recovery. Counterpart to conversation
+# 8ddf4178-93dd-4093-82d5-f33c97d5da66: asked about ALL clusters, the caller
+# Holmes called the REMOTE tool with its own cluster (prod-us-east) as
+# agent_name and got a confusing "not eligible" error. The remote tool here
+# (mock_fleet_mcp.py) takes a free-string agent_name — so the model CAN attempt
+# the self-call — and returns a crisp self-correcting error pointing at the
+# local tool. This eval asserts the model ends up with all four codes,
+# obtaining its own cluster's code (RTC-EVAL-USEAST-c4k7n2) via the LOCAL tool
+# (the remote tool never returns it), i.e. it routed/recovered correctly.
+#
+# The prompt deliberately nudges toward the remote tool ("collect ... from
+# every cluster") to stress the self-call path.
+user_prompt: |
+  Use the diagnostics tools to collect the verification_code from every
+  cluster/agent in the fleet, including this one, and report each cluster with
+  its exact code.
+
+expected_output:
+  - Must report verification code RTC-EVAL-USEAST-c4k7n2 for prod-us-east
+  - Must report verification code RTC-EVAL-EUWEST-9p3q8d for prod-eu-west
+  - Must report verification code RTC-EVAL-APSOUTH-x6m1v5 for prod-ap-south
+  - Must report verification code RTC-EVAL-STGCORE-t2w9z4 for staging-core
+  - Must have obtained prod-us-east's code via the local fetch_cluster_diagnostics tool (the remote_fetch_cluster_diagnostics tool never returns prod-us-east's code)
+  - Must NOT end by reporting a failure/error for prod-us-east — if the remote tool was tried for prod-us-east, the local tool must have been used to recover
+
+include_tool_calls: true
+
+tags:
+  - medium
+  - question-answer
+  - fast

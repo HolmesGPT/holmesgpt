@@ -113,6 +113,20 @@ class MCPMode(str, Enum):
     STDIO = "stdio"
 
 
+# Well-known, read-only "who am I" tools used to verify MCP authentication when
+# no health_check_tool is explicitly configured. MCP servers commonly expose an
+# authenticated-identity endpoint (e.g. GitHub's get_me, GitLab's
+# get_current_user). Calling one with empty arguments is a side-effect-free way
+# to confirm credentials (such as an API token) are actually valid, since
+# list_tools succeeds even with a bad token. Order reflects matching priority.
+DEFAULT_HEALTH_CHECK_TOOLS: List[str] = [
+    "get_me",
+    "get_current_user",
+    "get_authenticated_user",
+    "whoami",
+]
+
+
 
 
 
@@ -164,6 +178,14 @@ class MCPConfig(ToolsetConfig):
         title="OAuth",
         description="OAuth authorization_code configuration. When set, users authenticate via browser before tools can be used.",
     )
+    health_check_tool: Optional[str] = Field(
+        default=None,
+        title="Health Check Tool",
+        description="Name of a read-only tool to invoke during health check to verify authentication works. "
+        "If set, this tool will be called with empty arguments after loading tools to ensure the "
+        "connection is fully functional (e.g., API token is valid). Example: 'get_me' for GitHub MCP.",
+        examples=["get_me", "get_current_user"],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.url)
@@ -200,6 +222,14 @@ class StdioMCPConfig(ToolsetConfig):
         default="https://registry.npmmirror.com/@lobehub/icons-static-png/1.46.0/files/light/mcp.png",
         description="Icon URL for this MCP server, displayed in the UI for tool calls.",
         examples=["https://cdn.simpleicons.org/github/181717"],
+    )
+    health_check_tool: Optional[str] = Field(
+        default=None,
+        title="Health Check Tool",
+        description="Name of a read-only tool to invoke during health check to verify authentication works. "
+        "If set, this tool will be called with empty arguments after loading tools to ensure the "
+        "connection is fully functional (e.g., API token is valid). Example: 'get_me' for GitHub MCP.",
+        examples=["get_me", "get_current_user"],
     )
 
     def get_lock_string(self) -> str:
@@ -932,6 +962,20 @@ class RemoteMCPToolset(Toolset):
             if not self.tools:
                 logging.warning("mcp server %s loaded 0 tools.", self.name)
 
+            # Invoke a read-only tool to verify authentication actually works.
+            # MCP servers (e.g. GitHub) often return their tool list even with
+            # invalid credentials, so listing tools alone doesn't prove auth.
+            # Use the explicitly-configured tool if set, otherwise auto-detect a
+            # well-known read-only identity tool from the loaded tools.
+            health_check_tool_name = (
+                self._mcp_config.health_check_tool
+                or self._auto_detect_health_check_tool()
+            )
+            if health_check_tool_name:
+                health_check_result = self._run_health_check_tool(health_check_tool_name)
+                if not health_check_result[0]:
+                    return health_check_result
+
             return (True, "")
         except Exception as e:
             error_detail = _extract_root_error_message(e)
@@ -940,6 +984,86 @@ class RemoteMCPToolset(Toolset):
                 f"Failed to load mcp server {self.name}: {error_detail}"
                 ". If the server is still starting up, Holmes will retry automatically",
             )
+
+    def _auto_detect_health_check_tool(self) -> Optional[str]:
+        """Pick a default health-check tool from a known allowlist of read-only
+        identity tools when none is explicitly configured.
+
+        Returns the name of the first allowlisted tool the server exposes, or
+        None if it exposes none (in which case the auth health check is skipped).
+        """
+        tool_names = {t.name for t in self.tools}
+        for candidate in DEFAULT_HEALTH_CHECK_TOOLS:
+            if candidate in tool_names:
+                logging.info(
+                    "MCP server %s: no health_check_tool configured, auto-detected '%s' for auth validation",
+                    self.name,
+                    candidate,
+                )
+                return candidate
+        # No identity tool exposed — the auth health check is skipped. Log it so
+        # a silently-skipped check is diagnosable (e.g. GitHub MCP without its
+        # 'context' toolset enabled does not expose get_me). Set an explicit
+        # health_check_tool in config to validate auth via a different tool.
+        logging.debug(
+            "MCP server %s: no health_check_tool configured and none of %s are "
+            "exposed by the server; skipping auth health check",
+            self.name,
+            DEFAULT_HEALTH_CHECK_TOOLS,
+        )
+        return None
+
+    def _run_health_check_tool(self, tool_name: str) -> Tuple[bool, str]:
+        """Invoke a tool to verify authentication actually works.
+
+        MCP servers may return a tool list even with invalid credentials (e.g., bad
+        GitHub token). This method calls a specified read-only tool with empty
+        arguments to verify the connection is fully functional.
+        """
+        matching_tools = [t for t in self.tools if t.name == tool_name]
+        if not matching_tools:
+            available = [t.name for t in self.tools]
+            return (
+                False,
+                f"MCP server {self.name}: health_check_tool '{tool_name}' not found. "
+                f"Available tools: {', '.join(available[:10])}{'...' if len(available) > 10 else ''}",
+            )
+
+        try:
+            result = asyncio.run(self._call_health_check_tool_async(tool_name))
+            if result.isError:
+                error_chunks = [
+                    RemoteMCPTool._extract_text_from_content_block(c)
+                    for c in result.content
+                ]
+                error_text = " ".join(t for t in error_chunks if t)
+                logging.warning(
+                    "MCP server %s health check failed (tool: %s): %s",
+                    self.name, tool_name, error_text or "unknown error"
+                )
+                return (
+                    False,
+                    f"MCP server {self.name}: health check tool '{tool_name}' with params {{}} "
+                    f"failed - {error_text or 'unknown error'}",
+                )
+            logging.info("MCP server %s health check passed (tool: %s)", self.name, tool_name)
+            return (True, "")
+        except Exception as e:
+            error_detail = _extract_root_error_message(e)
+            logging.warning(
+                "MCP server %s health check exception (tool: %s): %s",
+                self.name, tool_name, error_detail
+            )
+            return (
+                False,
+                f"MCP server {self.name}: health check tool '{tool_name}' with params {{}} "
+                f"failed - {error_detail}",
+            )
+
+    async def _call_health_check_tool_async(self, tool_name: str):
+        """Call a tool during health check (no request context available)."""
+        async with get_initialized_mcp_session(self, None) as session:
+            return await session.call_tool(tool_name, {})
 
     def _check_oauth_server_reachable(self) -> Tuple[bool, str]:
         """For OAuth MCP servers, verify reachability without authenticating.

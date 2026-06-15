@@ -107,6 +107,16 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Multiple Instances
+
+```multi-instance
+toolset: newrelic
+name: New Relic
+config: |
+  api_key: "<your New Relic User API Key>"
+  account_id: "<your New Relic account ID>"
+```
+
 ## Configuration Reference
 
 | Option | Default | Description |

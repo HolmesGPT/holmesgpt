@@ -1,0 +1,21 @@
+# ROB-310 remote tools steering, case "single remote cluster by name":
+# Holmes is asked about ONE remote cluster (prod-ap-south). It must call the
+# remote tool exactly for that agent_name — not fan out to the other agents
+# and not answer from its local tool (which would return prod-us-east's
+# record).
+user_prompt: |
+  What is the diagnostics verification_code of cluster prod-ap-south?
+  Reply with the exact code.
+
+expected_output:
+  - Must report verification code RTC-EVAL-APSOUTH-x6m1v5
+  - Must have called remote_fetch_cluster_diagnostics with agent_name prod-ap-south
+  - Must NOT have called remote_fetch_cluster_diagnostics for prod-eu-west or staging-core
+  - The reported code must NOT be RTC-EVAL-USEAST-c4k7n2 (that is a different cluster's code)
+
+include_tool_calls: true
+
+tags:
+  - medium
+  - question-answer
+  - fast
