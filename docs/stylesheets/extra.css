@@ -70,18 +70,23 @@
 }
 
 /* ── Deployment picker (docs/javascripts/deploy-picker.js) ─────────────── */
-/* A gated "Which Holmes are you running?" selector that replaces the outer
-   deployment tab strip. Styles only take effect once the script adds
-   `.is-enhanced`, so a no-JS reader still sees all the content. */
+/* A "Which Holmes are you running?" selector that replaces the native
+   deployment tab strip. Until the reader picks, the configuration is shown
+   behind a semi-transparent overlay carrying the selector. Styles only take
+   effect once the script adds `.is-enhanced`, so a no-JS reader still sees all
+   the content. */
+.tabbed-set.is-enhanced {
+  position: relative;
+}
+/* Hide the native tab strip — the selector replaces it. */
+.tabbed-set.is-enhanced > .tabbed-labels {
+  display: none;
+}
 .deployment-selector {
-  margin: 1.2em 0 1.5em;
-  padding: 1em 1.1em 1.1em;
-  border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 0.4rem;
-  background: var(--md-code-bg-color);
+  margin: 0 0 0.8em;
 }
 .deployment-selector__question {
-  margin: 0 0 0.7em;
+  margin: 0 0 0.6em;
   font-weight: 700;
 }
 .deployment-selector__options {
@@ -91,8 +96,8 @@
 }
 .deployment-selector__option {
   cursor: pointer;
-  padding: 0.5em 1em;
-  font-size: 0.78rem;
+  padding: 0.45em 0.95em;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--md-default-fg-color);
   background: var(--md-default-bg-color);
@@ -109,20 +114,40 @@
   background: var(--md-primary-fg-color);
   border-color: var(--md-primary-fg-color);
 }
-.deployment-selector__prompt {
-  margin: 0.9em 0 0;
-  font-size: 0.75rem;
+.deployment-selector__hint {
+  margin: 0.7em 0 0;
+  font-size: 0.72rem;
   color: var(--md-default-fg-color--light);
 }
-/* Hide the prompt once a deployment is chosen. */
-.deployment-picker.is-enhanced:not(.no-selection) .deployment-selector__prompt {
+/* Chosen state: the selector becomes a compact switcher above the content.
+   Drop the question + hint so it isn't noisy above every code block. */
+.tabbed-set.is-enhanced:not(.is-gated) .deployment-selector__question,
+.tabbed-set.is-enhanced:not(.is-gated) .deployment-selector__hint {
   display: none;
 }
-/* Replace the native outer tab strip with our selector, and hard-gate the
-   content until a choice is made. */
-.deployment-picker.is-enhanced > .tabbed-set > .tabbed-labels {
-  display: none;
+/* Gated state: frost the still-visible content and float the selector over it
+   as a semi-transparent overlay the reader must act on. */
+.tabbed-set.is-gated > .tabbed-content {
+  filter: blur(2px);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
 }
-.deployment-picker.is-enhanced.no-selection > .tabbed-set > .tabbed-content {
-  display: none;
+.tabbed-set.is-gated > .deployment-selector {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 1em 1.1em 1.1em;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+  /* Solid card so the selector stays readable over the blurred config. */
+  background: var(--md-default-bg-color);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
 }
+[data-md-color-scheme="slate"] .tabbed-set.is-gated > .deployment-selector {
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+}
+

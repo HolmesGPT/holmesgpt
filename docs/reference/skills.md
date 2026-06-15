@@ -19,8 +19,6 @@ Setup differs depending on how you run Holmes. Use the selector below to choose 
 - **Robusta Helm Chart** — HolmesGPT bundled with the Robusta platform (HolmesGPT Enterprise). If you installed Robusta and Holmes came with it, this is you.
 - **Holmes CLI** — running `holmes` locally on your machine (also covers the Python SDK).
 
-<div class="deployment-picker" markdown="1">
-
 === "Holmes Helm Chart"
 
     === "From a GitHub Repository"
@@ -325,8 +323,6 @@ Setup differs depending on how you run Holmes. Use the selector below to choose 
     )
     catalog = config.get_skill_catalog()
     ```
-
-</div>
 
 Holmes scans each path up to 2 levels deep for `SKILL.md` files.
 
