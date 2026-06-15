@@ -1,0 +1,70 @@
+.md-banner {
+  background: #000;
+  color: white;
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 0.25rem 1rem;
+  position: relative;
+  z-index: 1000;
+  border: none;
+}
+
+.md-banner__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.md-banner a {
+  color: #00d4aa;
+  text-decoration: none;
+  font-weight: 500;
+  margin-left: 0.5rem;
+}
+
+.md-banner a:hover {
+  color: #00bfa5;
+  text-decoration: underline;
+}
+
+
+/* Community meetup countdown in header */
+.md-header__meetup {
+  display: none;
+  color: hsla(0, 0%, 100%, 0.7);
+  font-size: 0.65rem;
+  white-space: nowrap;
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  text-decoration: none;
+  transition: color 0.25s;
+}
+
+.md-header__meetup:not(:empty) {
+  display: inline-block;
+}
+
+.md-header__meetup:hover {
+  color: white;
+  text-decoration: none;
+}
+
+@media screen and (max-width: 76.1875em) {
+  .md-header__meetup {
+    display: none !important;
+  }
+}
+
+/* Tab styling - full border around tabbed content */
+.tabbed-set {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 1.5em;
+  padding: 0 1em 1em 1em;
+}
+.tabbed-set .tabbed-content {
+  padding-top: 0.5em;
+}
+[data-md-color-scheme="slate"] .tabbed-set {
+  border-color: #404040;
+}
