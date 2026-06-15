@@ -328,15 +328,14 @@ class SupabaseDal:
                 ]
             ):
                 # The platform resolved but refused/reset the connection - almost
-                # always an outbound firewall. Log a short hint (kept at WARNING,
-                # not ERROR, so it doesn't raise a Sentry alert) and point at the
-                # docs for the full troubleshooting steps.
+                # always an outbound firewall. Log a short WARNING heads-up (not
+                # ERROR, so it doesn't raise a Sentry alert); the fix and the docs
+                # link live once, in the exception raised just below.
                 logging.warning(
-                    "Could not connect to the Robusta platform at %s - this usually "
-                    "means an outbound firewall is blocking egress. Allowlist "
-                    "outbound HTTPS to '*.robusta.dev'. See %s",
+                    "Could not connect to the Robusta platform at %s - this is "
+                    "usually an outbound firewall blocking egress. See the error "
+                    "below for how to fix it.",
                     self.url,
-                    FIREWALL_TROUBLESHOOTING_URL,
                 )
                 raise SupabaseConnectionException(e, self.url) from e
             raise

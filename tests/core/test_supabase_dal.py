@@ -53,17 +53,18 @@ class TestSignIn:
         assert "robusta.dev" in message
         # The message stays short and defers the how-to-fix details to the docs.
         assert "curl" not in message
-        # Both the exception and the log point the user at the troubleshooting docs.
+        # The exception carries the troubleshooting docs link...
         assert FIREWALL_TROUBLESHOOTING_URL in message
-        # An actionable hint is logged before the exception propagates. It is kept
-        # at WARNING (not ERROR) so it doesn't raise a Sentry alert.
-        warnings = [
-            r
+        # ...and a short WARNING heads-up is logged (kept at WARNING, not ERROR, so
+        # it doesn't raise a Sentry alert).
+        assert any(
+            r.levelno == logging.WARNING and "firewall" in r.getMessage().lower()
             for r in caplog.records
-            if r.levelno == logging.WARNING and "firewall" in r.getMessage().lower()
-        ]
-        assert warnings
-        assert any(FIREWALL_TROUBLESHOOTING_URL in r.getMessage() for r in warnings)
+        )
+        # The docs URL should appear once (in the exception), not also in the log.
+        assert all(
+            FIREWALL_TROUBLESHOOTING_URL not in r.getMessage() for r in caplog.records
+        )
 
     def test_connection_refused_raises_firewall_exception(self, mock_dal):
         mock_dal.client.auth.sign_in_with_password.side_effect = (
