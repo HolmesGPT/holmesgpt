@@ -68,6 +68,7 @@ from holmes.utils.holmes_status import (
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
+from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.frontend_tools import (
@@ -382,6 +383,10 @@ if LOG_PERFORMANCE:
 
 
 init_checks_app(app, config)
+if os.environ.get("ENABLE_ADMIN_API", "false").lower() == "true":
+    init_admin_app(app, config, dal)
+else:
+    logging.info("Admin API is disabled (set ENABLE_ADMIN_API=true to enable)")
 
 
 @app.post("/api/oauth/callback")
