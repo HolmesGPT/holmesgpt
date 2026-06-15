@@ -149,14 +149,12 @@ class ConversationEventPublisher:
     def _post_with_retry(
         self, events_to_flush: List[Dict[str, Any]], compact: bool
     ) -> Optional[int]:
-        """Post events via the DAL.
+        """Post events via the DAL, which already retries transient errors and
+        promotes mismatch errors to ConversationReassignedError.
 
-        The DAL (``post_conversation_events``) already retries transient
-        infrastructure errors with bounded exponential backoff and promotes
-        mismatch errors (assignee / request_sequence / status) to
-        ConversationReassignedError. We propagate reassignment so the worker
-        can exit cleanly, and translate any other post-retry failure to None so
-        ``_flush`` retains the events and retries them on the next flush.
+        Reassignment propagates so the worker exits cleanly; any other
+        post-retry failure becomes None so ``_flush`` retains the events and
+        retries them on the next flush.
         """
         try:
             return self.dal.post_conversation_events(
@@ -169,9 +167,7 @@ class ConversationEventPublisher:
         except ConversationReassignedError:
             raise
         except Exception as e:
-            # Defensive: the DAL already promotes mismatch errors, but if a raw
-            # mismatch leaks through, promote it here too so the worker exits
-            # the processing loop cleanly rather than retaining stale events.
+            # Defensive: promote a raw mismatch if one leaks past the DAL.
             if "mismatch" in str(e).lower():
                 raise ConversationReassignedError(str(e)) from e
             logging.warning(
