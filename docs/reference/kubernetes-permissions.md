@@ -16,6 +16,22 @@ The complete ServiceAccount, ClusterRole, and ClusterRoleBinding definitions can
 
 [**View Service Account Template**](https://raw.githubusercontent.com/HolmesGPT/holmesgpt/refs/heads/master/helm/holmes/templates/holmesgpt-service-account.yaml)
 
+## RBAC Structure
+
+HolmesGPT uses a two-layer RBAC approach:
+
+1. **Built-in `view` ClusterRole** — The Helm chart binds the ServiceAccount to the Kubernetes built-in [`view`](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles) ClusterRole, which provides read-only access to standard namespace-scoped resources (pods, deployments, services, configmaps, jobs, etc.).
+
+2. **Supplementary ClusterRole** — A custom ClusterRole (`<release>-holmes-cluster-role`) grants additional read-only permissions for resources **not** covered by `view`:
+
+    - **Cluster-scoped resources**: nodes, namespaces, persistentvolumes, storageclasses
+    - **Metrics**: metrics.k8s.io (pod and node metrics)
+    - **RBAC**: clusterroles, clusterrolebindings, roles, rolebindings
+    - **Cluster infrastructure**: apiservices, customresourcedefinitions, webhookconfigurations
+    - **Events**: events (core and events.k8s.io API groups)
+    - **Monitoring CRDs**: Prometheus Operator resources (prometheuses, alertmanagers, servicemonitors, etc.)
+    - **Optional CRDs**: Argo, Flux, Kafka (Strimzi), KEDA, Crossplane, Istio, Gateway API, Velero, External Secrets (controlled via `crdPermissions` values)
+
 ## Adaptive Behavior
 
 HolmesGPT automatically adjusts its behavior based on available permissions:
