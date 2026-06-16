@@ -35,9 +35,9 @@ const SHARED_KEY = "holmesgpt-tab-pref";
 // selector; the underlying tab label stays "Robusta Helm Chart" everywhere, so
 // tab slugs and cross-page/-tab sync are unaffected by the friendlier wording.
 const DEPLOYMENTS = {
-  "holmes-cli": "Holmes CLI",
-  "holmes-helm-chart": "Holmes Helm Chart",
-  "robusta-helm-chart": "Robusta (HolmesGPT Enterprise) Helm Chart",
+  "holmes-cli": "Holmes OSS — CLI",
+  "holmes-helm-chart": "Holmes OSS — Helm Chart",
+  "robusta-helm-chart": "HolmesGPT Enterprise — Robusta Helm Chart",
 };
 
 function slugify(text) {
@@ -131,7 +131,7 @@ function applyGlobalChoice(slug, persist) {
 
 function upgradeSet(set, options) {
   // The selector is a dropdown (not a row of pills): it stays compact and never
-  // wraps, even with a long label like "Robusta (HolmesGPT Enterprise) Helm
+  // wraps, even with a long label like "HolmesGPT Enterprise — Robusta Helm
   // Chart" in a narrow content column. It doubles as the in-overlay picker
   // (while gated) and the slim switcher (after a choice has been made).
   var selector = document.createElement("div");
@@ -218,6 +218,13 @@ document$.subscribe(function () {
     });
   var preferred = readPreferredDeployment();
   if (preferred) {
-    applyGlobalChoice(preferred, false);
+    // If the choice arrived via the ?tab= URL param (e.g. an external link
+    // from Robusta Enterprise), persist it so it becomes authoritative — it
+    // then survives an inner-tab click clobbering the shared tabsync key and
+    // carries to other pages, just like an explicit pick. Restores from
+    // storage don't need to be re-persisted.
+    var fromUrl = new URLSearchParams(window.location.search).get("tab");
+    var cameFromUrl = !!(fromUrl && slugify(fromUrl) === preferred);
+    applyGlobalChoice(preferred, cameFromUrl);
   }
 });

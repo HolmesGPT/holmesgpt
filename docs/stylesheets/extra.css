@@ -101,7 +101,7 @@
   color: var(--md-default-fg-color--light);
 }
 /* A dropdown rather than a row of pills: compact, never wraps, and fits the
-   long "Robusta (HolmesGPT Enterprise) Helm Chart" label at any width. */
+   long "HolmesGPT Enterprise — Robusta Helm Chart" label at any width. */
 .deployment-selector__select {
   max-width: 100%;
   cursor: pointer;
