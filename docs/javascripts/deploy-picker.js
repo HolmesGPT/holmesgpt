@@ -130,8 +130,10 @@ function applyGlobalChoice(slug, persist) {
 }
 
 function upgradeSet(set, options) {
-  // The selector doubles as the in-overlay picker (while gated) and the
-  // compact switcher (after a choice has been made).
+  // The selector is a dropdown (not a row of pills): it stays compact and never
+  // wraps, even with a long label like "Robusta (HolmesGPT Enterprise) Helm
+  // Chart" in a narrow content column. It doubles as the in-overlay picker
+  // (while gated) and the slim switcher (after a choice has been made).
   var selector = document.createElement("div");
   selector.className = "deployment-selector";
 
@@ -140,25 +142,38 @@ function upgradeSet(set, options) {
   question.textContent = "Which Holmes are you running?";
   selector.appendChild(question);
 
-  var optionRow = document.createElement("div");
-  optionRow.className = "deployment-selector__options";
-  optionRow.setAttribute("role", "group");
-  optionRow.setAttribute("aria-label", "Which Holmes are you running?");
-  selector.appendChild(optionRow);
+  var control = document.createElement("div");
+  control.className = "deployment-selector__control";
+
+  var inlineLabel = document.createElement("span");
+  inlineLabel.className = "deployment-selector__label";
+  inlineLabel.textContent = "Instructions for";
+  control.appendChild(inlineLabel);
+
+  var select = document.createElement("select");
+  select.className = "deployment-selector__select";
+  select.setAttribute("aria-label", "Which Holmes are you running?");
+
+  var placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select your setup…";
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  select.appendChild(placeholder);
 
   options.forEach(function (option) {
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "deployment-selector__option";
-    button.textContent = DEPLOYMENTS[option.slug];
-    button.setAttribute("data-deployment", option.slug);
-    button.setAttribute("aria-pressed", "false");
-    button.addEventListener("click", function () {
-      applyGlobalChoice(option.slug, true);
-    });
-    option.button = button;
-    optionRow.appendChild(button);
+    var opt = document.createElement("option");
+    opt.value = option.slug;
+    opt.textContent = DEPLOYMENTS[option.slug];
+    select.appendChild(opt);
   });
+  select.addEventListener("change", function () {
+    if (select.value) {
+      applyGlobalChoice(select.value, true);
+    }
+  });
+  control.appendChild(select);
+  selector.appendChild(control);
 
   var hint = document.createElement("p");
   hint.className = "deployment-selector__hint";
@@ -174,21 +189,17 @@ function upgradeSet(set, options) {
   function apply(slug) {
     var match = null;
     options.forEach(function (option) {
-      var isActive = option.slug === slug;
-      option.button.classList.toggle("is-active", isActive);
-      option.button.setAttribute("aria-pressed", isActive ? "true" : "false");
-      if (isActive) {
+      if (option.slug === slug) {
         match = option;
       }
     });
-    if (match) {
-      match.radio.checked = true;
-      match.radio.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-    // Either way the must-pick gate is satisfied: reveal this block. When the
-    // global choice isn't one of this group's options (e.g. a Helm-only block
-    // when the reader picked CLI) we simply keep the first tab rather than
-    // forcing a second choice.
+    // When the global choice isn't one of this group's options (e.g. a
+    // Helm-only block when the reader picked CLI) we keep the first tab rather
+    // than forcing a second choice.
+    var shown = match || options[0];
+    shown.radio.checked = true;
+    shown.radio.dispatchEvent(new Event("change", { bubbles: true }));
+    select.value = shown.slug;
     set.classList.remove("is-gated");
   }
 

@@ -86,43 +86,58 @@
   margin: 0 0 0.8em;
 }
 .deployment-selector__question {
-  margin: 0 0 0.6em;
+  margin: 0 0 0.55em;
   font-weight: 700;
 }
-.deployment-selector__options {
+.deployment-selector__control {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5em;
+  flex-wrap: wrap;
 }
-.deployment-selector__option {
+.deployment-selector__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--md-default-fg-color--light);
+}
+/* A dropdown rather than a row of pills: compact, never wraps, and fits the
+   long "Robusta (HolmesGPT Enterprise) Helm Chart" label at any width. */
+.deployment-selector__select {
+  max-width: 100%;
   cursor: pointer;
-  padding: 0.45em 0.95em;
-  font-size: 0.75rem;
+  padding: 0.5em 2.1em 0.5em 0.85em;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--md-default-fg-color);
-  background: var(--md-default-bg-color);
+  background-color: var(--md-default-bg-color);
   border: 1px solid var(--md-default-fg-color--lighter);
-  border-radius: 2rem;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  border-radius: 0.3rem;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.65em center;
+  background-size: 0.7em;
 }
-.deployment-selector__option:hover {
+.deployment-selector__select:hover {
   border-color: var(--md-accent-fg-color);
-  color: var(--md-accent-fg-color);
 }
-.deployment-selector__option:focus-visible {
+.deployment-selector__select:focus-visible {
   outline: 2px solid var(--md-accent-fg-color);
   outline-offset: 2px;
   border-color: var(--md-accent-fg-color);
 }
-.deployment-selector__option.is-active {
-  color: var(--md-primary-bg-color);
-  background: var(--md-primary-fg-color);
-  border-color: var(--md-primary-fg-color);
-}
 .deployment-selector__hint {
-  margin: 0.7em 0 0;
+  margin: 0.6em 0 0;
   font-size: 0.72rem;
   color: var(--md-default-fg-color--light);
+}
+/* Gated state: the dropdown fills the overlay card; drop the inline "for" label. */
+.tabbed-set.is-enhanced.is-gated .deployment-selector__label {
+  display: none;
+}
+.tabbed-set.is-enhanced.is-gated .deployment-selector__select {
+  flex: 1 1 auto;
 }
 /* Chosen state: the selector becomes a compact switcher above the content.
    Drop the question + hint so it isn't noisy above every code block. */
