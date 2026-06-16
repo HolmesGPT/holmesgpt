@@ -139,11 +139,22 @@
 .tabbed-set.is-enhanced.is-gated .deployment-selector__select {
   flex: 1 1 auto;
 }
-/* Chosen state: the selector becomes a compact switcher above the content.
+/* Chosen state: the selector becomes a compact header band above the content.
    Drop the question + hint so it isn't noisy above every code block. */
 .tabbed-set.is-enhanced:not(.is-gated) .deployment-selector__question,
 .tabbed-set.is-enhanced:not(.is-gated) .deployment-selector__hint {
   display: none;
+}
+/* The set has `padding: 0 1em 1em` (no top padding), so style the switcher as
+   a full-width header band: breathing room above, a divider below, bled out to
+   the box edges. */
+.tabbed-set.is-enhanced:not(.is-gated) .deployment-selector {
+  margin: 0 -1em;
+  padding: 0.7em 1em;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+.tabbed-set.is-enhanced:not(.is-gated) > .tabbed-content {
+  padding-top: 0.9em;
 }
 /* Gated state: frost the still-visible content and float the selector over it
    as a semi-transparent overlay the reader must act on. */
@@ -156,9 +167,9 @@
 .tabbed-set.is-gated > .deployment-selector {
   position: absolute;
   z-index: 3;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0.7em;
+  left: 0.7em;
+  right: 0.7em;
   margin: 0;
   padding: 1em 1.1em 1.1em;
   border: 1px solid var(--md-default-fg-color--lightest);
