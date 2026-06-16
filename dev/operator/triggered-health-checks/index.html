@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://holmesgpt.dev/dev/walkthrough/">
+        <link rel="canonical" href="https://holmesgpt.dev/dev/operator/triggered-health-checks/">
       
       
-        <link rel="prev" href="../installation/python-installation/">
+        <link rel="prev" href="../scheduled-health-checks/">
       
       
-        <link rel="next" href="interactive-mode/">
+        <link rel="next" href="../destinations/">
       
       
         
       
       
-      <link rel="icon" href="../assets/favicon.png">
+      <link rel="icon" href="../../assets/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Walkthrough - HolmesGPT Documentation</title>
+        <title>Triggered Health Checks - HolmesGPT Documentation</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,15 +53,15 @@
       
     
     
-      <link rel="stylesheet" href="../stylesheets/extra.css">
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
     
     
-   <link href="../assets/stylesheets/glightbox.min.css" rel="stylesheet"/><style>
+   <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"/><style>
     html.glightbox-open { overflow: initial; height: 100%; }
     .gslide-title { margin-top: 0px; user-select: text; }
     .gslide-desc { color: #666; user-select: text; }
@@ -70,7 +70,7 @@
     .gdesc-inner { font-size: 0.75rem; }
     body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color);}
     body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color);}
-    body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color);}</style> <script src="../assets/javascripts/glightbox.min.js"></script></head>
+    body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color);}</style> <script src="../../assets/javascripts/glightbox.min.js"></script></head>
   
   
     
@@ -89,7 +89,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#walkthrough" class="md-skip">
+        <a href="#triggered-health-checks" class="md-skip">
           Skip to content
         </a>
       
@@ -104,12 +104,12 @@
             <div class="md-banner__inner md-grid md-typeset">
               
   You're viewing docs for a <strong>previous version</strong>.
-  <a href="../..">
+  <a href="../../..">
     <strong>Switch to the latest stable release.</strong>
   </a>
 
             </div>
-            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL(".."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
           </aside>
         
       </div>
@@ -121,9 +121,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="HolmesGPT Documentation" class="md-header__button md-logo" aria-label="HolmesGPT Documentation" data-md-component="logo">
+    <a href="../.." title="HolmesGPT Documentation" class="md-header__button md-logo" aria-label="HolmesGPT Documentation" data-md-component="logo">
       
-  <img src="../assets/logo.png" alt="logo">
+  <img src="../../assets/logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -140,7 +140,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Walkthrough
+              Triggered Health Checks
             
           </span>
         </div>
@@ -312,9 +312,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="HolmesGPT Documentation" class="md-nav__button md-logo" aria-label="HolmesGPT Documentation" data-md-component="logo">
+    <a href="../.." title="HolmesGPT Documentation" class="md-nav__button md-logo" aria-label="HolmesGPT Documentation" data-md-component="logo">
       
-  <img src="../assets/logo.png" alt="logo">
+  <img src="../../assets/logo.png" alt="logo">
 
     </a>
     HolmesGPT Documentation
@@ -341,7 +341,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -368,7 +368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../why-holmesgpt/" class="md-nav__link">
+      <a href="../../why-holmesgpt/" class="md-nav__link">
         
   
   
@@ -462,7 +462,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/cli-installation/" class="md-nav__link">
+      <a href="../../installation/cli-installation/" class="md-nav__link">
         
   
   
@@ -490,7 +490,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/ui-installation/" class="md-nav__link">
+      <a href="../../installation/ui-installation/" class="md-nav__link">
         
   
   
@@ -518,7 +518,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/slack-installation/" class="md-nav__link">
+      <a href="../../installation/slack-installation/" class="md-nav__link">
         
   
   
@@ -546,7 +546,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/teams-installation/" class="md-nav__link">
+      <a href="../../installation/teams-installation/" class="md-nav__link">
         
   
   
@@ -574,7 +574,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/backstage-integration/" class="md-nav__link">
+      <a href="../../installation/backstage-integration/" class="md-nav__link">
         
   
   
@@ -602,7 +602,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/k9s-installation/" class="md-nav__link">
+      <a href="../../installation/k9s-installation/" class="md-nav__link">
         
   
   
@@ -630,7 +630,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/docker-compose-installation/" class="md-nav__link">
+      <a href="../../installation/docker-compose-installation/" class="md-nav__link">
         
   
   
@@ -658,7 +658,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/kubernetes-installation/" class="md-nav__link">
+      <a href="../../installation/kubernetes-installation/" class="md-nav__link">
         
   
   
@@ -686,7 +686,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/python-installation/" class="md-nav__link">
+      <a href="../../installation/python-installation/" class="md-nav__link">
         
   
   
@@ -718,8 +718,6 @@
       
   
   
-    
-  
   
   
     
@@ -741,15 +739,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../../walkthrough/" class="md-nav__link ">
               
   
   
@@ -767,13 +765,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_4" id="__nav_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -793,7 +791,7 @@
   
   
     <li class="md-nav__item">
-      <a href="interactive-mode/" class="md-nav__link">
+      <a href="../../walkthrough/interactive-mode/" class="md-nav__link">
         
   
   
@@ -821,7 +819,7 @@
   
   
     <li class="md-nav__item">
-      <a href="cicd-troubleshooting/" class="md-nav__link">
+      <a href="../../walkthrough/cicd-troubleshooting/" class="md-nav__link">
         
   
   
@@ -849,7 +847,7 @@
   
   
     <li class="md-nav__item">
-      <a href="investigating-prometheus-alerts/" class="md-nav__link">
+      <a href="../../walkthrough/investigating-prometheus-alerts/" class="md-nav__link">
         
   
   
@@ -877,7 +875,7 @@
   
   
     <li class="md-nav__item">
-      <a href="investigating-using-aks-mcp-server/" class="md-nav__link">
+      <a href="../../walkthrough/investigating-using-aks-mcp-server/" class="md-nav__link">
         
   
   
@@ -909,6 +907,8 @@
       
   
   
+    
+  
   
   
     
@@ -936,15 +936,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../operator/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -968,7 +968,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -988,7 +988,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operator/deployment-verification/" class="md-nav__link">
+      <a href="../deployment-verification/" class="md-nav__link">
         
   
   
@@ -1016,7 +1016,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operator/health-checks/" class="md-nav__link">
+      <a href="../health-checks/" class="md-nav__link">
         
   
   
@@ -1044,7 +1044,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operator/scheduled-health-checks/" class="md-nav__link">
+      <a href="../scheduled-health-checks/" class="md-nav__link">
         
   
   
@@ -1069,10 +1069,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../operator/triggered-health-checks/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Triggered Health Checks
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1088,6 +1115,103 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-and-rollout-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query and rollout context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spec-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spec reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-long-to-wait" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How long to wait
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes &amp; limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1100,7 +1224,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operator/destinations/" class="md-nav__link">
+      <a href="../destinations/" class="md-nav__link">
         
   
   
@@ -1128,7 +1252,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operator/configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -1156,7 +1280,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operator/development/" class="md-nav__link">
+      <a href="../development/" class="md-nav__link">
         
   
   
@@ -1237,7 +1361,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../ai-providers/" class="md-nav__link ">
+            <a href="../../ai-providers/" class="md-nav__link ">
               
   
   
@@ -1281,7 +1405,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/anthropic/" class="md-nav__link">
+      <a href="../../ai-providers/anthropic/" class="md-nav__link">
         
   
   
@@ -1309,7 +1433,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/aws-bedrock/" class="md-nav__link">
+      <a href="../../ai-providers/aws-bedrock/" class="md-nav__link">
         
   
   
@@ -1337,7 +1461,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/azure-ai-foundry/" class="md-nav__link">
+      <a href="../../ai-providers/azure-ai-foundry/" class="md-nav__link">
         
   
   
@@ -1365,7 +1489,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/gemini/" class="md-nav__link">
+      <a href="../../ai-providers/gemini/" class="md-nav__link">
         
   
   
@@ -1393,7 +1517,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/github-copilot/" class="md-nav__link">
+      <a href="../../ai-providers/github-copilot/" class="md-nav__link">
         
   
   
@@ -1421,7 +1545,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/github/" class="md-nav__link">
+      <a href="../../ai-providers/github/" class="md-nav__link">
         
   
   
@@ -1449,7 +1573,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/google-vertex-ai/" class="md-nav__link">
+      <a href="../../ai-providers/google-vertex-ai/" class="md-nav__link">
         
   
   
@@ -1477,7 +1601,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/ollama/" class="md-nav__link">
+      <a href="../../ai-providers/ollama/" class="md-nav__link">
         
   
   
@@ -1505,7 +1629,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/openrouter/" class="md-nav__link">
+      <a href="../../ai-providers/openrouter/" class="md-nav__link">
         
   
   
@@ -1533,7 +1657,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/openai/" class="md-nav__link">
+      <a href="../../ai-providers/openai/" class="md-nav__link">
         
   
   
@@ -1561,7 +1685,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/openai-compatible/" class="md-nav__link">
+      <a href="../../ai-providers/openai-compatible/" class="md-nav__link">
         
   
   
@@ -1589,7 +1713,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/other/" class="md-nav__link">
+      <a href="../../ai-providers/other/" class="md-nav__link">
         
   
   
@@ -1617,7 +1741,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/robusta-ai/" class="md-nav__link">
+      <a href="../../ai-providers/robusta-ai/" class="md-nav__link">
         
   
   
@@ -1645,7 +1769,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-providers/using-multiple-providers/" class="md-nav__link">
+      <a href="../../ai-providers/using-multiple-providers/" class="md-nav__link">
         
   
   
@@ -1718,7 +1842,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../data-sources/" class="md-nav__link ">
+            <a href="../../data-sources/" class="md-nav__link ">
               
   
   
@@ -1762,7 +1886,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/recommended-setup/" class="md-nav__link">
+      <a href="../../data-sources/recommended-setup/" class="md-nav__link">
         
   
   
@@ -1920,7 +2044,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../data-sources/builtin-toolsets/" class="md-nav__link ">
+            <a href="../../data-sources/builtin-toolsets/" class="md-nav__link ">
               
   
   
@@ -1964,7 +2088,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/aks-node-health/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/aks-node-health/" class="md-nav__link">
         
   
   
@@ -1992,7 +2116,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/argocd/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/argocd/" class="md-nav__link">
         
   
   
@@ -2020,7 +2144,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/aws/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/aws/" class="md-nav__link">
         
   
   
@@ -2048,7 +2172,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/azure-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/azure-mcp/" class="md-nav__link">
         
   
   
@@ -2076,7 +2200,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/aks/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/aks/" class="md-nav__link">
         
   
   
@@ -2104,7 +2228,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/azure-sql/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/azure-sql/" class="md-nav__link">
         
   
   
@@ -2132,7 +2256,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/bash/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/bash/" class="md-nav__link">
         
   
   
@@ -2160,7 +2284,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/cilium/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/cilium/" class="md-nav__link">
         
   
   
@@ -2188,7 +2312,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/database-clickhouse/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/database-clickhouse/" class="md-nav__link">
         
   
   
@@ -2216,7 +2340,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/confluence/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/confluence/" class="md-nav__link">
         
   
   
@@ -2244,7 +2368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/confluence-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/confluence-mcp/" class="md-nav__link">
         
   
   
@@ -2272,7 +2396,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/connectivity-check/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/connectivity-check/" class="md-nav__link">
         
   
   
@@ -2300,7 +2424,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/coralogix-logs/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/coralogix-logs/" class="md-nav__link">
         
   
   
@@ -2328,7 +2452,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/crossplane/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/crossplane/" class="md-nav__link">
         
   
   
@@ -2356,7 +2480,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/datadog/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/datadog/" class="md-nav__link">
         
   
   
@@ -2384,7 +2508,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/docker/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/docker/" class="md-nav__link">
         
   
   
@@ -2412,7 +2536,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/elasticsearch/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/elasticsearch/" class="md-nav__link">
         
   
   
@@ -2440,7 +2564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/gcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/gcp/" class="md-nav__link">
         
   
   
@@ -2468,7 +2592,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/github-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/github-mcp/" class="md-nav__link">
         
   
   
@@ -2496,7 +2620,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/gitlab-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/gitlab-mcp/" class="md-nav__link">
         
   
   
@@ -2524,7 +2648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/grafana-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/grafana-mcp/" class="md-nav__link">
         
   
   
@@ -2552,7 +2676,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/grafanadashboards/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/grafanadashboards/" class="md-nav__link">
         
   
   
@@ -2580,7 +2704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/grafanaloki/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/grafanaloki/" class="md-nav__link">
         
   
   
@@ -2608,7 +2732,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/grafanatempo/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/grafanatempo/" class="md-nav__link">
         
   
   
@@ -2636,7 +2760,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/helm/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/helm/" class="md-nav__link">
         
   
   
@@ -2664,7 +2788,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/inspektor-gadget/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/inspektor-gadget/" class="md-nav__link">
         
   
   
@@ -2692,7 +2816,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/internet/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/internet/" class="md-nav__link">
         
   
   
@@ -2720,7 +2844,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/jenkins-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/jenkins-mcp/" class="md-nav__link">
         
   
   
@@ -2748,7 +2872,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/kafka/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/kafka/" class="md-nav__link">
         
   
   
@@ -2776,7 +2900,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/kubectl-run/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/kubectl-run/" class="md-nav__link">
         
   
   
@@ -2804,7 +2928,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/kubernetes/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/kubernetes/" class="md-nav__link">
         
   
   
@@ -2832,7 +2956,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/kubernetes-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/kubernetes-mcp/" class="md-nav__link">
         
   
   
@@ -2860,7 +2984,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/kubernetes-remediation-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/kubernetes-remediation-mcp/" class="md-nav__link">
         
   
   
@@ -2888,7 +3012,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/kubevela/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/kubevela/" class="md-nav__link">
         
   
   
@@ -2916,7 +3040,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/database-mariadb/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/database-mariadb/" class="md-nav__link">
         
   
   
@@ -2944,7 +3068,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/mariadb-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/mariadb-mcp/" class="md-nav__link">
         
   
   
@@ -2972,7 +3096,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/mongodb/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/mongodb/" class="md-nav__link">
         
   
   
@@ -3000,7 +3124,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/mongodb-atlas/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/mongodb-atlas/" class="md-nav__link">
         
   
   
@@ -3028,7 +3152,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/database-mysql/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/database-mysql/" class="md-nav__link">
         
   
   
@@ -3056,7 +3180,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/newrelic/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/newrelic/" class="md-nav__link">
         
   
   
@@ -3084,7 +3208,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/notion/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/notion/" class="md-nav__link">
         
   
   
@@ -3112,7 +3236,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/openshift/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/openshift/" class="md-nav__link">
         
   
   
@@ -3140,7 +3264,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/database-postgresql/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/database-postgresql/" class="md-nav__link">
         
   
   
@@ -3168,7 +3292,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/prometheus/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/prometheus/" class="md-nav__link">
         
   
   
@@ -3196,7 +3320,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/prefect-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/prefect-mcp/" class="md-nav__link">
         
   
   
@@ -3224,7 +3348,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/rabbitmq/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/rabbitmq/" class="md-nav__link">
         
   
   
@@ -3252,7 +3376,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/robusta/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/robusta/" class="md-nav__link">
         
   
   
@@ -3280,7 +3404,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/sentry-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/sentry-mcp/" class="md-nav__link">
         
   
   
@@ -3308,7 +3432,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/servicenow/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/servicenow/" class="md-nav__link">
         
   
   
@@ -3336,7 +3460,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/slab/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/slab/" class="md-nav__link">
         
   
   
@@ -3364,7 +3488,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/splunk-mcp/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/splunk-mcp/" class="md-nav__link">
         
   
   
@@ -3392,7 +3516,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/database-sqlserver/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/database-sqlserver/" class="md-nav__link">
         
   
   
@@ -3420,7 +3544,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/database-sqlite/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/database-sqlite/" class="md-nav__link">
         
   
   
@@ -3448,7 +3572,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/victorialogs/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/victorialogs/" class="md-nav__link">
         
   
   
@@ -3476,7 +3600,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/victoriametrics/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/victoriametrics/" class="md-nav__link">
         
   
   
@@ -3504,7 +3628,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/builtin-toolsets/zabbix/" class="md-nav__link">
+      <a href="../../data-sources/builtin-toolsets/zabbix/" class="md-nav__link">
         
   
   
@@ -3540,7 +3664,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/multi-instance-toolsets/" class="md-nav__link">
+      <a href="../../data-sources/multi-instance-toolsets/" class="md-nav__link">
         
   
   
@@ -3568,7 +3692,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/api-toolsets/" class="md-nav__link">
+      <a href="../../data-sources/api-toolsets/" class="md-nav__link">
         
   
   
@@ -3596,7 +3720,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/database-connectors/" class="md-nav__link">
+      <a href="../../data-sources/database-connectors/" class="md-nav__link">
         
   
   
@@ -3624,7 +3748,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/custom-toolsets/" class="md-nav__link">
+      <a href="../../data-sources/custom-toolsets/" class="md-nav__link">
         
   
   
@@ -3652,7 +3776,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/remote-mcp-servers/" class="md-nav__link">
+      <a href="../../data-sources/remote-mcp-servers/" class="md-nav__link">
         
   
   
@@ -3680,7 +3804,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/oauth-mcp-servers/" class="md-nav__link">
+      <a href="../../data-sources/oauth-mcp-servers/" class="md-nav__link">
         
   
   
@@ -3708,7 +3832,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/header-propagation/" class="md-nav__link">
+      <a href="../../data-sources/header-propagation/" class="md-nav__link">
         
   
   
@@ -3736,7 +3860,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-sources/tool-execution-safety/" class="md-nav__link">
+      <a href="../../data-sources/tool-execution-safety/" class="md-nav__link">
         
   
   
@@ -3803,7 +3927,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../development/evaluations/" class="md-nav__link ">
+            <a href="../../development/evaluations/" class="md-nav__link ">
               
   
   
@@ -3847,7 +3971,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/latest-results/" class="md-nav__link">
+      <a href="../../development/evaluations/latest-results/" class="md-nav__link">
         
   
   
@@ -3875,7 +3999,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/model-comparison-summary-20260315/" class="md-nav__link">
+      <a href="../../development/evaluations/model-comparison-summary-20260315/" class="md-nav__link">
         
   
   
@@ -3967,7 +4091,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../development/evaluations/history/" class="md-nav__link ">
+            <a href="../../development/evaluations/history/" class="md-nav__link ">
               
   
   
@@ -4011,7 +4135,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260609_113742/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260609_113742/" class="md-nav__link">
         
   
   
@@ -4039,7 +4163,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260607_034849/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260607_034849/" class="md-nav__link">
         
   
   
@@ -4067,7 +4191,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260531_035157/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260531_035157/" class="md-nav__link">
         
   
   
@@ -4095,7 +4219,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260524_132857/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260524_132857/" class="md-nav__link">
         
   
   
@@ -4123,7 +4247,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260426_034340/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260426_034340/" class="md-nav__link">
         
   
   
@@ -4151,7 +4275,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260419_044450/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260419_044450/" class="md-nav__link">
         
   
   
@@ -4179,7 +4303,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260412_044126/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260412_044126/" class="md-nav__link">
         
   
   
@@ -4207,7 +4331,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260405_043024/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260405_043024/" class="md-nav__link">
         
   
   
@@ -4235,7 +4359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260329_033817/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260329_033817/" class="md-nav__link">
         
   
   
@@ -4263,7 +4387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260315_041151/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260315_041151/" class="md-nav__link">
         
   
   
@@ -4291,7 +4415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260311_210836/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260311_210836/" class="md-nav__link">
         
   
   
@@ -4319,7 +4443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260129_094857/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260129_094857/" class="md-nav__link">
         
   
   
@@ -4347,7 +4471,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260127_161120/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260127_161120/" class="md-nav__link">
         
   
   
@@ -4375,7 +4499,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260122_074259/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260122_074259/" class="md-nav__link">
         
   
   
@@ -4403,7 +4527,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260120_143709/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260120_143709/" class="md-nav__link">
         
   
   
@@ -4431,7 +4555,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20260104_174301/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20260104_174301/" class="md-nav__link">
         
   
   
@@ -4459,7 +4583,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20251127_042958/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20251127_042958/" class="md-nav__link">
         
   
   
@@ -4487,7 +4611,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20251012_170303/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20251012_170303/" class="md-nav__link">
         
   
   
@@ -4515,7 +4639,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20250930_085923/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20250930_085923/" class="md-nav__link">
         
   
   
@@ -4543,7 +4667,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/results_20250928_001434/" class="md-nav__link">
+      <a href="../../development/evaluations/history/results_20250928_001434/" class="md-nav__link">
         
   
   
@@ -4571,7 +4695,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/frontier_5_models_20260314_204516/" class="md-nav__link">
+      <a href="../../development/evaluations/history/frontier_5_models_20260314_204516/" class="md-nav__link">
         
   
   
@@ -4599,7 +4723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/custom_self_hosted_results_20251008_053744/" class="md-nav__link">
+      <a href="../../development/evaluations/history/custom_self_hosted_results_20251008_053744/" class="md-nav__link">
         
   
   
@@ -4627,7 +4751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/history/custom_claude_results_20250930_153753/" class="md-nav__link">
+      <a href="../../development/evaluations/history/custom_claude_results_20250930_153753/" class="md-nav__link">
         
   
   
@@ -4663,7 +4787,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/running-evals/" class="md-nav__link">
+      <a href="../../development/evaluations/running-evals/" class="md-nav__link">
         
   
   
@@ -4691,7 +4815,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/adding-evals/" class="md-nav__link">
+      <a href="../../development/evaluations/adding-evals/" class="md-nav__link">
         
   
   
@@ -4719,7 +4843,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/benchmarking-new-models/" class="md-nav__link">
+      <a href="../../development/evaluations/benchmarking-new-models/" class="md-nav__link">
         
   
   
@@ -4747,7 +4871,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/evaluations/reporting/" class="md-nav__link">
+      <a href="../../development/evaluations/reporting/" class="md-nav__link">
         
   
   
@@ -4802,7 +4926,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../development/" class="md-nav__link ">
+            <a href="../../development/" class="md-nav__link ">
               
   
   
@@ -4846,7 +4970,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/transformers/" class="md-nav__link">
+      <a href="../../development/transformers/" class="md-nav__link">
         
   
   
@@ -4950,7 +5074,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/python-sdk/" class="md-nav__link">
+      <a href="../../reference/python-sdk/" class="md-nav__link">
         
   
   
@@ -4978,7 +5102,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/environment-variables/" class="md-nav__link">
+      <a href="../../reference/environment-variables/" class="md-nav__link">
         
   
   
@@ -5006,7 +5130,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/helm-configuration/" class="md-nav__link">
+      <a href="../../reference/helm-configuration/" class="md-nav__link">
         
   
   
@@ -5034,7 +5158,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/kubernetes-permissions/" class="md-nav__link">
+      <a href="../../reference/kubernetes-permissions/" class="md-nav__link">
         
   
   
@@ -5062,7 +5186,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/teams-permissions/" class="md-nav__link">
+      <a href="../../reference/teams-permissions/" class="md-nav__link">
         
   
   
@@ -5090,7 +5214,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/http-api/" class="md-nav__link">
+      <a href="../../reference/http-api/" class="md-nav__link">
         
   
   
@@ -5118,7 +5242,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/opentelemetry/" class="md-nav__link">
+      <a href="../../reference/opentelemetry/" class="md-nav__link">
         
   
   
@@ -5146,7 +5270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/skills/" class="md-nav__link">
+      <a href="../../reference/skills/" class="md-nav__link">
         
   
   
@@ -5174,7 +5298,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/slash-commands/" class="md-nav__link">
+      <a href="../../reference/slash-commands/" class="md-nav__link">
         
   
   
@@ -5202,7 +5326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/troubleshooting/" class="md-nav__link">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
         
   
   
@@ -5237,7 +5361,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../community/" class="md-nav__link">
+      <a href="../../community/" class="md-nav__link">
         
   
   
@@ -5284,10 +5408,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        How it works
       
     </span>
   </a>
@@ -5295,10 +5419,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#run-your-first-investigation" class="md-nav__link">
+  <a href="#example" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Run Your First Investigation
+        Example
       
     </span>
   </a>
@@ -5306,10 +5430,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-you-just-experienced" class="md-nav__link">
+  <a href="#query-and-rollout-context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What You Just Experienced
+        Query and rollout context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spec-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spec reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-long-to-wait" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How long to wait
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes &amp; limitations
       
     </span>
   </a>
@@ -5352,7 +5509,7 @@
   
   
     <li class="md-path__item">
-      <a href=".." class="md-path__link">
+      <a href="../.." class="md-path__link">
         
   <span class="md-ellipsis">
     HolmesGPT
@@ -5370,10 +5527,10 @@
     
     
       <li class="md-path__item">
-        <a href="./" class="md-path__link">
+        <a href="../" class="md-path__link">
           
   <span class="md-ellipsis">
-    Walkthrough
+    Holmes Operator
   </span>
 
         </a>
@@ -5392,7 +5549,7 @@
 
 
   
-    <a href="https://github.com/HolmesGPT/holmesgpt/edit/master/docs/walkthrough/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/HolmesGPT/holmesgpt/edit/master/docs/operator/triggered-health-checks.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -5401,39 +5558,208 @@
     
       
     
-    <a href="https://github.com/HolmesGPT/holmesgpt/raw/master/docs/walkthrough/index.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/HolmesGPT/holmesgpt/raw/master/docs/operator/triggered-health-checks.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="walkthrough">Walkthrough<a class="headerlink" href="#walkthrough" title="Permanent link">&para;</a></h1>
-<p>Get started with HolmesGPT by running your first investigation.</p>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
-<p>Before starting, ensure you have:</p>
-<ul>
-<li>✅ <strong>HolmesGPT CLI installed</strong> - See <a href="../installation/cli-installation/">CLI Installation Guide</a></li>
-<li>✅ <strong>AI provider API key configured</strong> - See <a href="../ai-providers/">AI Provider Setup</a></li>
-</ul>
-<h2 id="run-your-first-investigation">Run Your First Investigation<a class="headerlink" href="#run-your-first-investigation" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;tell me something surprising about my environment&quot;</span>
+<h1 id="triggered-health-checks">Triggered Health Checks<a class="headerlink" href="#triggered-health-checks" title="Permanent link">&para;</a></h1>
+<p>A <code>TriggeredHealthCheck</code> runs an investigation <strong>automatically when a Deployment rolls
+out a new version</strong> — no per-deploy wiring, no CI polling. Declare it once, and every
+rollout of a matching Deployment (from CI, Argo, <code>kubectl set image</code>, or a rollback)
+fires a check.</p>
+<p>It is the event-driven sibling of the <a href="../scheduled-health-checks/">ScheduledHealthCheck</a>:
+both are self-contained (they embed the check definition inline) and both spawn a
+<a href="../health-checks/">HealthCheck</a> per run, which becomes the execution record.</p>
+<div class="admonition info">
+<p class="admonition-title">Alpha</p>
+<p><code>TriggeredHealthCheck</code> currently supports a single trigger type — <code>deploymentRollout</code>.
+More event sources (pod crashloops, failed Jobs, alerts) are planned.</p>
+</div>
+<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<ol>
+<li>The operator watches Deployments in namespaces where <code>TriggeredHealthCheck</code>
+   resources exist.</li>
+<li>When a matching Deployment's <strong>pod template changes</strong> (a rollout), the operator waits
+   <code>delaySeconds</code> (default 5 minutes) and then runs the check. The wait gives the rollout
+   time to finish and gives any crashes or errors time to show up.</li>
+<li>It creates a <code>HealthCheck</code> (owned by the trigger) with your query, having
+   substituted the rollout context into it.</li>
+<li>Holmes investigates using every connected data source; in <code>alert</code> mode it notifies
+   your <a href="../destinations/">destinations</a> on failure.</li>
+</ol>
+<h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmesgpt.dev/v1alpha1</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TriggeredHealthCheck</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">verify-checkout-rollouts</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">production</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">deploymentRollout</span><span class="p">:</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">selector</span><span class="p">:</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">      </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">        </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkout-api</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">delaySeconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">         </span><span class="c1"># wait 5m after the rollout, then check (default)</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">cooldownSeconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600</span><span class="w">      </span><span class="c1"># don&#39;t re-fire for the same Deployment within 10m</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">query</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="no">checkout-api was rolled out to {{ .new.image }} (was {{ .old.image }}).</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="no">Compare error rates, latency, restarts, and logs before vs after the rollout</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="no">and flag any regressions.</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alert</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">  </span><span class="nt">destinations</span><span class="p">:</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">slack</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">        </span><span class="nt">channel</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;#deploy-alerts&quot;</span>
 </span></code></pre></div>
-<p>Holmes will automatically discover your connected <a href="../data-sources/builtin-toolsets/">data sources</a> — Kubernetes, Prometheus, Datadog, Elasticsearch, AWS, GCP, databases, and more — and report back on what it finds.</p>
-<h2 id="what-you-just-experienced">What You Just Experienced<a class="headerlink" href="#what-you-just-experienced" title="Permanent link">&para;</a></h2>
-<p>HolmesGPT automatically:</p>
+<p>Apply it once:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>triggeredhealthcheck.yaml
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># List triggers (short name: thc)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>kubectl<span class="w"> </span>get<span class="w"> </span>thc
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1"># See fire history and the HealthChecks each rollout produced</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>thc<span class="w"> </span>verify-checkout-rollouts
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>hc<span class="w"> </span>-l<span class="w"> </span>holmesgpt.dev/triggered-by<span class="o">=</span>verify-checkout-rollouts
+</span></code></pre></div>
+<h2 id="query-and-rollout-context">Query and rollout context<a class="headerlink" href="#query-and-rollout-context" title="Permanent link">&para;</a></h2>
+<p>The rollout facts are <strong>always</strong> prepended to the query the check runs, so even a terse
+query like <code>"Is the new version healthy?"</code> gives the model what it needs:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>This health check was triggered automatically by a Kubernetes Deployment rollout. Use this context when investigating:
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>- Deployment: checkout-api
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>- Namespace: production
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>- Previous image(s): myregistry/checkout-api:v2.4.0
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>- New image(s): myregistry/checkout-api:v2.4.1
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>&lt;your query&gt;
+</span></code></pre></div>
+<p>You can also reference the same facts inline in your <code>query</code> with these tokens:</p>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Replaced with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>{{ .deployment }}</code></td>
+<td>Name of the Deployment that rolled out</td>
+</tr>
+<tr>
+<td><code>{{ .namespace }}</code></td>
+<td>Its namespace</td>
+</tr>
+<tr>
+<td><code>{{ .old.image }}</code></td>
+<td>Container image(s) before the rollout</td>
+</tr>
+<tr>
+<td><code>{{ .new.image }}</code></td>
+<td>Container image(s) after the rollout</td>
+</tr>
+</tbody>
+</table>
+<h2 id="spec-reference">Spec reference<a class="headerlink" href="#spec-reference" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td><code>true</code></td>
+<td>Whether the trigger is active</td>
+</tr>
+<tr>
+<td><code>deploymentRollout.selector.matchLabels</code></td>
+<td><code>{}</code></td>
+<td>Deployment labels that must all match. <strong>Empty matches every Deployment in the namespace.</strong></td>
+</tr>
+<tr>
+<td><code>delaySeconds</code></td>
+<td><code>300</code></td>
+<td>How long to wait after a rollout before running the check. Default 5 minutes; <code>0</code> checks immediately; <code>86400</code> checks a day later (max 7 days). See <a href="#how-long-to-wait">How long to wait</a>.</td>
+</tr>
+<tr>
+<td><code>cooldownSeconds</code></td>
+<td><code>0</code></td>
+<td>Suppress re-firing for the same Deployment within this window. <code>0</code> disables.</td>
+</tr>
+<tr>
+<td><code>query</code></td>
+<td>—</td>
+<td>Natural-language investigation (supports the tokens above). Required.</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td><code>120</code></td>
+<td>Check execution timeout in seconds.</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td><code>monitor</code></td>
+<td><code>alert</code> notifies destinations on failure; <code>monitor</code> only records the result.</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td>—</td>
+<td>Override the default LLM model for this check.</td>
+</tr>
+<tr>
+<td><code>destinations</code></td>
+<td><code>[]</code></td>
+<td>Alert destinations (used in <code>alert</code> mode). See <a href="../destinations/">Destinations</a>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-long-to-wait">How long to wait<a class="headerlink" href="#how-long-to-wait" title="Permanent link">&para;</a></h2>
+<p>There is one knob: <strong><code>delaySeconds</code></strong> — how long to wait after a rollout before running
+the check. That's it.</p>
+<p>The check does not run the instant a new version is deployed, because a brand-new
+rollout hasn't finished and problems haven't surfaced yet. So Holmes waits <code>delaySeconds</code>
+first, then looks. Pick a value that fits what you want to catch:</p>
 <ul>
-<li>✅ <strong>Gathered context</strong> - Retrieved relevant data from your observability stack</li>
-<li>✅ <strong>Identified the root cause</strong> - Pinpointed the underlying issue</li>
-<li>✅ <strong>Provided actionable solutions</strong> - Specific steps to fix the problem</li>
-<li>✅ <strong>Saved investigation time</strong> - No manual troubleshooting steps required</li>
+<li><strong><code>300</code> (default, 5 minutes)</strong> — enough time for the rollout to finish and for crashes
+  or startup errors to appear.</li>
+<li><strong><code>0</code></strong> — check right away (useful if you only care that the deploy was accepted).</li>
+<li><strong><code>86400</code> (a day)</strong> — catch slower problems like memory leaks or resource creep that
+  only show up after the version has been running a while.</li>
+</ul>
+<p>If you set the wait too short for your app's rollout, the check may run while pods are
+still starting — Holmes will simply report that the rollout hasn't finished yet.</p>
+<p>The wait is saved on the resource, so it still completes if the operator restarts — even
+a day-long wait. If the same Deployment is rolled out again while a check is still
+waiting, the waiting check is replaced so only the newest version is checked.</p>
+<p>A common setup is one trigger with the default 5-minute wait, plus a second with
+<code>delaySeconds: 86400</code> to re-check the same rollout a day later.</p>
+<h2 id="notes-limitations">Notes &amp; limitations<a class="headerlink" href="#notes-limitations" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Rollout = pod-template change.</strong> Scaling and HPA changes (which only touch
+  <code>spec.replicas</code>) do <strong>not</strong> fire the trigger; only changes to the pod template do.</li>
+<li><strong>Restart behavior.</strong> A check that was <em>already scheduled</em> before a restart still runs
+  (the pending fire is persisted in <code>status.pending</code>). <em>Detecting</em> new rollouts, however,
+  relies on an in-memory baseline of each Deployment's last-seen pod template (the operator
+  does not annotate your Deployments). After a restart the first observation of each
+  Deployment just re-establishes that baseline, so a rollout that happens <em>during</em> the
+  restart window is not detected. Use a
+  <a href="../scheduled-health-checks/">ScheduledHealthCheck</a> for continuous coverage.</li>
+<li><strong>Cost.</strong> Every fire is at least one LLM call. Use <code>cooldownSeconds</code> and a specific
+  <code>selector</code> to bound spend on busy namespaces.</li>
 </ul>
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><a href="../data-sources/recommended-setup/">Recommended Setup</a></strong> - Connect metrics, logs, and cloud providers to unlock deeper investigations</li>
-<li><strong><a href="../reference/troubleshooting/">Troubleshooting guide</a></strong> - Common issues and solutions</li>
-<li><strong><a href="https://cloud-native.slack.com/archives/C0A1SPQM5PZ" target="_blank">Join our Slack</a></strong> - Get help from the community</li>
-<li><strong><a href="https://github.com/HolmesGPT/holmesgpt/issues" target="_blank">Request features on GitHub</a></strong> - Suggest improvements or report bugs</li>
+<li><strong><a href="../deployment-verification/">Deployment Verification</a></strong> — patterns for gating and
+  verifying deploys</li>
+<li><strong><a href="../health-checks/">Health Checks</a></strong> — the one-time checks this spawns</li>
+<li><strong><a href="../destinations/">Alert Destinations</a></strong> — Slack and PagerDuty configuration
+</content></li>
 </ul>
 
 
@@ -5472,7 +5798,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../installation/python-installation/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Python SDK">
+          <a href="../scheduled-health-checks/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Scheduled Health Checks">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -5482,20 +5808,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Python SDK
+                Scheduled Health Checks
               </div>
             </div>
           </a>
         
         
           
-          <a href="interactive-mode/" class="md-footer__link md-footer__link--next" aria-label="Next: Interactive Mode">
+          <a href="../destinations/" class="md-footer__link md-footer__link--next" aria-label="Next: Alert Destinations">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Interactive Mode
+                Alert Destinations
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -5576,12 +5902,12 @@ For website terms of use, trademark policy and other project policies please see
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["announce.dismiss", "content.action.edit", "content.action.view", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.path", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["announce.dismiss", "content.action.edit", "content.action.view", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.path", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
-        <script src="../javascripts/tabsync.js"></script>
+        <script src="../../javascripts/tabsync.js"></script>
       
     
   <script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
