@@ -69,6 +69,8 @@ jobs:
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
+          ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
+          ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           # This name must match MASTER_EXPERIMENT_PREFIX in braintrust_history.py
           EXPERIMENT_ID: "master-${{ github.run_id }}"

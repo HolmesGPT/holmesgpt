@@ -18,6 +18,25 @@ class ConversationStatus(str, Enum):
         return (cls.QUEUED.value, cls.RUNNING.value, cls.COMPLETED.value, cls.FAILED.value)
 
 
+class RemoteToolCallStatus(str, Enum):
+    """Status lifecycle of a RemoteToolCalls row.
+
+    The executor (ToolCallWorker) only writes the two terminal results:
+    ``COMPLETED`` (a tool_response was produced — including tool-level errors)
+    and ``FAILED`` (the executor crashed before producing one). ``STOPPED``
+    (relay timeout) and ``TIMEOUT`` (stale-row sweep) are written by relay /
+    the claim RPC.
+    """
+
+    PENDING = "pending"
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    STOPPED = "stopped"
+    TIMEOUT = "timeout"
+
+
 class ConversationTask(BaseModel):
     """A claimed conversation ready for processing."""
 
