@@ -164,6 +164,11 @@
   pointer-events: none;
   user-select: none;
 }
+/* Reserve enough height that the overlay card never spills past a short
+   config block (e.g. a one-line CLI snippet). */
+.tabbed-set.is-gated {
+  min-height: 10rem;
+}
 .tabbed-set.is-gated > .deployment-selector {
   position: absolute;
   z-index: 3;
@@ -182,3 +187,16 @@
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
 }
 
+/* Print: drop the picker chrome and reveal the (first) variant unblurred. */
+@media print {
+  .tabbed-set.is-enhanced .deployment-selector {
+    display: none;
+  }
+  .tabbed-set.is-gated {
+    min-height: 0;
+  }
+  .tabbed-set.is-gated > .tabbed-content {
+    filter: none;
+    opacity: 1;
+  }
+}
