@@ -4,8 +4,8 @@ Custom fence processors for MkDocs documentation.
 Fences available:
 - yaml-toolset-config: Creates 3 tabs (Holmes CLI, Holmes Helm Chart, Robusta Helm Chart) for toolset configurations
 - yaml-helm-values: Creates 2 tabs (Holmes Helm Chart, Robusta Helm Chart) for Helm-only configurations like permissions
-- robusta-region: Creates 3 tabs (US, EU, AP) for any text containing api.robusta.dev or platform.robusta.dev. Plain
-  URLs render as code blocks; markdown links `[text](url)` render as clickable links.
+- robusta-region: Creates 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
+  sp.robusta.dev. Plain URLs render as code blocks; markdown links `[text](url)` render as clickable links.
 """
 
 import html
@@ -15,12 +15,12 @@ import uuid
 import yaml  # type: ignore
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
-ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform)\.robusta\.dev\b")
+ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
 MARKDOWN_LINK_RE = re.compile(r"^\[([^\]]+)\]\(([^)\s]+)\)(\{[^}]*\})?$")
 
 
 def _rewrite_robusta_domain(text: str, region_infix: str) -> str:
-    """Rewrite api.robusta.dev / platform.robusta.dev to the regional variant."""
+    """Rewrite api/platform/sp .robusta.dev to the regional variant."""
     if not region_infix:
         return text
     return ROBUSTA_DOMAIN_RE.sub(rf"\1.{region_infix}.robusta.dev", text)
@@ -140,8 +140,8 @@ holmes:
 
 def robusta_region_fence_format(source, language, css_class, options, md, **kwargs):
     """
-    Render the source as three tabs (US, EU, AP), rewriting `api.robusta.dev`
-    and `platform.robusta.dev` to the regional subdomain in each tab.
+    Render the source as three tabs (US, EU, AP), rewriting `api.robusta.dev`,
+    `platform.robusta.dev` and `sp.robusta.dev` to the regional subdomain in each tab.
 
     Auto-detects two input shapes:
 

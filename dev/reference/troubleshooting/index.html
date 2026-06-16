@@ -5287,6 +5287,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#firewall-blocking-robusta-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Startup Fails with Connection reset by peer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#still-stuck" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5415,6 +5426,17 @@
     <span class="md-ellipsis">
       
         6. Extra inputs are not permitted Errors From the LLM Provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#firewall-blocking-robusta-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Startup Fails with Connection reset by peer
       
     </span>
   </a>
@@ -5567,6 +5589,33 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LLM_EXTRA_STRIP_MESSAGE_FIELDS</span><span class="o">=</span><span class="s2">&quot;provider_specific_fields&quot;</span>
 </span></code></pre></div>
 <p>Replace the value with whichever field is named in your error message. Multiple fields can be passed, e.g. <code>"provider_specific_fields,reasoning_content"</code>.</p>
+<h2 id="firewall-blocking-robusta-platform">7. Startup Fails with <code>Connection reset by peer</code><a class="headerlink" href="#firewall-blocking-robusta-platform" title="Permanent link">&para;</a></h2>
+<p>HolmesGPT crashes on startup while signing in to the Robusta platform, with a traceback ending in:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>httpx.ConnectError: [Errno 104] Connection reset by peer
+</span></code></pre></div>
+<p>This means an <strong>outbound firewall or egress policy is blocking traffic from your cluster to the Robusta platform</strong>. The hostname resolves and the TLS certificate is valid, so it is not a DNS or certificate problem — the connection itself is being reset or refused.</p>
+<p><strong>Solution:</strong></p>
+<p>Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the <code>robusta.dev</code> domain (<code>*.robusta.dev</code>), which covers the <code>api.*</code> and <code>sp.*</code> subdomains across all regions.</p>
+<p>To confirm the block, run the one-off pod below. It <strong>auto-detects the Holmes pod's namespace and image</strong> and curls the platform from a fresh pod — the HolmesGPT pod itself crashes on this error (<code>CrashLoopBackOff</code>), so <code>kubectl exec</code> into it won't work. Reusing Holmes's own image means nothing new is pulled (the same firewall may also block image pulls) and it shares Holmes's CA and network config. Just pick your region — a firewall block shows <code>Connection reset by peer</code>, while a reachable endpoint returns JSON:</p>
+<div class="tabbed-set" data-tabs="1:3">
+<input checked="checked" id="__tabbed_21864904_1537_4118_b4e4_386b25234971_1" name="__tabbed_21864904_1537_4118_b4e4_386b25234971" type="radio">
+<input id="__tabbed_21864904_1537_4118_b4e4_386b25234971_2" name="__tabbed_21864904_1537_4118_b4e4_386b25234971" type="radio">
+<input id="__tabbed_21864904_1537_4118_b4e4_386b25234971_3" name="__tabbed_21864904_1537_4118_b4e4_386b25234971" type="radio">
+<div class="tabbed-labels">
+<label for="__tabbed_21864904_1537_4118_b4e4_386b25234971_1">US</label>
+<label for="__tabbed_21864904_1537_4118_b4e4_386b25234971_2">EU</label>
+<label for="__tabbed_21864904_1537_4118_b4e4_386b25234971_3">AP</label>
+</div>
+<div class="tabbed-content">
+<div class="tabbed-block"><pre><code class="language-bash">read -r NS IMG &lt;&lt;&lt;&quot;$(kubectl get pods -A -l app=holmes -o jsonpath=&#x27;{.items[0].metadata.namespace} {.items[0].spec.containers[0].image}&#x27;)&quot;
+kubectl run holmes-egress-check --rm -it --restart=Never -n &quot;$NS&quot; --image=&quot;$IMG&quot; --command -- curl -vk https://sp.robusta.dev/auth/v1/health</code></pre></div>
+<div class="tabbed-block"><pre><code class="language-bash">read -r NS IMG &lt;&lt;&lt;&quot;$(kubectl get pods -A -l app=holmes -o jsonpath=&#x27;{.items[0].metadata.namespace} {.items[0].spec.containers[0].image}&#x27;)&quot;
+kubectl run holmes-egress-check --rm -it --restart=Never -n &quot;$NS&quot; --image=&quot;$IMG&quot; --command -- curl -vk https://sp.eu.robusta.dev/auth/v1/health</code></pre></div>
+<div class="tabbed-block"><pre><code class="language-bash">read -r NS IMG &lt;&lt;&lt;&quot;$(kubectl get pods -A -l app=holmes -o jsonpath=&#x27;{.items[0].metadata.namespace} {.items[0].spec.containers[0].image}&#x27;)&quot;
+kubectl run holmes-egress-check --rm -it --restart=Never -n &quot;$NS&quot; --image=&quot;$IMG&quot; --command -- curl -vk https://sp.ap.robusta.dev/auth/v1/health</code></pre></div>
+</div>
+</div>
+<p>If the same logs also show a LiteLLM warning about failing to fetch the model cost map from <code>raw.githubusercontent.com</code>, that is the same firewall blocking GitHub egress — point Holmes at a region-local mirror with <a href="../environment-variables/#litellm_model_cost_map_url"><code>LITELLM_MODEL_COST_MAP_URL</code></a>.</p>
 <hr />
 <h2 id="still-stuck">Still stuck?<a class="headerlink" href="#still-stuck" title="Permanent link">&para;</a></h2>
 <p>Join our <a href="https://cloud-native.slack.com/archives/C0A1SPQM5PZ">Slack community</a> or <a href="https://github.com/HolmesGPT/holmesgpt/issues">open a GitHub issue</a> for help.</p>
