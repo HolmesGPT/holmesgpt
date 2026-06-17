@@ -885,6 +885,10 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
       return;
     }
 
+    if (e.nativeEvent.isComposing) {
+      return;
+    }
+
     const isSingleLinePrompt = !inputValue.includes('\n');
 
     if (e.key === 'ArrowUp' && isSingleLinePrompt) {
