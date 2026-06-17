@@ -13,21 +13,19 @@ Holmes ships with [built-in skills](#built-in-skills) that work out of the box. 
 
 ## Loading Custom Skills
 
-Setup differs depending on how you run Holmes. Use the selector below to choose yours, and the matching instructions appear. Your choice is remembered across the whole site, and you can change it anytime.
+Pick how you'd like to load skills below, then choose your deployment within it to copy the exact configuration. Your deployment choice — Holmes OSS (CLI or Helm Chart) or HolmesGPT Enterprise (the Robusta Helm Chart) — is remembered across the whole site, and you can change it anytime.
 
-- **Holmes OSS — Helm Chart** — the open-source HolmesGPT [standalone Helm chart](../installation/kubernetes-installation.md).
-- **HolmesGPT Enterprise — Robusta Helm Chart** — HolmesGPT bundled with the Robusta platform. If you installed Robusta and Holmes came with it, this is you.
-- **Holmes OSS — CLI** — running `holmes` locally on your machine (also covers the Python SDK).
+=== "From a GitHub Repository"
 
-=== "Holmes Helm Chart"
+    Keep skills version-controlled in a Git repo so they can be reviewed, versioned, and shared across a team.
 
-    === "From a GitHub Repository"
+    !!! warning "Alpha — values-only pattern (Helm)"
 
-        Keep skills version-controlled in a Git repo and have Holmes re-clone them on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+        The Helm-based setup below works today by wiring up existing chart knobs (`initContainers`, `additionalVolumes`, `customSkillPaths`) by hand. We are planning first-class GitHub support soon, at which point this configuration will become obsolete.
 
-        !!! warning "Alpha — values-only pattern"
+    === "Holmes Helm Chart"
 
-            This setup works today by wiring up existing chart knobs (`initContainers`, `additionalVolumes`, `customSkillPaths`) by hand. We are planning first-class GitHub support soon, at which point this configuration will become obsolete.
+        Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
 
         **1. Create a Secret with a GitHub Personal Access Token.** Use a fine-grained PAT scoped to a single repo with `Contents: Read`:
 
@@ -89,82 +87,9 @@ Setup differs depending on how you run Holmes. Use the selector below to choose 
         kubectl rollout restart deploy/<release>-holmes -n <holmes-namespace>
         ```
 
-    === "Inline in Helm Values"
+    === "Robusta Helm Chart"
 
-        Define skills directly in your Helm values. The chart creates a ConfigMap, mounts it, and registers the path — no extra wiring. Changes take effect on the next `helm upgrade`.
-
-        ```yaml
-        customSkills:
-          dns-troubleshooting:
-            content: |
-              ---
-              description: Troubleshoot DNS resolution failures in the cluster
-              ---
-
-              ## Goal
-              Diagnose DNS issues.
-
-              ## Workflow
-              1. Check CoreDNS pods in kube-system
-              2. Test DNS resolution from an affected pod
-              3. Check NetworkPolicies for blocked egress to kube-system
-          pod-restart-quickcheck:
-            content: |
-              ---
-              description: Quick diagnosis for CrashLoopBackOff / restarting pods
-              ---
-
-              ## Goal
-              Identify why a pod is restarting.
-
-              ## Workflow
-              1. Inspect pod status and restart count
-              2. Pull previous container logs
-              3. Check namespace events
-        ```
-
-    === "ConfigMap or Secret (advanced)"
-
-        Use this when you want to keep skill content outside `values.yaml` — for example, one ConfigMap per team, skills stored in a Secret, or skills populated by an `initContainer`. `customSkillPaths` accepts a list, so you can load skills from multiple directories at once.
-
-        Each directory must contain skills in `<skill-name>/SKILL.md` layout. Since Kubernetes ConfigMap/Secret keys cannot contain `/`, use an `items:` projection to map flat keys (e.g. `dns-troubleshooting.SKILL.md`) to that layout.
-
-        ```yaml
-        additionalVolumes:
-          - name: skills-frontend
-            configMap:
-              name: holmes-skills-frontend
-              items:
-                - key: dns-troubleshooting.SKILL.md
-                  path: dns-troubleshooting/SKILL.md
-                - key: pod-restart-quickcheck.SKILL.md
-                  path: pod-restart-quickcheck/SKILL.md
-          - name: skills-backend
-            configMap:
-              name: holmes-skills-backend
-        additionalVolumeMounts:
-          - name: skills-frontend
-            mountPath: /etc/holmes/skills-frontend
-            readOnly: true
-          - name: skills-backend
-            mountPath: /etc/holmes/skills-backend
-            readOnly: true
-        customSkillPaths:
-          - /etc/holmes/skills-frontend
-          - /etc/holmes/skills-backend
-        ```
-
-        Skills from all paths are merged. If two paths define the same skill name, the later one wins. Changes to mounted ConfigMaps/Secrets only take effect after a Holmes pod restart — roll the Deployment after updating skill files.
-
-=== "Robusta Helm Chart"
-
-    === "From a GitHub Repository"
-
-        Keep skills version-controlled in a Git repo and have Holmes re-clone them on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
-
-        !!! warning "Alpha — values-only pattern"
-
-            This setup works today by wiring up existing chart knobs (`initContainers`, `additionalVolumes`, `customSkillPaths`) by hand. We are planning first-class GitHub support soon, at which point this configuration will become obsolete.
+        Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
 
         **1. Create a Secret with a GitHub Personal Access Token.** Use a fine-grained PAT scoped to a single repo with `Contents: Read`:
 
@@ -228,9 +153,58 @@ Setup differs depending on how you run Holmes. Use the selector below to choose 
         kubectl rollout restart deploy/robusta-holmes -n <robusta-namespace>
         ```
 
-    === "Inline in Helm Values"
+    === "Holmes CLI"
 
-        Define skills directly in your `generated_values.yaml`. The chart creates a ConfigMap, mounts it, and registers the path — no extra wiring. Changes take effect on the next `helm upgrade`.
+        Clone the repo to your machine and point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+
+        ```yaml
+        custom_skill_paths:
+          - /path/to/your-skills-clone/
+        ```
+
+        Run `git pull` in the clone whenever you want to pick up new or updated skills.
+
+=== "Inline in Helm Values"
+
+    Define skills directly in your Helm values. The chart creates a ConfigMap, mounts it, and registers the path — no extra wiring. Changes take effect on the next `helm upgrade`.
+
+    !!! note "Helm only"
+
+        Not applicable to the Holmes CLI — use **From a GitHub Repository** or point `custom_skill_paths` at a local directory instead.
+
+    === "Holmes Helm Chart"
+
+        ```yaml
+        customSkills:
+          dns-troubleshooting:
+            content: |
+              ---
+              description: Troubleshoot DNS resolution failures in the cluster
+              ---
+
+              ## Goal
+              Diagnose DNS issues.
+
+              ## Workflow
+              1. Check CoreDNS pods in kube-system
+              2. Test DNS resolution from an affected pod
+              3. Check NetworkPolicies for blocked egress to kube-system
+          pod-restart-quickcheck:
+            content: |
+              ---
+              description: Quick diagnosis for CrashLoopBackOff / restarting pods
+              ---
+
+              ## Goal
+              Identify why a pod is restarting.
+
+              ## Workflow
+              1. Inspect pod status and restart count
+              2. Pull previous container logs
+              3. Check namespace events
+        ```
+
+    === "Robusta Helm Chart"
 
         ```yaml
         enableHolmesGPT: true
@@ -264,11 +238,46 @@ Setup differs depending on how you run Holmes. Use the selector below to choose 
                 3. Check namespace events
         ```
 
-    === "ConfigMap or Secret (advanced)"
+=== "ConfigMap or Secret (advanced)"
 
-        Use this when you want to keep skill content outside `values.yaml` — for example, one ConfigMap per team, skills stored in a Secret, or skills populated by an `initContainer`. `customSkillPaths` accepts a list, so you can load skills from multiple directories at once.
+    Use this when you want to keep skill content outside `values.yaml` — for example, one ConfigMap per team, skills stored in a Secret, or skills populated by an `initContainer`. `customSkillPaths` accepts a list, so you can load skills from multiple directories at once.
 
-        Each directory must contain skills in `<skill-name>/SKILL.md` layout. Since Kubernetes ConfigMap/Secret keys cannot contain `/`, use an `items:` projection to map flat keys (e.g. `dns-troubleshooting.SKILL.md`) to that layout.
+    Each directory must contain skills in `<skill-name>/SKILL.md` layout. Since Kubernetes ConfigMap/Secret keys cannot contain `/`, use an `items:` projection to map flat keys (e.g. `dns-troubleshooting.SKILL.md`) to that layout.
+
+    !!! note "Helm only"
+
+        Not applicable to the Holmes CLI — use **From a GitHub Repository** or point `custom_skill_paths` at a local directory instead.
+
+    === "Holmes Helm Chart"
+
+        ```yaml
+        additionalVolumes:
+          - name: skills-frontend
+            configMap:
+              name: holmes-skills-frontend
+              items:
+                - key: dns-troubleshooting.SKILL.md
+                  path: dns-troubleshooting/SKILL.md
+                - key: pod-restart-quickcheck.SKILL.md
+                  path: pod-restart-quickcheck/SKILL.md
+          - name: skills-backend
+            configMap:
+              name: holmes-skills-backend
+        additionalVolumeMounts:
+          - name: skills-frontend
+            mountPath: /etc/holmes/skills-frontend
+            readOnly: true
+          - name: skills-backend
+            mountPath: /etc/holmes/skills-backend
+            readOnly: true
+        customSkillPaths:
+          - /etc/holmes/skills-frontend
+          - /etc/holmes/skills-backend
+        ```
+
+        Skills from all paths are merged. If two paths define the same skill name, the later one wins. Changes to mounted ConfigMaps/Secrets only take effect after a Holmes pod restart — roll the Deployment after updating skill files.
+
+    === "Robusta Helm Chart"
 
         ```yaml
         enableHolmesGPT: true
@@ -299,32 +308,20 @@ Setup differs depending on how you run Holmes. Use the selector below to choose 
 
         Skills from all paths are merged. If two paths define the same skill name, the later one wins. Changes to mounted ConfigMaps/Secrets only take effect after a Holmes pod restart — roll the Deployment after updating skill files.
 
-=== "Holmes CLI"
-
-    Point Holmes at one or more local directories containing `SKILL.md` files by adding them to `~/.holmes/config.yaml`:
-
-    ```yaml
-    custom_skill_paths:
-      - /path/to/my-skills/
-      - /path/to/team-skills/
-    ```
-
-    To share skills with your team via GitHub, keep the skills in a repo, clone it locally, and point `custom_skill_paths` at the clone. Run `git pull` to pick up changes.
-
-    **Python SDK:**
-
-    ```python
-    from pathlib import Path
-
-    from holmes.config import Config
-
-    config = Config.load_from_file(
-        config_file=Path("~/.holmes/config.yaml").expanduser(),
-    )
-    catalog = config.get_skill_catalog()
-    ```
-
 Holmes scans each path up to 2 levels deep for `SKILL.md` files.
+
+**Python SDK.** Load your config and read the resolved skill catalog programmatically:
+
+```python
+from pathlib import Path
+
+from holmes.config import Config
+
+config = Config.load_from_file(
+    config_file=Path("~/.holmes/config.yaml").expanduser(),
+)
+catalog = config.get_skill_catalog()
+```
 
 ## Writing Skills
 
