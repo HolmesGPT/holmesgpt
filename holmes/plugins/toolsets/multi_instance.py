@@ -238,6 +238,12 @@ class MultiInstanceToolset(Toolset):
         )
         # Mirror display metadata from the child so the wrapper is transparent.
         self.llm_instructions = template.llm_instructions
+        # Mirror remote-exposure intent from the child class default; per-instance
+        # overrides are resolved in remote_exposed_instances(). is_core must be
+        # mirrored too so a wrapped internal toolset stays hard-excluded from
+        # remote publication and execution.
+        self.expose_remotely = template.expose_remotely
+        self._is_core = template.is_core
         self._child_cls = child_cls
         self._children: Dict[str, Toolset] = {}
         self._instance_configs: Dict[str, Dict[str, Any]] = {}
@@ -289,6 +295,23 @@ class MultiInstanceToolset(Toolset):
         self._publish_instance_meta()
         self._publish_llm_instructions()
         return self._aggregate(failures, successes)
+
+    def remote_exposed_instances(self) -> Optional[List[str]]:
+        """Healthy instance names that should be exposed for remote execution
+        (cross-cluster tool calls). Resolution per instance: the child's
+        locality heuristic (`remote_exposure_default`) wins when it has an
+        opinion, else fall back to the toolset-level `expose_remotely`.
+        Returns the list (possibly empty); the publish step skips the toolset
+        when it's empty. See design doc Business Logic B/C."""
+        exposed: List[str] = []
+        for name, child in self._children.items():
+            flat = self._instance_configs.get(name, {})
+            decision = child.remote_exposure_default(flat)
+            if decision is None:
+                decision = self.expose_remotely
+            if decision:
+                exposed.append(name)
+        return exposed
 
     def _publish_instance_meta(self) -> None:
         """Expose per-instance health in `meta` so the UI can render each instance.
