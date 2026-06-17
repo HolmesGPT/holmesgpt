@@ -1,3 +1,11 @@
+.chat-assistant {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.chat-assistant.large-font {
+  font-size: 1.08rem;
+}
+
 .chat-header {
   padding: 0.75rem 1rem;
   background-color: #009485;
@@ -87,6 +95,39 @@
 
 .message-text {
   margin-bottom: 0.25rem;
+}
+
+.prompt-message {
+  margin-bottom: 0.25rem;
+}
+
+.prompt-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  line-height: 1.45;
+}
+
+.prompt-text code,
+.markdown-message code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.prompt-collapse-button {
+  margin-top: 0.5rem;
+  background-color: rgba(255, 255, 255, 0.18);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.prompt-collapse-button:hover {
+  background-color: rgba(255, 255, 255, 0.28);
 }
 
 /* Markdown styling within messages */
@@ -276,6 +317,25 @@
   background-color: rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.chat-header-controls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-toggle-button {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chat-toggle-button:hover {
+  background-color: rgba(255, 255, 255, 0.25);
 }
 
 .connection-indicator {

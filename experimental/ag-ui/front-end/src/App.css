@@ -87,6 +87,25 @@ html, body {
   font-size: 1.1rem;
 }
 
+.sidebar-theme-control {
+  padding: 0 1rem 1rem;
+}
+
+.theme-toggle-button {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.theme-toggle-button:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
 .main-content {
   flex: 1;
   min-width: 0;
@@ -1720,4 +1739,163 @@ servability Platform Styles */
     font-size: 0.75rem;
     margin-top: 0.375rem;
   }
+}
+
+
+/* Dark mode for the portal services and chat */
+.app.dark-mode {
+  color: #e5e7eb;
+  background-color: #0f172a;
+}
+
+.app.dark-mode .left-sidebar {
+  background-color: #020617;
+  border-right: 1px solid #1e293b;
+}
+
+.app.dark-mode .nav-item.active {
+  background-color: #1e293b;
+}
+
+.app.dark-mode .main-content,
+.app.dark-mode .observability-platform,
+.app.dark-mode .chat-assistant {
+  background-color: #0f172a;
+  color: #e5e7eb;
+}
+
+.app.dark-mode .platform-header {
+  background: linear-gradient(135deg, #111827 0%, #020617 100%);
+  border-bottom: 1px solid #1f2937;
+}
+
+.app.dark-mode .connection-status-bar,
+.app.dark-mode .query-section,
+.app.dark-mode .visualization-section,
+.app.dark-mode .chart-container,
+.app.dark-mode .logs-container,
+.app.dark-mode .trace-container,
+.app.dark-mode .chat-controls,
+.app.dark-mode .chat-input {
+  background-color: #111827;
+  color: #e5e7eb;
+  border-color: #1f2937;
+}
+
+.app.dark-mode .connection-label,
+.app.dark-mode .connection-url,
+.app.dark-mode .status-text,
+.app.dark-mode .section-header h2,
+.app.dark-mode .section-header p,
+.app.dark-mode label,
+.app.dark-mode .query-help,
+.app.dark-mode .query-info,
+.app.dark-mode .empty-state,
+.app.dark-mode .placeholder-text {
+  color: #d1d5db;
+}
+
+.app.dark-mode input,
+.app.dark-mode textarea,
+.app.dark-mode select {
+  background-color: #020617;
+  color: #e5e7eb;
+  border-color: #334155;
+}
+
+.app.dark-mode input:focus,
+.app.dark-mode textarea:focus,
+.app.dark-mode select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+}
+
+.app.dark-mode .assistant-message {
+  background: linear-gradient(to right, rgba(15, 23, 42, 0.95) 0%, rgba(20, 83, 45, 0.35) 100%);
+  color: #e5e7eb;
+  border-color: rgba(45, 212, 191, 0.25);
+}
+
+.app.dark-mode .user-message {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.92) 0%, rgba(30, 64, 175, 0.92) 100%);
+  border-color: rgba(96, 165, 250, 0.45);
+}
+
+.app.dark-mode .message-text code,
+.app.dark-mode .prompt-text code {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+
+.app.dark-mode .assistant-message .message-text pre,
+.app.dark-mode .message-text pre {
+  background-color: rgba(2, 6, 23, 0.8);
+  border: 1px solid #1f2937;
+}
+
+.app.dark-mode .thinking-message {
+  background-color: #1f2937;
+  color: #d1d5db;
+}
+
+.app.dark-mode .auto-scroll-checkbox {
+  color: #d1d5db;
+}
+
+.app.dark-mode .chat-input textarea:disabled {
+  background-color: #1f2937;
+}
+
+.app.dark-mode .result-item,
+.app.dark-mode .result-header,
+.app.dark-mode .graph-modal,
+.app.dark-mode .indices-display,
+.app.dark-mode .metrics-display,
+.app.dark-mode .datasource-config,
+.app.dark-mode .config-card,
+.app.dark-mode .explorer-box,
+.app.dark-mode .series-explorer,
+.app.dark-mode .query-examples,
+.app.dark-mode .logs-table,
+.app.dark-mode .trace-details,
+.app.dark-mode .metric-card {
+  background-color: #111827;
+  color: #e5e7eb;
+  border-color: #1f2937;
+}
+
+.app.dark-mode .result-header,
+.app.dark-mode .explorer-header,
+.app.dark-mode .config-header,
+.app.dark-mode .metric-header {
+  background-color: #0b1220;
+  border-color: #1f2937;
+}
+
+.app.dark-mode .result-title,
+.app.dark-mode .metric-name,
+.app.dark-mode .index-name,
+.app.dark-mode .field-name,
+.app.dark-mode .config-title,
+.app.dark-mode .explorer-title,
+.app.dark-mode .query-label,
+.app.dark-mode .query-example {
+  color: #e5e7eb;
+}
+
+.app.dark-mode .result-meta,
+.app.dark-mode .metric-description,
+.app.dark-mode .index-meta,
+.app.dark-mode .field-type,
+.app.dark-mode .config-description,
+.app.dark-mode .help-text {
+  color: #94a3b8;
+}
+
+.app.dark-mode .badge,
+.app.dark-mode .tag,
+.app.dark-mode .chip {
+  background-color: #1e293b;
+  color: #dbeafe;
+  border-color: #334155;
 }

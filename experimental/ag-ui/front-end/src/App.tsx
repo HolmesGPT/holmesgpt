@@ -15,6 +15,7 @@ const App: React.FC = () => {
   const [selectedPage, setSelectedPage] = useState<ObservabilityPage>('metrics');
   const [pageContext, setPageContext] = useState<ContextItem[]>([]);
   const [triggerQuery, setTriggerQuery] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   // Store separate queries for each page
   const [pageQueries, setPageQueries] = useState<Record<ObservabilityPage, string>>({
@@ -132,7 +133,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="app">
+    <div className={`app ${isDarkMode ? 'dark-mode' : ''}`}>
       <div className="left-sidebar">
         <div className="sidebar-header">
           <h2>ExampleOps ✨</h2>
@@ -161,6 +162,16 @@ const App: React.FC = () => {
             Traces
           </button>
         </nav>
+        <div className="sidebar-theme-control">
+          <button
+            type="button"
+            className="theme-toggle-button"
+            onClick={() => setIsDarkMode(prev => !prev)}
+            aria-pressed={isDarkMode}
+          >
+            {isDarkMode ? '☀️ Light mode' : '🌙 Dark mode'}
+          </button>
+        </div>
         <div className="sidebar-footer">
           <div className="credit-text">✨ vibe-coded with love by</div>
           <a

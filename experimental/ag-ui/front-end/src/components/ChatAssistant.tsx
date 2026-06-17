@@ -32,6 +32,44 @@ interface ChatAssistantProps {
   onExecutePPLQuery?: (query: string) => void;
 }
 
+
+const COLLAPSED_PROMPT_LINES = 8;
+const COLLAPSED_PROMPT_CHARS = 700;
+
+const renderInlineCode = (text: string): React.ReactNode[] => {
+  return text.split(/(`[^`]+`)/g).map((part, index) => {
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 1) {
+      return <code key={index}>{part.slice(1, -1)}</code>;
+    }
+
+    return <React.Fragment key={index}>{part}</React.Fragment>;
+  });
+};
+
+const PromptMessage: React.FC<{ text: string }> = ({ text }) => {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split('\n');
+  const shouldCollapse = lines.length > COLLAPSED_PROMPT_LINES || text.length > COLLAPSED_PROMPT_CHARS;
+  const visibleText = !shouldCollapse || expanded
+    ? text
+    : lines.slice(0, COLLAPSED_PROMPT_LINES).join('\n').slice(0, COLLAPSED_PROMPT_CHARS);
+
+  return (
+    <div className="prompt-message">
+      <pre className="prompt-text">{renderInlineCode(visibleText)}</pre>
+      {shouldCollapse && (
+        <button
+          type="button"
+          className="prompt-collapse-button"
+          onClick={() => setExpanded(prev => !prev)}
+        >
+          {expanded ? 'Show less' : `Show full prompt (${lines.length} lines)`}
+        </button>
+      )}
+    </div>
+  );
+};
+
 const TOOL_DEFINITIONS = [
   {
     name: 'graph_timeseries_data',
@@ -103,6 +141,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
+  const [useLargeFont, setUseLargeFont] = useState(false);
   const agentRef = useRef<HttpAgent | null>(null);
   const threadIdRef = useRef<string>('thread-' + Date.now());
   const currentMessageRef = useRef<string>('');
@@ -720,8 +759,8 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
   }, [isResizing]);
 
   const handleSendMessage = async (messageText?: string) => {
-    const textToSend = (messageText || inputValue).trim();
-    if (!textToSend || textToSend.length === 0 || !agentRef.current || isLoading) return;
+    const textToSend = messageText ?? inputValue;
+    if (!textToSend.trim() || !agentRef.current || isLoading) return;
 
     const userMessage: ChatMessage = {
       id: 'user-' + Date.now(),
@@ -753,10 +792,10 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
 
         // Add the user message to the agent's message history
         if (agentRef.current && userMessage.text && userMessage.text.trim()) {
-          const messageContent = userMessage.text.trim();
+          const messageContent = userMessage.text;
 
           // Double-check content is not empty before adding to agent
-          if (messageContent.length === 0) {
+          if (messageContent.trim().length === 0) {
             throw new Error('Cannot send empty message');
           }
 
@@ -880,7 +919,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
   return (
     <div
       ref={chatAssistantRef}
-      className="chat-assistant"
+      className={`chat-assistant ${useLargeFont ? 'large-font' : ''}`}
       style={{ width: `${width}px` }}
     >
       <div
@@ -902,6 +941,16 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
               {connectionStatus === 'error' && 'Connection Error'}
             </span>
           </div>
+        </div>
+        <div className="chat-header-controls">
+          <button
+            type="button"
+            className="chat-toggle-button"
+            onClick={() => setUseLargeFont(prev => !prev)}
+            aria-pressed={useLargeFont}
+          >
+            {useLargeFont ? 'Normal text' : 'Large text'}
+          </button>
         </div>
         {connectionStatus === 'connected' && currentModel && (
           <div className="model-info">
@@ -932,8 +981,10 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
                   </button>
                 )}
               </div>
+            ) : message.sender === 'user' ? (
+              <PromptMessage text={message.text || ''} />
             ) : (
-              <div className="message-text">
+              <div className="message-text markdown-message">
                 <ReactMarkdown>{message.text || ''}</ReactMarkdown>
               </div>
             )}
