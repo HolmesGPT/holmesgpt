@@ -839,13 +839,16 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+      e.preventDefault();
       handleSendMessage();
       return;
     }
 
-    if (e.key === 'ArrowUp') {
+    const isSingleLinePrompt = !inputValue.includes('\n');
+
+    if (e.key === 'ArrowUp' && isSingleLinePrompt) {
       e.preventDefault();
       if (messageHistory.length === 0) return;
 
@@ -858,7 +861,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
       return;
     }
 
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown' && isSingleLinePrompt) {
       e.preventDefault();
       if (historyIndex === -1) return;
 
@@ -966,8 +969,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
       </div>
 
       <div className="chat-input">
-        <input
-          type="text"
+        <textarea
           value={inputValue}
           onChange={(e) => {
             setInputValue(e.target.value);
@@ -979,6 +981,9 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
           onKeyDown={handleKeyDown}
           placeholder={isThinking ? "Holmes is thinking..." : "Type your message..."}
           disabled={isLoading || isThinking}
+          rows={3}
+          aria-label="Chat message"
+          enterKeyHint="enter"
         />
         <button
           onClick={() => handleSendMessage()}

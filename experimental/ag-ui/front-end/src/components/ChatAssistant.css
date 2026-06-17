@@ -356,15 +356,20 @@
   border-top: 1px solid #e9ecef;
 }
 
-.chat-input input {
+.chat-input textarea {
   flex: 1;
+  min-height: 2.5rem;
+  max-height: 10rem;
   padding: 0.5rem;
   border: 1px solid #ddd;
   border-radius: 0.25rem;
   outline: none;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.4;
 }
 
-.chat-input input:focus {
+.chat-input textarea:focus {
   border-color: #007bff;
 }
 
@@ -386,7 +391,7 @@
   cursor: not-allowed;
 }
 
-.chat-input input:disabled {
+.chat-input textarea:disabled {
   background-color: #f8f9fa;
   cursor: not-allowed;
 }
