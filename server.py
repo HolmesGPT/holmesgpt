@@ -379,10 +379,28 @@ def extract_passthrough_headers(request: Request) -> dict:
 
 def _stream_with_storage_cleanup(storage, stream_generator, req_info):
     """Wrap a stream generator to clean up tool result files after streaming completes."""
+    completed = False
     try:
         yield from stream_generator
+        completed = True
+    except GeneratorExit:
+        # Starlette throws GeneratorExit into the stream when it can no longer
+        # deliver chunks to the client (e.g. the consumer's HTTP connection
+        # dropped mid-stream). Without surfacing it here, the finally below logs
+        # a normal-looking "Stream request end" and the delivery failure stays
+        # invisible even though the client received nothing.
+        logging.warning(
+            f"Stream request aborted before completion (client/transport closed): {req_info}"
+        )
+        raise
+    except BaseException as e:
+        logging.warning(
+            f"Stream request terminated abnormally ({type(e).__name__}: {e}): {req_info}",
+            exc_info=True,
+        )
+        raise
     finally:
-        logging.info(f"Stream request end: {req_info}")
+        logging.info(f"Stream request end: {req_info} (completed={completed})")
         storage.__exit__(None, None, None)
 
 
@@ -393,10 +411,28 @@ def _stream_with_trace_cleanup(storage, stream_generator, req_info, trace_span):
     auto-instrumented calls made during streaming become children of it.
     The span is ended in the finally block so it always closes, even on error.
     """
+    completed = False
     try:
         yield from stream_generator
+        completed = True
+    except GeneratorExit:
+        # Starlette throws GeneratorExit into the stream when it can no longer
+        # deliver chunks to the client (e.g. the runner's HTTP connection
+        # dropped mid-stream). Without surfacing it here, the finally below logs
+        # a normal-looking "Stream request end" and the delivery failure stays
+        # invisible even though the client received nothing.
+        logging.warning(
+            f"Stream request aborted before completion (client/transport closed): {req_info}"
+        )
+        raise
+    except BaseException as e:
+        logging.warning(
+            f"Stream request terminated abnormally ({type(e).__name__}: {e}): {req_info}",
+            exc_info=True,
+        )
+        raise
     finally:
-        logging.info(f"Stream request end: {req_info}")
+        logging.info(f"Stream request end: {req_info} (completed={completed})")
         trace_span.end()
         storage.__exit__(None, None, None)
 
