@@ -127,6 +127,14 @@ class RobustaToken(BaseModel):
     password: str
 
 
+# Troubleshooting guide for an outbound firewall blocking egress to the Robusta
+# platform (surfaces as a connection reset during sign-in). Linked from the log
+# and exception so users can find the fix.
+FIREWALL_TROUBLESHOOTING_URL = (
+    "https://holmesgpt.dev/reference/troubleshooting/#firewall-blocking-robusta-platform"
+)
+
+
 class SupabaseDnsException(Exception):
     def __init__(self, error: Exception, url: str):
         message = (
@@ -136,6 +144,23 @@ class SupabaseDnsException(Exception):
             f"curl -I {url}\n"
         )
         super().__init__(message)
+
+
+class SupabaseConnectionException(Exception):
+    """Raised when Holmes cannot open a connection to the Robusta platform.
+
+    Almost always an outbound firewall / egress policy blocking traffic to the
+    Robusta platform (not a DNS or TLS certificate problem). The actionable
+    guidance - allowlist '*.robusta.dev' plus the docs link - is logged at
+    WARNING right before this is raised, so the exception message itself stays a
+    thin technical wrapper around the underlying connection error.
+    """
+
+    def __init__(self, error: Exception, url: str):
+        super().__init__(
+            f"Could not connect to the Robusta platform at {url} "
+            f"({error.__class__.__name__}: {error})"
+        )
 
 
 class SupabaseDal:
@@ -291,6 +316,33 @@ class SupabaseDal:
                 ]
             ):
                 raise SupabaseDnsException(e, self.url) from e
+            if isinstance(e, (ConnectionError, TimeoutError)) or any(
+                conn_indicator in error_msg
+                for conn_indicator in [
+                    "connection reset by peer",
+                    "connection reset",
+                    "connection refused",
+                    "connection aborted",
+                    "connection timed out",
+                    "network is unreachable",
+                    "no route to host",
+                    "errno 104",  # ECONNRESET
+                    "errno 111",  # ECONNREFUSED
+                ]
+            ):
+                # The platform resolved but refused/reset the connection - almost
+                # always an outbound firewall. Log the full actionable guidance at
+                # WARNING (not ERROR, so it doesn't raise a Sentry alert) before
+                # raising; the exception below stays a thin technical wrapper.
+                logging.warning(
+                    "Could not connect to the Robusta platform at %s. This is "
+                    "usually an outbound firewall blocking egress to the platform - "
+                    "allowlist outbound HTTPS to '*.robusta.dev'. See %s for "
+                    "troubleshooting steps.",
+                    self.url,
+                    FIREWALL_TROUBLESHOOTING_URL,
+                )
+                raise SupabaseConnectionException(e, self.url) from e
             raise
 
     def get_resource_recommendation(
