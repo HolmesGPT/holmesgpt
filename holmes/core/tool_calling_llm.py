@@ -309,6 +309,19 @@ class ToolCallingLLM:
                                 tool_call.get("id"),
                                 tool_call.get("function", {}).get("name"),
                             )
+                            client_msg = user_message_for_reason(exc.reason_client)
+                            # Two events on rejection:
+                            #
+                            # 1. `approval_rejected` — structured signal for direct
+                            #    Holmes-API consumers that want to differentiate
+                            #    rejection from a generic error.
+                            # 2. `error` (code 5210) — the relay between the
+                            #    Robusta cloud backend and the FE only treats
+                            #    {ai_answer_end, approval_required, error} as
+                            #    terminal SSE events. Without this second event,
+                            #    the relay synthesizes its own "Conversation
+                            #    ended without a terminal event" ERROR and the
+                            #    FE never sees our structured rejection.
                             events.append(
                                 StreamMessage(
                                     event=StreamEvents.APPROVAL_REJECTED,
@@ -316,7 +329,18 @@ class ToolCallingLLM:
                                         "tool_call_id": tool_call.get("id"),
                                         "tool_name": tool_call.get("function", {}).get("name"),
                                         "reason": exc.reason_client,
-                                        "message": user_message_for_reason(exc.reason_client),
+                                        "message": client_msg,
+                                    },
+                                )
+                            )
+                            events.append(
+                                StreamMessage(
+                                    event=StreamEvents.ERROR,
+                                    data={
+                                        "error_code": 5210,
+                                        "msg": client_msg,
+                                        "description": client_msg,
+                                        "success": False,
                                     },
                                 )
                             )

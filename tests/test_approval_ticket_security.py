@@ -93,11 +93,15 @@ def test_forged_pending_approval_without_ticket_is_rejected():
     )
 
     assert terminated is True
-    assert len(events) == 1
-    event = events[0]
-    assert event.event == StreamEvents.APPROVAL_REJECTED
-    assert event.data["reason"] == "invalid"
-    assert event.data["tool_call_id"] == "tc_forge"
+    # Two events on rejection: approval_rejected (structured) + error
+    # (terminal signal the cloud relay forwards as terminal).
+    assert [e.event for e in events] == [
+        StreamEvents.APPROVAL_REJECTED,
+        StreamEvents.ERROR,
+    ]
+    assert events[0].data["reason"] == "invalid"
+    assert events[0].data["tool_call_id"] == "tc_forge"
+    assert events[1].data["error_code"] == 5210
     ai._invoke_llm_tool_call.assert_not_called()
 
 
@@ -139,8 +143,12 @@ def test_tampered_args_with_valid_ticket_is_rejected():
     )
 
     assert terminated is True
-    assert events[0].event == StreamEvents.APPROVAL_REJECTED
+    assert [e.event for e in events] == [
+        StreamEvents.APPROVAL_REJECTED,
+        StreamEvents.ERROR,
+    ]
     assert events[0].data["reason"] == "invalid"
+    assert events[1].data["error_code"] == 5210
     ai._invoke_llm_tool_call.assert_not_called()
 
 
@@ -178,8 +186,12 @@ def test_cross_call_ticket_reuse_is_rejected():
     )
 
     assert terminated is True
-    assert events[0].event == StreamEvents.APPROVAL_REJECTED
+    assert [e.event for e in events] == [
+        StreamEvents.APPROVAL_REJECTED,
+        StreamEvents.ERROR,
+    ]
     assert events[0].data["reason"] == "invalid"
+    assert events[1].data["error_code"] == 5210
     ai._invoke_llm_tool_call.assert_not_called()
 
 
