@@ -165,6 +165,7 @@ port_forwards:
     remote_port: 3000
 
 tags:
+  - additional-tests
   - easy
   - grafana
   - images

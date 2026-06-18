@@ -1,5 +1,6 @@
 user_prompt: "Find login failures in my-app-52"
 tags:
+  - additional-tests
   - logs
   - medium
 expected_output: |
