@@ -63,6 +63,12 @@ from holmes.core.truncation.input_context_window_limiter import (
     check_compaction_needed,
     compact_if_necessary,
 )
+from holmes.utils.approval_tickets import (
+    ApprovalTicketError,
+    mint_ticket,
+    user_message_for_reason,
+    verify_ticket,
+)
 from holmes.utils.colors import AI_COLOR
 from holmes.utils.stream import (
     StreamEvents,
@@ -253,7 +259,7 @@ class ToolCallingLLM:
         tool_decisions: List[ToolApprovalDecision],
         request_context: Optional[Dict[str, Any]] = None,
         trace_span: Any = None,
-    ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
+    ) -> tuple[List[Dict[str, Any]], list[StreamMessage], bool]:
         """Execute approved tools and record rejections for denied ones.
 
         Called after the user (CLI callback or HTTP client) has decided on each
@@ -261,14 +267,18 @@ class ToolCallingLLM:
         and injects denial errors for rejected ones.
 
         Returns:
-            Updated messages list with tool execution results and stream events.
+            (messages, events, terminated) — `terminated=True` means an
+            approval ticket failed verification and the caller MUST stop the
+            stream after yielding `events`. Closes GHSA-6m4w-cmhp-f95f: a
+            client cannot forge `pending_approval=true` without a matching
+            signed ticket from Holmes.
         """
         if trace_span is None:
             trace_span = DummySpan()
 
         events: list[StreamMessage] = []
         if not tool_decisions:
-            return messages, events
+            return messages, events, False
 
         # Create decision lookup
         decisions_by_tool_call_id = {
@@ -284,9 +294,37 @@ class ToolCallingLLM:
                 for tool_call in message_tool_calls:
                     decision = decisions_by_tool_call_id.get(tool_call.get("id"), None)
                     if tool_call.get("pending_approval"):
-                        del tool_call[
-                            "pending_approval"
-                        ]  # Cleanup so that a pending approval is not tagged on message in a future response
+                        try:
+                            verify_ticket(
+                                tool_call.get("approval_ticket"),
+                                tool_call_id=tool_call.get("id", ""),
+                                tool_name=tool_call.get("function", {}).get("name", ""),
+                                args_json=tool_call.get("function", {}).get("arguments", ""),
+                            )
+                        except ApprovalTicketError as exc:
+                            logging.warning(
+                                "approval ticket rejected: reason_internal=%s reason_client=%s tool_call_id=%s tool_name=%s",
+                                exc.reason_internal,
+                                exc.reason_client,
+                                tool_call.get("id"),
+                                tool_call.get("function", {}).get("name"),
+                            )
+                            events.append(
+                                StreamMessage(
+                                    event=StreamEvents.APPROVAL_REJECTED,
+                                    data={
+                                        "tool_call_id": tool_call.get("id"),
+                                        "tool_name": tool_call.get("function", {}).get("name"),
+                                        "reason": exc.reason_client,
+                                        "message": user_message_for_reason(exc.reason_client),
+                                    },
+                                )
+                            )
+                            return messages, events, True
+                        # Strip the one-shot fields so they don't ride in future
+                        # responses or get re-redeemed.
+                        del tool_call["pending_approval"]
+                        tool_call.pop("approval_ticket", None)
                         pending_tool_calls.append(
                             ToolCallWithDecision(
                                 tool_call=ChatCompletionMessageToolCall(**tool_call),
@@ -380,7 +418,7 @@ class ToolCallingLLM:
                 tool_call_with_decision.message_index + 1, tool_call_message
             )
 
-        return messages, events
+        return messages, events, False
 
     def _resolve_orphaned_tool_calls(
         self, messages: List[Dict[str, Any]]
@@ -1044,7 +1082,7 @@ class ToolCallingLLM:
         # Process tool decisions if provided (approval resume)
         if msgs and tool_decisions:
             logging.info(f"Processing {len(tool_decisions)} tool decisions")
-            msgs, events = self._execute_tool_decisions(
+            msgs, events, terminated = self._execute_tool_decisions(
                 msgs, tool_decisions, request_context, trace_span=trace_span
             )
             for ev in events:
@@ -1052,6 +1090,8 @@ class ToolCallingLLM:
                 # Collect tool results from approval re-invocations
                 if ev.event == StreamEvents.TOOL_RESULT:
                     all_tool_calls.append(ev.data)
+            if terminated:
+                return
 
         # Process frontend tool results if provided (frontend tool resume)
         if msgs and frontend_tool_results:
@@ -1314,12 +1354,16 @@ class ToolCallingLLM:
                         # OAuth approvals are always sent to frontend (user must authenticate)
                         is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
                         if enable_tool_approval or is_oauth:
+                            # approval_ticket is minted below once we have the
+                            # assistant tool_call dict (its `function.arguments`
+                            # JSON string is what binds the ticket's args_hash).
                             pending_approvals.append(
                                 PendingToolApproval(
                                     tool_call_id=tool_call_result.tool_call_id,
                                     tool_name=tool_call_result.tool_name,
                                     description=tool_call_result.description,
                                     params=tool_call_result.result.params or {},
+                                    approval_ticket="",
                                 )
                             )
 
@@ -1391,13 +1435,24 @@ class ToolCallingLLM:
                         )
                         tool_call["pending_frontend"] = True
 
-                # Mark any pending approval tool calls in assistant messages
+                # Mark any pending approval tool calls in assistant messages and
+                # mint a signed approval ticket bound to their id/name/args.
+                # The ticket is the proof-of-issue the resume path requires —
+                # without it `pending_approval=true` can be forged
+                # (GHSA-6m4w-cmhp-f95f).
                 if pending_approvals:
                     for approval in pending_approvals:
                         tool_call = self.find_assistant_tool_call_request(
                             tool_call_id=approval.tool_call_id, messages=messages
                         )
+                        ticket = mint_ticket(
+                            tool_call_id=tool_call["id"],
+                            tool_name=tool_call.get("function", {}).get("name", ""),
+                            args_json=tool_call.get("function", {}).get("arguments", ""),
+                        )
                         tool_call["pending_approval"] = True
+                        tool_call["approval_ticket"] = ticket
+                        approval.approval_ticket = ticket
 
                 # If either type of pause is needed, emit a single APPROVAL_REQUIRED
                 # event that carries both pending_approvals and pending_frontend_tool_calls.

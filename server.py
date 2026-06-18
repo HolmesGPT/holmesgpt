@@ -66,6 +66,7 @@ from holmes.utils.holmes_status import (
     update_holmes_status_in_db,
 )
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
+from holmes.utils.approval_tickets import get_signing_key, signing_key_source
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
 from holmes.admin.admin_api import init_admin_app
@@ -341,6 +342,19 @@ HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
 
 if HOLMES_API_KEY:
     logging.info("API key authentication enabled (HOLMES_API_KEY is set)")
+
+# Eager init of the approval-ticket signing key so the source (env vs ephemeral)
+# is visible in startup logs. See docs/reference/environment-variables.md.
+get_signing_key()
+if signing_key_source() == "env":
+    logging.info(
+        "HOLMES_APPROVAL_SIGNING_KEY loaded — tool approvals survive restarts"
+    )
+else:
+    logging.warning(
+        "HOLMES_APPROVAL_SIGNING_KEY not set — using an ephemeral signing key. "
+        "See https://holmesgpt.dev/reference/environment-variables/#holmes_approval_signing_key"
+    )
 
     @app.middleware("http")
     async def api_key_auth(request: Request, call_next):

@@ -288,6 +288,7 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
                 }
             ],
             [],  # Empty list for StreamMessages
+            False,  # not terminated
         )
     )
 
@@ -440,6 +441,7 @@ def test_streaming_chat_approval_workflow_reject_command(
                 }
             ],
             [],  # Empty list for StreamMessages
+            False,  # not terminated
         )
     )
 

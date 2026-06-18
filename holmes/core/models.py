@@ -114,6 +114,7 @@ class PendingToolApproval(BaseModel):
     tool_name: str
     description: str
     params: Dict[str, Any]
+    approval_ticket: str
 
 
 class ToolApprovalDecision(BaseModel):
