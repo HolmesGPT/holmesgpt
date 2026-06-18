@@ -10,6 +10,7 @@ expected_output:
   - The answer must state that the total across all namespaces is exactly 644 ConfigMaps
 
 tags:
+  - additional-tests
   - kubernetes
   - counting
   - regression

@@ -8,6 +8,7 @@ expected_output:
   - "Holmes responds with a greeting or acknowledgement"
 skills: {}
 tags:
+  - additional-tests
   - context_window
   - easy
   - fast

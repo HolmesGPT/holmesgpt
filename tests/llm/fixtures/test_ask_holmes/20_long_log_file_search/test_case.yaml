@@ -17,5 +17,6 @@ evaluation:
   correctness: 1
 
 tags:
+  - additional-tests
   - logs
   - easy

@@ -29,5 +29,6 @@ after_test: |
   kubectl delete namespace production-62 --ignore-not-found
 
 tags:
+  - additional-tests
   - logs
   - medium
