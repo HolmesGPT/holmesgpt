@@ -102,11 +102,20 @@ data:
     {{- end }}
     {{- if .Values.mcpAddons.github.enabled }}
     {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+    {{- /*
+      GitHub App installation tokens cannot call GET /user (403 "Resource not accessible
+      by integration"). health_check_tool defaults to "" for App auth so the check is
+      auto-skipped; set mcpAddons.github.healthCheckTool to override.
+    */}}
+    {{- $hct := "" }}
+    {{- if hasKey .Values.mcpAddons.github "healthCheckTool" }}
+    {{-   $hct = .Values.mcpAddons.github.healthCheckTool }}
+    {{- end }}
     {{- $githubConfig := dict
         "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
         "mode" "streamable-http"
         "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/github.svg"
-        "health_check_tool" "get_me"
+        "health_check_tool" $hct
     }}
     {{- $githubMcpServers := dict "github" (dict
         "description" "GitHub MCP Server - access repositories, pull requests, issues, and GitHub Actions. Debug CI failures, search code, and delegate tasks to Copilot."
@@ -116,11 +125,15 @@ data:
     }}
     {{- $mcpServers = merge $mcpServers $githubMcpServers }}
     {{- else }}
+    {{- $hct := "get_me" }}
+    {{- if hasKey .Values.mcpAddons.github "healthCheckTool" }}
+    {{-   $hct = .Values.mcpAddons.github.healthCheckTool }}
+    {{- end }}
     {{- $githubConfig := dict
         "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
         "mode" "sse"
         "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/github.svg"
-        "health_check_tool" "get_me"
+        "health_check_tool" $hct
     }}
     {{- $githubMcpServers := dict "github" (dict
         "description" "GitHub MCP Server - access repositories, pull requests, issues, and GitHub Actions. Debug CI failures, search code, and delegate tasks to Copilot."

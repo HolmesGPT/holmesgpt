@@ -503,6 +503,13 @@ mcpAddons:
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
 
+    # Health-check tool used by Holmes to verify the GitHub token is valid at startup.
+    # PAT auth default: "get_me" (calls GET /user — works with personal access tokens).
+    # GitHub App auth default: "" (no health check — App installation tokens cannot call
+    # GET /user and would always return 403 "Resource not accessible by integration").
+    # Set to any tool name exposed by the GitHub MCP server to override the default.
+    # healthCheckTool: ""
+
     nodeSelector: {}
     tolerations: []
     affinity: {}
