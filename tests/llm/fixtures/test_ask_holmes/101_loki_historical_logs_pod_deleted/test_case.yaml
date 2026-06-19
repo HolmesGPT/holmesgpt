@@ -87,3 +87,5 @@ before_test: |
 after_test: |
   # Delete namespace in background to avoid hanging
   kubectl delete namespace app-101 --wait=false || true
+
+memories_generated: false

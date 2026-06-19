@@ -38,3 +38,5 @@ after_test: |
 tags:
   - easy
   - regression
+
+memories_generated: false

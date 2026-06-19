@@ -1,0 +1,235 @@
+# Test: multi-quirk consolidation. The agent investigates three different
+# elasticsearch quirks across three sibling indices in ONE conversation,
+# and the suggest_skills mechanism is expected to capture all three as
+# entries under a single `skill_domain: "elasticsearch"` skill — not as
+# three independent single-quirk skills.
+#
+# Why this matters: the per-quirk-skill design we tested in 261-265
+# doesn't scale. A real customer environment has dozens of quirks per
+# data source; a catalog with one skill per quirk explodes the
+# SkillsToolset listing in the system prompt, and the agent has to fetch
+# multiple skills per investigation. The consolidated design produces
+# one "Known quirks for querying elasticsearch" skill that any future ES
+# query loads once and scans for the relevant entry.
+#
+# Setup creates three indices under one prefix, each with one quirk
+# borrowed from the 261/264/265 patterns:
+#   * app-268-logs-A — has `severity` (keyword) for log level, no `level`
+#   * app-268-logs-B — has `severity_num` (integer 1..6) for log level,
+#     no `level`
+#   * app-268-logs-C — has `ingest_ts` (keyword string) for timestamps,
+#     no `@timestamp` date field
+#
+# The user_prompt asks one question per index in one message. The agent
+# must discover each quirk to answer each question. After answering,
+# suggest_skills should fire ONCE per quirk (three entries total),
+# every entry tagged `skill_domain: "elasticsearch"`. The harness
+# consolidates them into a single SKILL.md.
+#
+# On replay (with that one consolidated ES skill pre-loaded), the agent
+# is asked the same three questions in a softer phrasing. The assertion
+# is: the agent calls fetch_skill ONCE (not three times), reads all
+# three quirks, and answers all three correctly without re-issuing the
+# default wrong queries.
+
+user_prompt: |
+  In the cluster's elasticsearch I have three log indices for app-268
+  that I need to query. Please answer all three of the following:
+
+  1. In index 'app-268-logs-a-r5x8m3n9', run a `term: { level: "ERROR" }`
+     query and report the count. If that returns zero, find the right
+     field and re-run.
+
+  2. In index 'app-268-logs-b-r5x8m3n9', run a `terms: { level: ["ERROR",
+     "FATAL"] }` query and report the count. If that returns zero, find
+     the right field for severity and re-run.
+
+  3. In index 'app-268-logs-c-r5x8m3n9', run a range query on
+     `@timestamp` for today's date and filter to ERROR-level entries,
+     and report the count. If the @timestamp filter returns zero or
+     errors, find the right timestamp field and re-run.
+
+# Replay prompt: a natural version that doesn't prescribe any of the
+# failure paths. With the consolidated skill pre-loaded, the agent
+# should fetch it once, see all three quirks, and answer each question
+# using the right field directly. This is the realistic future
+# investigation the consolidated skill is designed to speed up.
+replay_user_prompt: |
+  For the three app-268 elasticsearch log indices, please tell me:
+  (1) how many ERROR-level entries are in app-268-logs-a-r5x8m3n9?
+  (2) how many entries are at ERROR or FATAL severity in
+      app-268-logs-b-r5x8m3n9?
+  (3) how many ERROR-level entries are there from today in
+      app-268-logs-c-r5x8m3n9?
+
+expected_output:
+  - "There are 10 ERROR entries in app-268-logs-a-r5x8m3n9 (uses `severity` keyword, not `level`)"
+  - "There are 8 ERROR-or-FATAL entries in app-268-logs-b-r5x8m3n9 (uses `severity_num` integer where 5=ERROR, 6=FATAL)"
+  - "There are 7 ERROR entries from today in app-268-logs-c-r5x8m3n9 (uses `ingest_ts` keyword for timestamps, not `@timestamp`)"
+
+memories_generated: true
+rerun_with_memory: true
+
+# Three quirks discovered, all elasticsearch — must collapse into ONE
+# consolidated SKILL.md. This is the central correctness check of this
+# eval: if the agent emits three separate `skill_domain` values, this
+# assertion fails before the replay even runs.
+expected_skill_count: 1
+
+tags:
+  - elasticsearch
+  - question-answer
+  - hard
+  - regression
+  - skills
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  PREFIX="app-268-logs"
+  echo "Creating three indices under prefix: $PREFIX"
+
+  # ── Index A: 'severity' keyword (no 'level') ───────────────────────────
+  IDX_A="${PREFIX}-a-r5x8m3n9"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX_A}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${IDX_A}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "severity":   { "type": "keyword" },
+          "message":    { "type": "text" },
+          "service":    { "type": "keyword" },
+          "@timestamp": { "type": "date" }
+        }
+      }
+    }' > /dev/null
+
+  BULK_A=""
+  for i in $(seq 1 10); do
+    TS=$(printf '2026-05-14T12:00:%02dZ' "$i")
+    BULK_A="${BULK_A}{\"index\":{}}\n{\"severity\":\"ERROR\",\"service\":\"checkout-268\",\"message\":\"DB conn refused $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 6); do
+    TS=$(printf '2026-05-14T12:01:%02dZ' "$i")
+    BULK_A="${BULK_A}{\"index\":{}}\n{\"severity\":\"INFO\",\"service\":\"checkout-268\",\"message\":\"Health check $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  echo -e "$BULK_A" | curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_A}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @- > /dev/null
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_A}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # ── Index B: 'severity_num' integer (no 'level') ───────────────────────
+  IDX_B="${PREFIX}-b-r5x8m3n9"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX_B}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${IDX_B}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "severity_num": { "type": "integer" },
+          "msg":          { "type": "text" },
+          "svc":          { "type": "keyword" },
+          "@timestamp":   { "type": "date" }
+        }
+      }
+    }' > /dev/null
+
+  # Convention: 1=trace 2=debug 3=info 4=warn 5=error 6=fatal (winston/
+  # bunyan style — higher = more severe). syslog goes the OTHER way
+  # (0=emerg ... 7=debug), so the bare integers are ambiguous. We embed
+  # the level name in the message text itself so any agent that samples
+  # a single doc can disambiguate — that mirrors how a real customer
+  # would discover the mapping when reading logs.
+  BULK_B=""
+  for i in $(seq 1 6); do
+    TS=$(printf '2026-06-03T08:00:%02dZ' "$i")
+    BULK_B="${BULK_B}{\"index\":{}}\n{\"severity_num\":5,\"svc\":\"order-268\",\"msg\":\"[ERROR] DB timeout $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 2); do
+    TS=$(printf '2026-06-03T08:01:%02dZ' "$i")
+    BULK_B="${BULK_B}{\"index\":{}}\n{\"severity_num\":6,\"svc\":\"order-268\",\"msg\":\"[FATAL] Disk full $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 5); do
+    TS=$(printf '2026-06-03T08:02:%02dZ' "$i")
+    BULK_B="${BULK_B}{\"index\":{}}\n{\"severity_num\":3,\"svc\":\"order-268\",\"msg\":\"[INFO] healthcheck $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  echo -e "$BULK_B" | curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_B}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @- > /dev/null
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_B}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # ── Index C: 'ingest_ts' keyword (no '@timestamp') ─────────────────────
+  IDX_C="${PREFIX}-c-r5x8m3n9"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX_C}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${IDX_C}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "ingest_ts": { "type": "keyword" },
+          "level":     { "type": "keyword" },
+          "message":   { "type": "text" }
+        }
+      }
+    }' > /dev/null
+
+  # Use the current UTC date so the replay prompt's "from today" resolves
+  # to the same date as the ingested data — independent of when the test
+  # actually runs.
+  TODAY=$(date -u +%Y-%m-%d)
+  YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
+  BULK_C=""
+  for i in $(seq 1 7); do
+    BULK_C="${BULK_C}{\"index\":{}}\n{\"ingest_ts\":\"${TODAY}T08:0${i}:00\",\"level\":\"ERROR\",\"message\":\"err today $i\"}\n"
+  done
+  for i in $(seq 1 5); do
+    BULK_C="${BULK_C}{\"index\":{}}\n{\"ingest_ts\":\"${YESTERDAY}T08:0${i}:00\",\"level\":\"ERROR\",\"message\":\"err yest $i\"}\n"
+  done
+  for i in $(seq 1 4); do
+    BULK_C="${BULK_C}{\"index\":{}}\n{\"ingest_ts\":\"${TODAY}T09:0${i}:00\",\"level\":\"INFO\",\"message\":\"info today $i\"}\n"
+  done
+  echo -e "$BULK_C" | curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_C}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @- > /dev/null
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX_C}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify all three populated
+  for IDX in "$IDX_A" "$IDX_B" "$IDX_C"; do
+    COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${IDX}/_count" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      | grep -o '"count":[0-9]*' | cut -d':' -f2)
+    echo "  $IDX: $COUNT docs"
+    if [ -z "$COUNT" ] || [ "$COUNT" = "0" ]; then
+      echo "❌ $IDX has no documents"
+      exit 1
+    fi
+  done
+  echo "✅ All three app-268 indices populated"
+
+after_test: |
+  for IDX in app-268-logs-a-r5x8m3n9 app-268-logs-b-r5x8m3n9 app-268-logs-c-r5x8m3n9; do
+    echo "⏳ Cleaning up: $IDX"
+    curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX}" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  done
+  echo "✅ Cleanup complete"

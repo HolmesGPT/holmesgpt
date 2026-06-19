@@ -1,0 +1,195 @@
+# Test: Kafka metrics in this cluster are exposed under a non-standard
+# name. The upstream Kafka JMX exporter publishes
+# `kafka_server_brokertopicmetrics_messagesinpersec_total` (or similar
+# `kafka_topic_*` shapes), but this team's exporter renames everything
+# under the `acme_kafka_*` prefix via prom relabeling. A fresh LLM
+# defaulting to the upstream names returns zero series and has to
+# enumerate metric names (`{__name__=~"kafka.*"}` → empty, then
+# `{__name__=~".*kafka.*"}` or `label_values(__name__)`) to discover
+# the real prefix `acme_kafka_*`.
+#
+# The LLM should capture this lesson: "Kafka metrics in this cluster
+# live under the `acme_kafka_*` prefix, not the upstream `kafka_*`
+# names — always discover the real metric name via label enumeration
+# before querying."
+
+user_prompt: "How many messages have been consumed in total on the 'payments' Kafka topic in the app-262 cluster?"
+
+expected_output:
+  - "The payments topic has 47823 messages consumed"
+
+memories_generated: true
+rerun_with_memory: true
+
+description: |
+  Forces a wrong→right metric-name correction. The upstream Kafka exporter
+  name is renamed to a non-standard team-specific prefix, so default PromQL
+  returns no series and the agent must discover via metadata.
+
+tags:
+  - prometheus
+  - kubernetes
+  - regression
+  - medium
+  - skills
+
+port_forwards:
+  - namespace: app-262
+    service: prometheus
+    local_port: 10262
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-262 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+
+  # Static-text metrics exporter. A Python http.server keeps the
+  # surface area small and avoids ConfigMap-as-file-mount edge cases
+  # an earlier nginx version of this eval ran into. The exporter
+  # publishes Kafka-shape metrics under the team's `acme_kafka_*`
+  # prefix — the upstream `kafka_*` names do not appear anywhere.
+  cat <<'EOF' | kubectl apply -n app-262 -f -
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: kafka-exporter-script
+  data:
+    serve.py: |
+      #!/usr/bin/env python3
+      from http.server import BaseHTTPRequestHandler, HTTPServer
+      METRICS = (
+          "# HELP acme_kafka_msgs_consumed_total Total Kafka messages consumed by topic (acme team renamed metric)\n"
+          "# TYPE acme_kafka_msgs_consumed_total counter\n"
+          'acme_kafka_msgs_consumed_total{topic="payments"} 47823\n'
+          'acme_kafka_msgs_consumed_total{topic="checkout"} 11204\n'
+          'acme_kafka_msgs_consumed_total{topic="inventory"} 6042\n'
+          "# HELP acme_kafka_consumer_lag_records Consumer lag per topic\n"
+          "# TYPE acme_kafka_consumer_lag_records gauge\n"
+          'acme_kafka_consumer_lag_records{topic="payments"} 3\n'
+          'acme_kafka_consumer_lag_records{topic="checkout"} 0\n'
+          'acme_kafka_consumer_lag_records{topic="inventory"} 12\n'
+      )
+      class Handler(BaseHTTPRequestHandler):
+          def log_message(self, *args, **kwargs):
+              pass
+          def do_GET(self):
+              if self.path == "/metrics":
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/plain; version=0.0.4")
+                  self.end_headers()
+                  self.wfile.write(METRICS.encode())
+              else:
+                  self.send_response(404)
+                  self.end_headers()
+      HTTPServer(("0.0.0.0", 80), Handler).serve_forever()
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: kafka-exporter
+  spec:
+    replicas: 1
+    selector:
+      matchLabels: { app: kafka-exporter }
+    template:
+      metadata:
+        labels: { app: kafka-exporter }
+      spec:
+        containers:
+        - name: server
+          image: python:3.11-alpine
+          command: ["python3", "/app/serve.py"]
+          ports:
+          - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 5
+          volumeMounts:
+          - name: script
+            mountPath: /app
+        volumes:
+        - name: script
+          configMap:
+            name: kafka-exporter-script
+            defaultMode: 0755
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: kafka-exporter
+  spec:
+    selector:
+      app: kafka-exporter
+    ports:
+    - port: 80
+      targetPort: 80
+  EOF
+
+  # Prometheus config pointing at the fake exporter
+  cat <<'EOF' | kubectl apply -n app-262 -f -
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: prometheus-config
+  data:
+    prometheus.yml: |
+      global:
+        scrape_interval: 5s
+        evaluation_interval: 5s
+      scrape_configs:
+      - job_name: 'kafka'
+        metrics_path: /metrics
+        static_configs:
+        - targets: ['kafka-exporter.app-262.svc.cluster.local:80']
+  EOF
+
+  kubectl apply -n app-262 -f ../../shared/prometheus.yaml
+
+  echo "⏳ Waiting for kafka-exporter to be ready..."
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=kafka-exporter -n app-262 --timeout=5s 2>/dev/null; then
+      echo "✅ kafka-exporter ready"; break
+    fi
+    sleep 1
+    [ "$i" -eq 60 ] && { kubectl describe pod -l app=kafka-exporter -n app-262; exit 1; }
+  done
+
+  echo "⏳ Waiting for prometheus to be ready..."
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-262 --timeout=5s 2>/dev/null; then
+      echo "✅ Prometheus ready"; break
+    fi
+    sleep 1
+    [ "$i" -eq 60 ] && { kubectl describe pod -l app=prometheus -n app-262; exit 1; }
+  done
+
+  # Wait for Prometheus to have actually scraped the exporter. Use the
+  # simple `up` metric scoped to our job — no curly braces or quotes that
+  # would need URL-encoding, and no dependency on the custom metric name
+  # actually arriving yet. Once `up{job="kafka"}` reports 1 we know the
+  # scrape config is wired and the exporter is reachable.
+  echo "⏳ Waiting for Prometheus to scrape the kafka job..."
+  for i in {1..60}; do
+    UP=$(kubectl exec -n app-262 deployment/prometheus -- \
+      wget -q -O- 'http://localhost:9090/api/v1/query?query=up' \
+      2>/dev/null | grep -o '"job":"kafka".*"value":\[[^]]*\]' || true)
+    if echo "$UP" | grep -q '"1"'; then
+      echo "✅ kafka scrape target is up"
+      break
+    fi
+    sleep 1
+    [ "$i" -eq 60 ] && {
+      echo "❌ kafka scrape target never came up"
+      kubectl exec -n app-262 deployment/prometheus -- \
+        wget -q -O- 'http://localhost:9090/api/v1/targets' 2>/dev/null | head -c 4000
+      kubectl logs -n app-262 deployment/kafka-exporter --tail=20 || true
+      exit 1
+    }
+  done
+
+after_test: |
+  kubectl delete namespace app-262 --wait=false || true

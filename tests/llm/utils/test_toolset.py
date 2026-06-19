@@ -42,11 +42,18 @@ class TestToolsetManager:
         test_case_folder: str,
         allow_toolset_failures: bool = False,
         toolsets_config_path: Optional[str] = None,
+        additional_skill_paths: Optional[list] = None,
         enable_todo: bool = False,
     ):
         self.test_case_folder = test_case_folder
         self.allow_toolset_failures = allow_toolset_failures
         self.toolsets_config_path = toolsets_config_path
+        # Extra directories the SkillsToolset should scan in addition to the
+        # test fixture folder. Used by the rerun_with_memory replay flow to
+        # inject memories (rendered as SKILL.md files in a tempdir) as
+        # available skills so the agent can fetch them via the standard
+        # fetch_skill tool.
+        self.additional_skill_paths = list(additional_skill_paths or [])
         self.enable_todo = enable_todo
 
         # Initialize components
@@ -185,7 +192,11 @@ class TestToolsetManager:
                 )
 
                 new_skills_toolset = SkillsToolset(
-                    dal=dal, additional_search_paths=[self.test_case_folder]
+                    dal=dal,
+                    additional_search_paths=[
+                        self.test_case_folder,
+                        *self.additional_skill_paths,
+                    ],
                 )
                 new_skills_toolset.enabled = toolset.enabled
                 new_skills_toolset.status = toolset.status

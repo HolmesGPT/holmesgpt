@@ -63,3 +63,5 @@ after_test: |
   for NS in payments inventory shipping analytics notifications; do
     kubectl delete namespace "app-227-$NS" || true
   done
+
+memories_generated: false

@@ -1,7 +1,7 @@
 import base64
 import logging
 import os
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from braintrust import Attachment
 from pydantic import BaseModel
@@ -33,6 +33,7 @@ def log_to_braintrust(
     result: Optional[Union[LLMResult, CompactionResult]] = None,
     scores: Optional[dict] = None,
     error: Optional[Exception] = None,
+    suggested_memories: Optional[List[Any]] = None,
 ) -> None:
     """Log evaluation data to Braintrust.
 
@@ -89,6 +90,11 @@ def log_to_braintrust(
         "eval_id": base_test_id,  # Base test case ID without variant suffix
         "test_id": test_case.id,  # Full test case ID with variant suffix if present
     }
+
+    if suggested_memories is not None:
+        metadata["memories_count"] = len(suggested_memories)
+        if suggested_memories:
+            metadata["suggested_memories"] = suggested_memories
 
     # Add test type for ask tests
     if isinstance(test_case, AskHolmesTestCase):
