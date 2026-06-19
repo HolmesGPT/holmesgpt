@@ -16,10 +16,6 @@ There are three ways to load custom skills, covered below. Within each, pick you
 
 Keep skills version-controlled in a Git repo so they can be reviewed, versioned, and shared across a team.
 
-!!! warning "Alpha — values-only pattern (Helm)"
-
-    The Helm-based setup below works today by wiring up existing chart knobs (`initContainers`, `additionalVolumes`, `customSkillPaths`) by hand. We are planning first-class GitHub support soon, at which point this configuration will become obsolete.
-
 === "Holmes Helm Chart"
 
     Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
