@@ -72,11 +72,7 @@ from holmes.utils.stream import (
 )
 from holmes.utils.tags import parse_messages_tags
 
-
-class LLMInterruptedError(Exception):
-    """Raised when the user interrupts an in-progress LLM call (e.g. via Escape key)."""
-
-    pass
+from holmes.core.exceptions import LLMInterruptedError  # noqa: F401 (re-exported for backwards compat)
 
 
 # Create a named logger for cost tracking
@@ -1084,6 +1080,7 @@ class ToolCallingLLM:
 
         while i < max_steps:
             if cancel_event and cancel_event.is_set():
+                logging.info("call_stream: cancel detected at iteration start (i=%d), aborting", i)
                 raise LLMInterruptedError()
 
             i += 1
@@ -1215,6 +1212,7 @@ class ToolCallingLLM:
                 raise
 
             if cancel_event and cancel_event.is_set():
+                logging.info("call_stream: cancel detected after LLM response (iteration %d), aborting", i)
                 raise LLMInterruptedError()
 
             response_message = full_response.choices[0].message  # type: ignore
@@ -1276,7 +1274,8 @@ class ToolCallingLLM:
             # Extract session approved prefixes from conversation history
             session_prefixes = extract_bash_session_prefixes(messages)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
+            try:
                 futures = []
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index
@@ -1299,8 +1298,12 @@ class ToolCallingLLM:
 
                 for future in concurrent.futures.as_completed(futures):
                     if cancel_event and cancel_event.is_set():
-                        for f in futures:
-                            f.cancel()
+                        logging.info(
+                            "call_stream: cancel detected during tool execution (iteration %d), "
+                            "shutting down executor immediately",
+                            i,
+                        )
+                        executor.shutdown(wait=False, cancel_futures=True)
                         raise LLMInterruptedError()
 
                     tool_call_result: ToolCallResult = future.result()
@@ -1433,6 +1436,8 @@ class ToolCallingLLM:
                             f"Tool list changed - refreshing ({len(tools)} -> {len(new_tools)} tools)"
                         )
                         tools = new_tools
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
 
         raise Exception(
             f"Too many LLM calls - exceeded max_steps: {i}/{self.max_steps}"

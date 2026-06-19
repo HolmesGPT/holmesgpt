@@ -10,6 +10,7 @@ from litellm.types.utils import ModelResponse, TextCompletionResponse
 from pydantic import BaseModel, Field
 
 from holmes.common.env_vars import TRACE_TOKEN_USAGE
+from holmes.core.exceptions import LLMInterruptedError
 from holmes.core.llm import ContextWindowUsage, build_usage_metadata
 
 
@@ -108,6 +109,9 @@ def stream_chat_formatter(
                 )
             else:
                 yield create_sse_message(message.event.value, message.data)
+    except LLMInterruptedError:
+        logging.info("stream_chat_formatter: LLM call interrupted (client disconnected or cancelled)")
+        return
     except Exception as e:
         logging.error(f"Error during streaming chat: {e}", exc_info=True)
         if _is_rate_limit_error(e):
