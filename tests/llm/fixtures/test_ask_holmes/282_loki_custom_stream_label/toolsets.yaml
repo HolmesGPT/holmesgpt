@@ -1,0 +1,13 @@
+toolsets:
+  kubernetes/logs:
+    enabled: false  # force the agent to use Loki, not kubectl logs
+  kubernetes/core:
+    enabled: true
+  grafana/loki:
+    enabled: true
+    config:
+      api_url: http://localhost:10282
+      api_key: ""
+      # Intentionally NO labels override here — the agent has to discover
+      # that this cluster labels streams with `acme_service` rather than
+      # the conventional `service` / `app`.

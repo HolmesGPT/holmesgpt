@@ -876,6 +876,37 @@ def _collect_test_results_from_stats(terminalreporter):
                 "max_completion_tokens_per_call": user_props.get("max_completion_tokens_per_call", 0),
                 "max_prompt_tokens_per_call": user_props.get("max_prompt_tokens_per_call", 0),
                 "num_compactions": user_props.get("num_compactions", 0),
+                # SuggestSkills / closed-loop replay tracking (see
+                # test_ask_holmes.py and reporting/github_reporter.py)
+                "memories_count": user_props.get("memories_count", 0),
+                "skills_read_count": user_props.get("skills_read_count", 0),
+                "primary_passed": user_props.get("primary_passed", False),
+                "replay_attempted": user_props.get("replay_attempted", False),
+                "replay_correctness": user_props.get("replay_correctness"),
+                "replay_skill_loaded": user_props.get("replay_skill_loaded"),
+                "replay_skills_read_count": user_props.get("replay_skills_read_count", 0),
+                "replay_skill_count": user_props.get("replay_skill_count", 0),
+                "replay_braintrust_span_id": user_props.get("replay_braintrust_span_id"),
+                "replay_braintrust_root_span_id": user_props.get(
+                    "replay_braintrust_root_span_id"
+                ),
+                "replay_turns": user_props.get("replay_turns"),
+                "replay_tool_calls_count": user_props.get("replay_tool_calls_count"),
+                "replay_duration": user_props.get("replay_duration"),
+                "replay_total_cost": user_props.get("replay_total_cost"),
+                "replay_total_tokens": user_props.get("replay_total_tokens", 0),
+                "replay_prompt_tokens": user_props.get("replay_prompt_tokens", 0),
+                "replay_completion_tokens": user_props.get("replay_completion_tokens", 0),
+                "replay_cached_tokens": user_props.get("replay_cached_tokens"),
+                "replay_reasoning_tokens": user_props.get("replay_reasoning_tokens", 0),
+                "replay_max_completion_tokens_per_call": user_props.get(
+                    "replay_max_completion_tokens_per_call", 0
+                ),
+                "replay_max_prompt_tokens_per_call": user_props.get(
+                    "replay_max_prompt_tokens_per_call", 0
+                ),
+                "replay_num_compactions": user_props.get("replay_num_compactions", 0),
+                "replay_error": user_props.get("replay_error"),
                 # Tag tracking for performance analysis
                 "tags": user_props.get("tags", []),
                 # Error tracking for better reporting
