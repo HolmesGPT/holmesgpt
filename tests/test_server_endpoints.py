@@ -4,7 +4,9 @@ import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
-from server import app, extract_passthrough_headers
+from holmes.core.exceptions import LLMInterruptedError
+from holmes.utils.stream import stream_chat_formatter
+from server import _stream_with_trace_cleanup, app, extract_passthrough_headers
 
 
 @pytest.fixture
@@ -582,3 +584,66 @@ class TestExtractPassthroughHeaders:
         assert "authorization" in result["headers"]
         assert "cookie" in result["headers"]
         assert "x-tenant-id" in result["headers"]
+
+
+def test_stream_chat_formatter_swallows_llm_interrupted_error():
+    def interrupted_stream():
+        raise LLMInterruptedError()
+        yield  # pragma: no cover
+
+    assert list(stream_chat_formatter(interrupted_stream())) == []
+
+
+def test_stream_with_trace_cleanup_sets_cancel_event_on_normal_completion():
+    storage = MagicMock()
+    trace_span = MagicMock()
+
+    def source_stream():
+        yield "chunk-1"
+
+    import threading
+
+    cancel_event = threading.Event()
+
+    output = list(
+        _stream_with_trace_cleanup(
+            storage,
+            source_stream(),
+            "req-1",
+            trace_span,
+            cancel_event=cancel_event,
+        )
+    )
+
+    assert output == ["chunk-1"]
+    assert cancel_event.is_set()
+    trace_span.end.assert_called_once()
+    storage.__exit__.assert_called_once_with(None, None, None)
+
+
+def test_stream_with_trace_cleanup_still_cleans_up_when_stream_errors():
+    storage = MagicMock()
+    trace_span = MagicMock()
+
+    def source_stream():
+        yield "before-error"
+        raise RuntimeError("boom")
+
+    import threading
+
+    cancel_event = threading.Event()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        list(
+            _stream_with_trace_cleanup(
+                storage,
+                source_stream(),
+                "req-2",
+                trace_span,
+                cancel_event=cancel_event,
+            )
+        )
+
+    assert cancel_event.is_set()
+    trace_span.end.assert_called_once()
+    storage.__exit__.assert_called_once_with(None, None, None)
