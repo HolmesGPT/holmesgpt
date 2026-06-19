@@ -191,7 +191,8 @@ markers = [
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
     "token-limit: Tests that enforce a maximum token usage budget",
-    "multi-cluster: Multi-cluster / multi-environment topology and scope-awareness evals (PR #2042 set) — cluster mismatches, name disambiguation across clusters/namespaces/regions, labeling discipline in cross-cluster data, toolset vs no-data distinction, time-window gaps"
+    "multi-cluster: Multi-cluster / multi-environment topology and scope-awareness evals (PR #2042 set) — cluster mismatches, name disambiguation across clusters/namespaces/regions, labeling discipline in cross-cluster data, toolset vs no-data distinction, time-window gaps",
+    "fable-not-opus: Tests that fable-5 passes and opus-4.6 fails — useful for measuring the capability gap between these two specific models"
 ]
 
 addopts = [

@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from tests.llm.utils.test_case_utils import (  # type: ignore[attr-defined]
@@ -66,6 +67,10 @@ def set_initial_properties(
     config_name = env_config.name if env_config else "default"
     request.node.user_properties.append(("env_config", config_name))
 
+    # Will be overwritten if any skill suggestions are emitted during the run.
+    request.node.user_properties.append(("memories_count", 0))
+    request.node.user_properties.append(("suggested_memories", []))
+
 
 def set_trace_properties(request, eval_span) -> None:
     """Set Braintrust trace properties for test reporting.
@@ -108,6 +113,7 @@ def update_test_results(
     test_case: Any = None,
     eval_span: Any = None,
     caplog: Any = None,
+    suggested_memories: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Update test result properties after test execution and optionally calculate scores.
 
@@ -120,6 +126,11 @@ def update_test_results(
         test_case: Optional test case for score calculation
         eval_span: Optional Braintrust span for evaluation
         caplog: Optional caplog for evaluation
+        suggested_memories: Optional list of SuggestSkills suggestions
+            captured during this run. When provided, the suggestions are
+            surfaced to the LLM judge alongside ``expected_output`` so skill
+            content quality is scored against the eval's expectations. Pass
+            ``None`` to skip suggestion-aware judging.
 
     Returns:
         dict: The scores dictionary (either passed in or calculated)
@@ -170,6 +181,32 @@ def update_test_results(
                 for i, intermediate in enumerate(intermediate_outputs, 1):
                     evaluation_output += f"### Step {i}:\n{intermediate}\n\n"
                 evaluation_output += f"## Final Output:\n{output}"
+
+        # Surface the SuggestSkills suggestions the LLM emitted (if any) to
+        # the judge, so skill content quality is scored against the eval's
+        # ``expected_output`` exactly like the final answer.
+        if suggested_memories is not None:
+            memory_block = "\n\n# Suggested Skills\n\n"
+            if suggested_memories:
+                memory_block += (
+                    f"The LLM emitted {len(suggested_memories)} skill "
+                    "suggestion(s) via the SuggestSkills tool. Score "
+                    "these against the eval's expected_output: if a skill "
+                    "suggestion is required by expected_output but missing "
+                    "here (or the emitted suggestion captures the wrong "
+                    "thing), the test should FAIL even if the final answer "
+                    "is right.\n\n"
+                )
+                memory_block += "```json\n"
+                memory_block += json.dumps(suggested_memories, indent=2)
+                memory_block += "\n```\n"
+            else:
+                memory_block += (
+                    "The LLM emitted NO skill suggestions via the "
+                    "SuggestSkills tool this turn.\n"
+                )
+
+            evaluation_output += memory_block
 
         # Also include tool calls if requested
         if (
