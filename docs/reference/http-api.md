@@ -617,6 +617,87 @@ curl http://<HOLMES-URL>/api/model
 
 ---
 
+### `/api/admin/reload` (POST)
+**Description:** Reload all configuration (toolsets, skill discovery paths, and models) from disk without restarting the server.
+
+**Example**
+```bash
+curl -X POST http://<HOLMES-URL>/api/admin/reload
+```
+
+**Example Response**
+```json
+{
+  "status": "ok",
+  "component": "all",
+  "detail": "50 toolsets (15 enabled), 12 skills, 4 models",
+  "counts": {
+    "toolsets_total": 50,
+    "toolsets_enabled": 15,
+    "skills": 12,
+    "models_loaded": 4
+  }
+}
+```
+
+---
+
+### `/api/admin/reload/toolsets` (POST)
+**Description:** Re-read the config YAML and rebuild toolsets, MCP servers, and **`custom_skill_paths`** (local skill directories / `SKILL.md` discovery). Use this after modifying the Holmes config file.
+
+**Example**
+```bash
+curl -X POST http://<HOLMES-URL>/api/admin/reload/toolsets
+```
+
+**Example Response**
+```json
+{
+  "status": "ok",
+  "component": "toolsets",
+  "detail": "50 toolsets loaded, 15 enabled, 12 skills",
+  "counts": {
+    "toolsets_total": 50,
+    "toolsets_enabled": 15,
+    "skills": 12
+  }
+}
+```
+
+---
+
+### `/api/admin/reload/models` (POST)
+**Description:** Re-read `model_list.yaml` and rebuild the LLM model registry. Use this after adding, removing, or modifying model definitions.
+
+**Example**
+```bash
+curl -X POST http://<HOLMES-URL>/api/admin/reload/models
+```
+
+**Example Response**
+```json
+{
+  "status": "ok",
+  "component": "models",
+  "detail": "4 models loaded",
+  "counts": {
+    "models_loaded": 4
+  }
+}
+```
+
+**Error Response (500):**
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+!!! note
+    Admin endpoints are currently unauthenticated. Restrict access at the network level (e.g., firewall rules, internal-only service) until authentication is added.
+
+---
+
 ## Server-Sent Events (SSE) Reference
 
 Streaming endpoints (e.g., `/api/chat` with `stream: true`) emit Server-Sent Events (SSE) to provide real-time updates during the chat process.

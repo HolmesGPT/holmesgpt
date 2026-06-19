@@ -12,6 +12,7 @@ from holmes_operator import context
 # Import handlers to register them with kopf
 from holmes_operator.handlers import healthcheck  # noqa: F401
 from holmes_operator.handlers import scheduledhealthcheck  # noqa: F401
+from holmes_operator.handlers import triggeredhealthcheck  # noqa: F401
 
 # Configure logging
 logging.basicConfig(
