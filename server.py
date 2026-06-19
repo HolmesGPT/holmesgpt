@@ -86,6 +86,12 @@ from holmes.core.usage_recorder import (
 )
 from holmes.utils.stream import stream_chat_formatter
 
+_ANYIO_MISSING_TOKEN_ERROR = getattr(
+    _anyio_from_thread,
+    "MissingTokenError",
+    RuntimeError,
+)
+
 
 def init_logging():
     # Filter out periodical healniss and readiness probe.
@@ -477,9 +483,25 @@ def _schedule_disconnect_watcher(
 
     try:
         _anyio_from_thread.run_sync(lambda: asyncio.ensure_future(_watch()))
-    except Exception:
+    except _ANYIO_MISSING_TOKEN_ERROR:
         logging.debug(
             "Could not schedule disconnect watcher for stream %s", label, exc_info=True
+        )
+    except RuntimeError as e:
+        # AnyIO<4.11 raised RuntimeError when called outside worker threads.
+        if "AnyIO worker thread" in str(e):
+            logging.debug(
+                "Could not schedule disconnect watcher for stream %s", label, exc_info=True
+            )
+        else:
+            logging.exception(
+                "Unexpected runtime error scheduling disconnect watcher for stream %s",
+                label,
+            )
+    except Exception:
+        logging.exception(
+            "Unexpected error scheduling disconnect watcher for stream %s",
+            label,
         )
 
 

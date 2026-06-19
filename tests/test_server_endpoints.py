@@ -1,3 +1,4 @@
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,7 +7,12 @@ from fastapi.testclient import TestClient
 
 from holmes.core.exceptions import LLMInterruptedError
 from holmes.utils.stream import stream_chat_formatter
-from server import _stream_with_trace_cleanup, app, extract_passthrough_headers
+from server import (
+    _schedule_disconnect_watcher,
+    _stream_with_trace_cleanup,
+    app,
+    extract_passthrough_headers,
+)
 
 
 @pytest.fixture
@@ -601,8 +607,6 @@ def test_stream_with_trace_cleanup_sets_cancel_event_on_normal_completion():
     def source_stream():
         yield "chunk-1"
 
-    import threading
-
     cancel_event = threading.Event()
 
     output = list(
@@ -629,8 +633,6 @@ def test_stream_with_trace_cleanup_still_cleans_up_when_stream_errors():
         yield "before-error"
         raise RuntimeError("boom")
 
-    import threading
-
     cancel_event = threading.Event()
 
     with pytest.raises(RuntimeError, match="boom"):
@@ -647,3 +649,41 @@ def test_stream_with_trace_cleanup_still_cleans_up_when_stream_errors():
     assert cancel_event.is_set()
     trace_span.end.assert_called_once()
     storage.__exit__.assert_called_once_with(None, None, None)
+
+
+@patch("server._anyio_from_thread.run_sync")
+@patch("server.logging.exception")
+@patch("server.logging.debug")
+def test_schedule_disconnect_watcher_expected_runtime_error_logs_debug(
+    mock_debug,
+    mock_exception,
+    mock_run_sync,
+):
+    mock_run_sync.side_effect = RuntimeError(
+        "This function can only be run from an AnyIO worker thread"
+    )
+    request = MagicMock()
+    cancel_event = threading.Event()
+
+    _schedule_disconnect_watcher(request, cancel_event, label="req-3")
+
+    mock_debug.assert_called_once()
+    mock_exception.assert_not_called()
+
+
+@patch("server._anyio_from_thread.run_sync")
+@patch("server.logging.exception")
+@patch("server.logging.debug")
+def test_schedule_disconnect_watcher_unexpected_error_logs_exception(
+    mock_debug,
+    mock_exception,
+    mock_run_sync,
+):
+    mock_run_sync.side_effect = ValueError("unexpected")
+    request = MagicMock()
+    cancel_event = threading.Event()
+
+    _schedule_disconnect_watcher(request, cancel_event, label="req-4")
+
+    mock_exception.assert_called_once()
+    mock_debug.assert_not_called()

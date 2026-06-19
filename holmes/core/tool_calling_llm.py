@@ -1073,79 +1073,82 @@ class ToolCallingLLM:
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
-        stats = RequestStats()
-        if iteration_offset < 0:
-            raise ValueError("iteration_offset must be non-negative")
-        i = iteration_offset
+                pending_futures = set(futures)
+                while pending_futures:
+                    if cancel_event and cancel_event.is_set():
+                        logging.info(
+                            "call_stream: cancel detected during tool execution (iteration %d), "
+                            "shutting down executor immediately",
+                            i,
+                        )
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise LLMInterruptedError()
 
-        while i < max_steps:
-            if cancel_event and cancel_event.is_set():
-                logging.info("call_stream: cancel detected at iteration start (i=%d), aborting", i)
-                raise LLMInterruptedError()
-
-            i += 1
+                    done_futures, pending_futures = concurrent.futures.wait(
+                        pending_futures,
+                        timeout=0.2,
+                        return_when=concurrent.futures.FIRST_COMPLETED,
+                    )
+                    for future in done_futures:
+                        tool_call_result: ToolCallResult = future.result()
             logging.debug(f"running iteration {i}")
-
+                        tool_result_dict = tool_call_result.to_client_dict()
             tools = None if i == max_steps else tools
-            tool_choice = "auto" if tools else None
-
-            compaction_start_event = check_compaction_needed(self.llm, messages, tools)
-            if compaction_start_event:
-                yield compaction_start_event
-
-            try:
-                limit_result = compact_if_necessary(
-                    llm=self.llm, messages=messages, tools=tools
-                )
-            except CompactionInsufficientError as e:
-                yield from e.events
-                if e.compaction_usage and e.compaction_usage.total_tokens > 0:
+                        if (
+                            tool_call_result.result.status
+                            == StructuredToolResultStatus.APPROVAL_REQUIRED
+                        ):
+                            # OAuth approvals are always sent to frontend (user must authenticate)
+                            is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
+                            if enable_tool_approval or is_oauth:
+                                pending_approvals.append(
+                                    PendingToolApproval(
+                                        tool_call_id=tool_call_result.tool_call_id,
+                                        tool_name=tool_call_result.tool_name,
+                                        description=tool_call_result.description,
+                                        params=tool_call_result.result.params or {},
+                                    )
                     stats += e.compaction_usage
-                raise
 
-            yield from limit_result.events
-            messages = limit_result.messages
-            metadata = metadata | limit_result.metadata
 
-            # After compaction, emit a fresh token count so clients can update
-            if limit_result.conversation_history_compacted:
-                yield build_stream_event_token_count(
-                    metadata={
-                        "tokens": limit_result.tokens.model_dump(),
-                        "max_tokens": limit_result.max_context_size,
-                        "max_output_tokens": limit_result.maximum_output_token,
-                    }
-                )
-
-            # Accumulate compaction costs
-            compaction = limit_result.compaction_usage
-            if compaction and compaction.total_tokens > 0:
+                                yield StreamMessage(
+                                    event=StreamEvents.TOOL_RESULT,
+                                    data=tool_result_dict,
                 compaction.num_compactions = 1
-                stats += compaction
-                cost_logger.debug(
-                    f"Compaction cost (streaming): ${compaction.total_cost:.6f} | "
-                    f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
-                )
+                            else:
+                                tool_call_result.result.status = (
+                                    StructuredToolResultStatus.ERROR
+                                )
+                                tool_call_result.result.error = f"Tool call rejected for security reasons: {tool_call_result.result.error}"
+                                tool_result_dict = tool_call_result.to_client_dict()
 
-            if (
-                limit_result.conversation_history_compacted
-                and RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION
-            ):
-                tool_calls = []
-
-            logging.debug(f"sending messages={messages}\n\ntools={tools}")
-
-            # Create a child gen_ai.chat span for each LLM call iteration.
-            # The span is activated in context so httpx calls during completion()
-            # (e.g. LiteLLM HTTP calls) become children of this gen_ai.chat span.
-            with trace_span.start_span(name="gen_ai.chat") as llm_span:
-              try:
+                                tool_calls.append(tool_result_dict)
+                                all_tool_calls.append(tool_result_dict)
+                                messages.append(
+                                    tool_call_result.to_llm_message(
+                                        supports_vision=self._supports_vision()
+                                    )
+                                )
+                                yield StreamMessage(
+                                    event=StreamEvents.TOOL_RESULT,
+                                    data=tool_result_dict,
+                                )
+                        elif tool_call_result.result.status == StructuredToolResultStatus.PENDING_FRONTEND:
+                            pending_call = self._build_pending_frontend_call(tool_call_result)
+                            pending_frontend_calls.append(pending_call)
+                            all_tool_calls.append(tool_result_dict)
+                            yield StreamMessage(
+                                event=StreamEvents.TOOL_RESULT,
+                                data=tool_result_dict,
+                            )
+                        else:
+                            tool_calls.append(tool_result_dict)
+                            all_tool_calls.append(tool_result_dict)
+                            messages.append(
+                                tool_call_result.to_llm_message(
+                                    supports_vision=self._supports_vision()
+                                )
                 _llm_call_start = time.time()
-                full_response = self.llm.completion(
-                    messages=parse_messages_tags(messages),  # type: ignore
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    response_format=response_format,
                     temperature=TEMPERATURE,
                     stream=False,
                     drop_params=True,
@@ -1296,7 +1299,12 @@ class ToolCallingLLM:
                         data={"tool_name": t.function.name, "id": t.id},
                     )
 
-                for future in concurrent.futures.as_completed(futures):
+                pending_futures = set(futures)
+                future_iterator = concurrent.futures.as_completed(
+                    pending_futures,
+                    timeout=0.2,
+                )
+                while pending_futures:
                     if cancel_event and cancel_event.is_set():
                         logging.info(
                             "call_stream: cancel detected during tool execution (iteration %d), "
@@ -1305,6 +1313,15 @@ class ToolCallingLLM:
                         )
                         executor.shutdown(wait=False, cancel_futures=True)
                         raise LLMInterruptedError()
+
+                    try:
+                        future = next(future_iterator)
+                    except concurrent.futures.TimeoutError:
+                        continue
+                    except StopIteration:
+                        break
+
+                    pending_futures.discard(future)
 
                     tool_call_result: ToolCallResult = future.result()
 
