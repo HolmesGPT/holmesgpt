@@ -1,4 +1,8 @@
 toolsets:
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: true
   grafana/loki:
     enabled: true
     config:
