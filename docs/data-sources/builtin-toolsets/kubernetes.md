@@ -132,8 +132,10 @@ holmes:
 
 ## Permissions
 
-!!! important "Read-Only Permissions"
-    **All permissions granted to HolmesGPT are read-only** (`get`, `list`, `watch`). HolmesGPT **does not modify, create, delete, or update** any Kubernetes resources. It only reads cluster information for troubleshooting and analysis purposes.
+!!! important "Read-Only by Default"
+    **The permissions described on this page are read-only** (`get`, `list`, `watch`). The built-in Kubernetes toolset **does not modify, create, delete, or update** any Kubernetes resources — it only reads cluster information for troubleshooting and analysis.
+
+    If you want HolmesGPT to also take remediating actions (restart pods, scale deployments, etc.), you can opt in by enabling the [Kubernetes Remediation (MCP)](kubernetes-remediation-mcp.md) toolset, which grants scoped write access alongside the read-only toolset.
 
 ### How HolmesGPT Inherits Permissions
 
