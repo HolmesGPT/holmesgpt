@@ -6758,13 +6758,13 @@
 <p>Overrides the URL LiteLLM fetches the model catalog (<code>model_prices_and_context_window.json</code>) from. LiteLLM uses that catalog to know each model's context window, max output tokens, and pricing. By default LiteLLM pulls it from <code>raw.githubusercontent.com</code>, which is unreachable from networks that block GitHub egress.</p>
 <p>Robusta hosts a mirror of the same file in each region. Pick the URL matching your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76_1" name="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76" type="radio">
-<input id="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76_2" name="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76" type="radio">
-<input id="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76_3" name="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76" type="radio">
+<input checked="checked" id="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af_1" name="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af" type="radio">
+<input id="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af_2" name="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af" type="radio">
+<input id="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af_3" name="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76_1">US</label>
-<label for="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76_2">EU</label>
-<label for="__tabbed_071ee4b6_3b8f_43e6_b256_d42f5817cd76_3">AP</label>
+<label for="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af_1">US</label>
+<label for="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af_2">EU</label>
+<label for="__tabbed_60ddc914_12d2_4b96_8182_761c0d9c97af_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://api.robusta.dev/litellm/model_prices_and_context_window.json</code></pre></div>
@@ -6775,13 +6775,13 @@
 <p>The mirror is cached and falls back to its last-known-good copy if the upstream is temporarily unreachable, so pointing at it gives the same freshness as the default URL without requiring egress to <code>raw.githubusercontent.com</code>.</p>
 <p><strong>Helm example:</strong></p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051_1" name="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051" type="radio">
-<input id="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051_2" name="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051" type="radio">
-<input id="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051_3" name="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051" type="radio">
+<input checked="checked" id="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e_1" name="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e" type="radio">
+<input id="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e_2" name="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e" type="radio">
+<input id="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e_3" name="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051_1">US</label>
-<label for="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051_2">EU</label>
-<label for="__tabbed_c841d881_9389_4351_8623_53ab7dc5e051_3">AP</label>
+<label for="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e_1">US</label>
+<label for="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e_2">EU</label>
+<label for="__tabbed_090d5c44_c655_476c_b71b_c49194a3f79e_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml">additionalEnvVars:
