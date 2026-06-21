@@ -63,6 +63,12 @@ from holmes.core.truncation.input_context_window_limiter import (
     check_compaction_needed,
     compact_if_necessary,
 )
+from holmes.utils.approval_tickets import (
+    APPROVAL_REJECTION_MESSAGE,
+    ApprovalTicketError,
+    mint_ticket,
+    verify_ticket,
+)
 from holmes.utils.colors import AI_COLOR
 from holmes.utils.stream import (
     StreamEvents,
@@ -284,9 +290,36 @@ class ToolCallingLLM:
                 for tool_call in message_tool_calls:
                     decision = decisions_by_tool_call_id.get(tool_call.get("id"), None)
                     if tool_call.get("pending_approval"):
-                        del tool_call[
-                            "pending_approval"
-                        ]  # Cleanup so that a pending approval is not tagged on message in a future response
+                        # Refuse to execute any pending_approval whose signed
+                        # ticket doesn't verify (GHSA-6m4w-cmhp-f95f). On
+                        # failure we synthesize a denial decision and reuse
+                        # the existing deny pipeline: a TOOL_RESULT with
+                        # ERROR status is yielded, the LLM gets the failure
+                        # as context and explains it to the user in chat.
+                        # No new wire-level events, no special control flow.
+                        try:
+                            verify_ticket(
+                                tool_call.get("approval_ticket"),
+                                tool_call_id=tool_call.get("id", ""),
+                                tool_name=tool_call.get("function", {}).get("name", ""),
+                                args_json=tool_call.get("function", {}).get("arguments", ""),
+                            )
+                        except ApprovalTicketError:
+                            logging.warning(
+                                "%s tool_call_id=%s tool_name=%s",
+                                APPROVAL_REJECTION_MESSAGE,
+                                tool_call.get("id"),
+                                tool_call.get("function", {}).get("name"),
+                            )
+                            decision = ToolApprovalDecision(
+                                tool_call_id=tool_call["id"],
+                                approved=False,
+                                feedback=APPROVAL_REJECTION_MESSAGE,
+                            )
+                        # Strip the one-shot fields so they don't ride future
+                        # round-trips or get re-redeemed.
+                        del tool_call["pending_approval"]
+                        tool_call.pop("approval_ticket", None)
                         pending_tool_calls.append(
                             ToolCallWithDecision(
                                 tool_call=ChatCompletionMessageToolCall(**tool_call),
@@ -1314,12 +1347,17 @@ class ToolCallingLLM:
                         # OAuth approvals are always sent to frontend (user must authenticate)
                         is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
                         if enable_tool_approval or is_oauth:
+                            # approval_ticket is minted below at the
+                            # find_assistant_tool_call_request site where we
+                            # have the original `function.arguments` JSON
+                            # string the ticket's args_hash binds.
                             pending_approvals.append(
                                 PendingToolApproval(
                                     tool_call_id=tool_call_result.tool_call_id,
                                     tool_name=tool_call_result.tool_name,
                                     description=tool_call_result.description,
                                     params=tool_call_result.result.params or {},
+                                    approval_ticket="",
                                 )
                             )
 
@@ -1392,12 +1430,20 @@ class ToolCallingLLM:
                         tool_call["pending_frontend"] = True
 
                 # Mark any pending approval tool calls in assistant messages
+                # and mint a signed ticket bound to {id, name, args_hash}.
                 if pending_approvals:
                     for approval in pending_approvals:
                         tool_call = self.find_assistant_tool_call_request(
                             tool_call_id=approval.tool_call_id, messages=messages
                         )
+                        ticket = mint_ticket(
+                            tool_call_id=tool_call["id"],
+                            tool_name=tool_call.get("function", {}).get("name", ""),
+                            args_json=tool_call.get("function", {}).get("arguments", ""),
+                        )
                         tool_call["pending_approval"] = True
+                        tool_call["approval_ticket"] = ticket
+                        approval.approval_ticket = ticket
 
                 # If either type of pause is needed, emit a single APPROVAL_REQUIRED
                 # event that carries both pending_approvals and pending_frontend_tool_calls.

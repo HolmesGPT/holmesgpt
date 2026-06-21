@@ -1,0 +1,106 @@
+"""Signed tool-approval tickets.
+
+A ticket is an HS256 JWT that binds an approval to one specific tool
+call: its `id`, its function `name`, and a stable hash of its
+`arguments`. Holmes mints a ticket when it marks a tool call as
+`pending_approval`; the resume path refuses to execute a `pending_approval`
+that doesn't come back with a verifying ticket.
+
+Closes the forgery primitive in GHSA-6m4w-cmhp-f95f.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import secrets
+import time
+from typing import Optional, Union
+
+import jwt
+
+TICKET_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
+
+APPROVAL_DOCS_URL = "https://holmesgpt.dev/reference/environment-variables/#holmes_approval_signing_key"
+APPROVAL_REJECTION_MESSAGE = (
+    "Approval ticket validation failed. This usually happens after Holmes "
+    f"was restarted. See {APPROVAL_DOCS_URL} to configure a persistent signing key."
+)
+
+
+class ApprovalTicketError(Exception):
+    """Raised when an approval ticket fails verification. One error, one message."""
+
+    def __init__(self) -> None:
+        super().__init__(APPROVAL_REJECTION_MESSAGE)
+
+
+def _load_signing_key() -> tuple[Union[str, bytes], bool]:
+    """Return (key, from_env).
+
+    PyJWT accepts the key as either `str` or `bytes`, so an operator-supplied
+    env var is used as-is — no encoding, no length validation. A weak or
+    guessable string silently weakens HMAC; that's an operator-trust call
+    (see docs for `HOLMES_APPROVAL_SIGNING_KEY`).
+    """
+    raw = os.environ.get("HOLMES_APPROVAL_SIGNING_KEY", "").strip()
+    if raw:
+        return raw, True
+    return secrets.token_bytes(32), False
+
+
+SIGNING_KEY, SIGNING_KEY_FROM_ENV = _load_signing_key()
+
+
+def args_hash(args_json_string: Optional[str]) -> str:
+    """Stable sha256 of a tool_call's `arguments` JSON string.
+
+    `sort_keys=True` makes whitespace and key-order differences between mint
+    and verify equivalent. Empty / None / unparseable inputs normalize to {}.
+    """
+    text = (args_json_string or "").strip()
+    parsed = json.loads(text) if text else {}
+    canonical = json.dumps(parsed, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def mint_ticket(tool_call_id: str, tool_name: str, args_json: Optional[str]) -> str:
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+            "args_hash": args_hash(args_json),
+            "iat": now,
+            "exp": now + TICKET_TTL_SECONDS,
+        },
+        SIGNING_KEY,
+        algorithm="HS256",
+    )
+
+
+def verify_ticket(
+    ticket: Optional[str],
+    tool_call_id: str,
+    tool_name: str,
+    args_json: Optional[str],
+) -> None:
+    """Verify a ticket. Raises `ApprovalTicketError` on any failure."""
+    if not ticket:
+        raise ApprovalTicketError()
+    try:
+        claims = jwt.decode(ticket, SIGNING_KEY, algorithms=["HS256"])
+    except jwt.InvalidTokenError as exc:
+        raise ApprovalTicketError() from exc
+    try:
+        ok = (
+            claims.get("tool_call_id") == tool_call_id
+            and claims.get("tool_name") == tool_name
+            and claims.get("args_hash") == args_hash(args_json)
+        )
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ApprovalTicketError() from exc
+    if not ok:
+        raise ApprovalTicketError()
