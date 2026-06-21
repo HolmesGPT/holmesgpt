@@ -290,13 +290,6 @@ class ToolCallingLLM:
                 for tool_call in message_tool_calls:
                     decision = decisions_by_tool_call_id.get(tool_call.get("id"), None)
                     if tool_call.get("pending_approval"):
-                        # Refuse to execute any pending_approval whose signed
-                        # ticket doesn't verify (GHSA-6m4w-cmhp-f95f). On
-                        # failure we synthesize a denial decision and reuse
-                        # the existing deny pipeline: a TOOL_RESULT with
-                        # ERROR status is yielded, the LLM gets the failure
-                        # as context and explains it to the user in chat.
-                        # No new wire-level events, no special control flow.
                         try:
                             verify_ticket(
                                 tool_call.get("approval_ticket"),
@@ -1347,17 +1340,12 @@ class ToolCallingLLM:
                         # OAuth approvals are always sent to frontend (user must authenticate)
                         is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
                         if enable_tool_approval or is_oauth:
-                            # approval_ticket is minted below at the
-                            # find_assistant_tool_call_request site where we
-                            # have the original `function.arguments` JSON
-                            # string the ticket's args_hash binds.
                             pending_approvals.append(
                                 PendingToolApproval(
                                     tool_call_id=tool_call_result.tool_call_id,
                                     tool_name=tool_call_result.tool_name,
                                     description=tool_call_result.description,
                                     params=tool_call_result.result.params or {},
-                                    approval_ticket="",
                                 )
                             )
 
@@ -1443,7 +1431,6 @@ class ToolCallingLLM:
                         )
                         tool_call["pending_approval"] = True
                         tool_call["approval_ticket"] = ticket
-                        approval.approval_ticket = ticket
 
                 # If either type of pause is needed, emit a single APPROVAL_REQUIRED
                 # event that carries both pending_approvals and pending_frontend_tool_calls.
