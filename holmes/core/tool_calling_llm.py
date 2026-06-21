@@ -307,6 +307,7 @@ class ToolCallingLLM:
                             decision = ToolApprovalDecision(
                                 tool_call_id=tool_call["id"],
                                 approved=False,
+                                verified=False,
                                 feedback=APPROVAL_REJECTION_MESSAGE,
                             )
                         # Strip the one-shot fields so they don't ride future
@@ -361,19 +362,23 @@ class ToolCallingLLM:
                         enable_tool_approval=True,  # always True when processing decisions
                     )
             else:
-                # Tool was rejected or no decision found, add rejection message
-                feedback_text = (
-                    f" User feedback: {tool_decision.feedback}"
-                    if tool_decision and tool_decision.feedback
-                    else ""
-                )
+                # Tool was rejected or no decision found
+                if tool_decision and not tool_decision.verified:
+                    error_text = tool_decision.feedback or "Tool execution was denied by the server."
+                else:
+                    feedback_text = (
+                        f" User feedback: {tool_decision.feedback}"
+                        if tool_decision and tool_decision.feedback
+                        else ""
+                    )
+                    error_text = f"Tool execution was denied by the user.{feedback_text}"
                 tool_result = ToolCallResult(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.function.name,
                     description=tool_call.function.name,
                     result=StructuredToolResult(
                         status=StructuredToolResultStatus.ERROR,
-                        error=f"Tool execution was denied by the user.{feedback_text}",
+                        error=error_text,
                     ),
                 )
 

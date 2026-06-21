@@ -53,17 +53,17 @@ def _decision(tool_call_id: str, approved: bool = True):
 
 def _assert_rejection_tool_result(events: list, messages: list, tool_call_id: str) -> None:
     """A rejection produces exactly one TOOL_RESULT with ERROR status carrying
-    the approval-ticket message. The matching tool message is inserted into
-    `messages` so the LLM sees it on the next iteration.
+    the canonical approval-ticket message verbatim — no "denied by user"
+    framing. The matching tool message is inserted into `messages`.
     """
     tool_results = [e for e in events if e.event == StreamEvents.TOOL_RESULT]
     assert len(tool_results) == 1
     result_data = tool_results[0].data
     assert result_data["tool_call_id"] == tool_call_id
-    # Error status with the canonical user message text.
-    assert StructuredToolResultStatus.ERROR.value in str(result_data).lower() or "error" in str(result_data).lower()
-    msg = approval_tickets.APPROVAL_REJECTION_MESSAGE
-    assert msg in json.dumps(result_data)
+    serialized = json.dumps(result_data)
+    assert approval_tickets.APPROVAL_REJECTION_MESSAGE in serialized
+    assert "denied by the user" not in serialized
+    assert "User feedback" not in serialized
 
     tool_messages = [m for m in messages if m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id]
     assert len(tool_messages) == 1
