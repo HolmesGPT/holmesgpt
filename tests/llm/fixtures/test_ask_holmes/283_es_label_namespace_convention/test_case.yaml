@@ -1,0 +1,144 @@
+# Test: Skill suggestion quality — Elasticsearch semantic labeling convention.
+#
+# Unlike the field-NAME quirks in 275/276/277/280 (severity vs level, numeric
+# severity_num, ingest_ts vs @timestamp) and the Loki label-name quirk in 282,
+# this index has standard field names but encodes identity and outcome using an
+# environment-specific *labeling/semantic convention* that Holmes must discover:
+#   - there is NO top-level service/svc field; service identity lives in
+#     `labels.component`, and its values follow a dotted `team.service`
+#     convention (e.g. `payments.checkout`, `catalog.inventory`)
+#   - there is NO log `level` field; outcome/severity is the `code` keyword
+#     with the semantic values OK / DEGRADED / FAIL (FAIL == error)
+#
+# A fresh LLM defaulting to service:"checkout" / level:"ERROR" gets zero hits
+# and must inspect the mapping (or a sample doc) to learn the convention, then
+# re-query `labels.component:"payments.checkout"` AND `code:"FAIL"`.
+#
+# The injected SuggestSkills frontend tool (mirroring the Robusta UI's
+# skill-suggestion tool) should then be called with a skill capturing this
+# durable labeling convention — and NOT incident specifics. The unique reason
+# code RSN-CHK-7Q2X9D doubles as a canary: it must appear in the answer (proves
+# real investigation) but must NOT appear in the suggested skill (proves the
+# skill generalizes the convention instead of memorizing this incident).
+
+# Phrasing matters: by describing the problem with conventional terminology
+# ("the checkout service is failing", "error events") we bias the agent into
+# querying a top-level service field and an ERROR log level first. Both come
+# back empty (no such field/value here) and the agent has to read the mapping
+# and re-query on `labels.component` + `code:"FAIL"`. THAT correction is the
+# durable env-specific lesson the SuggestSkills tool should capture.
+user_prompt: |
+  Customers report that the checkout service is failing. Search the
+  app-283-events-3p9w2k7d index in Elasticsearch for error events from the
+  checkout service over the last day. Tell me exactly how many there are and
+  the exact reason code attached to them.
+
+# Closed-loop validation: the primary pass must emit at least one skill
+# suggestion; the replay pass re-runs the same question with that skill loaded
+# and must fetch it and answer correctly.
+memories_generated: true
+rerun_with_memory: true
+
+# The replay has no SuggestSkills tool, so it is judged on the answer only.
+expected_replay_output:
+  - "There are 4 checkout error events and the reason code is RSN-CHK-7Q2X9D"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must report that there are exactly 4 error events for the checkout service"
+  - "Must report the reason code RSN-CHK-7Q2X9D in the answer"
+  - "Must call the SuggestSkills tool with at least one suggestion"
+  - "The SuggestSkills suggestion(s) must capture the environment-specific Elasticsearch labeling convention discovered during the investigation. At least one of the following must appear in the suggestion instructions: (a) service identity is stored in the labels.component field using a dotted team.service convention (e.g. payments.checkout) rather than a top-level service/svc field, (b) outcome/severity is encoded in the code keyword field with the semantic values OK / DEGRADED / FAIL (FAIL means error) rather than a standard log level field"
+  - "The SuggestSkills tool call arguments must NOT contain the reason code RSN-CHK-7Q2X9D, must NOT state the root cause or findings of this specific incident, and must NOT contain the specific count of 4 events. Skills must capture reusable data-source knowledge, not incident memories. (This criterion applies only to the SuggestSkills tool call arguments — the reason code appearing in other tool outputs or in the final answer is expected.)"
+
+tags:
+  - elasticsearch
+  - skills
+  - logs
+  - medium
+  - fast
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  LOGS_INDEX="app-283-events-3p9w2k7d"
+
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  T_1H=$(ts "hours=1")
+  T_3H=$(ts "hours=3")
+  T_6H=$(ts "hours=6")
+  T_9H=$(ts "hours=9")
+  T_12H=$(ts "hours=12")
+  T_18H=$(ts "hours=18")
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Semantic labeling convention: identity lives in labels.component as a
+  # dotted team.service code, outcome lives in `code` with OK/DEGRADED/FAIL.
+  # Standard field names (@timestamp) so the ONLY quirk is the convention.
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"dynamic":"strict","properties":{"@timestamp":{"type":"date"},"labels":{"properties":{"component":{"type":"keyword"},"tier":{"type":"keyword"}}},"code":{"type":"keyword"},"reason":{"type":"keyword"},"msg":{"type":"text"}}}}' > /dev/null
+
+  BULK_FILE=$(es_temp_file "events" "283")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"@timestamp":"${T_18H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"OK","msg":"checkout session completed"}
+  {"index":{}}
+  {"@timestamp":"${T_12H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"FAIL","reason":"RSN-CHK-7Q2X9D","msg":"payment authorization declined by upstream processor"}
+  {"index":{}}
+  {"@timestamp":"${T_9H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"FAIL","reason":"RSN-CHK-7Q2X9D","msg":"payment authorization declined by upstream processor"}
+  {"index":{}}
+  {"@timestamp":"${T_9H}","labels":{"component":"catalog.inventory","tier":"prod"},"code":"FAIL","reason":"RSN-INV-2B5K4F","msg":"stock reservation timed out"}
+  {"index":{}}
+  {"@timestamp":"${T_6H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"OK","msg":"checkout session completed"}
+  {"index":{}}
+  {"@timestamp":"${T_6H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"FAIL","reason":"RSN-CHK-7Q2X9D","msg":"payment authorization declined by upstream processor"}
+  {"index":{}}
+  {"@timestamp":"${T_3H}","labels":{"component":"identity.auth","tier":"prod"},"code":"OK","msg":"token refreshed"}
+  {"index":{}}
+  {"@timestamp":"${T_3H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"DEGRADED","msg":"checkout latency above threshold"}
+  {"index":{}}
+  {"@timestamp":"${T_3H}","labels":{"component":"catalog.inventory","tier":"prod"},"code":"FAIL","reason":"RSN-INV-2B5K4F","msg":"stock reservation timed out"}
+  {"index":{}}
+  {"@timestamp":"${T_1H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"FAIL","reason":"RSN-CHK-7Q2X9D","msg":"payment authorization declined by upstream processor"}
+  {"index":{}}
+  {"@timestamp":"${T_1H}","labels":{"component":"payments.checkout","tier":"prod"},"code":"OK","msg":"checkout session completed"}
+  {"index":{}}
+  {"@timestamp":"${T_1H}","labels":{"component":"identity.auth","tier":"prod"},"code":"OK","msg":"token refreshed"}
+  BULK_EOF
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE" > /dev/null
+  rm -f "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify the needle is discoverable the way Holmes would find it once it has
+  # learned the convention: 4 checkout FAIL events carrying the reason code.
+  HITS=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"filter":[{"term":{"labels.component":"payments.checkout"}},{"term":{"code":"FAIL"}}]}}}')
+  COUNT=$(echo "$HITS" | python3 -c "import sys,json; print(json.load(sys.stdin)['hits']['total']['value'])")
+  if [ "$COUNT" != "4" ]; then
+    echo "❌ Verification failed: expected 4 checkout FAIL events, found ${COUNT}"
+    exit 1
+  fi
+  if ! echo "$HITS" | grep -q "RSN-CHK-7Q2X9D"; then
+    echo "❌ Verification failed: reason code not found in checkout FAIL events"
+    exit 1
+  fi
+  echo "✅ Test data ready in ${LOGS_INDEX} (4 checkout FAIL events with RSN-CHK-7Q2X9D)"
+
+after_test: |
+  echo "Skipping index cleanup (reentrant)"
