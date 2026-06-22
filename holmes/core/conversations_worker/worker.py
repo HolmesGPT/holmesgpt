@@ -29,7 +29,8 @@ from holmes.core.conversations_worker.models import (
     ConversationStatus,
     ConversationTask,
 )
-from holmes.core.conversations_worker.realtime_manager import RealtimeManager
+from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
+from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
 from holmes.core.supabase_dal import SupabaseDnsException
 from postgrest.exceptions import APIError as PGAPIError
@@ -112,7 +113,14 @@ class ConversationWorker:
         # (claim loop + _process_conversation_safe finally block).
         self._dispatch_lock = threading.Lock()
 
-        self._realtime_manager: Optional[RealtimeManager] = None
+        self._realtime_manager: Optional[RealtimeWorker] = None
+
+        # Executes cross-cluster remote tool calls (RemoteToolCalls rows) in
+        # its own pool; RealtimeWorker routes 'pending_tool_calls' broadcasts
+        # to it (same holmes:submit channel the conversation worker uses).
+        self._tool_call_worker = ToolCallWorker(
+            dal=self.dal, config=self.config, holmes_id=self.holmes_id
+        )
 
         # Background thread that verifies Supabase Realtime is actually
         # enabled by calling the is_realtime_enabled() RPC.  HolmesStatus
@@ -178,10 +186,11 @@ class ConversationWorker:
 
         if CONVERSATION_WORKER_REALTIME_ENABLED:
             try:
-                self._realtime_manager = RealtimeManager(
+                self._realtime_manager = RealtimeWorker(
                     dal=self.dal,
                     holmes_id=self.holmes_id,
-                    on_new_pending=self._notify_event.set,
+                    conversation_worker=self,
+                    tool_call_worker=self._tool_call_worker,
                 )
                 self._realtime_manager.start()
             except Exception:
@@ -198,6 +207,13 @@ class ConversationWorker:
         )
         self._claim_thread.start()
 
+        try:
+            self._tool_call_worker.start(
+                realtime_connected_fn=self._realtime_connected
+            )
+        except Exception:
+            logging.exception("Failed to start ToolCallWorker", exc_info=True)
+
         logging.info(
             "ConversationWorker active (holmes_id=%s, account=%s, cluster=%s, realtime=%s)",
             self.holmes_id,
@@ -211,6 +227,11 @@ class ConversationWorker:
         self._running = False
         self._notify_event.set()
         self._realtime_verify_stop.set()
+        try:
+            self._tool_call_worker.stop()
+        except Exception:
+            logging.debug("ToolCallWorker stop failed", exc_info=True)
+
         if self._realtime_manager:
             try:
                 self._realtime_manager.stop()
@@ -387,6 +408,11 @@ class ConversationWorker:
                     triggered,
                     exc_info=True,
                 )
+
+    def claim_pending_conversations(self) -> None:
+        """Routing target for RealtimeWorker on 'pending_conversations'
+        broadcasts. Non-blocking: wakes the claim loop."""
+        self._notify_event.set()
 
     def _realtime_connected(self) -> bool:
         if self._realtime_manager is None:

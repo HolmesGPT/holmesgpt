@@ -73,6 +73,29 @@ export LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields"
 
 Replace the value with whichever field is named in your error message. Multiple fields can be passed, e.g. `"provider_specific_fields,reasoning_content"`.
 
+## 7. Startup Fails with `Connection reset by peer` { #firewall-blocking-robusta-platform }
+
+HolmesGPT crashes on startup while signing in to the Robusta platform, with a traceback ending in:
+
+```text
+httpx.ConnectError: [Errno 104] Connection reset by peer
+```
+
+This means an **outbound firewall or egress policy is blocking traffic from your cluster to the Robusta platform**. The hostname resolves and the TLS certificate is valid, so it is not a DNS or certificate problem — the connection itself is being reset or refused.
+
+**Solution:**
+
+Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the `robusta.dev` domain (`*.robusta.dev`), which covers the `api.*` and `sp.*` subdomains across all regions.
+
+To confirm the block, run the one-off pod below. It **auto-detects the Holmes pod's namespace and image** and curls the platform from a fresh pod — the HolmesGPT pod itself crashes on this error (`CrashLoopBackOff`), so `kubectl exec` into it won't work. Reusing Holmes's own image means nothing new is pulled (the same firewall may also block image pulls) and it shares Holmes's CA and network config. Just pick your region — a firewall block shows `Connection reset by peer`, while a reachable endpoint returns JSON:
+
+```robusta-region {lang=bash}
+read -r NS IMG <<<"$(kubectl get pods -A -l app=holmes -o jsonpath='{.items[0].metadata.namespace} {.items[0].spec.containers[0].image}')"
+kubectl run holmes-egress-check --rm -it --restart=Never -n "$NS" --image="$IMG" --command -- curl -vk https://sp.robusta.dev/auth/v1/health
+```
+
+If the same logs also show a LiteLLM warning about failing to fetch the model cost map from `raw.githubusercontent.com`, that is the same firewall blocking GitHub egress — point Holmes at a region-local mirror with [`LITELLM_MODEL_COST_MAP_URL`](environment-variables.md#litellm_model_cost_map_url).
+
 ---
 
 ## Still stuck?

@@ -1,0 +1,118 @@
+# Test: Skill suggestion quality — Elasticsearch data-source know-how.
+#
+# Holmes investigates payment errors in an Elasticsearch index that has
+# several non-obvious conventions Holmes must discover by exploring mappings
+# and (likely) failing a query or two:
+#   - timestamps live in `event_ts`, not `@timestamp`
+#   - the service name field is `svc` (analyzed text; exact match needs
+#     `svc.keyword`)
+#   - log messages are JSON-encoded strings inside the `msg` field
+#
+# The injected SuggestSkills frontend tool (mirroring the Robusta UI's
+# skill-suggestion tool) should then be called with a skill capturing this
+# durable data-source know-how — and NOT incident specifics. The unique error
+# code PMT-ERR-7K3M9X doubles as a canary: it must appear in the answer
+# (proves real investigation) but must NOT appear in the suggested skill
+# (proves the skill generalizes instead of memorizing the incident).
+
+user_prompt: |
+  Customers are reporting failed payments. Search the app-271-payments-events
+  index in Elasticsearch for errors from the checkout service in the last
+  hour and tell me the exact error code.
+
+# Closed-loop validation: the primary pass must emit at least one skill
+# suggestion; the replay pass re-runs the question with that skill loaded
+# and must fetch it and answer correctly.
+#
+# Note: no replay_forbidden_tools here. Opus reliably issues fetch_skill
+# and a mappings lookup in parallel in the same turn (it can't see the
+# skill content before the parallel call lands), so a strict
+# "no elasticsearch_mappings on replay" assertion fails even though the
+# skill is fetched, followed, and cuts the replay from 5 tool calls to 3.
+# 278_es_schema_discovery keeps that strict assertion (faithful port).
+memories_generated: true
+rerun_with_memory: true
+
+# The replay has no SuggestSkills tool, so it is judged on the answer only.
+expected_replay_output:
+  - "Must report the error code PMT-ERR-7K3M9X"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must report the error code PMT-ERR-7K3M9X in the answer"
+  - "Must call the SuggestSkills tool with at least one suggestion"
+  - "The SuggestSkills suggestion(s) must capture environment-specific Elasticsearch know-how discovered during the investigation. At least two of the following must appear in the suggestion instructions: (a) timestamps are stored in the event_ts field rather than @timestamp, (b) exact service-name matching requires the svc.keyword subfield (svc is analyzed text), (c) log messages are JSON-encoded strings inside the msg field"
+  - "The SuggestSkills tool call arguments must NOT contain the error code PMT-ERR-7K3M9X, must NOT state the root cause or findings of this specific incident, and must NOT contain timestamps of specific events. Skills must capture reusable data-source knowledge, not incident memories. (This criterion applies only to the SuggestSkills tool call arguments — the error code appearing in other tool outputs or in the final answer is expected.)"
+
+tags:
+  - elasticsearch
+  - skills
+  - logs
+  - medium
+  - fast
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  LOGS_INDEX="app-271-payments-events"
+
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  T_5M=$(ts "minutes=5")
+  T_12M=$(ts "minutes=12")
+  T_20M=$(ts "minutes=20")
+  T_30M=$(ts "minutes=30")
+  T_45M=$(ts "minutes=45")
+  T_55M=$(ts "minutes=55")
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Quirky-but-realistic schema: event_ts instead of @timestamp, svc as
+  # analyzed text with a .keyword subfield, msg holding JSON-encoded payloads.
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"dynamic":"strict","properties":{"event_ts":{"type":"date"},"svc":{"type":"text","fields":{"keyword":{"type":"keyword"}}},"env":{"type":"keyword"},"msg":{"type":"text"}}}}' > /dev/null
+
+  BULK_FILE=$(es_temp_file "logs" "271")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"event_ts":"${T_55M}","svc":"checkout-gateway","env":"prod","msg":"{\\"level\\":\\"INFO\\",\\"component\\":\\"router\\",\\"detail\\":\\"request completed\\",\\"latency_ms\\":121}"}
+  {"index":{}}
+  {"event_ts":"${T_45M}","svc":"inventory-sync","env":"prod","msg":"{\\"level\\":\\"INFO\\",\\"component\\":\\"poller\\",\\"detail\\":\\"sync cycle finished\\",\\"items\\":4821}"}
+  {"index":{}}
+  {"event_ts":"${T_30M}","svc":"checkout-gateway","env":"prod","msg":"{\\"level\\":\\"ERROR\\",\\"component\\":\\"card-processor\\",\\"detail\\":\\"authorization declined by upstream processor\\",\\"error_code\\":\\"PMT-ERR-7K3M9X\\"}"}
+  {"index":{}}
+  {"event_ts":"${T_20M}","svc":"checkout-gateway","env":"prod","msg":"{\\"level\\":\\"ERROR\\",\\"component\\":\\"card-processor\\",\\"detail\\":\\"authorization declined by upstream processor\\",\\"error_code\\":\\"PMT-ERR-7K3M9X\\"}"}
+  {"index":{}}
+  {"event_ts":"${T_12M}","svc":"checkout-gateway","env":"prod","msg":"{\\"level\\":\\"ERROR\\",\\"component\\":\\"card-processor\\",\\"detail\\":\\"authorization declined by upstream processor\\",\\"error_code\\":\\"PMT-ERR-7K3M9X\\"}"}
+  {"index":{}}
+  {"event_ts":"${T_12M}","svc":"user-profile","env":"prod","msg":"{\\"level\\":\\"WARN\\",\\"component\\":\\"cache\\",\\"detail\\":\\"cache miss ratio above 0.4\\"}"}
+  {"index":{}}
+  {"event_ts":"${T_5M}","svc":"checkout-gateway","env":"prod","msg":"{\\"level\\":\\"INFO\\",\\"component\\":\\"router\\",\\"detail\\":\\"request completed\\",\\"latency_ms\\":98}"}
+  BULK_EOF
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE" > /dev/null
+  rm -f "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify the needle is discoverable the way Holmes would find it
+  HITS=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_search?q=msg:PMT-ERR-7K3M9X" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
+  if ! echo "$HITS" | grep -q "PMT-ERR-7K3M9X"; then
+    echo "❌ Verification failed: error code not searchable in ${LOGS_INDEX}"
+    exit 1
+  fi
+  echo "✅ Test data ready in ${LOGS_INDEX}"
+
+after_test: |
+  echo "Skipping index cleanup (reentrant)"
