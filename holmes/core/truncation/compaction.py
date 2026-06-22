@@ -86,6 +86,75 @@ def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
     return stripped
 
 
+def _append_text_to_content(content: Any, text: str) -> Any:
+    """Append a text snippet to a message content (str, block list, or None)."""
+    if not content:
+        return text
+    if isinstance(content, str):
+        return f"{content}\n{text}"
+    if isinstance(content, list):
+        return content + [{"type": "text", "text": text}]
+    return f"{content}\n{text}"
+
+
+def _prepend_text_to_content(content: Any, text: str) -> Any:
+    """Prepend a text snippet to a message content (str, block list, or None)."""
+    if not content:
+        return text
+    if isinstance(content, str):
+        return f"{text}\n{content}"
+    if isinstance(content, list):
+        return [{"type": "text", "text": text}] + content
+    return f"{text}\n{content}"
+
+
+def _flatten_tool_messages_for_compaction(messages: list[dict]) -> list[dict]:
+    """Rewrite tool_call / tool-result *blocks* as plain text for the compaction call.
+
+    The compaction summary request is sent without a ``tools`` param (it only needs
+    to summarize, never to call tools). But Bedrock Converse — and gateways that
+    translate to it (Kong AI Gateway, a LiteLLM proxy, etc.) — reject any request
+    whose messages contain tool-use/tool-result blocks without a ``toolConfig``:
+    ``"The toolConfig field must be defined when using toolUse and toolResult
+    content blocks."`` (see ROB-424).
+
+    Flattening the blocks to text removes that requirement for every downstream
+    gateway, and loses nothing the summarizer uses: the compaction prompt's
+    "Tool Calls" section already asks the model to enumerate tool calls (with full
+    arguments) and their outcomes as text. Image blocks are preserved so the
+    image-handling logic above still applies.
+    """
+    flattened: list[dict] = []
+    for msg in messages:
+        role = msg.get("role")
+        tool_calls = msg.get("tool_calls")
+        if role == "tool":
+            # Orphaned tool result -> plain user text (keeps the result content,
+            # including any image blocks, for the summarizer).
+            new_msg = dict(msg)
+            new_msg.pop("token_count", None)
+            tool_call_id = new_msg.pop("tool_call_id", None)
+            new_msg.pop("name", None)
+            new_msg["role"] = "user"
+            label = f"[tool result{f' for {tool_call_id}' if tool_call_id else ''}]"
+            new_msg["content"] = _prepend_text_to_content(msg.get("content"), label)
+            flattened.append(new_msg)
+        elif role == "assistant" and tool_calls:
+            new_msg = dict(msg)
+            new_msg.pop("token_count", None)
+            new_msg.pop("tool_calls", None)
+            calls_text = "\n".join(
+                f"[tool call] {tc.get('function', {}).get('name', '')} "
+                f"{tc.get('function', {}).get('arguments', '')}".rstrip()
+                for tc in tool_calls
+            )
+            new_msg["content"] = _append_text_to_content(msg.get("content"), calls_text)
+            flattened.append(new_msg)
+        else:
+            flattened.append(msg)
+    return flattened
+
+
 def compact_conversation_history(
     original_conversation_history: list[dict], llm: LLM
 ) -> CompactionResult:
@@ -99,6 +168,11 @@ def compact_conversation_history(
     conversation_history, system_prompt_message = strip_system_prompt(
         original_conversation_history
     )
+    # Flatten tool_call/tool-result blocks to text: the summary call sends no
+    # `tools`, and gateways translating to Bedrock Converse reject tool-use blocks
+    # without a `toolConfig` (ROB-424). The compaction prompt consumes tool calls
+    # as text anyway.
+    conversation_history = _flatten_tool_messages_for_compaction(conversation_history)
     compaction_instructions = load_and_render_prompt(
         prompt="builtin://conversation_history_compaction.jinja2", context={}
     )
