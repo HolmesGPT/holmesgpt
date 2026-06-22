@@ -74,6 +74,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.github.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.github.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: github-mcp
         {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
@@ -149,6 +153,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.github.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           tcpSocket:
             port: 8000

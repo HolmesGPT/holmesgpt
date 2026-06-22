@@ -110,6 +110,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.aws.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.aws.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if or (and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles) .Values.mcpAddons.aws.extraVolumes }}
       volumes:
       {{- if and .Values.mcpAddons.aws.multiAccount.enabled .Values.mcpAddons.aws.multiAccount.profiles }}
@@ -182,6 +186,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.aws.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.aws.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           tcpSocket:
             port: 8000

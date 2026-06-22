@@ -78,6 +78,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.kubernetesRemediation.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.kubernetesRemediation.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: k8s-remediation-mcp
         image: "{{ .Values.mcpAddons.kubernetesRemediation.registry }}/{{ .Values.mcpAddons.kubernetesRemediation.image }}"
@@ -126,14 +130,11 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
+        # Container-level security context. The chart ships a hardened default
+        # (read-only root FS, non-root UID, no capabilities) which users may
+        # override via mcpAddons.kubernetesRemediation.containerSecurityContext.
         securityContext:
-          readOnlyRootFilesystem: true
-          runAsNonRoot: true
-          runAsUser: 1000
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
+          {{- toYaml .Values.mcpAddons.kubernetesRemediation.containerSecurityContext | nindent 10 }}
 ---
 apiVersion: v1
 kind: Service

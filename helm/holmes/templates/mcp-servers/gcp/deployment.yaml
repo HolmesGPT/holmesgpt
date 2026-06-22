@@ -110,11 +110,11 @@ spec:
         {{- toYaml .Values.mcpAddons.gcp.affinity | nindent 8 }}
       {{- end }}
 
-      # Security context for the pod
+      # Security context for the pod.
+      # The chart ships a default that satisfies common PSA baselines; users
+      # may override by setting mcpAddons.gcp.podSecurityContext in values.
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
+        {{- toYaml .Values.mcpAddons.gcp.podSecurityContext | nindent 8 }}
 
       # Volumes for authentication
       volumes:
@@ -208,6 +208,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.gcp.gcloud.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.gcp.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           tcpSocket:
             port: {{ .Values.mcpAddons.gcp.gcloud.port }}
@@ -277,6 +281,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.gcp.observability.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.gcp.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           tcpSocket:
             port: {{ .Values.mcpAddons.gcp.observability.port }}
@@ -346,6 +354,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.gcp.storage.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.gcp.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           tcpSocket:
             port: {{ .Values.mcpAddons.gcp.storage.port }}

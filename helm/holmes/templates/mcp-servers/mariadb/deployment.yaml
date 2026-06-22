@@ -76,6 +76,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.mariadb.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.mariadb.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: mariadb-mcp
         image: "{{ .Values.mcpAddons.mariadb.registry }}/{{ .Values.mcpAddons.mariadb.image }}"
@@ -125,6 +129,10 @@ spec:
           value: {{ .Values.mcpAddons.mariadb.config.useSSL | quote }}
         resources:
           {{- toYaml .Values.mcpAddons.mariadb.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.mariadb.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         livenessProbe:
           tcpSocket:
             port: 8000
