@@ -965,12 +965,15 @@ class RemoteMCPToolset(Toolset):
             # Invoke a read-only tool to verify authentication actually works.
             # MCP servers (e.g. GitHub) often return their tool list even with
             # invalid credentials, so listing tools alone doesn't prove auth.
-            # Use the explicitly-configured tool if set, otherwise auto-detect a
-            # well-known read-only identity tool from the loaded tools.
-            health_check_tool_name = (
-                self._mcp_config.health_check_tool
-                or self._auto_detect_health_check_tool()
-            )
+            # - health_check_tool not set (None): auto-detect a well-known
+            #   read-only identity tool from the loaded tool list.
+            # - health_check_tool set to "": explicitly disable the check
+            #   (e.g. GitHub App installation tokens cannot call GET /user).
+            # - health_check_tool set to a name: call that specific tool.
+            if self._mcp_config.health_check_tool is None:
+                health_check_tool_name = self._auto_detect_health_check_tool()
+            else:
+                health_check_tool_name = self._mcp_config.health_check_tool
             if health_check_tool_name:
                 health_check_result = self._run_health_check_tool(health_check_tool_name)
                 if not health_check_result[0]:
