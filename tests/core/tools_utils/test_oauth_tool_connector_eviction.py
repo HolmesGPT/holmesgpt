@@ -87,3 +87,29 @@ def test_401_clears_stale_user_tools(patched_manager):
     assert "k8s_list_pods" not in connector._user_tool_to_toolset.get("u1", {}), (
         "stale tool->toolset mapping should be cleared on 401"
     )
+
+
+def test_401_clears_mapping_when_stored_under_different_instance(patched_manager):
+    """Fix #3: _user_tool_to_toolset is purged by toolset name, not object identity.
+
+    Toolsets get reloaded as new instances during config refresh; a stale entry
+    stored under the old instance must still be evicted on 401 against a
+    same-named new instance.
+    """
+    patched_manager._store = MagicMock(spec=DalTokenStore)
+    connector = OAuthToolConnector()
+
+    old_toolset = _make_toolset()
+    stale_tool = MagicMock()
+    stale_tool.name = "k8s_list_pods"
+    stale_tool.toolset = old_toolset
+    connector.store_user_tools("u1", "k8s", [stale_tool])
+
+    new_toolset = _make_toolset()
+    assert new_toolset is not old_toolset
+
+    connector.load_tools_for_user("u1", new_toolset, {"user_id": "u1"})
+
+    assert "k8s_list_pods" not in connector._user_tool_to_toolset.get("u1", {}), (
+        "mapping under old instance should still be evicted via name match"
+    )

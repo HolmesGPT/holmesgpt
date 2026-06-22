@@ -311,5 +311,5 @@ class OAuthToolConnector:
         with self._lock:
             self._user_tools.get(user_id, {}).pop(toolset.name, None)
             user_map = self._user_tool_to_toolset.get(user_id, {})
-            for tool_name in [n for n, ts in user_map.items() if ts is toolset]:
+            for tool_name in [n for n, ts in user_map.items() if ts.name == toolset.name]:
                 user_map.pop(tool_name, None)
