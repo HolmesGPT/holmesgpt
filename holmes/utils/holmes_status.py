@@ -63,6 +63,19 @@ class HolmesMetadata:
     namespace: Optional[str] = None
 
 
+# Last realtime_available value passed to update_holmes_status_in_db. The
+# periodic heartbeat (refresh_holmes_status) re-upserts with this value so it
+# never clobbers supports_realtime_conversations after the worker verified it.
+_last_realtime_available: bool = False
+
+
+def refresh_holmes_status(dal: SupabaseDal, config: Config) -> None:
+    """Periodic heartbeat: re-upsert HolmesStatus so updated_at acts as a
+    liveness signal (platform-mcp filters clusters on updated_at recency),
+    preserving the last verified realtime flag."""
+    update_holmes_status_in_db(dal, config, realtime_available=_last_realtime_available)
+
+
 def update_holmes_status_in_db(
     dal: SupabaseDal,
     config: Config,
@@ -77,6 +90,9 @@ def update_holmes_status_in_db(
     This avoids advertising realtime support before we've verified the
     project actually has it turned on.
     """
+    global _last_realtime_available
+    _last_realtime_available = realtime_available
+
     logging.info("Updating status of holmes")
 
     if not config.cluster_name:
