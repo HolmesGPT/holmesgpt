@@ -266,6 +266,7 @@ extra_css:
 
 extra_javascript:
     - javascripts/tabsync.js
+    - javascripts/deploy-picker.js
 
 extra:
     version:
