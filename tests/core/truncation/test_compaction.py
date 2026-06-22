@@ -7,6 +7,7 @@ import pytest
 from holmes.core.llm import DefaultLLM
 from holmes.core.truncation.compaction import (
     _count_image_tokens_in_messages,
+    _flatten_tool_messages_for_compaction,
     _strip_images_for_compaction,
     compact_conversation_history,
 )
@@ -215,3 +216,97 @@ def test_count_image_tokens_with_images():
             return Usage()
 
     assert _count_image_tokens_in_messages(messages, FakeLLM()) == 1600  # type: ignore
+
+
+# --- Unit tests for _flatten_tool_messages_for_compaction (no LLM required) ---
+# Regression for ROB-424: the compaction summary call sends no `tools`, so any
+# tool_use/tool_result blocks left in the history make gateways translating to
+# Bedrock Converse fail with "The toolConfig field must be defined ...".
+
+
+def test_flatten_tool_messages_removes_tool_calls_and_tool_role():
+    """After flattening there must be no tool_calls and no role=='tool' messages."""
+    messages = [
+        {"role": "user", "content": "why are pods slow?"},
+        {
+            "role": "assistant",
+            "content": "Let me check.",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "kubectl_get",
+                        "arguments": '{"resource": "pods", "namespace": "app"}',
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "node-3 MemoryPressure=True"},
+    ]
+    result = _flatten_tool_messages_for_compaction(messages)
+
+    assert all("tool_calls" not in m for m in result)
+    assert all(m.get("role") != "tool" for m in result)
+    # roles a Converse gateway accepts without a toolConfig
+    assert {m["role"] for m in result} <= {"system", "user", "assistant"}
+
+
+def test_flatten_tool_messages_preserves_name_args_and_result_as_text():
+    """The prompt's "Tool Calls" section needs name + full args + outcome as text."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Checking.",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "kubectl_get",
+                        "arguments": '{"resource": "pods"}',
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "pod oomkilled"},
+    ]
+    result = _flatten_tool_messages_for_compaction(messages)
+
+    assistant_text = result[0]["content"]
+    assert "Checking." in assistant_text
+    assert "kubectl_get" in assistant_text
+    assert '{"resource": "pods"}' in assistant_text  # full arguments preserved
+
+    tool_text = result[1]["content"]
+    assert result[1]["role"] == "user"
+    assert "pod oomkilled" in tool_text  # tool result content preserved
+
+
+def test_flatten_tool_messages_preserves_image_blocks():
+    """Image blocks in tool results survive flattening (image logic runs after)."""
+    messages = [
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": [
+                {"type": "text", "text": "screenshot"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+            ],
+        }
+    ]
+    result = _flatten_tool_messages_for_compaction(messages)
+    assert result[0]["role"] == "user"
+    content = result[0]["content"]
+    assert any(b.get("type") == "image_url" for b in content)
+
+
+def test_flatten_tool_messages_passes_through_plain_messages():
+    """Messages without tool blocks are returned unchanged (same objects)."""
+    messages = [
+        {"role": "system", "content": "You are HolmesGPT."},
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi"},
+    ]
+    result = _flatten_tool_messages_for_compaction(messages)
+    assert result == messages
