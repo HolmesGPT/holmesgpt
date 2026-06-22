@@ -766,6 +766,40 @@ class Toolset(BaseModel):
         default_factory=list,
         description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
     )
+    expose_remotely: bool = Field(
+        default=False,
+        description=(
+            "Publish this toolset's tools so Holmes instances in other clusters "
+            "can run them here via relay's platform-mcp (cross-cluster remote "
+            "tool execution). Only meaningful for toolsets that must run inside "
+            "this cluster (kubectl, in-cluster prometheus, ...)."
+        ),
+    )
+    def remote_exposure_default(
+        self, instance_config: Optional[Dict[str, Any]] = None
+    ) -> Optional[bool]:
+        """Per-instance locality heuristic for remote exposure.
+
+        Returns True/False to force/forbid remote exposure of a given
+        instance regardless of the toolset-level ``expose_remotely``, or
+        None for "no opinion" (fall back to ``expose_remotely``). Default:
+        no opinion. Toolsets that are only useful in-cluster for some
+        configs (e.g. prometheus: in-cluster URL vs external SaaS) override
+        this. See design doc Business Logic B.
+        """
+        return None
+
+    # Marks internal agent-machinery toolsets (TodoWrite, skills, platform-mcp
+    # client) that must NEVER be exposed remotely, regardless of
+    # expose_remotely. Deliberately a PrivateAttr + read-only property rather
+    # than a model field: with `extra="forbid"` a user config can neither set
+    # nor unset it (a core toolset must stay core). Subclasses / the
+    # multi-instance wrapper set ``self._is_core`` directly.
+    _is_core: bool = PrivateAttr(default=False)
+
+    @property
+    def is_core(self) -> bool:
+        return self._is_core
 
     # warning! private attributes are not copied, which can lead to subtle bugs.
     # e.g. l.extend([some_tool]) will reset these private attribute to None

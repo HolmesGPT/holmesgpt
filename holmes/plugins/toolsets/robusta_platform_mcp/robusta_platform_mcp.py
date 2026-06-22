@@ -18,6 +18,7 @@ The user can opt out via the standard toolset disable mechanism:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -26,12 +27,19 @@ from pydantic import AnyUrl, PrivateAttr
 
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import ToolsetTag
+from holmes.core.tools import (
+    StructuredToolResult,
+    ToolInvokeContext,
+    ToolsetStatusEnum,
+    ToolsetTag,
+)
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
+    RemoteMCPTool,
     RemoteMCPToolset,
 )
+from holmes.version import get_version
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +59,49 @@ def _without_authorization(headers: Dict[str, str]) -> Optional[Dict[str, str]]:
     return sanitized or None
 
 
+class RobustaPlatformMCPTool(RemoteMCPTool):
+    """RemoteMCPTool that forwards per-call invocation context to platform-mcp.
+
+    `MCPTool._invoke` only passes `context.request_context` down to header
+    rendering — the rest of `ToolInvokeContext` (tool_call_id,
+    max_token_count) never reaches `_render_headers`. Remote tool execution
+    needs those per call: the single-tool token budget is a function of the
+    CALLER's LLM and cannot be derived on the executor. So we enrich
+    request_context before delegating; `_render_headers` maps the keys to
+    X-Robusta-* headers.
+    """
+
+    def _invoke(
+        self, params: dict, context: ToolInvokeContext
+    ) -> StructuredToolResult:
+        enriched = {
+            **(context.request_context or {}),
+            "tool_call_id": context.tool_call_id,
+            "max_token_count": context.max_token_count,
+        }
+        return super()._invoke(
+            params, context.model_copy(update={"request_context": enriched})
+        )
+
+
 class RobustaPlatformMCPToolset(RemoteMCPToolset):
     """RemoteMCPToolset wired to the relay `/api/platform-mcp` endpoint with
     dynamic session-token auth."""
 
     _dal: Optional[SupabaseDal] = PrivateAttr(default=None)
+
+    def _load_remote_tools(self, request_context=None):
+        # Same discovery as the base class, but construct our tool subclass
+        # so every invocation carries the per-call context headers.
+        if request_context:
+            tools_result = asyncio.run(
+                self._get_server_tools_with_context(request_context)
+            )
+        else:
+            tools_result = asyncio.run(self._get_server_tools())
+        return [
+            RobustaPlatformMCPTool.create(tool, self) for tool in tools_result.tools
+        ]
 
     def _render_headers(
         self, request_context: Optional[Dict[str, Any]] = None
@@ -76,6 +122,18 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
             conversation_id = request_context.get("conversation_id")
             if conversation_id:
                 headers["X-Robusta-Conversation-Id"] = str(conversation_id)
+            tool_call_id = request_context.get("tool_call_id")
+            if tool_call_id:
+                headers["X-Robusta-Tool-Call-Id"] = str(tool_call_id)
+            max_token_count = request_context.get("max_token_count")
+            if max_token_count:
+                headers["X-Robusta-Max-Tool-Tokens"] = str(max_token_count)
+
+        # Always sent, independent of any feature flag: the executor version
+        # gate and per-user RBAC on the relay depend on these.
+        headers["X-Robusta-Holmes-Version"] = get_version()
+        user_id = (request_context or {}).get("user_id")
+        headers["X-Robusta-User-Id"] = str(user_id) if user_id else "None"
 
         dal = self._dal
         if dal is None or not dal.enabled:
@@ -97,6 +155,75 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
 
         headers["Authorization"] = f"Bearer {account_id} {token}"
         return headers
+
+
+def refresh_platform_mcp_tools(tool_executor: Any) -> bool:
+    """Re-discover platform-mcp tools and patch them into a live ToolExecutor.
+
+    The dynamic remote-tool surface changes while Holmes runs (a new cluster
+    publishes its tools; an account flag flips): without this, a caller only
+    sees the tool list discovered at startup until the pod restarts. Called
+    from the periodic toolset-refresh loop in server.py.
+
+    Returns True when the tool list changed.
+    """
+    for toolset in getattr(tool_executor, "toolsets", []):
+        if not isinstance(toolset, RobustaPlatformMCPToolset):
+            continue
+        if toolset.status != ToolsetStatusEnum.ENABLED:
+            return False
+        try:
+            new_tools = toolset._load_remote_tools()
+        except Exception:
+            logger.warning(
+                "robusta_platform_mcp: periodic tool re-discovery failed; "
+                "keeping the previous tool list",
+                exc_info=True,
+            )
+            return False
+        def _signature(tools):
+            # Names alone are not enough: when a cluster joins, the dynamic
+            # remote_* tool keeps its NAME but its schema changes (the
+            # agent_name enum grows). Compare full schemas.
+            return {
+                t.name: (
+                    t.description,
+                    {k: p.model_dump() for k, p in (t.parameters or {}).items()},
+                )
+                for t in tools
+            }
+
+        old_names = {t.name for t in toolset.tools}
+        new_names = {t.name for t in new_tools}
+        if _signature(toolset.tools) == _signature(new_tools):
+            return False
+        for name in old_names - new_names:
+            # Only remove entries this toolset owns.
+            if tool_executor._tool_to_toolset.get(name) is toolset:
+                tool_executor.tools_by_name.pop(name, None)
+                tool_executor._tool_to_toolset.pop(name, None)
+        toolset.tools = new_tools
+        for tool in new_tools:
+            owner = tool_executor._tool_to_toolset.get(tool.name)
+            if owner is not None and owner is not toolset:
+                logger.warning(
+                    "robusta_platform_mcp: not overriding tool '%s' owned by "
+                    "toolset '%s'",
+                    tool.name,
+                    owner.name,
+                )
+                continue
+            if tool.icon_url is None and toolset.icon_url is not None:
+                tool.icon_url = toolset.icon_url
+            tool_executor.tools_by_name[tool.name] = tool
+            tool_executor._tool_to_toolset[tool.name] = toolset
+        logger.info(
+            "robusta_platform_mcp: tool list refreshed (added=%s removed=%s)",
+            sorted(new_names - old_names),
+            sorted(old_names - new_names),
+        )
+        return True
+    return False
 
 
 def make_robusta_platform_mcp_toolset(
@@ -138,6 +265,7 @@ def make_robusta_platform_mcp_toolset(
             "url": mcp_base,
         },
     )
+    toolset._is_core = True  # never remotely exposable (circular dependency)
     toolset._dal = dal
     toolset._mcp_config = config
     return toolset
