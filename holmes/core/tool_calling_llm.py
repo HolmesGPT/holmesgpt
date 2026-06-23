@@ -447,8 +447,10 @@ class ToolCallingLLM:
                 tool_call_id = tool_call.get("id")
                 if not tool_call_id or tool_call_id in resolved_ids:
                     continue
-                # Drop any stale pending_approval flag so it isn't re-emitted.
+                # Drop any stale pending_approval flag so it isn't re-emitted,
+                # and the matching token so it can't ride future LLM round-trips.
                 tool_call.pop("pending_approval", None)
+                tool_call.pop("approval_token", None)
                 function = tool_call.get("function") or {}
                 tool_name = function.get("name") or "unknown"
                 tool_result = ToolCallResult(
