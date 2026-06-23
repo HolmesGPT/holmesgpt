@@ -999,10 +999,7 @@ class ConversationWorker:
                 e,
                 exc_info=True,
             )
-            # Attach the full upstream error only for Robusta-AI (relay) models —
-            # the error comes from our own backend (carries robusta_error_code,
-            # the support message, etc.) and is safe to surface. User-defined
-            # model errors are left as a generic message.
+            # Surface the raw error only for Robusta-AI models (our own backend).
             raw_error = None
             if is_robusta_model:
                 raw_error = str(e)
