@@ -48,11 +48,9 @@ def create_sse_error_message(description: str, error_code: int, msg: str):
     )
 
 
-RATE_LIMIT_ERROR_CODE = 5204
-
 create_rate_limit_error_message = partial(
     create_sse_error_message,
-    error_code=RATE_LIMIT_ERROR_CODE,
+    error_code=5204,
     msg="Rate limit exceeded",
 )
 

@@ -49,11 +49,7 @@ from holmes.core.usage_recorder import (
     stream_with_usage_recording,
 )
 from holmes.utils.holmes_status import update_holmes_status_in_db
-from holmes.utils.stream import (
-    RATE_LIMIT_ERROR_CODE,
-    StreamEvents,
-    _is_rate_limit_error,
-)
+from holmes.utils.stream import StreamEvents
 
 if TYPE_CHECKING:
     from fastapi.responses import StreamingResponse
@@ -1008,19 +1004,11 @@ class ConversationWorker:
             # the support message, etc.) and is safe to surface. User-defined
             # model errors are left as a generic message.
             raw_error = str(e) if is_robusta_model else None
-            if _is_rate_limit_error(e):
-                self._fail_conversation(
-                    task,
-                    "Rate limit exceeded",
-                    error_code=RATE_LIMIT_ERROR_CODE,
-                    raw_error=raw_error,
-                )
-            else:
-                self._fail_conversation(
-                    task,
-                    "An internal error occurred while processing your request",
-                    raw_error=raw_error,
-                )
+            self._fail_conversation(
+                task,
+                "An internal error occurred while processing your request",
+                raw_error=raw_error,
+            )
         finally:
             storage.__exit__(None, None, None)
 
