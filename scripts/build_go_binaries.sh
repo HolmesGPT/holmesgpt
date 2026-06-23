@@ -46,12 +46,21 @@ set -euo pipefail
 export GOTOOLCHAIN=go1.26.4
 
 MIN_GO_VERSION="1.26.3"
-CURRENT_GO_VERSION="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
-if [ -z "$CURRENT_GO_VERSION" ]; then
+# Check for the go binary first: under `set -e` the command substitution below
+# would otherwise abort the script before the empty-string check could run.
+if ! command -v go >/dev/null 2>&1; then
   echo "Go is not installed or not on PATH. Go 1.21+ is required (GOTOOLCHAIN downloads ${GOTOOLCHAIN#go})." >&2
   exit 1
 fi
-if ! printf '%s\n%s\n' "$MIN_GO_VERSION" "$CURRENT_GO_VERSION" | sort -V -C; then
+CURRENT_GO_VERSION="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
+if [ -z "$CURRENT_GO_VERSION" ]; then
+  echo "Unable to determine Go version from 'go env GOVERSION'." >&2
+  exit 1
+fi
+# Portable version comparison (avoids GNU-only `sort -V`): sort min+current
+# numerically by dotted component; if the smallest isn't MIN_GO_VERSION, current
+# is older. Works on both GNU and BSD/macOS sort.
+if [ "$(printf '%s\n%s\n' "$MIN_GO_VERSION" "$CURRENT_GO_VERSION" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" != "$MIN_GO_VERSION" ]; then
   echo "Go ${MIN_GO_VERSION}+ is required (found ${CURRENT_GO_VERSION}). GOTOOLCHAIN switch failed?" >&2
   exit 1
 fi

@@ -25,9 +25,10 @@ RUN apk add --no-cache \
 WORKDIR /
 
 # Create venv; upgrade wheel (CVE-2026-24049) and pip (CVE-2026-3219/6357, CVE-2025-8869).
+# The venv is selected via VIRTUAL_ENV/PATH below (sourcing activate in a RUN has
+# no effect — the shell exits when the layer finishes).
 RUN python -m venv /venv --upgrade-deps && \
-    /venv/bin/pip install --upgrade 'wheel>=0.46.2' 'pip>=26.1' && \
-    . /venv/bin/activate
+    /venv/bin/pip install --upgrade 'wheel>=0.46.2' 'pip>=26.1'
 
 ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
