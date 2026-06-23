@@ -25,7 +25,6 @@ def stable_signing_key(monkeypatch):
     tool_calling_llm.py.
     """
     monkeypatch.setattr(approval_tokens, "SIGNING_KEY", b"\x42" * 32)
-    monkeypatch.setattr(approval_tokens, "SIGNING_KEY_FROM_ENV", True)
 
 
 def _build_ai() -> ToolCallingLLM:

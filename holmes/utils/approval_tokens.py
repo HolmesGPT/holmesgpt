@@ -17,7 +17,7 @@ import logging
 import os
 import secrets
 import time
-from typing import Optional, Union
+from typing import Optional
 
 import jwt
 
@@ -37,8 +37,8 @@ class ApprovalTokenError(Exception):
         super().__init__(APPROVAL_REJECTION_MESSAGE)
 
 
-def _load_signing_key() -> tuple[Union[str, bytes], bool]:
-    """Return (key, from_env).
+def _load_signing_key():
+    """Return the HMAC signing key.
 
     PyJWT accepts the key as either `str` or `bytes`, so an operator-supplied
     env var is used as-is — no encoding, no length validation. A weak or
@@ -47,11 +47,12 @@ def _load_signing_key() -> tuple[Union[str, bytes], bool]:
     """
     raw = os.environ.get("HOLMES_APPROVAL_SIGNING_KEY", "").strip()
     if raw:
-        return raw, True
-    return secrets.token_bytes(32), False
+        logging.info("HOLMES_APPROVAL_SIGNING_KEY loaded")
+        return raw
+    return secrets.token_bytes(32)
 
 
-SIGNING_KEY, SIGNING_KEY_FROM_ENV = _load_signing_key()
+SIGNING_KEY = _load_signing_key()
 
 
 def args_hash(args_json_string: Optional[str]) -> str:

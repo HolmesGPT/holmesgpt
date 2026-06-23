@@ -22,7 +22,6 @@ def stable_signing_key(monkeypatch):
     no longer catch it.
     """
     monkeypatch.setattr(approval_tokens, "SIGNING_KEY", b"\x42" * 32)
-    monkeypatch.setattr(approval_tokens, "SIGNING_KEY_FROM_ENV", True)
 
 
 # ---------- args_hash ----------
@@ -48,17 +47,14 @@ def test_args_hash_distinguishes_different_values():
 
 def test_load_signing_key_uses_env_value_as_is(monkeypatch):
     monkeypatch.setenv("HOLMES_APPROVAL_SIGNING_KEY", "my-team-shared-passphrase-2026")
-    key, from_env = approval_tokens._load_signing_key()
     # Used verbatim — no encoding, no length check, just the operator string.
-    assert key == "my-team-shared-passphrase-2026"
-    assert from_env is True
+    assert approval_tokens._load_signing_key() == "my-team-shared-passphrase-2026"
 
 
 def test_load_signing_key_falls_back_to_random_bytes_when_unset(monkeypatch):
     monkeypatch.delenv("HOLMES_APPROVAL_SIGNING_KEY", raising=False)
-    key, from_env = approval_tokens._load_signing_key()
+    key = approval_tokens._load_signing_key()
     assert isinstance(key, bytes) and len(key) == 32
-    assert from_env is False
 
 
 # ---------- mint + verify ----------
