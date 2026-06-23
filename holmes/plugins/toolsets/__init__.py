@@ -57,9 +57,13 @@ from holmes.plugins.toolsets.kafka import KafkaToolset
 from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.plugins.toolsets.multi_instance import multi_instance
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
 from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
+from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
+    make_robusta_platform_mcp_toolset,
+)
 from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
@@ -103,39 +107,43 @@ def load_python_toolsets(
         InternetToolset(),
         ConnectivityCheckToolset(),
         RobustaToolset(dal),
-        GrafanaLokiToolset(),
-        GrafanaTempoToolset(),
-        NewRelicToolset(),
-        GrafanaToolset(),
+        multi_instance(GrafanaLokiToolset),
+        multi_instance(GrafanaTempoToolset),
+        multi_instance(NewRelicToolset),
+        multi_instance(GrafanaToolset),
         NotionToolset(),
         KafkaToolset(),
-        DatadogLogsToolset(),
-        DatadogGeneralToolset(),
-        DatadogMetricsToolset(),
-        DatadogTracesToolset(),
+        multi_instance(DatadogLogsToolset),
+        multi_instance(DatadogGeneralToolset),
+        multi_instance(DatadogMetricsToolset),
+        multi_instance(DatadogTracesToolset),
         OpenSearchQueryAssistToolset(),
-        CoralogixToolset(),
+        multi_instance(CoralogixToolset),
         RabbitMQToolset(),
         BashExecutorToolset(),
         KubectlRunToolset(),
-        ConfluenceToolset(),
-        MongoDBAtlasToolset(),
+        multi_instance(ConfluenceToolset),
+        multi_instance(MongoDBAtlasToolset),
         SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),
-        AzureSQLToolset(),
-        ServiceNowTablesToolset(),
-        VictoriaLogsToolset(),
+        multi_instance(AzureSQLToolset),
+        multi_instance(ServiceNowTablesToolset),
+        multi_instance(VictoriaLogsToolset),
         DatabaseToolset(),
-        ElasticsearchDataToolset(),
-        ElasticsearchClusterToolset(),
+        multi_instance(ElasticsearchDataToolset),
+        multi_instance(ElasticsearchClusterToolset),
     ]
 
     if not DISABLE_PROMETHEUS_TOOLSET:
         from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 
-        toolsets.append(PrometheusToolset())
+        toolsets.append(multi_instance(PrometheusToolset))
 
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
+
+    platform_mcp = make_robusta_platform_mcp_toolset(dal)
+    if platform_mcp is not None:
+        toolsets.append(platform_mcp)
 
     return toolsets
 

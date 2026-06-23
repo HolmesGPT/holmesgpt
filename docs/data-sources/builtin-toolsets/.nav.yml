@@ -19,6 +19,7 @@ nav:
   - Elasticsearch / OpenSearch: elasticsearch.md
   - GCP (MCP): gcp.md
   - GitHub (MCP): github-mcp.md
+  - GitLab (MCP): gitlab-mcp.md
   - Grafana (MCP): grafana-mcp.md
   - Grafana Dashboards: grafanadashboards.md
   - Loki: grafanaloki.md
@@ -30,6 +31,7 @@ nav:
   - Kafka: kafka.md
   - Kubectl Run: kubectl-run.md
   - Kubernetes: kubernetes.md
+  - Kubernetes (MCP): kubernetes-mcp.md
   - Kubernetes Remediation (MCP): kubernetes-remediation-mcp.md
   - KubeVela: kubevela.md
   - MariaDB: database-mariadb.md

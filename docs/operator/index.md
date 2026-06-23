@@ -21,6 +21,7 @@ Under the hood, it uses Kubernetes CRDs to declaratively define one-time and sch
 - **[Deployment Verification](deployment-verification.md)**: Deploy a HealthCheck alongside your app to verify the new version is healthy — and gate CI/CD on the result
 - **[One-time Health Checks](health-checks.md)**: Create `HealthCheck` resources that run immediately and report results
 - **[Scheduled Health Checks](scheduled-health-checks.md)**: Create `ScheduledHealthCheck` resources that run on cron schedules for continuous monitoring
+- **[Triggered Health Checks](triggered-health-checks.md)**: Create `TriggeredHealthCheck` resources that run automatically whenever a matching Deployment is rolled out
 - **Not just Kubernetes**: Health checks can query any connected data source — Prometheus, Datadog, AWS, databases, and [more](../data-sources/builtin-toolsets/index.md)
 - **Kubernetes-native**: Uses standard CRDs with kubectl support
 - **Status Tracking**: Full execution history and results stored in resource status
@@ -154,6 +155,7 @@ kubectl describe hc example-check
 - **[Deployment Verification](deployment-verification.md)** - Verify new deploys are healthy and gate CI/CD pipelines on the result
 - **[Health Checks](health-checks.md)** - Learn how to create and manage one-time HealthCheck resources
 - **[Scheduled Health Checks](scheduled-health-checks.md)** - Set up recurring health checks with cron schedules
+- **[Triggered Health Checks](triggered-health-checks.md)** - Run checks automatically on every Deployment rollout
 - **[Alert Destinations](destinations.md)** - Configure Slack and PagerDuty notifications
 - **[Configuration](configuration.md)** - Explore advanced configuration options
 - **[Development Guide](development.md)** - Build and test operator changes locally

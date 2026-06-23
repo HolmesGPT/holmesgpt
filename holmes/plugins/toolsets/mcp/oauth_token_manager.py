@@ -135,10 +135,18 @@ class OAuthTokenManager:
     ) -> Optional[str]:
         """Return a valid access token, checking cache → refresh → persistent store.
 
+        A user_id must be present on request_context. CLI callers must pass
+        DEFAULT_CLI_USER explicitly; the server must pass the authenticated
+        user. Without a user_id the cache cannot be safely keyed, so we
+        refuse to serve any token (mirrors DalTokenStore.get_token's guard).
+
         Returns None if no token is available anywhere (caller should initiate OAuth flow).
         """
-        cache_key = self._get_cache_key(oauth_config, request_context)
         user_id = _get_user_id(request_context)
+        if not user_id:
+            return None
+
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
 
         # 1. Check in-memory cache
         cached = self._cache.get_valid_access_token(cache_key)
@@ -178,7 +186,10 @@ class OAuthTokenManager:
         request_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Check if any token (access or refreshable) is available in cache."""
-        cache_key = self._get_cache_key(oauth_config, request_context)
+        user_id = _get_user_id(request_context)
+        if not user_id:
+            return False
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
         return self._cache.has_token_or_refresh(cache_key)
 
     def store_token(
@@ -190,8 +201,12 @@ class OAuthTokenManager:
         store_to_disk: bool = False,
     ) -> None:
         """Store a token to cache and persistent store."""
-        cache_key = self._get_cache_key(oauth_config, request_context)
         user_id = _get_user_id(request_context)
+        if not user_id:
+            logger.warning("OAuthTokenManager: refusing to store token without a user_id")
+            return
+
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
         access_token = token_data.get("access_token")
         if not access_token:
             logger.warning("OAuthTokenManager: store_token called with no access_token")
@@ -226,17 +241,17 @@ class OAuthTokenManager:
         )
 
     def require_user_id(self, request_context: Optional[Dict[str, Any]]) -> str:
-        """Return a user_id, using DEFAULT_CLI_USER in CLI mode or raising in server mode.
+        """Return the user_id from request_context, or raise if absent.
 
-        CLI mode (DiskTokenStore / no store): returns DEFAULT_CLI_USER.
-        Server mode (DalTokenStore): raises ValueError if user_id is missing.
+        Callers (CLI, server, conversation worker) are responsible for putting
+        a real user_id on request_context — CLI uses DEFAULT_CLI_USER, server
+        uses the authenticated user. Missing user_id is a programming error
+        (would silently corrupt downstream per-user storage), so we fail fast.
         """
         user_id = _get_user_id(request_context)
-        if user_id:
-            return user_id
-        if isinstance(self._store, DalTokenStore):
-            return None
-        return DEFAULT_CLI_USER
+        if not user_id:
+            raise ValueError("OAuthTokenManager: user_id is required in request_context")
+        return user_id
 
     def shutdown(self) -> None:
         """Stop the background refresh thread."""
@@ -400,7 +415,12 @@ class OAuthTokenManager:
     # ── Key helpers ────────────────────────────────────────────────────
 
     def _get_cache_key(self, oauth_config: Any, request_context: Optional[Dict[str, Any]]) -> str:
-        user_id = _get_user_id(request_context) or DEFAULT_CLI_USER
+        """Build a cache key from request_context. Raises if user_id is missing —
+        callers must put a user_id on the context (DEFAULT_CLI_USER in CLI mode,
+        authenticated user in server mode)."""
+        user_id = _get_user_id(request_context)
+        if not user_id:
+            raise ValueError("OAuthTokenManager: user_id is required in request_context")
         return self._build_cache_key(user_id, oauth_config.authorization_url)
 
     @staticmethod

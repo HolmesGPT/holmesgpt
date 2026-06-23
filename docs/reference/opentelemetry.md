@@ -207,7 +207,8 @@ additionalEnvVars:
 │       │              │                 │             │
 └───────┼──────────────┼─────────────────┼─────────────┘
         │              │                 │
-        │  OTLP/gRPC   │                 │ W3C traceparent
+        │ OTLP (gRPC or│                 │ W3C traceparent
+        │ HTTP/protobuf)│                │
         ▼              ▼                 ▼
 ┌─────────────────┐              ┌─────────────────┐
 │  OTel Collector  │              │   MCP Servers    │

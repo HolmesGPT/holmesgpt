@@ -1,0 +1,32 @@
+# Mock of the cross-cluster remote-tools surface (ROB-310) for a SINGLE
+# Holmes instance: a local stdio MCP server exposes
+# `remote_fetch_cluster_diagnostics` shaped exactly like the dynamic
+# `remote_<tool>` tools relay's platform-mcp builds (required agent_name
+# enum + caller-aware steering in the description) plus the local
+# `fetch_cluster_diagnostics` — all running locally with canned per-agent
+# responses. See mock_fleet_mcp.py for the fleet/codes.
+toolsets:
+  fleet_diagnostics:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/271_remote_tools_all_clusters/mock_fleet_mcp.py"]
+
+  # The sandbox/CI runner for these evals needs no Kubernetes: disable the
+  # default-enabled toolsets whose prerequisites (kubectl, helm) would fail.
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false
+  internet:
+    enabled: false
+  robusta:
+    enabled: false
+  connectivity_check:
+    enabled: false

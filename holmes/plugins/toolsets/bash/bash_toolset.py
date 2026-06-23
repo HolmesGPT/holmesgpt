@@ -411,6 +411,7 @@ class BashExecutorToolset(Toolset):
         super().__init__(
             name="bash",
             enabled=True,
+            expose_remotely=True,  # pre-approved commands only; approval-needed commands are denied remotely
             description="Execute bash commands validated against prefix-based allow/deny lists, with user approval for unknown commands.",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/bash/",
             icon_url="https://raw.githubusercontent.com/Templarian/MaterialDesign/master/svg/console.svg",

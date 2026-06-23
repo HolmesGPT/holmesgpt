@@ -50,6 +50,15 @@ kubectl get svc --all-namespaces -o jsonpath='{range .items[*]}{.metadata.name}{
 
 This will print all possible Prometheus service URLs in your cluster. Pick the one that matches your deployment.
 
+## Multiple Instances
+
+```multi-instance
+toolset: prometheus/metrics
+name: Prometheus
+config: |
+  prometheus_url: http://<your-prometheus-service>:9090
+```
+
 ## Specific Providers
 
 ### Coralogix Prometheus

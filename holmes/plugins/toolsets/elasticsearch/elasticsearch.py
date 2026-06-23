@@ -192,7 +192,14 @@ class ElasticsearchBaseToolset(Toolset):
         return headers
 
     def _get_auth(self) -> Optional[Tuple[str, str]]:
-        """Return basic auth tuple if username/password configured."""
+        """Return basic auth tuple if username/password configured.
+
+        `api_key` (the `ApiKey` Authorization header) takes precedence: never send
+        basic auth alongside it, since requests' `auth=` would override the header
+        and silently change which credential is used.
+        """
+        if self.elasticsearch_config.api_key:
+            return None
         if self.elasticsearch_config.username and self.elasticsearch_config.password:
             return (
                 self.elasticsearch_config.username,
@@ -303,19 +310,28 @@ class BaseElasticsearchTool(Tool, ABC):
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Elasticsearch request failed for endpoint '{endpoint}': {error_detail}",
+                error=(
+                    f"Elasticsearch request failed: method={method}, endpoint='{endpoint}', "
+                    f"query_params={query_params}, body={body}. {error_detail}"
+                ),
                 params=params,
             )
         except requests.exceptions.Timeout:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Elasticsearch request timed out for endpoint '{endpoint}'",
+                error=(
+                    f"Elasticsearch request timed out: method={method}, endpoint='{endpoint}', "
+                    f"query_params={query_params}, body={body}"
+                ),
                 params=params,
             )
         except requests.exceptions.ConnectionError as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to connect to Elasticsearch: {str(e)}",
+                error=(
+                    f"Failed to connect to Elasticsearch: method={method}, endpoint='{endpoint}', "
+                    f"query_params={query_params}, body={body}. {str(e)}"
+                ),
                 params=params,
             )
         except Exception as e:

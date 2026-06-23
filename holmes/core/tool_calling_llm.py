@@ -178,6 +178,7 @@ class LLMResult(RequestStats):
     instructions: List[str] = Field(default_factory=list)
     messages: Optional[List[dict]] = None
     metadata: Optional[Dict[Any, Any]] = None
+    finish_reason: Optional[str] = None  # Last LLM iteration's finish_reason (stop / length / tool_calls / content_filter)
 
 
 class ToolCallWithDecision(BaseModel):
@@ -381,6 +382,70 @@ class ToolCallingLLM:
 
         return messages, events
 
+    def _resolve_orphaned_tool_calls(
+        self, messages: List[Dict[str, Any]]
+    ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
+        """Inject denial tool results for assistant tool_calls that have no result.
+
+        A tool call is "orphaned" when the assistant requested it but the
+        conversation never recorded a matching tool result. This happens when a
+        user abandons a pending tool approval — closing the approval modal or
+        asking a new follow-up question instead of approving/denying. Without a
+        matching tool result, the next LLM call fails because providers
+        (Anthropic/Bedrock) require every tool_use block to be immediately
+        followed by a tool_result block.
+
+        We treat any such abandoned call as denied so the conversation can
+        continue with the user's new request.
+        """
+        resolved_ids = {
+            msg.get("tool_call_id")
+            for msg in messages
+            if msg.get("role") == "tool" and msg.get("tool_call_id")
+        }
+
+        events: list[StreamMessage] = []
+        # Walk from the end so insertions don't shift indices we haven't visited.
+        for i in reversed(range(len(messages))):
+            msg = messages[i]
+            if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+                continue
+            insert_offset = 1
+            for tool_call in msg.get("tool_calls", []):
+                tool_call_id = tool_call.get("id")
+                if not tool_call_id or tool_call_id in resolved_ids:
+                    continue
+                # Drop any stale pending_approval flag so it isn't re-emitted.
+                tool_call.pop("pending_approval", None)
+                function = tool_call.get("function") or {}
+                tool_name = function.get("name") or "unknown"
+                tool_result = ToolCallResult(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    description=tool_name,
+                    result=StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error="Tool execution was cancelled because the user "
+                        "submitted a new request before approving it.",
+                    ),
+                )
+                messages.insert(
+                    i + insert_offset,
+                    tool_result.to_llm_message(
+                        supports_vision=self._supports_vision()
+                    ),
+                )
+                resolved_ids.add(tool_call_id)
+                insert_offset += 1
+                events.append(
+                    StreamMessage(
+                        event=StreamEvents.TOOL_RESULT,
+                        data=tool_result.to_client_dict(),
+                    )
+                )
+
+        return messages, events
+
     @staticmethod
     def _process_frontend_tool_results(
         messages: List[Dict[str, Any]],
@@ -577,6 +642,7 @@ class ToolCallingLLM:
                         num_llm_calls=total_num_llm_calls,
                         messages=terminal_data.get("messages"),
                         metadata=terminal_data.get("metadata"),
+                        finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
                         **accumulated_stats.model_dump(),
                     )
 
@@ -598,6 +664,7 @@ class ToolCallingLLM:
                 num_llm_calls=total_num_llm_calls,
                 messages=terminal_data["messages"],
                 metadata=terminal_data.get("metadata"),
+                finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
                 **accumulated_stats.model_dump(),
             )
 
@@ -995,6 +1062,16 @@ class ToolCallingLLM:
                 if ev.event == StreamEvents.TOOL_RESULT:
                     all_tool_calls.append(ev.data)
 
+        # Deny any tool calls the user abandoned (e.g. closed the approval modal
+        # or asked a new question without deciding). Otherwise the LLM call fails
+        # because every tool_use block must be followed by a tool_result block.
+        if msgs:
+            msgs, events = self._resolve_orphaned_tool_calls(msgs)
+            for ev in events:
+                yield ev
+                if ev.event == StreamEvents.TOOL_RESULT:
+                    all_tool_calls.append(ev.data)
+
         messages: list[dict] = list(msgs) if msgs else []
         tool_calls: list[dict] = []
         tools: Optional[list] = self._get_tools()
@@ -1154,6 +1231,18 @@ class ToolCallingLLM:
 
             tools_to_call = getattr(response_message, "tool_calls", None)
             if not tools_to_call:
+                # Capture the final iteration's finish_reason for usage tracking
+                # (HolmesUsageEvents.finish_reason). Earlier iterations always end
+                # with 'tool_calls'; this last one tells us why the loop terminated
+                # (stop / length / content_filter / etc.). Skip if the value isn't
+                # a real string (e.g. MagicMock in tests), so pydantic validation
+                # of LLMResult below doesn't blow up.
+                try:
+                    fr = full_response.choices[0].finish_reason  # type: ignore
+                    if isinstance(fr, str):
+                        metadata["finish_reason"] = fr
+                except (AttributeError, IndexError, TypeError):
+                    pass
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={

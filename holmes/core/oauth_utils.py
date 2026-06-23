@@ -1,6 +1,7 @@
 """Shared OAuth utilities: token exchange, PKCE, DCR, CLI flow, and discovery."""
 
 import logging
+import os
 import secrets
 import socket
 import threading
@@ -11,7 +12,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-from holmes.common.env_vars import DEFAULT_CLI_USER
 from mcp.client.auth.oauth2 import PKCEParameters
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
@@ -75,8 +75,7 @@ def eager_load_oauth_tools(executor: Any) -> None:
         if not ts._mcp_config.oauth.authorization_url:
             continue
         for user_id in token_mgr.get_cached_user_ids(ts._mcp_config.oauth):
-            request_ctx = {"user_id": user_id} if user_id != DEFAULT_CLI_USER else None
-            executor.oauth_connector.load_tools_for_user(user_id, ts, request_ctx)
+            executor.oauth_connector.load_tools_for_user(user_id, ts, {"user_id": user_id})
 
 
 # exchange_code_for_tokens is re-exported from oauth_config (imported above)
@@ -139,7 +138,6 @@ def start_oauth_callback_server(port: int = 0) -> Tuple[Any, Dict[str, Any], thr
     """Start a local HTTP server to receive the OAuth callback.
 
     If port=0, the OS picks a free port. Returns (server, result_dict, event, actual_port).
-    Caller must call wait_for_oauth_callback_event() then server.shutdown()/server_close().
     """
     result: Dict[str, Any] = {}
     callback_event = threading.Event()
@@ -224,9 +222,14 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
         logger.warning("CLI OAuth %s: no client_id and no registration_endpoint", server_name)
         return None
 
-    # Start the callback server first (port=0 → OS picks free port, no race condition)
+    # Determine callback port: env var or ephemeral (0)
+    port = int(os.environ.get("HOLMES_OAUTH_CALLBACK_PORT", "0"))
+    if port:
+        logger.info("CLI OAuth %s: using static callback port %d (from HOLMES_OAUTH_CALLBACK_PORT)", server_name, port)
+
+    # Start the callback server (port=0 → OS picks free port, no race condition)
     try:
-        server, result_dict, callback_event, callback_port = start_oauth_callback_server(port=0)
+        server, result_dict, callback_event, callback_port = start_oauth_callback_server(port=port)
     except OSError as e:
         logger.warning("CLI OAuth %s: failed to start callback server: %s", server_name, e)
         return None
@@ -280,6 +283,7 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
             redirect_uri=redirect_uri,
             client_id=oauth.client_id,
             code_verifier=code_verifier,
+            client_secret=oauth.client_secret,
         )
     except OAuthTokenExchangeError as e:
         logger.warning("CLI OAuth %s: token exchange failed: %s", server_name, e)
