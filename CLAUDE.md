@@ -217,6 +217,7 @@ For the complete eval CLI reference (flags, env vars, model comparison, debuggin
 - Type hints required (mypy configuration in pyproject.toml)
 - Pre-commit hooks enforce quality checks in CI
 - **ALWAYS place Python imports at the top of the file**, not inside functions or methods
+- **Use `tenacity` for retries**, not hand-rolled retry loops — the `@retry(...)` decorator normally, or the `Retrying(...)` iterator form when the attempt budget/params must come from per-instance or dynamic values. Only hand-roll a retry when there's a real reason to, and document why.
 - **NEVER run `pre-commit`, `ruff`, or `mypy` unless the user explicitly asks you to**. These tools are triggered by commit hooks which are not installed on all machines, and running them causes widespread formatting/type changes to files unrelated to your task. Only lint/format files you are actively editing, and only if asked.
 
 **Documentation Examples**:

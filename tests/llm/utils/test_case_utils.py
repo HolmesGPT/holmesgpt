@@ -11,6 +11,7 @@ from typing_extensions import Dict
 
 from holmes.config import Config
 from holmes.core.llm import DefaultLLM
+from holmes.core.models import FrontendToolDefinition, FrontendToolMode
 from holmes.core.prompt import append_file_to_user_prompt
 from holmes.core.resource_instruction import ResourceInstructions
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
@@ -153,15 +154,80 @@ class HolmesTestCase(BaseModel):
     enable_todo: bool = (
         False  # Enable the TodoWrite/todos feature (disabled by default in evals)
     )
+    # Hard assertion on SuggestSkills emission (requires the tool to be
+    # injected via `frontend_tools`):
+    # - True  → the test fails if the LLM emits zero skill suggestions
+    # - False → the test fails if the LLM emits any skill suggestions
+    # - None  → no count enforcement (legacy / unspecified)
+    # The emitted suggestions are also surfaced to the LLM judge alongside
+    # `expected_output`, so suggestion content quality is scored by the judge.
+    memories_generated: Optional[bool] = None
+    # When memories_generated=True and the first pass actually emitted
+    # suggestions, also run the same prompt a SECOND time with those
+    # suggestions rendered as SKILL.md files and injected into the
+    # SkillsToolset's search paths. The replay run checks that (a) the agent
+    # fetched the skill (proving it judged the suggestion relevant) and
+    # (b) the answer is still correct. Provides a closed-loop validation
+    # that the captured skill actually helps future investigations.
+    rerun_with_memory: Optional[bool] = False
+    # Pre-loaded skills directory (relative to the test fixture folder). When
+    # set, the path is added to the SkillsToolset's search paths BEFORE the
+    # primary pass — letting an eval simulate "the customer already has
+    # skill X saved" without going through the SuggestSkills→replay flow.
+    # Used by evals that test how the agent behaves when handed an
+    # externally-authored skill (e.g. a misleading one).
+    pre_loaded_skills_path: Optional[str] = None
+    # When set, asserts that the number of SKILL.md files written from the
+    # primary pass's captured suggestions equals this value. None disables
+    # the check.
+    expected_skill_count: Optional[int] = None
+    # Names of skills loaded in the agent's context (e.g. via
+    # pre_loaded_skills_path) that the agent must propose a CORRECTION for:
+    # each listed name must appear as some suggestion's `updates_skill`
+    # field. This is the deterministic half of testing skill updates; the
+    # corrected content itself is judged via expected_output, which the LLM
+    # judge sees together with the emitted suggestions. None disables the
+    # check.
+    expected_skill_updates: Optional[List[str]] = None
+    # Controls whether the closed-loop replay strictly requires the agent
+    # to call `fetch_skill`. True (default) is right for evals where the
+    # captured skill is supposed to short-circuit rediscovery — if the agent
+    # ignores the skill, the eval fails. When False, the replay is still
+    # scored on correctness; only the skill-load assertion is relaxed.
+    require_skill_load_on_replay: bool = True
+    # Tool names that must NOT appear in the replay's tool calls. Used by
+    # discovery-style evals to assert the captured skill actually obviated
+    # the exploration it encodes (e.g. with the index schema saved in the
+    # skill, the replay must not call elasticsearch_mappings again).
+    # None/empty disables the check.
+    replay_forbidden_tools: Optional[List[str]] = None
 
 
 class AskHolmesTestCase(HolmesTestCase, BaseModel):
     user_prompt: Union[
         str, List[str]
     ]  # The user's question(s) to ask holmes - can be single string or array
+    # Optional alternative expected_output for the closed-loop replay pass
+    # (which always re-asks the exact same `user_prompt`, so primary vs
+    # replay metrics compare with-skill vs without-skill on identical
+    # input). Needed when `expected_output` includes SuggestSkills-specific
+    # criteria that can never hold on replay — the tool is not injected
+    # there. If unset, the replay is judged against `expected_output`.
+    expected_replay_output: Optional[Union[str, List[str]]] = None
     cluster_name: Optional[str] = None
     include_files: Optional[List[str]] = None  # matches include_files option of the CLI
     skills: Optional[Dict[str, Any]] = None  # Optional skill catalog override
+    frontend_tools: Optional[Union[str, List[Dict[str, Any]]]] = (
+        None  # Client-defined tools injected into the LLM, mirroring the
+        # `frontend_tools` field of the /api/chat request. Either an inline
+        # list of FrontendToolDefinition dicts or a path (relative to the
+        # test folder) to a YAML file containing one. Only noop-mode tools
+        # are supported in evals (there is no client to execute pause tools).
+        # When UNSET, every eval gets the shared SuggestSkills fixture
+        # (tests/llm/fixtures/shared/skill_suggestion_tool.yaml) by default,
+        # because the Robusta UI attaches that tool to every chat request in
+        # production. Set `frontend_tools: []` to opt a test out.
+    )
     allow_toolset_failures: Optional[bool] = (
         False  # Allow toolsets to fail prerequisite checks (default False)
     )
@@ -172,6 +238,75 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
         None  # Store original prompt(s)
     )
     test_type: Optional[str] = None  # The type of test to run
+
+
+class FrontendPayload(BaseModel):
+    """What a frontend client contributes to a chat request: client-defined
+    tools plus an optional system prompt snippet (mirrors the
+    `frontend_tools` / `additional_system_prompt` fields of /api/chat)."""
+
+    tools: List[FrontendToolDefinition] = []
+    additional_system_prompt: Optional[str] = None
+
+
+# Injected into every eval whose test_case.yaml does not set `frontend_tools`,
+# mirroring production where the Robusta UI sends the SuggestSkills tool with
+# every chat request. Tests opt out with `frontend_tools: []`.
+DEFAULT_FRONTEND_TOOLS_PATH = (
+    Path(__file__).parent.parent / "fixtures" / "shared" / "skill_suggestion_tool.yaml"
+)
+
+
+def load_frontend_tools(
+    test_case: "AskHolmesTestCase",
+) -> Optional[FrontendPayload]:
+    """Resolve the test case's `frontend_tools` field into a FrontendPayload.
+
+    The field is either an inline list of FrontendToolDefinition dicts or a
+    path (relative to the test folder) to a YAML file containing one under a
+    top-level `frontend_tools` key. The file form may also carry an
+    `additional_system_prompt` key with the prompt snippet the frontend
+    client sends alongside its tools.
+    """
+    raw = test_case.frontend_tools
+    if raw is None:
+        # Unset -> production default: the Robusta UI sends the SuggestSkills
+        # tool with every chat request, so evals inject it unless the test
+        # explicitly opts out with `frontend_tools: []`.
+        raw = str(DEFAULT_FRONTEND_TOOLS_PATH)
+    if not raw:
+        return None
+
+    additional_system_prompt = None
+    if isinstance(raw, str):
+        tools_path = Path(test_case.folder) / raw
+        if not tools_path.exists():
+            raise FileNotFoundError(
+                f"frontend_tools file not found for test {test_case.id}: {tools_path}"
+            )
+        with open(tools_path, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        if isinstance(raw, dict):
+            additional_system_prompt = raw.get("additional_system_prompt")
+            raw = raw.get("frontend_tools")
+
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"frontend_tools for test {test_case.id} must resolve to a list of "
+            f"tool definitions, got: {type(raw)}"
+        )
+
+    definitions = [FrontendToolDefinition(**tool) for tool in raw]
+    for definition in definitions:
+        if definition.mode != FrontendToolMode.NOOP:
+            raise ValueError(
+                f"frontend_tools in evals must use mode 'noop' (tool "
+                f"'{definition.name}' uses '{definition.mode.value}'): evals have "
+                "no client to execute pause-mode tools."
+            )
+    return FrontendPayload(
+        tools=definitions, additional_system_prompt=additional_system_prompt
+    )
 
 
 def check_and_skip_test(

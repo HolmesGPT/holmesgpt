@@ -1,0 +1,10 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:10281
+      # No metric_name_overrides hints — the agent must discover that
+      # this cluster renames the upstream `kafka_*` metric family to
+      # `acme_kafka_*`.
