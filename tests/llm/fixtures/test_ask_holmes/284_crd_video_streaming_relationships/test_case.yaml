@@ -1,0 +1,250 @@
+# Test: Holmes learns custom CRDs and how they relate, then diagnoses a break.
+#
+# A fictional live video-streaming platform is modeled as four
+# inter-referencing CRDs in the streaming.acme.tv group:
+#   - StreamChannel (apex) references IngestFeed (ingestRef),
+#     EncodingProfile (encodingProfileRef) and CDNDistribution
+#     (distributionRef) BY NAME
+#   - the channel `live-sports-uhd` is broken: its encodingProfileRef points
+#     at `ladder-uhd-4k`, which does not exist (the real UHD profile is
+#     `ladder-uhd`, annotation profile-id EP-UHD-9F4Q2)
+#
+# Holmes is given a natural question and must discover the custom resource
+# types itself, learn the StreamChannel -> {IngestFeed, EncodingProfile,
+# CDNDistribution} relationship graph, follow the references, and find the
+# dangling encodingProfileRef. The status message is deliberately generic
+# ("Channel is not serving") so it does not give away the cause.
+#
+# The injected SuggestSkills frontend tool (mirroring the Robusta UI's
+# skill-suggestion tool) should then capture the durable, reusable know-how:
+# how the streaming.acme.tv resources relate and how to navigate them — NOT
+# the incident specifics (the broken value / channel name).
+user_prompt: |
+  Something is wrong with the live-sports-uhd stream in the app-284 namespace.
+  We model our platform with custom resources, so dig into those and tell me
+  what's broken.
+
+memories_generated: true
+rerun_with_memory: true
+
+include_tool_calls: true
+
+expected_replay_output:
+  - "Must identify that live-sports-uhd is broken because its encodingProfileRef 'ladder-uhd-4k' points at an EncodingProfile that does not exist, and that the real/intended profile is 'ladder-uhd'"
+
+expected_output:
+  - "Must identify that the live-sports-uhd StreamChannel is broken because its spec.encodingProfileRef is set to 'ladder-uhd-4k', which is not an existing EncodingProfile in the namespace"
+  - "Must identify that the actually existing UHD EncodingProfile is named 'ladder-uhd' (the reference is a dangling/typo reference that should point there)"
+  - "Must call the SuggestSkills tool with at least one suggestion"
+  - "The SuggestSkills suggestion(s) must capture the reusable structure of the streaming.acme.tv custom resources discovered during the investigation: specifically that a StreamChannel references an IngestFeed, an EncodingProfile, and a CDNDistribution by name (via the ingestRef / encodingProfileRef / distributionRef spec fields), so diagnosing a channel means resolving those references and checking for dangling ones"
+  - "The SuggestSkills tool call arguments must NOT contain the incident-specific values 'ladder-uhd-4k' or 'live-sports-uhd', and must NOT state the root cause of this specific incident. Skills must capture reusable knowledge about how these custom resources relate, not incident memories. (This criterion applies only to the SuggestSkills tool call arguments — those names appearing in other tool outputs or in the final answer is expected.)"
+
+tags:
+  - kubernetes
+  - skills
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  set -e
+  kubectl create namespace app-284 --dry-run=client -o yaml | kubectl apply -f -
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: apiextensions.k8s.io/v1
+  kind: CustomResourceDefinition
+  metadata:
+    name: streamchannels.streaming.acme.tv
+  spec:
+    group: streaming.acme.tv
+    scope: Namespaced
+    names: {kind: StreamChannel, plural: streamchannels, singular: streamchannel, shortNames: ["chan"]}
+    versions:
+      - name: v1alpha1
+        served: true
+        storage: true
+        schema:
+          openAPIV3Schema:
+            type: object
+            properties:
+              spec:
+                type: object
+                properties:
+                  title: {type: string}
+                  ingestRef: {type: string}
+                  encodingProfileRef: {type: string}
+                  distributionRef: {type: string}
+                  state: {type: string, enum: ["Live", "Stopped"]}
+              status:
+                type: object
+                properties:
+                  phase: {type: string}
+                  message: {type: string}
+        additionalPrinterColumns:
+          - {name: Title, type: string, jsonPath: .spec.title}
+          - {name: Profile, type: string, jsonPath: .spec.encodingProfileRef}
+          - {name: Phase, type: string, jsonPath: .status.phase}
+  ---
+  apiVersion: apiextensions.k8s.io/v1
+  kind: CustomResourceDefinition
+  metadata:
+    name: ingestfeeds.streaming.acme.tv
+  spec:
+    group: streaming.acme.tv
+    scope: Namespaced
+    names: {kind: IngestFeed, plural: ingestfeeds, singular: ingestfeed, shortNames: ["feed"]}
+    versions:
+      - name: v1alpha1
+        served: true
+        storage: true
+        schema:
+          openAPIV3Schema:
+            type: object
+            properties:
+              spec:
+                type: object
+                properties:
+                  protocol: {type: string, enum: ["RTMP", "SRT", "HLS"]}
+                  sourceUrl: {type: string}
+                  region: {type: string}
+                  maxBitrateKbps: {type: integer}
+  ---
+  apiVersion: apiextensions.k8s.io/v1
+  kind: CustomResourceDefinition
+  metadata:
+    name: encodingprofiles.streaming.acme.tv
+  spec:
+    group: streaming.acme.tv
+    scope: Namespaced
+    names: {kind: EncodingProfile, plural: encodingprofiles, singular: encodingprofile, shortNames: ["encprofile"]}
+    versions:
+      - name: v1alpha1
+        served: true
+        storage: true
+        schema:
+          openAPIV3Schema:
+            type: object
+            properties:
+              spec:
+                type: object
+                properties:
+                  codec: {type: string}
+                  renditions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: {type: string}
+                        height: {type: integer}
+                        bitrateKbps: {type: integer}
+        additionalPrinterColumns:
+          - {name: Codec, type: string, jsonPath: .spec.codec}
+  ---
+  apiVersion: apiextensions.k8s.io/v1
+  kind: CustomResourceDefinition
+  metadata:
+    name: cdndistributions.streaming.acme.tv
+  spec:
+    group: streaming.acme.tv
+    scope: Namespaced
+    names: {kind: CDNDistribution, plural: cdndistributions, singular: cdndistribution, shortNames: ["cdndist"]}
+    versions:
+      - name: v1alpha1
+        served: true
+        storage: true
+        schema:
+          openAPIV3Schema:
+            type: object
+            properties:
+              spec:
+                type: object
+                properties:
+                  provider: {type: string}
+                  regions: {type: array, items: {type: string}}
+                  playbackDomain: {type: string}
+  EOF
+
+  # Wait for the CRDs to be established before creating instances.
+  for crd in streamchannels ingestfeeds encodingprofiles cdndistributions; do
+    kubectl wait --for=condition=established --timeout=60s \
+      crd/${crd}.streaming.acme.tv
+  done
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: streaming.acme.tv/v1alpha1
+  kind: CDNDistribution
+  metadata: {name: global-cdn, namespace: app-284}
+  spec: {provider: fastly, regions: ["emea", "us", "apac"], playbackDomain: play.acme.tv}
+  ---
+  apiVersion: streaming.acme.tv/v1alpha1
+  kind: IngestFeed
+  metadata: {name: studio-feed-emea, namespace: app-284}
+  spec: {protocol: RTMP, sourceUrl: "rtmp://ingest-emea.acme.tv/live/studio", region: emea, maxBitrateKbps: 12000}
+  ---
+  apiVersion: streaming.acme.tv/v1alpha1
+  kind: IngestFeed
+  metadata: {name: stadium-feed-us, namespace: app-284}
+  spec: {protocol: SRT, sourceUrl: "srt://ingest-us.acme.tv:9000", region: us, maxBitrateKbps: 25000}
+  ---
+  apiVersion: streaming.acme.tv/v1alpha1
+  kind: EncodingProfile
+  metadata:
+    name: ladder-hd
+    namespace: app-284
+    annotations: {streaming.acme.tv/profile-id: EP-HD-3K7M1}
+  spec:
+    codec: h264
+    renditions:
+      - {name: "1080p", height: 1080, bitrateKbps: 6000}
+      - {name: "720p", height: 720, bitrateKbps: 3000}
+      - {name: "480p", height: 480, bitrateKbps: 1500}
+  ---
+  apiVersion: streaming.acme.tv/v1alpha1
+  kind: EncodingProfile
+  metadata:
+    name: ladder-uhd
+    namespace: app-284
+    annotations: {streaming.acme.tv/profile-id: EP-UHD-9F4Q2}
+  spec:
+    codec: hevc
+    renditions:
+      - {name: "2160p", height: 2160, bitrateKbps: 18000}
+      - {name: "1080p", height: 1080, bitrateKbps: 8000}
+  ---
+  apiVersion: streaming.acme.tv/v1alpha1
+  kind: StreamChannel
+  metadata: {name: movies-vod-hd, namespace: app-284}
+  spec:
+    title: "Movies VOD (HD)"
+    ingestRef: studio-feed-emea
+    encodingProfileRef: ladder-hd
+    distributionRef: global-cdn
+    state: Live
+  status: {phase: Live, message: "Serving 3 renditions"}
+  ---
+  apiVersion: streaming.acme.tv/v1alpha1
+  kind: StreamChannel
+  metadata: {name: live-sports-uhd, namespace: app-284}
+  spec:
+    title: "Live Sports (UHD)"
+    ingestRef: stadium-feed-us
+    encodingProfileRef: ladder-uhd-4k
+    distributionRef: global-cdn
+    state: Live
+  status: {phase: Error, message: "Channel is not serving"}
+  EOF
+
+  # Verify the needle: the broken channel references a non-existent profile,
+  # while the real UHD profile (ladder-uhd) does exist.
+  REF=$(kubectl get streamchannel live-sports-uhd -n app-284 -o jsonpath='{.spec.encodingProfileRef}')
+  [ "$REF" = "ladder-uhd-4k" ] || { echo "❌ unexpected ref: $REF"; exit 1; }
+  if kubectl get encodingprofile ladder-uhd-4k -n app-284 >/dev/null 2>&1; then
+    echo "❌ ladder-uhd-4k should NOT exist"; exit 1
+  fi
+  kubectl get encodingprofile ladder-uhd -n app-284 >/dev/null || { echo "❌ ladder-uhd missing"; exit 1; }
+  echo "✅ Setup complete: live-sports-uhd -> ladder-uhd-4k (dangling); real profile is ladder-uhd"
+
+after_test: |
+  kubectl delete namespace app-284 --ignore-not-found
+  kubectl delete crd streamchannels.streaming.acme.tv ingestfeeds.streaming.acme.tv \
+    encodingprofiles.streaming.acme.tv cdndistributions.streaming.acme.tv --ignore-not-found
