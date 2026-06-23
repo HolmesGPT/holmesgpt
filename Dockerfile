@@ -105,12 +105,14 @@ COPY --from=builder /venv /venv
 # compiled wheels; krb5-libs/unixodbc: msodbcsql18 (azure/sql). apk upgrade
 # pulls Alpine security fixes for base-image packages.
 #
-# bash + GNU coreutils/findutils/grep/gawk/sed/gzip: the bash toolset allowlist
-# (default_lists.py) lets the LLM run grep/find/sort/date/head/stat/sed/zgrep/etc.
+# bash + GNU coreutils/findutils/grep/gzip: the bash toolset allowlist
+# (default_lists.py) lets the LLM run grep/find/sort/date/head/stat/zgrep/etc.
 # with prefix-only validation (any flags pass). Alpine's busybox applets reject
 # the GNU flags LLMs reflexively emit (grep -P, date -d "1 hour ago",
-# find -printf, head -n -5, sed -i). These packages replace the busybox applets,
-# restoring the GNU behavior the previous Debian image provided.
+# find -printf, head -n -5). These packages replace the busybox applets,
+# restoring the GNU behavior the previous Debian image provided. gawk/sed are
+# not in the default allowlist but are installed in GNU form so they behave
+# correctly when a user adds them via the bash toolset's `allow` config.
 # bind-tools (dig/nslookup) + tcpdump: network/DNS troubleshooting, including the
 # dig-based API-server reachability check in the kubernetes toolset.
 RUN apk upgrade --no-cache && apk add --no-cache \
