@@ -6,6 +6,7 @@ import ssl as _ssl
 from unittest.mock import MagicMock
 
 import certifi
+import httpx
 import pytest
 import realtime._async.client as rt_client
 from postgrest.exceptions import APIError as PGAPIError
@@ -443,6 +444,23 @@ def test_full_reconnect_treats_transient_signin_error_as_warning(caplog):
     assert warnings and warnings[0].levelno == logging.WARNING
 
 
+def test_full_reconnect_treats_signin_read_timeout_as_transient(caplog):
+    # ROB-447: a sign-in ReadTimeout at startup (Supabase/Cloudflare hiccup)
+    # must be transient so the backoff loop recovers, not fatal — otherwise the
+    # realtime thread dies and the pod silently polls for its whole lifetime.
+    m = _make_manager()
+
+    def boom_sign_in():
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    m.dal.sign_in = boom_sign_in
+    with caplog.at_level(logging.DEBUG):
+        result = asyncio.run(m._full_reconnect())
+    assert result is False  # returns False → retried with backoff, not raised
+    warnings = [r for r in caplog.records if "will retry" in r.getMessage()]
+    assert warnings and warnings[0].levelno == logging.WARNING
+
+
 def test_full_reconnect_resurfaces_unexpected_signin_error(caplog):
     m = _make_manager()
 
@@ -510,3 +528,8 @@ def test_transient_reconnect_exception_tuple_contents():
     assert TimeoutError in _TRANSIENT_RECONNECT_EXCEPTIONS
     assert ConnectionError in _TRANSIENT_RECONNECT_EXCEPTIONS
     assert OSError in _TRANSIENT_RECONNECT_EXCEPTIONS
+    # ROB-447: httpx transport errors (incl. ReadTimeout, RemoteProtocolError)
+    # must be transient so the realtime manager recovers via backoff.
+    assert httpx.TransportError in _TRANSIENT_RECONNECT_EXCEPTIONS
+    assert issubclass(httpx.ReadTimeout, _TRANSIENT_RECONNECT_EXCEPTIONS)
+    assert issubclass(httpx.RemoteProtocolError, _TRANSIENT_RECONNECT_EXCEPTIONS)

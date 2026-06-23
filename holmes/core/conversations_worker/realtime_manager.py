@@ -26,6 +26,7 @@ import threading
 import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
+import httpx
 import realtime._async.client as rt_client
 from postgrest.exceptions import APIError as PGAPIError
 from realtime._async.channel import ChannelStates
@@ -55,6 +56,12 @@ _TRANSIENT_RECONNECT_EXCEPTIONS: tuple = (
     TimeoutError,
     ConnectionError,
     OSError,
+    # httpx transport-level failures: read/connect/pool timeouts, network
+    # errors, and RemoteProtocolError from the HTTP/2 client. These are
+    # transient connectivity issues (e.g. a Supabase/Cloudflare hiccup at
+    # startup) — let the backoff loop retry instead of killing the realtime
+    # thread and falling back to slow polling for the pod's lifetime (ROB-447).
+    httpx.TransportError,
 )
 
 
