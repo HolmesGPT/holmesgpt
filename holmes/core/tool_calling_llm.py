@@ -63,6 +63,12 @@ from holmes.core.truncation.input_context_window_limiter import (
     check_compaction_needed,
     compact_if_necessary,
 )
+from holmes.utils.approval_tokens import (
+    APPROVAL_REJECTION_MESSAGE,
+    ApprovalTokenError,
+    mint_token,
+    verify_token,
+)
 from holmes.utils.colors import AI_COLOR
 from holmes.utils.stream import (
     StreamEvents,
@@ -284,9 +290,31 @@ class ToolCallingLLM:
                 for tool_call in message_tool_calls:
                     decision = decisions_by_tool_call_id.get(tool_call.get("id"), None)
                     if tool_call.get("pending_approval"):
-                        del tool_call[
-                            "pending_approval"
-                        ]  # Cleanup so that a pending approval is not tagged on message in a future response
+                        try:
+                            verify_token(
+                                tool_call.get("approval_token"),
+                                tool_call_id=tool_call.get("id", ""),
+                                tool_name=tool_call.get("function", {}).get("name", ""),
+                                args_json=tool_call.get("function", {}).get("arguments", ""),
+                            )
+                        except ApprovalTokenError as exc:
+                            logging.warning(
+                                "%s reason=%s tool_call_id=%s tool_name=%s",
+                                APPROVAL_REJECTION_MESSAGE,
+                                exc.reason,
+                                tool_call.get("id"),
+                                tool_call.get("function", {}).get("name"),
+                            )
+                            decision = ToolApprovalDecision(
+                                tool_call_id=tool_call["id"],
+                                approved=False,
+                                verified=False,
+                                feedback=APPROVAL_REJECTION_MESSAGE,
+                            )
+                        # Strip the one-shot fields so they don't ride future
+                        # round-trips or get re-redeemed.
+                        del tool_call["pending_approval"]
+                        tool_call.pop("approval_token", None)
                         pending_tool_calls.append(
                             ToolCallWithDecision(
                                 tool_call=ChatCompletionMessageToolCall(**tool_call),
@@ -335,19 +363,23 @@ class ToolCallingLLM:
                         enable_tool_approval=True,  # always True when processing decisions
                     )
             else:
-                # Tool was rejected or no decision found, add rejection message
-                feedback_text = (
-                    f" User feedback: {tool_decision.feedback}"
-                    if tool_decision and tool_decision.feedback
-                    else ""
-                )
+                # Tool was rejected or no decision found
+                if tool_decision and not tool_decision.verified:
+                    error_text = tool_decision.feedback or "Tool execution was denied by the server."
+                else:
+                    feedback_text = (
+                        f" User feedback: {tool_decision.feedback}"
+                        if tool_decision and tool_decision.feedback
+                        else ""
+                    )
+                    error_text = f"Tool execution was denied by the user.{feedback_text}"
                 tool_result = ToolCallResult(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.function.name,
                     description=tool_call.function.name,
                     result=StructuredToolResult(
                         status=StructuredToolResultStatus.ERROR,
-                        error=f"Tool execution was denied by the user.{feedback_text}",
+                        error=error_text,
                     ),
                 )
 
@@ -415,8 +447,10 @@ class ToolCallingLLM:
                 tool_call_id = tool_call.get("id")
                 if not tool_call_id or tool_call_id in resolved_ids:
                     continue
-                # Drop any stale pending_approval flag so it isn't re-emitted.
+                # Drop any stale pending_approval flag so it isn't re-emitted,
+                # and the matching token so it can't ride future LLM round-trips.
                 tool_call.pop("pending_approval", None)
+                tool_call.pop("approval_token", None)
                 function = tool_call.get("function") or {}
                 tool_name = function.get("name") or "unknown"
                 tool_result = ToolCallResult(
@@ -1392,12 +1426,19 @@ class ToolCallingLLM:
                         tool_call["pending_frontend"] = True
 
                 # Mark any pending approval tool calls in assistant messages
+                # and mint a signed token bound to {id, name, args_hash}.
                 if pending_approvals:
                     for approval in pending_approvals:
                         tool_call = self.find_assistant_tool_call_request(
                             tool_call_id=approval.tool_call_id, messages=messages
                         )
+                        token = mint_token(
+                            tool_call_id=tool_call["id"],
+                            tool_name=tool_call.get("function", {}).get("name", ""),
+                            args_json=tool_call.get("function", {}).get("arguments", ""),
+                        )
                         tool_call["pending_approval"] = True
+                        tool_call["approval_token"] = token
 
                 # If either type of pause is needed, emit a single APPROVAL_REQUIRED
                 # event that carries both pending_approvals and pending_frontend_tool_calls.
