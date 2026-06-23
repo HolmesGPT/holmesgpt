@@ -1,10 +1,10 @@
-"""Signed tool-approval tickets.
+"""Signed tool-approval tokens.
 
-A ticket is an HS256 JWT that binds an approval to one specific tool
+An approval token is an HS256 JWT that binds an approval to one specific tool
 call: its `id`, its function `name`, and a stable hash of its
-`arguments`. Holmes mints a ticket when it marks a tool call as
+`arguments`. Holmes mints a token when it marks a tool call as
 `pending_approval`; the resume path refuses to execute a `pending_approval`
-that doesn't come back with a verifying ticket.
+that doesn't come back with a verifying token.
 
 Closes the forgery primitive in GHSA-6m4w-cmhp-f95f.
 """
@@ -21,17 +21,17 @@ from typing import Optional, Union
 
 import jwt
 
-TICKET_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
+TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 
 APPROVAL_DOCS_URL = "https://holmesgpt.dev/reference/environment-variables/#holmes_approval_signing_key"
 APPROVAL_REJECTION_MESSAGE = (
-    "Approval ticket validation failed. This usually happens after Holmes "
+    "Approval token validation failed. This usually happens after Holmes "
     f"was restarted. See {APPROVAL_DOCS_URL} to configure a persistent signing key."
 )
 
 
-class ApprovalTicketError(Exception):
-    """Raised when an approval ticket fails verification. One error, one message."""
+class ApprovalTokenError(Exception):
+    """Raised when an approval token fails verification. One error, one message."""
 
     def __init__(self) -> None:
         super().__init__(APPROVAL_REJECTION_MESSAGE)
@@ -66,7 +66,7 @@ def args_hash(args_json_string: Optional[str]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def mint_ticket(tool_call_id: str, tool_name: str, args_json: Optional[str]) -> str:
+def mint_token(tool_call_id: str, tool_name: str, args_json: Optional[str]) -> str:
     now = int(time.time())
     return jwt.encode(
         {
@@ -74,26 +74,26 @@ def mint_ticket(tool_call_id: str, tool_name: str, args_json: Optional[str]) -> 
             "tool_name": tool_name,
             "args_hash": args_hash(args_json),
             "iat": now,
-            "exp": now + TICKET_TTL_SECONDS,
+            "exp": now + TOKEN_TTL_SECONDS,
         },
         SIGNING_KEY,
         algorithm="HS256",
     )
 
 
-def verify_ticket(
-    ticket: Optional[str],
+def verify_token(
+    token: Optional[str],
     tool_call_id: str,
     tool_name: str,
     args_json: Optional[str],
 ) -> None:
-    """Verify a ticket. Raises `ApprovalTicketError` on any failure."""
-    if not ticket:
-        raise ApprovalTicketError()
+    """Verify a token. Raises `ApprovalTokenError` on any failure."""
+    if not token:
+        raise ApprovalTokenError()
     try:
-        claims = jwt.decode(ticket, SIGNING_KEY, algorithms=["HS256"])
+        claims = jwt.decode(token, SIGNING_KEY, algorithms=["HS256"])
     except jwt.InvalidTokenError as exc:
-        raise ApprovalTicketError() from exc
+        raise ApprovalTokenError() from exc
     try:
         ok = (
             claims.get("tool_call_id") == tool_call_id
@@ -101,6 +101,6 @@ def verify_ticket(
             and claims.get("args_hash") == args_hash(args_json)
         )
     except (json.JSONDecodeError, TypeError) as exc:
-        raise ApprovalTicketError() from exc
+        raise ApprovalTokenError() from exc
     if not ok:
-        raise ApprovalTicketError()
+        raise ApprovalTokenError()

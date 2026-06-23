@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 from holmes.core.models import ToolApprovalDecision, ToolCallResult
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-from holmes.utils.approval_tickets import mint_ticket
+from holmes.utils.approval_tokens import mint_token
 
 
 def _build_ai() -> ToolCallingLLM:
@@ -44,7 +44,7 @@ def _make_messages(tool_call_id: str, original_command: str) -> list:
                         "arguments": arguments,
                     },
                     "pending_approval": True,
-                    "approval_ticket": mint_ticket(tool_call_id, "bash", arguments),
+                    "approval_token": mint_token(tool_call_id, "bash", arguments),
                 }
             ],
         },

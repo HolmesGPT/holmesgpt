@@ -66,7 +66,7 @@ from holmes.utils.holmes_status import (
     update_holmes_status_in_db,
 )
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.approval_tickets import SIGNING_KEY_FROM_ENV
+from holmes.utils.approval_tokens import SIGNING_KEY_FROM_ENV
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
 from holmes.admin.admin_api import init_admin_app
