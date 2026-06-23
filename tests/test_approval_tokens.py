@@ -91,6 +91,25 @@ def test_verify_rejects_all_failure_modes_uniformly(token_arg, call_id, name, ar
     assert str(exc.value) == approval_tokens.APPROVAL_REJECTION_MESSAGE
 
 
+@pytest.mark.parametrize(
+    "token_arg,call_id,name,args,reason_substr",
+    [
+        (None, "call_1", "bash", "{}", "no token"),
+        ("not-a-jwt", "call_1", "bash", "{}", "JWT decode failed"),
+        ("__valid__", "call_other", "bash", '{"command":"ls"}', "claims do not match"),
+        ("__valid__", "call_1", "bash", "{not json", "claim comparison raised"),
+    ],
+)
+def test_verify_attaches_specific_reason_for_server_logs(token_arg, call_id, name, args, reason_substr):
+    """User message stays uniform (above); `reason` lets server logs say what
+    actually failed without leaking it to the client."""
+    valid = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
+    token = valid if token_arg == "__valid__" else token_arg
+    with pytest.raises(approval_tokens.ApprovalTokenError) as exc:
+        approval_tokens.verify_token(token, call_id, name, args)
+    assert reason_substr in exc.value.reason
+
+
 def test_verify_rejects_tampered_signature():
     token = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
     header, payload, sig = token.split(".")

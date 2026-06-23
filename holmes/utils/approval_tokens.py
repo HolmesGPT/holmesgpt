@@ -31,10 +31,16 @@ APPROVAL_REJECTION_MESSAGE = (
 
 
 class ApprovalTokenError(Exception):
-    """Raised when an approval token fails verification. One error, one message."""
+    """Raised when an approval token fails verification.
 
-    def __init__(self) -> None:
+    Users always see `APPROVAL_REJECTION_MESSAGE` — never the specific
+    `reason` — to avoid leaking which check failed to an attacker probing
+    the signing flow. The `reason` attribute is for server-side logs only.
+    """
+
+    def __init__(self, reason: str) -> None:
         super().__init__(APPROVAL_REJECTION_MESSAGE)
+        self.reason = reason
 
 
 def _load_signing_key():
@@ -90,11 +96,11 @@ def verify_token(
 ) -> None:
     """Verify a token. Raises `ApprovalTokenError` on any failure."""
     if not token:
-        raise ApprovalTokenError()
+        raise ApprovalTokenError("no token provided")
     try:
         claims = jwt.decode(token, SIGNING_KEY, algorithms=["HS256"])
     except jwt.InvalidTokenError as exc:
-        raise ApprovalTokenError() from exc
+        raise ApprovalTokenError(f"JWT decode failed: {exc}") from exc
     try:
         ok = (
             claims.get("tool_call_id") == tool_call_id
@@ -102,6 +108,8 @@ def verify_token(
             and claims.get("args_hash") == args_hash(args_json)
         )
     except (json.JSONDecodeError, TypeError) as exc:
-        raise ApprovalTokenError() from exc
+        raise ApprovalTokenError(f"claim comparison raised: {exc}") from exc
     if not ok:
-        raise ApprovalTokenError()
+        raise ApprovalTokenError(
+            "claims do not match tool_call_id / tool_name / args_hash"
+        )

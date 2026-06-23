@@ -297,10 +297,11 @@ class ToolCallingLLM:
                                 tool_name=tool_call.get("function", {}).get("name", ""),
                                 args_json=tool_call.get("function", {}).get("arguments", ""),
                             )
-                        except ApprovalTokenError:
+                        except ApprovalTokenError as exc:
                             logging.warning(
-                                "%s tool_call_id=%s tool_name=%s",
+                                "%s reason=%s tool_call_id=%s tool_name=%s",
                                 APPROVAL_REJECTION_MESSAGE,
+                                exc.reason,
                                 tool_call.get("id"),
                                 tool_call.get("function", {}).get("name"),
                             )
