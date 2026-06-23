@@ -5628,13 +5628,13 @@
 <p>Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the <code>robusta.dev</code> domain (<code>*.robusta.dev</code>), which covers the <code>api.*</code> and <code>sp.*</code> subdomains across all regions.</p>
 <p>To confirm the block, run the one-off pod below. It <strong>auto-detects the Holmes pod's namespace and image</strong> and curls the platform from a fresh pod — the HolmesGPT pod itself crashes on this error (<code>CrashLoopBackOff</code>), so <code>kubectl exec</code> into it won't work. Reusing Holmes's own image means nothing new is pulled (the same firewall may also block image pulls) and it shares Holmes's CA and network config. Just pick your region — a firewall block shows <code>Connection reset by peer</code>, while a reachable endpoint returns JSON:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7_1" name="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7" type="radio">
-<input id="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7_2" name="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7" type="radio">
-<input id="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7_3" name="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7" type="radio">
+<input checked="checked" id="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8_1" name="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8" type="radio">
+<input id="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8_2" name="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8" type="radio">
+<input id="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8_3" name="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7_1">US</label>
-<label for="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7_2">EU</label>
-<label for="__tabbed_a5a9f23f_533b_4b29_949d_5c8da6e089c7_3">AP</label>
+<label for="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8_1">US</label>
+<label for="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8_2">EU</label>
+<label for="__tabbed_b3327a2d_69dd_4cc5_ad91_b75df1512ce8_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-bash">read -r NS IMG &lt;&lt;&lt;&quot;$(kubectl get pods -A -l app=holmes -o jsonpath=&#x27;{.items[0].metadata.namespace} {.items[0].spec.containers[0].image}&#x27;)&quot;

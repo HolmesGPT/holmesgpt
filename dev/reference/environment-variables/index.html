@@ -5182,6 +5182,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#holmes_approval_signing_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HOLMES_APPROVAL_SIGNING_KEY
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6074,6 +6085,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#holmes_approval_signing_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HOLMES_APPROVAL_SIGNING_KEY
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6683,22 +6705,48 @@
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">HOLMES_API_KEY</span><span class="o">=</span>your-generated-key<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>...
 </span></code></pre></div></p>
+<h3 id="holmes_approval_signing_key">HOLMES_APPROVAL_SIGNING_KEY<a class="headerlink" href="#holmes_approval_signing_key" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> not set (an ephemeral key is generated per process at startup)</p>
+<p>HMAC signing key for tool-approval tokens. Holmes mints a short-lived JWT
+for every tool call that requires user approval and verifies the same JWT
+when the user approves. This prevents a client from forging an approval
+for a tool call Holmes never proposed.</p>
+<p>When unset, Holmes generates a 32-byte random key at startup. Approvals
+still work, but <strong>in-flight approvals are invalidated on every restart</strong> —
+users will see "Approval token validation failed" if they approve a
+modal after Holmes restarted. Set this env var to keep approvals working
+across restarts.</p>
+<p><strong>Generating a key:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>openssl<span class="w"> </span>rand<span class="w"> </span>-base64<span class="w"> </span><span class="m">32</span>
+</span></code></pre></div></p>
+<p>The env var is used verbatim as the HMAC key — any string works, but use a
+high-entropy value like the snippet above. A short or guessable key
+silently weakens the signature and lets a client forge approval tokens.</p>
+<p><strong>Example (Kubernetes):</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOLMES_APPROVAL_SIGNING_KEY</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">      </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-secrets</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approval-signing-key</span>
+</span></code></pre></div></p>
+<p>Tokens expire after 30 days.</p>
 <h2 id="ssltls">SSL/TLS<a class="headerlink" href="#ssltls" title="Permanent link">&para;</a></h2>
 <h3 id="certificate">CERTIFICATE<a class="headerlink" href="#certificate" title="Permanent link">&para;</a></h3>
 <p>Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the certificate is appended to the default CA bundle so that HolmesGPT trusts your private CA for all connections (LLM APIs, Elasticsearch, Prometheus, etc.).</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="certificate-holmes-cli" name="__tabbed_1" type="radio" /><input id="certificate-holmes-helm-chart" name="__tabbed_1" type="radio" /><input id="certificate-robusta-helm-chart" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="certificate-holmes-cli">Holmes CLI</label><label for="certificate-holmes-helm-chart">Holmes Helm Chart</label><label for="certificate-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CERTIFICATE</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>base64<span class="w"> </span>-w0<span class="w"> </span>/path/to/ca.crt<span class="k">)</span><span class="s2">&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CERTIFICATE</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>base64<span class="w"> </span>-w0<span class="w"> </span>/path/to/ca.crt<span class="k">)</span><span class="s2">&quot;</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">certificate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;base64-encoded</span><span class="nv"> </span><span class="s">CA</span><span class="nv"> </span><span class="s">cert&gt;&quot;</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">certificate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;base64-encoded</span><span class="nv"> </span><span class="s">CA</span><span class="nv"> </span><span class="s">cert&gt;&quot;</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">holmes</span><span class="p">:</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">certificate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;base64-encoded</span><span class="nv"> </span><span class="s">CA</span><span class="nv"> </span><span class="s">cert&gt;&quot;</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">certificate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;base64-encoded</span><span class="nv"> </span><span class="s">CA</span><span class="nv"> </span><span class="s">cert&gt;&quot;</span>
 </span></code></pre></div>
 </div>
 </div>
@@ -6710,28 +6758,28 @@
 <p><strong>Default:</strong> <code>true</code></p>
 <p>Controls whether large tool results are saved to the filesystem. When enabled, oversized results are written to a temp directory and the LLM receives a file path it can read with bash commands. When disabled, oversized results are dropped and the LLM is asked to retry with a narrower query.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Disable filesystem storage for large results</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_TOOL_RESULT_STORAGE_ENABLED</span><span class="o">=</span><span class="nb">false</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Disable filesystem storage for large results</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_TOOL_RESULT_STORAGE_ENABLED</span><span class="o">=</span><span class="nb">false</span>
 </span></code></pre></div></p>
 <h3 id="holmes_tool_result_storage_path">HOLMES_TOOL_RESULT_STORAGE_PATH<a class="headerlink" href="#holmes_tool_result_storage_path" title="Permanent link">&para;</a></h3>
 <p><strong>Default:</strong> System temp directory + <code>/.holmes</code> (e.g., <code>/tmp/.holmes</code>)</p>
 <p>Directory where large tool results are saved. Each chat session creates a subdirectory that is automatically cleaned up when the session ends.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_TOOL_RESULT_STORAGE_PATH</span><span class="o">=</span><span class="s2">&quot;/var/holmes/tool_results&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_TOOL_RESULT_STORAGE_PATH</span><span class="o">=</span><span class="s2">&quot;/var/holmes/tool_results&quot;</span>
 </span></code></pre></div></p>
 <h3 id="tool_max_allocated_context_window_pct">TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT<a class="headerlink" href="#tool_max_allocated_context_window_pct" title="Permanent link">&para;</a></h3>
 <p><strong>Default:</strong> <code>15</code></p>
 <p>Maximum percentage of the LLM context window that a single tool response can use. If a tool result exceeds this limit, it triggers the large-result handling (filesystem storage or truncation). Set to <code>0</code> or a value above <code>100</code> to disable percentage-based limiting.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Allow each tool response to use up to 25% of context window</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT</span><span class="o">=</span><span class="m">25</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Allow each tool response to use up to 25% of context window</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT</span><span class="o">=</span><span class="m">25</span>
 </span></code></pre></div></p>
 <h3 id="tool_max_allocated_context_window_tokens">TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS<a class="headerlink" href="#tool_max_allocated_context_window_tokens" title="Permanent link">&para;</a></h3>
 <p><strong>Default:</strong> <code>25000</code></p>
 <p>Absolute maximum tokens for a single tool response, regardless of context window size. The effective limit is the <strong>minimum</strong> of this value and the percentage-based limit above.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Raise the absolute cap to 50,000 tokens</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS</span><span class="o">=</span><span class="m">50000</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Raise the absolute cap to 50,000 tokens</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS</span><span class="o">=</span><span class="m">50000</span>
 </span></code></pre></div></p>
 <h2 id="tool-subprocess-memory-limit">Tool Subprocess Memory Limit<a class="headerlink" href="#tool-subprocess-memory-limit" title="Permanent link">&para;</a></h2>
 <h3 id="tool_memory_limit_mb">TOOL_MEMORY_LIMIT_MB<a class="headerlink" href="#tool_memory_limit_mb" title="Permanent link">&para;</a></h3>
@@ -6740,7 +6788,7 @@
 <p>The cap limits <strong>virtual address space</strong>, not resident memory — Go binaries like <code>kubectl</code> can reserve hundreds of MB at startup, so set this too low and you will break commands that would otherwise use little RAM. On Kubernetes, keep this comfortably below the pod's <code>resources.limits.memory</code>. On macOS the cap is silently ignored (BSD kernel does not enforce <code>ulimit -v</code>).</p>
 <p>See <a href="../../data-sources/tool-execution-safety/">Tool Execution Safety</a> for the full mechanism, implications, and tuning guidance.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MEMORY_LIMIT_MB</span><span class="o">=</span><span class="m">2000</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MEMORY_LIMIT_MB</span><span class="o">=</span><span class="m">2000</span>
 </span></code></pre></div></p>
 <h2 id="holmesgpt-configuration">HolmesGPT Configuration<a class="headerlink" href="#holmesgpt-configuration" title="Permanent link">&para;</a></h2>
 <h3 id="model_list_file_location">MODEL_LIST_FILE_LOCATION<a class="headerlink" href="#model_list_file_location" title="Permanent link">&para;</a></h3>
@@ -6751,20 +6799,20 @@
 <li><code>~/.holmes/model_list.yaml</code> (CLI default)</li>
 </ol>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL_LIST_FILE_LOCATION</span><span class="o">=</span><span class="s2">&quot;/path/to/model_list.yaml&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL_LIST_FILE_LOCATION</span><span class="o">=</span><span class="s2">&quot;/path/to/model_list.yaml&quot;</span>
 </span></code></pre></div></p>
 <p>See <a href="../../ai-providers/using-multiple-providers/">Using Multiple Providers</a> for the model list file format and usage.</p>
 <h3 id="litellm_model_cost_map_url">LITELLM_MODEL_COST_MAP_URL<a class="headerlink" href="#litellm_model_cost_map_url" title="Permanent link">&para;</a></h3>
 <p>Overrides the URL LiteLLM fetches the model catalog (<code>model_prices_and_context_window.json</code>) from. LiteLLM uses that catalog to know each model's context window, max output tokens, and pricing. By default LiteLLM pulls it from <code>raw.githubusercontent.com</code>, which is unreachable from networks that block GitHub egress.</p>
 <p>Robusta hosts a mirror of the same file in each region. Pick the URL matching your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2_1" name="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2" type="radio">
-<input id="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2_2" name="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2" type="radio">
-<input id="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2_3" name="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2" type="radio">
+<input checked="checked" id="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a_1" name="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a" type="radio">
+<input id="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a_2" name="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a" type="radio">
+<input id="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a_3" name="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2_1">US</label>
-<label for="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2_2">EU</label>
-<label for="__tabbed_1d0206df_6f64_45bf_b819_9db1d71104a2_3">AP</label>
+<label for="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a_1">US</label>
+<label for="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a_2">EU</label>
+<label for="__tabbed_0576e8ba_2efc_4ed7_9e39_712fbe72973a_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://api.robusta.dev/litellm/model_prices_and_context_window.json</code></pre></div>
@@ -6775,13 +6823,13 @@
 <p>The mirror is cached and falls back to its last-known-good copy if the upstream is temporarily unreachable, so pointing at it gives the same freshness as the default URL without requiring egress to <code>raw.githubusercontent.com</code>.</p>
 <p><strong>Helm example:</strong></p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61_1" name="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61" type="radio">
-<input id="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61_2" name="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61" type="radio">
-<input id="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61_3" name="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61" type="radio">
+<input checked="checked" id="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8_1" name="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8" type="radio">
+<input id="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8_2" name="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8" type="radio">
+<input id="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8_3" name="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61_1">US</label>
-<label for="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61_2">EU</label>
-<label for="__tabbed_1a016cf4_2e56_4f22_a993_5d23a43b6f61_3">AP</label>
+<label for="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8_1">US</label>
+<label for="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8_2">EU</label>
+<label for="__tabbed_18546c6c_8a2c_43be_ba65_5e8e2471cfc8_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml">additionalEnvVars:
@@ -6798,23 +6846,23 @@
 <h3 id="holmes_config_path">HOLMES_CONFIG_PATH<a class="headerlink" href="#holmes_config_path" title="Permanent link">&para;</a></h3>
 <p>Path to a custom HolmesGPT configuration file. If not set, defaults to <code>~/.holmes/config.yaml</code>.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_CONFIG_PATH</span><span class="o">=</span><span class="s2">&quot;/path/to/custom/config.yaml&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_CONFIG_PATH</span><span class="o">=</span><span class="s2">&quot;/path/to/custom/config.yaml&quot;</span>
 </span></code></pre></div></p>
 <h3 id="log_level">LOG_LEVEL<a class="headerlink" href="#log_level" title="Permanent link">&para;</a></h3>
 <p>Controls the logging verbosity of HolmesGPT.</p>
 <p><strong>Values:</strong> <code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code>
 <strong>Default:</strong> <code>INFO</code></p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LOG_LEVEL</span><span class="o">=</span><span class="s2">&quot;DEBUG&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LOG_LEVEL</span><span class="o">=</span><span class="s2">&quot;DEBUG&quot;</span>
 </span></code></pre></div></p>
 <h3 id="trace_token_usage">TRACE_TOKEN_USAGE<a class="headerlink" href="#trace_token_usage" title="Permanent link">&para;</a></h3>
 <p>When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed <code>/api/chat</code> request at <code>INFO</code> level. Useful for debugging token consumption and cost issues.</p>
 <p><strong>Default:</strong> <code>false</code></p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TRACE_TOKEN_USAGE</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TRACE_TOKEN_USAGE</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>
 </span></code></pre></div></p>
 <p><strong>Sample output:</strong>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
 </span></code></pre></div></p>
 <h3 id="holmes_cache_dir">HOLMES_CACHE_DIR<a class="headerlink" href="#holmes_cache_dir" title="Permanent link">&para;</a></h3>
 <p>Directory for caching HolmesGPT data and temporary files.</p>
@@ -6822,8 +6870,8 @@
 <p><strong>Default:</strong> <code>"authorization,cookie,set-cookie"</code></p>
 <p>Comma-separated list of HTTP header names that should <strong>not</strong> be forwarded from incoming requests to toolsets via <code>request_context</code>. Case-insensitive.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Also block a custom internal header</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_PASSTHROUGH_BLOCKED_HEADERS</span><span class="o">=</span><span class="s2">&quot;authorization,cookie,set-cookie,x-internal-only&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Also block a custom internal header</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_PASSTHROUGH_BLOCKED_HEADERS</span><span class="o">=</span><span class="s2">&quot;authorization,cookie,set-cookie,x-internal-only&quot;</span>
 </span></code></pre></div></p>
 <p>See <a href="../../data-sources/header-propagation/">HTTP Header Propagation</a> for details.</p>
 <h2 id="data-source-configuration">Data Source Configuration<a class="headerlink" href="#data-source-configuration" title="Permanent link">&para;</a></h2>
@@ -6868,28 +6916,28 @@
 <p>Per-request timeout, in seconds, for MCP tool calls. Forwarded to the MCP SDK's <code>ClientSession.call_tool(read_timeout_seconds=...)</code>, which enforces it via <code>anyio.fail_after</code> around the response-stream receive. Without a bound here, streamable-http tool calls can hang indefinitely if the MCP server dies mid-response (the httpx/anyio stream EOF does not reliably wake pending response futures).</p>
 <p>On expiry the SDK raises <code>McpError(code=REQUEST_TIMEOUT)</code>, which Holmes surfaces as a <code>StructuredToolResultStatus.ERROR</code> result with the message <code>Timed out while waiting for response to ClientRequest. Waited N seconds.</code></p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MCP_TOOL_CALL_TIMEOUT_SEC</span><span class="o">=</span><span class="m">60</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MCP_TOOL_CALL_TIMEOUT_SEC</span><span class="o">=</span><span class="m">60</span>
 </span></code></pre></div></p>
 <h2 id="testing-and-development">Testing and Development<a class="headerlink" href="#testing-and-development" title="Permanent link">&para;</a></h2>
 <h3 id="run_live">RUN_LIVE<a class="headerlink" href="#run_live" title="Permanent link">&para;</a></h3>
 <p>Enables live execution of commands in tests. Defaults to <code>true</code>.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RUN_LIVE</span><span class="o">=</span><span class="nb">true</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RUN_LIVE</span><span class="o">=</span><span class="nb">true</span>
 </span></code></pre></div></p>
 <h3 id="model">MODEL<a class="headerlink" href="#model" title="Permanent link">&para;</a></h3>
 <p>Override the default LLM model for testing.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL</span><span class="o">=</span><span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL</span><span class="o">=</span><span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span>
 </span></code></pre></div></p>
 <h3 id="classifier_model">CLASSIFIER_MODEL<a class="headerlink" href="#classifier_model" title="Permanent link">&para;</a></h3>
 <p>Model to use for scoring test answers (defaults to MODEL if not set). Required when using Anthropic models as the primary model since Anthropic models cannot be used as classifiers.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLASSIFIER_MODEL</span><span class="o">=</span><span class="s2">&quot;gpt-4.1&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLASSIFIER_MODEL</span><span class="o">=</span><span class="s2">&quot;gpt-4.1&quot;</span>
 </span></code></pre></div></p>
 <h3 id="iterations">ITERATIONS<a class="headerlink" href="#iterations" title="Permanent link">&para;</a></h3>
 <p>Number of times to run each test for reliability testing.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ITERATIONS</span><span class="o">=</span><span class="m">10</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ITERATIONS</span><span class="o">=</span><span class="m">10</span>
 </span></code></pre></div></p>
 <h3 id="braintrust_api_key">BRAINTRUST_API_KEY<a class="headerlink" href="#braintrust_api_key" title="Permanent link">&para;</a></h3>
 <p>API key for Braintrust integration to track test results.</p>
