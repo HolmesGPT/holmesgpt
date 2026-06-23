@@ -104,6 +104,16 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Multiple Instances
+
+```multi-instance
+toolset: grafana/dashboards
+name: Grafana
+config: |
+  api_url: <your grafana url>
+  api_key: <your grafana service account token>
+```
+
 ## Visual Rendering
 
 When the Grafana Image Renderer is available, HolmesGPT can take screenshots of dashboards and panels and analyze them using the LLM's vision capabilities. This is useful for:

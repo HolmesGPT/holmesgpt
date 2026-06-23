@@ -63,7 +63,36 @@ class HolmesMetadata:
     namespace: Optional[str] = None
 
 
-def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
+# Last realtime_available value passed to update_holmes_status_in_db. The
+# periodic heartbeat (refresh_holmes_status) re-upserts with this value so it
+# never clobbers supports_realtime_conversations after the worker verified it.
+_last_realtime_available: bool = False
+
+
+def refresh_holmes_status(dal: SupabaseDal, config: Config) -> None:
+    """Periodic heartbeat: re-upsert HolmesStatus so updated_at acts as a
+    liveness signal (platform-mcp filters clusters on updated_at recency),
+    preserving the last verified realtime flag."""
+    update_holmes_status_in_db(dal, config, realtime_available=_last_realtime_available)
+
+
+def update_holmes_status_in_db(
+    dal: SupabaseDal,
+    config: Config,
+    realtime_available: bool = False,
+):
+    """
+    Upsert the Holmes status row.
+
+    The conversation-related metadata fields default to ``False`` on
+    startup and only flip to their env-var-driven values once Supabase
+    has explicitly confirmed Realtime is enabled (``realtime_available=True``).
+    This avoids advertising realtime support before we've verified the
+    project actually has it turned on.
+    """
+    global _last_realtime_available
+    _last_realtime_available = realtime_available
+
     logging.info("Updating status of holmes")
 
     if not config.cluster_name:
@@ -72,10 +101,17 @@ def update_holmes_status_in_db(dal: SupabaseDal, config: Config):
             "or verify that a cluster name is provided in the Robusta configuration file."
         )
 
+    if realtime_available:
+        supports_realtime = bool(ENABLE_CONVERSATION_WORKER)
+        requires_broadcast = bool(CONVERSATION_WORKER_USE_REALTIME_BROADCAST)
+    else:
+        supports_realtime = False
+        requires_broadcast = False
+
     metadata = HolmesMetadata(
         is_robusta_ai_enabled=config.should_try_robusta_ai,
-        supports_realtime_conversations=bool(ENABLE_CONVERSATION_WORKER),
-        requires_realtime_broadcast=bool(CONVERSATION_WORKER_USE_REALTIME_BROADCAST),
+        supports_realtime_conversations=supports_realtime,
+        requires_realtime_broadcast=requires_broadcast,
         namespace=_detect_runner_namespace(),
     )
 

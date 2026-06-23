@@ -12,6 +12,7 @@ expected_output:
   - The payment-api pod experienced failures caused by database connection pool exhaustion
 
 tags:
+  - skills
   - logs
   - kubernetes
   - easy

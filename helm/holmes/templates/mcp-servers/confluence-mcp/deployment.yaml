@@ -11,6 +11,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   TRANSPORT: "sse"
   CONFLUENCE_URL: {{ required "mcpAddons.confluenceMcp.config.url is required" .Values.mcpAddons.confluenceMcp.config.url | quote }}
@@ -32,6 +37,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -47,7 +57,11 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
+        {{- with (include "holmes.commonAnnotations" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
         checksum/config: {{ .Values.mcpAddons.confluenceMcp | toYaml | sha256sum }}
     spec:
       {{- if .Values.mcpAddons.confluenceMcp.nodeSelector }}
@@ -61,6 +75,32 @@ spec:
       {{- if .Values.mcpAddons.confluenceMcp.affinity }}
       affinity:
         {{- toYaml .Values.mcpAddons.confluenceMcp.affinity | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.confluenceMcp.dnsConfig.enabled }}
+      {{- $policy := .Values.mcpAddons.confluenceMcp.dnsConfig.policy }}
+      {{- $hasConfig := or .Values.mcpAddons.confluenceMcp.dnsConfig.nameservers .Values.mcpAddons.confluenceMcp.dnsConfig.searches .Values.mcpAddons.confluenceMcp.dnsConfig.options }}
+
+      {{- if and (eq $policy "None") (not $hasConfig) }}
+        {{- fail "dnsConfig: when dnsPolicy is 'None', you must set at least one of nameservers, searches, or options for confluenceMcp" }}
+      {{- end }}
+      dnsPolicy: {{ $policy | quote }}
+      {{- if $hasConfig }}
+      dnsConfig:
+        {{- with .Values.mcpAddons.confluenceMcp.dnsConfig.nameservers }}
+        nameservers:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.mcpAddons.confluenceMcp.dnsConfig.searches }}
+        searches:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.mcpAddons.confluenceMcp.dnsConfig.options }}
+        options:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}
+      {{ else }}
+      dnsPolicy: ClusterFirst
       {{- end }}
       containers:
       - name: confluence-mcp
@@ -131,6 +171,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: {{ .Release.Name }}-confluence-mcp

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class ConversationStatus(str, Enum):
@@ -11,6 +11,30 @@ class ConversationStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     STOPPED = "stopped"
+
+    @classmethod
+    def updatable_values(cls) -> tuple:
+        """Statuses accepted by ``update_conversation_status``."""
+        return (cls.QUEUED.value, cls.RUNNING.value, cls.COMPLETED.value, cls.FAILED.value)
+
+
+class RemoteToolCallStatus(str, Enum):
+    """Status lifecycle of a RemoteToolCalls row.
+
+    The executor (ToolCallWorker) only writes the two terminal results:
+    ``COMPLETED`` (a tool_response was produced — including tool-level errors)
+    and ``FAILED`` (the executor crashed before producing one). ``STOPPED``
+    (relay timeout) and ``TIMEOUT`` (stale-row sweep) are written by relay /
+    the claim RPC.
+    """
+
+    PENDING = "pending"
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    STOPPED = "stopped"
+    TIMEOUT = "timeout"
 
 
 class ConversationTask(BaseModel):
@@ -23,13 +47,34 @@ class ConversationTask(BaseModel):
     request_sequence: int
     metadata: Dict[str, Any] = Field(default_factory=dict)
     title: Optional[str] = None
+    # The Conversations row's user_id column (the human who started the
+    # chat). Used as a fallback for HolmesUsageEvents.user_id when the FE
+    # didn't include user_id in the user_message event's data — common
+    # because the runner-side Conversations row already has the value, so
+    # the FE has no reason to duplicate it into every per-turn event.
+    user_id: Optional[str] = None
 
-    # Raw data from the latest user_message event. Used to construct
-    # ChatRequest without duplicating every field.
-    user_message_data: Dict[str, Any] = Field(default_factory=dict)
+    # Hydrated post-construction from events; not part of the validated row schema.
+    _user_message_data: Dict[str, Any] = PrivateAttr(default_factory=dict)
+    _conversation_history: Optional[List[Dict[str, Any]]] = PrivateAttr(default=None)
 
-    # Reconstructed from prior terminal events (ai_answer_end / approval_required).
-    conversation_history: Optional[List[Dict[str, Any]]] = None
+    @property
+    def user_message_data(self) -> Dict[str, Any]:
+        """Raw data from the latest ``user_message`` event."""
+        return self._user_message_data
+
+    @user_message_data.setter
+    def user_message_data(self, value: Dict[str, Any]) -> None:
+        self._user_message_data = value
+
+    @property
+    def conversation_history(self) -> Optional[List[Dict[str, Any]]]:
+        """Reconstructed from prior terminal events (ai_answer_end / approval_required)."""
+        return self._conversation_history
+
+    @conversation_history.setter
+    def conversation_history(self, value: Optional[List[Dict[str, Any]]]) -> None:
+        self._conversation_history = value
 
 
 class ConversationReassignedError(Exception):

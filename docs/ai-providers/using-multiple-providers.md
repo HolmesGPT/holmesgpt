@@ -6,10 +6,9 @@ Define multiple model configurations and switch between them by name. This is us
 
 === "Holmes CLI"
 
-    **1. Create a model list file:**
+    **1. Create `~/.holmes/model_list.yaml`:**
 
     ```yaml
-    # model_list.yaml
     sonnet:
         aws_access_key_id: "your-access-key"
         aws_region_name: us-east-1
@@ -28,13 +27,7 @@ Define multiple model configurations and switch between them by name. This is us
         temperature: 0
     ```
 
-    **2. Set the environment variable:**
-
-    ```bash
-    export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
-    ```
-
-    **3. Use models by name:**
+    **2. Use models by name:**
 
     ```bash
     holmes ask "what pods are failing?" --model=sonnet --no-interactive
@@ -44,6 +37,8 @@ Define multiple model configurations and switch between them by name. This is us
     When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
 
     **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
+
+    **Custom path:** To load the model list from a different location, set `MODEL_LIST_FILE_LOCATION=/path/to/model_list.yaml`.
 
 === "Holmes Helm Chart"
 
@@ -302,6 +297,28 @@ Clients can specify the model in their API requests:
 
 ### Robusta AI Integration
 If you're a Robusta customer, you can also use [Robusta AI](robusta-ai.md) which provides access to multiple models without managing individual API keys.
+
+## Custom Model Pricing
+
+HolmesGPT reports per-call LLM cost in its usage events. The cost number comes from LiteLLM's bundled cost map. For first-party names (`gpt-5`, `claude-opus-4-5-20251101`) and standard Bedrock IDs LiteLLM already has prices, so the cost field is populated automatically. Robusta-hosted models also work without configuration: Holmes looks up pricing for the *real* upstream model name (e.g. `bedrock/us.anthropic.claude-opus-4-6-v1`) in LiteLLM's bundled map and registers it under the internal routing name automatically.
+
+You only need to add per-token pricing yourself if you're pointing Holmes at a model LiteLLM doesn't recognise — an internal OpenAI-compatible endpoint, a private-preview model, or a fork. In that case, add `input_cost_per_token` and `output_cost_per_token` (and optionally Anthropic cache pricing) to the model's entry:
+
+```yaml
+my-internal-opus:
+    model: openai/opus-4.6
+    api_base: https://llm.internal.example.com/v1
+    api_key: "{{ env.INTERNAL_LLM_KEY }}"
+    input_cost_per_token: 0.000003
+    output_cost_per_token: 0.000015
+    # Optional Anthropic prompt-cache pricing
+    cache_creation_input_token_cost: 0.00000375
+    cache_read_input_token_cost: 0.0000003
+```
+
+Values are USD per token. Both `input_cost_per_token` and `output_cost_per_token` must be set — configuring only one is ignored. User-configured pricing always wins over the auto-lookup.
+
+If Holmes can't find pricing through any mechanism, it logs one `INFO` line at startup naming the model so you know its usage-event costs will be `0`.
 
 ## See Also
 

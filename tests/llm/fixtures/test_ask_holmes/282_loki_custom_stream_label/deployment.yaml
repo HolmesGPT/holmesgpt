@@ -1,0 +1,103 @@
+# Promtail config that intentionally labels streams with `acme_service`
+# instead of the conventional `service` / `app`. The eval relies on this
+# env-specific quirk: a fresh LLM that defaults to `{service="checkout"}`
+# or `{app="checkout"}` will find no matching streams and has to discover
+# the real label via /loki/api/v1/labels before re-querying.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+data:
+  promtail-config.yaml: |
+    server:
+      http_listen_port: 9080
+    positions:
+      filename: /tmp/positions.yaml
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    scrape_configs:
+      - job_name: checkout
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: checkout-logs
+              namespace: app-282
+              __path__: /var/log/*.log
+        pipeline_stages:
+          - json:
+              expressions:
+                timestamp: timestamp
+                level: level
+                message: message
+                acme_service: acme_service
+                pod: pod
+          - timestamp:
+              source: timestamp
+              format: RFC3339
+          - labels:
+              level:
+              acme_service:    # non-standard label: this is the env-specific quirk
+              pod:
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+      - name: checkout
+        image: python:3.9-slim
+        command: ["python", "/app/app.py"]
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: app-script
+          mountPath: /app
+        - name: logs
+          mountPath: /var/log
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      - name: promtail
+        image: grafana/promtail:2.9.0
+        args:
+        - -config.file=/etc/promtail/promtail-config.yaml
+        volumeMounts:
+        - name: promtail-config
+          mountPath: /etc/promtail
+        - name: logs
+          mountPath: /var/log
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+      volumes:
+      - name: app-script
+        secret:
+          secretName: checkout-script
+          defaultMode: 0755
+      - name: logs
+        emptyDir: {}
+      - name: promtail-config
+        configMap:
+          name: promtail-config

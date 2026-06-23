@@ -198,14 +198,21 @@ def convert_errors(e: ValidationError) -> List[Dict[str, Any]]:
     return new_errors
 
 
+def parse_model_from_file(
+    model: Type[BaseModel], file_path: Path, yaml_path: Optional[str] = None
+) -> BaseModel:
+    """Parse a YAML file into a Pydantic model, propagating ValidationError (for server/API use)."""
+    contents = benedict(file_path, format="yaml")
+    if yaml_path is not None:
+        contents = contents[yaml_path]
+    return model.model_validate(contents)
+
+
 def load_model_from_file(
     model: Type[BaseModel], file_path: Path, yaml_path: Optional[str] = None
 ):
     try:
-        contents = benedict(file_path, format="yaml")
-        if yaml_path is not None:
-            contents = contents[yaml_path]
-        return model.model_validate(contents)
+        return parse_model_from_file(model, file_path, yaml_path=yaml_path)
     except ValidationError as e:
         print(e)
         bad_fields = [e["loc"] for e in convert_errors(e)]

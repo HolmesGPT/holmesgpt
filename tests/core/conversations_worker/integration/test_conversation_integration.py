@@ -14,6 +14,7 @@ process them, and asserts on the resulting ConversationEvents and status.
 """
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timezone
 
@@ -210,7 +211,6 @@ class TestToolApproval:
         assert stats["compacted"] >= 2, (
             f"Approval + answer should compact multiple prior rows; got {stats}"
         )
-
 
 # ---------------------------------------------------------------------------
 # 4. Stop conversation (ConversationReassignedError)

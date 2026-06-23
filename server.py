@@ -27,7 +27,6 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from litellm.exceptions import AuthenticationError
-
 from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
     DEVELOPMENT_MODE,
@@ -59,10 +58,17 @@ from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
-from holmes.utils.holmes_status import update_holmes_status_in_db
+from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
+    refresh_platform_mcp_tools,
+)
+from holmes.utils.holmes_status import (
+    refresh_holmes_status,
+    update_holmes_status_in_db,
+)
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import EndpointFilter
+from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.frontend_tools import (
@@ -70,6 +76,12 @@ from holmes.core.tools_utils.frontend_tools import (
     inject_frontend_tools,
 )
 from holmes.core.tracing import TracingFactory
+from holmes.core.usage_recorder import (
+    build_chat_recorder_state,
+    record_error,
+    record_from_llm_result,
+    stream_with_usage_recording,
+)
 from holmes.utils.stream import stream_chat_formatter
 
 
@@ -105,6 +117,42 @@ init_logging()
 # Initialize tracer — auto-detects OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set
 server_tracer = TracingFactory.create_tracer(trace_type=os.environ.get("HOLMES_TRACE_BACKEND"))
 
+# Opt-in: let API callers route a request's trace spans into a named tracing
+# experiment via the `X-Braintrust-Experiment` header. Off by default so
+# external callers cannot influence experiment routing unless the operator
+# explicitly enables it.
+ALLOW_PER_REQUEST_EXPERIMENT = (
+    os.environ.get("HOLMES_ALLOW_PER_REQUEST_EXPERIMENT", "false").lower() == "true"
+)
+_request_experiment_lock = threading.Lock()
+_request_experiment_name: Optional[str] = None
+
+
+def open_experiment_from_request(http_request: Request) -> None:
+    """Open (or switch to) the tracing experiment named in the request header.
+
+    Without an open experiment, `server_tracer.start_trace` has no tracing
+    context to attach to and returns a no-op span — so server-side spans are
+    silently dropped. This lets a driver (e.g. an eval harness firing many
+    /api/chat calls) group all spans for one logical run under a dedicated
+    experiment name.
+
+    The experiment context is process-global (Braintrust tracks a current
+    experiment per process), so this assumes one logical client per server
+    process — e.g. a server spawned per run. Repeating the current name is a
+    no-op; a new name switches the experiment.
+    """
+    global _request_experiment_name
+    if not ALLOW_PER_REQUEST_EXPERIMENT:
+        return
+    name = http_request.headers.get("X-Braintrust-Experiment")
+    if not name:
+        return
+    with _request_experiment_lock:
+        if name != _request_experiment_name:
+            server_tracer.start_experiment(experiment_name=name)
+            _request_experiment_name = name
+
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
 
@@ -118,7 +166,7 @@ def init_config():
         tuple: (config, dal) - The initialized Config object and its DAL instance
     """
     default_config_path = Path(DEFAULT_CONFIG_LOCATION)
-    if default_config_path.exists():
+    if default_config_path.exists() and os.environ.get("LOAD_CONFIG_FROM_ENV", "false").lower() == "false":
         logging.info(f"Loading config from file: {default_config_path}")
         config = Config.load_from_file(default_config_path)
     else:
@@ -210,6 +258,30 @@ def _toolset_status_refresh_loop():
 
             time.sleep(sleep_time)
             try:
+                # Heartbeat: re-upsert HolmesStatus so updated_at signals
+                # liveness (platform-mcp filters remote-tool clusters on it),
+                # preserving the verified realtime flag. Skip when the DAL is
+                # disabled (no supabase credentials) — nothing to heartbeat.
+                if dal.enabled:
+                    refresh_holmes_status(dal, config)
+            except Exception:
+                logging.error("Failed to refresh holmes status", exc_info=True)
+            try:
+                # Re-discover platform-mcp tools so the dynamic remote-tool
+                # surface (new clusters, flipped account flag) reaches a
+                # RUNNING caller without a pod restart.
+                executor = config.create_tool_executor(
+                    dal,
+                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+                    enable_all_toolsets_possible=False,
+                    reuse_executor=True,
+                )
+                refresh_platform_mcp_tools(executor)
+            except Exception:
+                logging.error(
+                    "Failed to refresh platform-mcp tools", exc_info=True
+                )
+            try:
                 changes = config.refresh_tool_executor(
                     dal,
                     toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
@@ -273,7 +345,11 @@ if HOLMES_API_KEY:
     @app.middleware("http")
     async def api_key_auth(request: Request, call_next):
         """Reject requests missing a valid API key (X-API-Key or Bearer token)."""
-        if request.url.path in AUTH_EXEMPT_PATHS:
+        # Use the raw ASGI scope path, not request.url.path. The latter is
+        # reconstructed from the (attacker-controlled) Host header and can be
+        # spoofed via a malformed Host to bypass this exemption check
+        # (CVE-2026-48710 / GHSA-86qp-5c8j-p5mr).
+        if request.scope.get("path", "") in AUTH_EXEMPT_PATHS:
             return await call_next(request)
 
         key = extract_api_key(request)
@@ -307,6 +383,10 @@ if LOG_PERFORMANCE:
 
 
 init_checks_app(app, config)
+if os.environ.get("ENABLE_ADMIN_API", "false").lower() == "true":
+    init_admin_app(app, config, dal)
+else:
+    logging.info("Admin API is disabled (set ENABLE_ADMIN_API=true to enable)")
 
 
 @app.post("/api/oauth/callback")
@@ -405,6 +485,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
             f"streaming={chat_request.stream}"
         )
 
+        open_experiment_from_request(http_request)
+
         skills = config.get_skill_catalog()
 
         prompt_component_overrides = None
@@ -446,6 +528,14 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.user_id:
             request_context.setdefault("headers", {})
             request_context["user_id"] = chat_request.user_id
+        # Surface conversation_id and cluster_name to toolsets that need
+        # to hardwire them into outbound requests (e.g. platform-mcp adds
+        # them as X-Robusta-* headers so tool handlers don't have to trust
+        # the LLM-supplied arguments).
+        if chat_request.conversation_id:
+            request_context["conversation_id"] = chat_request.conversation_id
+        if config.cluster_name:
+            request_context["cluster_name"] = config.cluster_name
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
@@ -517,7 +607,12 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 inv_attrs = {"gen_ai_request_model": chat_request.model or config.model or "unknown"}
                 otel_metrics.investigation_count.add(1, inv_attrs)
 
-            stream = stream_chat_formatter(
+            # Build the usage recorder state and wrap the raw stream BEFORE the
+            # SSE formatter so the wrapper sees Holmes' native StreamMessage events.
+            recorder_state = build_chat_recorder_state(
+                chat_request, request_ai, dal=dal, is_streaming=True
+            )
+            recorded_stream = stream_with_usage_recording(
                 request_ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
@@ -527,6 +622,10 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     request_context=request_context,
                     trace_span=trace_span,
                 ),
+                recorder_state,
+            )
+            stream = stream_chat_formatter(
+                recorded_stream,
                 [f.model_dump() for f in follow_up_actions],
                 model=chat_request.model or config.model,
             )
@@ -535,6 +634,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 media_type="text/event-stream",
             )
         else:
+            recorder_state = build_chat_recorder_state(
+                chat_request, request_ai, dal=dal, is_streaming=False
+            )
             try:
                 # Use provided trace_span or create a root investigation span
                 trace_span = chat_request.trace_span
@@ -552,6 +654,26 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span=trace_span,
                     response_format=chat_request.response_format,
                     request_context=request_context,
+                )
+
+                # Record usage event for non-streaming path (fire-and-forget).
+                record_from_llm_result(recorder_state, llm_call)
+
+                # Attach token usage and cost to the investigation span.
+                # Tracing backends derive their token/cost columns from span
+                # metrics; without these the columns stay empty even though
+                # the span itself is recorded.
+                trace_span.log(
+                    metrics={
+                        name: value
+                        for name, value in (
+                            ("prompt_tokens", llm_call.prompt_tokens),
+                            ("completion_tokens", llm_call.completion_tokens),
+                            ("total_tokens", llm_call.total_tokens),
+                            ("total_cost", llm_call.total_cost),
+                        )
+                        if value is not None
+                    }
                 )
 
                 # Record investigation metrics
@@ -572,14 +694,25 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     )
                 else:
                     logging.info(f"Completed {req_info}")
+                # Surface request_id in the response metadata so the FE has a
+                # handle for the public.record_feedback() RPC later. Streaming
+                # path does the same via _inject_request_id in the stream wrapper.
+                response_metadata = dict(llm_call.metadata or {})
+                response_metadata["request_id"] = recorder_state.request_id
                 response = ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
                     follow_up_actions=follow_up_actions,
-                    metadata=llm_call.metadata,
+                    metadata=response_metadata,
                 )
                 return response
+            except Exception as e:
+                # Non-streaming path: record the failed event so it shows up in dashboards
+                # with status='error' / 'rate_limited'. Streaming path records via the
+                # wrapper's `finally` automatically.
+                record_error(recorder_state, e)
+                raise
             finally:
                 if trace_span is not None:
                     trace_span.end()

@@ -1,6 +1,7 @@
 from typing import ClassVar, Dict, List, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
+from requests.auth import HTTPBasicAuth
 
 from holmes.utils.pydantic_utils import ToolsetConfig
 
@@ -32,6 +33,17 @@ class GrafanaConfig(ToolsetConfig):
         title="API Key",
         description="Grafana API key for authentication",
         examples=["YOUR API KEY"],
+    )
+    username: Optional[str] = Field(
+        default=None,
+        title="Username",
+        description="Username for HTTP basic auth (use instead of api_key)",
+    )
+    password: Optional[str] = Field(
+        default=None,
+        title="Password",
+        description="Password for HTTP basic auth (must be set together with username)",
+        json_schema_extra={"format": "password"},
     )
     additional_headers: Optional[Dict[str, str]] = Field(
         default=None,
@@ -67,6 +79,29 @@ class GrafanaConfig(ToolsetConfig):
         title="Max Retries",
         description="Maximum number of retry attempts for failed Grafana API requests",
     )
+
+    @model_validator(mode="after")
+    def _validate_grafana_auth(self) -> "GrafanaConfig":
+        if self.api_key and (self.username or self.password):
+            raise ValueError(
+                "Grafana config: use `api_key` OR `username` + `password`, not both"
+            )
+        if bool(self.username) != bool(self.password):
+            raise ValueError(
+                "Grafana config: `username` and `password` must be set together"
+            )
+        return self
+
+
+def build_auth(config: "GrafanaConfig") -> Optional[HTTPBasicAuth]:
+    """Return HTTP basic auth from a config's username/password, or None.
+
+    Used for Grafana instances that authenticate with basic auth instead of an
+    `api_key` Bearer token.
+    """
+    if config.username and config.password:
+        return HTTPBasicAuth(config.username, config.password)
+    return None
 
 
 def build_headers(api_key: Optional[str], additional_headers: Optional[Dict[str, str]]):

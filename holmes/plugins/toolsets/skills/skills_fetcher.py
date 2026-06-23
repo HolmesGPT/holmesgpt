@@ -209,3 +209,4 @@ class SkillsToolset(Toolset):
             ],
             enabled=True,
         )
+        self._is_core = True  # agent-loop machinery; never remotely exposable

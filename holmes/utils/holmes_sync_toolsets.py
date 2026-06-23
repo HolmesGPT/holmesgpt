@@ -4,11 +4,63 @@ import logging
 from datetime import datetime
 from typing import Any, List
 
+import fnmatch
+
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetDBModel, ToolsetTag
+from holmes.core.tools import (
+    PrerequisiteCacheMode,
+    Toolset,
+    ToolsetDBModel,
+    ToolsetStatusEnum,
+    ToolsetTag,
+)
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.version import get_version
+
+REMOTE_TOOLS_SCHEMA_VERSION = "v1"
+
+
+def _tool_requires_approval(tool_name: str, approval_patterns: List[str]) -> bool:
+    return any(fnmatch.fnmatch(tool_name, p) for p in approval_patterns or [])
+
+
+def build_remote_tools_meta(toolset: Toolset) -> Any:
+    """Build the meta.remote_tools payload for a remotely-exposed toolset, or
+    None when the toolset must not be published (not exposed, is_core, not
+    enabled, or no publishable tools).
+
+    Excluded tools: restricted tools and tools that as a whole match
+    approval_required_tools patterns (bash is NOT excluded — its approval
+    decision is per command and enforced at execution time)."""
+    if not toolset.expose_remotely or toolset.is_core:
+        return None
+    if toolset.status != ToolsetStatusEnum.ENABLED:
+        return None
+
+    exposed_instances = None
+    get_instances = getattr(toolset, "remote_exposed_instances", None)
+    if callable(get_instances):
+        exposed_instances = get_instances()
+        if exposed_instances is not None and not exposed_instances:
+            return None  # multi-instance toolset with zero exposed instances
+
+    tools = [
+        tool.get_openai_format()
+        for tool in toolset.tools
+        if not tool._is_restricted()
+        and not _tool_requires_approval(tool.name, toolset.approval_required_tools)
+    ]
+    if not tools:
+        return None
+
+    return {
+        "schema_version": REMOTE_TOOLS_SCHEMA_VERSION,
+        "holmes_version": get_version(),
+        "exposed_instances": exposed_instances,
+        "tools": tools,
+    }
 
 
 def log_toolsets_statuses(toolsets: List[Toolset]):
@@ -56,16 +108,30 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
         if not toolset.installation_instructions:
             instructions = get_config_schema_for_toolset(toolset)
             toolset.installation_instructions = instructions
-        # Use toolset's own meta if set (e.g., database with subtype),
-        # otherwise fall back to writing the toolset type if available.
-        meta = toolset.meta
-        if meta is None and toolset.type:
-            meta = {"type": toolset.type.value}
+        # Use toolset's own meta if set (e.g., database with subtype, or a
+        # multi-instance toolset's per-instance health), and always carry the
+        # toolset type alongside it so setting other meta keys doesn't drop it.
+        meta = dict(toolset.meta) if toolset.meta else {}
+        if toolset.type:
+            meta.setdefault("type", toolset.type.value)
+        meta = meta or None
         if isinstance(toolset, RemoteMCPToolset):
             oauth_config = toolset.get_oauth_config()
             if oauth_config:
                 meta = meta or {}
                 meta["oauth_config"] = oauth_config
+
+        # Publish llm_instructions at the top level of meta for EVERY toolset
+        # (not just remotely-exposed ones) — other projects consume it from
+        # here. platform-mcp also reads it from this top-level key.
+        if toolset.llm_instructions:
+            meta = meta or {}
+            meta["llm_instructions"] = toolset.llm_instructions
+
+        remote_tools = build_remote_tools_meta(toolset)
+        if remote_tools:
+            meta = meta or {}
+            meta["remote_tools"] = remote_tools
 
         db_toolsets.append(
             ToolsetDBModel(
