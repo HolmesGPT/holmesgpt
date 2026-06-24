@@ -96,7 +96,14 @@ spec:
           {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
           - "python3 /app/wrapper.py"
           {{- else }}
-          - "github-mcp-server stdio"
+          {{- $stdioCmd := "github-mcp-server stdio" }}
+          {{- if .Values.mcpAddons.github.config.toolsets }}
+          {{- $stdioCmd = printf "%s --toolsets %s" $stdioCmd .Values.mcpAddons.github.config.toolsets }}
+          {{- end }}
+          {{- if .Values.mcpAddons.github.config.tools }}
+          {{- $stdioCmd = printf "%s --tools %s" $stdioCmd .Values.mcpAddons.github.config.tools }}
+          {{- end }}
+          - {{ $stdioCmd | quote }}
           {{- end }}
           - "--port"
           - "8000"
@@ -121,6 +128,15 @@ spec:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_PRIVATE_KEY
+        {{- $mcpCmd := "github-mcp-server stdio" }}
+        {{- if .Values.mcpAddons.github.config.toolsets }}
+        {{- $mcpCmd = printf "%s --toolsets %s" $mcpCmd .Values.mcpAddons.github.config.toolsets }}
+        {{- end }}
+        {{- if .Values.mcpAddons.github.config.tools }}
+        {{- $mcpCmd = printf "%s --tools %s" $mcpCmd .Values.mcpAddons.github.config.tools }}
+        {{- end }}
+        - name: GITHUB_MCP_SERVER_CMD
+          value: {{ $mcpCmd | quote }}
         {{- else }}
         - name: GITHUB_PERSONAL_ACCESS_TOKEN
           valueFrom:
