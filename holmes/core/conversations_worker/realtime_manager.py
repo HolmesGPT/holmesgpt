@@ -42,14 +42,12 @@ if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
 
 
-# The realtime connection is crucial: a permanently-dead connection silently
-# degrades the worker to slow polling for the rest of the pod's life. So the
-# reconnect loop NEVER gives up — every failure is retried with backoff,
-# regardless of the exception class (we deliberately don't whitelist
-# "transient" errors, since any missed class would kill the thread forever).
-# Retrying forever can't mean a traceback on every attempt though, so we log
-# the full error on the first attempt and then once every this many attempts;
-# intervening attempts log only the attempt number and backoff.
+# The realtime connection is crucial, so the reconnect loop NEVER gives up:
+# every failure is retried with backoff regardless of exception class (a
+# whitelist would let any missed class kill the thread and silently degrade
+# the worker to slow polling for the pod's life). To avoid flooding the logs
+# during a long outage, the full error (with traceback) is logged on the
+# first attempt and every this-many attempts; the rest log only the attempt.
 _RECONNECT_ERROR_LOG_INTERVAL = 10
 
 
@@ -465,12 +463,10 @@ class RealtimeWorker:
         Supabase client's internal refresh path).  The DAL uses the same
         re-sign-in pattern on PGRST301 / JWT-expired errors.
 
-        Never raises: any failure (including unexpected ones) is returned so
-        the caller's backoff loop can retry — the connection must never stop
-        reconnecting. Returns ``None`` on success, or the exception that
-        caused the failure (so the caller can log it with throttled
-        verbosity). ``BaseException`` (e.g. shutdown's ``CancelledError``) is
-        intentionally NOT caught and propagates normally.
+        Never raises for normal failures: the error is returned so the
+        caller's backoff loop can retry — the connection must never stop
+        reconnecting. Returns ``None`` on success, else the exception.
+        ``BaseException`` (e.g. shutdown's ``CancelledError``) propagates.
         """
         try:
             if self._client:
@@ -490,29 +486,17 @@ class RealtimeWorker:
     def _log_reconnect_failure(
         self, phase: str, attempt: int, backoff: float, err: Exception
     ) -> None:
-        """Log a failed (re)connect attempt with throttled verbosity.
-
-        Logs the full error (with traceback) on the first attempt and then
-        once every ``_RECONNECT_ERROR_LOG_INTERVAL`` attempts; intervening
-        attempts log only the attempt number and backoff so a sustained
-        outage doesn't flood the logs.
-        """
-        if attempt == 1 or attempt % _RECONNECT_ERROR_LOG_INTERVAL == 0:
-            logging.warning(
-                "Realtime %s failed (attempt %d), retrying in %ds: %r",
-                phase,
-                attempt,
-                backoff,
-                err,
-                exc_info=err,
-            )
-        else:
-            logging.warning(
-                "Realtime %s failed (attempt %d), retrying in %ds",
-                phase,
-                attempt,
-                backoff,
-            )
+        """Log a failed (re)connect attempt, including the traceback on the
+        first attempt and every ``_RECONNECT_ERROR_LOG_INTERVAL`` attempts;
+        the rest log only the attempt number and backoff."""
+        full = attempt == 1 or attempt % _RECONNECT_ERROR_LOG_INTERVAL == 0
+        logging.warning(
+            "Realtime %s failed (attempt %d), retrying in %ds",
+            phase,
+            attempt,
+            backoff,
+            exc_info=err if full else None,
+        )
 
     async def _maybe_refresh_auth(self) -> None:
         """Re-push the Supabase JWT to the realtime client if it rotated."""

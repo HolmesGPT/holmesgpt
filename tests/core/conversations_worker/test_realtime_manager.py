@@ -426,55 +426,31 @@ def test_install_realtime_log_filter_downgrades_live_log_records(caplog):
 # ---- _full_reconnect never raises (always retries) ----
 
 
-def test_full_reconnect_returns_signin_error_for_retry():
-    """A sign-in failure must be returned (so the loop retries), not raised."""
+@pytest.mark.parametrize(
+    "exc",
+    [ConnectionError("network unreachable"), ValueError("no session returned")],
+)
+def test_full_reconnect_returns_signin_error_for_retry(exc):
+    """Any sign-in failure (network or unexpected) is returned for retry, not
+    raised — the connection must never stop reconnecting."""
     m = _make_manager()
-
-    def boom_sign_in():
-        raise ConnectionError("network unreachable")
-
-    m.dal.sign_in = boom_sign_in
-    result = asyncio.run(m._full_reconnect())
-    assert isinstance(result, ConnectionError)
+    m.dal.sign_in = MagicMock(side_effect=exc)
+    assert asyncio.run(m._full_reconnect()) is exc
 
 
-def test_full_reconnect_returns_unexpected_signin_error_for_retry():
-    """Even an unexpected (non-network) sign-in error is retried, not raised —
-    the connection must never stop reconnecting."""
-    m = _make_manager()
-
-    def boom_sign_in():
-        raise ValueError("Authentication failed: no session returned")
-
-    m.dal.sign_in = boom_sign_in
-    result = asyncio.run(m._full_reconnect())
-    assert isinstance(result, ValueError)
-
-
-def test_full_reconnect_returns_subscribe_error_for_retry():
-    """A WS connect / subscribe failure must be returned, not raised."""
+@pytest.mark.parametrize(
+    "exc", [TimeoutError("ws handshake timed out"), RuntimeError("library bug")]
+)
+def test_full_reconnect_returns_subscribe_error_for_retry(exc):
+    """Any connect/subscribe failure is returned for retry, not raised."""
     m = _make_manager()
     m.dal.sign_in = MagicMock()
 
     async def boom_connect():
-        raise TimeoutError("ws handshake timed out")
+        raise exc
 
     m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
-    result = asyncio.run(m._full_reconnect())
-    assert isinstance(result, TimeoutError)
-
-
-def test_full_reconnect_returns_unexpected_subscribe_error_for_retry():
-    """An unexpected subscribe-path error is retried, not raised."""
-    m = _make_manager()
-    m.dal.sign_in = MagicMock()
-
-    async def boom_connect():
-        raise RuntimeError("library invariant broken")
-
-    m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
-    result = asyncio.run(m._full_reconnect())
-    assert isinstance(result, RuntimeError)
+    assert asyncio.run(m._full_reconnect()) is exc
 
 
 def test_full_reconnect_returns_none_on_success():
@@ -491,38 +467,33 @@ def test_full_reconnect_returns_none_on_success():
 # ---- throttled reconnect-failure logging ----
 
 
-def test_log_reconnect_failure_logs_full_error_on_first_attempt(caplog):
+def _error_with_traceback() -> ConnectionError:
+    try:
+        raise ConnectionError("boom")
+    except ConnectionError as exc:
+        return exc
+
+
+@pytest.mark.parametrize(
+    "attempt, expect_traceback",
+    [
+        (1, True),  # first attempt → full error + traceback
+        (2, False),  # intermediate → terse, no traceback
+        (_RECONNECT_ERROR_LOG_INTERVAL, True),  # every interval → full again
+    ],
+)
+def test_log_reconnect_failure_throttles_traceback(
+    attempt, expect_traceback, caplog
+):
     m = _make_manager()
-    err = ConnectionError("boom")
+    err = _error_with_traceback()
     with caplog.at_level(logging.WARNING):
-        m._log_reconnect_failure("reconnect", 1, 8, err)
-    rec = next(r for r in caplog.records if "attempt 1" in r.getMessage())
+        m._log_reconnect_failure("reconnect", attempt, 8, err)
+    rec = next(r for r in caplog.records if f"attempt {attempt}" in r.getMessage())
     assert rec.levelno == logging.WARNING
-    # First attempt carries the traceback so the error is always visible.
-    assert rec.exc_info is not None
-
-
-def test_log_reconnect_failure_throttles_intermediate_attempts(caplog):
-    m = _make_manager()
-    err = ConnectionError("boom")
-    # Attempt 2 (not first, not a multiple of the interval) → terse, no traceback.
-    with caplog.at_level(logging.WARNING):
-        m._log_reconnect_failure("reconnect", 2, 8, err)
-    rec = next(r for r in caplog.records if "attempt 2" in r.getMessage())
-    assert rec.levelno == logging.WARNING
-    assert rec.exc_info is None
-
-
-def test_log_reconnect_failure_logs_full_error_every_interval(caplog):
-    m = _make_manager()
-    err = ConnectionError("boom")
-    with caplog.at_level(logging.WARNING):
-        m._log_reconnect_failure(
-            "reconnect", _RECONNECT_ERROR_LOG_INTERVAL, 120, err
-        )
-    rec = next(
-        r
-        for r in caplog.records
-        if f"attempt {_RECONNECT_ERROR_LOG_INTERVAL}" in r.getMessage()
-    )
-    assert rec.exc_info is not None
+    if expect_traceback:
+        assert rec.exc_info is not None
+        assert rec.exc_info[1] is err  # the exact exception
+        assert rec.exc_info[2] is not None  # with a real traceback
+    else:
+        assert rec.exc_info is None
