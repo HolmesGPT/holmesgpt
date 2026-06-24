@@ -6,12 +6,9 @@ import ssl as _ssl
 from unittest.mock import MagicMock
 
 import certifi
-import httpx
 import pytest
 import realtime._async.client as rt_client
-from postgrest.exceptions import APIError as PGAPIError
 from realtime._async.channel import ChannelStates
-from websockets.exceptions import WebSocketException
 
 from holmes.core.conversations_worker.realtime_manager import (
     RealtimeWorker,
@@ -19,11 +16,10 @@ from holmes.core.conversations_worker.realtime_manager import (
     _install_realtime_log_filter_if_needed,
     _install_ssl_patch_if_needed,
     _RealtimeConnectivityWarningFilter,
-    _TRANSIENT_RECONNECT_EXCEPTIONS,
+    _RECONNECT_ERROR_LOG_INTERVAL,
     broadcast_submit_topic,
     pg_changes_topic,
 )
-from holmes.core.supabase_dal import SupabaseDnsException
 
 
 def _make_manager():
@@ -324,11 +320,11 @@ def test_run_loop_triggers_reconnect_on_dead_listen_task():
             reconnect_calls.append(asyncio.get_running_loop().time())
             if len(reconnect_calls) == 1:
                 # Initial connect — keep the healthy mock client/channel.
-                return True
+                return None  # None == success
             # Reconnect after detecting the dead listen task — signal stop.
             m._async_stop.set()
             m._stop_event.set()
-            return True
+            return None  # None == success
 
         m._full_reconnect = fake_reconnect  # type: ignore[method-assign]
 
@@ -427,59 +423,36 @@ def test_install_realtime_log_filter_downgrades_live_log_records(caplog):
     assert ws_record.levelno == logging.WARNING
 
 
-# ---- narrow exception handling in _full_reconnect ----
+# ---- _full_reconnect never raises (always retries) ----
 
 
-def test_full_reconnect_treats_transient_signin_error_as_warning(caplog):
+def test_full_reconnect_returns_signin_error_for_retry():
+    """A sign-in failure must be returned (so the loop retries), not raised."""
     m = _make_manager()
 
     def boom_sign_in():
         raise ConnectionError("network unreachable")
 
     m.dal.sign_in = boom_sign_in
-    with caplog.at_level(logging.DEBUG):
-        result = asyncio.run(m._full_reconnect())
-    assert result is False
-    warnings = [r for r in caplog.records if "will retry" in r.getMessage()]
-    assert warnings and warnings[0].levelno == logging.WARNING
+    result = asyncio.run(m._full_reconnect())
+    assert isinstance(result, ConnectionError)
 
 
-def test_full_reconnect_treats_signin_read_timeout_as_transient(caplog):
-    # ROB-447: a sign-in ReadTimeout at startup (Supabase/Cloudflare hiccup)
-    # must be transient so the backoff loop recovers, not fatal — otherwise the
-    # realtime thread dies and the pod silently polls for its whole lifetime.
-    m = _make_manager()
-
-    def boom_sign_in():
-        raise httpx.ReadTimeout("The read operation timed out")
-
-    m.dal.sign_in = boom_sign_in
-    with caplog.at_level(logging.DEBUG):
-        result = asyncio.run(m._full_reconnect())
-    assert result is False  # returns False → retried with backoff, not raised
-    warnings = [r for r in caplog.records if "will retry" in r.getMessage()]
-    assert warnings and warnings[0].levelno == logging.WARNING
-
-
-def test_full_reconnect_resurfaces_unexpected_signin_error(caplog):
+def test_full_reconnect_returns_unexpected_signin_error_for_retry():
+    """Even an unexpected (non-network) sign-in error is retried, not raised —
+    the connection must never stop reconnecting."""
     m = _make_manager()
 
     def boom_sign_in():
         raise ValueError("Authentication failed: no session returned")
 
     m.dal.sign_in = boom_sign_in
-    with pytest.raises(ValueError):
-        with caplog.at_level(logging.DEBUG):
-            asyncio.run(m._full_reconnect())
-    errors = [
-        r
-        for r in caplog.records
-        if r.levelno == logging.ERROR and "not retrying" in r.getMessage()
-    ]
-    assert errors, "non-transient sign_in failure must be logged at ERROR"
+    result = asyncio.run(m._full_reconnect())
+    assert isinstance(result, ValueError)
 
 
-def test_full_reconnect_treats_transient_subscribe_error_as_warning(caplog):
+def test_full_reconnect_returns_subscribe_error_for_retry():
+    """A WS connect / subscribe failure must be returned, not raised."""
     m = _make_manager()
     m.dal.sign_in = MagicMock()
 
@@ -487,18 +460,12 @@ def test_full_reconnect_treats_transient_subscribe_error_as_warning(caplog):
         raise TimeoutError("ws handshake timed out")
 
     m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
-    with caplog.at_level(logging.DEBUG):
-        result = asyncio.run(m._full_reconnect())
-    assert result is False
-    warnings = [
-        r
-        for r in caplog.records
-        if "Failed to reconnect" in r.getMessage() and r.levelno == logging.WARNING
-    ]
-    assert warnings
+    result = asyncio.run(m._full_reconnect())
+    assert isinstance(result, TimeoutError)
 
 
-def test_full_reconnect_resurfaces_unexpected_subscribe_error(caplog):
+def test_full_reconnect_returns_unexpected_subscribe_error_for_retry():
+    """An unexpected subscribe-path error is retried, not raised."""
     m = _make_manager()
     m.dal.sign_in = MagicMock()
 
@@ -506,30 +473,56 @@ def test_full_reconnect_resurfaces_unexpected_subscribe_error(caplog):
         raise RuntimeError("library invariant broken")
 
     m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
-    with pytest.raises(RuntimeError):
-        with caplog.at_level(logging.DEBUG):
-            asyncio.run(m._full_reconnect())
-    errors = [
+    result = asyncio.run(m._full_reconnect())
+    assert isinstance(result, RuntimeError)
+
+
+def test_full_reconnect_returns_none_on_success():
+    m = _make_manager()
+    m.dal.sign_in = MagicMock()
+
+    async def ok_connect():
+        return None
+
+    m._connect_and_subscribe = ok_connect  # type: ignore[method-assign]
+    assert asyncio.run(m._full_reconnect()) is None
+
+
+# ---- throttled reconnect-failure logging ----
+
+
+def test_log_reconnect_failure_logs_full_error_on_first_attempt(caplog):
+    m = _make_manager()
+    err = ConnectionError("boom")
+    with caplog.at_level(logging.WARNING):
+        m._log_reconnect_failure("reconnect", 1, 8, err)
+    rec = next(r for r in caplog.records if "attempt 1" in r.getMessage())
+    assert rec.levelno == logging.WARNING
+    # First attempt carries the traceback so the error is always visible.
+    assert rec.exc_info is not None
+
+
+def test_log_reconnect_failure_throttles_intermediate_attempts(caplog):
+    m = _make_manager()
+    err = ConnectionError("boom")
+    # Attempt 2 (not first, not a multiple of the interval) → terse, no traceback.
+    with caplog.at_level(logging.WARNING):
+        m._log_reconnect_failure("reconnect", 2, 8, err)
+    rec = next(r for r in caplog.records if "attempt 2" in r.getMessage())
+    assert rec.levelno == logging.WARNING
+    assert rec.exc_info is None
+
+
+def test_log_reconnect_failure_logs_full_error_every_interval(caplog):
+    m = _make_manager()
+    err = ConnectionError("boom")
+    with caplog.at_level(logging.WARNING):
+        m._log_reconnect_failure(
+            "reconnect", _RECONNECT_ERROR_LOG_INTERVAL, 120, err
+        )
+    rec = next(
         r
         for r in caplog.records
-        if r.levelno == logging.ERROR
-        and "Unexpected error during reconnect" in r.getMessage()
-    ]
-    assert errors
-
-
-def test_transient_reconnect_exception_tuple_contents():
-    # Lock down the expected transient set so future edits don't silently
-    # widen the warning-only catch.
-    assert SupabaseDnsException in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert PGAPIError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert WebSocketException in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert asyncio.TimeoutError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert TimeoutError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert ConnectionError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert OSError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    # ROB-447: httpx transport errors (incl. ReadTimeout, RemoteProtocolError)
-    # must be transient so the realtime manager recovers via backoff.
-    assert httpx.TransportError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert issubclass(httpx.ReadTimeout, _TRANSIENT_RECONNECT_EXCEPTIONS)
-    assert issubclass(httpx.RemoteProtocolError, _TRANSIENT_RECONNECT_EXCEPTIONS)
+        if f"attempt {_RECONNECT_ERROR_LOG_INTERVAL}" in r.getMessage()
+    )
+    assert rec.exc_info is not None

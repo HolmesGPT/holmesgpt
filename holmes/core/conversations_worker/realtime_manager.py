@@ -26,12 +26,9 @@ import threading
 import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
-import httpx
 import realtime._async.client as rt_client
-from postgrest.exceptions import APIError as PGAPIError
 from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
-from websockets.exceptions import WebSocketException
 
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS,
@@ -39,30 +36,21 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
 )
-from holmes.core.supabase_dal import CONVERSATIONS_TABLE, SupabaseDnsException
+from holmes.core.supabase_dal import CONVERSATIONS_TABLE
 
 if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
 
 
-# Transient errors during sign-in / WS connect / channel join that the
-# reconnect backoff loop is designed to absorb. Anything outside this tuple
-# is treated as a real defect and surfaced.
-_TRANSIENT_RECONNECT_EXCEPTIONS: tuple = (
-    SupabaseDnsException,
-    PGAPIError,
-    WebSocketException,
-    asyncio.TimeoutError,
-    TimeoutError,
-    ConnectionError,
-    OSError,
-    # httpx transport-level failures: read/connect/pool timeouts, network
-    # errors, and RemoteProtocolError from the HTTP/2 client. These are
-    # transient connectivity issues (e.g. a Supabase/Cloudflare hiccup at
-    # startup) — let the backoff loop retry instead of killing the realtime
-    # thread and falling back to slow polling for the pod's lifetime (ROB-447).
-    httpx.TransportError,
-)
+# The realtime connection is crucial: a permanently-dead connection silently
+# degrades the worker to slow polling for the rest of the pod's life. So the
+# reconnect loop NEVER gives up — every failure is retried with backoff,
+# regardless of the exception class (we deliberately don't whitelist
+# "transient" errors, since any missed class would kill the thread forever).
+# Retrying forever can't mean a traceback on every attempt though, so we log
+# the full error on the first attempt and then once every this many attempts;
+# intervening attempts log only the attempt number and backoff.
+_RECONNECT_ERROR_LOG_INTERVAL = 10
 
 
 # ---- channel topic helpers ----
@@ -327,16 +315,14 @@ class RealtimeWorker:
             # so transient startup failures (e.g. Supabase 503) are retried
             # instead of killing the thread.
             while not self._stop_event.is_set():
-                success = await self._full_reconnect()
-                if success:
+                err = await self._full_reconnect()
+                if err is None:
                     reconnect_attempts = 0
                     break
                 reconnect_attempts += 1
                 backoff = min(max_backoff, 2 ** reconnect_attempts)
-                logging.warning(
-                    "Initial connect failed (attempt %d), retrying in %ds",
-                    reconnect_attempts,
-                    backoff,
+                self._log_reconnect_failure(
+                    "initial connect", reconnect_attempts, backoff, err
                 )
                 try:
                     await asyncio.wait_for(
@@ -372,8 +358,8 @@ class RealtimeWorker:
                             "wake_all failed during reconnect",
                             exc_info=True,
                         )
-                    success = await self._full_reconnect()
-                    if success:
+                    err = await self._full_reconnect()
+                    if err is None:
                         reconnect_attempts = 0
                         next_refresh_at = (
                             asyncio.get_running_loop().time() + refresh_interval
@@ -381,10 +367,8 @@ class RealtimeWorker:
                     else:
                         reconnect_attempts += 1
                         backoff = min(max_backoff, 2 ** reconnect_attempts)
-                        logging.warning(
-                            "Reconnect failed (attempt %d), backing off %ds",
-                            reconnect_attempts,
-                            backoff,
+                        self._log_reconnect_failure(
+                            "reconnect", reconnect_attempts, backoff, err
                         )
                         try:
                             await asyncio.wait_for(
@@ -472,7 +456,7 @@ class RealtimeWorker:
             return "heartbeat_task_done"
         return None
 
-    async def _full_reconnect(self) -> bool:
+    async def _full_reconnect(self) -> Optional[Exception]:
         """Tear down the current client and re-establish from scratch.
 
         Forces a fresh ``sign_in()`` first — ``get_session()`` has not
@@ -481,7 +465,12 @@ class RealtimeWorker:
         Supabase client's internal refresh path).  The DAL uses the same
         re-sign-in pattern on PGRST301 / JWT-expired errors.
 
-        Returns True on success, False on failure.
+        Never raises: any failure (including unexpected ones) is returned so
+        the caller's backoff loop can retry — the connection must never stop
+        reconnecting. Returns ``None`` on success, or the exception that
+        caused the failure (so the caller can log it with throttled
+        verbosity). ``BaseException`` (e.g. shutdown's ``CancelledError``) is
+        intentionally NOT caught and propagates normally.
         """
         try:
             if self._client:
@@ -493,32 +482,37 @@ class RealtimeWorker:
         self._last_auth_jwt = None
         try:
             await asyncio.to_thread(self.dal.sign_in)
-        except _TRANSIENT_RECONNECT_EXCEPTIONS:
-            logging.warning(
-                "Failed to re-sign-in to Supabase before reconnect; will retry",
-                exc_info=True,
-            )
-            return False
-        except Exception:
-            # Non-transient failure (auth misconfig, ValueError from
-            # sign_in's "no session" branches, programming bug). Don't
-            # silently retry forever — surface it so it's visible and let
-            # the main loop's exception handler tear the thread down.
-            logging.exception(
-                "Unexpected error during Supabase re-sign-in; not retrying",
-            )
-            raise
-        try:
             await self._connect_and_subscribe()
-            return True
-        except _TRANSIENT_RECONNECT_EXCEPTIONS:
-            logging.warning("Failed to reconnect; will retry", exc_info=True)
-            return False
-        except Exception:
-            # Non-transient failure during WS connect / channel subscribe.
-            # Surface rather than masking as connectivity noise.
-            logging.exception("Unexpected error during reconnect; not retrying")
-            raise
+        except Exception as e:
+            return e
+        return None
+
+    def _log_reconnect_failure(
+        self, phase: str, attempt: int, backoff: float, err: Exception
+    ) -> None:
+        """Log a failed (re)connect attempt with throttled verbosity.
+
+        Logs the full error (with traceback) on the first attempt and then
+        once every ``_RECONNECT_ERROR_LOG_INTERVAL`` attempts; intervening
+        attempts log only the attempt number and backoff so a sustained
+        outage doesn't flood the logs.
+        """
+        if attempt == 1 or attempt % _RECONNECT_ERROR_LOG_INTERVAL == 0:
+            logging.warning(
+                "Realtime %s failed (attempt %d), retrying in %ds: %r",
+                phase,
+                attempt,
+                backoff,
+                err,
+                exc_info=err,
+            )
+        else:
+            logging.warning(
+                "Realtime %s failed (attempt %d), retrying in %ds",
+                phase,
+                attempt,
+                backoff,
+            )
 
     async def _maybe_refresh_auth(self) -> None:
         """Re-push the Supabase JWT to the realtime client if it rotated."""
