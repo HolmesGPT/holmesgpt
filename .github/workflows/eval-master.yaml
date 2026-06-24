@@ -1,16 +1,9 @@
 name: Run eval regression on master
 
 on:
-  # Run on every push to master so PRs can compare against the most recent
-  # known-good state of master, not just the weekly benchmark.
-  push:
-    branches: [master]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'mkdocs.yml'
-
-  # Allow manual triggering for one-off baselines / re-running after a fix.
+  # The master baseline no longer runs automatically on every push to master —
+  # that per-merge eval cost has been removed. Refresh the baseline on demand via
+  # workflow_dispatch (e.g. one-off baselines or re-running after a fix).
   workflow_dispatch:
     inputs:
       models:

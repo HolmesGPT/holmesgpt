@@ -89,6 +89,41 @@ docker run -d \
   ...
 ```
 
+### HOLMES_APPROVAL_SIGNING_KEY
+**Default:** not set (an ephemeral key is generated per process at startup)
+
+HMAC signing key for tool-approval tokens. Holmes mints a short-lived JWT
+for every tool call that requires user approval and verifies the same JWT
+when the user approves. This prevents a client from forging an approval
+for a tool call Holmes never proposed.
+
+When unset, Holmes generates a 32-byte random key at startup. Approvals
+still work, but **in-flight approvals are invalidated on every restart** —
+users will see "Approval token validation failed" if they approve a
+modal after Holmes restarted. Set this env var to keep approvals working
+across restarts.
+
+**Generating a key:**
+```bash
+openssl rand -base64 32
+```
+
+The env var is used verbatim as the HMAC key — any string works, but use a
+high-entropy value like the snippet above. A short or guessable key
+silently weakens the signature and lets a client forge approval tokens.
+
+**Example (Kubernetes):**
+```yaml
+additionalEnvVars:
+  - name: HOLMES_APPROVAL_SIGNING_KEY
+    valueFrom:
+      secretKeyRef:
+        name: holmes-secrets
+        key: approval-signing-key
+```
+
+Tokens expire after 30 days.
+
 ## SSL/TLS
 
 ### CERTIFICATE
