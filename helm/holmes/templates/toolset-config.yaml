@@ -103,11 +103,11 @@ data:
     {{- end }}
     {{- if .Values.mcpAddons.github.enabled }}
     {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+    {{/* No health_check_tool: App installation tokens 403 on /user, so get_me is not a valid auth probe. Combined with the deployment.yaml change that strips 'context' from GITHUB_TOOLSETS, Holmes auto-detect finds no identity tool and skips the auth health check. */}}
     {{- $githubConfig := dict
         "url" (printf "http://%s-github-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
         "mode" "streamable-http"
         "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/github.svg"
-        "health_check_tool" "get_me"
     }}
     {{- $githubMcpServers := dict "github" (dict
         "description" "GitHub MCP Server - access repositories, pull requests, issues, and GitHub Actions. Debug CI failures, search code, and delegate tasks to Copilot."

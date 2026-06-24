@@ -480,6 +480,8 @@ mcpAddons:
       # 'context' exposes the read-only get_me tool, which Holmes uses to validate
       # the GitHub token at startup (a bad PAT marks the toolset disabled instead of
       # appearing connected). Keep 'context' enabled unless you have a reason not to.
+      # Note: when using GitHub App auth, 'context' is automatically stripped — App
+      # installation tokens 403 on GET /user, so get_me is not a valid auth probe.
       # Ignored when `tools` below is set (tools takes precedence as a hard allowlist).
       toolsets: "repos,issues,pull_requests,actions,context"
 
