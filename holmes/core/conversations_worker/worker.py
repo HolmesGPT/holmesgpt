@@ -29,7 +29,8 @@ from holmes.core.conversations_worker.models import (
     ConversationStatus,
     ConversationTask,
 )
-from holmes.core.conversations_worker.realtime_manager import RealtimeManager
+from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
+from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
 from holmes.core.supabase_dal import SupabaseDnsException
 from postgrest.exceptions import APIError as PGAPIError
@@ -112,7 +113,14 @@ class ConversationWorker:
         # (claim loop + _process_conversation_safe finally block).
         self._dispatch_lock = threading.Lock()
 
-        self._realtime_manager: Optional[RealtimeManager] = None
+        self._realtime_manager: Optional[RealtimeWorker] = None
+
+        # Executes cross-cluster remote tool calls (RemoteToolCalls rows) in
+        # its own pool; RealtimeWorker routes 'pending_tool_calls' broadcasts
+        # to it (same holmes:submit channel the conversation worker uses).
+        self._tool_call_worker = ToolCallWorker(
+            dal=self.dal, config=self.config, holmes_id=self.holmes_id
+        )
 
         # Background thread that verifies Supabase Realtime is actually
         # enabled by calling the is_realtime_enabled() RPC.  HolmesStatus
@@ -178,10 +186,11 @@ class ConversationWorker:
 
         if CONVERSATION_WORKER_REALTIME_ENABLED:
             try:
-                self._realtime_manager = RealtimeManager(
+                self._realtime_manager = RealtimeWorker(
                     dal=self.dal,
                     holmes_id=self.holmes_id,
-                    on_new_pending=self._notify_event.set,
+                    conversation_worker=self,
+                    tool_call_worker=self._tool_call_worker,
                 )
                 self._realtime_manager.start()
             except Exception:
@@ -198,6 +207,13 @@ class ConversationWorker:
         )
         self._claim_thread.start()
 
+        try:
+            self._tool_call_worker.start(
+                realtime_connected_fn=self._realtime_connected
+            )
+        except Exception:
+            logging.exception("Failed to start ToolCallWorker", exc_info=True)
+
         logging.info(
             "ConversationWorker active (holmes_id=%s, account=%s, cluster=%s, realtime=%s)",
             self.holmes_id,
@@ -211,6 +227,11 @@ class ConversationWorker:
         self._running = False
         self._notify_event.set()
         self._realtime_verify_stop.set()
+        try:
+            self._tool_call_worker.stop()
+        except Exception:
+            logging.debug("ToolCallWorker stop failed", exc_info=True)
+
         if self._realtime_manager:
             try:
                 self._realtime_manager.stop()
@@ -388,6 +409,11 @@ class ConversationWorker:
                     exc_info=True,
                 )
 
+    def claim_pending_conversations(self) -> None:
+        """Routing target for RealtimeWorker on 'pending_conversations'
+        broadcasts. Non-blocking: wakes the claim loop."""
+        self._notify_event.set()
+
     def _realtime_connected(self) -> bool:
         if self._realtime_manager is None:
             return False
@@ -525,9 +551,23 @@ class ConversationWorker:
     # ---- error reporting helpers ----
 
     def _post_error_event(
-        self, task: ConversationTask, description: str, error_code: int = 5000
+        self,
+        task: ConversationTask,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
     ) -> None:
         """Post an error event to ConversationEvents so subscribers can see the failure reason."""
+        data: Dict[str, Any] = {
+            "description": description,
+            "error_code": error_code,
+            "msg": description,
+            "success": False,
+        }
+        # Full upstream error, included only for Robusta-AI (relay) models where
+        # the error originates from our own backend and is safe to surface.
+        if raw_error is not None:
+            data["raw_error"] = raw_error
         try:
             self.dal.post_conversation_events(
                 conversation_id=task.conversation_id,
@@ -536,12 +576,7 @@ class ConversationWorker:
                 events=[
                     {
                         "event": "error",
-                        "data": {
-                            "description": description,
-                            "error_code": error_code,
-                            "msg": description,
-                            "success": False,
-                        },
+                        "data": data,
                         "ts": datetime.now(timezone.utc).isoformat(),
                     }
                 ],
@@ -554,10 +589,14 @@ class ConversationWorker:
             )
 
     def _fail_conversation(
-        self, task: ConversationTask, description: str, error_code: int = 5000
+        self,
+        task: ConversationTask,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
     ) -> None:
         """Post an error event and then mark the conversation as failed."""
-        self._post_error_event(task, description, error_code)
+        self._post_error_event(task, description, error_code, raw_error=raw_error)
         try:
             self.dal.update_conversation_status(
                 conversation_id=task.conversation_id,
@@ -833,6 +872,7 @@ class ConversationWorker:
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
+        is_robusta_model = False
         try:
             ai = self.config.create_toolcalling_llm(
                 dal=self.dal,
@@ -844,6 +884,7 @@ class ConversationWorker:
                 tracer=server_tracer,
                 tool_results_dir=tool_results_dir,
             )
+            is_robusta_model = bool(getattr(ai.llm, "is_robusta_model", False))
 
             request_ai = self._inject_frontend_tools(ai, chat_request, task)
             if request_ai is None:
@@ -950,6 +991,22 @@ class ConversationWorker:
         except ConversationReassignedError as e:
             logging.warning(
                 "Conversation %s was reassigned: %s", task.conversation_id, e
+            )
+        except Exception as e:
+            logging.exception(
+                "Error running chat for conversation %s: %s",
+                task.conversation_id,
+                e,
+                exc_info=True,
+            )
+            # Surface the raw error only for Robusta-AI models (our own backend).
+            raw_error = None
+            if is_robusta_model:
+                raw_error = str(e)
+            self._fail_conversation(
+                task,
+                "An internal error occurred while processing your request",
+                raw_error=raw_error,
             )
         finally:
             storage.__exit__(None, None, None)

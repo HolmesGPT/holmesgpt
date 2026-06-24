@@ -3,6 +3,7 @@ nav:
     - Deployment Verification: deployment-verification.md
     - Health Checks: health-checks.md
     - Scheduled Health Checks: scheduled-health-checks.md
+    - Triggered Health Checks: triggered-health-checks.md
     - Alert Destinations: destinations.md
     - Configuration: configuration.md
     - Development Guide: development.md

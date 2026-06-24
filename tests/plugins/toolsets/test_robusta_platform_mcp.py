@@ -54,6 +54,19 @@ def _patch_base_render_headers(returned_headers):
     return patch(base, return_value=returned_headers)
 
 
+ALWAYS_SENT = {"X-Robusta-Holmes-Version", "X-Robusta-User-Id"}
+
+
+def _assert_no_authorization(headers):
+    """The error-path contract: no Authorization key survives (any case),
+    non-auth headers are kept, and the always-sent identity headers
+    (version + user id) are present — the relay's executor version gate and
+    RBAC depend on them being on every request."""
+    assert headers is not None
+    assert not any(k.lower() == "authorization" for k in headers)
+    assert ALWAYS_SENT <= set(headers)
+
+
 def test_render_headers_strips_stale_authorization_when_dal_disabled():
     """If DAL flips disabled at runtime, never serve up a stale Authorization
     header inherited from the base implementation."""
@@ -70,7 +83,8 @@ def test_render_headers_strips_stale_authorization_when_dal_disabled():
     stale = {"Authorization": "Bearer stale-token", "X-Other": "keep"}
     with _patch_base_render_headers(stale):
         headers = toolset._render_headers()
-    assert headers == {"X-Other": "keep"}
+    _assert_no_authorization(headers)
+    assert headers["X-Other"] == "keep"
 
 
 def test_render_headers_strips_stale_authorization_on_credentials_error():
@@ -86,12 +100,14 @@ def test_render_headers_strips_stale_authorization_on_credentials_error():
     stale = {"Authorization": "Bearer stale-token", "X-Other": "keep"}
     with _patch_base_render_headers(stale):
         headers = toolset._render_headers()
-    assert headers == {"X-Other": "keep"}
+    _assert_no_authorization(headers)
+    assert headers["X-Other"] == "keep"
 
 
-def test_render_headers_returns_none_when_only_stale_auth_on_error():
-    """If the only header from the base impl was Authorization and we drop
-    it, return None so the MCP client doesn't get an empty-but-truthy dict."""
+def test_render_headers_drops_auth_but_keeps_identity_headers_on_error():
+    """Even when the ONLY header from the base impl was a stale Authorization,
+    the result still carries the always-sent identity headers (version +
+    user id) — and no Authorization."""
     dal = MagicMock()
     dal.enabled = True
     dal.get_ai_credentials.side_effect = RuntimeError("supabase down")
@@ -100,7 +116,8 @@ def test_render_headers_returns_none_when_only_stale_auth_on_error():
 
     with _patch_base_render_headers({"Authorization": "Bearer stale-token"}):
         headers = toolset._render_headers()
-    assert headers is None
+    _assert_no_authorization(headers)
+    assert set(headers) == ALWAYS_SENT
 
 
 def test_render_headers_injects_cluster_and_conversation_headers():
@@ -158,4 +175,5 @@ def test_render_headers_strips_authorization_case_insensitively():
     }
     with _patch_base_render_headers(stale):
         headers = toolset._render_headers()
-    assert headers == {"X-Other": "keep"}
+    _assert_no_authorization(headers)
+    assert headers["X-Other"] == "keep"

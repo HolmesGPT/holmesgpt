@@ -1,0 +1,96 @@
+# Test: Loki streams in this cluster are labeled with `acme_service`, not
+# the conventional `service` or `app`.
+#
+# A fresh LLM defaulting to `{service="checkout"}` or `{app="checkout"}`
+# gets no matching streams. The correction path is:
+#   - call loki_list_labels (or query for available label names)
+#   - discover that the service identity lives on `acme_service`
+#   - retry with `{acme_service="checkout"}` to get the data
+#
+# The LLM should capture: "in this cluster, Loki streams identify the
+# service via the `acme_service` label, not the standard `service`/`app`
+# labels — always check label names first when querying."
+#
+# Phrasing: the prompt names the candidate LogQL selector
+# `{service="checkout"}` explicitly, which biases the agent into running
+# it as the first query. That selector returns no streams (Promtail emits
+# `acme_service` instead of `service`) and the agent has to list labels
+# and retry. THAT correction is the durable env-specific lesson the
+# SuggestSkills tool should capture.
+#
+# An earlier iteration tried a softer phrasing ("how many error-level
+# lines does checkout emit") and the agent skipped the failure path
+# entirely (correctly — no correction occurred → no memory emitted).
+# That's a fine answer to a different question than what this fixture
+# tests, so keep the biased phrasing here.
+
+user_prompt: 'In Loki, run the query `{service="checkout"}` against namespace app-282 and tell me how many error-level log lines come back. If the selector returns nothing, find the right one.'
+
+# The replay re-asks the exact same question (with-skill vs without-skill
+# on identical input). With the captured skill loaded the agent should go
+# straight to the right stream selector instead of re-discovering the
+# label scheme.
+
+expected_output:
+  - "There are 4 error-level log lines from the checkout service in app-282"
+
+memories_generated: true
+rerun_with_memory: true
+
+description: |
+  Forces a wrong→right label correction. Promtail labels the stream with
+  `acme_service` (not service/app), so the obvious queries miss. The LLM
+  must list available labels before it can find any logs.
+
+tags:
+  - loki
+  - kubernetes
+  - medium
+  - skills
+
+port_forwards:
+  - namespace: app-282
+    service: loki
+    local_port: 10282
+    remote_port: 3100
+
+before_test: |
+  kubectl create namespace app-282 || true
+
+  # Deploy shared Loki backend.
+  kubectl apply -f ../../shared/loki.yaml -n app-282
+
+  # Test-specific Promtail config and log producer.
+  kubectl create secret generic checkout-script \
+    --from-file=app.py=./app.py \
+    -n app-282 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f deployment.yaml -n app-282
+
+  kubectl wait --for=condition=ready pod -l app=loki -n app-282 --timeout=120s
+  kubectl wait --for=condition=ready pod -l app=checkout -n app-282 --timeout=120s
+
+  # Wait for Loki ingester
+  for i in {1..30}; do
+    if kubectl exec -n app-282 deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
+      break
+    fi
+    [ $i -eq 30 ] && echo "ERROR: Loki not ready" && exit 1
+    sleep 1
+  done
+
+  # Wait for the app's logs to actually land in Loki — query by the
+  # real label so we don't accidentally fail setup just because the
+  # default-label query (which the eval is about) returns empty.
+  sleep 5
+  for i in {1..30}; do
+    LOG_COUNT=$(kubectl exec -n app-282 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={acme_service="checkout"}&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
+    if [ "$LOG_COUNT" -gt "0" ]; then
+      echo "✅ Logs ready in Loki under acme_service label"
+      break
+    fi
+    [ $i -eq 30 ] && echo "ERROR: No logs in Loki" && exit 1
+    sleep 1
+  done
+
+after_test: |
+  kubectl delete namespace app-282 --wait=false || true
