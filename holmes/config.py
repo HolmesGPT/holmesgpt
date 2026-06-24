@@ -43,7 +43,11 @@ from holmes.core.config import config_path_dir
 from holmes.core.oauth_utils import eager_load_oauth_tools, preload_oauth_tokens, set_oauth_dal
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.definitions import RobustaConfig
-from holmes.utils.pydantic_utils import RobustaBaseConfig, load_model_from_file
+from holmes.utils.pydantic_utils import (
+    RobustaBaseConfig,
+    load_model_from_file,
+    parse_model_from_file,
+)
 
 
 
@@ -193,9 +197,10 @@ class Config(RobustaBaseConfig):
 
     @property
     def llm_model_registry(self) -> LLMModelRegistry:
-        if not self._llm_model_registry:
-            self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
-        return self._llm_model_registry
+        with self._executor_lock:
+            if not self._llm_model_registry:
+                self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
+            return self._llm_model_registry
 
 
 
@@ -245,19 +250,23 @@ class Config(RobustaBaseConfig):
             result._model_source = f"in {config_file}"
         # Fall through to env var check below
 
-        if result.model is None:
-            model_from_env = os.environ.get("MODEL")
-            if model_from_env and model_from_env.strip():
-                result.model = model_from_env
-                result._model_source = "via $MODEL"
-
-        if not result.custom_skill_paths:
-            skill_paths = _parse_custom_skill_paths_env()
-            if skill_paths:
-                result.custom_skill_paths = skill_paths
+        result._apply_env_fallbacks()
 
         result.log_useful_info()
         return result
+
+    def _apply_env_fallbacks(self) -> None:
+        """Apply MODEL and CUSTOM_SKILL_PATHS when absent after YAML load/reload."""
+        if self.model is None:
+            model_from_env = os.environ.get("MODEL")
+            if model_from_env and model_from_env.strip():
+                self.model = model_from_env
+                self._model_source = "via $MODEL"
+
+        if not self.custom_skill_paths:
+            skill_paths = _parse_custom_skill_paths_env()
+            if skill_paths:
+                self.custom_skill_paths = skill_paths
 
     @classmethod
     def load_from_env(cls):
@@ -497,6 +506,69 @@ class Config(RobustaBaseConfig):
                 self._cached_executor_key = cache_key
 
         return [(name, old.value, new.value) for name, old, new in changes]
+
+    def reload_toolsets(self) -> dict:
+        """Re-read config YAML and rebuild toolsets from scratch.
+
+        Parses the config file into a temporary Config via Pydantic validation,
+        then copies toolset-related fields (toolsets, MCP servers, custom toolsets,
+        additional toolsets, custom skill paths) and resets lazy singletons so the
+        next request rebuilds everything from the fresh values.
+        """
+        fresh = None
+        if self._config_file_path and Path(self._config_file_path).exists():
+            fresh = parse_model_from_file(Config, Path(self._config_file_path))
+
+        with self._executor_lock:
+            if fresh is not None:
+                self.toolsets = fresh.toolsets
+                self.mcp_servers = fresh.mcp_servers
+                self.custom_toolsets = fresh.custom_toolsets
+                self.custom_skill_paths = fresh.custom_skill_paths
+                self.additional_toolsets = fresh.additional_toolsets
+                self._apply_env_fallbacks()
+            self._toolset_manager = None
+            self._cached_tool_executor = None
+            self._cached_executor_key = None
+        if fresh is None:
+            logging.warning(
+                "reload_toolsets called without a usable config file (%s); only caches cleared",
+                self._config_file_path,
+            )
+        else:
+            logging.info("Toolset config reloaded from %s", self._config_file_path)
+        return {"reloaded": True}
+
+    def reload_models(self) -> dict:
+        """Re-read model_list.yaml and model-related config fields, then rebuild the registry.
+
+        Re-parses the main config file to pick up changes to model, api_key,
+        api_base, api_version, and fast_model, then resets the lazy registry so
+        the next access constructs a fresh LLMModelRegistry with current values.
+        """
+        fresh = None
+        if self._config_file_path and Path(self._config_file_path).exists():
+            fresh = parse_model_from_file(Config, Path(self._config_file_path))
+
+        with self._executor_lock:
+            if fresh is not None:
+                self.model = fresh.model
+                self.api_key = fresh.api_key
+                self.api_base = fresh.api_base
+                self.api_version = fresh.api_version
+                self.fast_model = fresh.fast_model
+                self._apply_env_fallbacks()
+            self._llm_model_registry = None
+        registry = self.llm_model_registry
+        model_count = len(registry.models) if registry.models else 0
+        if fresh is None:
+            logging.warning(
+                "reload_models called without a usable config file (%s); only registry cleared",
+                self._config_file_path,
+            )
+        else:
+            logging.info("Model config + registry reloaded: %d models", model_count)
+        return {"models_loaded": model_count}
 
     def create_toolcalling_llm(
         self,

@@ -238,6 +238,12 @@ class MultiInstanceToolset(Toolset):
         )
         # Mirror display metadata from the child so the wrapper is transparent.
         self.llm_instructions = template.llm_instructions
+        # Mirror remote-exposure intent from the child class default; per-instance
+        # overrides are resolved in remote_exposed_instances(). is_core must be
+        # mirrored too so a wrapped internal toolset stays hard-excluded from
+        # remote publication and execution.
+        self.expose_remotely = template.expose_remotely
+        self._is_core = template.is_core
         self._child_cls = child_cls
         self._children: Dict[str, Toolset] = {}
         self._instance_configs: Dict[str, Dict[str, Any]] = {}
@@ -287,7 +293,25 @@ class MultiInstanceToolset(Toolset):
 
         self._build_tools()
         self._publish_instance_meta()
+        self._publish_llm_instructions()
         return self._aggregate(failures, successes)
+
+    def remote_exposed_instances(self) -> Optional[List[str]]:
+        """Healthy instance names that should be exposed for remote execution
+        (cross-cluster tool calls). Resolution per instance: the child's
+        locality heuristic (`remote_exposure_default`) wins when it has an
+        opinion, else fall back to the toolset-level `expose_remotely`.
+        Returns the list (possibly empty); the publish step skips the toolset
+        when it's empty. See design doc Business Logic B/C."""
+        exposed: List[str] = []
+        for name, child in self._children.items():
+            flat = self._instance_configs.get(name, {})
+            decision = child.remote_exposure_default(flat)
+            if decision is None:
+                decision = self.expose_remotely
+            if decision:
+                exposed.append(name)
+        return exposed
 
     def _publish_instance_meta(self) -> None:
         """Expose per-instance health in `meta` so the UI can render each instance.
@@ -318,6 +342,29 @@ class MultiInstanceToolset(Toolset):
         meta = dict(self.meta or {})
         meta["instances"] = instances_meta
         self.meta = meta
+
+    def _publish_llm_instructions(self) -> None:
+        """Mirror the children's runtime-built llm_instructions onto the wrapper.
+
+        Some toolsets (e.g. Confluence) only build their llm_instructions inside
+        prerequisites_callable because the content depends on the configured
+        endpoint (base URL, whitelisted paths, auth mode). The static mirror
+        taken from the template in __init__ predates that, so without this the
+        system prompt renders no usage instructions for the toolset and the
+        LLM has to guess request URLs.
+        """
+        sections: List[str] = []
+        multi = (len(self._children) + len(self._offline_instances)) > 1
+        for name, child in self._children.items():
+            if child.llm_instructions:
+                if multi:
+                    sections.append(f"### Instance `{name}`\n\n{child.llm_instructions}")
+                else:
+                    sections.append(child.llm_instructions)
+        # Keep the template-derived instructions when no child built any, so
+        # toolsets with static instructions are unaffected.
+        if sections:
+            self.llm_instructions = "\n\n".join(sections)
 
     def _forward_overrides(self, child: Toolset) -> None:
         """Propagate toolset-level overrides so the child enforces them too."""
