@@ -62,6 +62,10 @@ SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0
 
 EXTRA_HEADERS = os.environ.get("EXTRA_HEADERS", "")
 THINKING = os.environ.get("THINKING", "")
+# Client-side tool search. When enabled, heavy tool schemas (MCP toolsets) are held
+# back from the default tool list and a load_tools meta-tool is exposed so the model
+# loads them on demand instead of putting the whole catalog in context every turn.
+TOOL_SEARCH_ENABLED = load_bool("HOLMES_TOOL_SEARCH_ENABLED", False)
 REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "").strip().lower()
 
 

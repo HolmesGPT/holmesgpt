@@ -106,3 +106,80 @@ def test_ensure_toolset_initialized_failure_blocks_subsequent_calls():
 
     # The callable should only have been invoked once (lazy init is not retried)
     mock_callable.assert_called_once()
+
+
+# ── Tool search (progressive disclosure) ─────────────────────────────────────
+
+from holmes.core.tool_search import LOAD_TOOLS_NAME  # noqa: E402
+from holmes.core.tools import (  # noqa: E402
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    Tool,
+    ToolInvokeContext,
+    Toolset,
+    ToolsetType,
+)
+
+
+class _SearchTool(Tool):
+    def _invoke(self, params, context: ToolInvokeContext) -> StructuredToolResult:
+        return StructuredToolResult(status=StructuredToolResultStatus.SUCCESS)
+
+    def get_parameterized_one_liner(self, params) -> str:
+        return ""
+
+
+class _SearchToolset(Toolset):
+    def __init__(self, name, toolset_type, tool_specs, **kw):
+        super().__init__(name=name, description=f"{name} toolset", type=toolset_type, **kw)
+        self.tools = [_SearchTool(name=n, description=d) for n, d in tool_specs]
+
+
+def _executor_with_search() -> ToolExecutor:
+    core = _SearchToolset(
+        "kubernetes/core", ToolsetType.BUILTIN, [("kubectl_get", "get k8s resources")]
+    )
+    aws = _SearchToolset(
+        "aws_api", ToolsetType.MCP, [("call_aws", "run an aws cli command")]
+    )
+    kafka = _SearchToolset(
+        "kafka", ToolsetType.MCP, [("list_clusters", "list MSK clusters")]
+    )
+    for ts in (core, aws, kafka):
+        ts.status = ToolsetStatusEnum.ENABLED
+    return ToolExecutor(toolsets=[core, aws, kafka])
+
+
+def test_visible_tools_hide_mcp_and_include_load_tools():
+    ex = _executor_with_search()
+    names = {t["function"]["name"] for t in ex.get_visible_tools_openai_format(set())}
+    assert "kubectl_get" in names  # built-in core stays loaded
+    assert LOAD_TOOLS_NAME in names  # meta-tool exposed
+    assert "call_aws" not in names  # MCP tools held back
+    assert "list_clusters" not in names
+
+
+def test_visible_tools_include_loaded_mcp_tool():
+    ex = _executor_with_search()
+    names = {
+        t["function"]["name"]
+        for t in ex.get_visible_tools_openai_format({"call_aws"})
+    }
+    assert "call_aws" in names  # loaded on demand → now visible
+    assert "list_clusters" not in names  # other MCP tool still hidden
+
+
+def test_search_deferred_tools_matches_mcp_only():
+    ex = _executor_with_search()
+    assert ex.search_deferred_tools("aws") == ["call_aws"]
+    assert ex.search_deferred_tools("kafka") == ["list_clusters"]  # toolset-name match
+    assert ex.search_deferred_tools("kubectl") == []  # core tool isn't deferrable
+    assert ex.search_deferred_tools("no-such-thing") == []
+
+
+def test_search_deferred_tools_falls_back_for_invalid_regex():
+    # A malformed regex (e.g. the model emits "[" or "(") must not raise — it falls
+    # back to a case-insensitive substring match (no match here → empty list).
+    ex = _executor_with_search()
+    assert ex.search_deferred_tools("[") == []
+    assert ex.search_deferred_tools("(") == []

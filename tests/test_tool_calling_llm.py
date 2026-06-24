@@ -1702,3 +1702,99 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ── Tool search: load_tools (_get_tools routing + interception) ───────────────
+
+
+def test_get_tools_uses_visible_listing_when_search_enabled(
+    make_ai, mock_llm, mock_tool_executor
+):
+    ai = make_ai()
+    with patch("holmes.core.tool_calling_llm.TOOL_SEARCH_ENABLED", True):
+        ai._get_tools()
+    mock_tool_executor.get_visible_tools_openai_format.assert_called_once()
+
+
+def test_get_tools_uses_full_listing_when_search_disabled(
+    make_ai, mock_llm, mock_tool_executor
+):
+    ai = make_ai()
+    with patch("holmes.core.tool_calling_llm.TOOL_SEARCH_ENABLED", False):
+        ai._get_tools()
+    mock_tool_executor.get_all_tools_openai_format.assert_called_once()
+    mock_tool_executor.get_visible_tools_openai_format.assert_not_called()
+
+
+def test_handle_load_tools_loads_matches_and_returns_success(
+    make_ai, mock_tool_executor
+):
+    mock_tool_executor.search_deferred_tools.return_value = ["call_aws", "list_buckets"]
+    mock_tool_executor.get_tool_by_name.return_value = None
+    ai = make_ai()
+
+    result = ai._handle_load_tools("tc1", {"query": "aws"})
+
+    assert ai._loaded_tool_names == {"call_aws", "list_buckets"}
+    assert result.tool_call_id == "tc1"
+    assert result.result.status == StructuredToolResultStatus.SUCCESS
+    assert "call_aws" in result.result.data
+
+
+def test_handle_load_tools_no_match(make_ai, mock_tool_executor):
+    mock_tool_executor.search_deferred_tools.return_value = []
+    ai = make_ai()
+
+    result = ai._handle_load_tools("tc2", {"query": "zzz"})
+
+    assert ai._loaded_tool_names == set()
+    assert "No tools matched" in result.result.data
+
+
+def test_reset_interaction_state_clears_loaded_tools(make_ai):
+    ai = make_ai()
+    ai._loaded_tool_names = {"call_aws", "list_buckets"}
+    ai.reset_interaction_state()
+    assert ai._loaded_tool_names == set()
+
+
+@patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+def test_load_tools_intercepted_during_invocation(
+    _mock_limit, make_ai, mock_llm, mock_tool_executor
+):
+    """A model tool call named load_tools is intercepted in _invoke_llm_tool_call,
+    runs the search, updates _loaded_tool_names, and the loop continues to a final
+    answer (never routed to the ToolExecutor as a normal tool)."""
+    from holmes.core.tool_search import LOAD_TOOLS_NAME
+
+    load_tools_tc = _make_mock_tool_call(
+        tool_call_id="tc_load", tool_name=LOAD_TOOLS_NAME, arguments={"query": "aws"}
+    )
+    mock_llm.completion.side_effect = [
+        _make_llm_response(content="searching", tool_calls=[load_tools_tc]),
+        _make_llm_response(content="Found tools", tool_calls=None),
+    ]
+    mock_tool_executor.search_deferred_tools.return_value = ["call_aws"]
+    mock_tool_executor.get_tool_by_name.return_value = None
+
+    ai = make_ai()
+    result = ai.call([{"role": "user", "content": "find aws tools"}])
+
+    # Intercepted: the search ran and updated state (the meta-tool is handled here,
+    # not routed to the ToolExecutor as a normal toolset tool).
+    mock_tool_executor.search_deferred_tools.assert_called_once()
+    assert ai._loaded_tool_names == {"call_aws"}
+    assert result.result == "Found tools"
+
+
+def test_loaded_tool_names_preserved_across_clone(make_ai):
+    """with_executor() carries _loaded_tool_names as an independent copy."""
+    ai = make_ai()
+    ai._loaded_tool_names = {"call_aws", "list_buckets"}
+
+    cloned_ai = ai.with_executor(MagicMock(spec=ToolExecutor))
+
+    assert cloned_ai._loaded_tool_names == {"call_aws", "list_buckets"}
+    # A copy, not a shared reference.
+    cloned_ai._loaded_tool_names.add("new_tool")
+    assert "new_tool" not in ai._loaded_tool_names
