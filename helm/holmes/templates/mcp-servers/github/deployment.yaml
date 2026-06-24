@@ -97,11 +97,10 @@ spec:
           - "python3 /app/wrapper.py"
           {{- else }}
           {{- $stdioCmd := "github-mcp-server stdio" }}
-          {{- if .Values.mcpAddons.github.config.toolsets }}
-          {{- $stdioCmd = printf "%s --toolsets %s" $stdioCmd .Values.mcpAddons.github.config.toolsets }}
-          {{- end }}
           {{- if .Values.mcpAddons.github.config.tools }}
           {{- $stdioCmd = printf "%s --tools %s" $stdioCmd .Values.mcpAddons.github.config.tools }}
+          {{- else if .Values.mcpAddons.github.config.toolsets }}
+          {{- $stdioCmd = printf "%s --toolsets %s" $stdioCmd .Values.mcpAddons.github.config.toolsets }}
           {{- end }}
           - {{ $stdioCmd | quote }}
           {{- end }}
@@ -129,11 +128,10 @@ spec:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_PRIVATE_KEY
         {{- $mcpCmd := "github-mcp-server stdio" }}
-        {{- if .Values.mcpAddons.github.config.toolsets }}
-        {{- $mcpCmd = printf "%s --toolsets %s" $mcpCmd .Values.mcpAddons.github.config.toolsets }}
-        {{- end }}
         {{- if .Values.mcpAddons.github.config.tools }}
         {{- $mcpCmd = printf "%s --tools %s" $mcpCmd .Values.mcpAddons.github.config.tools }}
+        {{- else if .Values.mcpAddons.github.config.toolsets }}
+        {{- $mcpCmd = printf "%s --toolsets %s" $mcpCmd .Values.mcpAddons.github.config.toolsets }}
         {{- end }}
         - name: GITHUB_MCP_SERVER_CMD
           value: {{ $mcpCmd | quote }}
