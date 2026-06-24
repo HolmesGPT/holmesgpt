@@ -78,11 +78,7 @@ from holmes.utils.stream import (
 )
 from holmes.utils.tags import parse_messages_tags
 
-
-class LLMInterruptedError(Exception):
-    """Raised when the user interrupts an in-progress LLM call (e.g. via Escape key)."""
-
-    pass
+from holmes.core.exceptions import LLMInterruptedError  # noqa: F401 (re-exported for backwards compat)
 
 
 # Create a named logger for cost tracking
@@ -1118,6 +1114,7 @@ class ToolCallingLLM:
 
         while i < max_steps:
             if cancel_event and cancel_event.is_set():
+                logging.info("call_stream: cancel detected at iteration start (i=%d), aborting", i)
                 raise LLMInterruptedError()
 
             i += 1
@@ -1249,6 +1246,7 @@ class ToolCallingLLM:
                 raise
 
             if cancel_event and cancel_event.is_set():
+                logging.info("call_stream: cancel detected after LLM response (iteration %d), aborting", i)
                 raise LLMInterruptedError()
 
             response_message = full_response.choices[0].message  # type: ignore
@@ -1310,7 +1308,8 @@ class ToolCallingLLM:
             # Extract session approved prefixes from conversation history
             session_prefixes = extract_bash_session_prefixes(messages)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
+            try:
                 futures = []
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index
@@ -1331,86 +1330,97 @@ class ToolCallingLLM:
                         data={"tool_name": t.function.name, "id": t.id},
                     )
 
-                for future in concurrent.futures.as_completed(futures):
+                pending_futures = set(futures)
+                while pending_futures:
                     if cancel_event and cancel_event.is_set():
-                        for f in futures:
-                            f.cancel()
+                        logging.info(
+                            "call_stream: cancel detected during tool execution (iteration %d), "
+                            "shutting down executor immediately",
+                            i,
+                        )
+                        executor.shutdown(wait=False, cancel_futures=True)
                         raise LLMInterruptedError()
 
-                    tool_call_result: ToolCallResult = future.result()
+                    done_futures, pending_futures = concurrent.futures.wait(
+                        pending_futures,
+                        timeout=0.2,
+                        return_when=concurrent.futures.FIRST_COMPLETED,
+                    )
+                    for future in done_futures:
+                        tool_call_result: ToolCallResult = future.result()
 
-                    tool_result_dict = tool_call_result.to_client_dict()
+                        tool_result_dict = tool_call_result.to_client_dict()
 
-                    if (
-                        tool_call_result.result.status
-                        == StructuredToolResultStatus.APPROVAL_REQUIRED
-                    ):
-                        # OAuth approvals are always sent to frontend (user must authenticate)
-                        is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
-                        if enable_tool_approval or is_oauth:
-                            pending_approvals.append(
-                                PendingToolApproval(
+                        if (
+                            tool_call_result.result.status
+                            == StructuredToolResultStatus.APPROVAL_REQUIRED
+                        ):
+                            # OAuth approvals are always sent to frontend (user must authenticate)
+                            is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
+                            if enable_tool_approval or is_oauth:
+                                pending_approvals.append(
+                                    PendingToolApproval(
+                                        tool_call_id=tool_call_result.tool_call_id,
+                                        tool_name=tool_call_result.tool_name,
+                                        description=tool_call_result.description,
+                                        params=tool_call_result.result.params or {},
+                                    )
+                                )
+
+                                all_tool_calls.append(tool_result_dict)
+                                yield StreamMessage(
+                                    event=StreamEvents.TOOL_RESULT,
+                                    data=tool_result_dict,
+                                )
+                            else:
+                                tool_call_result.result.status = (
+                                    StructuredToolResultStatus.ERROR
+                                )
+                                tool_call_result.result.error = f"Tool call rejected for security reasons: {tool_call_result.result.error}"
+                                tool_result_dict = tool_call_result.to_client_dict()
+
+                                tool_calls.append(tool_result_dict)
+                                all_tool_calls.append(tool_result_dict)
+                                messages.append(
+                                    tool_call_result.to_llm_message(
+                                        supports_vision=self._supports_vision()
+                                    )
+                                )
+
+                                yield StreamMessage(
+                                    event=StreamEvents.TOOL_RESULT,
+                                    data=tool_result_dict,
+                                )
+
+                        elif (
+                            tool_call_result.result.status
+                            == StructuredToolResultStatus.FRONTEND_PAUSE
+                        ):
+                            # Frontend tool — collect for pause, don't feed result to LLM
+                            pending_frontend_calls.append(
+                                PendingFrontendToolCall(
                                     tool_call_id=tool_call_result.tool_call_id,
                                     tool_name=tool_call_result.tool_name,
-                                    description=tool_call_result.description,
-                                    params=tool_call_result.result.params or {},
+                                    arguments=tool_call_result.result.params or {},
                                 )
                             )
+                            frontend_call_dict = {
+                                "tool_call_id": tool_call_result.tool_call_id,
+                                "tool_name": tool_call_result.tool_name,
+                                "name": tool_call_result.tool_name,
+                            }
+                            tool_calls.append(frontend_call_dict)
+                            all_tool_calls.append(frontend_call_dict)
 
-                            all_tool_calls.append(tool_result_dict)
-                            yield StreamMessage(
-                                event=StreamEvents.TOOL_RESULT,
-                                data=tool_result_dict,
-                            )
                         else:
-                            tool_call_result.result.status = (
-                                StructuredToolResultStatus.ERROR
-                            )
-                            tool_call_result.result.error = f"Tool call rejected for security reasons: {tool_call_result.result.error}"
-                            tool_result_dict = tool_call_result.to_client_dict()
-
                             tool_calls.append(tool_result_dict)
                             all_tool_calls.append(tool_result_dict)
-                            messages.append(
-                                tool_call_result.to_llm_message(
-                                    supports_vision=self._supports_vision()
-                                )
-                            )
+                            messages.append(tool_call_result.to_llm_message())
 
                             yield StreamMessage(
                                 event=StreamEvents.TOOL_RESULT,
                                 data=tool_result_dict,
                             )
-
-                    elif (
-                        tool_call_result.result.status
-                        == StructuredToolResultStatus.FRONTEND_PAUSE
-                    ):
-                        # Frontend tool — collect for pause, don't feed result to LLM
-                        pending_frontend_calls.append(
-                            PendingFrontendToolCall(
-                                tool_call_id=tool_call_result.tool_call_id,
-                                tool_name=tool_call_result.tool_name,
-                                arguments=tool_call_result.result.params or {},
-                            )
-                        )
-                        frontend_call_dict = {
-                            "tool_call_id": tool_call_result.tool_call_id,
-                            "tool_name": tool_call_result.tool_name,
-                            "name": tool_call_result.tool_name,
-                        }
-                        tool_calls.append(frontend_call_dict)
-                        all_tool_calls.append(frontend_call_dict)
-
-                    else:
-                        tool_calls.append(tool_result_dict)
-                        all_tool_calls.append(tool_result_dict)
-                        messages.append(tool_call_result.to_llm_message())
-
-                        yield StreamMessage(
-                            event=StreamEvents.TOOL_RESULT,
-                            data=tool_result_dict,
-                        )
 
                 # Emit updated token counts after tool results
                 yield self._emit_token_count(
@@ -1474,6 +1484,8 @@ class ToolCallingLLM:
                             f"Tool list changed - refreshing ({len(tools)} -> {len(new_tools)} tools)"
                         )
                         tools = new_tools
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
 
         raise Exception(
             f"Too many LLM calls - exceeded max_steps: {i}/{self.max_steps}"
