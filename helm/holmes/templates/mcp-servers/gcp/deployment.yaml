@@ -113,8 +113,10 @@ spec:
       # Security context for the pod.
       # The chart ships a default that satisfies common PSA baselines; users
       # may override by setting mcpAddons.gcp.podSecurityContext in values.
+      {{- with .Values.mcpAddons.gcp.podSecurityContext }}
       securityContext:
-        {{- toYaml .Values.mcpAddons.gcp.podSecurityContext | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 
       # Volumes for authentication
       volumes:

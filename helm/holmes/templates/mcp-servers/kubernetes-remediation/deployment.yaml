@@ -133,8 +133,10 @@ spec:
         # Container-level security context. The chart ships a hardened default
         # (read-only root FS, non-root UID, no capabilities) which users may
         # override via mcpAddons.kubernetesRemediation.containerSecurityContext.
+        {{- with .Values.mcpAddons.kubernetesRemediation.containerSecurityContext }}
         securityContext:
-          {{- toYaml .Values.mcpAddons.kubernetesRemediation.containerSecurityContext | nindent 10 }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
