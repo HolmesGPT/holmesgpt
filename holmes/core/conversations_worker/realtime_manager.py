@@ -42,17 +42,10 @@ if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
 
 
-# A failing reconnect retries forever (see _run's connect loop). To avoid
-# flooding the logs during a long outage, the full traceback is logged on the
-# first attempt and every this-many attempts; the rest log only the attempt.
-_RECONNECT_ERROR_LOG_INTERVAL = 10
-
-
-def _should_log_full_trace(attempt: int) -> bool:
-    """True when a failed reconnect attempt should log the full traceback
-    rather than just the attempt number (first attempt and every
-    ``_RECONNECT_ERROR_LOG_INTERVAL`` attempts thereafter)."""
-    return attempt == 1 or attempt % _RECONNECT_ERROR_LOG_INTERVAL == 0
+# When a (re)connect keeps failing the loop retries forever; log the full
+# traceback on the first attempt and every Nth attempt, and just the attempt
+# number on the rest, so a sustained outage doesn't flood the logs.
+_RECONNECT_LOG_FULL_EVERY = 10
 
 
 # ---- channel topic helpers ----
@@ -310,33 +303,114 @@ class RealtimeWorker:
         self._loop = asyncio.get_running_loop()
         self._async_stop = asyncio.Event()
         self._started.set()
+        reconnect_attempts = 0
         max_backoff = CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS
-        attempt = 0
         try:
-            # One (re)connect → serve loop. _full_reconnect raises on any
-            # failure; we catch it here, back off, and retry forever — the
-            # realtime connection must never give up and silently leave the
-            # worker polling. Once connected, _serve runs the steady-state
-            # health/refresh loop and returns when the channel dies, dropping
-            # back here to reconnect. The same backoff covers the initial
-            # connect and every later reconnect. BaseException (e.g.
-            # shutdown's CancelledError) is not caught and exits the loop.
+            # Initial connect uses the same backoff as mid-run reconnects
+            # so transient startup failures (e.g. Supabase 503) are retried
+            # instead of killing the thread.
             while not self._stop_event.is_set():
                 try:
                     await self._full_reconnect()
-                    attempt = 0
-                    await self._serve()
+                    reconnect_attempts = 0
+                    break
                 except Exception:
-                    attempt += 1
-                    backoff = min(max_backoff, 2 ** attempt)
-                    logging.warning(
-                        "Realtime connection failed (attempt %d), retrying in %ds",
-                        attempt,
-                        backoff,
-                        exc_info=_should_log_full_trace(attempt),
+                    reconnect_attempts += 1
+                backoff = min(max_backoff, 2 ** reconnect_attempts)
+                logging.warning(
+                    "Initial connect failed (attempt %d), retrying in %ds",
+                    reconnect_attempts,
+                    backoff,
+                    exc_info=reconnect_attempts == 1
+                    or reconnect_attempts % _RECONNECT_LOG_FULL_EVERY == 0,
+                )
+                try:
+                    await asyncio.wait_for(
+                        self._async_stop.wait(), timeout=backoff
                     )
-                    if await self._wait_or_stopped(backoff):
-                        break  # stop() was called during backoff
+                    return  # _async_stop set → stop() was called
+                except asyncio.TimeoutError:
+                    pass
+
+            if self._stop_event.is_set():
+                return
+
+            refresh_interval = CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS
+            health_tick = CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS
+            next_refresh_at = asyncio.get_running_loop().time() + refresh_interval
+            while not self._stop_event.is_set():
+                now = asyncio.get_running_loop().time()
+
+                # Detect channel closure or silently-dead WS. The library's
+                # auto-reconnect is unreliable on clean closes, so we do our
+                # own full teardown/reconnect on any failure signal.
+                unhealthy_reason = self._channel_unhealthy()
+                if unhealthy_reason is not None:
+                    logging.warning(
+                        "Realtime channel unhealthy (%s), reconnecting",
+                        unhealthy_reason,
+                    )
+                    self._connected = False
+                    try:
+                        self._wake_all()
+                    except Exception:
+                        logging.debug(
+                            "wake_all failed during reconnect",
+                            exc_info=True,
+                        )
+                    try:
+                        await self._full_reconnect()
+                        reconnect_attempts = 0
+                        next_refresh_at = (
+                            asyncio.get_running_loop().time() + refresh_interval
+                        )
+                    except Exception:
+                        reconnect_attempts += 1
+                        backoff = min(max_backoff, 2 ** reconnect_attempts)
+                        logging.warning(
+                            "Reconnect failed (attempt %d), backing off %ds",
+                            reconnect_attempts,
+                            backoff,
+                            exc_info=reconnect_attempts == 1
+                            or reconnect_attempts % _RECONNECT_LOG_FULL_EVERY == 0,
+                        )
+                        try:
+                            await asyncio.wait_for(
+                                self._async_stop.wait(), timeout=backoff
+                            )
+                            break  # stop() was called
+                        except asyncio.TimeoutError:
+                            pass
+                        next_refresh_at = (
+                            asyncio.get_running_loop().time() + refresh_interval
+                        )
+                    continue
+
+                if now >= next_refresh_at:
+                    await self._maybe_refresh_auth()
+                    next_refresh_at = (
+                        asyncio.get_running_loop().time() + refresh_interval
+                    )
+                # Cap the sleep at the health tick so a silently-dead WS is
+                # detected within ~health_tick seconds rather than waiting
+                # for the next auth refresh.
+                now = asyncio.get_running_loop().time()
+                sleep_for = max(
+                    0.01,
+                    min(next_refresh_at - now, health_tick),
+                )
+                # wait_for with _async_stop allows stop() to wake us
+                # immediately via call_soon_threadsafe instead of blocking
+                # for the full sleep interval.
+                try:
+                    await asyncio.wait_for(
+                        self._async_stop.wait(), timeout=sleep_for
+                    )
+                    break  # _async_stop was set → exit loop
+                except asyncio.TimeoutError:
+                    pass  # normal wake — re-check health and refresh
+        except Exception:
+            logging.exception("Error in realtime manager main loop", exc_info=True)
         finally:
             self._connected = False
             try:
@@ -386,55 +460,6 @@ class RealtimeWorker:
             return "heartbeat_task_done"
         return None
 
-    async def _serve(self) -> None:
-        """Steady-state loop while connected: periodically refresh auth and
-        watch for a dead channel. Returns when the channel goes unhealthy (so
-        ``_run`` reconnects) or stop() is requested. Raising is fine too —
-        ``_run`` treats any exception as a disconnect and reconnects.
-        """
-        refresh_interval = CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS
-        health_tick = CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS
-        next_refresh_at = asyncio.get_running_loop().time() + refresh_interval
-        while not self._stop_event.is_set():
-            # Detect channel closure or silently-dead WS. The library's
-            # auto-reconnect is unreliable on clean closes, so we do our own
-            # full teardown/reconnect on any failure signal.
-            unhealthy_reason = self._channel_unhealthy()
-            if unhealthy_reason is not None:
-                logging.warning(
-                    "Realtime channel unhealthy (%s), reconnecting",
-                    unhealthy_reason,
-                )
-                self._connected = False
-                try:
-                    self._wake_all()
-                except Exception:
-                    logging.debug("wake_all failed during reconnect", exc_info=True)
-                return  # back to _run's connect loop
-
-            now = asyncio.get_running_loop().time()
-            if now >= next_refresh_at:
-                await self._maybe_refresh_auth()
-                next_refresh_at = (
-                    asyncio.get_running_loop().time() + refresh_interval
-                )
-            # Cap the sleep at the health tick so a silently-dead WS is
-            # detected within ~health_tick seconds rather than waiting for
-            # the next auth refresh.
-            now = asyncio.get_running_loop().time()
-            sleep_for = max(0.01, min(next_refresh_at - now, health_tick))
-            if await self._wait_or_stopped(sleep_for):
-                return  # stop() requested
-
-    async def _wait_or_stopped(self, timeout: float) -> bool:
-        """Sleep up to ``timeout`` seconds, waking early if stop() is called.
-        Returns True if stop was requested, False if the timeout elapsed."""
-        try:
-            await asyncio.wait_for(self._async_stop.wait(), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            return False
-
     async def _full_reconnect(self) -> None:
         """Tear down the current client and re-establish from scratch.
 
@@ -444,7 +469,8 @@ class RealtimeWorker:
         Supabase client's internal refresh path).  The DAL uses the same
         re-sign-in pattern on PGRST301 / JWT-expired errors.
 
-        Raises on any failure; ``_run`` catches it and retries with backoff.
+        Raises on any failure; the caller's backoff loop catches it and
+        retries, so the connection never gives up regardless of error class.
         """
         try:
             if self._client:

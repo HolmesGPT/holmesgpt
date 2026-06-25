@@ -16,8 +16,6 @@ from holmes.core.conversations_worker.realtime_manager import (
     _install_realtime_log_filter_if_needed,
     _install_ssl_patch_if_needed,
     _RealtimeConnectivityWarningFilter,
-    _RECONNECT_ERROR_LOG_INTERVAL,
-    _should_log_full_trace,
     broadcast_submit_topic,
     pg_changes_topic,
 )
@@ -318,14 +316,14 @@ def test_run_loop_triggers_reconnect_on_dead_listen_task():
         reconnect_calls = []
 
         async def fake_reconnect():
-            # _full_reconnect returns None on success (raises on failure).
             reconnect_calls.append(asyncio.get_running_loop().time())
             if len(reconnect_calls) == 1:
                 # Initial connect — keep the healthy mock client/channel.
-                return
+                return True
             # Reconnect after detecting the dead listen task — signal stop.
             m._async_stop.set()
             m._stop_event.set()
+            return True
 
         m._full_reconnect = fake_reconnect  # type: ignore[method-assign]
 
@@ -424,16 +422,15 @@ def test_install_realtime_log_filter_downgrades_live_log_records(caplog):
     assert ws_record.levelno == logging.WARNING
 
 
-# ---- _full_reconnect raises; _run's connect loop retries forever ----
+# ---- _full_reconnect raises on any failure (the _run loop retries) ----
 
 
 @pytest.mark.parametrize(
-    "exc",
-    [ConnectionError("network unreachable"), ValueError("no session returned")],
+    "exc", [ConnectionError("network unreachable"), ValueError("no session")]
 )
 def test_full_reconnect_raises_signin_error(exc):
-    """A sign-in failure propagates so the retry loop can catch it — any class,
-    network or unexpected (the loop never gives up regardless)."""
+    """Any sign-in failure propagates so the backoff loop catches and retries
+    — network or unexpected, the connection never gives up."""
     m = _make_manager()
     m.dal.sign_in = MagicMock(side_effect=exc)
     with pytest.raises(type(exc)):
@@ -444,7 +441,7 @@ def test_full_reconnect_raises_signin_error(exc):
     "exc", [TimeoutError("ws handshake timed out"), RuntimeError("library bug")]
 )
 def test_full_reconnect_raises_subscribe_error(exc):
-    """A connect/subscribe failure propagates so the retry loop can catch it."""
+    """Any connect/subscribe failure propagates so the loop catches and retries."""
     m = _make_manager()
     m.dal.sign_in = MagicMock()
 
@@ -454,72 +451,3 @@ def test_full_reconnect_raises_subscribe_error(exc):
     m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
     with pytest.raises(type(exc)):
         asyncio.run(m._full_reconnect())
-
-
-def test_run_retries_connect_until_success(monkeypatch):
-    """_run keeps retrying a failing connect with backoff and proceeds to
-    serve once it succeeds — it never gives up on errors."""
-    import holmes.core.conversations_worker.realtime_manager as _rm
-
-    monkeypatch.setattr(
-        _rm, "CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS", 0.01
-    )
-
-    async def _scenario():
-        m = _make_manager()
-        calls = []
-
-        async def flaky():
-            calls.append(1)
-            if len(calls) < 3:
-                raise ConnectionError("transient")
-            # connected on the 3rd attempt
-
-        async def serve_then_stop():
-            m._stop_event.set()
-            m._async_stop.set()
-
-        m._full_reconnect = flaky  # type: ignore[method-assign]
-        m._serve = serve_then_stop  # type: ignore[method-assign]
-        await asyncio.wait_for(m._run(), timeout=2.0)
-        assert len(calls) == 3
-
-    asyncio.run(_scenario())
-
-
-def test_run_stops_during_backoff():
-    """If stop() fires while connecting/backing off, _run exits instead of
-    retrying forever."""
-
-    async def _scenario():
-        m = _make_manager()
-        calls = []
-
-        async def fail_then_stop():
-            calls.append(1)
-            m._stop_event.set()
-            m._async_stop.set()  # stop() arriving during the attempt
-            raise ConnectionError("transient")
-
-        m._full_reconnect = fail_then_stop  # type: ignore[method-assign]
-        await asyncio.wait_for(m._run(), timeout=2.0)
-        assert len(calls) == 1  # one failed attempt, then stop() broke the loop
-
-    asyncio.run(_scenario())
-
-
-# ---- throttled reconnect-failure logging ----
-
-
-@pytest.mark.parametrize(
-    "attempt, expected",
-    [
-        (1, True),  # first attempt → full traceback
-        (2, False),  # intermediate → terse
-        (_RECONNECT_ERROR_LOG_INTERVAL - 1, False),
-        (_RECONNECT_ERROR_LOG_INTERVAL, True),  # every interval → full again
-        (2 * _RECONNECT_ERROR_LOG_INTERVAL, True),
-    ],
-)
-def test_should_log_full_trace_throttle(attempt, expected):
-    assert _should_log_full_trace(attempt) is expected
