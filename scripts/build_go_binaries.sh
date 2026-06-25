@@ -17,22 +17,27 @@
 #
 # Helm: built from v3.21.0, which already ships grpc v1.80.0 (the old grpc
 #   replace for CVE-2026-33186 was dropped), with containerd replaced to
-#   v1.7.32 (CVE-2026-46680; v3.21.0 ships v1.7.30).
+#   v1.7.33 (CVE-2026-46680 + CVE-2026-53488; v3.21.0 ships v1.7.30).
 #   Revert to upstream binary when Helm releases a version built with
-#   Go >= 1.26.3 and containerd >= 1.7.32.
+#   Go >= 1.26.3 and containerd >= 1.7.33.
 #
 # kube-lineage: built with grpc replaced to v1.79.3 (CVE-2026-33186),
 #   spdystream replaced to v0.5.1 (CVE-2026-35469), containerd replaced
-#   to v1.7.32 (CVE-2026-46680), and helm replaced to v3.20.2 (CVE-2026-35206).
+#   to v1.7.33 (CVE-2026-46680 + CVE-2026-53488), and helm replaced to v3.20.2 (CVE-2026-35206).
 #   robusta-dev/kube-lineage v2.2.5 ships with Go 1.24.13 + grpc 1.64.1 + spdystream 0.5.0.
 #   Revert when kube-lineage releases a version built with Go >= 1.26.3,
-#   grpc >= 1.79.3, spdystream >= 0.5.1, containerd >= 1.7.32, and helm >= 3.20.2.
+#   grpc >= 1.79.3, spdystream >= 0.5.1, containerd >= 1.7.33, and helm >= 3.20.2.
 #
-# kubectl: rebuilt from the upstream tag purely for the Go toolchain — every
-#   published kubectl release (v1.34.8 / v1.35.5 / v1.36.1) is compiled with a
+# All binaries: golang.org/x/crypto replaced to v0.53.0 (SSH CVEs, some CRITICAL)
+#   and golang.org/x/net replaced to v0.56.0 (CVE-2026-39821 CRITICAL,
+#   CVE-2026-33814). See X_CRYPTO_PATCHED_VERSION / X_NET_PATCHED_VERSION below.
+#
+# kubectl: rebuilt from the upstream tag for the fixed Go toolchain (every
+#   published kubectl release v1.34.8 / v1.35.5 / v1.36.1 is compiled with a
 #   Go vulnerable to stdlib CVE-2026-42499/33814/39836/33811/39820/39823/39825/
-#   39826/42504. Revert to the dl.k8s.io binary when a release is built with
-#   Go >= 1.26.3 (check: go version <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)).
+#   39826/42504) and for an x/net replace (it vendors x/net 0.38.0). Revert to
+#   the dl.k8s.io binary when a release is built with Go >= 1.26.3 and ships
+#   x/net >= 0.55.0 (check: go version <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)).
 #
 # Prerequisites: Go 1.21+ installed locally (GOTOOLCHAIN auto-downloads the
 #   pinned build toolchain below)
@@ -77,10 +82,16 @@ HELM_VERSION=v3.21.0
 GRPC_PATCHED_VERSION=v1.79.3
 KUBE_LINEAGE_VERSION=v2.2.5
 SPDYSTREAM_PATCHED_VERSION=v0.5.1
-CONTAINERD_PATCHED_VERSION=v1.7.32
+CONTAINERD_PATCHED_VERSION=v1.7.33
 HELM_IN_LINEAGE_PATCHED_VERSION=v3.20.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
 KUBECTL_VERSION=v1.34.8
+# golang.org/x/crypto < 0.52.0 has the SSH CVEs CVE-2026-39829/39830/39831/39832/
+#   39833/39834/42508/46595/46597 (some CRITICAL); fixed in 0.52.0, we pin latest.
+# golang.org/x/net < 0.55.0 has CVE-2026-39821 (CRITICAL) and CVE-2026-33814;
+#   fixed in 0.55.0, we pin latest. Applied as replaces to every binary below.
+X_CRYPTO_PATCHED_VERSION=v0.53.0
+X_NET_PATCHED_VERSION=v0.56.0
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 OUTDIR="$REPO_ROOT/bin/go-cve-rebuild"
@@ -100,9 +111,14 @@ go mod edit -replace="github.com/go-git/go-git/v5=github.com/go-git/go-git/v5@$G
 go mod edit -replace="github.com/go-git/go-billy/v5=github.com/go-git/go-billy/v5@$GO_BILLY_PATCHED_VERSION"
 # slack-go v0.16.0 has GHSA-gxhx-2686-5h9g (Medium); fixed in v0.23.1
 go mod edit -replace="github.com/slack-go/slack=github.com/slack-go/slack@$SLACK_GO_PATCHED_VERSION"
+# x/crypto (SSH CVEs) and x/net (CVE-2026-39821/33814)
+go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
+go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-git/v5" "$GO_GIT_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-billy/v5" "$GO_BILLY_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/slack-go/slack" "$SLACK_GO_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/crypto" "$X_CRYPTO_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
 
 ARGOCD_LDFLAGS="-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V"
 
@@ -121,10 +137,14 @@ git clone --depth 1 --branch "$HELM_VERSION" https://github.com/helm/helm.git "$
 
 cd "$TMPDIR/helm"
 # Helm v3.21.0 already ships grpc v1.80.0 (>= the CVE-2026-33186 fix in
-# v1.79.3); only containerd still needs a replace.
-echo "==> Pinning containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680)..."
+# v1.79.3); containerd, x/crypto and x/net still need replaces.
+echo "==> Pinning containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680/53488), x/crypto and x/net..."
 go mod edit -replace="github.com/containerd/containerd=github.com/containerd/containerd@$CONTAINERD_PATCHED_VERSION"
+go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
+go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/containerd/containerd" "$CONTAINERD_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/crypto" "$X_CRYPTO_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
 
 HELM_LDFLAGS="-w -s -X helm.sh/helm/v3/internal/version.version=$HELM_VERSION"
 
@@ -141,17 +161,21 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
 echo "==> Cloning kube-lineage $KUBE_LINEAGE_VERSION..."
 git clone --depth 1 --branch "$KUBE_LINEAGE_VERSION" https://github.com/robusta-dev/kube-lineage.git "$TMPDIR/kube-lineage"
 
-echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (CVE-2026-33186), spdystream to $SPDYSTREAM_PATCHED_VERSION (CVE-2026-35469), and containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680)..."
+echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (CVE-2026-33186), spdystream to $SPDYSTREAM_PATCHED_VERSION (CVE-2026-35469), containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680/53488), x/crypto and x/net..."
 cd "$TMPDIR/kube-lineage"
 go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
 go mod edit -replace="github.com/moby/spdystream=github.com/moby/spdystream@$SPDYSTREAM_PATCHED_VERSION"
 go mod edit -replace="github.com/containerd/containerd=github.com/containerd/containerd@$CONTAINERD_PATCHED_VERSION"
 # embedded helm v3.19.0 has CVE-2026-35206 (Medium); fixed in v3.20.2
 go mod edit -replace="helm.sh/helm/v3=helm.sh/helm/v3@$HELM_IN_LINEAGE_PATCHED_VERSION"
+go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
+go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/moby/spdystream" "$SPDYSTREAM_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/containerd/containerd" "$CONTAINERD_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "helm.sh/helm/v3" "$HELM_IN_LINEAGE_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/crypto" "$X_CRYPTO_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
 
 echo "==> Building kube-lineage for linux/amd64..."
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \
@@ -173,18 +197,26 @@ KUBECTL_LDFLAGS="-w -s \
   -X k8s.io/component-base/version.gitMinor=$KUBECTL_MINOR \
   -X k8s.io/component-base/version.gitTreeState=clean"
 
-# No -mod=mod here: the kubernetes repo uses a Go workspace (go.work), where
-# -mod may only be readonly/vendor. No replaces are needed for kubectl either —
-# we rebuild it purely for the fixed Go toolchain.
+# The kubernetes repo uses a Go workspace (go.work), under which `go build`
+# is readonly and replaces in go.mod are ignored. Disable the workspace
+# (GOWORK=off) so the build resolves from go.mod — which already carries the
+# 31 `=> ./staging/...` replaces needed to build kubectl standalone — and use
+# -mod=mod so we can pin x/net to the CVE-fixed version (kubectl vendors 0.38.0,
+# vulnerable to CVE-2026-39821/33814). No x/crypto replace: kubectl doesn't link it.
+export GOWORK=off
+go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
+
 echo "==> Building kubectl for linux/amd64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \
   -ldflags "$KUBECTL_LDFLAGS" \
   -o "$OUTDIR/amd64/kubectl" ./cmd/kubectl
 
 echo "==> Building kubectl for linux/arm64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
   -ldflags "$KUBECTL_LDFLAGS" \
   -o "$OUTDIR/arm64/kubectl" ./cmd/kubectl
+unset GOWORK
 
 echo "==> Compressing binaries..."
 gzip -f "$OUTDIR/amd64/argocd"

@@ -88,6 +88,13 @@ RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
     fi \
     && poetry install --no-interaction --no-ansi --no-root --with otel
 
+# poetry itself is installed into /venv (virtualenvs.create=false) and the whole
+# venv is copied to the final stage, so poetry's dep CacheControl drags in
+# msgpack 1.1.2 (GHSA-6v7p-g79w-8964, use-after-free, HIGH). It's not in
+# poetry.lock since it's a build-tool dep, so upgrade it directly.
+# Revert when poetry's CacheControl ships msgpack >= 1.2.1.
+RUN pip install --upgrade --no-cache-dir 'msgpack>=1.2.1'
+
 
 # Final stage
 FROM python:3.11-alpine
@@ -113,8 +120,6 @@ COPY --from=builder /venv /venv
 # bind-tools (dig/nslookup) + tcpdump: network/DNS troubleshooting, including the
 # dig-based API-server reachability check in the kubernetes toolset.
 RUN apk upgrade --no-cache && apk add --no-cache \
-    curl \
-    jq \
     git \
     bash \
     coreutils \
@@ -132,7 +137,9 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
-    librdkafka
+    librdkafka \
+    curl \
+    jq
 
 # Microsoft ODBC for Azure SQL. The apk was signature-verified in the builder
 # stage; --allow-untrusted since it's not in an Alpine repo.

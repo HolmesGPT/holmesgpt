@@ -35,10 +35,13 @@ markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
-# 1.83.10+ fixes CVE-2026-40217; 1.83.14 bumps its pinned aiohttp to 3.13.4 and
-# python-dotenv to 1.2.2 (CVE fixes in both). Two aiohttp Mediums
-# (CVE-2026-34993/47265) need aiohttp 3.14.0, which requires litellm >= 1.84.
-litellm = "1.83.14"
+# 1.83.10+ fixes CVE-2026-40217; 1.84.0 fixes CVE-2026-49468 (auth bypass by
+# spoofing, CVSS 9.5) and widens its aiohttp pin to >=3.10, letting us resolve
+# aiohttp 3.14.x which clears two aiohttp Mediums (CVE-2026-34993/47265).
+# 1.88.2 adds Claude Opus 4.8 to the model map AND auto-drops the unsupported
+# `temperature` param for it (Opus 4.7+ reject temperature), fixing a 400 when
+# the default TEMPERATURE is sent to Opus 4.8. 1.88.0/1.88.1 still forward it.
+litellm = "1.88.2"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
