@@ -73,8 +73,6 @@ This keeps the agent generic and puts the security-sensitive logic in one place
   (use `read_file_from_container`) and `env` (leaks secrets). Exact match also blocks
   lookalikes such as `psql`.
 - Shell-char rejection is applied to the command (defense in depth; `shell=False`).
-  `KUBECTL_PREAPPROVED_COMMANDS` is still read for backward compat (deprecated):
-  binaries are extracted from the old glob patterns with a warning.
 
 **`run_preapproved_diagnostic_image(image, namespace, command=None, name=None)`**
 - `image` is matched on **repository** against `KUBECTL_DIAGNOSTIC_IMAGES`
@@ -108,7 +106,7 @@ of HolmesGPT approval):
 |---|---|---|
 | `KUBECTL_ALLOWED_COMMANDS` | see above | Hard verb allowlist for the fallback |
 | `KUBECTL_DANGEROUS_FLAGS` | see above | Blocked flags |
-| `KUBECTL_PREAPPROVED_EXEC_BINARIES` | `ps,top,df,ls,netstat,ss` | Auto-approved in-container binary allowlist (`KUBECTL_PREAPPROVED_COMMANDS` still read, deprecated) |
+| `KUBECTL_PREAPPROVED_EXEC_BINARIES` | `ps,top,df,ls,netstat,ss` | Auto-approved in-container binary allowlist |
 | `KUBECTL_DIAGNOSTIC_IMAGES` | 3 pinned images | Auto-approved image allowlist |
 | `KUBECTL_FILE_READ_ALLOWED_PATHS` | `/` | Read allow roots |
 | `KUBECTL_FILE_READ_DENIED_PATHS` | secret/token mounts | Configurable read denylist |
