@@ -482,13 +482,19 @@ mcpAddons:
       # appearing connected). Keep 'context' enabled unless you have a reason not to.
       # Note: when using GitHub App auth, 'context' is automatically stripped — App
       # installation tokens 403 on GET /user, so get_me is not a valid auth probe.
-      # Ignored when `tools` below is set (tools takes precedence as a hard allowlist).
+      # Fully overridden when `tools` below is set: this chart treats `tools` as a hard
+      # allowlist and omits toolsets entirely in that case (see note on `tools`).
       toolsets: "repos,issues,pull_requests,actions,context"
 
       # Individual tools to enable (comma-separated, optional).
-      # When set, restricts Holmes to EXACTLY this list of tools — takes precedence
-      # over `toolsets` above. Leave empty (the default) to expose every tool from
-      # the toolsets listed above.
+      # When set, this becomes a HARD ALLOWLIST: the chart exposes EXACTLY these tools
+      # and drops `toolsets` above (no GITHUB_TOOLSETS env var is emitted).
+      # NOTE: this differs from the github-mcp-server binary's native behavior, where
+      # --tools is ADDITIVE to any toolsets (toolset tools + extra tools). Because the
+      # default toolsets here include pull_requests (merge_pull_request etc.), leaving
+      # GITHUB_TOOLSETS set alongside `tools` would silently re-expose those tools. The
+      # chart therefore makes the two mutually exclusive. If you genuinely want additive
+      # behavior, list everything you need under `toolsets` and leave `tools` empty.
       # Example: "get_file_contents,list_commits,list_workflow_runs"
       tools: ""
 

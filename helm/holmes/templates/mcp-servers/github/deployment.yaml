@@ -17,7 +17,11 @@ metadata:
     {{- . | nindent 4 }}
   {{- end }}
 data:
-  {{- if .Values.mcpAddons.github.config.toolsets }}
+  {{- /* tools is a hard allowlist and takes precedence: when set, GITHUB_TOOLSETS
+       is omitted entirely. The github-mcp-server binary treats --tools/GITHUB_TOOLS
+       as ADDITIVE to any toolsets, so emitting GITHUB_TOOLSETS alongside would leak
+       every tool of those toolsets back in (e.g. merge_pull_request via pull_requests). */}}
+  {{- if and .Values.mcpAddons.github.config.toolsets (not .Values.mcpAddons.github.config.tools) }}
   {{- $toolsets := .Values.mcpAddons.github.config.toolsets }}
   {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
   {{/* App installation tokens 403 on /user. Drop 'context' so get_me isn't advertised — Holmes then auto-skips its auth health check instead of disabling the toolset. */}}
@@ -142,7 +146,8 @@ spec:
               name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
               key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
         {{- end }}
-        {{- if .Values.mcpAddons.github.config.toolsets }}
+        {{- /* Omit GITHUB_TOOLSETS when tools is set — see ConfigMap above. */}}
+        {{- if and .Values.mcpAddons.github.config.toolsets (not .Values.mcpAddons.github.config.tools) }}
         - name: GITHUB_TOOLSETS
           valueFrom:
             configMapKeyRef:
