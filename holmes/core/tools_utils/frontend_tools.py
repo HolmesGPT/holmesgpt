@@ -64,9 +64,6 @@ class _FrontendToolBase(Tool):
     def _get_approval_requirement(self, params: Dict, context: Any) -> None:
         return None
 
-    def _is_restricted(self) -> bool:
-        return False
-
 
 class FrontendPauseTool(_FrontendToolBase):
     """A tool that pauses the stream so the client can execute it.

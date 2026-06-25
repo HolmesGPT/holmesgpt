@@ -130,26 +130,17 @@ class ToolExecutor:
     @sentry_sdk.trace
     def get_all_tools_openai_format(
         self,
-        include_restricted: bool = True,
         user_id: Optional[str] = None,
     ):
         """Get all tools in OpenAI format.
 
         Args:
-            include_restricted: If False, filter out tools marked as restricted.
-                               Set to True when skill is in use or restricted
-                               tools are explicitly enabled.
             user_id: If provided, replace OAuth _connect placeholders with the
                      user's real tools (loaded after authentication).
         """
-        tools = self._get_base_tools(include_restricted)
+        tools = self._get_base_tools()
         return self.oauth_connector.apply_user_tools(tools, user_id, self._tool_to_toolset)
 
-    def _get_base_tools(self, include_restricted: bool = True) -> list:
+    def _get_base_tools(self) -> list:
         """Get all tools in OpenAI format (base set, no per-user overrides)."""
-        tools = []
-        for tool in self.tools_by_name.values():
-            if not include_restricted and tool._is_restricted():
-                continue
-            tools.append(tool.get_openai_format())
-        return tools
+        return [tool.get_openai_format() for tool in self.tools_by_name.values()]

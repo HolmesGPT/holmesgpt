@@ -18,7 +18,12 @@ metadata:
   {{- end }}
 data:
   {{- if .Values.mcpAddons.github.config.toolsets }}
-  GITHUB_TOOLSETS: {{ .Values.mcpAddons.github.config.toolsets | quote }}
+  {{- $toolsets := .Values.mcpAddons.github.config.toolsets }}
+  {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+  {{/* App installation tokens 403 on /user. Drop 'context' so get_me isn't advertised — Holmes then auto-skips its auth health check instead of disabling the toolset. */}}
+  {{- $toolsets = join "," (without (splitList "," $toolsets) "context") }}
+  {{- end }}
+  GITHUB_TOOLSETS: {{ $toolsets | quote }}
   {{- end }}
   {{- if .Values.mcpAddons.github.config.tools }}
   GITHUB_TOOLS: {{ .Values.mcpAddons.github.config.tools | quote }}
