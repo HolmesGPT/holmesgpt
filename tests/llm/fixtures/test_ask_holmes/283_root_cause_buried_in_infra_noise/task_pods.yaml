@@ -17,7 +17,7 @@ items:
     kind: Pod
     metadata:
       name: log-archival-index-to-es-7q4w9z-1
-      namespace: app-271
+      namespace: app-283
       labels: {app: log-archival, dag: log-archival, task: index-to-es}
     spec:
       restartPolicy: Never
@@ -31,7 +31,7 @@ items:
     kind: Pod
     metadata:
       name: log-archival-index-to-es-7q4w9z-2
-      namespace: app-271
+      namespace: app-283
       labels: {app: log-archival, dag: log-archival, task: index-to-es}
     spec:
       restartPolicy: Never
@@ -45,7 +45,7 @@ items:
     kind: Pod
     metadata:
       name: log-archival-index-to-es-7q4w9z-3
-      namespace: app-271
+      namespace: app-283
       labels: {app: log-archival, dag: log-archival, task: index-to-es}
     spec:
       restartPolicy: Never

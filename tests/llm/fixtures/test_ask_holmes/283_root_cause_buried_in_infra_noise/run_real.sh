@@ -5,7 +5,7 @@
 # survive the pod deletion and become the only in-cluster proof that the pods
 # ran -- which is the crux of the scenario.
 set -e
-NS=app-271
+NS=app-283
 PODS="log-archival-index-to-es-7q4w9z-1 log-archival-index-to-es-7q4w9z-2 log-archival-index-to-es-7q4w9z-3"
 
 kubectl apply -f task_pods.yaml

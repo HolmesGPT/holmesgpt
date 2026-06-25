@@ -25,13 +25,11 @@
 # scheduling/image problems for the task failures, instead of recognizing that
 # the task pods actually ran (so infra did not block them) and that the real
 # cause is application-level and must be read from the Airflow task logs.
-user_prompt: "Our 'log-archival' Airflow DAG's final task ('index-to-es') has failed 3 times in a row in the app-271 namespace. The task runs by launching an ephemeral Kubernetes pod to do its work. Can you investigate and tell me the most likely root cause of these task failures?"
+user_prompt: "Our 'log-archival' Airflow DAG's final task ('index-to-es') has failed 3 times in a row in the app-283 namespace. The task runs by launching an ephemeral Kubernetes pod to do its work. Can you investigate and tell me the most likely root cause of these task failures?"
 
 expected_output:
-  - "Must recognize that the 3 ephemeral task pods (log-archival-index-to-es-7q4w9z-1/2/3) were successfully Scheduled, Pulled, and Started (per their Normal lifecycle events), and therefore actually ran — so the failure is application-level (after the container started) and was NOT caused by an infrastructure or scheduling problem. (Referencing the 7q4w9z identifier from the events is required.)"
-  - "Must treat the failure as application-level and acknowledge that the task pods' own error cannot be retrieved via kubectl because the ephemeral pods were already deleted (no pod logs available). It is acceptable EITHER to direct the user to the Airflow task / task-instance logs for the definitive error, OR to identify the application-level cause directly (e.g. the indexer could not reach any Elasticsearch endpoint — none exists in the cluster). It must NOT claim the cause was a Kubernetes / infrastructure / scheduling problem."
-  - "Must NOT attribute the root cause of the task failures to the unrelated Pending / FailedScheduling ingest-worker pods or to general namespace scheduling/capacity pressure (that noise affects OTHER pods and did not stop the task pods)"
-  - "Must NOT attribute the root cause of the task failures to the unrelated image-pull failures (ErrImagePull / ImagePullBackOff on the stream-processor pods) — those affect OTHER pods and are not the cause"
+  - "Concludes the failure is application-level: the task pods actually started and ran (their Kubernetes events show them Scheduled and Started), so the container launched and then failed on its own — not a Kubernetes scheduling or image-pull problem."
+  - "Does NOT blame the root cause on the unrelated cluster noise (the Pending/FailedScheduling pods or the ImagePullBackOff pods) or on general namespace scheduling/capacity pressure."
 
 tags:
   - kubernetes
@@ -49,7 +47,7 @@ setup_timeout: 600
 
 before_test: |
   set -e
-  kubectl create namespace app-271 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-283 --dry-run=client -o yaml | kubectl apply -f -
 
   # Real, unrelated noise: Pending (FailedScheduling) + ImagePullBackOff pods.
   kubectl apply -f noise_pods.yaml
@@ -61,22 +59,22 @@ before_test: |
   # exercises the trap.
   sched_ok=false
   for i in $(seq 1 30); do
-    if kubectl get events -n app-271 --field-selector reason=FailedScheduling 2>/dev/null | grep -q FailedScheduling; then
+    if kubectl get events -n app-283 --field-selector reason=FailedScheduling 2>/dev/null | grep -q FailedScheduling; then
       sched_ok=true; break
     fi
     sleep 1
   done
   if [ "$sched_ok" = false ]; then
     echo "ERROR: expected FailedScheduling noise events were not produced."
-    kubectl get events -n app-271 | head -60 || true
+    kubectl get events -n app-283 | head -60 || true
     exit 1
   fi
 
   # Confirm the task pods themselves are absent (deleted), so kubectl logs yields nothing.
-  if kubectl get pod log-archival-index-to-es-7q4w9z-1 -n app-271 >/dev/null 2>&1; then
+  if kubectl get pod log-archival-index-to-es-7q4w9z-1 -n app-283 >/dev/null 2>&1; then
     echo "ERROR: task pod unexpectedly exists; it should have been deleted."
     exit 1
   fi
 
 after_test: |
-  kubectl delete namespace app-271 --ignore-not-found
+  kubectl delete namespace app-283 --ignore-not-found

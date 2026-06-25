@@ -18,7 +18,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-0
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -27,7 +27,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-1
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -36,7 +36,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-2
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -45,7 +45,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-3
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -54,7 +54,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-4
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -63,7 +63,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-5
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -72,7 +72,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-6
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -81,7 +81,7 @@ items:
     kind: Pod
     metadata:
       name: ingest-worker-7
-      namespace: app-271
+      namespace: app-283
       labels: {app: ingest-worker}
     spec:
       nodeSelector: {nodepool: gpu-spot-nonexistent}
@@ -90,7 +90,7 @@ items:
     kind: Pod
     metadata:
       name: stream-processor-0
-      namespace: app-271
+      namespace: app-283
       labels: {app: stream-processor}
     spec:
       containers: [{name: c, image: "busybox:does-not-exist-9z9z", command: ["sleep", "3600"]}]
@@ -98,7 +98,7 @@ items:
     kind: Pod
     metadata:
       name: stream-processor-1
-      namespace: app-271
+      namespace: app-283
       labels: {app: stream-processor}
     spec:
       containers: [{name: c, image: "busybox:does-not-exist-9z9z", command: ["sleep", "3600"]}]
@@ -106,7 +106,7 @@ items:
     kind: Pod
     metadata:
       name: stream-processor-2
-      namespace: app-271
+      namespace: app-283
       labels: {app: stream-processor}
     spec:
       containers: [{name: c, image: "busybox:does-not-exist-9z9z", command: ["sleep", "3600"]}]
