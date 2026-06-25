@@ -306,35 +306,11 @@ class RealtimeWorker:
         reconnect_attempts = 0
         max_backoff = CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS
         try:
-            # Initial connect uses the same backoff as mid-run reconnects
-            # so transient startup failures (e.g. Supabase 503) are retried
-            # instead of killing the thread.
-            while not self._stop_event.is_set():
-                try:
-                    await self._full_reconnect()
-                    reconnect_attempts = 0
-                    break
-                except Exception:
-                    reconnect_attempts += 1
-                backoff = min(max_backoff, 2 ** reconnect_attempts)
-                logging.warning(
-                    "Initial connect failed (attempt %d), retrying in %ds",
-                    reconnect_attempts,
-                    backoff,
-                    exc_info=reconnect_attempts == 1
-                    or reconnect_attempts % _RECONNECT_LOG_FULL_EVERY == 0,
-                )
-                try:
-                    await asyncio.wait_for(
-                        self._async_stop.wait(), timeout=backoff
-                    )
-                    return  # _async_stop set → stop() was called
-                except asyncio.TimeoutError:
-                    pass
-
-            if self._stop_event.is_set():
-                return
-
+            # Single loop for both initial connect and reconnects: the channel
+            # starts out None, so the first iteration's health check reports it
+            # unhealthy and connects via the same path used for every later
+            # reconnect. Failures back off and retry forever (transient startup
+            # failures like a Supabase 503 included) instead of killing thread.
             refresh_interval = CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS
             health_tick = CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS
             next_refresh_at = asyncio.get_running_loop().time() + refresh_interval
