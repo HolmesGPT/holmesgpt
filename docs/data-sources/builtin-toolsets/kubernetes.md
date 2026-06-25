@@ -130,14 +130,50 @@ holmes:
 | kubectl_lineage_children | Get child/dependent resources of a Kubernetes resource |
 | kubectl_lineage_parents | Get parent/dependency resources of a Kubernetes resource |
 
-## Adding Permissions for Additional Resources
+## Permissions
+
+!!! important "Read-Only by Default"
+    **The permissions described on this page are read-only** (`get`, `list`, `watch`). The built-in Kubernetes toolset **does not modify, create, delete, or update** any Kubernetes resources — it only reads cluster information for troubleshooting and analysis.
+
+    If you want HolmesGPT to also take remediating actions (restart pods, scale deployments, etc.), you can opt in by enabling the [Kubernetes Remediation (MCP)](kubernetes-remediation-mcp.md) toolset, which grants scoped write access alongside the read-only toolset.
+
+### How HolmesGPT Inherits Permissions
+
+HolmesGPT inherits permissions for accessing Kubernetes from its environment:
+
+- **When running locally**: HolmesGPT uses your current `kubectl` context and the permissions configured in your kubeconfig file.
+- **When running in-cluster**: HolmesGPT uses the ServiceAccount defined in the Helm chart. The Helm chart automatically creates a ServiceAccount, ClusterRole, and ClusterRoleBinding when `createServiceAccount: true` (default). See the [Service Account Configuration](../../reference/helm-configuration.md#service-account-configuration) section for details.
+
+The complete ServiceAccount, ClusterRole, and ClusterRoleBinding definitions can be found in the Helm chart template:
+
+[**View Service Account Template**](https://raw.githubusercontent.com/HolmesGPT/holmesgpt/refs/heads/master/helm/holmes/templates/holmesgpt-service-account.yaml)
+
+### Adaptive Behavior
+
+HolmesGPT automatically adjusts its behavior based on available permissions:
+
+- **You can modify these permissions** and HolmesGPT will automatically adapt to work with whatever permissions are available.
+- **If HolmesGPT tries to run `kubectl` commands** that it doesn't have permissions for, **it will discover the lack of permissions** and adjust its behavior accordingly. It will work with the resources it can access and inform you about any limitations.
+
+### Recommended Permissions
+
+For most users, we recommend giving **read-access to all non-sensitive resources** in the cluster. This allows HolmesGPT to:
+
+- Investigate issues across all namespaces
+- Access logs and events
+- Analyze resource configurations
+- Provide comprehensive troubleshooting insights
+
+The default permissions created by the Helm chart follow this recommendation and include read-only access (`get`, `list`, `watch`) to core Kubernetes resources, custom resources, and monitoring resources across all namespaces.
+
+### Adding Permissions for Additional Resources
 
 !!! note "In-Cluster Only"
     This section applies only to HolmesGPT running **inside** a Kubernetes cluster via Helm. For local CLI deployments, permissions are managed through your kubeconfig file.
 
 HolmesGPT may require access to additional Kubernetes resources or CRDs for specific analyses. Permissions can be extended by modifying the ClusterRole rules.
 
-### Default CRD Permissions
+#### Default CRD Permissions
 
 HolmesGPT includes read-only permissions for common Kubernetes operators and tools by default. These can be individually enabled or disabled:
 
@@ -173,7 +209,7 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
         externalSecrets: true
     ```
 
-### Adding Custom Permissions
+#### Adding Custom Permissions
 
 For resources not covered by the default CRD permissions, you can add custom ClusterRole rules.
 
@@ -220,4 +256,24 @@ To enable HolmesGPT to analyze cert-manager certificates and issuers (not includ
 
     ```bash
     helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+#### Using an Existing ServiceAccount
+
+If you prefer to use an existing ServiceAccount with custom permissions instead of having the Helm chart create one:
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    createServiceAccount: false
+    customServiceAccountName: "your-existing-service-account"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    enableHolmesGPT: true
+    holmes:
+      createServiceAccount: false
+      customServiceAccountName: "your-existing-service-account"
     ```

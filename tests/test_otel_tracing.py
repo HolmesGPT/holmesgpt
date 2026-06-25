@@ -300,6 +300,152 @@ class TestTracingFactoryOTel:
             assert isinstance(tracer, DummyTracer)
 
 
+class TestOTLPProtocolSelection:
+    
+    def test_grpc_exporters_by_default(self):
+        """Without OTEL_EXPORTER_OTLP_PROTOCOL, the gRPC exporters are used."""
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+            OTLPMetricExporter as GRPCMetricExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter as GRPCSpanExporter,
+        )
+
+        from holmes.core.otel_tracing import _create_exporters
+
+        trace_exporter, metric_exporter = _create_exporters(
+            protocol="grpc",
+            endpoint="http://localhost:4317",
+            metrics_endpoint=None,
+            headers={},
+        )
+        assert isinstance(trace_exporter, GRPCSpanExporter)
+        assert isinstance(metric_exporter, GRPCMetricExporter)
+
+    def test_http_protobuf_selects_http_exporters(self):
+        """OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf uses the HTTP exporters."""
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter as HTTPMetricExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as HTTPSpanExporter,
+        )
+
+        from holmes.core.otel_tracing import _create_exporters
+
+        trace_exporter, metric_exporter = _create_exporters(
+            protocol="http/protobuf",
+            endpoint="http://localhost:4318",
+            metrics_endpoint=None,
+            headers={},
+        )
+        assert isinstance(trace_exporter, HTTPSpanExporter)
+        assert isinstance(metric_exporter, HTTPMetricExporter)
+
+    def test_http_appends_signal_paths(self):
+        """OTLP/HTTP appends /v1/traces and /v1/metrics to the base endpoint."""
+        from holmes.core.otel_tracing import _create_exporters
+
+        trace_exporter, metric_exporter = _create_exporters(
+            protocol="http/protobuf",
+            endpoint="http://langfuse:3000/api/public/otel",
+            metrics_endpoint=None,
+            headers={},
+        )
+        assert trace_exporter._endpoint == "http://langfuse:3000/api/public/otel/v1/traces"
+        assert metric_exporter._endpoint == "http://langfuse:3000/api/public/otel/v1/metrics"
+
+    def test_http_does_not_double_append_signal_path(self):
+        """An endpoint that already ends with /v1/traces is used as-is."""
+        from holmes.core.otel_tracing import _create_exporters
+
+        trace_exporter, _ = _create_exporters(
+            protocol="http/protobuf",
+            endpoint="http://collector:4318/v1/traces",
+            metrics_endpoint=None,
+            headers={},
+        )
+        assert trace_exporter._endpoint == "http://collector:4318/v1/traces"
+
+    def test_http_metrics_endpoint_override_used_as_is(self):
+        """OTEL_EXPORTER_OTLP_METRICS_ENDPOINT (per-signal var) is used verbatim."""
+        from holmes.core.otel_tracing import _create_exporters
+
+        _, metric_exporter = _create_exporters(
+            protocol="http/protobuf",
+            endpoint="http://collector:4318",
+            metrics_endpoint="http://other-collector:4318/custom/v1/metrics",
+            headers={},
+        )
+        assert metric_exporter._endpoint == "http://other-collector:4318/custom/v1/metrics"
+
+    def test_invalid_protocol_raises(self):
+        """Unsupported protocol values raise a clear error."""
+        from holmes.core.otel_tracing import _get_otlp_protocol
+
+        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_PROTOCOL": "http/json"}):
+            with pytest.raises(ValueError, match="http/json"):
+                _get_otlp_protocol()
+
+    def test_protocol_env_parsing(self):
+        """Protocol env var is read, normalized, and defaults to grpc."""
+        from holmes.core.otel_tracing import _get_otlp_protocol
+
+        env = os.environ.copy()
+        env.pop("OTEL_EXPORTER_OTLP_PROTOCOL", None)
+        with patch.dict(os.environ, env, clear=True):
+            assert _get_otlp_protocol() == "grpc"
+
+        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_PROTOCOL": " HTTP/Protobuf "}):
+            assert _get_otlp_protocol() == "http/protobuf"
+
+    def test_tracer_init_with_http_protocol(self):
+        """End-to-end: OpenTelemetryTracer wires an HTTP span exporter when
+        OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf is set."""
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as HTTPSpanExporter,
+        )
+
+        from holmes.core.otel_tracing import OpenTelemetryTracer
+
+        with patch.dict(
+            os.environ,
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+                "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+            },
+        ):
+            tracer = OpenTelemetryTracer(service_name="test")
+            try:
+                processors = tracer._provider._active_span_processor._span_processors
+                exporters = [
+                    p.span_exporter for p in processors if hasattr(p, "span_exporter")
+                ]
+                assert len(exporters) == 1
+                assert isinstance(exporters[0], HTTPSpanExporter)
+                assert exporters[0]._endpoint == "http://localhost:4318/v1/traces"
+            finally:
+                tracer.shutdown()
+
+    def test_http_default_endpoint_is_4318(self):
+        """With http/protobuf and no endpoint set, default to localhost:4318."""
+        from holmes.core.otel_tracing import OpenTelemetryTracer
+
+        env = os.environ.copy()
+        env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        env["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
+        with patch.dict(os.environ, env, clear=True):
+            tracer = OpenTelemetryTracer(service_name="test")
+            try:
+                processors = tracer._provider._active_span_processor._span_processors
+                exporters = [
+                    p.span_exporter for p in processors if hasattr(p, "span_exporter")
+                ]
+                assert exporters[0]._endpoint == "http://localhost:4318/v1/traces"
+            finally:
+                tracer.shutdown()
+
+
 class TestParseOTelHeaders:
     """Test OTEL header parsing utility."""
 

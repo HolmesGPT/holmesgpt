@@ -1,0 +1,98 @@
+# Metrics source for app-273: an "edge-gateway" pod exposing request metrics
+# with non-obvious conventions (shopfront_ metric prefix, svc_id label,
+# outcome/failure_reason labels). Holmes must discover these conventions by
+# exploring metric names/labels — that's the durable know-how the suggested
+# skill should capture.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: edge-gateway-app
+stringData:
+  server.py: |
+    import http.server
+    import time
+
+    START = time.time()
+
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            elapsed = int(time.time() - START)
+            ok_checkout = 412 + elapsed // 2
+            failed_checkout = 117 + elapsed // 3
+            ok_catalog = 903 + elapsed
+            ok_notifications = 365 + elapsed // 2
+            body = (
+                "# HELP shopfront_http_requests_total Total HTTP requests processed by the edge gateway\n"
+                "# TYPE shopfront_http_requests_total counter\n"
+                'shopfront_http_requests_total{svc_id="checkout-v2",outcome="ok"} %d\n'
+                'shopfront_http_requests_total{svc_id="checkout-v2",outcome="failed",failure_reason="upstream_timeout_gw-qz81x"} %d\n'
+                'shopfront_http_requests_total{svc_id="catalog-v1",outcome="ok"} %d\n'
+                'shopfront_http_requests_total{svc_id="notifications-v1",outcome="ok"} %d\n'
+            ) % (ok_checkout, failed_checkout, ok_catalog, ok_notifications)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+        def log_message(self, *args):
+            pass
+
+
+    http.server.HTTPServer(("", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-gateway
+  labels: { app: edge-gateway }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: edge-gateway }
+  template:
+    metadata:
+      labels: { app: edge-gateway }
+    spec:
+      containers:
+        - name: edge-gateway
+          image: python:3.9-slim
+          command: ["python", "/scripts/server.py"]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+      volumes:
+        - name: scripts
+          secret:
+            secretName: edge-gateway-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-gateway
+spec:
+  selector: { app: edge-gateway }
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+      evaluation_interval: 5s
+    scrape_configs:
+    - job_name: 'edge-gateway'
+      metrics_path: /metrics
+      static_configs:
+      - targets: ['edge-gateway.app-273.svc.cluster.local:8080']
