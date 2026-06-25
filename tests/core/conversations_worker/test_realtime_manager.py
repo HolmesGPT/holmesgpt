@@ -17,6 +17,7 @@ from holmes.core.conversations_worker.realtime_manager import (
     _install_ssl_patch_if_needed,
     _RealtimeConnectivityWarningFilter,
     _RECONNECT_ERROR_LOG_INTERVAL,
+    _should_log_full_trace,
     broadcast_submit_topic,
     pg_changes_topic,
 )
@@ -317,14 +318,14 @@ def test_run_loop_triggers_reconnect_on_dead_listen_task():
         reconnect_calls = []
 
         async def fake_reconnect():
+            # _full_reconnect returns None on success (raises on failure).
             reconnect_calls.append(asyncio.get_running_loop().time())
             if len(reconnect_calls) == 1:
                 # Initial connect — keep the healthy mock client/channel.
-                return None  # None == success
+                return
             # Reconnect after detecting the dead listen task — signal stop.
             m._async_stop.set()
             m._stop_event.set()
-            return None  # None == success
 
         m._full_reconnect = fake_reconnect  # type: ignore[method-assign]
 
@@ -423,26 +424,27 @@ def test_install_realtime_log_filter_downgrades_live_log_records(caplog):
     assert ws_record.levelno == logging.WARNING
 
 
-# ---- _full_reconnect never raises (always retries) ----
+# ---- _full_reconnect raises; _run's connect loop retries forever ----
 
 
 @pytest.mark.parametrize(
     "exc",
     [ConnectionError("network unreachable"), ValueError("no session returned")],
 )
-def test_full_reconnect_returns_signin_error_for_retry(exc):
-    """Any sign-in failure (network or unexpected) is returned for retry, not
-    raised — the connection must never stop reconnecting."""
+def test_full_reconnect_raises_signin_error(exc):
+    """A sign-in failure propagates so the retry loop can catch it — any class,
+    network or unexpected (the loop never gives up regardless)."""
     m = _make_manager()
     m.dal.sign_in = MagicMock(side_effect=exc)
-    assert asyncio.run(m._full_reconnect()) is exc
+    with pytest.raises(type(exc)):
+        asyncio.run(m._full_reconnect())
 
 
 @pytest.mark.parametrize(
     "exc", [TimeoutError("ws handshake timed out"), RuntimeError("library bug")]
 )
-def test_full_reconnect_returns_subscribe_error_for_retry(exc):
-    """Any connect/subscribe failure is returned for retry, not raised."""
+def test_full_reconnect_raises_subscribe_error(exc):
+    """A connect/subscribe failure propagates so the retry loop can catch it."""
     m = _make_manager()
     m.dal.sign_in = MagicMock()
 
@@ -450,50 +452,74 @@ def test_full_reconnect_returns_subscribe_error_for_retry(exc):
         raise exc
 
     m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
-    assert asyncio.run(m._full_reconnect()) is exc
+    with pytest.raises(type(exc)):
+        asyncio.run(m._full_reconnect())
 
 
-def test_full_reconnect_returns_none_on_success():
-    m = _make_manager()
-    m.dal.sign_in = MagicMock()
+def test_run_retries_connect_until_success(monkeypatch):
+    """_run keeps retrying a failing connect with backoff and proceeds to
+    serve once it succeeds — it never gives up on errors."""
+    import holmes.core.conversations_worker.realtime_manager as _rm
 
-    async def ok_connect():
-        return None
+    monkeypatch.setattr(
+        _rm, "CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS", 0.01
+    )
 
-    m._connect_and_subscribe = ok_connect  # type: ignore[method-assign]
-    assert asyncio.run(m._full_reconnect()) is None
+    async def _scenario():
+        m = _make_manager()
+        calls = []
+
+        async def flaky():
+            calls.append(1)
+            if len(calls) < 3:
+                raise ConnectionError("transient")
+            # connected on the 3rd attempt
+
+        async def serve_then_stop():
+            m._stop_event.set()
+            m._async_stop.set()
+
+        m._full_reconnect = flaky  # type: ignore[method-assign]
+        m._serve = serve_then_stop  # type: ignore[method-assign]
+        await asyncio.wait_for(m._run(), timeout=2.0)
+        assert len(calls) == 3
+
+    asyncio.run(_scenario())
+
+
+def test_run_stops_during_backoff():
+    """If stop() fires while connecting/backing off, _run exits instead of
+    retrying forever."""
+
+    async def _scenario():
+        m = _make_manager()
+        calls = []
+
+        async def fail_then_stop():
+            calls.append(1)
+            m._stop_event.set()
+            m._async_stop.set()  # stop() arriving during the attempt
+            raise ConnectionError("transient")
+
+        m._full_reconnect = fail_then_stop  # type: ignore[method-assign]
+        await asyncio.wait_for(m._run(), timeout=2.0)
+        assert len(calls) == 1  # one failed attempt, then stop() broke the loop
+
+    asyncio.run(_scenario())
 
 
 # ---- throttled reconnect-failure logging ----
 
 
-def _error_with_traceback() -> ConnectionError:
-    try:
-        raise ConnectionError("boom")
-    except ConnectionError as exc:
-        return exc
-
-
 @pytest.mark.parametrize(
-    "attempt, expect_traceback",
+    "attempt, expected",
     [
-        (1, True),  # first attempt → full error + traceback
-        (2, False),  # intermediate → terse, no traceback
+        (1, True),  # first attempt → full traceback
+        (2, False),  # intermediate → terse
+        (_RECONNECT_ERROR_LOG_INTERVAL - 1, False),
         (_RECONNECT_ERROR_LOG_INTERVAL, True),  # every interval → full again
+        (2 * _RECONNECT_ERROR_LOG_INTERVAL, True),
     ],
 )
-def test_log_reconnect_failure_throttles_traceback(
-    attempt, expect_traceback, caplog
-):
-    m = _make_manager()
-    err = _error_with_traceback()
-    with caplog.at_level(logging.WARNING):
-        m._log_reconnect_failure("reconnect", attempt, 8, err)
-    rec = next(r for r in caplog.records if f"attempt {attempt}" in r.getMessage())
-    assert rec.levelno == logging.WARNING
-    if expect_traceback:
-        assert rec.exc_info is not None
-        assert rec.exc_info[1] is err  # the exact exception
-        assert rec.exc_info[2] is not None  # with a real traceback
-    else:
-        assert rec.exc_info is None
+def test_should_log_full_trace_throttle(attempt, expected):
+    assert _should_log_full_trace(attempt) is expected
