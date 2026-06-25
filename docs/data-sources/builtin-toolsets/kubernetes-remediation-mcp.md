@@ -1,27 +1,41 @@
 # Kubernetes Remediation (MCP)
 
---8<-- "snippets/kubernetes_toolset_picker.md"
+The Kubernetes Remediation MCP server is what lets Holmes **act on your cluster** — restart pods, scale deployments, drain nodes, patch and edit resources, and more — plus run **deeper diagnostics** than read-only access allows: reading files and processes *inside* running containers and launching short-lived troubleshooting pods (netshoot/busybox/curl).
 
-The Kubernetes Remediation MCP server provides safe kubectl command execution with layered security controls. It enables Holmes to not only diagnose Kubernetes issues but also **remediate** them — restarting pods, scaling deployments, draining nodes, and more.
+It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md) (which already covers `get`/`describe`/`logs`), extending Holmes from read-only investigation to investigation **and** remediation — with every mutating action gated behind human approval.
 
-This toolset is **additive**: keep your existing read-only Kubernetes toolset ([built-in](kubernetes.md) or [MCP](kubernetes-mcp.md)) enabled for diagnosis, and enable this one alongside it for write actions.
+!!! info "What this adds over the built-in Kubernetes toolset"
 
-!!! warning "Write operations"
-    Unlike the built-in read-only Kubernetes toolset, this MCP server can execute write operations (edit, patch, delete, scale, drain, etc.). Configure the `allowedCommands` setting carefully to match your security requirements.
+    | Capability | Built-in | + Remediation MCP |
+    |---|---|---|
+    | Read resources (`get` / `describe` / `logs`) | ✅ | — *(keep using the built-in)* |
+    | Read files & processes inside containers | ❌ | ✅ auto-approved |
+    | Run diagnostic pods (netshoot/busybox/curl) | ❌ | ✅ auto-approved |
+    | Write actions (restart / scale / drain / patch / …) | ❌ | ✅ **human-approved** |
+
+## Available Tools
+
+| Tool | Mutating | Approval | What it does |
+|------|----------|----------|--------------|
+| `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
+| `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
+| `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. |
+| `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
+| `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
+
+Each tool is *either* always auto-approved *or* always human-approved — the split is fixed, so the model never has to guess whether an action is safe to take on its own. The read-only and diagnostic tools run immediately; the mutating fallback (`run_kubectl_command`) always pauses for a human.
 
 ## Prerequisites
 
-For CLI deployments, you'll need to create the RBAC resources manually. For Helm deployments, the chart creates them automatically.
+For CLI deployments, you'll need to create the RBAC resources manually. For Helm deployments, the chart creates them automatically (a scoped, least-privilege ClusterRole — not `cluster-admin`).
 
 ## Configuration
 
 === "Holmes CLI"
 
-    For CLI usage, you need to deploy the Kubernetes Remediation MCP server with appropriate RBAC.
-
     **Step 1: Create RBAC Resources**
 
-    Create a file named `k8s-remediation-rbac.yaml`:
+    Create a file named `k8s-remediation-rbac.yaml` with a **scoped** ClusterRole (no `cluster-admin`, no `secrets`):
 
     ```yaml
     apiVersion: v1
@@ -36,13 +50,47 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
       namespace: holmes-mcp
     ---
     apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: k8s-remediation-mcp-role
+    rules:
+      - apiGroups: ["apps"]
+        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+        verbs: ["get", "list", "patch", "update", "delete"]
+      - apiGroups: ["apps"]
+        resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
+        verbs: ["get", "update", "patch"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list", "create", "delete"]
+      - apiGroups: [""]
+        resources: ["pods/exec"]
+        verbs: ["create"]
+      - apiGroups: [""]
+        resources: ["pods/log"]
+        verbs: ["get"]
+      - apiGroups: [""]
+        resources: ["pods/eviction"]
+        verbs: ["create"]
+      - apiGroups: [""]
+        resources: ["nodes"]
+        verbs: ["get", "list", "patch", "update"]
+      - apiGroups: ["batch"]
+        resources: ["jobs", "cronjobs"]
+        verbs: ["get", "list", "create", "patch", "update", "delete"]
+      # Read-only context (NO secrets)
+      - apiGroups: [""]
+        resources: ["events", "services", "configmaps", "namespaces", "replicationcontrollers"]
+        verbs: ["get", "list"]
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRoleBinding
     metadata:
       name: k8s-remediation-mcp
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: ClusterRole
-      name: cluster-admin  # Use a more restrictive role in production
+      name: k8s-remediation-mcp-role
     subjects:
     - kind: ServiceAccount
       name: k8s-remediation-mcp-sa
@@ -76,14 +124,15 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           serviceAccountName: k8s-remediation-mcp-sa
           containers:
           - name: k8s-remediation-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.0.0
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.1.0
             imagePullPolicy: IfNotPresent
             ports:
             - containerPort: 8000
               name: http
+            # The defaults below ship in the image — listing them is optional.
             env:
             - name: KUBECTL_ALLOWED_COMMANDS
-              value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+              value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
             - name: KUBECTL_TIMEOUT
               value: "60"
             resources:
@@ -134,36 +183,26 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     ```yaml
     mcp_servers:
       kubernetes_remediation:
-        description: "Kubernetes remediation - execute kubectl commands"
+        description: "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
         config:
           url: "http://k8s-remediation-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
           mode: streamable-http
-        restricted_tools:
-          - "*"
         approval_required_tools:
-          - "*"
+          - "run_kubectl_command"
     ```
 
-    `restricted_tools: ["*"]` means all tools from this MCP server can only be called during a runbook invocation (prevents ad-hoc write operations). `approval_required_tools: ["*"]` means all tools require user confirmation before execution.
+    Only the mutating fallback (`run_kubectl_command`) is listed under `approval_required_tools`, so it requires confirmation before execution. The four read-only tools run immediately.
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
-    Add the following to your `values.yaml`:
+    The defaults work out of the box once enabled (plug-and-play). Add the following to your `values.yaml`:
 
     ```yaml
     mcpAddons:
       kubernetesRemediation:
         enabled: true
-        # Tools that can only be called after a runbook invocation
-        # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
-        restrictedTools:
-          - "*"
-        # Tools that require user confirmation before execution
-        # Use ["*"] to require approval for all tools, or specify tool names
-        approvalRequiredTools:
-          - "*"
     ```
 
     Then deploy or upgrade your Holmes installation:
@@ -171,6 +210,8 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     ```bash
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
+
+    The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
 
 === "Robusta Helm Chart"
 
@@ -181,14 +222,6 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
       mcpAddons:
         kubernetesRemediation:
           enabled: true
-          # Tools that can only be called after a runbook invocation
-          # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
-          restrictedTools:
-            - "*"
-          # Tools that require user confirmation before execution
-          # Use ["*"] to require approval for all tools, or specify tool names
-          approvalRequiredTools:
-            - "*"
     ```
 
     Then deploy or upgrade your Robusta installation:
@@ -199,39 +232,47 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
 
 ## Security Controls
 
-The MCP server implements multiple security layers:
+All policy lives in the MCP server; Holmes only maps tool name → approval.
 
 | Control | Description |
 |---------|-------------|
-| **Restricted tools** | By default, all tools require a runbook invocation to be called — prevents ad-hoc write operations |
-| **Approval required** | By default, all tools require user confirmation before execution |
-| **Command allowlist** | Only explicitly allowed kubectl subcommands can execute |
-| **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token` are always blocked |
-| **Shell injection protection** | Shell metacharacters are rejected |
-| **Image allowlist** | The `run_image` tool only allows pre-approved container images |
-| **RBAC enforcement** | Kubernetes RBAC restricts which resources can be accessed |
+| **Tool separation** | Read-only tools auto-approve; only `run_kubectl_command` (mutations) requires human approval |
+| **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
+| **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
+| **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
+| **Verb allowlist** | `run_kubectl_command` only accepts an allowlisted set of verbs |
+| **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token`, `--as` are always blocked |
+| **Shell injection protection** | Shell metacharacters are rejected; `shell=False` |
+| **Locked-down mode** | Set `allowArbitraryKubectlCommands: false` to disable `run_kubectl_command` entirely |
+| **Scoped RBAC** | Least-privilege ClusterRole — no `cluster-admin`, no `secrets` |
+| **NetworkPolicy** | Ingress-only, locked to Holmes pods |
 | **Command timeout** | Commands are killed after a configurable timeout (default: 60s) |
 
-## Available Tools
+## Configuration Reference
 
-| Tool | Description |
-|------|-------------|
-| `kubectl` | Execute a validated kubectl command. Args are passed as a list (e.g., `["get", "pods", "-n", "production"]`) |
-| `run_image` | Run a temporary pod with a pre-approved image (disabled by default) |
-| `get_config` | Get the current MCP server configuration for debugging |
+| Helm value (`config.*`) | Default | Purpose |
+|-------------------------|---------|---------|
+| `allowedCommands` | `edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec` | Hard verb allowlist for `run_kubectl_command` |
+| `dangerousFlags` | `--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid` | Blocked flags |
+| `preapprovedCommands` | `exec * -- ps*,...,exec * -- ss*` | `run_preapproved_kubectl_command` allowlist |
+| `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist |
+| `fileReadAllowedPaths` | `/` | `read_file_from_container` allow roots |
+| `fileReadDeniedPaths` | `/var/run/secrets/,/run/secrets/,...` | secret-mount denylist |
+| `allowArbitraryKubectlCommands` | `true` | enable the approval-gated fallback |
+| `timeout` | `60` | per-command timeout (s) |
 
 ## Common Use Cases
 
 ```bash
+holmes ask "Read /app/config.yaml from the checkout-api pod and tell me what database host it points to"
+```
+
+```bash
+holmes ask "From inside the production cluster, check whether the payments service DNS resolves and the endpoint is reachable"
+```
+
+```bash
 holmes ask "Restart the payment-service deployment in the production namespace"
-```
-
-```bash
-holmes ask "Scale the web-frontend deployment to 5 replicas"
-```
-
-```bash
-holmes ask "Cordon the problematic node and drain it safely"
 ```
 
 ```bash

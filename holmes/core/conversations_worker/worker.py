@@ -551,9 +551,23 @@ class ConversationWorker:
     # ---- error reporting helpers ----
 
     def _post_error_event(
-        self, task: ConversationTask, description: str, error_code: int = 5000
+        self,
+        task: ConversationTask,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
     ) -> None:
         """Post an error event to ConversationEvents so subscribers can see the failure reason."""
+        data: Dict[str, Any] = {
+            "description": description,
+            "error_code": error_code,
+            "msg": description,
+            "success": False,
+        }
+        # Full upstream error, included only for Robusta-AI (relay) models where
+        # the error originates from our own backend and is safe to surface.
+        if raw_error is not None:
+            data["raw_error"] = raw_error
         try:
             self.dal.post_conversation_events(
                 conversation_id=task.conversation_id,
@@ -562,12 +576,7 @@ class ConversationWorker:
                 events=[
                     {
                         "event": "error",
-                        "data": {
-                            "description": description,
-                            "error_code": error_code,
-                            "msg": description,
-                            "success": False,
-                        },
+                        "data": data,
                         "ts": datetime.now(timezone.utc).isoformat(),
                     }
                 ],
@@ -580,10 +589,14 @@ class ConversationWorker:
             )
 
     def _fail_conversation(
-        self, task: ConversationTask, description: str, error_code: int = 5000
+        self,
+        task: ConversationTask,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
     ) -> None:
         """Post an error event and then mark the conversation as failed."""
-        self._post_error_event(task, description, error_code)
+        self._post_error_event(task, description, error_code, raw_error=raw_error)
         try:
             self.dal.update_conversation_status(
                 conversation_id=task.conversation_id,
@@ -859,6 +872,7 @@ class ConversationWorker:
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
+        is_robusta_model = False
         try:
             ai = self.config.create_toolcalling_llm(
                 dal=self.dal,
@@ -870,6 +884,7 @@ class ConversationWorker:
                 tracer=server_tracer,
                 tool_results_dir=tool_results_dir,
             )
+            is_robusta_model = bool(getattr(ai.llm, "is_robusta_model", False))
 
             request_ai = self._inject_frontend_tools(ai, chat_request, task)
             if request_ai is None:
@@ -976,6 +991,22 @@ class ConversationWorker:
         except ConversationReassignedError as e:
             logging.warning(
                 "Conversation %s was reassigned: %s", task.conversation_id, e
+            )
+        except Exception as e:
+            logging.exception(
+                "Error running chat for conversation %s: %s",
+                task.conversation_id,
+                e,
+                exc_info=True,
+            )
+            # Surface the raw error only for Robusta-AI models (our own backend).
+            raw_error = None
+            if is_robusta_model:
+                raw_error = str(e)
+            self._fail_conversation(
+                task,
+                "An internal error occurred while processing your request",
+                raw_error=raw_error,
             )
         finally:
             storage.__exit__(None, None, None)

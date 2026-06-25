@@ -75,9 +75,8 @@ def test_incompressible_result_stays_plain():
 
 
 def _make_tool(instance_echo=True):
-    tool = MagicMock(name="tool", spec=["name", "_is_restricted", "_get_approval_requirement", "invoke"])
+    tool = MagicMock(name="tool", spec=["name", "_get_approval_requirement", "invoke"])
     tool.name = "probe"
-    tool._is_restricted.return_value = False
     tool._get_approval_requirement.return_value = None
 
     def _invoke(params, context):
