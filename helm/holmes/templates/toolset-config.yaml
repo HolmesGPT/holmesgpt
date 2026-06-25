@@ -174,14 +174,13 @@ data:
     {{- end }}
     {{- if .Values.mcpAddons.kubernetesRemediation.enabled }}
     {{- $k8sRemediationMcpServers := dict "kubernetes_remediation" (dict
-        "description" "Kubernetes remediation - execute kubectl commands to fix cluster issues"
+        "description" "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
         "config" (dict
           "url" (printf "http://%s-k8s-remediation-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
           "mode" "streamable-http"
           "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
         )
         "llm_instructions" (include "holmes.kubernetesRemediationMcp.llmInstructions" . | trim)
-        "restricted_tools" .Values.mcpAddons.kubernetesRemediation.restrictedTools
         "approval_required_tools" .Values.mcpAddons.kubernetesRemediation.approvalRequiredTools
       )
     }}
