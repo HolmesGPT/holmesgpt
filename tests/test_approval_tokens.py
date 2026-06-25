@@ -4,6 +4,7 @@ Closes the forgery primitive from GHSA-6m4w-cmhp-f95f. Replay protection is
 out of scope.
 """
 
+import base64
 import time
 
 import jwt
@@ -113,7 +114,14 @@ def test_verify_attaches_specific_reason_for_server_logs(token_arg, call_id, nam
 def test_verify_rejects_tampered_signature():
     token = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
     header, payload, sig = token.split(".")
-    flipped = sig[:-1] + ("A" if sig[-1] != "A" else "B")
+    # Tamper the signature at the byte level. Flipping a base64url *character*
+    # is flaky: the final char of a 32-byte HMAC signature carries 2 unused
+    # padding bits that base64 decoding discards, so e.g. 'A'->'B' decodes to
+    # identical bytes (~1/16 of tokens) and the "tampered" signature still
+    # verifies. XOR-ing a raw HMAC byte guarantees the signature changes.
+    raw = base64.urlsafe_b64decode(sig + "=" * (-len(sig) % 4))
+    tampered = bytes([raw[0] ^ 0xFF]) + raw[1:]
+    flipped = base64.urlsafe_b64encode(tampered).rstrip(b"=").decode("ascii")
     with pytest.raises(approval_tokens.ApprovalTokenError):
         approval_tokens.verify_token(
             ".".join([header, payload, flipped]),
