@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 
 
 # When a (re)connect keeps failing the loop retries forever; log the full
-# traceback on the first attempt and every Nth attempt, and just the attempt
-# number on the rest, so a sustained outage doesn't flood the logs.
+# traceback on the first attempt and then every 10th attempt, and just the
+# attempt number on the rest, so a sustained outage doesn't flood the logs.
 _RECONNECT_LOG_FULL_EVERY = 10
 
 
@@ -343,12 +343,18 @@ class RealtimeWorker:
                     except Exception:
                         reconnect_attempts += 1
                         backoff = min(max_backoff, 2 ** reconnect_attempts)
+                        # Log the full stacktrace on the first failure and then
+                        # every 10th attempt; just the attempt number on the
+                        # rest, to keep a long outage from flooding the logs.
+                        log_stacktrace = (
+                            reconnect_attempts == 1
+                            or reconnect_attempts % _RECONNECT_LOG_FULL_EVERY == 0
+                        )
                         logging.warning(
                             "Reconnect failed (attempt %d), backing off %ds",
                             reconnect_attempts,
                             backoff,
-                            exc_info=reconnect_attempts == 1
-                            or reconnect_attempts % _RECONNECT_LOG_FULL_EVERY == 0,
+                            exc_info=log_stacktrace,
                         )
                         try:
                             await asyncio.wait_for(
