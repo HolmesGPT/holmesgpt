@@ -343,19 +343,26 @@ class RealtimeWorker:
                     except Exception:
                         reconnect_attempts += 1
                         backoff = min(max_backoff, 2 ** reconnect_attempts)
-                        # Log the full stacktrace on the first failure and then
-                        # every 10th attempt; just the attempt number on the
-                        # rest, to keep a long outage from flooding the logs.
+                        # Log the full stacktrace (at error) on the first
+                        # failure and then every 10th attempt; just a warning
+                        # with the attempt number on the rest, to keep a long
+                        # outage from flooding the logs.
                         log_stacktrace = (
                             reconnect_attempts == 1
                             or reconnect_attempts % _RECONNECT_LOG_FULL_EVERY == 0
                         )
-                        logging.warning(
-                            "Reconnect failed (attempt %d), backing off %ds",
-                            reconnect_attempts,
-                            backoff,
-                            exc_info=log_stacktrace,
-                        )
+                        if log_stacktrace:
+                            logging.exception(
+                                "Reconnect failed (attempt %d), backing off %ds",
+                                reconnect_attempts,
+                                backoff,
+                            )
+                        else:
+                            logging.warning(
+                                "Reconnect failed (attempt %d), backing off %ds",
+                                reconnect_attempts,
+                                backoff,
+                            )
                         try:
                             await asyncio.wait_for(
                                 self._async_stop.wait(), timeout=backoff
