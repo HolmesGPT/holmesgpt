@@ -86,7 +86,7 @@ def _toolset_tools_changed(
     return False
 
 
-def load_secrets_from_files(secret_dir: str = "/etc/holmes/secrets") -> dict:
+def load_secrets_from_files(secret_dir: str = "/etc/holmes/secrets") -> dict[str, str]:
     """
     Load secrets from projected volume files instead of environment variables.
 
@@ -109,7 +109,7 @@ def load_secrets_from_files(secret_dir: str = "/etc/holmes/secrets") -> dict:
                 if secret_file.is_file():
                     try:
                         with open(secret_file, 'r') as f:
-                            value = f.read().strip()
+                            value = f.read().rstrip('\n\r')
                             if value:
                                 secret_name = secret_file.name.upper()
                                 secrets[secret_name] = value
@@ -127,7 +127,7 @@ def load_secrets_from_files(secret_dir: str = "/etc/holmes/secrets") -> dict:
     return secrets
 
 
-def initialize_secrets_from_files():
+def initialize_secrets_from_files() -> None:
     """
     Initialize configuration by loading secrets from projected volume files.
 
