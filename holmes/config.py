@@ -110,10 +110,9 @@ def load_secrets_from_files(secret_dir: str = "/etc/holmes/secrets") -> dict[str
                     try:
                         with open(secret_file, 'r') as f:
                             value = f.read().rstrip('\n\r')
-                            if value:
-                                secret_name = secret_file.name.upper()
-                                secrets[secret_name] = value
-                                display_logger.debug(f"Loaded secret from file: {secret_file.name}")
+                            secret_name = secret_file.name.upper()
+                            secrets[secret_name] = value
+                            display_logger.debug(f"Loaded secret from file: {secret_file.name}")
                     except (IOError, OSError) as e:
                         display_logger.warning(f"Could not read secret file {secret_file}: {e}")
         except (OSError) as e:
