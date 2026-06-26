@@ -43,7 +43,7 @@ from holmes.common.env_vars import (
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
     TRACE_TOKEN_USAGE,
 )
-from holmes.config import DEFAULT_CONFIG_LOCATION, Config
+from holmes.config import DEFAULT_CONFIG_LOCATION, Config, initialize_secrets_from_files
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -155,6 +155,11 @@ def open_experiment_from_request(http_request: Request) -> None:
 
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
+
+
+# Load secrets from projected volume files (SC-022: prevent env var exposure)
+# This must run BEFORE init_config() so Config.load_from_env() can access the secrets
+initialize_secrets_from_files()
 
 
 def init_config():

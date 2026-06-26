@@ -86,6 +86,69 @@ def _toolset_tools_changed(
     return False
 
 
+def load_secrets_from_files(secret_dir: str = "/etc/holmes/secrets") -> dict:
+    """
+    Load secrets from projected volume files instead of environment variables.
+
+    Each file in the secret directory is read and its content stored as a secret.
+    This prevents secrets from being exposed as plaintext environment variables,
+    addressing security compliance SC-022.
+
+    Args:
+        secret_dir: Path to directory containing secret files (default: /etc/holmes/secrets)
+
+    Returns:
+        Dictionary mapping secret names (uppercase) to their values
+    """
+    secrets = {}
+    secret_path = Path(secret_dir)
+
+    if secret_path.exists():
+        try:
+            for secret_file in secret_path.iterdir():
+                if secret_file.is_file():
+                    try:
+                        with open(secret_file, 'r') as f:
+                            value = f.read().strip()
+                            if value:
+                                secret_name = secret_file.name.upper()
+                                secrets[secret_name] = value
+                                display_logger.debug(f"Loaded secret from file: {secret_file.name}")
+                    except (IOError, OSError) as e:
+                        display_logger.warning(f"Could not read secret file {secret_file}: {e}")
+        except (OSError) as e:
+            display_logger.warning(f"Could not read secret directory {secret_dir}: {e}")
+    else:
+        display_logger.debug(
+            f"Secret directory not found: {secret_dir} "
+            "(expected for non-Kubernetes deployments)"
+        )
+
+    return secrets
+
+
+def initialize_secrets_from_files():
+    """
+    Initialize configuration by loading secrets from projected volume files.
+
+    This function:
+    1. Loads all secrets from /etc/holmes/secrets/ (if it exists)
+    2. Sets them as environment variables so the Config class can access them
+    3. Logs which secrets were loaded
+
+    Security Note:
+    This function is called BEFORE any logging of environment variables.
+    Secrets are only exposed in memory, not in pod environment inspection.
+    """
+    file_secrets = load_secrets_from_files()
+
+    if file_secrets:
+        display_logger.info(f"Loaded {len(file_secrets)} secrets from /etc/holmes/secrets/")
+
+    for secret_name, secret_value in file_secrets.items():
+        os.environ[secret_name] = secret_value
+
+
 class SupportedTicketSources(str, Enum):
     JIRA_SERVICE_MANAGEMENT = "jira-service-management"
     PAGERDUTY = "pagerduty"
