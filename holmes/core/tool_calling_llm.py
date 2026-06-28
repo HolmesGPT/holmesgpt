@@ -565,11 +565,44 @@ class ToolCallingLLM:
 
         If a user_id is available (from request_context), per-user OAuth tools
         replace _connect placeholders for authenticated users.
+
+        For Anthropic/Claude models, injects the Tool Search Tool and marks
+        all user-defined tools with defer_loading=True so Claude can
+        dynamically discover tools on-demand instead of loading every
+        definition into the context window upfront (see issue #2107).
         """
         user_id = (self._request_context or {}).get("user_id") if hasattr(self, "_request_context") else None
-        return self.tool_executor.get_all_tools_openai_format(
+        tools = self.tool_executor.get_all_tools_openai_format(
             user_id=user_id,
         )
+        if tools and self.llm._is_anthropic_model():
+            tools = self._apply_tool_search(tools)
+        return tools
+
+    def _apply_tool_search(self, tools: list) -> list:
+        """Wrap tools with Anthropic Tool Search for Claude models.
+
+        Prepends the regex-variant Tool Search Tool and marks every
+        user-defined tool with defer_loading=True. This lets Claude
+        search and load only the tools it needs per turn, avoiding
+        context-window bloat when many toolsets are enabled.
+
+        Supported by litellm for all Anthropic-compatible providers
+        (direct API, Bedrock, Vertex AI). BM25 variant is not used
+        because it is not supported on Bedrock.
+
+        See: https://docs.litellm.ai/docs/providers/anthropic_tool_search
+        """
+        tool_search_tool = {
+            "type": "tool_search_tool_regex_20251119",
+            "name": "tool_search_tool_regex",
+        }
+        deferred_tools = []
+        for tool in tools:
+            deferred = dict(tool)
+            deferred["defer_loading"] = True
+            deferred_tools.append(deferred)
+        return [tool_search_tool] + deferred_tools
 
     @sentry_sdk.trace
     def call(  # type: ignore
