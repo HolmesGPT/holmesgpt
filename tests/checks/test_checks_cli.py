@@ -172,7 +172,9 @@ def test_checks_cli_classification_includes_investigation_result(
         ["checks", "run", "-c", "Are all pods healthy?", "--mode", "monitor"],
     )
 
-    assert result.exit_code == 0, f"CLI failed with output: {result.output}"
+    # Exit code 1 because the check failed, matching the existing
+    # failing-check assertion pattern in this file.
+    assert result.exit_code == 1, f"CLI failed unexpectedly with output: {result.output}"
     assert "FAIL" in result.output
 
     second_call_messages = mock_ai.call.call_args_list[1].args[0]
