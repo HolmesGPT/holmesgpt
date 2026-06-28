@@ -64,7 +64,8 @@ def test_checks_cli_monitor_mode(mock_create_toolcalling_llm):
         assert "PASS" in result.output
 
         # Verify LLM was called
-        mock_ai.call.assert_called_once()
+        # Two-phase execution (#2031): investigation call + classification call.
+        assert mock_ai.call.call_count == 2
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")
@@ -110,4 +111,70 @@ def test_checks_cli_inline_check(mock_create_toolcalling_llm):
     assert "FAIL" in result.output
 
     # Verify LLM was called
-    mock_ai.call.assert_called_once()
+    # Two-phase execution (#2031): investigation call + classification call.
+    assert mock_ai.call.call_count == 2
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+def test_checks_cli_two_phase_no_response_format_on_investigation_call(
+    mock_create_toolcalling_llm,
+):
+    """Phase 1 (investigation) must NOT set response_format - see #2031.
+
+    Setting response_format alongside tool availability causes some models
+    (Qwen via vLLM) to satisfy the schema immediately instead of calling
+    tools first, so the investigation call must omit it entirely.
+    """
+    mock_ai = MagicMock()
+    mock_ai.llm.model = "gpt-4"
+    mock_ai.call.return_value = LLMResult(
+        result=json.dumps({"passed": True, "rationale": "All good."}),
+        tool_calls=[],
+    )
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    result = runner.invoke(
+        app,
+        ["checks", "run", "-c", "Are all pods healthy?", "--mode", "monitor"],
+    )
+
+    assert result.exit_code == 0, f"CLI failed with output: {result.output}"
+    assert mock_ai.call.call_count == 2
+
+    first_call_kwargs = mock_ai.call.call_args_list[0].kwargs
+    assert first_call_kwargs.get("response_format") is None
+
+    second_call_kwargs = mock_ai.call.call_args_list[1].kwargs
+    assert second_call_kwargs.get("response_format") is not None
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+def test_checks_cli_classification_includes_investigation_result(
+    mock_create_toolcalling_llm,
+):
+    """Phase 2's prompt must include phase 1's investigation findings."""
+    mock_ai = MagicMock()
+    mock_ai.llm.model = "gpt-4"
+
+    investigation_text = "Found 3 pods in CrashLoopBackOff in namespace prod."
+    investigation_response = LLMResult(result=investigation_text, tool_calls=[])
+    classification_response = LLMResult(
+        result=json.dumps(
+            {"passed": False, "rationale": "3 pods are crash-looping."}
+        ),
+        tool_calls=[],
+    )
+    mock_ai.call.side_effect = [investigation_response, classification_response]
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    result = runner.invoke(
+        app,
+        ["checks", "run", "-c", "Are all pods healthy?", "--mode", "monitor"],
+    )
+
+    assert result.exit_code == 0, f"CLI failed with output: {result.output}"
+    assert "FAIL" in result.output
+
+    second_call_messages = mock_ai.call.call_args_list[1].args[0]
+    combined_text = " ".join(m["content"] for m in second_call_messages)
+    assert investigation_text in combined_text
