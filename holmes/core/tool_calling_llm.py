@@ -1056,6 +1056,7 @@ class ToolCallingLLM:
 
         self._request_context = request_context
         all_tool_calls: list[dict] = []
+        _last_non_empty_content: Optional[str] = None  # fallback for empty closing turns (#2185)
 
         # Process tool decisions if provided (approval resume)
         if msgs and tool_decisions:
@@ -1259,10 +1260,17 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
+                # Fall back to the last non-empty assistant text if the
+                # terminating turn is empty. Some providers (e.g. claude-sonnet-4-6
+                # via litellm) emit the real answer in a turn that also carries a
+                # trailing tool call, then close the loop with an empty turn.
+                # Without this fallback that empty content silently replaces the
+                # answer the model already produced. See issue #2185.
+                final_content = response_message.content or _last_non_empty_content
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
-                        "content": response_message.content,
+                        "content": final_content,
                         "messages": messages,
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,
@@ -1276,6 +1284,10 @@ class ToolCallingLLM:
             reasoning = getattr(response_message, "reasoning_content", None)
             message = response_message.content
             if reasoning or message:
+                # Track last non-empty assistant text for fallback on empty
+                # closing turns (see issue #2185).
+                if message and message.strip():
+                    _last_non_empty_content = message
                 yield StreamMessage(
                     event=StreamEvents.AI_MESSAGE,
                     data={

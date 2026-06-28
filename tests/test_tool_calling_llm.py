@@ -1702,3 +1702,81 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Issue #2185: empty closing turn should not erase the real answer
+# ---------------------------------------------------------------------------
+
+class TestEmptyClosingTurnFallback:
+    """When the model emits its answer in a turn that also carries a trailing
+    tool call, then closes the loop with an empty turn, the real answer must
+    not be lost (issue #2185)."""
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_empty_closing_turn_falls_back_to_last_non_empty(self, _mock_limit, make_ai, mock_llm):
+        """call_stream ANSWER_END content falls back to the last non-empty
+        AI_MESSAGE content when the terminating turn is empty."""
+        tool_call = _make_mock_tool_call()
+
+        # Turn 1: real answer + trailing tool call
+        turn1 = _make_llm_response(
+            content="## Summary\nThe pod is crash-looping due to OOM.",
+            tool_calls=[tool_call],
+        )
+        turn1.choices[0].finish_reason = "tool_calls"
+
+        # Turn 2: empty closing turn (no content, no tool calls)
+        turn2 = _make_llm_response(content=None, tool_calls=None)
+        turn2.choices[0].message.content = None
+        turn2.choices[0].finish_reason = "stop"
+
+        _mock_limit.side_effect = _make_context_limiter_passthrough
+        mock_llm.completion.side_effect = [turn1, turn2]
+
+        ai = make_ai(tools=[])
+        messages = [{"role": "user", "content": "Why is my pod crashing?"}]
+
+        events = _collect_stream_events(ai.call_stream(msgs=messages))
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+
+        assert len(answer_ends) == 1
+        assert answer_ends[0].data["content"] == "## Summary\nThe pod is crash-looping due to OOM."
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_non_empty_closing_turn_is_used_directly(self, _mock_limit, make_ai, mock_llm):
+        """When the terminating turn has content, it is used as-is (no fallback)."""
+        turn1 = _make_llm_response(content="The answer is here.", tool_calls=None)
+        turn1.choices[0].finish_reason = "stop"
+
+        _mock_limit.side_effect = _make_context_limiter_passthrough
+        mock_llm.completion.side_effect = [turn1]
+
+        ai = make_ai(tools=[])
+        messages = [{"role": "user", "content": "Simple question"}]
+
+        events = _collect_stream_events(ai.call_stream(msgs=messages))
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+
+        assert len(answer_ends) == 1
+        assert answer_ends[0].data["content"] == "The answer is here."
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_truly_empty_response_returns_none(self, _mock_limit, make_ai, mock_llm):
+        """When there is no prior non-empty content and the final turn is empty,
+        content is None (no invented fallback)."""
+        turn1 = _make_llm_response(content=None, tool_calls=None)
+        turn1.choices[0].message.content = None
+        turn1.choices[0].finish_reason = "stop"
+
+        _mock_limit.side_effect = _make_context_limiter_passthrough
+        mock_llm.completion.side_effect = [turn1]
+
+        ai = make_ai(tools=[])
+        messages = [{"role": "user", "content": "Simple question"}]
+
+        events = _collect_stream_events(ai.call_stream(msgs=messages))
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+
+        assert len(answer_ends) == 1
+        assert not answer_ends[0].data["content"]
