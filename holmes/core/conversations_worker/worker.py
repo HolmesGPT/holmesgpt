@@ -422,14 +422,35 @@ class ConversationWorker:
         except Exception:
             return False
 
+    def _free_claim_slots(self) -> int:
+        """How many more conversations this worker may claim right now.
+
+        Bounded so that claimed (queued) + running never exceeds
+        CONVERSATION_WORKER_MAX_CONCURRENT — surplus stays 'pending' in the DB
+        for the next poll or for another Holmes instance to claim. Counting
+        queued + active together keeps the bound correct across the
+        claim → queue → dispatch window.
+        """
+        with self._active_lock:
+            active = len(self._active_conversation_ids)
+        with self._queued_lock:
+            queued = len(self._queued_tasks)
+        return CONVERSATION_WORKER_MAX_CONCURRENT - active - queued
+
     def _try_claim_and_dispatch(self) -> None:
-        # Claim ALL pending conversations — they transition to queued state.
-        # There is no capacity check here: we claim eagerly so that no other
-        # Holmes instance can grab them, and queue them locally until executor
-        # slots open up.
-        claimed = self.dal.claim_conversations(self.holmes_id)
+        # Claim only as many pending conversations as we have free pool slots.
+        # The surplus stays 'pending' so another Holmes instance can pick it up
+        # (cross-instance load balancing) and so we never hold more than
+        # MAX_CONCURRENT claimed + running at once. As running conversations
+        # finish, _process_conversation_safe wakes this loop to re-claim.
+        free = self._free_claim_slots()
+        if free <= 0:
+            return
+        claimed = self.dal.claim_n_pending_conversations(self.holmes_id, free)
         if claimed:
-            logging.info("Claimed %d conversation(s)", len(claimed))
+            logging.info(
+                "Claimed %d conversation(s) (free slots=%d)", len(claimed), free
+            )
         for conv in claimed:
             task = self._build_task_from_conversation_row(conv)
             if task is None:
@@ -649,6 +670,10 @@ class ConversationWorker:
                     task.conversation_id,
                     exc_info=True,
                 )
+            # A pool slot is now free — wake the claim loop so it claims any
+            # surplus 'pending' conversations we left behind (or that another
+            # initiator created) now that we have capacity for them.
+            self._notify_event.set()
 
     def _process_conversation(self, task: ConversationTask) -> None:
         events = self.dal.get_conversation_events(task.conversation_id)

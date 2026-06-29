@@ -210,6 +210,70 @@ def test_prometheus_single_instance_locality_narrows_exposure():
         assert local.expose_remotely is True
 
 
+# ---- bounded claiming (free pool capacity) ----
+
+
+def _claimable_worker(monkeypatch, max_concurrent=10):
+    """A ToolCallWorker wired with a mock pool/dal so _try_claim_and_dispatch
+    and _execute_safe can be driven without real threads."""
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.tool_call_worker.TOOL_CALLER_MAX_CONCURRENT",
+        max_concurrent,
+    )
+    worker = ToolCallWorker(dal=MagicMock(), config=MagicMock(), holmes_id="h-test")
+    worker._running = True
+    worker._pool = MagicMock()
+    return worker
+
+
+def test_tool_calls_claim_only_free_slots(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker.dal.claim_n_pending_tool_calls.return_value = [{"id": "t1"}, {"id": "t2"}]
+    worker._try_claim_and_dispatch()
+    # No free work yet -> asks for the full pool size.
+    worker.dal.claim_tool_calls.assert_not_called()
+    worker.dal.claim_n_pending_tool_calls.assert_called_once_with("h-test", 10)
+    assert worker._pool.submit.call_count == 2
+    # Both submitted rows count against capacity.
+    assert worker._active_count == 2
+
+
+def test_tool_calls_limit_reflects_in_flight(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker._active_count = 7  # 7 already running -> 3 free
+    worker.dal.claim_n_pending_tool_calls.return_value = []
+    worker._try_claim_and_dispatch()
+    worker.dal.claim_n_pending_tool_calls.assert_called_once_with("h-test", 3)
+
+
+def test_tool_calls_skip_claim_when_at_capacity(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=2)
+    worker._active_count = 2  # full
+    worker._try_claim_and_dispatch()
+    worker.dal.claim_n_pending_tool_calls.assert_not_called()
+    worker._pool.submit.assert_not_called()
+
+
+def test_tool_call_submit_failure_decrements_active(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker.dal.claim_n_pending_tool_calls.return_value = [{"id": "t1"}]
+    worker._pool.submit.side_effect = RuntimeError("pool shut down")
+    worker._try_claim_and_dispatch()
+    # The failed submit must not leak a slot.
+    assert worker._active_count == 0
+
+
+def test_execute_safe_frees_slot_and_wakes_claim_loop(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker._active_count = 1
+    worker._notify_event.clear()
+    worker.dal.post_remote_tool_call_result.return_value = True
+    with patch.object(ToolCallWorker, "_execute", lambda self, row: {"status": "SUCCESS"}):
+        worker._execute_safe({"id": "t1"})
+    assert worker._active_count == 0
+    assert worker._notify_event.is_set()
+
+
 # ---- _wake_all routes to both workers ----
 
 

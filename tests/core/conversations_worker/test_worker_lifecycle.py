@@ -77,11 +77,11 @@ def test_build_task_from_conversation_row_returns_none_on_bad_input():
     assert task is None
 
 
-def test_try_claim_and_dispatch_claims_all_and_queues():
-    """Claiming should always happen regardless of capacity.
-    Tasks go into _queued_tasks first, then dispatched up to capacity."""
+def test_try_claim_and_dispatch_claims_only_free_slots():
+    """The worker claims only as many conversations as it has free pool slots
+    (MAX_CONCURRENT - active - queued), then dispatches them up to capacity."""
     w = _bare_worker()
-    w.dal.claim_conversations.return_value = [
+    w.dal.claim_n_pending_conversations.return_value = [
         {
             "conversation_id": "c1",
             "account_id": "a1",
@@ -100,42 +100,47 @@ def test_try_claim_and_dispatch_claims_all_and_queues():
         },
     ]
     w._try_claim_and_dispatch()
-    # Both should have been submitted to executor (capacity = default 5)
+    # With no active/queued work and the default capacity (5), the worker asks
+    # for 5 free slots — the legacy claim_conversations RPC is never used.
+    w.dal.claim_conversations.assert_not_called()
+    w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 5)
+    # Both claimed conversations should have been submitted to the executor.
     assert w._executor.submit.call_count == 2
-    # Both should be in active set
     assert "c1" in w._active_conversation_ids
     assert "c2" in w._active_conversation_ids
-    # update_conversation_status called twice to transition to running
     assert w.dal.update_conversation_status.call_count == 2
 
 
-def test_try_claim_and_dispatch_queues_when_at_capacity(monkeypatch):
-    """When at capacity, tasks stay in the queued pool, not submitted."""
+def test_try_claim_and_dispatch_passes_remaining_capacity_as_limit(monkeypatch):
+    """The claim limit reflects the slots NOT already taken by running work."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+    # Two conversations already running -> only 3 free slots remain.
+    w._active_conversation_ids = {"existing1", "existing2"}
+    w.dal.claim_n_pending_conversations.return_value = []
+    w._try_claim_and_dispatch()
+    w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 3)
+
+
+def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
+    """When at capacity the worker must NOT claim — surplus stays pending in
+    the DB (claimable by another Holmes instance) instead of being hoarded."""
     w = _bare_worker()
     monkeypatch.setattr(
         "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
         1,
     )
-    # Already have one active conversation
+    # Already have one active conversation -> zero free slots.
     w._active_conversation_ids = {"existing"}
-    w.dal.claim_conversations.return_value = [
-        {
-            "conversation_id": "c1",
-            "account_id": "a1",
-            "cluster_id": "cl1",
-            "origin": "chat",
-            "request_sequence": 1,
-            "metadata": {},
-        }
-    ]
     w._try_claim_and_dispatch()
-    # Claim should still happen (no capacity check before claiming)
-    w.dal.claim_conversations.assert_called_once()
-    # But the task should NOT be submitted to executor
+    # No claim RPC is issued at all when there is no free capacity.
+    w.dal.claim_n_pending_conversations.assert_not_called()
+    w.dal.claim_conversations.assert_not_called()
     w._executor.submit.assert_not_called()
-    # It should be in the queued tasks
-    assert len(w._queued_tasks) == 1
-    assert w._queued_tasks[0].conversation_id == "c1"
+    assert len(w._queued_tasks) == 0
 
 
 def test_dispatch_queued_transitions_to_running():
@@ -248,6 +253,25 @@ def test_process_conversation_safe_clears_active_on_success():
         w._process_conversation_safe(task)
 
     assert "c1" not in w._active_conversation_ids
+
+
+def test_process_conversation_safe_wakes_claim_loop_to_reclaim():
+    """When a conversation finishes a pool slot frees up — the worker must
+    signal the claim loop so it re-claims any surplus 'pending' rows it left
+    behind while at capacity."""
+    w = _bare_worker()
+    w._notify_event.clear()
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+    )
+    with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
+        w._process_conversation_safe(task)
+
+    assert w._notify_event.is_set()
 
 
 def test_process_conversation_safe_no_status_update_on_reassignment():
