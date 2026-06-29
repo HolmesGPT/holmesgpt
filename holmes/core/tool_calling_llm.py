@@ -210,8 +210,6 @@ class ToolCallingLLM:
         self.llm = llm
         self.tool_results_dir = tool_results_dir
 
-        self._skill_in_use: bool = False
-
     def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
         """Return a shallow copy with a different ToolExecutor.
 
@@ -225,16 +223,14 @@ class ToolCallingLLM:
             tool_results_dir=self.tool_results_dir,
             tracer=self.tracer,
         )
-        # Preserve transient state so resumed turns keep access to
-        # skill-unlocked (restricted) tools.
-        clone._skill_in_use = self._skill_in_use
         return clone
 
     def reset_interaction_state(self) -> None:
         """
-        For interactive loop, reset skills in use
+        For interactive loop. No transient per-interaction state is currently
+        tracked, but this hook is kept for the interactive loop to call.
         """
-        self._skill_in_use = False
+        return None
 
     def _supports_vision(self) -> bool:
         """Check if vision/multimodal input is enabled.
@@ -564,19 +560,14 @@ class ToolCallingLLM:
 
         return messages, events
 
-    def _should_include_restricted_tools(self) -> bool:
-        """Check if restricted tools should be included in the tools list."""
-        return self._skill_in_use
-
     def _get_tools(self) -> list:
-        """Get tools list, filtering restricted tools based on authorization.
+        """Get the tools list in OpenAI format.
 
         If a user_id is available (from request_context), per-user OAuth tools
         replace _connect placeholders for authenticated users.
         """
         user_id = (self._request_context or {}).get("user_id") if hasattr(self, "_request_context") else None
         return self.tool_executor.get_all_tools_openai_format(
-            include_restricted=self._should_include_restricted_tools(),
             user_id=user_id,
         )
 
@@ -799,15 +790,6 @@ class ToolCallingLLM:
                 toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
                 if toolset_name:
                     self.tool_executor.oauth_connector.store_user_tools(effective_user, toolset_name, tool_response.oauth_tools)
-
-            # Track skill usage - if fetch_skill is called successfully,
-            # restricted tools become available for the rest of the current request
-            if (
-                tool_name == "fetch_skill"
-                and tool_response.status == StructuredToolResultStatus.SUCCESS
-            ):
-                self._skill_in_use = True
-                logging.debug("Skill fetched - restricted tools now available")
 
         except Exception as e:
             logging.error(

@@ -8,9 +8,7 @@ from unittest.mock import MagicMock
 import certifi
 import pytest
 import realtime._async.client as rt_client
-from postgrest.exceptions import APIError as PGAPIError
 from realtime._async.channel import ChannelStates
-from websockets.exceptions import WebSocketException
 
 from holmes.core.conversations_worker.realtime_manager import (
     RealtimeWorker,
@@ -18,11 +16,9 @@ from holmes.core.conversations_worker.realtime_manager import (
     _install_realtime_log_filter_if_needed,
     _install_ssl_patch_if_needed,
     _RealtimeConnectivityWarningFilter,
-    _TRANSIENT_RECONNECT_EXCEPTIONS,
     broadcast_submit_topic,
     pg_changes_topic,
 )
-from holmes.core.supabase_dal import SupabaseDnsException
 
 
 def _make_manager():
@@ -426,87 +422,32 @@ def test_install_realtime_log_filter_downgrades_live_log_records(caplog):
     assert ws_record.levelno == logging.WARNING
 
 
-# ---- narrow exception handling in _full_reconnect ----
+# ---- _full_reconnect raises on any failure (the _run loop retries) ----
 
 
-def test_full_reconnect_treats_transient_signin_error_as_warning(caplog):
+@pytest.mark.parametrize(
+    "exc", [ConnectionError("network unreachable"), ValueError("no session")]
+)
+def test_full_reconnect_raises_signin_error(exc):
+    """Any sign-in failure propagates so the backoff loop catches and retries
+    — network or unexpected, the connection never gives up."""
     m = _make_manager()
-
-    def boom_sign_in():
-        raise ConnectionError("network unreachable")
-
-    m.dal.sign_in = boom_sign_in
-    with caplog.at_level(logging.DEBUG):
-        result = asyncio.run(m._full_reconnect())
-    assert result is False
-    warnings = [r for r in caplog.records if "will retry" in r.getMessage()]
-    assert warnings and warnings[0].levelno == logging.WARNING
+    m.dal.sign_in = MagicMock(side_effect=exc)
+    with pytest.raises(type(exc)):
+        asyncio.run(m._full_reconnect())
 
 
-def test_full_reconnect_resurfaces_unexpected_signin_error(caplog):
-    m = _make_manager()
-
-    def boom_sign_in():
-        raise ValueError("Authentication failed: no session returned")
-
-    m.dal.sign_in = boom_sign_in
-    with pytest.raises(ValueError):
-        with caplog.at_level(logging.DEBUG):
-            asyncio.run(m._full_reconnect())
-    errors = [
-        r
-        for r in caplog.records
-        if r.levelno == logging.ERROR and "not retrying" in r.getMessage()
-    ]
-    assert errors, "non-transient sign_in failure must be logged at ERROR"
-
-
-def test_full_reconnect_treats_transient_subscribe_error_as_warning(caplog):
+@pytest.mark.parametrize(
+    "exc", [TimeoutError("ws handshake timed out"), RuntimeError("library bug")]
+)
+def test_full_reconnect_raises_subscribe_error(exc):
+    """Any connect/subscribe failure propagates so the loop catches and retries."""
     m = _make_manager()
     m.dal.sign_in = MagicMock()
 
     async def boom_connect():
-        raise TimeoutError("ws handshake timed out")
+        raise exc
 
     m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
-    with caplog.at_level(logging.DEBUG):
-        result = asyncio.run(m._full_reconnect())
-    assert result is False
-    warnings = [
-        r
-        for r in caplog.records
-        if "Failed to reconnect" in r.getMessage() and r.levelno == logging.WARNING
-    ]
-    assert warnings
-
-
-def test_full_reconnect_resurfaces_unexpected_subscribe_error(caplog):
-    m = _make_manager()
-    m.dal.sign_in = MagicMock()
-
-    async def boom_connect():
-        raise RuntimeError("library invariant broken")
-
-    m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
-    with pytest.raises(RuntimeError):
-        with caplog.at_level(logging.DEBUG):
-            asyncio.run(m._full_reconnect())
-    errors = [
-        r
-        for r in caplog.records
-        if r.levelno == logging.ERROR
-        and "Unexpected error during reconnect" in r.getMessage()
-    ]
-    assert errors
-
-
-def test_transient_reconnect_exception_tuple_contents():
-    # Lock down the expected transient set so future edits don't silently
-    # widen the warning-only catch.
-    assert SupabaseDnsException in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert PGAPIError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert WebSocketException in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert asyncio.TimeoutError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert TimeoutError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert ConnectionError in _TRANSIENT_RECONNECT_EXCEPTIONS
-    assert OSError in _TRANSIENT_RECONNECT_EXCEPTIONS
+    with pytest.raises(type(exc)):
+        asyncio.run(m._full_reconnect())
