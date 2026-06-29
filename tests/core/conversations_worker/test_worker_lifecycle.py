@@ -1,6 +1,5 @@
 """Unit tests for worker lifecycle / claim-loop / error handling."""
 import threading
-from collections import deque
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,8 +25,6 @@ def _bare_worker():
     w._executor = MagicMock()
     w._active_conversation_ids = set()
     w._active_lock = threading.Lock()
-    w._queued_tasks = deque()
-    w._queued_lock = threading.Lock()
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
     w._realtime_verify_thread = None
@@ -79,7 +76,9 @@ def test_build_task_from_conversation_row_returns_none_on_bad_input():
 
 def test_try_claim_and_dispatch_claims_only_free_slots():
     """The worker claims only as many conversations as it has free pool slots
-    (MAX_CONCURRENT - active - queued), then dispatches them up to capacity."""
+    (MAX_CONCURRENT - active) and submits each straight to the executor — the
+    claim RPC already landed the row in 'running', so there is no separate
+    queued→running transition."""
     w = _bare_worker()
     w.dal.claim_n_pending_conversations.return_value = [
         {
@@ -100,15 +99,16 @@ def test_try_claim_and_dispatch_claims_only_free_slots():
         },
     ]
     w._try_claim_and_dispatch()
-    # With no active/queued work and the default capacity (5), the worker asks
-    # for 5 free slots — the legacy claim_conversations RPC is never used.
+    # With no active work and the default capacity (5), the worker asks for 5
+    # free slots — the legacy claim_conversations RPC is never used.
     w.dal.claim_conversations.assert_not_called()
     w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 5)
     # Both claimed conversations should have been submitted to the executor.
     assert w._executor.submit.call_count == 2
     assert "c1" in w._active_conversation_ids
     assert "c2" in w._active_conversation_ids
-    assert w.dal.update_conversation_status.call_count == 2
+    # No status transition happens on dispatch — the claim already set 'running'.
+    w.dal.update_conversation_status.assert_not_called()
 
 
 def test_try_claim_and_dispatch_passes_remaining_capacity_as_limit(monkeypatch):
@@ -118,7 +118,8 @@ def test_try_claim_and_dispatch_passes_remaining_capacity_as_limit(monkeypatch):
         "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
         5,
     )
-    # Two conversations already running -> only 3 free slots remain.
+    # Two conversations already running -> only 3 free slots remain
+    # (free = MAX_CONCURRENT - active; there is no longer a local queue).
     w._active_conversation_ids = {"existing1", "existing2"}
     w.dal.claim_n_pending_conversations.return_value = []
     w._try_claim_and_dispatch()
@@ -140,11 +141,12 @@ def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
     w.dal.claim_n_pending_conversations.assert_not_called()
     w.dal.claim_conversations.assert_not_called()
     w._executor.submit.assert_not_called()
-    assert len(w._queued_tasks) == 0
 
 
-def test_dispatch_queued_transitions_to_running():
-    """_dispatch_queued should call update_conversation_status(running) and submit."""
+def test_dispatch_submits_without_status_transition():
+    """_dispatch submits a claimed conversation straight to the executor and
+    tracks it as active. The claim RPC already set the row to 'running', so no
+    update_conversation_status call happens here."""
     w = _bare_worker()
     task = ConversationTask(
         conversation_id="c1",
@@ -153,22 +155,16 @@ def test_dispatch_queued_transitions_to_running():
         origin="chat",
         request_sequence=1,
     )
-    w._queued_tasks.append(task)
-    w._dispatch_queued()
-    w.dal.update_conversation_status.assert_called_once_with(
-        conversation_id="c1",
-        request_sequence=1,
-        assignee="h-test",
-        status="running",
-    )
+    w._dispatch(task)
+    w.dal.update_conversation_status.assert_not_called()
     w._executor.submit.assert_called_once()
     assert "c1" in w._active_conversation_ids
 
 
-def test_dispatch_queued_skips_if_transition_fails():
-    """If update_conversation_status returns False, task is not submitted."""
+def test_dispatch_noop_when_not_running():
+    """If the worker is stopping, _dispatch must not submit or track the task."""
     w = _bare_worker()
-    w.dal.update_conversation_status.return_value = False
+    w._running = False
     task = ConversationTask(
         conversation_id="c1",
         account_id="a1",
@@ -176,20 +172,16 @@ def test_dispatch_queued_skips_if_transition_fails():
         origin="chat",
         request_sequence=1,
     )
-    w._queued_tasks.append(task)
-    w._dispatch_queued()
+    w._dispatch(task)
     w._executor.submit.assert_not_called()
     assert "c1" not in w._active_conversation_ids
 
 
-def test_dispatch_queued_handles_mismatch_during_transition():
-    """If the queued→running transition raises ConversationReassignedError
-    (e.g. stop_conversation bumped request_sequence while queued), the task
-    must be skipped — not submitted to executor."""
+def test_dispatch_drops_task_when_executor_shutdown_races():
+    """If the executor is torn down between the running check and submit, the
+    in-flight tracking must be rolled back so capacity isn't leaked."""
     w = _bare_worker()
-    w.dal.update_conversation_status.side_effect = ConversationReassignedError(
-        "MISMATCH Request sequence expected 1, got 2"
-    )
+    w._executor.submit.side_effect = RuntimeError("cannot schedule new futures")
     task = ConversationTask(
         conversation_id="c1",
         account_id="a1",
@@ -197,9 +189,7 @@ def test_dispatch_queued_handles_mismatch_during_transition():
         origin="chat",
         request_sequence=1,
     )
-    w._queued_tasks.append(task)
-    w._dispatch_queued()
-    w._executor.submit.assert_not_called()
+    w._dispatch(task)
     assert "c1" not in w._active_conversation_ids
 
 
@@ -296,40 +286,6 @@ def test_process_conversation_safe_no_status_update_on_reassignment():
     w.dal.update_conversation_status.assert_not_called()
     w.dal.post_conversation_events.assert_not_called()
     assert "c1" not in w._active_conversation_ids
-
-
-def test_process_conversation_safe_dispatches_queued_after_completion():
-    """After a conversation finishes, the worker should try to dispatch queued tasks."""
-    w = _bare_worker()
-    task = ConversationTask(
-        conversation_id="c1",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=1,
-    )
-    # Pre-queue a task that should be dispatched after c1 finishes
-    next_task = ConversationTask(
-        conversation_id="c2",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=1,
-    )
-    w._queued_tasks.append(next_task)
-
-    with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
-        w._process_conversation_safe(task)
-
-    # c2 should have been dispatched (transition to running + submit)
-    w.dal.update_conversation_status.assert_called_once_with(
-        conversation_id="c2",
-        request_sequence=1,
-        assignee="h-test",
-        status="running",
-    )
-    w._executor.submit.assert_called_once()
-    assert "c2" in w._active_conversation_ids
 
 
 def test_notify_event_wakes_claim_loop():

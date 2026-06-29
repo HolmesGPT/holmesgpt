@@ -1270,7 +1270,8 @@ class SupabaseDal:
 
         ``limit`` <= 0 claims nothing (the server still runs its stale-pending
         timeout sweep). Returns the claimed Conversation rows
-        (status='queued', assignee=holmes_id).
+        (status='running', assignee=holmes_id) — the claim lands rows directly
+        in 'running'; the 'queued' intermediate status is deprecated.
         """
         if not self.enabled:
             return []
@@ -1346,7 +1347,8 @@ class SupabaseDal:
 
         ``limit`` <= 0 claims nothing (the server still sweeps stale pending
         rows >5 minutes old to 'timeout'). Returns claimed RemoteToolCalls
-        rows (status='queued', assignee=holmes_id).
+        rows (status='running', assignee=holmes_id) — the claim lands rows
+        directly in 'running'; the 'queued' intermediate status is deprecated.
         """
         if not self.enabled:
             return []

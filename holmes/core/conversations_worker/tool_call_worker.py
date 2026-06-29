@@ -225,7 +225,7 @@ class ToolCallWorker:
                 pool.submit(self._execute_safe, row)
             except RuntimeError:
                 # Pool shut down between the claim and here (stop() raced).
-                # The row stays 'queued' and relay times it out → 'stopped'.
+                # The row stays 'running' and relay times it out → 'stopped'.
                 with self._active_lock:
                     self._active_count -= 1
                 logging.warning(

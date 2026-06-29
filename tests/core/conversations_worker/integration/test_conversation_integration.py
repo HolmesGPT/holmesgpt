@@ -330,37 +330,42 @@ class TestStress:
             f"got {completed} completed, {failed} failed. Statuses: {results}"
         )
 
-    def test_queued_state_observed(self, supabase_fx: SupabaseFixture):
-        """When the batch exceeds max_concurrent, at least one conversation
-        should be observed in queued state during polling."""
+    def test_pending_backlog_observed(self, supabase_fx: SupabaseFixture):
+        """When the batch exceeds max_concurrent, the surplus must stay
+        'pending' (the backlog) while the pool runs at capacity.
+
+        The 'queued' lifecycle status is deprecated: the worker claims a
+        conversation straight to 'running' and only claims as many as it has
+        free pool slots, so a conversation waiting for capacity sits in
+        'pending' — that is the queue now. We should therefore observe at
+        least one conversation in 'pending' at the same time as at least one
+        in 'running'."""
         num = self._num()
 
         conv_ids = []
         for i in range(1, num + 1):
             conv = supabase_fx.create_conversation(
                 ask=f"What is {i * 11} - {i}? Just the number.",
-                title=f"integ: queued-obs-{i}",
+                title=f"integ: pending-backlog-{i}",
             )
             conv_ids.append(conv["conversation_id"])
 
-        saw_queued = set()
+        saw_pending_backlog = False
         start = time.time()
         while time.time() - start < 300:
-            all_done = True
-            for cid in conv_ids:
-                conv = supabase_fx.get_conversation(cid)
-                if conv["status"] == "queued":
-                    saw_queued.add(cid)
-                if conv["status"] not in ("completed", "failed"):
-                    all_done = False
-            if all_done:
+            statuses = [supabase_fx.get_conversation(cid)["status"] for cid in conv_ids]
+            # Surplus is held back in 'pending' while the pool is busy.
+            if "pending" in statuses and "running" in statuses:
+                saw_pending_backlog = True
+                break
+            if all(s in ("completed", "failed") for s in statuses):
                 break
             time.sleep(0.3)
 
-        assert len(saw_queued) > 0, (
+        assert saw_pending_backlog, (
             f"With {num} conversations and max_concurrent="
-            f"{CONVERSATION_WORKER_MAX_CONCURRENT}, at least 1 should "
-            f"have been observed in queued state"
+            f"{CONVERSATION_WORKER_MAX_CONCURRENT}, at least 1 should have been "
+            f"observed 'pending' (held back as backlog) while another runs"
         )
 
     def test_max_concurrent_never_exceeded(self, supabase_fx: SupabaseFixture):

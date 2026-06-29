@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 class ConversationStatus(str, Enum):
     PENDING = "pending"
+    # DEPRECATED: the claim now lands conversations directly in RUNNING
+    # (claim_n_pending_conversations). 'queued' is no longer produced, but it
+    # is still accepted everywhere (enum, update_conversation_status, DB CHECK
+    # constraints) so in-flight rows and a mixed-version rollout stay safe.
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -14,7 +18,12 @@ class ConversationStatus(str, Enum):
 
     @classmethod
     def updatable_values(cls) -> tuple:
-        """Statuses accepted by ``update_conversation_status``."""
+        """Statuses accepted by ``update_conversation_status``.
+
+        QUEUED is kept here for backwards compatibility (a row an older Holmes
+        left in 'queued' can still be transitioned), even though the current
+        worker never sets it.
+        """
         return (cls.QUEUED.value, cls.RUNNING.value, cls.COMPLETED.value, cls.FAILED.value)
 
 
@@ -29,6 +38,9 @@ class RemoteToolCallStatus(str, Enum):
     """
 
     PENDING = "pending"
+    # DEPRECATED: the claim now lands tool calls directly in RUNNING
+    # (claim_n_pending_tool_calls). Kept for backwards compatibility — see
+    # ConversationStatus.QUEUED.
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
