@@ -523,7 +523,7 @@ def supabase_fx(request) -> SupabaseFixture:
                 fx._relay_client.table("RemoteToolCalls").delete().eq(
                     "id", tcid
                 ).execute()
-            except Exception:
+            except Exception:  # noqa: BLE001 - best-effort teardown cleanup
                 logging.debug(
                     "Could not delete remote tool call %s during teardown "
                     "(expected: no DELETE policy)",
