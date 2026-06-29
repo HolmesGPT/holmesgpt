@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timezone
+from typing import Dict, List
 
 import pytest
 
@@ -441,7 +442,9 @@ class TestStress:
             promoted straight to 'running'),
           * every conversation eventually completes.
         """
-        num = 12  # > 10, and well above the default MAX_CONCURRENT (5)
+        # > 10 and always above the worker's configured capacity, so a real
+        # backlog forms regardless of CONVERSATION_WORKER_MAX_CONCURRENT.
+        num = max(12, CONVERSATION_WORKER_MAX_CONCURRENT + self._OVERFLOW)
         conv_ids = []
         for i in range(1, num + 1):
             conv = supabase_fx.create_conversation(

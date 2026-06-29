@@ -1355,7 +1355,16 @@ class SupabaseDal:
         if limit <= 0:
             return []
 
-        try:
+        # Retry transient infrastructure errors (Supabase proxy DNS/cache
+        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle —
+        # mirrors claim_n_pending_conversations.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
                 "claim_n_pending_tool_calls",
                 {
@@ -1370,8 +1379,14 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim_with_retry()
         except Exception:
-            logging.exception("Supabase error while claiming tool calls", exc_info=True)
+            logging.exception(
+                "Supabase error while claiming tool calls (after retries)",
+                exc_info=True,
+            )
             return []
 
     def post_remote_tool_call_result(

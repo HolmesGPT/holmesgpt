@@ -99,7 +99,10 @@ class ConversationWorker:
         self._notify_event = threading.Event()
         self._executor: Optional[ThreadPoolExecutor] = None
 
-        # Tracks conversations currently being processed (running state).
+        # Tracks tasks currently being processed (running state), keyed by
+        # (conversation_id, request_sequence) — see ConversationTask.active_key —
+        # so overlapping turns of the same conversation are counted separately
+        # and capacity accounting stays correct.
         self._active_conversation_ids: set = set()
         self._active_lock = threading.Lock()
 
@@ -426,7 +429,8 @@ class ConversationWorker:
         — surplus stays 'pending' in the DB for the next poll or for another
         Holmes instance to claim. With the 'queued' lifecycle status deprecated
         the claim RPC lands each row directly in 'running', so free capacity is
-        simply the pool size minus the in-flight (running) set.
+        simply the pool size minus the in-flight (running) set. The set is keyed
+        by (conversation_id, request_sequence) so each in-flight turn counts once.
         """
         with self._active_lock:
             active = len(self._active_conversation_ids)
@@ -500,7 +504,7 @@ class ConversationWorker:
             if not self._running or self._executor is None:
                 return
             with self._active_lock:
-                self._active_conversation_ids.add(task.conversation_id)
+                self._active_conversation_ids.add(task.active_key)
             try:
                 self._executor.submit(self._process_conversation_safe, task)
             except RuntimeError:
@@ -508,7 +512,7 @@ class ConversationWorker:
                 # The row stays 'running' in the DB and is recovered by the
                 # stale-conversation timeout sweep.
                 with self._active_lock:
-                    self._active_conversation_ids.discard(task.conversation_id)
+                    self._active_conversation_ids.discard(task.active_key)
                 logging.warning(
                     "Executor shut down; dropping claimed conversation %s",
                     task.conversation_id,
@@ -631,7 +635,7 @@ class ConversationWorker:
             )
         finally:
             with self._active_lock:
-                self._active_conversation_ids.discard(task.conversation_id)
+                self._active_conversation_ids.discard(task.active_key)
             # A pool slot is now free — wake the claim loop so it claims any
             # surplus 'pending' conversations we left behind (or that another
             # initiator created) now that we have capacity for them.

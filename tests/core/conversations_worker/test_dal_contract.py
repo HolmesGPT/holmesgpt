@@ -270,7 +270,32 @@ def test_claim_n_pending_tool_calls_forwards_limit():
 def test_claim_n_pending_tool_calls_skips_rpc_when_limit_not_positive():
     dal = _build_dal(rpc_data=[])
     assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=0) == []
+    assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=-1) == []
     dal.client.rpc.assert_not_called()
+
+
+def test_claim_n_pending_tool_calls_retries_transient_error_then_succeeds():
+    dal = _build_dal()
+    claimed = [{"id": "t1"}]
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(
+            side_effect=[
+                Exception("502 Bad Gateway"),
+                MagicMock(data=claimed),
+            ]
+        )
+    )
+    assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=5) == claimed
+    assert dal.client.rpc.return_value.execute.call_count == 2
+
+
+def test_claim_n_pending_tool_calls_returns_empty_after_exhausting_retries():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
+    )
+    assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=5) == []
+    assert dal.client.rpc.return_value.execute.call_count == 3
 
 
 # ---- update_conversation_status ----

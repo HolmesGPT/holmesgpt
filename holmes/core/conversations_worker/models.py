@@ -66,6 +66,19 @@ class ConversationTask(BaseModel):
     # the FE has no reason to duplicate it into every per-turn event.
     user_id: Optional[str] = None
 
+    @property
+    def active_key(self) -> tuple:
+        """Unique in-flight key for this task: (conversation_id, request_sequence).
+
+        Keying the worker's active set by conversation_id alone would conflate a
+        stale task with a newer request_sequence for the same conversation — the
+        second dispatch wouldn't raise the in-flight count and the first
+        completion would clear the shared key for both, letting the worker
+        overestimate free capacity and exceed MAX_CONCURRENT. The sequence makes
+        each turn count independently.
+        """
+        return (self.conversation_id, self.request_sequence)
+
     # Hydrated post-construction from events; not part of the validated row schema.
     _user_message_data: Dict[str, Any] = PrivateAttr(default_factory=dict)
     _conversation_history: Optional[List[Dict[str, Any]]] = PrivateAttr(default=None)

@@ -105,8 +105,8 @@ def test_try_claim_and_dispatch_claims_only_free_slots():
     w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 5)
     # Both claimed conversations should have been submitted to the executor.
     assert w._executor.submit.call_count == 2
-    assert "c1" in w._active_conversation_ids
-    assert "c2" in w._active_conversation_ids
+    assert ("c1", 1) in w._active_conversation_ids
+    assert ("c2", 1) in w._active_conversation_ids
     # No status transition happens on dispatch — the claim already set 'running'.
     w.dal.update_conversation_status.assert_not_called()
 
@@ -158,7 +158,7 @@ def test_dispatch_submits_without_status_transition():
     w._dispatch(task)
     w.dal.update_conversation_status.assert_not_called()
     w._executor.submit.assert_called_once()
-    assert "c1" in w._active_conversation_ids
+    assert ("c1", 1) in w._active_conversation_ids
 
 
 def test_dispatch_noop_when_not_running():
@@ -174,7 +174,7 @@ def test_dispatch_noop_when_not_running():
     )
     w._dispatch(task)
     w._executor.submit.assert_not_called()
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_dispatch_drops_task_when_executor_shutdown_races():
@@ -190,7 +190,7 @@ def test_dispatch_drops_task_when_executor_shutdown_races():
         request_sequence=1,
     )
     w._dispatch(task)
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_process_conversation_safe_marks_failed_on_exception():
@@ -227,7 +227,7 @@ def test_process_conversation_safe_marks_failed_on_exception():
         status="failed",
     )
     # active conversation cleared
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_process_conversation_safe_clears_active_on_success():
@@ -242,7 +242,7 @@ def test_process_conversation_safe_clears_active_on_success():
     with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
         w._process_conversation_safe(task)
 
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_process_conversation_safe_wakes_claim_loop_to_reclaim():
@@ -285,7 +285,7 @@ def test_process_conversation_safe_no_status_update_on_reassignment():
 
     w.dal.update_conversation_status.assert_not_called()
     w.dal.post_conversation_events.assert_not_called()
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_notify_event_wakes_claim_loop():
