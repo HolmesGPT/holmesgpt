@@ -216,12 +216,9 @@ class SupabaseFixture:
     # ---- remote tool call helpers ----
 
     def _relay(self) -> Client:
-        """A Supabase client signed in as relay (STORE_* creds).
-
-        RemoteToolCalls rows are created exclusively by relay/platform-mcp in
-        production; the INSERT/SELECT RLS policies are gated on is_relay()/the
-        account API role, so the ordinary UI test user cannot touch the table.
-        Skips the test if the relay credentials are not in the environment."""
+        """Supabase client signed in as relay (STORE_* creds). RemoteToolCalls
+        INSERT/SELECT are gated on is_relay()/API-role, which the UI test user
+        lacks. Skips the test if the relay creds aren't set."""
         if self._relay_client is not None:
             return self._relay_client
         url = os.environ.get("STORE_URL")
@@ -247,13 +244,10 @@ class SupabaseFixture:
         tool_params: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Insert a pending RemoteToolCalls row targeting this cluster and
-        broadcast 'pending_tool_calls' so the ToolCallWorker is woken.
-
-        The default tool is intentionally unknown to the executor, so the worker
-        resolves it to a terminal result quickly (no real tool side effects) —
-        the row still goes pending -> running -> completed, which is what these
-        tests assert. Returns the new RemoteToolCalls id (uuid string)."""
+        """Insert a pending RemoteToolCalls row and broadcast 'pending_tool_calls'
+        to wake the worker. The default tool is unknown, so the worker resolves
+        it to a terminal result fast — the row still goes pending -> running ->
+        completed. Returns the new row id."""
         tool_request: Dict[str, Any] = {
             "tool_name": tool_name,
             "tool_params": tool_params or {},
@@ -277,14 +271,9 @@ class SupabaseFixture:
     def insert_pending_remote_tool_calls(
         self, count: int, tool_name_prefix: str = "noop_probe_tool"
     ) -> List[str]:
-        """Bulk-insert ``count`` pending RemoteToolCalls rows in ONE request,
-        WITHOUT broadcasting.
-
-        Used by the burst test to stage a full backlog before waking the worker:
-        the worker only claims on a 'pending_tool_calls' broadcast (the realtime
-        poll interval is 5 minutes), so until broadcast_pending_tool_calls() is
-        called every row stays 'pending' and the backlog is observable.
-        Returns the new row ids."""
+        """Bulk-insert ``count`` pending RemoteToolCalls in ONE request, WITHOUT
+        broadcasting — stages a full backlog the worker won't claim until
+        broadcast_pending_tool_calls() wakes it. Returns the new row ids."""
         rc = self._relay()
         rows = [
             {

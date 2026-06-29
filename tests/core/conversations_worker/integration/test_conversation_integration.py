@@ -427,20 +427,10 @@ class TestStress:
     def test_burst_transitions_pending_to_running_never_queued(
         self, supabase_fx: SupabaseFixture
     ):
-        """Burst of 10+ conversations: each must go pending -> running (never
-        'queued') and complete.
-
-        The 'queued' lifecycle status is deprecated — the claim RPC lands a
-        conversation directly in 'running', and the worker only claims as many
-        as it has free pool slots, so the surplus waits in 'pending'. This test
-        rapidly polls every conversation and records the ordered set of statuses
-        each one is observed in, then asserts:
-
-          * no conversation is EVER observed in 'queued',
-          * at least one conversation is observed transitioning pending ->
-            running (proving the surplus really waits in 'pending' and is then
-            promoted straight to 'running'),
-          * every conversation eventually completes.
+        """Burst of 10+ conversations: each goes pending -> running (never
+        'queued') and completes. Polls every conversation, recording the ordered
+        statuses each is seen in, and asserts: 'queued' never appears, at least
+        one pending -> running transition is observed, and all complete.
         """
         # > 10 and always above the worker's configured capacity, so a real
         # backlog forms regardless of CONVERSATION_WORKER_MAX_CONCURRENT.
@@ -721,34 +711,18 @@ class TestRemoteToolCallStress:
     def test_burst_transitions_pending_to_running_never_queued(
         self, supabase_fx: SupabaseFixture
     ):
-        """Burst of 10+ remote tool calls: each must go pending -> running
-        (never 'queued') and reach a terminal result.
+        """Burst of 10+ remote tool calls: each goes pending -> running (never
+        'queued') and completes.
 
-        Mirrors the conversation burst test for the RemoteToolCalls path. The
-        'queued' lifecycle status is deprecated — claim_n_pending_tool_calls
-        lands a row directly in 'running', and the ToolCallWorker only claims as
-        many as it has free pool slots (TOOL_CALLER_MAX_CONCURRENT), so the
-        surplus waits in 'pending'.
-
-        To make the transition observable (remote tool calls execute almost
-        instantly, so a per-row 'running' window is easy to miss), we stage the
-        whole backlog up front: insert all rows directly via relay WITHOUT
-        broadcasting — the worker only claims on a 'pending_tool_calls'
-        broadcast (its realtime poll interval is 5 minutes) — snapshot that all
-        rows are 'pending', then send ONE broadcast to release the burst and
-        watch the worker drain it. We assert:
-
-          * every row is 'pending' before the worker is woken (the backlog),
-          * no row is EVER observed in 'queued' (deprecated),
-          * at least one row is observed 'running' (the new claim target — an
-            old worker would surface 'queued' here instead),
-          * every row reaches 'completed'.
-
-        The 'running' observation is the load-bearing check: post_remote_tool_-
-        call_result accepts status IN ('queued','running'), so 'completed' alone
-        would NOT distinguish the new (pending->running) path from the old
-        (pending->queued) one — only directly seeing 'running' (and never
-        'queued') does.
+        Tool calls execute almost instantly, so to make the transition
+        observable we stage the backlog up front — insert all rows directly via
+        relay WITHOUT broadcasting (the worker only claims on a broadcast; its
+        poll interval is 5 min) — snapshot that all are 'pending', then send one
+        broadcast and watch the worker drain it. Asserts: all pending before the
+        broadcast, 'queued' never observed, at least one 'running' observed, and
+        all complete. Seeing 'running' is the load-bearing check —
+        post_remote_tool_call_result accepts queued|running, so 'completed'
+        alone wouldn't distinguish the new path from the old.
         """
         # Comfortably above 10 and above the tool-caller pool so a backlog forms.
         num = max(15, TOOL_CALLER_MAX_CONCURRENT + 5)

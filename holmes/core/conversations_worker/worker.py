@@ -71,10 +71,8 @@ class ConversationWorker:
     and writes results back as ConversationEvents in real-time.
 
     Lifecycle: pending → running (claimed + processing) → completed/failed.
-    The claim RPC lands a row directly in 'running' (the 'queued' intermediate
-    status is deprecated — see claim_n_pending_conversations), so a conversation
-    waiting for capacity simply stays 'pending'. Presence is advertised for
-    running conversations.
+    The claim RPC lands a row directly in 'running' ('queued' is deprecated), so
+    a conversation waiting for capacity stays 'pending'.
     """
 
     def __init__(
@@ -86,11 +84,8 @@ class ConversationWorker:
         self.dal = dal
         self.config = config
         self.chat_function = chat_function
-        # Uniquely identify this Holmes process (presence key, assignee value
-        # in Conversations). HOSTNAME alone is not unique because a pod can
-        # restart and re-use the same name, and two replicas in different pods
-        # can have the same env var in tests. Combining hostname + pid +
-        # short uuid4 makes it globally unique across process lifetimes.
+        # Globally-unique process id (presence key + assignee). hostname alone
+        # isn't unique across pod restarts/replicas, so add pid + short uuid4.
         hostname = os.environ.get("HOSTNAME") or "local"
         self.holmes_id = f"{hostname}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
@@ -99,18 +94,13 @@ class ConversationWorker:
         self._notify_event = threading.Event()
         self._executor: Optional[ThreadPoolExecutor] = None
 
-        # Tracks tasks currently being processed (running state), keyed by
-        # (conversation_id, request_sequence) — see ConversationTask.active_key —
-        # so overlapping turns of the same conversation are counted separately
-        # and capacity accounting stays correct.
+        # In-flight (running) tasks, keyed by (conversation_id, request_sequence)
+        # — see ConversationTask.active_key — so overlapping turns of one
+        # conversation are counted separately for capacity.
         self._active_conversation_ids: set = set()
         self._active_lock = threading.Lock()
 
-        # Serializes conversation dispatch with stop() so the _running check
-        # and executor.submit are atomic — prevents submitting to a shut-down
-        # executor. All claiming/dispatch happens on the single claim-loop
-        # thread, so this lock only guards against the stop() race, not
-        # concurrent dispatch.
+        # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
 
         self._realtime_manager: Optional[RealtimeWorker] = None
@@ -237,9 +227,7 @@ class ConversationWorker:
                 self._realtime_manager.stop()
             except Exception:
                 logging.exception("Error stopping realtime manager", exc_info=True)
-        # Acquire _dispatch_lock so any in-flight _dispatch call finishes
-        # before we shut down the executor — prevents RuntimeError from
-        # submit() on a shut-down pool.
+        # Let any in-flight _dispatch finish before shutting the executor down.
         with self._dispatch_lock:
             if self._executor:
                 # shutdown(wait=False): prevent new tasks from being accepted,
@@ -423,29 +411,19 @@ class ConversationWorker:
             return False
 
     def _free_claim_slots(self) -> int:
-        """How many more conversations this worker may claim right now.
+        """Pool slots free right now: MAX_CONCURRENT minus in-flight tasks.
 
-        Bounded so that running never exceeds CONVERSATION_WORKER_MAX_CONCURRENT
-        — surplus stays 'pending' in the DB for the next poll or for another
-        Holmes instance to claim. With the 'queued' lifecycle status deprecated
-        the claim RPC lands each row directly in 'running', so free capacity is
-        simply the pool size minus the in-flight (running) set. The set is keyed
-        by (conversation_id, request_sequence) so each in-flight turn counts once.
+        Surplus stays 'pending' for the next poll or another instance to claim.
         """
         with self._active_lock:
             active = len(self._active_conversation_ids)
         return CONVERSATION_WORKER_MAX_CONCURRENT - active
 
     def _try_claim_and_dispatch(self) -> None:
-        # Claim only as many pending conversations as we have free pool slots.
-        # The claim RPC lands each row directly in 'running' (the 'queued'
-        # intermediate status is deprecated — see claim_n_pending_conversations),
-        # so each claimed row is submitted straight to the executor with no
-        # second DB transition. The surplus stays 'pending' so another Holmes
-        # instance can pick it up (cross-instance load balancing) and so we
-        # never hold more than MAX_CONCURRENT running at once. As running
-        # conversations finish, _process_conversation_safe wakes this loop to
-        # re-claim.
+        # Claim only as many pending rows as we have free slots and submit each
+        # straight to the executor (the claim already set them 'running'). The
+        # surplus stays 'pending' for another instance. _process_conversation_safe
+        # wakes this loop to re-claim as slots free.
         free = self._free_claim_slots()
         if free <= 0:
             return
@@ -487,18 +465,10 @@ class ConversationWorker:
             self._dispatch(task)
 
     def _dispatch(self, task: ConversationTask) -> None:
-        """Submit a claimed conversation (already 'running' in the DB) to the executor.
+        """Submit a claimed (already 'running') conversation to the executor.
 
-        Holds ``_dispatch_lock`` so the ``_running``/executor check and the
-        ``executor.submit`` are atomic with respect to ``stop()`` shutting the
-        executor down. The claim RPC already transitioned the row to 'running'
-        with our assignee, so no DB write happens here — we only track the
-        conversation as in-flight and hand it to the pool.
-
-        If the row's request_sequence was bumped (stop/retry) after we claimed,
-        that is detected later when the publisher posts events for the stale
-        sequence (ConversationReassignedError), handled in
-        _process_conversation_safe.
+        No DB write here — the claim set 'running'. A request_sequence bumped
+        after the claim (stop/retry) is caught later as ConversationReassignedError.
         """
         with self._dispatch_lock:
             if not self._running or self._executor is None:
@@ -508,9 +478,8 @@ class ConversationWorker:
             try:
                 self._executor.submit(self._process_conversation_safe, task)
             except RuntimeError:
-                # Pool shut down between the check and submit (stop() raced).
-                # The row stays 'running' in the DB and is recovered by the
-                # stale-conversation timeout sweep.
+                # Pool shut down (stop() raced); row stays 'running' and is
+                # recovered by the stale-conversation timeout sweep.
                 with self._active_lock:
                     self._active_conversation_ids.discard(task.active_key)
                 logging.warning(
@@ -636,9 +605,7 @@ class ConversationWorker:
         finally:
             with self._active_lock:
                 self._active_conversation_ids.discard(task.active_key)
-            # A pool slot is now free — wake the claim loop so it claims any
-            # surplus 'pending' conversations we left behind (or that another
-            # initiator created) now that we have capacity for them.
+            # A slot freed up — wake the claim loop to re-claim pending rows.
             self._notify_event.set()
 
     def _process_conversation(self, task: ConversationTask) -> None:

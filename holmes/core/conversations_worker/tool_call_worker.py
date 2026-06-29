@@ -205,11 +205,9 @@ class ToolCallWorker:
             free = TOOL_CALLER_MAX_CONCURRENT - self._active_count
         if free <= 0:
             return
-        # Check the pool/running state BEFORE claiming: claim_n_pending_tool_calls
-        # already makes the rows unavailable to other workers, so we must not
-        # claim rows we won't submit. Once claimed, we commit to dispatching every
-        # row (no mid-loop _running check) so a stop() that races the claim can't
-        # strand already-claimed rows until their timeout.
+        # Check pool/running BEFORE claiming so we never claim rows we won't
+        # submit; once claimed we dispatch every row (no mid-loop _running
+        # check) so a racing stop() can't strand claimed rows until timeout.
         pool = self._pool
         if pool is None or not self._running:
             return

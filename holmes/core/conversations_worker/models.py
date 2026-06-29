@@ -6,10 +6,8 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 class ConversationStatus(str, Enum):
     PENDING = "pending"
-    # DEPRECATED: the claim now lands conversations directly in RUNNING
-    # (claim_n_pending_conversations). 'queued' is no longer produced, but it
-    # is still accepted everywhere (enum, update_conversation_status, DB CHECK
-    # constraints) so in-flight rows and a mixed-version rollout stay safe.
+    # DEPRECATED: claims now land directly in RUNNING. Kept (and still accepted
+    # everywhere) for backwards compat with in-flight rows / mixed rollout.
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -18,12 +16,7 @@ class ConversationStatus(str, Enum):
 
     @classmethod
     def updatable_values(cls) -> tuple:
-        """Statuses accepted by ``update_conversation_status``.
-
-        QUEUED is kept here for backwards compatibility (a row an older Holmes
-        left in 'queued' can still be transitioned), even though the current
-        worker never sets it.
-        """
+        """Statuses accepted by ``update_conversation_status`` (QUEUED kept for compat)."""
         return (cls.QUEUED.value, cls.RUNNING.value, cls.COMPLETED.value, cls.FAILED.value)
 
 
@@ -38,8 +31,7 @@ class RemoteToolCallStatus(str, Enum):
     """
 
     PENDING = "pending"
-    # DEPRECATED: the claim now lands tool calls directly in RUNNING
-    # (claim_n_pending_tool_calls). Kept for backwards compatibility — see
+    # DEPRECATED: claims now land directly in RUNNING. Kept for compat — see
     # ConversationStatus.QUEUED.
     QUEUED = "queued"
     RUNNING = "running"
@@ -68,15 +60,9 @@ class ConversationTask(BaseModel):
 
     @property
     def active_key(self) -> tuple:
-        """Unique in-flight key for this task: (conversation_id, request_sequence).
-
-        Keying the worker's active set by conversation_id alone would conflate a
-        stale task with a newer request_sequence for the same conversation — the
-        second dispatch wouldn't raise the in-flight count and the first
-        completion would clear the shared key for both, letting the worker
-        overestimate free capacity and exceed MAX_CONCURRENT. The sequence makes
-        each turn count independently.
-        """
+        """In-flight key (conversation_id, request_sequence) — keyed by sequence
+        too so overlapping turns of one conversation count independently for
+        capacity."""
         return (self.conversation_id, self.request_sequence)
 
     # Hydrated post-construction from events; not part of the validated row schema.

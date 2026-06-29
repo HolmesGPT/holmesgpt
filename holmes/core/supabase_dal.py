@@ -1223,23 +1223,16 @@ class SupabaseDal:
         self, holmes_id: str, limit: int
     ) -> List[Dict]:
         """
-        Atomically claim up to ``limit`` pending conversations for this cluster,
-        oldest first (FIFO by created_at). Used by the worker to claim only as
-        many conversations as it has free pool slots, leaving the surplus
-        'pending' for the next poll or another Holmes instance.
-
-        ``limit`` <= 0 claims nothing (the server still runs its stale-pending
-        timeout sweep). Returns the claimed Conversation rows
-        (status='running', assignee=holmes_id) — the claim lands rows directly
-        in 'running'; the 'queued' intermediate status is deprecated.
+        Claim up to ``limit`` pending conversations (oldest first), landing them
+        directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
+        nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
         if limit <= 0:
             return []
 
-        # Retry transient infrastructure errors (Supabase proxy DNS/cache
-        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),
@@ -1273,24 +1266,16 @@ class SupabaseDal:
 
     def claim_n_pending_tool_calls(self, holmes_id: str, limit: int) -> List[Dict]:
         """
-        Atomically claim up to ``limit`` pending remote tool calls targeting
-        this cluster, oldest first (FIFO by created_at). Used by the tool-call
-        worker to claim only as many rows as it has free pool slots, leaving
-        the surplus 'pending' for the next poll or another Holmes instance.
-
-        ``limit`` <= 0 claims nothing (the server still sweeps stale pending
-        rows >5 minutes old to 'timeout'). Returns claimed RemoteToolCalls
-        rows (status='running', assignee=holmes_id) — the claim lands rows
-        directly in 'running'; the 'queued' intermediate status is deprecated.
+        Claim up to ``limit`` pending remote tool calls (oldest first), landing
+        them directly in 'running' ('queued' is deprecated). ``limit`` <= 0
+        claims nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
         if limit <= 0:
             return []
 
-        # Retry transient infrastructure errors (Supabase proxy DNS/cache
-        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle —
-        # mirrors claim_n_pending_conversations.
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),

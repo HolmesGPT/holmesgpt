@@ -143,9 +143,10 @@ def test_conversation_completes_through_transient_supabase_failures(
         mine: list = []
         deadline = time.time() + 20
         while time.time() < deadline:
-            # Bounded claim mirrors the real worker; it lands the row directly
-            # in 'running', so no separate running transition is needed here.
-            claimed = worker.dal.claim_n_pending_conversations(worker.holmes_id, 10)
+            # Claim just one row (the one under test) — the claim lands it
+            # directly in 'running', so a larger limit would strand unrelated
+            # pending rows in 'running' without dispatch.
+            claimed = worker.dal.claim_n_pending_conversations(worker.holmes_id, 1)
             mine = [c for c in claimed if c["conversation_id"] == cid]
             if mine:
                 break
