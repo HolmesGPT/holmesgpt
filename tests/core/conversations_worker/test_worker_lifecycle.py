@@ -74,12 +74,19 @@ def test_build_task_from_conversation_row_returns_none_on_bad_input():
     assert task is None
 
 
-def test_try_claim_and_dispatch_claims_only_free_slots():
+def test_try_claim_and_dispatch_claims_only_free_slots(monkeypatch):
     """The worker claims only as many conversations as it has free pool slots
     (MAX_CONCURRENT - active) and submits each straight to the executor — the
     claim RPC already landed the row in 'running', so there is no separate
     queued→running transition."""
     w = _bare_worker()
+    # Pin the capacity explicitly (like the neighboring tests) rather than
+    # relying on the default, so this stays valid if the default changes.
+    capacity = 5
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        capacity,
+    )
     w.dal.claim_n_pending_conversations.return_value = [
         {
             "conversation_id": "c1",
@@ -99,10 +106,10 @@ def test_try_claim_and_dispatch_claims_only_free_slots():
         },
     ]
     w._try_claim_and_dispatch()
-    # With no active work and the default capacity (5), the worker asks for 5
-    # free slots — the legacy claim_conversations RPC is never used.
+    # With no active work, the worker asks for the full configured capacity —
+    # the legacy claim_conversations RPC is never used.
     w.dal.claim_conversations.assert_not_called()
-    w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 5)
+    w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", capacity)
     # Both claimed conversations should have been submitted to the executor.
     assert w._executor.submit.call_count == 2
     assert ("c1", 1) in w._active_conversation_ids
