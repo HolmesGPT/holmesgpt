@@ -6,7 +6,6 @@ import time
 
 display_logger = logging.getLogger("holmes.display.llm")
 from abc import abstractmethod
-from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
 
 import boto3
@@ -693,6 +692,22 @@ class DefaultLLM(LLM):
         if temperature is not None:
             self.args.setdefault("temperature", temperature)
 
+        # Always send an explicit output-token limit: without one, litellm falls
+        # back to provider defaults (4096 for Anthropic models missing from its
+        # cost map, e.g. proxy aliases), silently truncating long answers with
+        # finish_reason="length". Sends the same budget that input limiting and
+        # compaction already reserve (overridable via OVERRIDE_MAX_OUTPUT_TOKEN).
+        # An explicit max_tokens / max_completion_tokens in model args wins;
+        # `: null` sentinels are stripped like temperature above. litellm
+        # translates max_tokens per provider (max_completion_tokens for OpenAI
+        # reasoning models, maxTokens for Bedrock, maxOutputTokens for Gemini).
+        if self.args.get("max_tokens", ...) is None:
+            self.args.pop("max_tokens", None)
+        if self.args.get("max_completion_tokens", ...) is None:
+            self.args.pop("max_completion_tokens", None)
+        if "max_completion_tokens" not in self.args:
+            self.args.setdefault("max_tokens", self.get_maximum_output_token())
+
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
 
@@ -762,7 +777,13 @@ class DefaultLLM(LLM):
             raise Exception(f"Unexpected type returned by the LLM {type(result)}")
 
     def get_maximum_output_token(self) -> int:
-        max_output_tokens = floor(min(64000, self.get_context_window_size() / 5))
+        # Reserve output budget = max(64k, 12% of the context window). The 64k
+        # floor keeps small and unknown models usable (the 200k fallback window
+        # gives 12% = 24k, so they stay at 64k), while large windows scale up:
+        # a 1M-context model reserves 120k. The crossover is ~533k. This value
+        # is still capped below to the model's real max_output_tokens when the
+        # model is known to litellm.
+        max_output_tokens = max(64000, self.get_context_window_size() * 12 // 100)
 
         if OVERRIDE_MAX_OUTPUT_TOKEN:
             logging.debug(
