@@ -231,7 +231,6 @@ def test_tool_calls_claim_only_free_slots(monkeypatch):
     worker.dal.claim_n_pending_tool_calls.return_value = [{"id": "t1"}, {"id": "t2"}]
     worker._try_claim_and_dispatch()
     # No free work yet -> asks for the full pool size.
-    worker.dal.claim_tool_calls.assert_not_called()
     worker.dal.claim_n_pending_tool_calls.assert_called_once_with("h-test", 10)
     assert worker._pool.submit.call_count == 2
     # Both submitted rows count against capacity.

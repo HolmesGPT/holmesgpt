@@ -106,9 +106,7 @@ def test_try_claim_and_dispatch_claims_only_free_slots(monkeypatch):
         },
     ]
     w._try_claim_and_dispatch()
-    # With no active work, the worker asks for the full configured capacity —
-    # the legacy claim_conversations RPC is never used.
-    w.dal.claim_conversations.assert_not_called()
+    # With no active work, the worker asks for the full configured capacity.
     w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", capacity)
     # Both claimed conversations should have been submitted to the executor.
     assert w._executor.submit.call_count == 2
@@ -146,7 +144,6 @@ def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
     w._try_claim_and_dispatch()
     # No claim RPC is issued at all when there is no free capacity.
     w.dal.claim_n_pending_conversations.assert_not_called()
-    w.dal.claim_conversations.assert_not_called()
     w._executor.submit.assert_not_called()
 
 

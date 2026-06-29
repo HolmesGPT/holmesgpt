@@ -1219,46 +1219,6 @@ class SupabaseDal:
         )
         return None
 
-    def claim_conversations(self, holmes_id: str) -> List[Dict]:
-        """
-        Atomically claim all pending conversations for this cluster.
-        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
-        """
-        if not self.enabled:
-            return []
-
-        # Retry transient infrastructure errors (Supabase proxy DNS/cache
-        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
-        @retry(
-            retry=retry_if_exception_type(Exception),
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
-            reraise=True,
-        )
-        def _claim_with_retry() -> List[Dict]:
-            res = self.client.rpc(
-                "claim_conversations",
-                {
-                    "_account_id": self.account_id,
-                    "_cluster_id": self.cluster,
-                    "_assignee": holmes_id,
-                },
-            ).execute()
-            if not res.data:
-                return []
-            if isinstance(res.data, list):
-                return res.data
-            return [res.data]
-
-        try:
-            return _claim_with_retry()
-        except Exception:
-            logging.exception(
-                "Supabase error while claiming conversations (after retries)",
-                exc_info=True,
-            )
-            return []
-
     def claim_n_pending_conversations(
         self, holmes_id: str, limit: int
     ) -> List[Dict]:
@@ -1309,33 +1269,6 @@ class SupabaseDal:
                 "Supabase error while claiming conversations (after retries)",
                 exc_info=True,
             )
-            return []
-
-    def claim_tool_calls(self, holmes_id: str) -> List[Dict]:
-        """
-        Atomically claim all pending remote tool calls targeting this cluster.
-        Returns claimed RemoteToolCalls rows (status='queued', assignee=holmes_id).
-        Stale pending rows (>5 minutes) are swept to 'timeout' server-side.
-        """
-        if not self.enabled:
-            return []
-
-        try:
-            res = self.client.rpc(
-                "claim_tool_calls",
-                {
-                    "_account_id": self.account_id,
-                    "_cluster_id": self.cluster,
-                    "_assignee": holmes_id,
-                },
-            ).execute()
-            if not res.data:
-                return []
-            if isinstance(res.data, list):
-                return res.data
-            return [res.data]
-        except Exception:
-            logging.exception("Supabase error while claiming tool calls", exc_info=True)
             return []
 
     def claim_n_pending_tool_calls(self, holmes_id: str, limit: int) -> List[Dict]:

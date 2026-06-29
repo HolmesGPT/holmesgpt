@@ -33,7 +33,7 @@ pytestmark = [pytest.mark.conversation_worker, pytest.mark.integration]
 
 # The conversation RPCs whose transient errors the retry policy must absorb.
 _CONVERSATION_RPCS = {
-    "claim_conversations",
+    "claim_n_pending_conversations",
     "get_conversation_events",
     "post_conversation_events",
     "update_conversation_status",
@@ -143,7 +143,9 @@ def test_conversation_completes_through_transient_supabase_failures(
         mine: list = []
         deadline = time.time() + 20
         while time.time() < deadline:
-            claimed = worker.dal.claim_conversations(worker.holmes_id)
+            # Bounded claim mirrors the real worker; it lands the row directly
+            # in 'running', so no separate running transition is needed here.
+            claimed = worker.dal.claim_n_pending_conversations(worker.holmes_id, 10)
             mine = [c for c in claimed if c["conversation_id"] == cid]
             if mine:
                 break
@@ -151,12 +153,6 @@ def test_conversation_completes_through_transient_supabase_failures(
         assert mine, "worker did not claim the created conversation within 20s"
         task = worker._build_task_from_conversation_row(mine[0])
 
-        assert worker.dal.update_conversation_status(
-            conversation_id=task.conversation_id,
-            request_sequence=task.request_sequence,
-            assignee=worker.holmes_id,
-            status="running",
-        )
         worker._process_conversation(task)
 
         injector.on = False

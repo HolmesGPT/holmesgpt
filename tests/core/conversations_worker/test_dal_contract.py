@@ -165,46 +165,6 @@ def test_get_conversation_events_returns_empty_list_when_disabled():
     dal.client.rpc.assert_not_called()
 
 
-# ---- claim_conversations ----
-
-
-def test_claim_conversations_uses_assignee_param():
-    dal = _build_dal(rpc_data=[])
-    dal.claim_conversations(holmes_id="my-pod-1")
-    args, _ = dal.client.rpc.call_args
-    assert args[0] == "claim_conversations"
-    params = args[1]
-    assert params["_assignee"] == "my-pod-1"
-    assert params["_account_id"] == "acc-1"
-    assert params["_cluster_id"] == "cluster-1"
-
-
-def test_claim_conversations_retries_transient_error_then_succeeds():
-    """A transient Supabase error should be retried and eventually succeed."""
-    dal = _build_dal()
-    claimed = [{"conversation_id": "c1"}]
-    dal.client.rpc.return_value = MagicMock(
-        execute=MagicMock(
-            side_effect=[
-                Exception("502 Bad Gateway"),
-                MagicMock(data=claimed),
-            ]
-        )
-    )
-    assert dal.claim_conversations(holmes_id="h") == claimed
-    assert dal.client.rpc.return_value.execute.call_count == 2
-
-
-def test_claim_conversations_returns_empty_after_exhausting_retries():
-    """Persistent transient errors exhaust retries and return [] (not raise)."""
-    dal = _build_dal()
-    dal.client.rpc.return_value = MagicMock(
-        execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
-    )
-    assert dal.claim_conversations(holmes_id="h") == []
-    assert dal.client.rpc.return_value.execute.call_count == 3
-
-
 # ---- claim_n_pending_conversations ----
 
 
