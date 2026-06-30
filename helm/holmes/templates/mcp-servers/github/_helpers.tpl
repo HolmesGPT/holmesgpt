@@ -82,6 +82,7 @@ Always try to understand how to fix the issue, not just diagnose it.
 - Fetch logs for failed workflow jobs - they contain the actual error messages
 - Use code search to find relevant files before reading them
 - Check PR diffs to understand what changed
+{{- end }}
 
 ## Tool Parameter Rules (READ THIS)
 
@@ -96,5 +97,4 @@ fields. If you don't have a value, leave the field out.
 
 - WRONG: `{"owner":"x","repo":"y","sha":null,"path":""}`
 - RIGHT: `{"owner":"x","repo":"y"}`
-{{- end -}}
 {{- end -}}
