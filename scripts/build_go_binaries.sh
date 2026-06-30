@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build CVE-patched Go binaries for the holmes Docker image.
 #
-# All binaries are built with Go 1.26.4 to fix stdlib
+# All binaries built by this script are built with Go 1.26.4 to fix stdlib
 # CVE-2026-42499/33814/39836/33811/39820 (fixed in Go 1.26.3).
 #
 # ArgoCD: rebuilt from v3.3.11 source with go-git replaced to v5.19.1 and
@@ -28,11 +28,12 @@
 #   Revert when kube-lineage releases a version built with Go >= 1.26.3,
 #   grpc >= 1.79.3, spdystream >= 0.5.1, containerd >= 1.7.32, and helm >= 3.20.2.
 #
-# kubectl: rebuilt from the upstream tag purely for the Go toolchain — every
-#   published kubectl release (v1.34.8 / v1.35.5 / v1.36.1) is compiled with a
-#   Go vulnerable to stdlib CVE-2026-42499/33814/39836/33811/39820/39823/39825/
-#   39826/42504. Revert to the dl.k8s.io binary when a release is built with
-#   Go >= 1.26.3 (check: go version <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)).
+# kubectl is NOT built here — the official dl.k8s.io binary (kubectl v1.36.2,
+#   pinned in the Dockerfile) is already built with Go 1.26.4, so it carries the
+#   stdlib CVE fixes without a from-source rebuild. Earlier releases were not:
+#   check a candidate with `go version <(curl -sL
+#   https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)` before bumping the
+#   Dockerfile pin, since the 1.34/1.35 lines are still on a vulnerable Go.
 #
 # Prerequisites: Go 1.21+ installed locally (GOTOOLCHAIN auto-downloads the
 #   pinned build toolchain below)
@@ -89,7 +90,6 @@ SPDYSTREAM_PATCHED_VERSION=v0.5.1
 CONTAINERD_PATCHED_VERSION=v1.7.32
 HELM_IN_LINEAGE_PATCHED_VERSION=v3.20.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
-KUBECTL_VERSION=v1.34.8
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 OUTDIR="$REPO_ROOT/bin/go-cve-rebuild"
@@ -170,31 +170,6 @@ echo "==> Building kube-lineage for linux/arm64..."
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
   -o "$OUTDIR/arm64/kube-lineage" ./cmd/kube-lineage
 
-echo "==> Cloning kubernetes $KUBECTL_VERSION (kubectl)..."
-git clone --depth 1 --branch "$KUBECTL_VERSION" https://github.com/kubernetes/kubernetes.git "$TMPDIR/kubernetes"
-cd "$TMPDIR/kubernetes"
-
-KUBECTL_MAJOR="$(echo "${KUBECTL_VERSION#v}" | cut -d. -f1)"
-KUBECTL_MINOR="$(echo "${KUBECTL_VERSION#v}" | cut -d. -f2)"
-KUBECTL_LDFLAGS="-w -s \
-  -X k8s.io/component-base/version.gitVersion=$KUBECTL_VERSION \
-  -X k8s.io/component-base/version.gitMajor=$KUBECTL_MAJOR \
-  -X k8s.io/component-base/version.gitMinor=$KUBECTL_MINOR \
-  -X k8s.io/component-base/version.gitTreeState=clean"
-
-# No -mod=mod here: the kubernetes repo uses a Go workspace (go.work), where
-# -mod may only be readonly/vendor. No replaces are needed for kubectl either —
-# we rebuild it purely for the fixed Go toolchain.
-echo "==> Building kubectl for linux/amd64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-  -ldflags "$KUBECTL_LDFLAGS" \
-  -o "$OUTDIR/amd64/kubectl" ./cmd/kubectl
-
-echo "==> Building kubectl for linux/arm64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "$KUBECTL_LDFLAGS" \
-  -o "$OUTDIR/arm64/kubectl" ./cmd/kubectl
-
 echo "==> Compressing binaries..."
 gzip -f "$OUTDIR/amd64/argocd"
 gzip -f "$OUTDIR/arm64/argocd"
@@ -202,8 +177,6 @@ gzip -f "$OUTDIR/amd64/helm"
 gzip -f "$OUTDIR/arm64/helm"
 gzip -f "$OUTDIR/amd64/kube-lineage"
 gzip -f "$OUTDIR/arm64/kube-lineage"
-gzip -f "$OUTDIR/amd64/kubectl"
-gzip -f "$OUTDIR/arm64/kubectl"
 
 echo "==> Generating SHA-256 checksums..."
 if command -v sha256sum >/dev/null 2>&1; then
@@ -213,7 +186,7 @@ else
   SHA256_CMD="shasum -a 256"
 fi
 for arch in amd64 arm64; do
-  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz kubectl.gz; do
+  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz; do
     $SHA256_CMD "$f" > "$f.sha256"
   done)
 done
