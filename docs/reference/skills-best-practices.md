@@ -179,26 +179,6 @@ last_updated: 2025-06-30
 
 When a skill is no longer relevant, delete it rather than leaving it broken. Holmes will perform better with fewer accurate skills than with many stale or broken ones.
 
-## Avoid Secrets in Skills
-
-Skills are often stored in ConfigMaps, Git repos, or shared documentation systems. **Never include secrets, API keys, passwords, or sensitive credentials.**
-
-Instead, reference how to obtain the secret:
-
-```markdown
-❌ DO NOT:
-```yaml
-elasticsearch:
-  api_key: "sk-elasticsearch-prod-..."
-```
-
-✅ DO:
-```markdown
-**Elasticsearch Credentials:**
-1. Retrieve the API key from Vault under `secret/prod/elasticsearch`
-2. Set environment variable: `export ES_API_KEY=$(vault kv get -field=api_key secret/prod/elasticsearch)`
-```
-
 ## Limit Skills to Relevant Clusters
 
 In the Robusta UI, you can restrict skills to specific clusters. If a skill is only relevant to your `production-us-east` cluster, don't send it to other clusters — it adds noise to Holmes's decision-making.
