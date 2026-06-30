@@ -8,7 +8,7 @@ The first question when capturing knowledge is: **Does every Holmes session need
 
 If knowledge applies to all investigations:
 
-- Use [Team Instructions](context-management.md) (stored in `knowledge -> global -> Team Instructions`)
+- Use Team Instructions (stored in `knowledge -> global -> Team Instructions`)
 - Examples: your team's naming conventions, standard runbooks, company policies, general best practices
 
 If knowledge is situational or optional:
@@ -86,7 +86,7 @@ This skill saves Holmes from discovering the entire topology by asking Kubernete
 
 ## Document Known Failure Patterns
 
-If a service has recurring problems, capture the diagnosis in a skill. This is especially valuable for issues that come back regularly or have non-obvious root causes.
+If a service has recurring problems, capture the diagnosis in a skill. This is especially valuable for issues that come back regularly or have non-obvious root causes. When an issue comes up during a Holmes investigation, you can ask Holmes to summarize and generate a skill from that investigation so you don't have to rediscover the same pattern in the future.
 
 ```markdown
 ---
@@ -207,88 +207,6 @@ In the Robusta UI, you can restrict skills to specific clusters. If a skill is o
 
 This reduces the number of skills Holmes considers, making matching faster and more accurate.
 
-## Writing Efficient Workflow Steps
-
-Skills execute steps to gather data. Make steps efficient:
-
-**✅ Good**: Focused, actionable steps
-```markdown
-## Workflow
-
-1. **Check pod restarts**
-   - `kubectl get pods -n app-ns -o json | jq '.items[].status.containerStatuses[].restartCount' | sort -nr | head -1`
-
-2. **Retrieve recent logs from crashing pod**
-   - `kubectl logs -n app-ns <pod-name> --previous --tail=50`
-
-3. **Check resource limits**
-   - `kubectl get pod <pod-name> -n app-ns -o json | jq '.spec.containers[].resources'`
-```
-
-**❌ Bad**: Vague, open-ended steps
-```markdown
-## Workflow
-
-1. Investigate the pod
-2. Look at logs and see what's happening
-3. Check if it's a resource issue
-4. Figure out the root cause
-```
-
-## Example: Complete Well-Written Skill
-
-```markdown
----
-name: elasticsearch-shard-relocation-timeout
-description: Resolve Elasticsearch cluster shard relocation timeout errors when adding nodes
-last_updated: 2025-06-30
----
-
-## Goal
-
-Diagnose and resolve shard relocation timeouts when scaling up an Elasticsearch cluster.
-
-## Ownership
-
-- **Service Owner**: Search Infrastructure team
-- **On-Call**: #search-infrastructure Slack channel
-- **Escalation**: Page search-infrastructure-oncall
-
-## Known Issue
-
-When adding new nodes to a live Elasticsearch cluster, shards sometimes timeout during relocation. Root cause: shard size exceeds the default relocation timeout window.
-
-## Workflow
-
-1. **Verify timeout error**
-   - Check cluster health: `GET /_cluster/health?pretty`
-   - Look for `"status":"yellow"` and `"unassigned_shards" > 0`
-
-2. **Identify large shards**
-   - Run: `GET /_cat/shards?v&bytes=b` and sort by size
-   - Shards > 5GB often timeout during relocation
-
-3. **Increase relocation timeout**
-   - Current setting: `GET /_cluster/settings?pretty` (check `indices.recovery.max_bytes_per_sec`)
-   - Update: `PUT /_cluster/settings { "transient": { "indices.recovery.max_bytes_per_sec": "200mb" } }`
-   - Wait 15 minutes for relocation to complete
-
-4. **Verify cluster recovered**
-   - Cluster health should return `"status":"green"`
-   - Check unassigned shards: `GET /_cluster/health?pretty`
-
-## Success Indicators
-
-- Cluster health returns `"status":"green"`
-- All shards have a primary assigned
-- No `"unassigned_shards"`
-
-## Further Reading
-
-- [Elasticsearch shard allocation docs](https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-cluster.html)
-- Internal runbook: Confluence page on "Scaling Elasticsearch in Production"
-```
-
 ## Generating Skills from Investigations
 
 At the end of an important investigation that required significant troubleshooting, Holmes can help you generate a skill to capture that knowledge:
@@ -306,46 +224,3 @@ Holmes will generate a `SKILL.md` with:
 
 Review the generated skill, add ownership context and any environment-specific topology, then commit it to your skills repository.
 
-## Storage and Versioning
-
-Store skills in a **version-controlled Git repository** whenever possible:
-
-- **Public repo for general skills**: Share with the community
-- **Private repo for company-specific skills**: Keep internal knowledge private
-- **One repo per team**: Database team owns their Postgres/MySQL skills, Kubernetes team owns their cluster skills
-
-Use branches for changes:
-```bash
-git checkout -b skills/add-redis-memory-pressure
-# Edit skills/redis-memory-pressure/SKILL.md
-git commit -m "Add skill: document Redis memory spike pattern"
-git push -u origin skills/add-redis-memory-pressure
-# Create a PR for review
-```
-
-Benefits:
-- Code review process catches outdated or incorrect steps
-- Git history shows when skills were added/updated
-- Easy to rollback if a skill is wrong
-- Audit trail for compliance
-
-## Monitoring Skill Usage
-
-If you're using the Robusta platform, monitor which skills Holmes actually uses. Skills that are never fetched might have:
-- Too-specific descriptions that don't match real investigations
-- Names that don't surface in Holmes's matching algorithm
-- Outdated content that Holmes avoids
-
-Remove unused skills after 6 months. They're just noise.
-
-## Checklist: Before Committing a New Skill
-
-- [ ] **Description is specific** — Avoids false matches; clearly states when this skill applies
-- [ ] **No secrets included** — All credentials are referenced, not hardcoded
-- [ ] **Ownership is clear** — Includes service owner, on-call contacts, escalation paths
-- [ ] **Workflow steps are tested** — Each step works in your environment
-- [ ] **Success criteria defined** — How does Holmes know the issue is resolved?
-- [ ] **Last updated date set** — Used for quarterly reviews
-- [ ] **Relevant to one cluster or many?** — Ensure it's assigned to the right clusters only
-- [ ] **Checked for duplication** — Doesn't overlap with existing built-in or custom skills
-- [ ] **Includes failure patterns** — Documents known issues for this service (if applicable)
