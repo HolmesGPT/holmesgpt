@@ -9,6 +9,7 @@ import base64
 import gzip
 import random
 import string
+import threading
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
@@ -334,6 +335,67 @@ def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
     worker._try_claim_and_dispatch()
     assert worker.dal.claim_n_pending_tool_calls.call_count == calls_before + 1
     assert len(dispatched) == 12
+
+
+def test_two_tool_workers_claim_disjoint_sets(monkeypatch):
+    """Cross-instance load balancing for tool calls: two workers draining the
+    SAME backlog must never both dispatch the same row. Simulates the DB's
+    FOR UPDATE SKIP LOCKED (each claim atomically takes a disjoint slice) and
+    asserts no double-dispatch, every row handled once, both workers active."""
+    pending = [f"t{i}" for i in range(12)]
+    db_lock = threading.Lock()
+
+    def fake_claim(_holmes_id, limit):
+        with db_lock:
+            batch, pending[:] = pending[:limit], pending[limit:]
+        return [{"id": tid} for tid in batch]
+
+    dispatched: dict = {}  # id -> worker label (detects double dispatch)
+
+    def make_worker(label):
+        w = _claimable_worker(monkeypatch, max_concurrent=5)
+        w.dal.claim_n_pending_tool_calls.side_effect = fake_claim
+
+        def record(_fn, row, _label=label):
+            assert row["id"] not in dispatched, (
+                f"{row['id']} dispatched twice (by "
+                f"{dispatched.get(row['id'])} and {_label})"
+            )
+            dispatched[row["id"]] = _label
+
+        w._pool.submit.side_effect = record
+        return w
+
+    w1 = make_worker("w1")
+    w2 = make_worker("w2")
+
+    while pending or w1._active_count or w2._active_count:
+        for w in (w1, w2):
+            w._try_claim_and_dispatch()
+            w._active_count = 0  # whole pool frees after each claim
+
+    assert sorted(dispatched) == sorted(f"t{i}" for i in range(12))
+    assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
+        "backlog exceeded one pool, so both workers should have claimed some"
+    )
+
+
+def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
+    """The tool-call claim loop clears _notify_event before claiming, so a
+    'pending_tool_calls' broadcast that lands mid-claim re-sets the event and
+    the next wait() wakes immediately — the wakeup is never lost."""
+    worker = _claimable_worker(monkeypatch, max_concurrent=5)
+
+    def claim_then_broadcast(_holmes_id, _limit):
+        worker.claim_pending_tool_calls()  # == _notify_event.set()
+        return []
+
+    worker.dal.claim_n_pending_tool_calls.side_effect = claim_then_broadcast
+
+    worker._notify_event.clear()
+    worker._try_claim_and_dispatch()
+    assert worker._notify_event.is_set()
+    assert worker._notify_event.wait(timeout=0) is True
 
 
 # ---- _wake_all routes to both workers ----

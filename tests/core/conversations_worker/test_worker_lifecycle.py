@@ -226,6 +226,94 @@ def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
     assert len(dispatched) == 12
 
 
+def test_two_workers_claim_disjoint_sets(monkeypatch):
+    """Cross-instance load balancing: two workers draining the SAME backlog
+    must never both dispatch the same conversation. The DB guarantees this
+    with FOR UPDATE SKIP LOCKED; here we simulate that guarantee (each claim
+    atomically removes its own slice under a lock) and assert the worker side
+    never double-dispatches, every row is handled exactly once, and both
+    workers actually participate."""
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+    pending = [f"c{i}" for i in range(12)]
+    db_lock = threading.Lock()
+
+    def fake_claim(_holmes_id, limit):
+        # SKIP LOCKED: each caller atomically takes a disjoint slice.
+        with db_lock:
+            batch, pending[:] = pending[:limit], pending[limit:]
+        return [
+            {
+                "conversation_id": cid,
+                "account_id": "a",
+                "cluster_id": "cl",
+                "origin": "chat",
+                "request_sequence": 1,
+                "metadata": {},
+            }
+            for cid in batch
+        ]
+
+    dispatched: dict = {}  # conversation_id -> worker label (detects double dispatch)
+
+    def make_worker(label):
+        w = _bare_worker()
+        w.dal.claim_n_pending_conversations.side_effect = fake_claim
+
+        def record(_fn, task, _label=label):
+            assert task.conversation_id not in dispatched, (
+                f"{task.conversation_id} dispatched twice (by "
+                f"{dispatched.get(task.conversation_id)} and {_label})"
+            )
+            dispatched[task.conversation_id] = _label
+
+        w._executor.submit.side_effect = record
+        return w
+
+    w1 = make_worker("w1")
+    w2 = make_worker("w2")
+
+    # Drain round-robin; each worker frees its whole pool after each claim.
+    while pending or w1._active_conversation_ids or w2._active_conversation_ids:
+        for w in (w1, w2):
+            w._try_claim_and_dispatch()
+            for key in list(w._active_conversation_ids):
+                w._active_conversation_ids.discard(key)
+
+    assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
+    assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
+        "backlog exceeded one pool, so both workers should have claimed some"
+    )
+
+
+def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
+    """The claim loop clears _notify_event BEFORE claiming (see _claim_loop), so
+    a broadcast that lands mid-claim re-sets the event and the next wait()
+    returns immediately — the wakeup is never lost. This reproduces that exact
+    ordering and asserts the event survives a claim that signals itself."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+
+    def claim_then_broadcast(_holmes_id, _limit):
+        # A 'pending_conversations' broadcast lands while we're mid-claim.
+        w.claim_pending_conversations()  # == _notify_event.set()
+        return []
+
+    w.dal.claim_n_pending_conversations.side_effect = claim_then_broadcast
+
+    # One loop-body iteration in the same order as _claim_loop:
+    w._notify_event.clear()          # loop clears before claiming
+    w._try_claim_and_dispatch()      # claim runs; a broadcast arrives mid-claim
+    # Event is set again -> the loop's next wait() wakes immediately to re-claim.
+    assert w._notify_event.is_set()
+    assert w._notify_event.wait(timeout=0) is True
+
+
 def test_dispatch_submits_without_status_transition():
     """_dispatch submits a claimed conversation straight to the executor and
     tracks it as active. The claim RPC already set the row to 'running', so no

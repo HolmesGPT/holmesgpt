@@ -215,12 +215,10 @@ class SupabaseFixture:
 
     # ---- remote tool call helpers ----
 
-    def _relay(self) -> Client:
-        """Supabase client signed in as relay (STORE_* creds). RemoteToolCalls
-        INSERT/SELECT are gated on is_relay()/API-role, which the UI test user
-        lacks. Skips the test if the relay creds aren't set."""
-        if self._relay_client is not None:
-            return self._relay_client
+    def new_relay_client(self) -> Client:
+        """A FRESH (uncached) relay-authenticated client. Each call opens its
+        own connection so concurrent claim RPCs can be driven from separate
+        threads (one connection per thread). Skips if relay creds aren't set."""
         url = os.environ.get("STORE_URL")
         key = os.environ.get("STORE_API_KEY")
         user = os.environ.get("STORE_USER")
@@ -228,15 +226,21 @@ class SupabaseFixture:
         if not all([url, key, user, password]):
             pytest.skip(
                 "STORE_URL/STORE_API_KEY/STORE_USER/STORE_PASSWORD required for "
-                "RemoteToolCalls tests (relay-authenticated insert)"
+                "relay-authenticated claim tests"
             )
         options = ClientOptions(postgrest_client_timeout=60)
         rc = create_client(url, key, options)
         res = rc.auth.sign_in_with_password({"email": user, "password": password})
         rc.auth.set_session(res.session.access_token, res.session.refresh_token)
         rc.postgrest.auth(res.session.access_token)
-        self._relay_client = rc
         return rc
+
+    def _relay(self) -> Client:
+        """Cached relay-authenticated client. RemoteToolCalls INSERT/SELECT are
+        gated on is_relay()/API-role, which the UI test user lacks."""
+        if self._relay_client is None:
+            self._relay_client = self.new_relay_client()
+        return self._relay_client
 
     def create_remote_tool_call(
         self,
