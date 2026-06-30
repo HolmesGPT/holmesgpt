@@ -9,7 +9,7 @@ The first question when capturing knowledge is: **Does every Holmes session need
 If knowledge applies to all investigations:
 
 - Use Team Instructions (stored in `knowledge -> global -> Team Instructions`)
-- Examples: your team's naming conventions, standard runbooks, company policies, general best practices
+- Examples: your team's naming conventions, company policies, general best practices
 
 If knowledge is situational or optional:
 
