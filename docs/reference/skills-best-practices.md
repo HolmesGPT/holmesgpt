@@ -46,6 +46,23 @@ description: Diagnose and resolve high disk usage on Kafka brokers caused by seg
 
 When Holmes sees a specific description like "database connection pool exhaustion," it knows exactly when to fetch that skill. Generic descriptions cause Holmes to fetch many skills, burning tokens on irrelevant ones.
 
+## Generating Skills from Investigations
+
+At the end of an important investigation that required significant troubleshooting, Holmes can help you generate a skill to capture that knowledge:
+
+```
+Holmes, based on what we just investigated, can you create a skill that captures
+this troubleshooting process so we don't have to rediscover it next time?
+```
+
+Holmes will generate a `SKILL.md` with:
+- A clear description matching the issue
+- The workflow steps you used
+- Expected outputs at each step
+- Remediation actions
+
+Review the generated skill, add ownership context and any environment-specific topology, then commit it to your skills repository.
+
 ## Use Skills to Encode Environment Context
 
 One of the highest-value uses for skills is to capture the **topology and dependencies of your systems** so Holmes doesn't have to discover them every time.
@@ -186,21 +203,3 @@ In the Robusta UI, you can restrict skills to specific clusters. If a skill is o
 **Example**: A skill about troubleshooting an on-prem Elasticsearch cluster only matters if Holmes is investigating issues in a cluster that actually runs Elasticsearch. Remove it from clusters that don't have Elasticsearch.
 
 This reduces the number of skills Holmes considers, making matching faster and more accurate.
-
-## Generating Skills from Investigations
-
-At the end of an important investigation that required significant troubleshooting, Holmes can help you generate a skill to capture that knowledge:
-
-```
-Holmes, based on what we just investigated, can you create a skill that captures
-this troubleshooting process so we don't have to rediscover it next time?
-```
-
-Holmes will generate a `SKILL.md` with:
-- A clear description matching the issue
-- The workflow steps you used
-- Expected outputs at each step
-- Remediation actions
-
-Review the generated skill, add ownership context and any environment-specific topology, then commit it to your skills repository.
-
