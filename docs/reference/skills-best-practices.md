@@ -196,6 +196,14 @@ last_updated: 2025-06-30
 
 When a skill is no longer relevant, delete it rather than leaving it broken. Holmes will perform better with fewer accurate skills than with many stale or broken ones.
 
+## Avoid Secrets in Skills
+
+Skills are sent to the LLM when Holmes decides they are relevant to an investigation. Because of that, skills should never contain information that should remain private or protected.
+
+**Never include secrets, API keys, passwords, tokens, private keys, certificates, kubeconfigs, database credentials, or any other sensitive credentials in a skill.**
+
+A good rule of thumb: if you would not want the LLM to repeat the value back in an answer, do not put it in a skill.
+
 ## Limit Skills to Relevant Clusters
 
 In the Robusta UI, you can restrict skills to specific clusters. If a skill is only relevant to your `production-us-east` cluster, don't send it to other clusters — it adds noise to Holmes's decision-making.
