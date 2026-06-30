@@ -147,6 +147,85 @@ def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
     w._executor.submit.assert_not_called()
 
 
+def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
+    """Exact-accounting test: draining a 12-row backlog at capacity 5 must
+
+      * call claim exactly once per iteration that has free capacity,
+      * pass limit == free slots on every call (never more),
+      * dispatch exactly the rows it claimed — each conversation once, never
+        exceeding MAX_CONCURRENT — so no work is missed or double-claimed,
+      * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
+    """
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+
+    pending = [f"c{i}" for i in range(12)]
+
+    def fake_claim(_holmes_id, limit):
+        assert limit > 0  # the worker must never call claim with no free capacity
+        batch, pending[:] = pending[:limit], pending[limit:]
+        return [
+            {
+                "conversation_id": cid,
+                "account_id": "a",
+                "cluster_id": "cl",
+                "origin": "chat",
+                "request_sequence": 1,
+                "metadata": {},
+            }
+            for cid in batch
+        ]
+
+    w.dal.claim_n_pending_conversations.side_effect = fake_claim
+
+    dispatched: list = []
+    w._executor.submit.side_effect = lambda _fn, task: dispatched.append(
+        task.conversation_id
+    )
+
+    observed_limits = []
+    dispatched_per_iter = []
+    max_active = 0
+    # Each iteration: claim+dispatch, then simulate every running conv finishing
+    # (frees the whole pool for the next claim), until the backlog is drained.
+    while pending or w._active_conversation_ids:
+        free_before = 5 - len(w._active_conversation_ids)
+        before = w.dal.claim_n_pending_conversations.call_count
+        dispatched_before = len(dispatched)
+        w._try_claim_and_dispatch()
+        after = w.dal.claim_n_pending_conversations.call_count
+
+        assert after == before + 1, "exactly one claim call per iteration"
+        limit = w.dal.claim_n_pending_conversations.call_args.args[1]
+        assert limit == free_before, "claim limit must equal free capacity"
+        observed_limits.append(limit)
+        dispatched_per_iter.append(len(dispatched) - dispatched_before)
+
+        max_active = max(max_active, len(w._active_conversation_ids))
+        assert len(w._active_conversation_ids) <= 5, "never exceed MAX_CONCURRENT"
+
+        for key in list(w._active_conversation_ids):
+            w._active_conversation_ids.discard(key)
+
+    # The whole pool is freed each iteration, so every claim requests the full
+    # 5 free slots; the final batch simply returns fewer rows (the remaining 2).
+    assert observed_limits == [5, 5, 5]
+    assert dispatched_per_iter == [5, 5, 2]  # ceil(12/5): 5, 5, then 2
+    assert max_active == 5
+    # Every conversation dispatched exactly once — none missed, none duplicated.
+    assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
+
+    # Backlog drained: one more pass issues a claim that returns nothing and
+    # dispatches nothing (no phantom work).
+    calls_before = w.dal.claim_n_pending_conversations.call_count
+    w._try_claim_and_dispatch()
+    assert w.dal.claim_n_pending_conversations.call_count == calls_before + 1
+    assert len(dispatched) == 12
+
+
 def test_dispatch_submits_without_status_transition():
     """_dispatch submits a claimed conversation straight to the executor and
     tracks it as active. The claim RPC already set the row to 'running', so no

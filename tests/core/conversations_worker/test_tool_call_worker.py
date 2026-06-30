@@ -273,6 +273,69 @@ def test_execute_safe_frees_slot_and_wakes_claim_loop(monkeypatch):
     assert worker._notify_event.is_set()
 
 
+def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
+    """Exact-accounting test: draining a 12-row backlog at capacity 5 must
+
+      * call claim exactly once per iteration that has free capacity,
+      * pass limit == free slots on every call (never more),
+      * dispatch exactly the rows it claimed — each tool call once, never
+        exceeding TOOL_CALLER_MAX_CONCURRENT — so no work is missed or
+        double-claimed,
+      * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
+    """
+    worker = _claimable_worker(monkeypatch, max_concurrent=5)
+
+    pending = [f"t{i}" for i in range(12)]
+
+    def fake_claim(_holmes_id, limit):
+        assert limit > 0  # the worker must never call claim with no free capacity
+        batch, pending[:] = pending[:limit], pending[limit:]
+        return [{"id": tid} for tid in batch]
+
+    worker.dal.claim_n_pending_tool_calls.side_effect = fake_claim
+
+    dispatched: list = []
+    worker._pool.submit.side_effect = lambda _fn, row: dispatched.append(row["id"])
+
+    observed_limits = []
+    dispatched_per_iter = []
+    max_active = 0
+    # Each iteration: claim+dispatch, then simulate every running tool call
+    # finishing (frees the whole pool for the next claim), until drained.
+    while pending or worker._active_count:
+        free_before = 5 - worker._active_count
+        before = worker.dal.claim_n_pending_tool_calls.call_count
+        dispatched_before = len(dispatched)
+        worker._try_claim_and_dispatch()
+        after = worker.dal.claim_n_pending_tool_calls.call_count
+
+        assert after == before + 1, "exactly one claim call per iteration"
+        limit = worker.dal.claim_n_pending_tool_calls.call_args.args[1]
+        assert limit == free_before, "claim limit must equal free capacity"
+        observed_limits.append(limit)
+        dispatched_per_iter.append(len(dispatched) - dispatched_before)
+
+        max_active = max(max_active, worker._active_count)
+        assert worker._active_count <= 5, "never exceed TOOL_CALLER_MAX_CONCURRENT"
+
+        worker._active_count = 0  # every dispatched tool call finishes
+
+    # The whole pool is freed each iteration, so every claim requests the full
+    # 5 free slots; the final batch simply returns fewer rows (the remaining 2).
+    assert observed_limits == [5, 5, 5]
+    assert dispatched_per_iter == [5, 5, 2]  # ceil(12/5): 5, 5, then 2
+    assert max_active == 5
+    # Every tool call dispatched exactly once — none missed, none duplicated.
+    assert sorted(dispatched) == sorted(f"t{i}" for i in range(12))
+
+    # Backlog drained: one more pass issues a claim that returns nothing and
+    # dispatches nothing (no phantom work).
+    calls_before = worker.dal.claim_n_pending_tool_calls.call_count
+    worker._try_claim_and_dispatch()
+    assert worker.dal.claim_n_pending_tool_calls.call_count == calls_before + 1
+    assert len(dispatched) == 12
+
+
 # ---- _wake_all routes to both workers ----
 
 
