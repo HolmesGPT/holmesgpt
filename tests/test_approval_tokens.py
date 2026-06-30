@@ -113,7 +113,10 @@ def test_verify_attaches_specific_reason_for_server_logs(token_arg, call_id, nam
 def test_verify_rejects_tampered_signature():
     token = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
     header, payload, sig = token.split(".")
-    flipped = sig[:-1] + ("A" if sig[-1] != "A" else "B")
+    # Flip the first char, not the last: base64url's final char of a 32-byte HMAC
+    # only carries 4 significant bits (2 padding bits), so different chars can
+    # decode to the same signature bytes and produce a non-tampered "tamper".
+    flipped = ("A" if sig[0] != "A" else "B") + sig[1:]
     with pytest.raises(approval_tokens.ApprovalTokenError):
         approval_tokens.verify_token(
             ".".join([header, payload, flipped]),
