@@ -18,6 +18,7 @@ from holmes.plugins.toolsets.grafana.common import (
     GrafanaCloudLokiConfig,
     GrafanaConfig,
     GrafanaLokiProxyConfig,
+    build_auth,
     get_base_url,
 )
 from holmes.plugins.toolsets.grafana.loki_api import (
@@ -105,6 +106,7 @@ class GrafanaLokiToolset(BaseGrafanaToolset):
                 verify_ssl=c.verify_ssl,
                 timeout=c.timeout_seconds,
                 max_retries=c.max_retries,
+                auth=build_auth(c),
             )
         except Exception as e:
             return False, f"Unable to connect to Loki.\n{str(e)}"
@@ -179,6 +181,7 @@ class LokiQuery(Tool):
                 verify_ssl=config.verify_ssl,
                 timeout=config.timeout_seconds,
                 max_retries=config.max_retries,
+                auth=build_auth(config),
             )
 
             explore_url = _build_grafana_loki_explore_url(

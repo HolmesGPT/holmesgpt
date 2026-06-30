@@ -46,6 +46,19 @@ rules:
   resources: ["scheduledhealthchecks/status"]
   verbs: ["get", "patch", "update"]
 
+# TriggeredHealthCheck CRD permissions
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["triggeredhealthchecks"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["triggeredhealthchecks/status"]
+  verbs: ["get", "patch", "update"]
+
+# Watch Deployments to fire rollout triggers
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+
 # Events for audit trail
 - apiGroups: [""]
   resources: ["events"]

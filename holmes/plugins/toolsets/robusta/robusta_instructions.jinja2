@@ -51,3 +51,7 @@ For example:
 * If provided an issue id (a.k.a. a finding), use `fetch_finding_by_id` to get more information about that issue
 * You may be given an issue id in the following format: << { "type": "issue", "id": "<the id of the issue>" } >>
 * The issue ID may be inside this prompt if given as part of an investigation. In that case, do call the tool `fetch_finding_by_id` to make sure you have all the information
+* The data returned by `fetch_finding_by_id` reports the alert's current state:
+  - A `firing` field: `true` means the alert/issue is currently FIRING, `false` means it is RESOLVED.
+  - An `ends_at` field: when it is null the alert is still firing; when it has a timestamp the alert resolved at that time (for prometheus alerts this reflects the latest state, including alerts auto-resolved after a period of silence).
+* Always state explicitly whether the alert is currently firing or resolved, and if resolved, since when (`ends_at`). Do not assume an alert is still firing without checking this — it may already have resolved.

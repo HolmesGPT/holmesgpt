@@ -10,7 +10,7 @@ packages = [{ include = "holmes" }]
 holmes = "holmes.main:run"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.14"
 openai = "^2.8.0"
 jiter = "!=0.13.0"  # Exclude 0.13.0 due to corrupted Windows wheel (RECORD file issue)
 jinja2 = "^3.1.2"
@@ -34,7 +34,10 @@ markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
-litellm = "1.83.7"
+# Python is capped at <3.14 because litellm (>=1.84.0) declares Requires-Python <3.14.
+# Lift python back to "^3.10" once https://github.com/BerriAI/litellm/pull/30687 is merged
+# and released (expected in litellm 1.90+).
+litellm = "1.89.0"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
@@ -86,6 +89,7 @@ optional = true
 opentelemetry-api = "^1.30.0"
 opentelemetry-sdk = "^1.30.0"
 opentelemetry-exporter-otlp-proto-grpc = "^1.30.0"
+opentelemetry-exporter-otlp-proto-http = "^1.30.0"
 opentelemetry-instrumentation-httpx = ">=0.51b0"
 
 [tool.poetry.group.dev]
@@ -118,7 +122,7 @@ respx = "^0.22.0"
 opentelemetry-api = "^1.30.0"
 opentelemetry-sdk = "^1.30.0"
 opentelemetry-exporter-otlp-proto-grpc = "^1.30.0"
-opentelemetry-exporter-otlp-proto-http = "^1.20.0"
+opentelemetry-exporter-otlp-proto-http = "^1.30.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -189,7 +193,9 @@ markers = [
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
-    "token-limit: Tests that enforce a maximum token usage budget"
+    "token-limit: Tests that enforce a maximum token usage budget",
+    "multi-cluster: Multi-cluster / multi-environment topology and scope-awareness evals (PR #2042 set) — cluster mismatches, name disambiguation across clusters/namespaces/regions, labeling discipline in cross-cluster data, toolset vs no-data distinction, time-window gaps",
+    "fable-not-opus: Tests that fable-5 passes and opus-4.6 fails — useful for measuring the capability gap between these two specific models"
 ]
 
 addopts = [
