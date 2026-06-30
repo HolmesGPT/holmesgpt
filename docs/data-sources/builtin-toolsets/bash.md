@@ -69,7 +69,7 @@ The `builtin_allowlist` field controls which commands are pre-approved:
 |----------|----------|--------------------|
 | File reading | `cat`, `base64` | Can read sensitive files (~/.ssh, ~/.aws) on local machines |
 | Filesystem | `ls`, `find`, `stat`, `du`, `df` | Exposes local filesystem structure |
-| Archives | `tar -tf`, `tar -tvf`, `tar -tfv`, `tar -ftv`, `gzip -l`, `zcat`, `zgrep` | Can inspect local archives |
+| Archives | `tar -tf`, `tar -tvf`, `gzip -l`, `zcat`, `zgrep` | Can inspect local archives |
 
 **`none`** - empty builtin list. Only commands in your `allow` list and previously approved commands are allowed.
 
