@@ -375,6 +375,28 @@
       "backendToolsetNames": ["servicenow/tables"]
     },
     {
+      "id": "jira",
+      "name": "Jira",
+      "description": "Search issues, projects, and tickets for incident context",
+      "categories": ["itsm-knowledgebase"],
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/jira.svg",
+      "docsUrl": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "incident-io",
+      "name": "incident.io",
+      "description": "Pull incidents, timelines, and follow-ups for incident analysis",
+      "categories": ["itsm-knowledgebase"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=incident.io",
+      "docsUrl": "https://docs.incident.io/ai/remote-mcp",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
       "id": "confluence",
       "name": "Confluence",
       "description": "Search Confluence pages and knowledge base content",
@@ -451,6 +473,127 @@
       "helmPath": "holmes.mcpAddons.kubernetesRemediation",
       "minRobustaVersion": "0.33.0",
       "backendToolsetNames": ["kubernetes-remediation", "kubernetes_remediation", "kubernetes-remediation-mcp"]
+    },
+    {
+      "id": "honeycomb",
+      "name": "Honeycomb",
+      "description": "Query events, traces, and SLOs to debug production",
+      "categories": ["traces", "metrics"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=honeycomb.io",
+      "docsUrl": "https://docs.honeycomb.io/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "render",
+      "name": "Render",
+      "description": "Inspect services, deploys, and logs on Render",
+      "categories": ["cloud-providers"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=render.com",
+      "docsUrl": "https://render.com/docs",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "statsig",
+      "name": "Statsig",
+      "description": "Check feature gates, experiments, and config changes",
+      "categories": ["other"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=statsig.com",
+      "docsUrl": "https://docs.statsig.com/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "monday",
+      "name": "Monday.com",
+      "description": "Read boards, items, and updates for incident context",
+      "categories": ["itsm-knowledgebase"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=monday.com",
+      "docsUrl": "https://developer.monday.com/api-reference/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "betterstack",
+      "name": "Better Stack",
+      "description": "Uptime monitors, on-call incidents, and logs",
+      "categories": ["logs", "metrics"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=betterstack.com",
+      "docsUrl": "https://betterstack.com/docs/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "description": "Inspect Postgres data, logs, and project config",
+      "categories": ["databases"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=supabase.com",
+      "docsUrl": "https://supabase.com/docs/guides/getting-started/mcp",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "cloudflare-observability",
+      "name": "Cloudflare Observability",
+      "description": "Analytics, logs, and observability across Cloudflare",
+      "categories": ["cloud-providers"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=cloudflare.com",
+      "docsUrl": "https://developers.cloudflare.com/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "cloudflare-access",
+      "name": "Cloudflare Access",
+      "description": "Zero Trust access audit logs and events",
+      "categories": ["other"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=cloudflare.com",
+      "docsUrl": "https://developers.cloudflare.com/cloudflare-one/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "pagerduty",
+      "name": "PagerDuty",
+      "description": "On-call schedules, incidents, and escalation policies",
+      "categories": ["itsm-knowledgebase"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=pagerduty.com",
+      "docsUrl": "https://developer.pagerduty.com/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "cockroachdb",
+      "name": "CockroachDB",
+      "description": "Cluster health, SQL insights, and diagnostics",
+      "categories": ["databases"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=cockroachlabs.com",
+      "docsUrl": "https://www.cockroachlabs.com/docs/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
+    },
+    {
+      "id": "bitbucket",
+      "name": "Bitbucket",
+      "description": "Repositories, pull requests, and pipelines",
+      "categories": ["source-control-cicd"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=bitbucket.org",
+      "docsUrl": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
     }
   ]
 }
