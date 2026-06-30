@@ -10,7 +10,7 @@ packages = [{ include = "holmes" }]
 holmes = "holmes.main:run"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.14"
 openai = "^2.8.0"
 jiter = "!=0.13.0"  # Exclude 0.13.0 due to corrupted Windows wheel (RECORD file issue)
 jinja2 = "^3.1.2"
@@ -34,7 +34,10 @@ markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
-litellm = "1.83.7"
+# Python is capped at <3.14 because litellm (>=1.84.0) declares Requires-Python <3.14.
+# Lift python back to "^3.10" once https://github.com/BerriAI/litellm/pull/30687 is merged
+# and released (expected in litellm 1.90+).
+litellm = "1.89.0"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
