@@ -1,6 +1,15 @@
 # Alpine-based image (switched from Debian bookworm to drop unfixable perl
 # CVEs; Alpine git has no perl dependency).
 
+# Build-tooling version floors, shared across both build stages (re-declared
+# with a bare `ARG` inside each stage that uses them). CVE fixes:
+#   wheel >= 0.46.2     CVE-2026-24049
+#   pip >= 26.1         CVE-2026-3219/6357, CVE-2025-8869
+#   setuptools >= 80.0  CVE-2026-1703 (final-stage system Python only)
+ARG PIP_MIN_VERSION=26.1
+ARG WHEEL_MIN_VERSION=0.46.2
+ARG SETUPTOOLS_MIN_VERSION=80.0.0
+
 # Build stage
 FROM python:3.11-alpine AS builder
 ENV PATH="/root/.local/bin/:$PATH"
@@ -24,11 +33,13 @@ RUN apk add --no-cache \
 
 WORKDIR /
 
-# Create venv; upgrade wheel (CVE-2026-24049) and pip (CVE-2026-3219/6357, CVE-2025-8869).
+# Create venv; upgrade wheel + pip (CVE floors pinned via the ARGs at the top).
 # The venv is selected via VIRTUAL_ENV/PATH below (sourcing activate in a RUN has
 # no effect — the shell exits when the layer finishes).
+ARG PIP_MIN_VERSION
+ARG WHEEL_MIN_VERSION
 RUN python -m venv /venv --upgrade-deps && \
-    /venv/bin/pip install --upgrade 'wheel>=0.46.2' 'pip>=26.1'
+    /venv/bin/pip install --upgrade "wheel>=${WHEEL_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}"
 
 ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
@@ -174,9 +185,13 @@ ARG AWS_REGION
 # Patching CVE-2024-32002
 RUN git config --global core.symlinks false
 
-# Upgrade base-image system Python's wheel/setuptools/pip (CVE-2026-24049,
-# CVE-2026-3219/6357, CVE-2025-8869, CVE-2026-1703).
-RUN /usr/local/bin/pip install --upgrade --no-cache-dir 'wheel>=0.46.2' 'setuptools>=80.0.0' 'pip>=26.1'
+# Upgrade base-image system Python's wheel/setuptools/pip (CVE floors pinned via
+# the ARGs at the top of this file).
+ARG PIP_MIN_VERSION
+ARG WHEEL_MIN_VERSION
+ARG SETUPTOOLS_MIN_VERSION
+RUN /usr/local/bin/pip install --upgrade --no-cache-dir \
+    "wheel>=${WHEEL_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}"
 
 COPY ./experimental/ag-ui/server-agui.py /app/experimental/ag-ui/server-agui.py
 COPY ./holmes /app/holmes

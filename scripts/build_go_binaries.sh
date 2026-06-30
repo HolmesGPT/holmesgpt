@@ -47,10 +47,15 @@ set -euo pipefail
 export GOTOOLCHAIN=go1.26.4
 
 MIN_GO_VERSION="1.26.3"
+# Minimum *local* Go that can bootstrap the GOTOOLCHAIN auto-download above
+# (the GOTOOLCHAIN mechanism landed in Go 1.21). Intentionally lower than
+# MIN_GO_VERSION: the pinned build toolchain is fetched automatically, so the
+# locally installed go only needs to be new enough to honor GOTOOLCHAIN.
+MIN_BOOTSTRAP_GO_VERSION="1.21"
 # Check for the go binary first: under `set -e` the command substitution below
 # would otherwise abort the script before the empty-string check could run.
 if ! command -v go >/dev/null 2>&1; then
-  echo "Go is not installed or not on PATH. Go 1.21+ is required (GOTOOLCHAIN downloads ${GOTOOLCHAIN#go})." >&2
+  echo "Go is not installed or not on PATH. Go ${MIN_BOOTSTRAP_GO_VERSION}+ is required (GOTOOLCHAIN downloads ${GOTOOLCHAIN#go})." >&2
   exit 1
 fi
 CURRENT_GO_VERSION="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
