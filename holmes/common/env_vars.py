@@ -228,7 +228,7 @@ REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS = int(
 # and connected, Holmes relies on Postgres Changes notifications and does not
 # poll.
 CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME = int(
-    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 60)
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 30)
 )
 # Safety-net poll interval when realtime IS connected. Supabase Realtime
 # has at-most-once delivery, so this caps the maximum latency for a missed
