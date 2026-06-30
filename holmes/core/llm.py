@@ -347,6 +347,7 @@ class LLM:
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         pass
 
@@ -654,6 +655,7 @@ class DefaultLLM(LLM):
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         tools_args = {}
         allowed_openai_params = None
@@ -752,6 +754,23 @@ class DefaultLLM(LLM):
                 }
             ]
 
+        # Observability metadata (callback-agnostic). litellm treats `metadata`
+        # as a reserved logging field — it is forwarded to the active logging
+        # callbacks / LiteLLM proxy (Langfuse, Langsmith, Arize, etc.) and
+        # stripped before the provider request, so it never reaches the model.
+        # Per-call metadata is merged over any statically-configured metadata in
+        # self.args, with per-call keys winning on conflict.
+        metadata_kwargs: Dict[str, Any] = {}
+        configured_metadata = self.args.pop("metadata", None)
+        if configured_metadata or metadata:
+            merged_metadata: Dict[str, Any] = {}
+            if isinstance(configured_metadata, dict):
+                merged_metadata.update(configured_metadata)
+            if metadata:
+                merged_metadata.update(metadata)
+            if merged_metadata:
+                metadata_kwargs["metadata"] = merged_metadata
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
@@ -767,6 +786,7 @@ class DefaultLLM(LLM):
             **tools_args,
             **self.args,
             **cache_kwargs,
+            **metadata_kwargs,
         )
 
         if isinstance(result, ModelResponse):

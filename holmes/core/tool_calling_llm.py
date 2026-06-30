@@ -26,6 +26,7 @@ from holmes.common.env_vars import (
     load_bool,
 )
 from holmes.core.llm import LLM
+from holmes.core.llm_observability import build_llm_metadata
 from holmes.core.llm_usage import RequestStats
 from holmes.core.models import (
     FrontendToolResult,
@@ -1168,6 +1169,7 @@ class ToolCallingLLM:
                     temperature=TEMPERATURE,
                     stream=False,
                     drop_params=True,
+                    metadata=build_llm_metadata(self._request_context),
                 )
 
                 # Accumulate cost information for this iteration
