@@ -1,23 +1,39 @@
-"""Map a request's identity into LiteLLM observability metadata.
+"""Derive end-user / session attribution for an LLM call from a request.
 
-HolmesGPT delegates LLM calls to LiteLLM, which forwards a reserved ``metadata``
-field to whichever logging callback / LiteLLM proxy is configured (Langfuse,
-Langsmith, Arize, Datadog LLM Observability, ...). Populating that field lets
-every backend attribute a trace to the end user and group a conversation into a
-session — without coupling Holmes to any single observability vendor.
+Holmes runs as a server on behalf of many users. Attaching the end-user
+identifier and the conversation/session to each LLM call lets any observability
+backend group and filter traces by user and conversation — regardless of which
+model provider (OpenAI, Anthropic, Bedrock, ...) actually serves the request.
+
+Attribution is expressed with provider-neutral fields:
+
+- ``user`` is the standard end-user identifier understood across providers.
+- ``metadata`` carries additional, optional observability fields (session id,
+  tags) that Holmes forwards without interpreting them.
 
 This module is the single, deliberately narrow place that decides *what* of an
-inbound request becomes observability metadata. It is a whitelist on purpose:
-only known-safe identity fields are mapped to LiteLLM's documented metadata keys,
-and free-form tags are bounded, so nothing arbitrary from ``request_context``
-leaks into traces.
+inbound request becomes attribution data. It is a whitelist on purpose: only
+known-safe identity fields are mapped, and free-form tags are bounded, so nothing
+arbitrary from ``request_context`` leaks into traces.
 """
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 # Defensive bounds so a misbehaving caller cannot blow up trace cardinality.
 _MAX_TAGS = 20
 _MAX_TAG_LEN = 256
+
+
+@dataclass(frozen=True)
+class TraceAttribution:
+    """Provider-neutral attribution for a single LLM call."""
+
+    user: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def is_empty(self) -> bool:
+        return self.user is None and not self.metadata
 
 
 def _clean(value: Any) -> Optional[str]:
@@ -27,33 +43,27 @@ def _clean(value: Any) -> Optional[str]:
     return text or None
 
 
-def build_llm_metadata(
+def build_trace_attribution(
     request_context: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
-    """Build LiteLLM observability ``metadata`` from a request context.
+) -> TraceAttribution:
+    """Build provider-neutral trace attribution from a request context.
 
-    Maps Holmes' per-request identity to LiteLLM's documented, callback-agnostic
-    metadata keys:
+    - ``user``     ← ``user_email`` (preferred) or ``user_id``
+    - ``session_id`` (metadata) ← ``conversation_id``
+    - ``tags`` (metadata)       ← ``request_type:<...>`` and ``cluster:<...>``
 
-    - ``trace_user_id`` ← ``user_email`` (preferred) or ``user_id``
-    - ``session_id``    ← ``conversation_id``
-    - ``tags``          ← ``request_type:<...>`` and ``cluster:<...>`` when present
-
-    Returns ``None`` when there is nothing to attribute, so callers can pass the
-    result straight through to ``llm.completion(metadata=...)`` and the behaviour
-    is unchanged for requests that carry no identity (e.g. the CLI).
+    Returns an empty :class:`TraceAttribution` when there is nothing to
+    attribute, so behaviour is unchanged for callers that carry no identity
+    (e.g. the CLI).
     """
     if not request_context:
-        return None
-
-    metadata: Dict[str, Any] = {}
+        return TraceAttribution()
 
     user = _clean(request_context.get("user_email")) or _clean(
         request_context.get("user_id")
     )
-    if user:
-        metadata["trace_user_id"] = user
 
+    metadata: Dict[str, Any] = {}
     session = _clean(request_context.get("conversation_id"))
     if session:
         metadata["session_id"] = session
@@ -68,4 +78,4 @@ def build_llm_metadata(
     if tags:
         metadata["tags"] = [tag[:_MAX_TAG_LEN] for tag in tags[:_MAX_TAGS]]
 
-    return metadata or None
+    return TraceAttribution(user=user, metadata=metadata or None)

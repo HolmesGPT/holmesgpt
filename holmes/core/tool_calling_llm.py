@@ -26,7 +26,7 @@ from holmes.common.env_vars import (
     load_bool,
 )
 from holmes.core.llm import LLM
-from holmes.core.llm_observability import build_llm_metadata
+from holmes.core.llm_observability import build_trace_attribution
 from holmes.core.llm_usage import RequestStats
 from holmes.core.models import (
     FrontendToolResult,
@@ -1161,6 +1161,7 @@ class ToolCallingLLM:
             with trace_span.start_span(name="gen_ai.chat") as llm_span:
               try:
                 _llm_call_start = time.time()
+                attribution = build_trace_attribution(self._request_context)
                 full_response = self.llm.completion(
                     messages=parse_messages_tags(messages),  # type: ignore
                     tools=tools,
@@ -1169,7 +1170,8 @@ class ToolCallingLLM:
                     temperature=TEMPERATURE,
                     stream=False,
                     drop_params=True,
-                    metadata=build_llm_metadata(self._request_context),
+                    user=attribution.user,
+                    metadata=attribution.metadata,
                 )
 
                 # Accumulate cost information for this iteration

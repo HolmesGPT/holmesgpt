@@ -1,33 +1,42 @@
-from holmes.core.llm_observability import build_llm_metadata
+from holmes.core.llm_observability import (
+    TraceAttribution,
+    build_trace_attribution,
+)
 
 
-def test_returns_none_without_context():
-    assert build_llm_metadata(None) is None
-    assert build_llm_metadata({}) is None
+def test_empty_without_context():
+    assert build_trace_attribution(None).is_empty()
+    assert build_trace_attribution({}).is_empty()
 
 
-def test_returns_none_when_no_identity_fields():
+def test_empty_when_no_identity_fields():
     # Only unrelated keys (e.g. passthrough headers) → nothing to attribute.
-    assert build_llm_metadata({"headers": {"X-Foo": "bar"}}) is None
+    attr = build_trace_attribution({"headers": {"X-Foo": "bar"}})
+    assert attr.is_empty()
 
 
 def test_prefers_user_email_over_user_id():
-    md = build_llm_metadata({"user_email": "alice@example.com", "user_id": "u-123"})
-    assert md == {"trace_user_id": "alice@example.com"}
+    attr = build_trace_attribution(
+        {"user_email": "alice@example.com", "user_id": "u-123"}
+    )
+    assert attr.user == "alice@example.com"
+    assert attr.metadata is None
 
 
 def test_falls_back_to_user_id():
-    md = build_llm_metadata({"user_id": "u-123"})
-    assert md == {"trace_user_id": "u-123"}
+    attr = build_trace_attribution({"user_id": "u-123"})
+    assert attr.user == "u-123"
+    assert attr.metadata is None
 
 
 def test_maps_conversation_id_to_session():
-    md = build_llm_metadata({"conversation_id": "conv-42"})
-    assert md == {"session_id": "conv-42"}
+    attr = build_trace_attribution({"conversation_id": "conv-42"})
+    assert attr.user is None
+    assert attr.metadata == {"session_id": "conv-42"}
 
 
 def test_builds_tags_from_request_type_and_cluster():
-    md = build_llm_metadata(
+    attr = build_trace_attribution(
         {
             "user_id": "u-1",
             "conversation_id": "c-1",
@@ -35,29 +44,38 @@ def test_builds_tags_from_request_type_and_cluster():
             "cluster_name": "prod-eu",
         }
     )
-    assert md["trace_user_id"] == "u-1"
-    assert md["session_id"] == "c-1"
-    assert md["tags"] == ["request_type:user_chat", "cluster:prod-eu"]
+    assert attr.user == "u-1"
+    assert attr.metadata == {
+        "session_id": "c-1",
+        "tags": ["request_type:user_chat", "cluster:prod-eu"],
+    }
 
 
 def test_blank_and_none_values_are_ignored():
-    md = build_llm_metadata(
+    attr = build_trace_attribution(
         {"user_email": "  ", "user_id": None, "conversation_id": "c-1"}
     )
-    # blank email + None user_id → no trace_user_id, only the session survives.
-    assert md == {"session_id": "c-1"}
+    # blank email + None user_id → no user, only the session survives.
+    assert attr.user is None
+    assert attr.metadata == {"session_id": "c-1"}
 
 
 def test_values_are_stringified_and_stripped():
-    md = build_llm_metadata({"user_id": 12345, "conversation_id": "  c-7 "})
-    assert md == {"trace_user_id": "12345", "session_id": "c-7"}
+    attr = build_trace_attribution({"user_id": 12345, "conversation_id": "  c-7 "})
+    assert attr.user == "12345"
+    assert attr.metadata == {"session_id": "c-7"}
 
 
 def test_tags_are_length_bounded():
-    long_cluster = "x" * 1000
-    md = build_llm_metadata({"cluster_name": long_cluster})
-    assert md is not None
-    (tag,) = md["tags"]
+    attr = build_trace_attribution({"cluster_name": "x" * 1000})
+    assert attr.metadata is not None
+    (tag,) = attr.metadata["tags"]
     # "cluster:" prefix + truncated value, capped at the 256-char tag bound.
     assert len(tag) == 256
     assert tag.startswith("cluster:xxxx")
+
+
+def test_is_empty_helper():
+    assert TraceAttribution().is_empty()
+    assert not TraceAttribution(user="u").is_empty()
+    assert not TraceAttribution(metadata={"session_id": "s"}).is_empty()
