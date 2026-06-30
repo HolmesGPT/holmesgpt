@@ -61,7 +61,7 @@ Holmes will generate a `SKILL.md` with:
 - Expected outputs at each step
 - Remediation actions
 
-Review the generated skill, add ownership context and any environment-specific topology, then commit it to your skills repository.
+Review the generated skill, add ownership context and any environment-specific topology, then commit it to your skills repository or add it via our UI.
 
 ## Use Skills to Encode Environment Context
 
