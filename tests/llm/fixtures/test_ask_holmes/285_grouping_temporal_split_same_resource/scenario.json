@@ -1,6 +1,13 @@
 {
   "description": "Temporal split: the SAME deployment (report-generator) fires the same alert type on two different days (Jun 28 vs Jun 30). Despite the identical resource and alert, these are two separate episodes and must be two incidents, not one. Evidence shows distinct triggers per episode (BATCH-0628-XL vs DEPLOY-0630-mem256).",
-  "tags": ["medium", "mcp", "chain-of-causation", "logs", "datetime"],
+  "tags": [
+    "grouping",
+    "medium",
+    "mcp",
+    "chain-of-causation",
+    "logs",
+    "datetime"
+  ],
   "alerts": [
     {
       "id": "c1-report-oom-jun28",
@@ -15,8 +22,14 @@
       "source": "prometheus",
       "title": "report-generator container OOMKilled",
       "description": "analytics/report-generator had a container OOMKilled during the overnight run on Jun 28; the pod recovered afterwards.",
-      "labels": {"namespace": "analytics", "workload": "report-generator", "severity": "warning"},
-      "annotations": {"summary": "report-generator OOMKilled (Jun 28 overnight run)"}
+      "labels": {
+        "namespace": "analytics",
+        "workload": "report-generator",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "report-generator OOMKilled (Jun 28 overnight run)"
+      }
     },
     {
       "id": "c2-report-oom-jun30",
@@ -31,8 +44,14 @@
       "source": "prometheus",
       "title": "report-generator container OOMKilled",
       "description": "analytics/report-generator is being OOMKilled repeatedly since midday Jun 30 and is currently failing.",
-      "labels": {"namespace": "analytics", "workload": "report-generator", "severity": "critical"},
-      "annotations": {"summary": "report-generator OOMKilled (ongoing, Jun 30)"}
+      "labels": {
+        "namespace": "analytics",
+        "workload": "report-generator",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "report-generator OOMKilled (ongoing, Jun 30)"
+      }
     }
   ],
   "evidence": {

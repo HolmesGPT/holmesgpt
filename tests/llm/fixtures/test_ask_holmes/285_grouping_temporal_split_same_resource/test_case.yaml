@@ -42,6 +42,7 @@ expected_output:
 include_tool_calls: true
 
 tags:
+  - grouping
   - medium
   - mcp
   - chain-of-causation

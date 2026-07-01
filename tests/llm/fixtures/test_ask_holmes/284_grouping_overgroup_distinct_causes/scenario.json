@@ -1,6 +1,12 @@
 {
   "description": "Over-grouping trap: two same-type crash-loop alerts in the same namespace look like one platform-wide problem, but the logs show unrelated root causes (a memory leak vs a config error). Correct grouping = TWO separate incidents. Anti-hallucination codes OOM-INV-3391 and CONFIG-ERR-7742 are discoverable only in logs.",
-  "tags": ["medium", "mcp", "chain-of-causation", "logs"],
+  "tags": [
+    "grouping",
+    "medium",
+    "mcp",
+    "chain-of-causation",
+    "logs"
+  ],
   "alerts": [
     {
       "id": "b1-inventory-crashloop",
@@ -15,8 +21,15 @@
       "source": "prometheus",
       "title": "Pod inventory-worker is crash looping",
       "description": "Pod backends/inventory-worker-6c47b9d8f5-h2ltq (container worker) has restarted 6 times in the last 20 minutes.",
-      "labels": {"namespace": "backends", "pod": "inventory-worker-6c47b9d8f5-h2ltq", "workload": "inventory-worker", "severity": "warning"},
-      "annotations": {"summary": "inventory-worker pod is restarting repeatedly"}
+      "labels": {
+        "namespace": "backends",
+        "pod": "inventory-worker-6c47b9d8f5-h2ltq",
+        "workload": "inventory-worker",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "inventory-worker pod is restarting repeatedly"
+      }
     },
     {
       "id": "b2-notification-crashloop",
@@ -31,8 +44,15 @@
       "source": "prometheus",
       "title": "Pod notification-worker is crash looping",
       "description": "Pod backends/notification-worker-59f8c6b7d4-k9xmp (container worker) has restarted 7 times in the last 20 minutes.",
-      "labels": {"namespace": "backends", "pod": "notification-worker-59f8c6b7d4-k9xmp", "workload": "notification-worker", "severity": "warning"},
-      "annotations": {"summary": "notification-worker pod is restarting repeatedly"}
+      "labels": {
+        "namespace": "backends",
+        "pod": "notification-worker-59f8c6b7d4-k9xmp",
+        "workload": "notification-worker",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "notification-worker pod is restarting repeatedly"
+      }
     }
   ],
   "evidence": {

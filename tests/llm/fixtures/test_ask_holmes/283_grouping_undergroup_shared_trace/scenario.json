@@ -1,6 +1,12 @@
 {
   "description": "Under-grouping trap: two alerts on different workloads look independent from their text, but their logs both trace to one stuck DB migration. Correct grouping = ONE incident, discoverable only by pulling evidence (anti-hallucination code MIG-7731).",
-  "tags": ["medium", "mcp", "chain-of-causation", "logs"],
+  "tags": [
+    "grouping",
+    "medium",
+    "mcp",
+    "chain-of-causation",
+    "logs"
+  ],
   "alerts": [
     {
       "id": "a1-checkout-crashloop",
@@ -15,8 +21,15 @@
       "source": "prometheus",
       "title": "Pod checkout-api is crash looping",
       "description": "Pod storefront/checkout-api-7d9c8b6f4-2xk9p (container api) has restarted 8 times in the last 15 minutes.",
-      "labels": {"namespace": "storefront", "pod": "checkout-api-7d9c8b6f4-2xk9p", "workload": "checkout-api", "severity": "warning"},
-      "annotations": {"summary": "checkout-api pod is restarting repeatedly"}
+      "labels": {
+        "namespace": "storefront",
+        "pod": "checkout-api-7d9c8b6f4-2xk9p",
+        "workload": "checkout-api",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "checkout-api pod is restarting repeatedly"
+      }
     },
     {
       "id": "a2-payments-5xx",
@@ -31,8 +44,14 @@
       "source": "prometheus",
       "title": "Elevated 5xx error rate on payments-gateway",
       "description": "storefront/payments-gateway is returning HTTP 503 for ~40% of requests over the last 10 minutes.",
-      "labels": {"namespace": "storefront", "workload": "payments-gateway", "severity": "critical"},
-      "annotations": {"summary": "payments-gateway error rate above threshold"}
+      "labels": {
+        "namespace": "storefront",
+        "workload": "payments-gateway",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "payments-gateway error rate above threshold"
+      }
     }
   ],
   "evidence": {
