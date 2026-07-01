@@ -39,19 +39,24 @@ def _reset_config_module():
 
 
 class TestNamespaceConfig:
+    """HOLMES_OPERATOR_NAMESPACE parsing into the module constant and config."""
+
     def test_defaults_to_cluster_wide(self, monkeypatch):
+        """An unset env var means cluster-wide (namespace is None)."""
         monkeypatch.delenv("HOLMES_OPERATOR_NAMESPACE", raising=False)
         reloaded = importlib.reload(operator_config)
         assert reloaded.HOLMES_OPERATOR_NAMESPACE is None
         assert reloaded.OperatorConfig.load().operator_namespace is None
 
     def test_empty_string_is_treated_as_unset(self, monkeypatch):
+        """An empty string collapses to None so it can't select an empty namespace."""
         monkeypatch.setenv("HOLMES_OPERATOR_NAMESPACE", "")
         reloaded = importlib.reload(operator_config)
         assert reloaded.HOLMES_OPERATOR_NAMESPACE is None
         assert reloaded.OperatorConfig.load().operator_namespace is None
 
     def test_namespace_scoped_when_set(self, monkeypatch):
+        """A non-empty value is carried through to the loaded config."""
         monkeypatch.setenv("HOLMES_OPERATOR_NAMESPACE", "team-a")
         reloaded = importlib.reload(operator_config)
         assert reloaded.HOLMES_OPERATOR_NAMESPACE == "team-a"
@@ -59,14 +64,18 @@ class TestNamespaceConfig:
 
 
 class TestSchedulerNamespaceScoping:
+    """SchedulerManager picks the namespaced vs cluster-wide list API on startup."""
+
     @staticmethod
     def _mock_api():
+        """A CustomObjectsApi mock whose list calls return no items."""
         api = MagicMock()
         api.list_namespaced_custom_object = MagicMock(return_value={"items": []})
         api.list_cluster_custom_object = MagicMock(return_value={"items": []})
         return api
 
     async def test_namespace_scoped_lists_single_namespace(self):
+        """With a namespace set, only the namespaced list API is called."""
         api = self._mock_api()
         manager = SchedulerManager(timezone_str="UTC", k8s_api=api, namespace="team-a")
 
@@ -79,6 +88,7 @@ class TestSchedulerNamespaceScoping:
         api.list_cluster_custom_object.assert_not_called()
 
     async def test_cluster_wide_lists_all_namespaces(self):
+        """Without a namespace, only the cluster-wide list API is called."""
         api = self._mock_api()
         manager = SchedulerManager(timezone_str="UTC", k8s_api=api)
 
@@ -94,6 +104,7 @@ class TestStartupHandlerSettings:
     ClusterRole; cluster-wide mode must leave them at their defaults."""
 
     async def _run_startup(self, monkeypatch, namespace):
+        """Run startup_handler with a stubbed context under the given namespace."""
         monkeypatch.setattr(operator_config, "HOLMES_OPERATOR_NAMESPACE", namespace)
         monkeypatch.setattr(context, "initialize", AsyncMock())
         settings = kopf.OperatorSettings()
@@ -101,18 +112,23 @@ class TestStartupHandlerSettings:
         return settings
 
     async def test_namespace_mode_disables_cluster_scoped_features(self, monkeypatch):
+        """Namespace mode turns off CRD/namespace scanning and cluster peering."""
         settings = await self._run_startup(monkeypatch, "team-a")
         assert settings.scanning.disabled is True
         assert settings.peering.standalone is True
 
     async def test_cluster_mode_keeps_scanning_and_peering_defaults(self, monkeypatch):
+        """Cluster-wide mode leaves the kopf scanning/peering defaults untouched."""
         settings = await self._run_startup(monkeypatch, None)
         assert settings.scanning.disabled is False
         assert settings.peering.standalone is False
 
 
 class TestOperatorValues:
+    """Chart default values for the operator."""
+
     def test_namespaced_defaults_to_false(self):
+        """operator.namespaced defaults to false (cluster-wide) in values.yaml."""
         with open(HELM_DIR / "values.yaml") as f:
             operator_values = yaml.safe_load(f)["operator"]
         assert operator_values["namespaced"] is False
@@ -127,6 +143,7 @@ class TestOperatorHelmRender:
 
     @staticmethod
     def _render(template, namespaced, namespace):
+        """Render a single operator template and return its parsed YAML documents."""
         result = subprocess.run(
             [
                 "helm", "template", "holmes", str(HELM_DIR),
@@ -143,9 +160,11 @@ class TestOperatorHelmRender:
 
     @staticmethod
     def _resources(role):
+        """Flatten every resource name granted across a (Cluster)Role's rules."""
         return {res for rule in role["rules"] for res in rule.get("resources", [])}
 
     def test_cluster_wide_renders_clusterrole_with_cluster_rules(self):
+        """Cluster-wide mode renders a ClusterRole/ClusterRoleBinding with cluster rules."""
         docs = self._render("operator-rbac.yaml", namespaced=False, namespace="monitoring")
         kinds = {d["kind"] for d in docs}
         assert "ClusterRole" in kinds and "ClusterRoleBinding" in kinds
@@ -158,6 +177,7 @@ class TestOperatorHelmRender:
         assert binding["roleRef"]["kind"] == "ClusterRole"
 
     def test_namespaced_renders_role_without_cluster_rules(self):
+        """Namespaced mode renders a Role/RoleBinding with no cluster-scoped rules."""
         docs = self._render("operator-rbac.yaml", namespaced=True, namespace="team-a")
         kinds = {d["kind"] for d in docs}
         assert "Role" in kinds and "RoleBinding" in kinds
@@ -177,7 +197,9 @@ class TestOperatorHelmRender:
         assert binding["subjects"][0]["namespace"] == "team-a"
 
     def test_deployment_injects_namespace_env_only_when_namespaced(self):
+        """The pod gets HOLMES_OPERATOR_NAMESPACE only in namespaced mode."""
         def _envs(namespaced, namespace):
+            """Render the deployment and return its container env as name->value."""
             docs = self._render("operator-deployment.yaml", namespaced, namespace)
             container = docs[0]["spec"]["template"]["spec"]["containers"][0]
             return {e["name"]: e.get("value") for e in container.get("env", [])}

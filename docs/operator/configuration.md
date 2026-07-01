@@ -267,7 +267,7 @@ The CRDs themselves are cluster-scoped definitions and still need to be installe
 
 **HOLMES_OPERATOR_NAMESPACE** (string)
 
-The namespace the operator watches. Set automatically by the chart when `operator.namespaced: true`; leave unset for cluster-wide operation. You can also set it directly via `additionalEnvVars` if you run the operator outside Helm.
+The namespace the operator watches. Set automatically by the chart when `operator.namespaced: true`; leave unset for cluster-wide operation. With Helm, override it through `additionalEnvVars`; without Helm, set `HOLMES_OPERATOR_NAMESPACE` directly in the operator manifest.
 
 ## RBAC and Permissions
 

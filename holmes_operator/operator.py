@@ -63,6 +63,11 @@ async def cleanup_handler(**kwargs) -> None:
 
 
 def main() -> None:
+    """Run the operator, scoped to a single namespace or cluster-wide.
+
+    Uses ``kopf.run(namespaces=[ns])`` when ``HOLMES_OPERATOR_NAMESPACE`` is set,
+    otherwise ``kopf.run(clusterwide=True)``.
+    """
     try:
         namespace = operator_config.HOLMES_OPERATOR_NAMESPACE
         if namespace:
