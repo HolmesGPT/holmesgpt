@@ -270,8 +270,6 @@ class ToolCallWorker:
             return _error_response(
                 f"toolset '{toolset.name}' is not exposed for remote execution"
             )
-        if tool._is_restricted():
-            return _error_response(f"tool '{tool_name}' is restricted")
 
         # Instance resolution: given -> must be exposed; omitted with exactly
         # one exposed instance -> default; omitted with several -> error.
