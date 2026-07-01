@@ -7,6 +7,7 @@ from typing import Any
 
 import kopf
 
+from holmes_operator import config as operator_config
 from holmes_operator import context
 
 # Import handlers to register them with kopf
@@ -43,6 +44,16 @@ async def startup_handler(settings: kopf.OperatorSettings, **kwargs: Any) -> Non
     settings.watching.connect_timeout = 1 * 60  # 1 minute
     settings.watching.server_timeout = 10 * 60  # 10 minutes
 
+    if operator_config.HOLMES_OPERATOR_NAMESPACE:
+        # Namespace-scoped mode: drop kopf's cluster-scoped requirements so the
+        # operator runs with a namespaced Role only (no ClusterRole).
+        # - scanning.disabled stops kopf from watching namespaces & CRDs
+        #   cluster-wide; it serves the explicit namespace passed to kopf.run().
+        # - peering.standalone avoids the cluster-scoped ClusterKopfPeering
+        #   resource (single-replica operator needs no peer coordination).
+        settings.scanning.disabled = True
+        settings.peering.standalone = True
+
 
 @kopf.on.cleanup()
 async def cleanup_handler(**kwargs) -> None:
@@ -53,7 +64,13 @@ async def cleanup_handler(**kwargs) -> None:
 
 def main() -> None:
     try:
-        kopf.run(clusterwide=True)
+        namespace = operator_config.HOLMES_OPERATOR_NAMESPACE
+        if namespace:
+            logger.info(f"Running namespace-scoped in namespace '{namespace}'")
+            kopf.run(namespaces=[namespace])
+        else:
+            logger.info("Running cluster-wide")
+            kopf.run(clusterwide=True)
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")
         sys.exit(0)

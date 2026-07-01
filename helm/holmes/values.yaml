@@ -881,6 +881,13 @@ mcpAddons:
 operator:
   enabled: false  # Set to true to deploy the operator
 
+  # Namespace-scoped deployment for multi-tenant / restricted clusters.
+  # When true, the operator watches only its own release namespace and the chart
+  # renders a namespaced Role/RoleBinding instead of a ClusterRole/ClusterRoleBinding
+  # (no cluster-scoped permissions). When false (the default), the operator runs
+  # cluster-wide and watches ScheduledHealthChecks in every namespace.
+  namespaced: false
+
   # Container image
   image: holmes-operator:0.0.0
   registry: robustadev

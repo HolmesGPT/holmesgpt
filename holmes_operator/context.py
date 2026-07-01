@@ -63,10 +63,13 @@ async def initialize() -> OperatorConfig:
         timeout=config.holmes_api_timeout,
     )
 
-    # Initialize and start scheduler manager
+    # Initialize and start scheduler manager. When operator_namespace is set the
+    # scheduler lists ScheduledHealthChecks in that namespace only, avoiding the
+    # cluster-scoped list that requires a ClusterRole.
     scheduler_manager = SchedulerManager(
         timezone_str="UTC",
         k8s_api=k8s_api,
+        namespace=config.operator_namespace,
     )
     await scheduler_manager.start()
 
