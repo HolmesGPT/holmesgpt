@@ -304,18 +304,18 @@ modelList:
     api_key: "{{ env.OPENAI_API_KEY }}"
     model: openai/gpt-4.1
     temperature: 0
-  claude-sonnet-4:
+  claude-sonnet-4-5:
     api_key: "{{ env.ANTHROPIC_API_KEY }}"
-    model: anthropic/claude-sonnet-4-20250514
+    model: anthropic/claude-sonnet-4-5-20250929
     temperature: 1
     thinking:
       budget_tokens: 10000
       type: enabled
-  bedrock-sonnet-4:
+  bedrock-sonnet-4-5:
     aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
     aws_region_name: us-east-1
     aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-    model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
     temperature: 1
     thinking:
       budget_tokens: 10000
@@ -341,15 +341,15 @@ modelList:
     model: openai/gpt-4.1
     api_key: secretRef:OPENAI_API_KEY
     temperature: 0
-  claude-sonnet-4:
-    model: anthropic/claude-sonnet-4-20250514
+  claude-sonnet-4-5:
+    model: anthropic/claude-sonnet-4-5-20250929
     api_key: secretRef:ANTHROPIC_API_KEY
     temperature: 1
     thinking:
       budget_tokens: 10000
       type: enabled
-  bedrock-sonnet-4:
-    model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+  bedrock-sonnet-4-5:
+    model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
     aws_access_key_id: secretRef:AWS_ACCESS_KEY_ID
     aws_secret_access_key: secretRef:AWS_SECRET_ACCESS_KEY
     aws_region_name: us-east-1
