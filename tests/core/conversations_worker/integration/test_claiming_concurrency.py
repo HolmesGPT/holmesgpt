@@ -29,7 +29,7 @@ from __future__ import annotations
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -47,7 +47,7 @@ def _iso_cluster(prefix: str) -> str:
 
 
 def _insert_pending_conversations(
-    rc, account_id: str, cluster_id: str, count: int, updated_at: str = None
+    rc, account_id: str, cluster_id: str, count: int, updated_at: Optional[str] = None
 ) -> List[str]:
     rows: List[Dict[str, Any]] = []
     for _ in range(count):
@@ -98,7 +98,7 @@ def _conversation_statuses(rc, ids: List[str]) -> Dict[str, str]:
 
 
 def _insert_pending_tool_calls(
-    rc, account_id, cluster_id, count, updated_at: str = None, name="probe"
+    rc, account_id, cluster_id, count, updated_at: Optional[str] = None, name="probe"
 ) -> List[str]:
     rows: List[Dict[str, Any]] = []
     for i in range(count):
