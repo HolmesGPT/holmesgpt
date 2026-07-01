@@ -121,7 +121,7 @@ class _RoutingTool(Tool):
 
     Delegating to `child_tool.invoke(...)` preserves the child's approval, parameter
     coercion, transformers and logging untouched. `toolset` points at the wrapper so
-    wrapper-level `restricted_tools` filtering still applies during tool listing.
+    wrapper-level `approval_required_tools` gating still applies during tool listing.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -368,7 +368,6 @@ class MultiInstanceToolset(Toolset):
 
     def _forward_overrides(self, child: Toolset) -> None:
         """Propagate toolset-level overrides so the child enforces them too."""
-        child.restricted_tools = self.restricted_tools
         child.approval_required_tools = self.approval_required_tools
 
     def _run_child_prerequisites(

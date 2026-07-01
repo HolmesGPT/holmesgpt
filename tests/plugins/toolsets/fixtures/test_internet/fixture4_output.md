@@ -1,4 +1,11 @@
+devops-runbooks/cluster/certificate-issues.md at main · Robusta-dev/devops-runbooks · GitHub
+
 [Skip to content](#start-of-content)
+
+You signed in with another tab or window. Reload to refresh your session.
+You signed out in another tab or window. Reload to refresh your session.
+You switched accounts on another tab or window. Reload to refresh your session.
+Dismiss alert
 
 {{ message }}
 

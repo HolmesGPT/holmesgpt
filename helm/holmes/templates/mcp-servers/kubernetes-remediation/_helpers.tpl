@@ -5,35 +5,32 @@ Define the LLM instructions for Kubernetes Remediation MCP
 {{- if .Values.mcpAddons.kubernetesRemediation.llmInstructions -}}
 {{ .Values.mcpAddons.kubernetesRemediation.llmInstructions }}
 {{- else -}}
-This MCP server provides the ability to execute kubectl commands for Kubernetes remediation and write operations.
+This MCP server lets you diagnose AND act on the cluster beyond what your own pod's RBAC allows: read files inside containers, run diagnostic pods, and remediate (mutate) the cluster.
 
-IMPORTANT: For Kubernetes **read operations** (get, describe, logs), always prefer the built-in Kubernetes toolset or other read-only tools — they are faster, more efficient, and don't require special authorization. Use this MCP server specifically for **write operations** (edit, patch, delete, scale, rollout, drain, etc.) when you need to remediate or fix an issue.
+Use this server ONLY for things the built-in tools can't do. NEVER use it for `get`/`describe`/`logs` — the built-in Kubernetes tools are faster and need no approval.
 
-## When to Use This MCP Server
+## Prefer the no-approval tools (reach for these first)
 
-Use this MCP when you need to:
-- Remediate Kubernetes issues (restart pods, scale deployments, cordon nodes, etc.)
-- Execute kubectl write commands (edit, patch, delete, scale, rollout, drain, cordon, uncordon, taint, label, annotate)
+These run immediately, no human needed:
 
-Do NOT use this MCP for:
-- Reading pod status, logs, or resource descriptions — use the built-in Kubernetes toolset instead
-- General cluster exploration — use other read-only tools
+- `read_file_from_container` — read a single file from inside a container (config files, on-disk logs, /proc). Secret/token mounts are always refused.
+- `run_preapproved_kubectl_command` — run a read-only diagnostic command (ps/top/df/ls/netstat/ss via exec). Use `read_file_from_container` instead of `cat`.
+- `run_preapproved_diagnostic_image` — launch a short-lived pod from a pre-approved troubleshooting image (nicolaka/netshoot, busybox, curlimages/curl) for network/DNS/HTTP probing. The pod is auto-deleted.
+- `get_remediation_mcp_config` — inspect the live effective policy.
 
-## Available Operations
+## run_kubectl_command always pauses for a human
 
-The kubectl tool accepts arguments as a list. Examples:
-- `["scale", "deployment/my-app", "--replicas=3", "-n", "production"]`
-- `["rollout", "restart", "deployment/my-app", "-n", "production"]`
-- `["cordon", "node-1"]`
-- `["drain", "node-1", "--ignore-daemonsets", "--delete-emptydir-data"]`
-- `["patch", "deployment/my-app", "-n", "production", "-p", "{\"spec\":{\"replicas\":3}}"]`
+`run_kubectl_command` is the catch-all for everything not pre-approved — all mutations, arbitrary exec, non-allowlisted images. It ALWAYS requires human approval, so expect a wait. Use it only when a pre-approved tool can't accomplish the task, and express the full intent in one clear command.
 
-## Important Guidelines
+## What gets refused
 
-- Always confirm the current state before making changes (use the built-in Kubernetes toolset to get/describe first)
-- Use namespace flags (-n) to target specific namespaces
-- For destructive operations (delete, drain), verify the target carefully
-- Check rollout status after making changes to deployments
-- Use labels and selectors to target specific resources when possible
+Non-allowlisted images, non-pre-approved read commands, denied file paths (secret/token mounts), blocked flags (`--kubeconfig`/`--context`/`--token`/`--as`/...), shell metacharacters, and verbs outside the hard allowlist.
+
+## Examples
+
+- `read_file_from_container(namespace="prod", pod="api-xxx", path="/app/config.yaml")`
+- `run_preapproved_kubectl_command(args=["exec","api-xxx","-n","prod","--","ps","aux"])`
+- `run_preapproved_diagnostic_image(image="nicolaka/netshoot", namespace="prod", command=["dig","my-svc"])`
+- `run_kubectl_command(args=["rollout","restart","deployment/api","-n","prod"])`
 {{- end -}}
 {{- end -}}
