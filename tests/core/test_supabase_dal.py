@@ -802,3 +802,88 @@ class TestGetResourceRecommendation:
         assert results[0]["namespace"] == "production"
         assert results[0]["kind"] == "Deployment"
         assert results[0]["container"] == "main"
+
+
+class TestGetHolmesChatAllowedClusters:
+    """Tests for the MA_HOLMES_CHAT RBAC cluster resolution used to filter
+    which clusters' data a user may read through the robusta toolset."""
+
+    @pytest.fixture
+    def mock_dal(self):
+        with patch("holmes.core.supabase_dal.create_client"):
+            dal = SupabaseDal(cluster="test-cluster")
+            dal.enabled = True
+            dal.account_id = "test-account"
+            dal.client = Mock()
+            return dal
+
+    def _set_rpc(self, mock_dal, responses: dict):
+        """Route client.rpc(name, params).execute().data based on function name."""
+
+        def rpc_side_effect(name, params):
+            chain = Mock()
+            res = Mock()
+            res.data = responses.get(name)
+            chain.execute.return_value = res
+            return chain
+
+        mock_dal.client.rpc.side_effect = rpc_side_effect
+
+    def test_missing_user_id_denies_all(self, mock_dal):
+        # No user id -> fail closed with an empty list (deny all clusters).
+        assert mock_dal.get_holmes_chat_allowed_clusters(None) == []
+        mock_dal.client.rpc.assert_not_called()
+
+    def test_disabled_dal_returns_none(self, mock_dal):
+        mock_dal.enabled = False
+        assert mock_dal.get_holmes_chat_allowed_clusters("user-1") is None
+
+    def test_regular_account_user_gets_full_access(self, mock_dal):
+        # Regular account users are not RBAC-filtered -> None means "no filtering".
+        self._set_rpc(mock_dal, {"relay_is_account_user": True})
+        assert mock_dal.get_holmes_chat_allowed_clusters("user-1") is None
+
+    def test_restricted_user_returns_allowed_clusters(self, mock_dal):
+        self._set_rpc(
+            mock_dal,
+            {
+                "relay_is_account_user": False,
+                "relay_get_user_permissions": {
+                    "MA_HOLMES_CHAT": {"cluster-a": ["*"], "cluster-b": ["ns1"]},
+                    "MA_HOLMES_INVESTIGATE": {"cluster-c": ["*"]},
+                },
+            },
+        )
+        allowed = mock_dal.get_holmes_chat_allowed_clusters("user-1")
+        assert sorted(allowed) == ["cluster-a", "cluster-b"]
+
+    def test_restricted_user_without_chat_permission_returns_empty(self, mock_dal):
+        self._set_rpc(
+            mock_dal,
+            {
+                "relay_is_account_user": False,
+                "relay_get_user_permissions": {
+                    "MA_HOLMES_INVESTIGATE": {"cluster-c": ["*"]}
+                },
+            },
+        )
+        assert mock_dal.get_holmes_chat_allowed_clusters("user-1") == []
+
+    def test_list_wrapped_rpc_responses_are_unwrapped(self, mock_dal):
+        # PostgREST sometimes wraps scalar / json results in a single-row list.
+        self._set_rpc(
+            mock_dal,
+            {
+                "relay_is_account_user": [False],
+                "relay_get_user_permissions": [
+                    {"MA_HOLMES_CHAT": {"cluster-a": ["*"]}}
+                ],
+            },
+        )
+        assert mock_dal.get_holmes_chat_allowed_clusters("user-1") == ["cluster-a"]
+
+    def test_lookup_error_fails_closed(self, mock_dal):
+        chain = Mock()
+        chain.execute.side_effect = Exception("boom")
+        mock_dal.client.rpc.return_value = chain
+        assert mock_dal.get_holmes_chat_allowed_clusters("user-1") == []

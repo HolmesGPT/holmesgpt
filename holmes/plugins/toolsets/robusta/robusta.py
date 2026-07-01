@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from holmes.core.supabase_dal import FindingType, SupabaseDal
 from holmes.core.tools import (
@@ -52,9 +52,19 @@ class FetchRobustaFinding(Tool):
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         finding_id = params[PARAM_FINDING_ID]
+        user_id = (context.request_context or {}).get("user_id")
         try:
             finding = self._fetch_finding(finding_id)
             if finding:
+                rbac_error = _check_finding_cluster_access(
+                    finding, self._dal, user_id
+                )
+                if rbac_error:
+                    return StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error=rbac_error,
+                        params=params,
+                    )
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
                     data=finding,
@@ -97,6 +107,73 @@ def _parse_cluster_scope(params: Dict) -> Optional[List[str]]:
         return ["*"]
     # else: None means current cluster only
     return None
+
+
+def _resolve_authorized_clusters(
+    params: Dict,
+    dal: Optional[SupabaseDal],
+    user_id: Optional[str],
+) -> Tuple[Optional[List[str]], Optional[str]]:
+    """Build the cluster scope from tool params and enforce MA_HOLMES_CHAT RBAC.
+
+    The returned cluster list uses the DAL contract (``None`` = current cluster
+    only, ``["*"]`` = every cluster in the account, ``[names]`` = an explicit
+    subset). When the request must be denied, the second tuple element is a
+    user-facing message and the first is ``None``.
+
+    RBAC filtering is only applied to user-scoped requests: when no ``user_id``
+    is supplied (internal / CLI calls) the raw scope is returned unchanged.
+    """
+    clusters = _parse_cluster_scope(params)
+
+    if not user_id or dal is None or not dal.enabled:
+        return clusters, None
+
+    allowed = dal.get_holmes_chat_allowed_clusters(user_id)
+    if allowed is None:
+        # Regular account user: unrestricted access.
+        return clusters, None
+
+    allowed_set = set(allowed)
+    if not allowed_set:
+        return None, "You are not authorized to access any cluster with Holmes."
+
+    # Resolve the requested scope to a concrete cluster list before filtering.
+    if clusters is None:
+        requested = [dal.cluster]
+    elif clusters == ["*"]:
+        requested = allowed
+    else:
+        requested = clusters
+
+    authorized = [c for c in requested if c in allowed_set]
+    if not authorized:
+        return None, "You are not authorized to access the requested cluster(s)."
+    return authorized, None
+
+
+def _check_finding_cluster_access(
+    finding: Optional[Dict],
+    dal: Optional[SupabaseDal],
+    user_id: Optional[str],
+) -> Optional[str]:
+    """Enforce MA_HOLMES_CHAT RBAC on a single finding fetched by id.
+
+    Returns a user-facing denial message when the user is not authorized to see
+    the finding's cluster, or ``None`` when access is allowed.
+    """
+    if not user_id or dal is None or not dal.enabled or not finding:
+        return None
+
+    allowed = dal.get_holmes_chat_allowed_clusters(user_id)
+    if allowed is None:
+        # Regular account user: unrestricted access.
+        return None
+
+    cluster = finding.get("cluster")
+    if cluster in set(allowed):
+        return None
+    return "You are not authorized to access this finding's cluster."
 
 
 class FetchResourceRecommendation(Tool):
@@ -188,7 +265,9 @@ class FetchResourceRecommendation(Tool):
         )
         self._dal = dal
 
-    def _fetch_recommendations(self, params: Dict) -> Optional[List[Dict]]:
+    def _fetch_recommendations(
+        self, params: Dict, clusters: Optional[List[str]]
+    ) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
             # Set default values and enforce max limit
             limit = min(
@@ -196,8 +275,6 @@ class FetchResourceRecommendation(Tool):
                 MAX_LIMIT_KRR_ROWS,
             )
             sort_by = params.get("sort_by") or "cpu_total"
-
-            clusters = _parse_cluster_scope(params)
 
             return self._dal.get_resource_recommendation(
                 limit=limit,
@@ -211,8 +288,18 @@ class FetchResourceRecommendation(Tool):
         return None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        user_id = (context.request_context or {}).get("user_id")
+        clusters, rbac_error = _resolve_authorized_clusters(
+            params, self._dal, user_id
+        )
+        if rbac_error:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=rbac_error,
+                params=params,
+            )
         try:
-            recommendations = self._fetch_recommendations(params)
+            recommendations = self._fetch_recommendations(params, clusters)
             if recommendations:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
@@ -324,11 +411,10 @@ class FetchConfigurationChangesMetadata(Tool):
     def _fetch_issues(
         self,
         params: Dict,
+        clusters: Optional[List[str]],
         finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
     ) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
-            clusters = _parse_cluster_scope(params)
-
             # Default include_external to True
             include_external = params.get("include_external")
             if include_external is None:
@@ -350,8 +436,18 @@ class FetchConfigurationChangesMetadata(Tool):
         return None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        user_id = (context.request_context or {}).get("user_id")
+        clusters, rbac_error = _resolve_authorized_clusters(
+            params, self._dal, user_id
+        )
+        if rbac_error:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=rbac_error,
+                params=params,
+            )
         try:
-            changes = self._fetch_issues(params)
+            changes = self._fetch_issues(params, clusters)
             if changes:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,
@@ -446,10 +542,10 @@ class FetchResourceIssuesMetadata(Tool):
         )
         self._dal = dal
 
-    def _fetch_issues(self, params: Dict) -> Optional[List[Dict]]:
+    def _fetch_issues(
+        self, params: Dict, clusters: Optional[List[str]]
+    ) -> Optional[List[Dict]]:
         if self._dal and self._dal.enabled:
-            clusters = _parse_cluster_scope(params)
-
             return self._dal.get_issues_metadata(
                 start_datetime=params["start_datetime"],
                 end_datetime=params["end_datetime"],
@@ -466,8 +562,18 @@ class FetchResourceIssuesMetadata(Tool):
         return None
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        user_id = (context.request_context or {}).get("user_id")
+        clusters, rbac_error = _resolve_authorized_clusters(
+            params, self._dal, user_id
+        )
+        if rbac_error:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=rbac_error,
+                params=params,
+            )
         try:
-            issues = self._fetch_issues(params)
+            issues = self._fetch_issues(params, clusters)
             if issues:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.SUCCESS,

@@ -84,6 +84,10 @@ HOLMES_USAGE_EVENTS_TABLE = "HolmesUsageEvents"
 ENRICHMENT_BLACKLIST = ["text_file", "graph", "ai_analysis", "holmes"]
 ENRICHMENT_BLACKLIST_SET = set(ENRICHMENT_BLACKLIST)
 
+# RBAC permission action that grants a user access to a cluster via Holmes chat.
+# Used to filter which clusters' data a user is allowed to read.
+HOLMES_CHAT_ACTION = "MA_HOLMES_CHAT"
+
 
 logging.getLogger(__name__).debug("Patching supabase_request_builder.pre_select")
 original_pre_select = supabase_request_builder.pre_select
@@ -766,6 +770,80 @@ class SupabaseDal:
             issue_data["end_timestamp_millis"] = int(end_timestamp.timestamp() * 1000)
 
         return issue_data
+
+    def is_account_regular_user(self, user_id: str) -> bool:
+        """Return True if the user is a regular account user (full platform access).
+
+        Regular account users are not subject to RBAC permission-group filtering,
+        so callers can skip per-cluster filtering for them. Mirrors relay's
+        ``RBACClient.is_account_regular_user`` and relies on the ``is_relay()``
+        server-side guard of the ``relay_is_account_user`` RPC.
+        """
+        if not self.enabled or not user_id:
+            return False
+        res = self.client.rpc(
+            "relay_is_account_user",
+            {"_account_id": self.account_id, "_user_id": user_id},
+        ).execute()
+        data = res.data
+        if isinstance(data, list):
+            data = data[0] if data else False
+        return bool(data)
+
+    def get_user_permissions(self, user_id: str) -> Dict:
+        """Fetch the RBAC permissions map for a specific user.
+
+        Returns a dict of the form
+        ``{"MA_HOLMES_CHAT": {"cluster_a": ["*"], "cluster_b": ["ns1"]}, ...}``
+        mapping each permission action to the clusters (and namespaces) the user
+        is granted it on. Returns an empty dict when nothing is granted.
+        """
+        if not self.enabled or not user_id:
+            return {}
+        res = self.client.rpc(
+            "relay_get_user_permissions",
+            {"_account_id": self.account_id, "_user_id": user_id},
+        ).execute()
+        data = res.data
+        if isinstance(data, list):
+            data = data[0] if data else None
+        return data or {}
+
+    def get_holmes_chat_allowed_clusters(
+        self, user_id: Optional[str]
+    ) -> Optional[List[str]]:
+        """Return the clusters a user may access via Holmes chat (MA_HOLMES_CHAT).
+
+        The return value follows relay's RBAC contract:
+
+          * ``None``    – the user is a regular account user: full access, no
+            cluster filtering should be applied.
+          * ``[]``      – the user is RBAC-restricted and has no authorized
+            clusters: every cluster-scoped request must be denied.
+          * ``[names]`` – the user is limited to exactly these clusters.
+
+        Fails closed (returns ``[]``) when the user id is missing or the
+        permission lookup fails, so an error can never widen a user's access.
+        """
+        if not user_id:
+            return []
+        if not self.enabled:
+            # No platform connection means there is no cross-cluster data to
+            # protect here; leave any filtering to the individual data fetchers.
+            return None
+        try:
+            if self.is_account_regular_user(user_id):
+                return None
+            permissions = self.get_user_permissions(user_id)
+            return list(permissions.get(HOLMES_CHAT_ACTION, {}).keys())
+        except Exception:
+            logging.warning(
+                "Failed to resolve MA_HOLMES_CHAT clusters for user %s; "
+                "denying cross-cluster access",
+                user_id,
+                exc_info=True,
+            )
+            return []
 
     def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
         if not self.enabled:
