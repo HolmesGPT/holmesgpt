@@ -57,10 +57,12 @@ customServiceAccountName: ""
 
 k8sRBAC: false
 
-# When empty (default), holmes gets a cluster-wide ClusterRoleBinding (backwards compatible, cluster-wide read).
-# When set to a list of namespaces, holmes is bound via namespaced RoleBindings in ONLY those namespaces
-# (the ClusterRole is reused for its rules; cluster-scoped resources like nodes are not granted). Namespaces must exist.
-overrideClusterRoles: []
+# Namespaces to scope Holmes' RBAC to. When empty (default), Holmes gets a cluster-wide
+# ClusterRoleBinding (backwards compatible, cluster-wide read). When set, the chart creates a
+# namespaced RoleBinding in each listed namespace (reusing the Holmes ClusterRole for its rules),
+# so Holmes can only read namespaced resources in those namespaces. Cluster-scoped resources
+# (e.g. nodes) are not granted. The listed namespaces must already exist.
+roleBindingNamespaces: []
 
 customClusterRoleRules: []
 
