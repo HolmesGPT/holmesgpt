@@ -154,6 +154,7 @@ class TestOperatorHelmRender:
             ],
             capture_output=True,
             text=True,
+            timeout=30,
         )
         assert result.returncode == 0, result.stderr
         return [doc for doc in yaml.safe_load_all(result.stdout) if doc]

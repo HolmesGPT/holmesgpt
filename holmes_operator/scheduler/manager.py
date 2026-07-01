@@ -29,7 +29,7 @@ class SchedulerManager:
         timezone_str: str,
         k8s_api: client.CustomObjectsApi,
         namespace: Optional[str] = None,
-    ):
+    ) -> None:
         """
         Initialize scheduler manager.
 
