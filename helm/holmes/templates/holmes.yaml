@@ -151,9 +151,15 @@ spec:
           {{- if .Values.additional_env_vars -}}
           {{ toYaml .Values.additional_env_vars | nindent 10 }}
           {{- end }}
-        {{- if .Values.additional_env_froms }}
+        {{- if or .Values.additional_env_froms .Values.apiKeysSecret }}
         envFrom:
-        {{ toYaml .Values.additional_env_froms | nindent 8 }}
+        {{- if .Values.apiKeysSecret }}
+        - secretRef:
+            name: {{ .Values.apiKeysSecret }}
+        {{- end }}
+        {{- with .Values.additional_env_froms }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
         {{- end }}
         lifecycle:
           preStop:

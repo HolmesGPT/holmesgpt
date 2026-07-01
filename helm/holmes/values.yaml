@@ -173,6 +173,28 @@ args: []
 
 priorityClassName: ""
 
+# Name of a Kubernetes Secret whose keys are auto-mounted as env vars on the
+# Holmes pod via `envFrom`. Use this together with the `secretRef:` sugar
+# below to avoid repeating each API key in `additionalEnvVars`.
+#
+# Example:
+#   kubectl create secret generic holmes-secrets \
+#     --from-literal=OPENAI_API_KEY=sk-... \
+#     --from-literal=ANTHROPIC_API_KEY=sk-ant-... \
+#     -n <namespace>
+#
+#   apiKeysSecret: holmes-secrets
+#   modelList:
+#     gpt-4.1:
+#       model: openai/gpt-4.1
+#       api_key: secretRef:OPENAI_API_KEY   # rewritten to "{{ env.OPENAI_API_KEY }}"
+apiKeysSecret: ""
+
+# List of models available to Holmes. Any string value prefixed with
+# `secretRef:` is rewritten at chart-render time to the runtime env-var
+# templating (`{{ env.<KEY> }}`), so you never repeat the key name in an
+# `additionalEnvVars` block. Set `apiKeysSecret` above so the underlying
+# Kubernetes Secret is actually mounted on the pod.
 modelList: {}
 
 # MCP (Model Context Protocol) Add-ons
