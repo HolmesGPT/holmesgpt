@@ -57,6 +57,11 @@ customServiceAccountName: ""
 
 k8sRBAC: false
 
+# When empty (default), holmes gets a cluster-wide ClusterRoleBinding (backwards compatible, cluster-wide read).
+# When set to a list of namespaces, holmes is bound via namespaced RoleBindings in ONLY those namespaces
+# (the ClusterRole is reused for its rules; cluster-scoped resources like nodes are not granted). Namespaces must exist.
+overrideClusterRoles: []
+
 customClusterRoleRules: []
 
 # CRD permissions for common Kubernetes operators and tools
