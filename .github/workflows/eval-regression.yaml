@@ -1,9 +1,12 @@
 name: Run eval regression tests
 
 on:
+  # Evals no longer run automatically on every commit (this was the main CI eval
+  # cost driver). They run on-demand only: add an evals-* label to a PR (handled
+  # by the `labeled` event below), comment `/eval`, or trigger workflow_dispatch.
   pull_request:
     branches: ["*"]
-    types: [opened, synchronize, reopened, labeled]
+    types: [labeled]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
@@ -452,6 +455,12 @@ jobs:
               prNumber = event === 'pull_request' ? context.payload.pull_request.number : null;
               triggeredBy = '';
 
+              // Evals do not run automatically on every commit anymore. For automatic
+              // (pull_request) triggers we skip by default and only run when the PR has
+              // at least one evals-* label opting it in (evals-tag-*, evals-id-*, or
+              // evals-model-*). /eval comments and workflow_dispatch are unaffected.
+              skipEval = true;
+
               // Parse PR labels for evals-tag-*, evals-id-*, and evals-model-* to augment the regression run
               if (event === 'pull_request' && context.payload.pull_request.labels) {
                 const labelSafe = /^[a-zA-Z0-9_\-]+$/;
@@ -480,22 +489,27 @@ jobs:
                   // Only IDs specified: broaden markers to all LLM tests, filter by ID
                   markers = '';
                   filter = idLabels.join(' or ');
+                  skipEval = false;
                 } else if (tagLabels.length > 0 && idLabels.length === 0) {
                   // Only tags specified: add to regression markers (unless skip-default)
                   markers = skipDefault ? tagLabels.join(' or ') : 'regression or ' + tagLabels.join(' or ');
+                  skipEval = false;
                 } else if (tagLabels.length > 0 && idLabels.length > 0) {
                   // Both specified: use tag markers + ID filter
                   markers = skipDefault ? tagLabels.join(' or ') : 'regression or ' + tagLabels.join(' or ');
                   filter = idLabels.join(' or ');
-                } else if (skipDefault) {
-                  // Only skip-default, no other evals-* labels: skip eval run entirely
-                  skipEval = true;
+                  skipEval = false;
                 }
-                // else: no evals-* labels, keep defaults (markers = 'regression')
+                // else: no evals-tag-*/evals-id-* labels — stays skipped (skipEval=true)
+                // unless an evals-model-* label opts in below. evals-skip-default alone
+                // is now a no-op since skipping is the default.
 
-                // Override model if evals-model-* label is present
+                // Override model if evals-model-* label is present. A model label on
+                // its own means "run the default regression suite on this model", so it
+                // opts the PR in (markers falls through to the 'regression' default below).
                 if (modelLabels.length > 0) {
                   model = modelLabels.join(',');
+                  skipEval = false;
                 }
               }
 

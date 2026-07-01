@@ -31,9 +31,9 @@ def build_remote_tools_meta(toolset: Toolset) -> Any:
     None when the toolset must not be published (not exposed, is_core, not
     enabled, or no publishable tools).
 
-    Excluded tools: restricted tools and tools that as a whole match
-    approval_required_tools patterns (bash is NOT excluded — its approval
-    decision is per command and enforced at execution time)."""
+    Excluded tools: tools that as a whole match approval_required_tools
+    patterns (bash is NOT excluded — its approval decision is per command
+    and enforced at execution time)."""
     if not toolset.expose_remotely or toolset.is_core:
         return None
     if toolset.status != ToolsetStatusEnum.ENABLED:
@@ -49,8 +49,7 @@ def build_remote_tools_meta(toolset: Toolset) -> Any:
     tools = [
         tool.get_openai_format()
         for tool in toolset.tools
-        if not tool._is_restricted()
-        and not _tool_requires_approval(tool.name, toolset.approval_required_tools)
+        if not _tool_requires_approval(tool.name, toolset.approval_required_tools)
     ]
     if not tools:
         return None

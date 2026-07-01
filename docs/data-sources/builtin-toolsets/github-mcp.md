@@ -337,7 +337,7 @@ Find the **App ID** on the App's settings page (under "About").
         spec:
           containers:
           - name: github-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.0
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.7
             ports:
             - containerPort: 8000
             args:
