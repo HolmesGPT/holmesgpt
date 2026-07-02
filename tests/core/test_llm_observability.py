@@ -1,7 +1,13 @@
+import hashlib
+
 from holmes.core.llm_observability import (
     TraceAttribution,
     build_trace_attribution,
 )
+
+
+def _hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def test_empty_without_context():
@@ -19,14 +25,28 @@ def test_prefers_user_email_over_user_id():
     attr = build_trace_attribution(
         {"user_email": "alice@example.com", "user_id": "u-123"}
     )
-    assert attr.user == "alice@example.com"
+    assert attr.user == _hash("alice@example.com")
     assert attr.metadata is None
 
 
 def test_falls_back_to_user_id():
     attr = build_trace_attribution({"user_id": "u-123"})
-    assert attr.user == "u-123"
+    assert attr.user == _hash("u-123")
     assert attr.metadata is None
+
+
+def test_user_is_hashed_not_raw():
+    # The raw identifier must never end up in the attribution sent to the
+    # model provider — only a stable hash of it.
+    attr = build_trace_attribution({"user_email": "alice@example.com"})
+    assert attr.user != "alice@example.com"
+    assert attr.user == hashlib.sha256(b"alice@example.com").hexdigest()
+
+
+def test_user_hash_is_deterministic():
+    attr1 = build_trace_attribution({"user_email": "alice@example.com"})
+    attr2 = build_trace_attribution({"user_email": "alice@example.com"})
+    assert attr1.user == attr2.user
 
 
 def test_maps_conversation_id_to_session():
@@ -44,7 +64,7 @@ def test_builds_tags_from_request_type_and_cluster():
             "cluster_name": "prod-eu",
         }
     )
-    assert attr.user == "u-1"
+    assert attr.user == _hash("u-1")
     assert attr.metadata == {
         "session_id": "c-1",
         "tags": ["request_type:user_chat", "cluster:prod-eu"],
@@ -62,7 +82,7 @@ def test_blank_and_none_values_are_ignored():
 
 def test_values_are_stringified_and_stripped():
     attr = build_trace_attribution({"user_id": 12345, "conversation_id": "  c-7 "})
-    assert attr.user == "12345"
+    assert attr.user == _hash("12345")
     assert attr.metadata == {"session_id": "c-7"}
 
 

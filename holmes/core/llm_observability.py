@@ -8,8 +8,16 @@ model provider (OpenAI, Anthropic, Bedrock, ...) actually serves the request.
 Attribution is expressed with provider-neutral fields:
 
 - ``user`` is the standard end-user identifier understood across providers.
+  Unlike ``metadata``, it is forwarded all the way to the model provider (see
+  ``DefaultLLM.completion()``), so it is a stable hash of the identifier rather
+  than the raw value — the same guidance OpenAI gives for this field ("we
+  recommend hashing their username or email to avoid sending us any
+  identifying information"). The hash is deterministic, so a given user still
+  maps to a single, filterable trace identity.
 - ``metadata`` carries additional, optional observability fields (session id,
-  tags) that Holmes forwards without interpreting them.
+  tags) that Holmes forwards without interpreting them. Unlike ``user``, this
+  is a logging-only field consumed by whichever process makes the call — it is
+  not sent to the model provider — so it does not need hashing here.
 
 This module is the single, deliberately narrow place that decides *what* of an
 inbound request becomes attribution data. It is a whitelist on purpose: only
@@ -17,6 +25,7 @@ known-safe identity fields are mapped, and free-form tags are bounded, so nothin
 arbitrary from ``request_context`` leaks into traces.
 """
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -43,12 +52,22 @@ def _clean(value: Any) -> Optional[str]:
     return text or None
 
 
+def _hash_identifier(value: str) -> str:
+    """Stable, one-way hash for a value forwarded to the model provider.
+
+    Deterministic (same input always yields the same output) so traces from
+    the same user still group together, without exposing the raw identifier
+    to whichever provider serves the request.
+    """
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def build_trace_attribution(
     request_context: Optional[Dict[str, Any]],
 ) -> TraceAttribution:
     """Build provider-neutral trace attribution from a request context.
 
-    - ``user``     ← ``user_email`` (preferred) or ``user_id``
+    - ``user``     ← sha256(``user_email`` (preferred) or ``user_id``)
     - ``session_id`` (metadata) ← ``conversation_id``
     - ``tags`` (metadata)       ← ``request_type:<...>`` and ``cluster:<...>``
 
@@ -59,9 +78,10 @@ def build_trace_attribution(
     if not request_context:
         return TraceAttribution()
 
-    user = _clean(request_context.get("user_email")) or _clean(
+    raw_user = _clean(request_context.get("user_email")) or _clean(
         request_context.get("user_id")
     )
+    user = _hash_identifier(raw_user) if raw_user else None
 
     metadata: Dict[str, Any] = {}
     session = _clean(request_context.get("conversation_id"))
