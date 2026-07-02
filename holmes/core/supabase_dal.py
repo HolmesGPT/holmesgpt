@@ -1219,16 +1219,20 @@ class SupabaseDal:
         )
         return None
 
-    def claim_conversations(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_conversations(
+        self, holmes_id: str, limit: int
+    ) -> List[Dict]:
         """
-        Atomically claim all pending conversations for this cluster.
-        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
+        Claim up to ``limit`` pending conversations (oldest first), landing them
+        directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
+        nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        # Retry transient infrastructure errors (Supabase proxy DNS/cache
-        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),
@@ -1237,11 +1241,12 @@ class SupabaseDal:
         )
         def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_conversations",
+                "claim_n_pending_conversations",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1259,22 +1264,32 @@ class SupabaseDal:
             )
             return []
 
-    def claim_tool_calls(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_tool_calls(self, holmes_id: str, limit: int) -> List[Dict]:
         """
-        Atomically claim all pending remote tool calls targeting this cluster.
-        Returns claimed RemoteToolCalls rows (status='queued', assignee=holmes_id).
-        Stale pending rows (>5 minutes) are swept to 'timeout' server-side.
+        Claim up to ``limit`` pending remote tool calls (oldest first), landing
+        them directly in 'running' ('queued' is deprecated). ``limit`` <= 0
+        claims nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        try:
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_tool_calls",
+                "claim_n_pending_tool_calls",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1282,8 +1297,14 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim_with_retry()
         except Exception:
-            logging.exception("Supabase error while claiming tool calls", exc_info=True)
+            logging.exception(
+                "Supabase error while claiming tool calls (after retries)",
+                exc_info=True,
+            )
             return []
 
     def post_remote_tool_call_result(

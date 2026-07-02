@@ -151,6 +151,16 @@ spec:
           {{- if .Values.additional_env_vars -}}
           {{ toYaml .Values.additional_env_vars | nindent 10 }}
           {{- end }}
+          {{- if and .Values.mcpAddons.github.enabled (not .Values.mcpAddons.github.auth.githubApp.secretName) }}
+          # github-mcp-server HTTP mode authenticates per-request via Authorization: Bearer.
+          # toolset-config.yaml renders {{ "{{" }} env.GITHUB_PERSONAL_ACCESS_TOKEN {{ "}}" }} into the header,
+          # so the PAT must live in this pod's env (not the MCP pod, which doesn't read it in HTTP mode).
+          - name: GITHUB_PERSONAL_ACCESS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
+                key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
+          {{- end }}
         {{- if .Values.additional_env_froms }}
         envFrom:
         {{ toYaml .Values.additional_env_froms | nindent 8 }}
