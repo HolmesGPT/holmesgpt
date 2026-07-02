@@ -1,18 +1,28 @@
-"""Vendored alert-triage prompt for the grouping evals.
+"""Vendored alert-triage prompts for the grouping evals — two variants.
 
-This is a durable copy of the triage prompt used by the `triager` project
-(`src/orchestrator/prompt.py`), adapted to the MCP tool names exposed by the
-eval mocks in this directory (`create_incident`, `attach_alerts_to_incident`,
-`list_incidents`, `search_pending_in_queue`) and to the recorded RCA-evidence
-tools (`get_pod_logs`, `kubectl_describe`, `get_resource_events`).
+Variant "triager" (default) is a durable copy of the triage prompt used by the
+temporary `triager` project (`src/orchestrator/prompt.py`). Its tie-break bias
+is SPLIT: "when in doubt, prefer opening a new incident over grouping".
 
-It is vendored on purpose: the grouping evals must keep working after the
-temporary `triager` repo is gone. If the canonical triager prompt changes and
-we want parity, re-sync from triager `render_system_prompt` /
-`render_user_message` and re-render the fixtures with `build_scenarios.py`.
+Variant "production" is a durable copy of the PRODUCTION incident-grouping
+prompt that lives in robusta-storage's `incident_grouping_prompt()` SQL RPC
+(`db/migrations/20260617094124_incident_grouping_block_rpcs.sql`, itself ported
+from relay's INCIDENT_WORKFLOW_SYSTEM_PROMPT, ROB-4011). Its tie-break bias is
+the OPPOSITE — MERGE: "grouping repeated or related failures into one incident
+is the goal — prefer attaching over opening a new incident". Only tool/field
+names are adapted to the eval mocks (get_incidents/search_incidents/
+update_incident-attach -> list_incidents/attach_alerts_to_incident; summary/
+likely_cause/suggested_fix -> what_happened/root_cause/how_to_fix; the
+data-source examples -> the recorded-evidence tools); the guidance and bias
+wording are kept verbatim wherever possible so evals measure the real
+production behavior.
 
-`render_triage_prompt(alerts, leaders=None)` returns a single prompt string
-suitable for a HolmesGPT eval `user_prompt`.
+Both variants are vendored on purpose: the grouping evals must keep working
+after the temporary `triager` repo is gone, and must not depend on reading the
+robusta-storage database. Re-sync manually if either canonical source changes.
+
+`render_triage_prompt(alerts, leaders=None, variant="triager")` returns a
+single prompt string suitable for a HolmesGPT eval `user_prompt`.
 """
 
 from __future__ import annotations
@@ -59,20 +69,50 @@ def _render_leaders_section(leaders: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def render_triage_prompt(alerts: list[dict], leaders: list[dict] | None = None) -> str:
+# ---- "production" variant: robusta-storage incident_grouping_prompt() -------
+# Kept as close to the SQL RPC text as possible; see module docstring for the
+# exact tool/field-name mapping applied.
+
+_PRODUCTION_PROMPT = """\
+This investigation is part of a workflow that tracks recurring problems as incidents. Your job is to ATTACH each alert below to an existing incident when it is the same underlying problem, or open a new one — never create a duplicate.
+
+1. Review the OPEN INCIDENTS listed below (most recent first). Decide whether each alert is the same underlying problem as one of them, judging from its summary. This can be true even when the workload, namespace, or source differs (e.g. the same bad dependency or upstream outage breaking several services).
+2. If unsure between candidates, call `list_incidents` to read their full detail before deciding.
+3. If an alert matches an existing incident, call `attach_alerts_to_incident(incident_id, alert_ids, grouping_reasoning={alert_id: "<why this is the same problem>"})`. Refine the incident via `update_incident` if this alert broadens its scope or you learned something new about the root cause — rewrite `what_happened` as a tight gist that conveys the breadth qualitatively; do NOT enumerate every workload, so it stays about the same length as the incident grows.
+4. Only if it is genuinely a new problem, investigate the root cause and call `create_incident` with a clear title, priority, what_happened, root_cause, how_to_fix and the affected resources — plus `related_alerts` and a `grouping_reasoning` entry for every alert placed in it.
+
+Grouping repeated or related failures into one incident is the goal — prefer attaching over opening a new incident.
+
+Investigate before you conclude: the alerts point at concrete workloads, and matching data-source tools are available to you (`get_pod_logs`, `kubectl_describe`, `get_resource_events`) — QUERY them to find the actual root cause and cite the concrete evidence you find; do not guess the cause from the alert text alone.
+
+Formatting: write `what_happened`, `root_cause` and `how_to_fix` as plain Markdown. When you use a numbered or bulleted list, put each item on its OWN line separated by a newline — never inline on a single line, which the UI cannot render as a list."""
+
+_VARIANTS = ("triager", "production")
+
+
+def render_triage_prompt(
+    alerts: list[dict],
+    leaders: list[dict] | None = None,
+    variant: str = "triager",
+) -> str:
     if not alerts:
         raise ValueError("render_triage_prompt requires at least one alert")
-    parts = [
-        _HEADER,
-        _INVESTIGATION_ORDER,
-        "",
-        "Rules:",
-        _SHARED_RULES,
-        "",
-        _render_leaders_section(leaders or []),
-        "",
-        "ALERTS:",
-    ]
+    if variant not in _VARIANTS:
+        raise ValueError(f"unknown prompt variant: {variant} (valid: {_VARIANTS})")
+    if variant == "production":
+        parts = [_PRODUCTION_PROMPT, ""]
+    else:
+        parts = [
+            _HEADER,
+            _INVESTIGATION_ORDER,
+            "",
+            "Rules:",
+            _SHARED_RULES,
+            "",
+        ]
+    parts.append(_render_leaders_section(leaders or []))
+    parts.append("")
+    parts.append("ALERTS:")
     for alert in alerts:
         parts.append(json.dumps(alert, default=str, ensure_ascii=False))
     return "\n".join(parts)

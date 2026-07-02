@@ -135,7 +135,13 @@ def _read_incidents(out_path: Path) -> list[dict]:
         return []
 
 
-def run_on(dataset: dict, model: str, wave_size: str, max_steps: int = 60) -> dict:
+def run_on(
+    dataset: dict,
+    model: str,
+    wave_size: str,
+    max_steps: int = 60,
+    prompt_variant: str = "triager",
+) -> dict:
     # Imports deferred so the OFF path and unit tests need no holmes/LLM deps.
     from holmes.core.prompt import build_initial_ask_messages
     from holmes.core.tool_calling_llm import ToolCallingLLM
@@ -172,7 +178,7 @@ def run_on(dataset: dict, model: str, wave_size: str, max_steps: int = 60) -> di
         t0 = time.monotonic()
         for i, wave in enumerate(waves, 1):
             leaders = _read_incidents(out_path)  # incidents opened by earlier waves
-            prompt = render_triage_prompt(wave, leaders=leaders)
+            prompt = render_triage_prompt(wave, leaders=leaders, variant=prompt_variant)
             messages = build_initial_ask_messages(
                 initial_user_prompt=prompt,
                 file_paths=None,
@@ -198,6 +204,12 @@ def main(argv: list[str]) -> None:
     ap.add_argument("--mode", choices=["on", "off"], default="on")
     ap.add_argument("--model", default=os.environ.get("MODEL", "gpt-4.1"))
     ap.add_argument("--wave-size", default="all", help='"all" or an integer alerts-per-wave')
+    ap.add_argument(
+        "--prompt",
+        choices=["triager", "production"],
+        default="triager",
+        help="triage prompt variant: triager (split-biased POC) or production (merge-biased robusta-storage RPC)",
+    )
     args = ap.parse_args(argv)
 
     dataset = json.loads(Path(args.dataset).read_text())
@@ -205,8 +217,13 @@ def main(argv: list[str]) -> None:
         scores = run_off(dataset)
         label = "(grouping OFF baseline)"
     else:
-        scores = run_on(dataset, model=args.model, wave_size=args.wave_size)
-        label = f"(grouping ON, model={args.model}, wave_size={args.wave_size})"
+        scores = run_on(
+            dataset,
+            model=args.model,
+            wave_size=args.wave_size,
+            prompt_variant=args.prompt,
+        )
+        label = f"(grouping ON, model={args.model}, wave_size={args.wave_size}, prompt={args.prompt})"
 
     print("\n" + format_summary(scores, label))
     print(f"  incidents: {scores['n_incidents']} (from {len(dataset['alerts'])} alerts)")
