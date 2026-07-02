@@ -1,6 +1,5 @@
 """Unit tests for worker lifecycle / claim-loop / error handling."""
 import threading
-from collections import deque
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,8 +25,6 @@ def _bare_worker():
     w._executor = MagicMock()
     w._active_conversation_ids = set()
     w._active_lock = threading.Lock()
-    w._queued_tasks = deque()
-    w._queued_lock = threading.Lock()
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
     w._realtime_verify_thread = None
@@ -77,11 +74,20 @@ def test_build_task_from_conversation_row_returns_none_on_bad_input():
     assert task is None
 
 
-def test_try_claim_and_dispatch_claims_all_and_queues():
-    """Claiming should always happen regardless of capacity.
-    Tasks go into _queued_tasks first, then dispatched up to capacity."""
+def test_try_claim_and_dispatch_claims_only_free_slots(monkeypatch):
+    """The worker claims only as many conversations as it has free pool slots
+    (MAX_CONCURRENT - active) and submits each straight to the executor — the
+    claim RPC already landed the row in 'running', so there is no separate
+    queued→running transition."""
     w = _bare_worker()
-    w.dal.claim_conversations.return_value = [
+    # Pin the capacity explicitly (like the neighboring tests) rather than
+    # relying on the default, so this stays valid if the default changes.
+    capacity = 5
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        capacity,
+    )
+    w.dal.claim_n_pending_conversations.return_value = [
         {
             "conversation_id": "c1",
             "account_id": "a1",
@@ -100,46 +106,218 @@ def test_try_claim_and_dispatch_claims_all_and_queues():
         },
     ]
     w._try_claim_and_dispatch()
-    # Both should have been submitted to executor (capacity = default 5)
+    # With no active work, the worker asks for the full configured capacity.
+    w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", capacity)
+    # Both claimed conversations should have been submitted to the executor.
     assert w._executor.submit.call_count == 2
-    # Both should be in active set
-    assert "c1" in w._active_conversation_ids
-    assert "c2" in w._active_conversation_ids
-    # update_conversation_status called twice to transition to running
-    assert w.dal.update_conversation_status.call_count == 2
+    assert ("c1", 1) in w._active_conversation_ids
+    assert ("c2", 1) in w._active_conversation_ids
+    # No status transition happens on dispatch — the claim already set 'running'.
+    w.dal.update_conversation_status.assert_not_called()
 
 
-def test_try_claim_and_dispatch_queues_when_at_capacity(monkeypatch):
-    """When at capacity, tasks stay in the queued pool, not submitted."""
+def test_try_claim_and_dispatch_passes_remaining_capacity_as_limit(monkeypatch):
+    """The claim limit reflects the slots NOT already taken by running work."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+    # Two conversations already running -> only 3 free slots remain
+    # (free = MAX_CONCURRENT - active; there is no longer a local queue).
+    w._active_conversation_ids = {"existing1", "existing2"}
+    w.dal.claim_n_pending_conversations.return_value = []
+    w._try_claim_and_dispatch()
+    w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 3)
+
+
+def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
+    """When at capacity the worker must NOT claim — surplus stays pending in
+    the DB (claimable by another Holmes instance) instead of being hoarded."""
     w = _bare_worker()
     monkeypatch.setattr(
         "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
         1,
     )
-    # Already have one active conversation
+    # Already have one active conversation -> zero free slots.
     w._active_conversation_ids = {"existing"}
-    w.dal.claim_conversations.return_value = [
-        {
-            "conversation_id": "c1",
-            "account_id": "a1",
-            "cluster_id": "cl1",
-            "origin": "chat",
-            "request_sequence": 1,
-            "metadata": {},
-        }
-    ]
     w._try_claim_and_dispatch()
-    # Claim should still happen (no capacity check before claiming)
-    w.dal.claim_conversations.assert_called_once()
-    # But the task should NOT be submitted to executor
+    # No claim RPC is issued at all when there is no free capacity.
+    w.dal.claim_n_pending_conversations.assert_not_called()
     w._executor.submit.assert_not_called()
-    # It should be in the queued tasks
-    assert len(w._queued_tasks) == 1
-    assert w._queued_tasks[0].conversation_id == "c1"
 
 
-def test_dispatch_queued_transitions_to_running():
-    """_dispatch_queued should call update_conversation_status(running) and submit."""
+def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
+    """Exact-accounting test: draining a 12-row backlog at capacity 5 must
+
+      * call claim exactly once per iteration that has free capacity,
+      * pass limit == free slots on every call (never more),
+      * dispatch exactly the rows it claimed — each conversation once, never
+        exceeding MAX_CONCURRENT — so no work is missed or double-claimed,
+      * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
+    """
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+
+    pending = [f"c{i}" for i in range(12)]
+
+    def fake_claim(_holmes_id, limit):
+        assert limit > 0  # the worker must never call claim with no free capacity
+        batch, pending[:] = pending[:limit], pending[limit:]
+        return [
+            {
+                "conversation_id": cid,
+                "account_id": "a",
+                "cluster_id": "cl",
+                "origin": "chat",
+                "request_sequence": 1,
+                "metadata": {},
+            }
+            for cid in batch
+        ]
+
+    w.dal.claim_n_pending_conversations.side_effect = fake_claim
+
+    dispatched: list = []
+    w._executor.submit.side_effect = lambda _fn, task: dispatched.append(
+        task.conversation_id
+    )
+
+    observed_limits = []
+    dispatched_per_iter = []
+    max_active = 0
+    # Each iteration: claim+dispatch, then simulate every running conv finishing
+    # (frees the whole pool for the next claim), until the backlog is drained.
+    while pending or w._active_conversation_ids:
+        free_before = 5 - len(w._active_conversation_ids)
+        before = w.dal.claim_n_pending_conversations.call_count
+        dispatched_before = len(dispatched)
+        w._try_claim_and_dispatch()
+        after = w.dal.claim_n_pending_conversations.call_count
+
+        assert after == before + 1, "exactly one claim call per iteration"
+        limit = w.dal.claim_n_pending_conversations.call_args.args[1]
+        assert limit == free_before, "claim limit must equal free capacity"
+        observed_limits.append(limit)
+        dispatched_per_iter.append(len(dispatched) - dispatched_before)
+
+        max_active = max(max_active, len(w._active_conversation_ids))
+        assert len(w._active_conversation_ids) <= 5, "never exceed MAX_CONCURRENT"
+
+        for key in list(w._active_conversation_ids):
+            w._active_conversation_ids.discard(key)
+
+    # The whole pool is freed each iteration, so every claim requests the full
+    # 5 free slots; the final batch simply returns fewer rows (the remaining 2).
+    assert observed_limits == [5, 5, 5]
+    assert dispatched_per_iter == [5, 5, 2]  # ceil(12/5): 5, 5, then 2
+    assert max_active == 5
+    # Every conversation dispatched exactly once — none missed, none duplicated.
+    assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
+
+    # Backlog drained: one more pass issues a claim that returns nothing and
+    # dispatches nothing (no phantom work).
+    calls_before = w.dal.claim_n_pending_conversations.call_count
+    w._try_claim_and_dispatch()
+    assert w.dal.claim_n_pending_conversations.call_count == calls_before + 1
+    assert len(dispatched) == 12
+
+
+def test_two_workers_claim_disjoint_sets(monkeypatch):
+    """Cross-instance load balancing: two workers draining the SAME backlog
+    must never both dispatch the same conversation. The DB guarantees this
+    with FOR UPDATE SKIP LOCKED; here we simulate that guarantee (each claim
+    atomically removes its own slice under a lock) and assert the worker side
+    never double-dispatches, every row is handled exactly once, and both
+    workers actually participate."""
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+    pending = [f"c{i}" for i in range(12)]
+    db_lock = threading.Lock()
+
+    def fake_claim(_holmes_id, limit):
+        # SKIP LOCKED: each caller atomically takes a disjoint slice.
+        with db_lock:
+            batch, pending[:] = pending[:limit], pending[limit:]
+        return [
+            {
+                "conversation_id": cid,
+                "account_id": "a",
+                "cluster_id": "cl",
+                "origin": "chat",
+                "request_sequence": 1,
+                "metadata": {},
+            }
+            for cid in batch
+        ]
+
+    dispatched: dict = {}  # conversation_id -> worker label (detects double dispatch)
+
+    def make_worker(label):
+        w = _bare_worker()
+        w.dal.claim_n_pending_conversations.side_effect = fake_claim
+
+        def record(_fn, task, _label=label):
+            assert task.conversation_id not in dispatched, (
+                f"{task.conversation_id} dispatched twice (by "
+                f"{dispatched.get(task.conversation_id)} and {_label})"
+            )
+            dispatched[task.conversation_id] = _label
+
+        w._executor.submit.side_effect = record
+        return w
+
+    w1 = make_worker("w1")
+    w2 = make_worker("w2")
+
+    # Drain round-robin; each worker frees its whole pool after each claim.
+    while pending or w1._active_conversation_ids or w2._active_conversation_ids:
+        for w in (w1, w2):
+            w._try_claim_and_dispatch()
+            for key in list(w._active_conversation_ids):
+                w._active_conversation_ids.discard(key)
+
+    assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
+    assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
+        "backlog exceeded one pool, so both workers should have claimed some"
+    )
+
+
+def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
+    """The claim loop clears _notify_event BEFORE claiming (see _claim_loop), so
+    a broadcast that lands mid-claim re-sets the event and the next wait()
+    returns immediately — the wakeup is never lost. This reproduces that exact
+    ordering and asserts the event survives a claim that signals itself."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        5,
+    )
+
+    def claim_then_broadcast(_holmes_id, _limit):
+        # A 'pending_conversations' broadcast lands while we're mid-claim.
+        w.claim_pending_conversations()  # == _notify_event.set()
+        return []
+
+    w.dal.claim_n_pending_conversations.side_effect = claim_then_broadcast
+
+    # One loop-body iteration in the same order as _claim_loop:
+    w._notify_event.clear()          # loop clears before claiming
+    w._try_claim_and_dispatch()      # claim runs; a broadcast arrives mid-claim
+    # Event is set again -> the loop's next wait() wakes immediately to re-claim.
+    assert w._notify_event.is_set()
+    assert w._notify_event.wait(timeout=0) is True
+
+
+def test_dispatch_submits_without_status_transition():
+    """_dispatch submits a claimed conversation straight to the executor and
+    tracks it as active. The claim RPC already set the row to 'running', so no
+    update_conversation_status call happens here."""
     w = _bare_worker()
     task = ConversationTask(
         conversation_id="c1",
@@ -148,22 +326,16 @@ def test_dispatch_queued_transitions_to_running():
         origin="chat",
         request_sequence=1,
     )
-    w._queued_tasks.append(task)
-    w._dispatch_queued()
-    w.dal.update_conversation_status.assert_called_once_with(
-        conversation_id="c1",
-        request_sequence=1,
-        assignee="h-test",
-        status="running",
-    )
+    w._dispatch(task)
+    w.dal.update_conversation_status.assert_not_called()
     w._executor.submit.assert_called_once()
-    assert "c1" in w._active_conversation_ids
+    assert ("c1", 1) in w._active_conversation_ids
 
 
-def test_dispatch_queued_skips_if_transition_fails():
-    """If update_conversation_status returns False, task is not submitted."""
+def test_dispatch_noop_when_not_running():
+    """If the worker is stopping, _dispatch must not submit or track the task."""
     w = _bare_worker()
-    w.dal.update_conversation_status.return_value = False
+    w._running = False
     task = ConversationTask(
         conversation_id="c1",
         account_id="a1",
@@ -171,20 +343,16 @@ def test_dispatch_queued_skips_if_transition_fails():
         origin="chat",
         request_sequence=1,
     )
-    w._queued_tasks.append(task)
-    w._dispatch_queued()
+    w._dispatch(task)
     w._executor.submit.assert_not_called()
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
-def test_dispatch_queued_handles_mismatch_during_transition():
-    """If the queued→running transition raises ConversationReassignedError
-    (e.g. stop_conversation bumped request_sequence while queued), the task
-    must be skipped — not submitted to executor."""
+def test_dispatch_drops_task_when_executor_shutdown_races():
+    """If the executor is torn down between the running check and submit, the
+    in-flight tracking must be rolled back so capacity isn't leaked."""
     w = _bare_worker()
-    w.dal.update_conversation_status.side_effect = ConversationReassignedError(
-        "MISMATCH Request sequence expected 1, got 2"
-    )
+    w._executor.submit.side_effect = RuntimeError("cannot schedule new futures")
     task = ConversationTask(
         conversation_id="c1",
         account_id="a1",
@@ -192,10 +360,8 @@ def test_dispatch_queued_handles_mismatch_during_transition():
         origin="chat",
         request_sequence=1,
     )
-    w._queued_tasks.append(task)
-    w._dispatch_queued()
-    w._executor.submit.assert_not_called()
-    assert "c1" not in w._active_conversation_ids
+    w._dispatch(task)
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_process_conversation_safe_marks_failed_on_exception():
@@ -232,7 +398,7 @@ def test_process_conversation_safe_marks_failed_on_exception():
         status="failed",
     )
     # active conversation cleared
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_process_conversation_safe_clears_active_on_success():
@@ -247,7 +413,26 @@ def test_process_conversation_safe_clears_active_on_success():
     with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
         w._process_conversation_safe(task)
 
-    assert "c1" not in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
+
+
+def test_process_conversation_safe_wakes_claim_loop_to_reclaim():
+    """When a conversation finishes a pool slot frees up — the worker must
+    signal the claim loop so it re-claims any surplus 'pending' rows it left
+    behind while at capacity."""
+    w = _bare_worker()
+    w._notify_event.clear()
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+    )
+    with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
+        w._process_conversation_safe(task)
+
+    assert w._notify_event.is_set()
 
 
 def test_process_conversation_safe_no_status_update_on_reassignment():
@@ -271,41 +456,7 @@ def test_process_conversation_safe_no_status_update_on_reassignment():
 
     w.dal.update_conversation_status.assert_not_called()
     w.dal.post_conversation_events.assert_not_called()
-    assert "c1" not in w._active_conversation_ids
-
-
-def test_process_conversation_safe_dispatches_queued_after_completion():
-    """After a conversation finishes, the worker should try to dispatch queued tasks."""
-    w = _bare_worker()
-    task = ConversationTask(
-        conversation_id="c1",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=1,
-    )
-    # Pre-queue a task that should be dispatched after c1 finishes
-    next_task = ConversationTask(
-        conversation_id="c2",
-        account_id="a1",
-        cluster_id="cl1",
-        origin="chat",
-        request_sequence=1,
-    )
-    w._queued_tasks.append(next_task)
-
-    with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
-        w._process_conversation_safe(task)
-
-    # c2 should have been dispatched (transition to running + submit)
-    w.dal.update_conversation_status.assert_called_once_with(
-        conversation_id="c2",
-        request_sequence=1,
-        assignee="h-test",
-        status="running",
-    )
-    w._executor.submit.assert_called_once()
-    assert "c2" in w._active_conversation_ids
+    assert ("c1", 1) not in w._active_conversation_ids
 
 
 def test_notify_event_wakes_claim_loop():
