@@ -439,7 +439,9 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.4"
+    # github-mcp:2.0.0 = native HTTP mode (github-mcp-server v1.4.0+). PAT auth only.
+    # The github-app path uses auth.githubApp.image and is unchanged.
+    image: "github-mcp:2.0.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -460,7 +462,7 @@ mcpAddons:
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.3"                          # Image with GitHub App token management
+        image: "github-app-mcp:1.0.7"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
