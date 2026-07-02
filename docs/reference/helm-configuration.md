@@ -52,7 +52,7 @@ toolsets:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `additionalEnvVars` | Environment variables (API keys, etc.) | `[]` |
-| `apiKeysSecret` | Name of a Kubernetes Secret whose keys are auto-mounted as env vars on the Holmes pod. Enables the `secretRef:VAR` sugar in `modelList`. | `""` |
+| `extraEnvVarsSecrets` | List of Kubernetes Secret names whose keys are auto-mounted as env vars on the Holmes pod. Enables the `env:VAR` sugar in `modelList`. | `[]` |
 | `toolsets` | Enable/disable specific toolsets | (see values.yaml) |
 | `modelList` | Configure multiple AI models for UI selection. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) | `{}` |
 | `openshift` | Enable OpenShift compatibility mode | `false` |
@@ -79,13 +79,13 @@ additionalEnvVars:
 #       key: openai-api-key
 ```
 
-#### Simplified API Key Configuration (`apiKeysSecret` + `secretRef:` sugar)
+#### Simplified API Key Configuration (`extraEnvVarsSecrets` + `env:` sugar)
 
 When you configure several models in `modelList`, listing every key twice — once
 in `additionalEnvVars` and once in the model config — becomes noisy. The
-`apiKeysSecret` field mounts a Kubernetes Secret onto the Holmes pod with a
-single line, and the `secretRef:VAR` shorthand in `modelList` is rewritten at
-chart-render time to the runtime template `{{ env.VAR }}`.
+`extraEnvVarsSecrets` field mounts one or more Kubernetes Secrets onto the
+Holmes pod with a single line each, and the `env:VAR` shorthand in `modelList`
+is rewritten at chart-render time to the runtime template `{{ env.VAR }}`.
 
 Create the Secret once, with one key per API key you need:
 
@@ -99,29 +99,33 @@ kubectl create secret generic holmes-secrets \
 Then reference it in `values.yaml`:
 
 ```yaml
-apiKeysSecret: holmes-secrets
+extraEnvVarsSecrets:
+  - holmes-secrets
 
 modelList:
   gpt-4.1:
     model: openai/gpt-4.1
-    api_key: secretRef:OPENAI_API_KEY   # → "{{ env.OPENAI_API_KEY }}" at render time
+    api_key: env:OPENAI_API_KEY   # → "{{ env.OPENAI_API_KEY }}" at render time
     temperature: 0
   claude-sonnet-4:
     model: anthropic/claude-sonnet-4-5-20250929
-    api_key: secretRef:ANTHROPIC_API_KEY
+    api_key: env:ANTHROPIC_API_KEY
     temperature: 1
 ```
 
 **Notes:**
 
+- `extraEnvVarsSecrets` is a list — pass multiple Secret names to split keys
+  across secrets (e.g. one Secret per provider). Every listed Secret is mounted
+  via `envFrom.secretRef`, sharing a single env-var namespace.
 - The Secret keys must be valid env-var names (`[A-Za-z_][A-Za-z0-9_]*`) — they
   become environment variables verbatim via `envFrom.secretRef`.
-- `secretRef:` sugar can be used on any string field in `modelList`, not just
-  `api_key` (e.g. `aws_access_key_id: secretRef:AWS_ACCESS_KEY_ID`).
+- `env:` sugar can be used on any string field in `modelList`, not just
+  `api_key` (e.g. `aws_access_key_id: env:AWS_ACCESS_KEY_ID`).
 - Existing configs using `additionalEnvVars` + `{{ env.OPENAI_API_KEY }}` keep
-  working unchanged — `apiKeysSecret` is opt-in.
-- `apiKeysSecret` can coexist with `additional_env_froms`; both blocks are
-  merged into the pod's `envFrom`.
+  working unchanged — `extraEnvVarsSecrets` is opt-in.
+- `extraEnvVarsSecrets` can coexist with `additional_env_froms`; both blocks
+  are merged into the pod's `envFrom`.
 
 #### Toolset Configuration
 
@@ -322,7 +326,7 @@ modelList:
       type: enabled
 ```
 
-The same setup using `apiKeysSecret` + the `secretRef:` sugar (~40% fewer lines
+The same setup using `extraEnvVarsSecrets` + the `env:` sugar (~40% fewer lines
 of YAML, and adding another key never requires a new `additionalEnvVars` entry):
 
 ```yaml
@@ -334,24 +338,25 @@ of YAML, and adding another key never requires a new `additionalEnvVars` entry):
 #     --from-literal=AWS_ACCESS_KEY_ID=... \
 #     --from-literal=AWS_SECRET_ACCESS_KEY=... \
 #     -n <namespace>
-apiKeysSecret: holmes-secrets
+extraEnvVarsSecrets:
+  - holmes-secrets
 
 modelList:
   gpt-4.1:
     model: openai/gpt-4.1
-    api_key: secretRef:OPENAI_API_KEY
+    api_key: env:OPENAI_API_KEY
     temperature: 0
   claude-sonnet-4-5:
     model: anthropic/claude-sonnet-4-5-20250929
-    api_key: secretRef:ANTHROPIC_API_KEY
+    api_key: env:ANTHROPIC_API_KEY
     temperature: 1
     thinking:
       budget_tokens: 10000
       type: enabled
   bedrock-sonnet-4-5:
     model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-    aws_access_key_id: secretRef:AWS_ACCESS_KEY_ID
-    aws_secret_access_key: secretRef:AWS_SECRET_ACCESS_KEY
+    aws_access_key_id: env:AWS_ACCESS_KEY_ID
+    aws_secret_access_key: env:AWS_SECRET_ACCESS_KEY
     aws_region_name: us-east-1
     temperature: 1
     thinking:

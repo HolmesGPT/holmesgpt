@@ -151,11 +151,11 @@ spec:
           {{- if .Values.additional_env_vars -}}
           {{ toYaml .Values.additional_env_vars | nindent 10 }}
           {{- end }}
-        {{- if or .Values.additional_env_froms .Values.apiKeysSecret }}
+        {{- if or .Values.additional_env_froms .Values.extraEnvVarsSecrets }}
         envFrom:
-        {{- if .Values.apiKeysSecret }}
+        {{- range .Values.extraEnvVarsSecrets }}
         - secretRef:
-            name: {{ .Values.apiKeysSecret }}
+            name: {{ . }}
         {{- end }}
         {{- with .Values.additional_env_froms }}
 {{ toYaml . | nindent 8 }}
