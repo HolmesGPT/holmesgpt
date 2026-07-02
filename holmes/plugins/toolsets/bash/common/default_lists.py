@@ -73,8 +73,6 @@ EXTENDED_ALLOW_LIST: List[str] = CORE_ALLOW_LIST + [
     # Archive inspection
     "tar -tf",
     "tar -tvf",
-    "tar -tfv",
-    "tar -ftv",
     "gzip -l",
     "zcat",
     "zgrep",

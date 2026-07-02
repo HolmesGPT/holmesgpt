@@ -439,7 +439,9 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.4"
+    # github-mcp:2.0.0 = native HTTP mode (github-mcp-server v1.4.0+). PAT auth only.
+    # The github-app path uses auth.githubApp.image and is unchanged.
+    image: "github-mcp:2.0.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
