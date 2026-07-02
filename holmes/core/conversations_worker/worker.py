@@ -4,7 +4,6 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
@@ -71,8 +70,9 @@ class ConversationWorker:
     runs them through the existing /api/chat pipeline (via chat_function),
     and writes results back as ConversationEvents in real-time.
 
-    Lifecycle: pending → queued (claimed) → running (processing) → completed/failed.
-    Presence is advertised for both queued and running conversations.
+    Lifecycle: pending → running (claimed + processing) → completed/failed.
+    The claim RPC lands a row directly in 'running' ('queued' is deprecated), so
+    a conversation waiting for capacity stays 'pending'.
     """
 
     def __init__(
@@ -84,11 +84,8 @@ class ConversationWorker:
         self.dal = dal
         self.config = config
         self.chat_function = chat_function
-        # Uniquely identify this Holmes process (presence key, assignee value
-        # in Conversations). HOSTNAME alone is not unique because a pod can
-        # restart and re-use the same name, and two replicas in different pods
-        # can have the same env var in tests. Combining hostname + pid +
-        # short uuid4 makes it globally unique across process lifetimes.
+        # Globally-unique process id (presence key + assignee). hostname alone
+        # isn't unique across pod restarts/replicas, so add pid + short uuid4.
         hostname = os.environ.get("HOSTNAME") or "local"
         self.holmes_id = f"{hostname}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
@@ -97,20 +94,13 @@ class ConversationWorker:
         self._notify_event = threading.Event()
         self._executor: Optional[ThreadPoolExecutor] = None
 
-        # Tracks conversations currently being processed (running state).
+        # In-flight (running) tasks, keyed by (conversation_id, request_sequence)
+        # — see ConversationTask.active_key — so overlapping turns of one
+        # conversation are counted separately for capacity.
         self._active_conversation_ids: set = set()
         self._active_lock = threading.Lock()
 
-        # Conversations that have been claimed (queued) but not yet submitted
-        # to the executor because we're at capacity.
-        self._queued_tasks: deque = deque()
-        self._queued_lock = threading.Lock()
-
-        # Serializes _dispatch_queued with stop() so that the capacity check,
-        # DB transition, active-set update, and executor.submit are atomic —
-        # prevents submitting to a shut-down executor or exceeding
-        # MAX_CONCURRENT when _dispatch_queued runs from multiple threads
-        # (claim loop + _process_conversation_safe finally block).
+        # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
 
         self._realtime_manager: Optional[RealtimeWorker] = None
@@ -237,9 +227,7 @@ class ConversationWorker:
                 self._realtime_manager.stop()
             except Exception:
                 logging.exception("Error stopping realtime manager", exc_info=True)
-        # Acquire _dispatch_lock so any in-flight _dispatch_queued call
-        # finishes before we shut down the executor — prevents RuntimeError
-        # from submit() on a shut-down pool.
+        # Let any in-flight _dispatch finish before shutting the executor down.
         with self._dispatch_lock:
             if self._executor:
                 # shutdown(wait=False): prevent new tasks from being accepted,
@@ -422,14 +410,28 @@ class ConversationWorker:
         except Exception:
             return False
 
+    def _free_claim_slots(self) -> int:
+        """Pool slots free right now: MAX_CONCURRENT minus in-flight tasks.
+
+        Surplus stays 'pending' for the next poll or another instance to claim.
+        """
+        with self._active_lock:
+            active = len(self._active_conversation_ids)
+        return CONVERSATION_WORKER_MAX_CONCURRENT - active
+
     def _try_claim_and_dispatch(self) -> None:
-        # Claim ALL pending conversations — they transition to queued state.
-        # There is no capacity check here: we claim eagerly so that no other
-        # Holmes instance can grab them, and queue them locally until executor
-        # slots open up.
-        claimed = self.dal.claim_conversations(self.holmes_id)
+        # Claim only as many pending rows as we have free slots and submit each
+        # straight to the executor (the claim already set them 'running'). The
+        # surplus stays 'pending' for another instance. _process_conversation_safe
+        # wakes this loop to re-claim as slots free.
+        free = self._free_claim_slots()
+        if free <= 0:
+            return
+        claimed = self.dal.claim_n_pending_conversations(self.holmes_id, free)
         if claimed:
-            logging.info("Claimed %d conversation(s)", len(claimed))
+            logging.info(
+                "Claimed %d conversation(s) (free slots=%d)", len(claimed), free
+            )
         for conv in claimed:
             task = self._build_task_from_conversation_row(conv)
             if task is None:
@@ -460,67 +462,30 @@ class ConversationWorker:
                             exc_info=True,
                         )
                 continue
-            with self._queued_lock:
-                self._queued_tasks.append(task)
+            self._dispatch(task)
 
-        # Dispatch as many queued tasks as executor capacity allows.
-        self._dispatch_queued()
+    def _dispatch(self, task: ConversationTask) -> None:
+        """Submit a claimed (already 'running') conversation to the executor.
 
-    def _dispatch_queued(self) -> None:
-        """Move tasks from the queued pool to the executor, up to capacity.
-
-        Holds ``_dispatch_lock`` for the entire sequence so the capacity check,
-        DB transition, active-set update, and executor submit are atomic with
-        respect to ``stop()`` and concurrent calls from other threads.
+        No DB write here — the claim set 'running'. A request_sequence bumped
+        after the claim (stop/retry) is caught later as ConversationReassignedError.
         """
         with self._dispatch_lock:
-            while self._running:
-                with self._active_lock:
-                    active = len(self._active_conversation_ids)
-                if active >= CONVERSATION_WORKER_MAX_CONCURRENT:
-                    break
-
-                with self._queued_lock:
-                    if not self._queued_tasks:
-                        break
-                    task = self._queued_tasks.popleft()
-
-                # Transition from queued → running in the DB. The RPC validates
-                # that the assignee and request_sequence still match — if
-                # stop_conversation or retry_conversation bumped the sequence
-                # while the task was queued, this raises ConversationReassignedError.
-                try:
-                    ok = self.dal.update_conversation_status(
-                        conversation_id=task.conversation_id,
-                        request_sequence=task.request_sequence,
-                        assignee=self.holmes_id,
-                        status="running",
-                    )
-                    if not ok:
-                        logging.warning(
-                            "Failed to transition conversation %s to running — skipping",
-                            task.conversation_id,
-                        )
-                        continue
-                except ConversationReassignedError:
-                    logging.warning(
-                        "Conversation %s was reassigned while queued — skipping",
-                        task.conversation_id,
-                    )
-                    continue
-                except Exception:
-                    logging.exception(
-                        "Error transitioning conversation %s to running — requeuing",
-                        task.conversation_id,
-                        exc_info=True,
-                    )
-                    with self._queued_lock:
-                        self._queued_tasks.appendleft(task)
-                    break
-
-                with self._active_lock:
-                    self._active_conversation_ids.add(task.conversation_id)
+            if not self._running or self._executor is None:
+                return
+            with self._active_lock:
+                self._active_conversation_ids.add(task.active_key)
+            try:
                 self._executor.submit(self._process_conversation_safe, task)
+            except RuntimeError:
+                # Pool shut down (stop() raced); row stays 'running' and is
+                # recovered by the stale-conversation timeout sweep.
+                with self._active_lock:
+                    self._active_conversation_ids.discard(task.active_key)
+                logging.warning(
+                    "Executor shut down; dropping claimed conversation %s",
+                    task.conversation_id,
+                )
 
     def _build_task_from_conversation_row(
         self, conv: Dict[str, Any]
@@ -639,16 +604,9 @@ class ConversationWorker:
             )
         finally:
             with self._active_lock:
-                self._active_conversation_ids.discard(task.conversation_id)
-            # A slot freed up — try to dispatch the next queued task.
-            try:
-                self._dispatch_queued()
-            except Exception:
-                logging.exception(
-                    "Error dispatching queued tasks after conversation %s",
-                    task.conversation_id,
-                    exc_info=True,
-                )
+                self._active_conversation_ids.discard(task.active_key)
+            # A slot freed up — wake the claim loop to re-claim pending rows.
+            self._notify_event.set()
 
     def _process_conversation(self, task: ConversationTask) -> None:
         events = self.dal.get_conversation_events(task.conversation_id)
