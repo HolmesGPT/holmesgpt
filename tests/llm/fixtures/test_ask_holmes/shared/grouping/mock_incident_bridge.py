@@ -24,6 +24,11 @@ Seed data is read from a JSON file passed as argv[1]. Shape:
 Both keys are optional. Alerts are otherwise delivered inline in the prompt, so
 most scenarios only need "leaders" (and only when testing attach-to-existing).
 
+An optional argv[2] is an OUTPUT path: whenever incidents change, the full
+current incident list is written there as JSON. The multi-wave grouping runner
+uses this to read the predicted grouping after a run (and to inline current
+incidents as leaders on later waves) without needing an MCP round-trip.
+
 Like the real bridge, this rejects any create/attach that fails to supply a
 `grouping_reasoning` entry for every alert being placed into an incident
 (triager `handlers.py::_validate_reasoning_covers`) — so Holmes is exercised
@@ -31,6 +36,7 @@ realistically and a missing reason fails loudly instead of silently passing.
 """
 
 import json
+import os
 import sys
 from typing import Optional
 
@@ -43,25 +49,48 @@ mcp = FastMCP("Incident Bridge (eval mock)")
 _INCIDENTS: dict[str, dict] = {}
 _PENDING: dict[str, dict] = {}
 _SEQ = {"n": 0}
+_OUT_PATH: str | None = None
+
+
+def _write_state() -> None:
+    if not _OUT_PATH:
+        return
+    with open(_OUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(list(_INCIDENTS.values()), f, default=str, ensure_ascii=False)
 
 
 def _load_seed() -> None:
-    if len(sys.argv) < 2:
-        return
-    with open(sys.argv[1], "r", encoding="utf-8") as f:
-        seed = json.load(f)
-    for inc in seed.get("leaders", []) or []:
-        inc = dict(inc)
-        inc.setdefault("status", "open")
-        inc.setdefault("related_alerts", [])
-        _INCIDENTS[str(inc["id"])] = inc
-    for alert in seed.get("pending", []) or []:
-        _PENDING[str(alert["id"])] = dict(alert)
+    global _OUT_PATH
+    if len(sys.argv) > 2:
+        _OUT_PATH = sys.argv[2]
+    if len(sys.argv) >= 2:
+        with open(sys.argv[1], "r", encoding="utf-8") as f:
+            seed = json.load(f)
+        for inc in seed.get("leaders", []) or []:
+            inc = dict(inc)
+            inc.setdefault("status", "open")
+            inc.setdefault("related_alerts", [])
+            _INCIDENTS[str(inc["id"])] = inc
+        for alert in seed.get("pending", []) or []:
+            _PENDING[str(alert["id"])] = dict(alert)
+    # Disk-backed state: reload incidents accumulated by earlier tool calls /
+    # waves. The MCP stdio server may be re-spawned per call, so in-memory state
+    # is NOT assumed to persist — the output file is the source of truth.
+    if _OUT_PATH and os.path.exists(_OUT_PATH):
+        try:
+            with open(_OUT_PATH, "r", encoding="utf-8") as f:
+                for inc in json.load(f) or []:
+                    _INCIDENTS[str(inc["id"])] = inc
+        except (json.JSONDecodeError, OSError):
+            pass
 
 
 def _next_id() -> str:
-    _SEQ["n"] += 1
-    return f"INC-{_SEQ['n']:04d}"
+    highest = 0
+    for key in _INCIDENTS:
+        if key.startswith("INC-") and key[4:].isdigit():
+            highest = max(highest, int(key[4:]))
+    return f"INC-{highest + 1:04d}"
 
 
 def _validate_reasoning_covers(alert_ids: list[str], reasoning: dict[str, str]) -> Optional[str]:
@@ -132,6 +161,7 @@ def create_incident(
         "grouping_reasoning": dict(grouping_reasoning),
     }
     _INCIDENTS[inc_id] = inc
+    _write_state()
     return json.dumps(inc, default=str, ensure_ascii=False)
 
 
@@ -162,6 +192,7 @@ def attach_alerts_to_incident(
             inc["related_alerts"].append(aid)
             existing.add(aid)
     inc.setdefault("grouping_reasoning", {}).update(grouping_reasoning)
+    _write_state()
     return json.dumps(inc, default=str, ensure_ascii=False)
 
 
@@ -211,4 +242,5 @@ def get_queued_alert(alert_id: str) -> str:
 
 if __name__ == "__main__":
     _load_seed()
+    _write_state()  # initialise the output file (empty or seeded leaders)
     mcp.run()

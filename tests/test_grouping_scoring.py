@@ -94,3 +94,19 @@ def test_cost_speed():
     # never divides by zero
     cs0 = cost_speed(0.0, 0.0, 0)
     assert cs0["cost_per_alert_usd"] == 0.0
+
+
+def test_runner_off_baseline():
+    """The grouping-OFF baseline (one incident per alert) needs no LLM/MCP and
+    should recover every alert but never group: recall 0 when truth has pairs."""
+    from grouping_runner import run_off
+
+    dataset = {
+        "alerts": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+        "ground_truth": {"a": "g1", "b": "g1", "c": "g2"},
+    }
+    scores = run_off(dataset)
+    assert scores["n_incidents"] == 3  # one per alert
+    assert scores["coverage"] == 1.0  # all alerts placed
+    assert scores["pairwise_recall"] == 0.0  # never captures the a-b pair
+    assert scores["total_cost_usd"] == 0.0
