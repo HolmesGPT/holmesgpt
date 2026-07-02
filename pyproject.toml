@@ -37,6 +37,8 @@ backoff = "^2.2.1"
 # Python is capped at <3.14 because litellm (>=1.84.0) declares Requires-Python <3.14.
 # Lift python back to "^3.10" once https://github.com/BerriAI/litellm/pull/30687 is merged
 # and released (expected in litellm 1.90+).
+# litellm >= 1.84.0 also fixes CRITICAL CVE-2026-49468 (auth bypass via Host header
+# injection) and relaxes the pinned aiohttp to >=3.10,<4.0, letting us take aiohttp 3.14.1.
 litellm = "1.89.0"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
@@ -68,9 +70,20 @@ kopf = "^1.37.0"
 apscheduler = "^3.10.4"
 
 # Indirect dependencies to restrict vectors to address security vulnerability
-# Starlette >= 1.0.1 fixes CVE-2026-48710 / GHSA-86qp-5c8j-p5mr (Host header
-# validation when reconstructing request.url).
-starlette = "^1.0.1"
+# Starlette >= 1.3.1 fixes CVE-2026-54283 (HIGH: request.form() size limits
+# silently ignored) and CVE-2026-54282; >= 1.0.1 already fixed CVE-2026-48710 /
+# GHSA-86qp-5c8j-p5mr (Host header validation when reconstructing request.url).
+starlette = ">=1.3.1"
+# cryptography >= 48.0.1 ships a patched OpenSSL in its wheels (GHSA-537c-gmf6-5ccf, HIGH).
+# Use >= (not ^): ^48.0.1 caps at <49 and would downgrade newer majors already on master.
+cryptography = ">=48.0.1"
+# pydantic-settings >= 2.14.2 fixes GHSA-4xgf-cpjx-pc3j (symlink escape out of secrets_dir).
+pydantic-settings = ">=2.14.2"
+# python-multipart >= 0.0.31 fixes CVE-2026-53540 (negative Content-Length buffers the whole body).
+# Use >= (not ^) because Poetry reads ^0.0.31 as ==0.0.31, which would exclude future 0.0.x patches.
+python-multipart = ">=0.0.31"
+# aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x hardening fixes.
+aiohttp = ">=3.14.1"
 urllib3 = "^2.6.3"
 sqlalchemy = "^2.0.46"
 pg8000 = "^1.31.5"

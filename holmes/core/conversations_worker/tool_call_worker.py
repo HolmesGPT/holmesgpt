@@ -4,9 +4,10 @@ Remote tool-call worker — executes cross-cluster tool calls.
 A Holmes instance in another cluster (the caller) asked relay's platform-mcp
 to run a tool here. platform-mcp created a row in the "RemoteToolCalls" table
 and broadcast a 'pending_tool_calls' event on holmes:submit:{account}:{cluster}.
-This worker claims such rows (claim_tool_calls RPC), runs exactly one tool per
-row — no LLM loop — and writes tool_response + terminal status in one atomic
-UPDATE (post_remote_tool_call_result RPC).
+This worker claims such rows (claim_n_pending_tool_calls RPC — only as many as
+it has free pool slots), runs exactly one tool per row — no LLM loop — and
+writes tool_response + terminal status in one atomic UPDATE
+(post_remote_tool_call_result RPC).
 
 Tool calls run in their own thread pool (TOOL_CALLER_MAX_CONCURRENT) so they
 never compete with user chats for the conversation worker's pool.
@@ -131,6 +132,12 @@ class ToolCallWorker:
         self._llm = None  # lazily created; used only for in-tool token counting
         self._realtime_connected = lambda: False
 
+        # Count of tool calls currently submitted to / running in the pool, so
+        # we only claim as many new rows as we have free capacity. Surplus
+        # rows stay 'pending' for the next poll or another Holmes instance.
+        self._active_lock = threading.Lock()
+        self._active_count = 0
+
     # ---- lifecycle ----
 
     def start(self, realtime_connected_fn=None) -> None:
@@ -189,21 +196,39 @@ class ToolCallWorker:
                 logging.exception("Error in ToolCallWorker claim loop", exc_info=True)
 
     def _try_claim_and_dispatch(self) -> None:
-        claimed = self.dal.claim_tool_calls(self.holmes_id)
-        if not claimed:
+        # Claim only as many tool calls as we have free pool slots. Surplus
+        # rows stay 'pending' so another Holmes instance can claim them and so
+        # we never hold more than TOOL_CALLER_MAX_CONCURRENT claimed + running.
+        # As running tool calls finish, _execute_safe wakes this loop to
+        # re-claim.
+        with self._active_lock:
+            free = TOOL_CALLER_MAX_CONCURRENT - self._active_count
+        if free <= 0:
             return
-        logging.info("ToolCallWorker: claimed %d tool call(s)", len(claimed))
+        # Check pool/running BEFORE claiming so we never claim rows we won't
+        # submit; once claimed we dispatch every row (no mid-loop _running
+        # check) so a racing stop() can't strand claimed rows until timeout.
         pool = self._pool
         if pool is None or not self._running:
             return
+        claimed = self.dal.claim_n_pending_tool_calls(self.holmes_id, free)
+        if not claimed:
+            return
+        logging.info(
+            "ToolCallWorker: claimed %d tool call(s) (free slots=%d)",
+            len(claimed),
+            free,
+        )
         for row in claimed:
-            if not self._running:
-                return
+            with self._active_lock:
+                self._active_count += 1
             try:
                 pool.submit(self._execute_safe, row)
             except RuntimeError:
                 # Pool shut down between the claim and here (stop() raced).
-                # The row stays 'queued' and relay times it out → 'stopped'.
+                # The row stays 'running' and relay times it out → 'stopped'.
+                with self._active_lock:
+                    self._active_count -= 1
                 logging.warning(
                     "ToolCallWorker: pool shut down; dropping claimed row %s",
                     row.get("id"),
@@ -215,27 +240,34 @@ class ToolCallWorker:
     def _execute_safe(self, row: Dict[str, Any]) -> None:
         row_id = row.get("id")
         try:
-            response = self._execute(row)
-            status = RemoteToolCallStatus.COMPLETED
-        except Exception as e:
-            logging.exception(
-                "ToolCallWorker: unexpected failure executing %s", row_id
+            try:
+                response = self._execute(row)
+                status = RemoteToolCallStatus.COMPLETED
+            except Exception as e:
+                logging.exception(
+                    "ToolCallWorker: unexpected failure executing %s", row_id
+                )
+                response = _error_response(f"executor failure: {e}")
+                status = RemoteToolCallStatus.FAILED
+            ok = self.dal.post_remote_tool_call_result(
+                tool_call_id=row_id,
+                assignee=self.holmes_id,
+                status=status.value,
+                tool_response=response,
             )
-            response = _error_response(f"executor failure: {e}")
-            status = RemoteToolCallStatus.FAILED
-        ok = self.dal.post_remote_tool_call_result(
-            tool_call_id=row_id,
-            assignee=self.holmes_id,
-            status=status.value,
-            tool_response=response,
-        )
-        if not ok:
-            # Row was reassigned or stopped (relay timed out) — log and drop.
-            logging.warning(
-                "ToolCallWorker: result for %s rejected (stale assignee or "
-                "terminal row); dropping",
-                row_id,
-            )
+            if not ok:
+                # Row was reassigned or stopped (relay timed out) — log and drop.
+                logging.warning(
+                    "ToolCallWorker: result for %s rejected (stale assignee or "
+                    "terminal row); dropping",
+                    row_id,
+                )
+        finally:
+            # A pool slot is now free — drop the in-flight count and wake the
+            # claim loop so it re-claims any surplus 'pending' tool calls.
+            with self._active_lock:
+                self._active_count -= 1
+            self._notify_event.set()
 
     def _execute(self, row: Dict[str, Any]) -> Dict[str, Any]:
         tool_request = row.get("tool_request") or {}
