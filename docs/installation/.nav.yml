@@ -8,3 +8,4 @@ nav:
     - HTTP Server (Docker): docker-compose-installation.md
     - Helm Chart: kubernetes-installation.md
     - Python SDK: python-installation.md
+    - Read-Only Service Account: read-only-service-account.md
