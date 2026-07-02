@@ -195,6 +195,10 @@ def run_on(
     scores = score_all(predicted, truth)
     scores.update(cost_speed(total_cost, elapsed, len(alerts)))
     scores["n_incidents"] = len(incidents)
+    scores["incidents"] = [
+        {"id": inc.get("id"), "title": inc.get("title"), "related_alerts": inc.get("related_alerts", [])}
+        for inc in incidents
+    ]
     return scores
 
 
@@ -227,6 +231,8 @@ def main(argv: list[str]) -> None:
 
     print("\n" + format_summary(scores, label))
     print(f"  incidents: {scores['n_incidents']} (from {len(dataset['alerts'])} alerts)")
+    for inc in scores.get("incidents", []) or []:
+        print(f"    - {inc['id']}  {inc['title']!r}  alerts: {inc['related_alerts']}")
 
 
 if __name__ == "__main__":
