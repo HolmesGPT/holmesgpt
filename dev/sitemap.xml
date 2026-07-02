@@ -2,630 +2,630 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://holmesgpt.dev/dev/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/community/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/why-holmesgpt/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/anthropic/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/aws-bedrock/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/azure-ai-foundry/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/azure-openai/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/gemini/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/github-copilot/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/github/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/google-vertex-ai/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/ollama/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/openai-compatible/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/openai/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/openrouter/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/other/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/robusta-ai/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/ai-providers/using-multiple-providers/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/api-toolsets/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/custom-toolsets/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/database-connectors/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/header-propagation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/multi-instance-toolsets/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/oauth-mcp-servers/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/recommended-setup/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/remote-mcp-servers/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/tool-execution-safety/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/aks-node-health/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/aks/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/argocd/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/aws/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/azure-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/azure-sql/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/bash/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/cilium/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/confluence-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/confluence/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/connectivity-check/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/coralogix-logs/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/crossplane/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/database-clickhouse/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/database-mariadb/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/database-mysql/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/database-postgresql/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/database-sqlite/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/database-sqlserver/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/datadog/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/docker/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/elasticsearch/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/gcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/github-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/gitlab-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/grafana-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/grafanadashboards/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/grafanaloki/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/grafanatempo/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/helm/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/inspektor-gadget/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/internet/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/jenkins-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/kafka/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/kubectl-run/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/kubernetes-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/kubernetes-remediation-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/kubernetes/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/kubevela/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/mariadb-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/mongodb-atlas/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/mongodb/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/newrelic/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/notion/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/openshift/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/prefect-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/prometheus/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/rabbitmq/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/robusta/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/sentry-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/servicenow/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/slab/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/splunk-mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/victorialogs/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/victoriametrics/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/data-sources/builtin-toolsets/zabbix/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/design/2026-02-24_config-editor/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/transformers/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/adding-evals/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/benchmarking-new-models/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/fast-benchmark-results/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/full-benchmark-results/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/latest-results/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/model-comparison-summary-20260315/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/reporting/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/running-evals/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/custom_claude_results_20250930_153753/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/custom_self_hosted_results_20251008_053744/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/frontier_5_models_20260314_204516/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20250928_001434/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20250930_085923/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20251012_170303/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20251127_042958/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260104_174301/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260120_143709/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260122_074259/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260127_161120/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260129_094857/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260311_210836/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260315_041151/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260329_033817/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260405_043024/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260412_044126/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260419_044450/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260426_034340/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260524_132857/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260531_035157/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260607_034849/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/development/evaluations/history/results_20260609_113742/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/backstage-integration/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/cli-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/docker-compose-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/k9s-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/kubernetes-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/python-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/slack-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/teams-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/installation/ui-installation/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/configuration/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/deployment-verification/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/destinations/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/development/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/health-checks/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/scheduled-health-checks/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/operator/triggered-health-checks/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/context-management/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/environment-variables/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/helm-configuration/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/http-api/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/kubernetes-permissions/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/opentelemetry/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/python-sdk/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/skills-best-practices/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/skills/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/slash-commands/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/teams-permissions/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/reference/troubleshooting/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/walkthrough/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/walkthrough/cicd-troubleshooting/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/walkthrough/interactive-mode/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/walkthrough/investigating-prometheus-alerts/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/walkthrough/investigating-using-aks-mcp-server/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://holmesgpt.dev/dev/walkthrough/recommended-setup/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
 </urlset>
