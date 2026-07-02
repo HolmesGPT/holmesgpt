@@ -20,7 +20,6 @@ class TestSupabaseDal(SupabaseDal):
         self,
         test_case_folder: Path,
         issue_data: Optional[Dict] = None,
-        issues_metadata: Optional[List[Dict]] = None,
         resource_instructions: Optional[ResourceInstructions] = None,
         initialize_base: bool = True,
     ):
@@ -39,7 +38,6 @@ class TestSupabaseDal(SupabaseDal):
 
         self._issue_data = issue_data
         self._resource_instructions = resource_instructions
-        self._issues_metadata = issues_metadata
         self._test_case_folder = test_case_folder
 
     def get_issue_data(self, issue_id: Optional[str]) -> Optional[Dict]:
@@ -114,11 +112,6 @@ def load_test_dal(
     if issue_data_path.exists():
         issue_data = json.loads(read_file(issue_data_path))
 
-    issues_metadata_path = test_case_folder.joinpath(Path("issues_metadata.json"))
-    issues_metadata = None
-    if issues_metadata_path.exists():
-        issues_metadata = json.loads(read_file(issues_metadata_path))
-
     resource_instructions_path = test_case_folder.joinpath(
         Path("resource_instructions.json")
     )
@@ -132,7 +125,6 @@ def load_test_dal(
         test_case_folder=test_case_folder,
         issue_data=issue_data,
         resource_instructions=resource_instructions,
-        issues_metadata=issues_metadata,
         initialize_base=initialize_base,
     )
 

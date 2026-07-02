@@ -63,13 +63,6 @@ holmes:
 | fetch_resource_issues_metadata | Fetches issues and alert metadata in a given time range with multi-cluster support |
 | fetch_resource_recommendation | Provides resource optimization recommendations based on actual historical usage for Deployments, StatefulSets, DaemonSets, and Jobs. Supports multi-cluster queries |
 
-!!! note "Served by the Robusta platform"
-    `fetch_configuration_changes_metadata`, `fetch_resource_issues_metadata` and
-    `fetch_resource_recommendation` are served by the Robusta platform's MCP
-    server and discovered automatically when Robusta credentials are configured.
-    Multi-cluster queries are filtered server-side to the clusters the
-    requesting user is allowed to access (Holmes chat RBAC permissions).
-
 ### Multi-Cluster Support
 
 All tools that fetch data from Robusta support querying across multiple clusters:
@@ -98,3 +91,4 @@ This toolset is particularly useful for:
 - The toolset will only be functional if valid Robusta credentials are provided
 - If credentials are missing or invalid, the toolset will be disabled automatically
 - This integration provides read-only access to your Robusta data
+- The configuration-change, issue-metadata and resource-recommendation queries are served by the Robusta platform's MCP server and discovered automatically when Robusta credentials are configured; multi-cluster queries are filtered server-side to the clusters the requesting user is allowed to access (Holmes chat RBAC permissions)

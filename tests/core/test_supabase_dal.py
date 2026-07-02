@@ -1,4 +1,4 @@
-"""Unit tests for SupabaseDal.get_resource_recommendation method."""
+"""Unit tests for SupabaseDal."""
 
 import logging
 from unittest.mock import Mock, patch
