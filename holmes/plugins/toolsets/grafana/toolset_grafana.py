@@ -19,6 +19,7 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.grafana.base_grafana_toolset import BaseGrafanaToolset
 from holmes.plugins.toolsets.grafana.common import (
     GrafanaConfig,
+    build_auth,
     build_headers,
     get_base_url,
 )
@@ -134,6 +135,7 @@ class GrafanaToolset(BaseGrafanaToolset):
             resp = requests.get(
                 f"{base_url}/api/rendering/version",
                 headers=headers,
+                auth=build_auth(config),
                 timeout=10,
                 verify=config.verify_ssl,
             )
@@ -157,6 +159,7 @@ class GrafanaToolset(BaseGrafanaToolset):
                 resp = requests.get(
                     f"{base_url}/render/d-solo/nonexistent/_?panelId=1&width=100&height=100",
                     headers=headers,
+                    auth=build_auth(config),
                     timeout=10,
                     verify=config.verify_ssl,
                 )
@@ -249,6 +252,7 @@ class BaseGrafanaTool(Tool, ABC):
             response = requests.get(
                 url,
                 headers=headers,
+                auth=build_auth(config),
                 params=query_params,
                 timeout=timeout,
                 verify=config.verify_ssl,
@@ -256,7 +260,28 @@ class BaseGrafanaTool(Tool, ABC):
             response.raise_for_status()
             return response
 
-        response = _do_request()
+        query_string = urlencode(query_params, doseq=True) if query_params else ""
+        try:
+            response = _do_request()
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            body = e.response.text[:1000] if e.response is not None else ""
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Grafana request failed: GET {url}?{query_string} -> HTTP {status_code}. "
+                    f"Response: {body}"
+                ),
+                url=url,
+                params=params,
+            )
+        except requests.exceptions.RequestException as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Grafana request failed: GET {url}?{query_string} -> {e}",
+                url=url,
+                params=params,
+            )
         data = response.json()
 
         return StructuredToolResult(
@@ -600,6 +625,7 @@ class BaseGrafanaRenderTool(Tool, ABC):
             response = requests.get(
                 url,
                 headers=headers,
+                auth=build_auth(config),
                 params=query_params,
                 timeout=timeout,
                 verify=config.verify_ssl,
@@ -625,11 +651,12 @@ class BaseGrafanaRenderTool(Tool, ABC):
             status_code = (
                 e.response.status_code if e.response is not None else "unknown"
             )
+            body = e.response.text[:500] if e.response is not None else ""
             query_string = urlencode(query_params, doseq=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Grafana render API returned HTTP {status_code}: {e}. "
-                f"Render path: {render_path}?{query_string}. "
+                f"Render path: {render_path}?{query_string}. Response: {body}. "
                 f"Ensure the grafana-image-renderer plugin is installed and running.",
                 params=params,
             )

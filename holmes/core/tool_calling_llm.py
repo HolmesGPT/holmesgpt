@@ -63,6 +63,12 @@ from holmes.core.truncation.input_context_window_limiter import (
     check_compaction_needed,
     compact_if_necessary,
 )
+from holmes.utils.approval_tokens import (
+    APPROVAL_REJECTION_MESSAGE,
+    ApprovalTokenError,
+    mint_token,
+    verify_token,
+)
 from holmes.utils.colors import AI_COLOR
 from holmes.utils.stream import (
     StreamEvents,
@@ -204,8 +210,6 @@ class ToolCallingLLM:
         self.llm = llm
         self.tool_results_dir = tool_results_dir
 
-        self._skill_in_use: bool = False
-
     def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
         """Return a shallow copy with a different ToolExecutor.
 
@@ -219,16 +223,14 @@ class ToolCallingLLM:
             tool_results_dir=self.tool_results_dir,
             tracer=self.tracer,
         )
-        # Preserve transient state so resumed turns keep access to
-        # skill-unlocked (restricted) tools.
-        clone._skill_in_use = self._skill_in_use
         return clone
 
     def reset_interaction_state(self) -> None:
         """
-        For interactive loop, reset skills in use
+        For interactive loop. No transient per-interaction state is currently
+        tracked, but this hook is kept for the interactive loop to call.
         """
-        self._skill_in_use = False
+        return None
 
     def _supports_vision(self) -> bool:
         """Check if vision/multimodal input is enabled.
@@ -284,9 +286,31 @@ class ToolCallingLLM:
                 for tool_call in message_tool_calls:
                     decision = decisions_by_tool_call_id.get(tool_call.get("id"), None)
                     if tool_call.get("pending_approval"):
-                        del tool_call[
-                            "pending_approval"
-                        ]  # Cleanup so that a pending approval is not tagged on message in a future response
+                        try:
+                            verify_token(
+                                tool_call.get("approval_token"),
+                                tool_call_id=tool_call.get("id", ""),
+                                tool_name=tool_call.get("function", {}).get("name", ""),
+                                args_json=tool_call.get("function", {}).get("arguments", ""),
+                            )
+                        except ApprovalTokenError as exc:
+                            logging.warning(
+                                "%s reason=%s tool_call_id=%s tool_name=%s",
+                                APPROVAL_REJECTION_MESSAGE,
+                                exc.reason,
+                                tool_call.get("id"),
+                                tool_call.get("function", {}).get("name"),
+                            )
+                            decision = ToolApprovalDecision(
+                                tool_call_id=tool_call["id"],
+                                approved=False,
+                                verified=False,
+                                feedback=APPROVAL_REJECTION_MESSAGE,
+                            )
+                        # Strip the one-shot fields so they don't ride future
+                        # round-trips or get re-redeemed.
+                        del tool_call["pending_approval"]
+                        tool_call.pop("approval_token", None)
                         pending_tool_calls.append(
                             ToolCallWithDecision(
                                 tool_call=ChatCompletionMessageToolCall(**tool_call),
@@ -324,26 +348,6 @@ class ToolCallingLLM:
                         )
 
                 if not tool_result:
-                    if tool_decision.edit_command is not None:
-                        try:
-                            edited_params = json.loads(tool_call.function.arguments or "{}")
-                        except json.JSONDecodeError:
-                            edited_params = {}
-                        edited_params["command"] = tool_decision.edit_command
-                        edited_arguments = json.dumps(edited_params)
-                        tool_call.function.arguments = edited_arguments
-                        # Persist the edited command in the conversation history so
-                        # subsequent turns see the command that was actually executed.
-                        msg_tool_calls = messages[
-                            tool_call_with_decision.message_index
-                        ].get("tool_calls", [])
-                        for original_tool_call in msg_tool_calls:
-                            if original_tool_call.get("id") == tool_call.id:
-                                original_function = original_tool_call.get("function") or {}
-                                original_function["arguments"] = edited_arguments
-                                original_tool_call["function"] = original_function
-                                break
-
                     tool_result = self._invoke_llm_tool_call(
                         tool_to_call=tool_call,
                         previous_tool_calls=[],
@@ -355,19 +359,23 @@ class ToolCallingLLM:
                         enable_tool_approval=True,  # always True when processing decisions
                     )
             else:
-                # Tool was rejected or no decision found, add rejection message
-                feedback_text = (
-                    f" User feedback: {tool_decision.feedback}"
-                    if tool_decision and tool_decision.feedback
-                    else ""
-                )
+                # Tool was rejected or no decision found
+                if tool_decision and not tool_decision.verified:
+                    error_text = tool_decision.feedback or "Tool execution was denied by the server."
+                else:
+                    feedback_text = (
+                        f" User feedback: {tool_decision.feedback}"
+                        if tool_decision and tool_decision.feedback
+                        else ""
+                    )
+                    error_text = f"Tool execution was denied by the user.{feedback_text}"
                 tool_result = ToolCallResult(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.function.name,
                     description=tool_call.function.name,
                     result=StructuredToolResult(
                         status=StructuredToolResultStatus.ERROR,
-                        error=f"Tool execution was denied by the user.{feedback_text}",
+                        error=error_text,
                     ),
                 )
 
@@ -399,6 +407,72 @@ class ToolCallingLLM:
             messages.insert(
                 tool_call_with_decision.message_index + 1, tool_call_message
             )
+
+        return messages, events
+
+    def _resolve_orphaned_tool_calls(
+        self, messages: List[Dict[str, Any]]
+    ) -> tuple[List[Dict[str, Any]], list[StreamMessage]]:
+        """Inject denial tool results for assistant tool_calls that have no result.
+
+        A tool call is "orphaned" when the assistant requested it but the
+        conversation never recorded a matching tool result. This happens when a
+        user abandons a pending tool approval — closing the approval modal or
+        asking a new follow-up question instead of approving/denying. Without a
+        matching tool result, the next LLM call fails because providers
+        (Anthropic/Bedrock) require every tool_use block to be immediately
+        followed by a tool_result block.
+
+        We treat any such abandoned call as denied so the conversation can
+        continue with the user's new request.
+        """
+        resolved_ids = {
+            msg.get("tool_call_id")
+            for msg in messages
+            if msg.get("role") == "tool" and msg.get("tool_call_id")
+        }
+
+        events: list[StreamMessage] = []
+        # Walk from the end so insertions don't shift indices we haven't visited.
+        for i in reversed(range(len(messages))):
+            msg = messages[i]
+            if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+                continue
+            insert_offset = 1
+            for tool_call in msg.get("tool_calls", []):
+                tool_call_id = tool_call.get("id")
+                if not tool_call_id or tool_call_id in resolved_ids:
+                    continue
+                # Drop any stale pending_approval flag so it isn't re-emitted,
+                # and the matching token so it can't ride future LLM round-trips.
+                tool_call.pop("pending_approval", None)
+                tool_call.pop("approval_token", None)
+                function = tool_call.get("function") or {}
+                tool_name = function.get("name") or "unknown"
+                tool_result = ToolCallResult(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    description=tool_name,
+                    result=StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error="Tool execution was cancelled because the user "
+                        "submitted a new request before approving it.",
+                    ),
+                )
+                messages.insert(
+                    i + insert_offset,
+                    tool_result.to_llm_message(
+                        supports_vision=self._supports_vision()
+                    ),
+                )
+                resolved_ids.add(tool_call_id)
+                insert_offset += 1
+                events.append(
+                    StreamMessage(
+                        event=StreamEvents.TOOL_RESULT,
+                        data=tool_result.to_client_dict(),
+                    )
+                )
 
         return messages, events
 
@@ -486,19 +560,14 @@ class ToolCallingLLM:
 
         return messages, events
 
-    def _should_include_restricted_tools(self) -> bool:
-        """Check if restricted tools should be included in the tools list."""
-        return self._skill_in_use
-
     def _get_tools(self) -> list:
-        """Get tools list, filtering restricted tools based on authorization.
+        """Get the tools list in OpenAI format.
 
         If a user_id is available (from request_context), per-user OAuth tools
         replace _connect placeholders for authenticated users.
         """
         user_id = (self._request_context or {}).get("user_id") if hasattr(self, "_request_context") else None
         return self.tool_executor.get_all_tools_openai_format(
-            include_restricted=self._should_include_restricted_tools(),
             user_id=user_id,
         )
 
@@ -721,15 +790,6 @@ class ToolCallingLLM:
                 toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
                 if toolset_name:
                     self.tool_executor.oauth_connector.store_user_tools(effective_user, toolset_name, tool_response.oauth_tools)
-
-            # Track skill usage - if fetch_skill is called successfully,
-            # restricted tools become available for the rest of the current request
-            if (
-                tool_name == "fetch_skill"
-                and tool_response.status == StructuredToolResultStatus.SUCCESS
-            ):
-                self._skill_in_use = True
-                logging.debug("Skill fetched - restricted tools now available")
 
         except Exception as e:
             logging.error(
@@ -1013,6 +1073,16 @@ class ToolCallingLLM:
         if msgs and frontend_tool_results:
             logging.info(f"Processing {len(frontend_tool_results)} frontend tool results")
             msgs, events = self._process_frontend_tool_results(msgs, frontend_tool_results)
+            for ev in events:
+                yield ev
+                if ev.event == StreamEvents.TOOL_RESULT:
+                    all_tool_calls.append(ev.data)
+
+        # Deny any tool calls the user abandoned (e.g. closed the approval modal
+        # or asked a new question without deciding). Otherwise the LLM call fails
+        # because every tool_use block must be followed by a tool_result block.
+        if msgs:
+            msgs, events = self._resolve_orphaned_tool_calls(msgs)
             for ev in events:
                 yield ev
                 if ev.event == StreamEvents.TOOL_RESULT:
@@ -1338,12 +1408,19 @@ class ToolCallingLLM:
                         tool_call["pending_frontend"] = True
 
                 # Mark any pending approval tool calls in assistant messages
+                # and mint a signed token bound to {id, name, args_hash}.
                 if pending_approvals:
                     for approval in pending_approvals:
                         tool_call = self.find_assistant_tool_call_request(
                             tool_call_id=approval.tool_call_id, messages=messages
                         )
+                        token = mint_token(
+                            tool_call_id=tool_call["id"],
+                            tool_name=tool_call.get("function", {}).get("name", ""),
+                            args_json=tool_call.get("function", {}).get("arguments", ""),
+                        )
                         tool_call["pending_approval"] = True
+                        tool_call["approval_token"] = token
 
                 # If either type of pause is needed, emit a single APPROVAL_REQUIRED
                 # event that carries both pending_approvals and pending_frontend_tool_calls.

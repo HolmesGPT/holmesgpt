@@ -3,6 +3,11 @@ logLevel: INFO
 
 additionalEnvVars: []
 additional_env_vars: []
+# Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
+# configMapRef) loaded onto the Holmes pod. Use to share a Secret between the
+# runner and Holmes (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring
+# each key twice.
+additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
 commonLabels: {}
@@ -106,7 +111,7 @@ toolsets:
     enabled: true
   prometheus/metrics:
     enabled: true
-  runbook:
+  skills:
     enabled: true
   connectivity_check:
     enabled: true
@@ -115,6 +120,28 @@ toolsets:
     config:
       builtin_allowlist: "extended"
 mcp_servers: {}
+
+# Paths inside the Holmes container to scan for custom skills (SKILL.md files).
+# Use this when you mount skill files yourself via `additionalVolumes` /
+# `initContainers`. Each path may be a directory (scanned for SKILL.md files
+# up to 2 levels deep) or an individual SKILL.md file. The chart sets
+# CUSTOM_SKILL_PATHS in the Holmes pod from this list (joined with `customSkills`).
+customSkillPaths: []
+  # - /etc/holmes/my-skills
+
+# Inline skill definitions. When non-empty, the chart creates a ConfigMap
+# named `<release>-holmes-skills` and mounts it at /etc/holmes/skills/, with
+# each entry projected to /etc/holmes/skills/<name>/SKILL.md. The mount path
+# is automatically appended to CUSTOM_SKILL_PATHS, so you do not need to add
+# /etc/holmes/skills to customSkillPaths.
+customSkills: {}
+  # my-skill:
+  #   content: |
+  #     ---
+  #     description: My custom skill description
+  #     ---
+  #     ## Goal
+  #     ...
 
 resources:
   requests:
@@ -160,7 +187,7 @@ mcpAddons:
       name: "aws-api-mcp-sa"
       annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
-    image: "aws-api-mcp-server:2.0.1"
+    image: "aws-api-mcp-server:2.1.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     resources:
@@ -180,7 +207,7 @@ mcpAddons:
     # When multiAccount.profiles is defined, the chart will use EKS token projection
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
-      image: "multi-aws-api-mcp-server:2.0.1"
+      image: "multi-aws-api-mcp-server:2.1.0"
       # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
       profiles: {}
       llm_account_descriptions: ""
@@ -412,7 +439,9 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.1"
+    # github-mcp:2.0.0 = native HTTP mode (github-mcp-server v1.4.0+). PAT auth only.
+    # The github-app path uses auth.githubApp.image and is unchanged.
+    image: "github-mcp:2.0.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -433,7 +462,7 @@ mcpAddons:
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.2"                          # Image with GitHub App token management
+        image: "github-app-mcp:1.0.7"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
@@ -449,9 +478,14 @@ mcpAddons:
 
       # Toolsets to enable (comma-separated list of toolset names)
       # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
-      # Default: repos, issues, pull_requests, actions (covers most investigation needs)
+      # Default: repos, issues, pull_requests, actions, context (covers most investigation needs).
+      # 'context' exposes the read-only get_me tool, which Holmes uses to validate
+      # the GitHub token at startup (a bad PAT marks the toolset disabled instead of
+      # appearing connected). Keep 'context' enabled unless you have a reason not to.
+      # Note: when using GitHub App auth, 'context' is automatically stripped — App
+      # installation tokens 403 on GET /user, so get_me is not a valid auth probe.
       # Ignored when `tools` below is set (tools takes precedence as a hard allowlist).
-      toolsets: "repos,issues,pull_requests,actions"
+      toolsets: "repos,issues,pull_requests,actions,context"
 
       # Individual tools to enable (comma-separated, optional).
       # When set, restricts Holmes to EXACTLY this list of tools — takes precedence
@@ -472,6 +506,85 @@ mcpAddons:
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # GitLab MCP Server Configuration
+  # Provides access to GitLab projects, merge requests, issues, pipelines, and code.
+  # Supports both gitlab.com (cloud) and self-hosted GitLab instances.
+  #
+  # AUTHENTICATION:
+  # Create a GitLab Personal Access Token with scopes: api, read_repository (and write_repository if you
+  # want Holmes to create branches/MRs). Then store it in a Kubernetes secret:
+  #   kubectl create secret generic gitlab-mcp-token --from-literal=token=<YOUR_GITLAB_PAT> -n <NAMESPACE>
+  #
+  # SELF-HOSTED GITLAB:
+  # Set config.apiUrl to your instance API URL (e.g., "https://gitlab.mycompany.com/api/v4").
+  # For self-signed certificates, mount a CA bundle via config.caCert.secretName (preferred)
+  # or disable verification entirely with config.verifySsl: false (insecure).
+  gitlabMcp:
+    enabled: false
+
+    registry: docker.io
+    image: "supercorp/supergateway:3.4.3"
+    imagePullPolicy: IfNotPresent
+
+    # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
+    mcpGitlabVersion: "2.1.11"
+
+    auth:
+      # K8s secret holding the GitLab Personal Access Token.
+      # kubectl create secret generic gitlab-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
+      secretName: ""      # Required when enabled=true
+      secretKey: "token"
+
+    config:
+      # GitLab API URL — set to your self-hosted instance for on-prem GitLab.
+      # Examples: "https://gitlab.com/api/v4", "https://gitlab.mycompany.com/api/v4"
+      apiUrl: "https://gitlab.com/api/v4"
+
+      # When true, blocks all write operations (no MR/issue creation, no commits).
+      readOnly: false
+
+      # Optional feature toggles for the @zereight/mcp-gitlab server
+      useWiki: false        # USE_GITLAB_WIKI — enable wiki tools
+      useMilestone: false   # USE_MILESTONE — enable milestone tools
+      usePipeline: true     # USE_PIPELINE — enable pipeline/CI tools (recommended)
+
+      # Scope the MCP server to specific projects (optional)
+      projectId: ""           # GITLAB_PROJECT_ID — default project ID
+      allowedProjectIds: ""   # GITLAB_ALLOWED_PROJECT_IDS — comma-separated allowlist
+
+      # Tool exposure (optional). Mirrors the github addon pattern.
+      # `toolsets` enables groups of tools; `tools` is a hard allowlist that takes precedence.
+      toolsets: ""   # GITLAB_TOOLSETS — comma-separated toolset IDs (empty = all)
+      tools: ""      # GITLAB_TOOLS — comma-separated individual tool names
+
+      # SSL/TLS for self-hosted GitLab
+      # Preferred: mount a trusted CA bundle via the caCert block below.
+      # Last resort: set verifySsl: false (disables ALL TLS verification — insecure).
+      verifySsl: true
+      caCert:
+        secretName: ""      # K8s secret containing the CA bundle (sets GITLAB_CA_CERT_PATH)
+        secretKey: "ca.crt"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+    # Additional environment variables to inject into the gitlab-mcp container
+    additionalEnvVars: []
 
     nodeSelector: {}
     tolerations: []
@@ -558,9 +671,9 @@ mcpAddons:
   # Provides safe kubectl command execution with security controls
   # WARNING: This addon can execute write operations. Configure allowedCommands carefully.
   kubernetesRemediation:
-    enabled: false
+    enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.0.0"
+    image: "kubernetes-remediation-mcp:1.1.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -568,19 +681,27 @@ mcpAddons:
       create: true
       name: "k8s-remediation-mcp-sa"
       annotations: {}
-      clusterRole: "cluster-admin"  # Override with a more restrictive role as needed
+      clusterRole: ""        # empty -> chart creates the scoped, least-privilege
+                             # ClusterRole below. Set to bring-your-own ClusterRole name.
 
     config:
-      # Comma-separated list of allowed kubectl subcommands
-      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+      # Hard verb allowlist for the approval-gated run_kubectl_command fallback
+      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
       # Comma-separated list of blocked flags
       dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
+      # Pre-approved read-only commands for run_preapproved_kubectl_command (auto-approved)
+      preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
+      # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
+      diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+      # read_file_from_container path policy (allow roots minus secret/token mounts)
+      fileReadAllowedPaths: "/"
+      fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
+      # Enable the approval-gated fallback (set false for a fully locked-down mode)
+      allowArbitraryKubectlCommands: true
       # Command timeout in seconds
       timeout: "60"
       # Log level
       logLevel: "INFO"
-      # Comma-separated list of allowed images for the run_image tool (leave empty to disable)
-      allowedImages: ""
 
     resources:
       requests:
@@ -591,17 +712,15 @@ mcpAddons:
         cpu: "200m"
 
     networkPolicy:
-      enabled: false
+      enabled: true          # ingress-only; inert where the CNI doesn't enforce
 
-    # Tools that can only be called after a runbook invocation (prevents ad-hoc write operations)
-    # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
-    restrictedTools:
-      - "*"
-    # Tools that require user confirmation before execution
-    # Use ["*"] to require approval for all tools, or specify tool names
+    # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
+    # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
+    # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
     approvalRequiredTools:
-      - "*"
+      - "run_kubectl_command"
 
+    # Optional override of the default LLM instructions
     llmInstructions: ""
 
     nodeSelector: {}

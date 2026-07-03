@@ -42,6 +42,12 @@ if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
 
 
+# When a (re)connect keeps failing the loop retries forever; log the full
+# traceback on the first attempt and then every 10th attempt, and just the
+# attempt number on the rest, so a sustained outage doesn't flood the logs.
+_RECONNECT_LOG_FULL_EVERY = 10
+
+
 # ---- channel topic helpers ----
 
 
@@ -130,18 +136,87 @@ def _install_ssl_patch_if_needed() -> None:
     )
 
 
-class RealtimeManager:
+class _RealtimeConnectivityWarningFilter(logging.Filter):
+    """Downgrade transient realtime connectivity ERROR logs to WARNING.
+
+    The realtime library logs at ERROR for events that its own retry
+    machinery (rejoin timer, auto-reconnect) or our `_full_reconnect` loop
+    will recover from automatically — join push timeouts, WebSocket closes,
+    individual connect attempt failures. These are noisy alerts, not real
+    errors: if recovery ultimately fails the failure surfaces via raised
+    exceptions our code catches and logs at the appropriate level.
+    """
+
+    _DOWNGRADE_PATTERNS = (
+        "join push timeout",
+        "Connection attempt failed",
+        "Connection failed permanently",
+        "WebSocket connection closed",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno != logging.ERROR:
+            return True
+        msg = record.getMessage()
+        if any(p in msg for p in self._DOWNGRADE_PATTERNS):
+            record.levelno = logging.WARNING
+            record.levelname = "WARNING"
+        return True
+
+
+def _install_realtime_log_filter_if_needed() -> None:
+    """Attach the connectivity-warning filter to the realtime library loggers.
+
+    Idempotent.
+    """
+    for logger_name in ("realtime._async.channel", "realtime._async.client"):
+        lg = logging.getLogger(logger_name)
+        if any(
+            isinstance(f, _RealtimeConnectivityWarningFilter) for f in lg.filters
+        ):
+            continue
+        lg.addFilter(_RealtimeConnectivityWarningFilter())
+
+
+class RealtimeWorker:
+    """Owns ALL generic Supabase Realtime plumbing for the holmes:submit
+    channel — connection, auth refresh, reconnection, subscribe states —
+    and routes received broadcasts to the right worker:
+
+      * 'pending_conversations' -> conversation_worker.claim_pending_conversations()
+      * 'pending_tool_calls'    -> tool_call_worker.claim_pending_tool_calls()
+
+    Both routing targets MUST be non-blocking (they just wake the worker's
+    claim loop). On (re)subscribe both workers are notified so anything
+    missed during a disconnect gets drained.
+    """
+
     def __init__(
         self,
         dal: "SupabaseDal",
         holmes_id: str,
-        on_new_pending: Callable[[], None],
+        conversation_worker: Optional[Any] = None,
+        tool_call_worker: Optional[Any] = None,
         use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
+        on_new_pending: Optional[Callable[[], None]] = None,
+        on_new_tool_calls: Optional[Callable[[], None]] = None,
     ) -> None:
         self.dal = dal
         self.holmes_id = holmes_id
+        # Routing targets. The worker objects are the primary surface;
+        # the raw callables remain as low-level overrides (tests).
+        if on_new_pending is None and conversation_worker is not None:
+            on_new_pending = conversation_worker.claim_pending_conversations
+        if on_new_pending is None:
+            raise ValueError(
+                "RealtimeWorker needs a conversation_worker or on_new_pending"
+            )
         self.on_new_pending = on_new_pending
+        if on_new_tool_calls is None and tool_call_worker is not None:
+            on_new_tool_calls = tool_call_worker.claim_pending_tool_calls
+        self.on_new_tool_calls = on_new_tool_calls
         self._use_broadcast = use_broadcast
+
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -155,6 +230,16 @@ class RealtimeManager:
         self._last_auth_jwt: Optional[str] = None
         # Set from the async loop to wake the sleep in _run() on stop().
         self._async_stop: Optional[asyncio.Event] = None
+
+    def _wake_all(self) -> None:
+        """Wake BOTH workers. Used at every (re)subscribe / reconnect / WAL
+        notification so missed conversations AND remote tool calls are
+        re-drained — the pgchanges path can't tell which kind of row changed,
+        and a reconnect must recover both. Event-specific broadcast callbacks
+        stay specific; this is the drain-everything path."""
+        self.on_new_pending()
+        if self.on_new_tool_calls is not None:
+            self.on_new_tool_calls()
 
     # ---- public ----
 
@@ -221,32 +306,11 @@ class RealtimeManager:
         reconnect_attempts = 0
         max_backoff = CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS
         try:
-            # Initial connect uses the same backoff as mid-run reconnects
-            # so transient startup failures (e.g. Supabase 503) are retried
-            # instead of killing the thread.
-            while not self._stop_event.is_set():
-                success = await self._full_reconnect()
-                if success:
-                    reconnect_attempts = 0
-                    break
-                reconnect_attempts += 1
-                backoff = min(max_backoff, 2 ** reconnect_attempts)
-                logging.warning(
-                    "Initial connect failed (attempt %d), retrying in %ds",
-                    reconnect_attempts,
-                    backoff,
-                )
-                try:
-                    await asyncio.wait_for(
-                        self._async_stop.wait(), timeout=backoff
-                    )
-                    return  # _async_stop set → stop() was called
-                except asyncio.TimeoutError:
-                    pass
-
-            if self._stop_event.is_set():
-                return
-
+            # Single loop for both initial connect and reconnects: the channel
+            # starts out None, so the first iteration's health check reports it
+            # unhealthy and connects via the same path used for every later
+            # reconnect. Failures back off and retry forever (transient startup
+            # failures like a Supabase 503 included) instead of killing thread.
             refresh_interval = CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS
             health_tick = CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS
             next_refresh_at = asyncio.get_running_loop().time() + refresh_interval
@@ -264,26 +328,41 @@ class RealtimeManager:
                     )
                     self._connected = False
                     try:
-                        self.on_new_pending()
+                        self._wake_all()
                     except Exception:
                         logging.debug(
-                            "on_new_pending failed during reconnect",
+                            "wake_all failed during reconnect",
                             exc_info=True,
                         )
-                    success = await self._full_reconnect()
-                    if success:
+                    try:
+                        await self._full_reconnect()
                         reconnect_attempts = 0
                         next_refresh_at = (
                             asyncio.get_running_loop().time() + refresh_interval
                         )
-                    else:
+                    except Exception:
                         reconnect_attempts += 1
                         backoff = min(max_backoff, 2 ** reconnect_attempts)
-                        logging.warning(
-                            "Reconnect failed (attempt %d), backing off %ds",
-                            reconnect_attempts,
-                            backoff,
+                        # Log the full stacktrace (at error) on the first
+                        # failure and then every 10th attempt; just a warning
+                        # with the attempt number on the rest, to keep a long
+                        # outage from flooding the logs.
+                        log_stacktrace = (
+                            reconnect_attempts == 1
+                            or reconnect_attempts % _RECONNECT_LOG_FULL_EVERY == 0
                         )
+                        if log_stacktrace:
+                            logging.exception(
+                                "Reconnect failed (attempt %d), backing off %ds",
+                                reconnect_attempts,
+                                backoff,
+                            )
+                        else:
+                            logging.warning(
+                                "Reconnect failed (attempt %d), backing off %ds",
+                                reconnect_attempts,
+                                backoff,
+                            )
                         try:
                             await asyncio.wait_for(
                                 self._async_stop.wait(), timeout=backoff
@@ -370,7 +449,7 @@ class RealtimeManager:
             return "heartbeat_task_done"
         return None
 
-    async def _full_reconnect(self) -> bool:
+    async def _full_reconnect(self) -> None:
         """Tear down the current client and re-establish from scratch.
 
         Forces a fresh ``sign_in()`` first — ``get_session()`` has not
@@ -379,7 +458,8 @@ class RealtimeManager:
         Supabase client's internal refresh path).  The DAL uses the same
         re-sign-in pattern on PGRST301 / JWT-expired errors.
 
-        Returns True on success, False on failure.
+        Raises on any failure; the caller's backoff loop catches it and
+        retries, so the connection never gives up regardless of error class.
         """
         try:
             if self._client:
@@ -389,20 +469,8 @@ class RealtimeManager:
         self._client = None
         self._channel = None
         self._last_auth_jwt = None
-        try:
-            await asyncio.to_thread(self.dal.sign_in)
-        except Exception:
-            logging.exception(
-                "Failed to re-sign-in to Supabase before reconnect",
-                exc_info=True,
-            )
-            return False
-        try:
-            await self._connect_and_subscribe()
-            return True
-        except Exception:
-            logging.exception("Failed to reconnect", exc_info=True)
-            return False
+        await asyncio.to_thread(self.dal.sign_in)
+        await self._connect_and_subscribe()
 
     async def _maybe_refresh_auth(self) -> None:
         """Re-push the Supabase JWT to the realtime client if it rotated."""
@@ -419,7 +487,10 @@ class RealtimeManager:
             self._last_auth_jwt = new_jwt
             logging.debug("Refreshed realtime client auth token")
         except Exception:
-            logging.exception("Failed to refresh realtime auth token", exc_info=True)
+            logging.warning(
+                "Failed to refresh realtime auth token; will retry next tick",
+                exc_info=True,
+            )
 
     # ---- connect + subscribe ----
 
@@ -430,6 +501,7 @@ class RealtimeManager:
         # realtime library calls connect(self.url) without an ssl= kwarg, so
         # we have to inject one to honor the custom CA bundle.
         _install_ssl_patch_if_needed()
+        _install_realtime_log_filter_if_needed()
 
         # Supabase Realtime URL
         store_url = self.dal.url.rstrip("/")
@@ -462,8 +534,10 @@ class RealtimeManager:
                     await self._client.set_auth(user_jwt)
                     self._last_auth_jwt = user_jwt
                 except Exception:
-                    logging.exception(
-                        "Failed to set_auth on realtime client", exc_info=True
+                    logging.warning(
+                        "Failed to set_auth on realtime client; "
+                        "subscription will fall back to anon key",
+                        exc_info=True,
                     )
 
             # Subscribe using the configured mode.
@@ -477,7 +551,7 @@ class RealtimeManager:
             try:
                 await self._client.close()
             except Exception:
-                logging.exception(
+                logging.warning(
                     "Error closing realtime client after failed connect",
                     exc_info=True,
                 )
@@ -500,10 +574,10 @@ class RealtimeManager:
             try:
                 change = payload.get("data", {}) or {}
                 logging.info(
-                    "RealtimeManager: Postgres change notification: %s",
+                    "RealtimeWorker: Postgres change notification: %s",
                     change.get("type"),
                 )
-                self.on_new_pending()
+                self._wake_all()
             except Exception:
                 logging.exception("Error in realtime pg change callback", exc_info=True)
 
@@ -532,10 +606,10 @@ class RealtimeManager:
                 self._connected = True
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in pg subscribe",
+                        "wake_all failed in pg subscribe",
                         exc_info=True,
                     )
             elif any(
@@ -544,10 +618,10 @@ class RealtimeManager:
                 self._connected = False
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in pg error handler",
+                        "wake_all failed in pg error handler",
                         exc_info=True,
                     )
 
@@ -557,7 +631,7 @@ class RealtimeManager:
         except asyncio.TimeoutError:
             logging.warning("Timed out waiting for pg-changes subscribe ack")
 
-        logging.info("RealtimeManager connected: mode=pgchanges topic=%s", topic)
+        logging.info("RealtimeWorker connected: mode=pgchanges topic=%s", topic)
 
     async def _subscribe_via_broadcast(self) -> None:
         """Option 2: Broadcast channel per account + cluster.
@@ -576,7 +650,7 @@ class RealtimeManager:
         def _on_broadcast(payload: Dict[str, Any]) -> None:
             try:
                 logging.info(
-                    "RealtimeManager: Broadcast notification: %s",
+                    "RealtimeWorker: Broadcast notification: %s",
                     payload.get("event"),
                 )
                 self.on_new_pending()
@@ -591,6 +665,25 @@ class RealtimeManager:
             callback=_on_broadcast,
         )
 
+        if self.on_new_tool_calls is not None:
+
+            def _on_tool_calls_broadcast(payload: Dict[str, Any]) -> None:
+                try:
+                    logging.info(
+                        "RealtimeWorker: pending_tool_calls notification: %s",
+                        payload.get("event"),
+                    )
+                    self.on_new_tool_calls()
+                except Exception:
+                    logging.exception(
+                        "Error in pending_tool_calls callback", exc_info=True
+                    )
+
+            self._channel.on_broadcast(
+                event="pending_tool_calls",
+                callback=_on_tool_calls_broadcast,
+            )
+
         subscribed = asyncio.Event()
 
         def _on_subscribe(status: Any, err: Optional[Exception] = None) -> None:
@@ -600,10 +693,10 @@ class RealtimeManager:
                 self._connected = True
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in broadcast subscribe",
+                        "wake_all failed in broadcast subscribe",
                         exc_info=True,
                     )
             elif any(
@@ -612,10 +705,10 @@ class RealtimeManager:
                 self._connected = False
                 subscribed.set()
                 try:
-                    self.on_new_pending()
+                    self._wake_all()
                 except Exception:
                     logging.debug(
-                        "on_new_pending callback failed in broadcast error handler",
+                        "wake_all failed in broadcast error handler",
                         exc_info=True,
                     )
 
@@ -625,7 +718,7 @@ class RealtimeManager:
         except asyncio.TimeoutError:
             logging.warning("Timed out waiting for broadcast subscribe ack")
 
-        logging.info("RealtimeManager connected: mode=broadcast topic=%s", topic)
+        logging.info("RealtimeWorker connected: mode=broadcast topic=%s", topic)
 
     async def _shutdown_async(self) -> None:
         self._connected = False

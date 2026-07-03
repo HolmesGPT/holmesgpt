@@ -4,7 +4,6 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
@@ -29,8 +28,11 @@ from holmes.core.conversations_worker.models import (
     ConversationStatus,
     ConversationTask,
 )
-from holmes.core.conversations_worker.realtime_manager import RealtimeManager
+from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
+from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
+from holmes.core.supabase_dal import SupabaseDnsException
+from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
@@ -68,8 +70,9 @@ class ConversationWorker:
     runs them through the existing /api/chat pipeline (via chat_function),
     and writes results back as ConversationEvents in real-time.
 
-    Lifecycle: pending → queued (claimed) → running (processing) → completed/failed.
-    Presence is advertised for both queued and running conversations.
+    Lifecycle: pending → running (claimed + processing) → completed/failed.
+    The claim RPC lands a row directly in 'running' ('queued' is deprecated), so
+    a conversation waiting for capacity stays 'pending'.
     """
 
     def __init__(
@@ -81,11 +84,8 @@ class ConversationWorker:
         self.dal = dal
         self.config = config
         self.chat_function = chat_function
-        # Uniquely identify this Holmes process (presence key, assignee value
-        # in Conversations). HOSTNAME alone is not unique because a pod can
-        # restart and re-use the same name, and two replicas in different pods
-        # can have the same env var in tests. Combining hostname + pid +
-        # short uuid4 makes it globally unique across process lifetimes.
+        # Globally-unique process id (presence key + assignee). hostname alone
+        # isn't unique across pod restarts/replicas, so add pid + short uuid4.
         hostname = os.environ.get("HOSTNAME") or "local"
         self.holmes_id = f"{hostname}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
@@ -94,23 +94,23 @@ class ConversationWorker:
         self._notify_event = threading.Event()
         self._executor: Optional[ThreadPoolExecutor] = None
 
-        # Tracks conversations currently being processed (running state).
+        # In-flight (running) tasks, keyed by (conversation_id, request_sequence)
+        # — see ConversationTask.active_key — so overlapping turns of one
+        # conversation are counted separately for capacity.
         self._active_conversation_ids: set = set()
         self._active_lock = threading.Lock()
 
-        # Conversations that have been claimed (queued) but not yet submitted
-        # to the executor because we're at capacity.
-        self._queued_tasks: deque = deque()
-        self._queued_lock = threading.Lock()
-
-        # Serializes _dispatch_queued with stop() so that the capacity check,
-        # DB transition, active-set update, and executor.submit are atomic —
-        # prevents submitting to a shut-down executor or exceeding
-        # MAX_CONCURRENT when _dispatch_queued runs from multiple threads
-        # (claim loop + _process_conversation_safe finally block).
+        # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
 
-        self._realtime_manager: Optional[RealtimeManager] = None
+        self._realtime_manager: Optional[RealtimeWorker] = None
+
+        # Executes cross-cluster remote tool calls (RemoteToolCalls rows) in
+        # its own pool; RealtimeWorker routes 'pending_tool_calls' broadcasts
+        # to it (same holmes:submit channel the conversation worker uses).
+        self._tool_call_worker = ToolCallWorker(
+            dal=self.dal, config=self.config, holmes_id=self.holmes_id
+        )
 
         # Background thread that verifies Supabase Realtime is actually
         # enabled by calling the is_realtime_enabled() RPC.  HolmesStatus
@@ -176,14 +176,15 @@ class ConversationWorker:
 
         if CONVERSATION_WORKER_REALTIME_ENABLED:
             try:
-                self._realtime_manager = RealtimeManager(
+                self._realtime_manager = RealtimeWorker(
                     dal=self.dal,
                     holmes_id=self.holmes_id,
-                    on_new_pending=self._notify_event.set,
+                    conversation_worker=self,
+                    tool_call_worker=self._tool_call_worker,
                 )
                 self._realtime_manager.start()
             except Exception:
-                logging.exception(
+                logging.warning(
                     "Failed to start Realtime manager; continuing with polling only",
                     exc_info=True,
                 )
@@ -195,6 +196,13 @@ class ConversationWorker:
             name="conversation-claim-loop",
         )
         self._claim_thread.start()
+
+        try:
+            self._tool_call_worker.start(
+                realtime_connected_fn=self._realtime_connected
+            )
+        except Exception:
+            logging.exception("Failed to start ToolCallWorker", exc_info=True)
 
         logging.info(
             "ConversationWorker active (holmes_id=%s, account=%s, cluster=%s, realtime=%s)",
@@ -209,14 +217,17 @@ class ConversationWorker:
         self._running = False
         self._notify_event.set()
         self._realtime_verify_stop.set()
+        try:
+            self._tool_call_worker.stop()
+        except Exception:
+            logging.debug("ToolCallWorker stop failed", exc_info=True)
+
         if self._realtime_manager:
             try:
                 self._realtime_manager.stop()
             except Exception:
                 logging.exception("Error stopping realtime manager", exc_info=True)
-        # Acquire _dispatch_lock so any in-flight _dispatch_queued call
-        # finishes before we shut down the executor — prevents RuntimeError
-        # from submit() on a shut-down pool.
+        # Let any in-flight _dispatch finish before shutting the executor down.
         with self._dispatch_lock:
             if self._executor:
                 # shutdown(wait=False): prevent new tasks from being accepted,
@@ -271,11 +282,30 @@ class ConversationWorker:
         while self._running and not self._realtime_verify_stop.is_set():
             try:
                 result = self.dal.is_realtime_enabled()
-            except Exception:
-                logging.exception(
-                    "Unexpected error in realtime verify loop", exc_info=True
+            except (
+                SupabaseDnsException,
+                PGAPIError,
+                ConnectionError,
+                TimeoutError,
+                OSError,
+            ):
+                # Transient — keep retrying with backoff.
+                logging.warning(
+                    "Connectivity error in realtime verify loop; will retry with backoff",
+                    exc_info=True,
                 )
                 result = None
+            except Exception:
+                # is_realtime_enabled() already converts transport errors
+                # to None, so an exception escaping here is almost certainly
+                # a programming defect. Surface it loudly and stop the
+                # verify thread instead of silently retrying forever; the
+                # worker will continue in polling-only / unverified mode,
+                # but the failure will be visible in logs/alerts.
+                logging.exception(
+                    "Unexpected error in realtime verify loop; not retrying",
+                )
+                raise
 
             if result is True:
                 logging.info(
@@ -367,6 +397,11 @@ class ConversationWorker:
                     exc_info=True,
                 )
 
+    def claim_pending_conversations(self) -> None:
+        """Routing target for RealtimeWorker on 'pending_conversations'
+        broadcasts. Non-blocking: wakes the claim loop."""
+        self._notify_event.set()
+
     def _realtime_connected(self) -> bool:
         if self._realtime_manager is None:
             return False
@@ -375,14 +410,28 @@ class ConversationWorker:
         except Exception:
             return False
 
+    def _free_claim_slots(self) -> int:
+        """Pool slots free right now: MAX_CONCURRENT minus in-flight tasks.
+
+        Surplus stays 'pending' for the next poll or another instance to claim.
+        """
+        with self._active_lock:
+            active = len(self._active_conversation_ids)
+        return CONVERSATION_WORKER_MAX_CONCURRENT - active
+
     def _try_claim_and_dispatch(self) -> None:
-        # Claim ALL pending conversations — they transition to queued state.
-        # There is no capacity check here: we claim eagerly so that no other
-        # Holmes instance can grab them, and queue them locally until executor
-        # slots open up.
-        claimed = self.dal.claim_conversations(self.holmes_id)
+        # Claim only as many pending rows as we have free slots and submit each
+        # straight to the executor (the claim already set them 'running'). The
+        # surplus stays 'pending' for another instance. _process_conversation_safe
+        # wakes this loop to re-claim as slots free.
+        free = self._free_claim_slots()
+        if free <= 0:
+            return
+        claimed = self.dal.claim_n_pending_conversations(self.holmes_id, free)
         if claimed:
-            logging.info("Claimed %d conversation(s)", len(claimed))
+            logging.info(
+                "Claimed %d conversation(s) (free slots=%d)", len(claimed), free
+            )
         for conv in claimed:
             task = self._build_task_from_conversation_row(conv)
             if task is None:
@@ -413,67 +462,30 @@ class ConversationWorker:
                             exc_info=True,
                         )
                 continue
-            with self._queued_lock:
-                self._queued_tasks.append(task)
+            self._dispatch(task)
 
-        # Dispatch as many queued tasks as executor capacity allows.
-        self._dispatch_queued()
+    def _dispatch(self, task: ConversationTask) -> None:
+        """Submit a claimed (already 'running') conversation to the executor.
 
-    def _dispatch_queued(self) -> None:
-        """Move tasks from the queued pool to the executor, up to capacity.
-
-        Holds ``_dispatch_lock`` for the entire sequence so the capacity check,
-        DB transition, active-set update, and executor submit are atomic with
-        respect to ``stop()`` and concurrent calls from other threads.
+        No DB write here — the claim set 'running'. A request_sequence bumped
+        after the claim (stop/retry) is caught later as ConversationReassignedError.
         """
         with self._dispatch_lock:
-            while self._running:
-                with self._active_lock:
-                    active = len(self._active_conversation_ids)
-                if active >= CONVERSATION_WORKER_MAX_CONCURRENT:
-                    break
-
-                with self._queued_lock:
-                    if not self._queued_tasks:
-                        break
-                    task = self._queued_tasks.popleft()
-
-                # Transition from queued → running in the DB. The RPC validates
-                # that the assignee and request_sequence still match — if
-                # stop_conversation or retry_conversation bumped the sequence
-                # while the task was queued, this raises ConversationReassignedError.
-                try:
-                    ok = self.dal.update_conversation_status(
-                        conversation_id=task.conversation_id,
-                        request_sequence=task.request_sequence,
-                        assignee=self.holmes_id,
-                        status="running",
-                    )
-                    if not ok:
-                        logging.warning(
-                            "Failed to transition conversation %s to running — skipping",
-                            task.conversation_id,
-                        )
-                        continue
-                except ConversationReassignedError:
-                    logging.warning(
-                        "Conversation %s was reassigned while queued — skipping",
-                        task.conversation_id,
-                    )
-                    continue
-                except Exception:
-                    logging.exception(
-                        "Error transitioning conversation %s to running — requeuing",
-                        task.conversation_id,
-                        exc_info=True,
-                    )
-                    with self._queued_lock:
-                        self._queued_tasks.appendleft(task)
-                    break
-
-                with self._active_lock:
-                    self._active_conversation_ids.add(task.conversation_id)
+            if not self._running or self._executor is None:
+                return
+            with self._active_lock:
+                self._active_conversation_ids.add(task.active_key)
+            try:
                 self._executor.submit(self._process_conversation_safe, task)
+            except RuntimeError:
+                # Pool shut down (stop() raced); row stays 'running' and is
+                # recovered by the stale-conversation timeout sweep.
+                with self._active_lock:
+                    self._active_conversation_ids.discard(task.active_key)
+                logging.warning(
+                    "Executor shut down; dropping claimed conversation %s",
+                    task.conversation_id,
+                )
 
     def _build_task_from_conversation_row(
         self, conv: Dict[str, Any]
@@ -504,9 +516,23 @@ class ConversationWorker:
     # ---- error reporting helpers ----
 
     def _post_error_event(
-        self, task: ConversationTask, description: str, error_code: int = 5000
+        self,
+        task: ConversationTask,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
     ) -> None:
         """Post an error event to ConversationEvents so subscribers can see the failure reason."""
+        data: Dict[str, Any] = {
+            "description": description,
+            "error_code": error_code,
+            "msg": description,
+            "success": False,
+        }
+        # Full upstream error, included only for Robusta-AI (relay) models where
+        # the error originates from our own backend and is safe to surface.
+        if raw_error is not None:
+            data["raw_error"] = raw_error
         try:
             self.dal.post_conversation_events(
                 conversation_id=task.conversation_id,
@@ -515,12 +541,7 @@ class ConversationWorker:
                 events=[
                     {
                         "event": "error",
-                        "data": {
-                            "description": description,
-                            "error_code": error_code,
-                            "msg": description,
-                            "success": False,
-                        },
+                        "data": data,
                         "ts": datetime.now(timezone.utc).isoformat(),
                     }
                 ],
@@ -533,10 +554,14 @@ class ConversationWorker:
             )
 
     def _fail_conversation(
-        self, task: ConversationTask, description: str, error_code: int = 5000
+        self,
+        task: ConversationTask,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
     ) -> None:
         """Post an error event and then mark the conversation as failed."""
-        self._post_error_event(task, description, error_code)
+        self._post_error_event(task, description, error_code, raw_error=raw_error)
         try:
             self.dal.update_conversation_status(
                 conversation_id=task.conversation_id,
@@ -579,16 +604,9 @@ class ConversationWorker:
             )
         finally:
             with self._active_lock:
-                self._active_conversation_ids.discard(task.conversation_id)
-            # A slot freed up — try to dispatch the next queued task.
-            try:
-                self._dispatch_queued()
-            except Exception:
-                logging.exception(
-                    "Error dispatching queued tasks after conversation %s",
-                    task.conversation_id,
-                    exc_info=True,
-                )
+                self._active_conversation_ids.discard(task.active_key)
+            # A slot freed up — wake the claim loop to re-claim pending rows.
+            self._notify_event.set()
 
     def _process_conversation(self, task: ConversationTask) -> None:
         events = self.dal.get_conversation_events(task.conversation_id)
@@ -636,8 +654,48 @@ class ConversationWorker:
         # Per-event data still wins so the FE can override per-turn (e.g.
         # an alert-investigation chat that pivots to a freeform question).
         resolved_user_id = data.get("user_id") or task.user_id
-        resolved_request_source = data.get("request_source") or (
-            task.metadata.get("request_source") if task.metadata else None
+        # Per-conversation OAuth opt-out. When a Conversations row carries
+        # `metadata.oauth_enabled = false` (e.g. triggered workflows that
+        # don't want Holmes acting under the workflow creator's per-user
+        # OAuth tokens), drop user_id before it reaches ChatRequest so the
+        # OAuth resolver in tool_calling_llm has no user to key on.
+        oauth_enabled = (
+            task.metadata.get("oauth_enabled", True) if task.metadata else True
+        )
+        if not oauth_enabled:
+            resolved_user_id = None
+        # Per-event presence wins, not truthiness — so an explicit empty
+        # value from the FE (e.g. "" to deliberately clear a field) keeps
+        # priority over the row-level metadata fallback and we don't
+        # reintroduce stale Conversation-row values. Only fall back to
+        # task.metadata when the per-turn event omits the key entirely.
+        resolved_user_email = (
+            data["user_email"]
+            if "user_email" in data
+            else (task.metadata.get("user_email") if task.metadata else None)
+        )
+        resolved_request_source = (
+            data["request_source"]
+            if "request_source" in data
+            else (task.metadata.get("request_source") if task.metadata else None)
+        )
+        # source_ref is conversation-level for alert investigations (the
+        # whole chat is about one alert id), so the FE puts it on the
+        # Conversations row's metadata, not in each per-turn event.
+        resolved_source_ref = (
+            data["source_ref"]
+            if "source_ref" in data
+            else (task.metadata.get("source_ref") if task.metadata else None)
+        )
+        # request_type may also live under Conversations.metadata when the
+        # FE classifies a whole chat once at creation time. Same key-presence
+        # semantics — leaving the resolved value None when neither source
+        # supplies it preserves build_chat_recorder_state's auto-detection
+        # (Slack-prefix → 'slack_chat', fallback → 'user_chat').
+        resolved_request_type = (
+            data["request_type"]
+            if "request_type" in data
+            else (task.metadata.get("request_type") if task.metadata else None)
         )
 
         chat_request = ChatRequest(
@@ -653,23 +711,18 @@ class ConversationWorker:
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
             behavior_controls=data.get("behavior_controls"),
-            # source_ref / meta / is_internal still come from the per-event
-            # blob only — they're per-turn signals (which alert this
-            # follow-up question was about, etc.), not Conversation-level
-            # state. user_id / request_source fall back to the Conversations
-            # row when the FE didn't repeat them in the event.
+            # meta / is_internal still come from the per-event blob only —
+            # they're per-turn signals, not Conversation-level state.
+            # user_id / user_email / request_type / request_source /
+            # source_ref fall back to the Conversations row when the FE
+            # didn't repeat them in the per-turn event. None for
+            # request_type still lets build_chat_recorder_state's Slack
+            # auto-detection and 'user_chat' default run.
             user_id=resolved_user_id,
-            # request_type: pass through whatever the FE sent (None if absent)
-            # rather than hard-coding 'user_chat' here. The recorder helper
-            # (build_chat_recorder_state) handles the default and runs Slack
-            # auto-detection — hard-coding 'user_chat' would defeat the
-            # auto-detection because the helper bails out if request_type is
-            # already truthy. Today only /api/chat hits the Slack-prefix
-            # path, but the runner could route Slack through Conversations
-            # at any time without a code change here.
-            request_type=data.get("request_type"),
+            user_email=resolved_user_email,
+            request_type=resolved_request_type,
             request_source=resolved_request_source,
-            source_ref=data.get("source_ref"),
+            source_ref=resolved_source_ref,
             conversation_id=task.conversation_id,
             conversation_source="conversations",
             meta=data.get("meta"),
@@ -777,6 +830,7 @@ class ConversationWorker:
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
+        is_robusta_model = False
         try:
             ai = self.config.create_toolcalling_llm(
                 dal=self.dal,
@@ -788,6 +842,7 @@ class ConversationWorker:
                 tracer=server_tracer,
                 tool_results_dir=tool_results_dir,
             )
+            is_robusta_model = bool(getattr(ai.llm, "is_robusta_model", False))
 
             request_ai = self._inject_frontend_tools(ai, chat_request, task)
             if request_ai is None:
@@ -824,10 +879,19 @@ class ConversationWorker:
 
             # Build request_context with user_id so per-user OAuth tools resolve
             # correctly inside call_stream (matches the regular /api/chat flow
-            # in server.py).
+            # in server.py). Also surface conversation_id and cluster_name so
+            # the platform-mcp toolset can hardwire them onto its outbound
+            # requests (as X-Robusta-* headers) — keeping them out of the
+            # LLM-visible tool schema.
             request_context: Optional[Dict[str, Any]] = None
             if chat_request.user_id:
                 request_context = {"user_id": chat_request.user_id}
+            if task.conversation_id:
+                request_context = request_context or {}
+                request_context["conversation_id"] = task.conversation_id
+            if self.config.cluster_name:
+                request_context = request_context or {}
+                request_context["cluster_name"] = self.config.cluster_name
 
             try:
                 # Wrap the raw stream with the usage recorder BEFORE the
@@ -885,6 +949,22 @@ class ConversationWorker:
         except ConversationReassignedError as e:
             logging.warning(
                 "Conversation %s was reassigned: %s", task.conversation_id, e
+            )
+        except Exception as e:
+            logging.exception(
+                "Error running chat for conversation %s: %s",
+                task.conversation_id,
+                e,
+                exc_info=True,
+            )
+            # Surface the raw error only for Robusta-AI models (our own backend).
+            raw_error = None
+            if is_robusta_model:
+                raw_error = str(e)
+            self._fail_conversation(
+                task,
+                "An internal error occurred while processing your request",
+                raw_error=raw_error,
             )
         finally:
             storage.__exit__(None, None, None)

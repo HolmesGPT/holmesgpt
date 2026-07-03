@@ -4,14 +4,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from tenacity import (
-    RetryError,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
-
 from holmes.core.conversations_worker.models import ConversationReassignedError
 from holmes.utils.stream import StreamEvents, StreamMessage
 
@@ -49,10 +41,6 @@ _COMPACT_ON_FLUSH_EVENTS = {
     StreamEvents.APPROVAL_REQUIRED,
     StreamEvents.CONVERSATION_HISTORY_COMPACTED,
 }
-
-
-class _TransientPostError(Exception):
-    """Raised internally to drive tenacity retries when the DAL post fails."""
 
 
 class ConversationEventPublisher:
@@ -161,42 +149,27 @@ class ConversationEventPublisher:
     def _post_with_retry(
         self, events_to_flush: List[Dict[str, Any]], compact: bool
     ) -> Optional[int]:
-        """Post events to the DAL with bounded retry on transient errors.
+        """Post events via the DAL, which already retries transient errors and
+        promotes mismatch errors to ConversationReassignedError.
 
-        Mismatch errors (assignee / request_sequence / status) are NOT retried —
-        they are surfaced to the caller as ConversationReassignedError.
+        Reassignment propagates so the worker exits cleanly; any other
+        post-retry failure becomes None so ``_flush`` retains the events and
+        retries them on the next flush.
         """
-
-        @retry(
-            retry=retry_if_exception_type(_TransientPostError),
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=0.5, min=0.5, max=4.0),
-            reraise=True,
-        )
-        def _attempt() -> Optional[int]:
-            try:
-                return self.dal.post_conversation_events(
-                    conversation_id=self.conversation_id,
-                    assignee=self.assignee,
-                    request_sequence=self.request_sequence,
-                    events=events_to_flush,
-                    compact=compact,
-                )
-            except ConversationReassignedError:
-                raise
-            except Exception as e:
-                # The RPCs prefix mismatch errors (status / assignee / request_sequence)
-                # with "MISMATCH " — promote those to ConversationReassignedError so
-                # the worker can exit the processing loop cleanly.
-                if "mismatch" in str(e).lower():
-                    raise ConversationReassignedError(str(e)) from e
-                # Anything else is treated as transient (network hiccup, 5xx,
-                # supabase proxy DNS, etc.) and retried.
-                raise _TransientPostError(str(e)) from e
-
         try:
-            return _attempt()
-        except _TransientPostError as e:
+            return self.dal.post_conversation_events(
+                conversation_id=self.conversation_id,
+                assignee=self.assignee,
+                request_sequence=self.request_sequence,
+                events=events_to_flush,
+                compact=compact,
+            )
+        except ConversationReassignedError:
+            raise
+        except Exception as e:
+            # Defensive: promote a raw mismatch if one leaks past the DAL.
+            if "mismatch" in str(e).lower():
+                raise ConversationReassignedError(str(e)) from e
             logging.warning(
                 "post_conversation_events failed after retries for conversation %s: %s",
                 self.conversation_id,
@@ -212,17 +185,7 @@ class ConversationEventPublisher:
             events_to_flush = list(self._pending_events)
             compact = self._pending_compact
 
-        try:
-            seq = self._post_with_retry(events_to_flush, compact)
-        except RetryError as e:
-            # Defensive: tenacity should reraise the original due to reraise=True,
-            # but if a wrapped RetryError leaks out, treat as transient.
-            logging.warning(
-                "Unexpected RetryError flushing conversation %s: %s",
-                self.conversation_id,
-                e,
-            )
-            seq = None
+        seq = self._post_with_retry(events_to_flush, compact)
 
         if seq is None:
             # All retries exhausted (or the DAL is disabled). Keep events and

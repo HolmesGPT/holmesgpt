@@ -60,16 +60,16 @@ The `builtin_allowlist` field controls which commands are pre-approved:
 |----------|----------|
 | Kubernetes | `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl explain`, `kubectl api-resources`, `kubectl config view`, `kubectl config current-context`, `kubectl cluster-info`, `kubectl version`, `kubectl auth can-i`, `kubectl diff`, `kubectl events` |
 | JSON | `jq` |
-| Text processing | `grep`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr` |
+| Text processing | `grep`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`, `echo` |
 | System info | `id`, `whoami`, `hostname`, `uname`, `date`, `which`, `type` |
 
 **`extended`** (Helm default) - adds these on top of `core`:
 
 | Category | Commands | Why container-only |
 |----------|----------|--------------------|
-| File reading | `cat`, `echo`, `base64` | Can read sensitive files (~/.ssh, ~/.aws) on local machines |
+| File reading | `cat`, `base64` | Can read sensitive files (~/.ssh, ~/.aws) on local machines |
 | Filesystem | `ls`, `find`, `stat`, `du`, `df` | Exposes local filesystem structure |
-| Archives | `tar -tf`, `gzip -l`, `zcat`, `zgrep` | Can inspect local archives |
+| Archives | `tar -tf`, `tar -tvf`, `gzip -l`, `zcat`, `zgrep` | Can inspect local archives |
 
 **`none`** - empty builtin list. Only commands in your `allow` list and previously approved commands are allowed.
 

@@ -19,11 +19,13 @@ metadata:
 data:
   KUBECTL_ALLOWED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowedCommands | quote }}
   KUBECTL_DANGEROUS_FLAGS: {{ .Values.mcpAddons.kubernetesRemediation.config.dangerousFlags | quote }}
+  KUBECTL_PREAPPROVED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.preapprovedCommands | quote }}
+  KUBECTL_DIAGNOSTIC_IMAGES: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticImages | quote }}
+  KUBECTL_FILE_READ_ALLOWED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadAllowedPaths | quote }}
+  KUBECTL_FILE_READ_DENIED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadDeniedPaths | quote }}
+  KUBECTL_ALLOW_ARBITRARY_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowArbitraryKubectlCommands | quote }}
   KUBECTL_TIMEOUT: {{ .Values.mcpAddons.kubernetesRemediation.config.timeout | quote }}
   LOG_LEVEL: {{ .Values.mcpAddons.kubernetesRemediation.config.logLevel | quote }}
-  {{- if .Values.mcpAddons.kubernetesRemediation.config.allowedImages }}
-  KUBECTL_ALLOWED_IMAGES: {{ .Values.mcpAddons.kubernetesRemediation.config.allowedImages | quote }}
-  {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -102,18 +104,36 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: KUBECTL_TIMEOUT
+        - name: KUBECTL_PREAPPROVED_COMMANDS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_PREAPPROVED_COMMANDS
+        - name: KUBECTL_DIAGNOSTIC_IMAGES
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_DIAGNOSTIC_IMAGES
+        - name: KUBECTL_FILE_READ_ALLOWED_PATHS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_FILE_READ_ALLOWED_PATHS
+        - name: KUBECTL_FILE_READ_DENIED_PATHS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_FILE_READ_DENIED_PATHS
+        - name: KUBECTL_ALLOW_ARBITRARY_COMMANDS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_ALLOW_ARBITRARY_COMMANDS
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: LOG_LEVEL
-        {{- if .Values.mcpAddons.kubernetesRemediation.config.allowedImages }}
-        - name: KUBECTL_ALLOWED_IMAGES
-          valueFrom:
-            configMapKeyRef:
-              name: {{ .Release.Name }}-k8s-remediation-mcp-config
-              key: KUBECTL_ALLOWED_IMAGES
-        {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.kubernetesRemediation.resources | nindent 10 }}
         readinessProbe:
@@ -205,7 +225,11 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole | default "cluster-admin" }}
+  {{- if .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole }}
+  name: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole }}
+  {{- else }}
+  name: {{ .Release.Name }}-k8s-remediation-mcp-role
+  {{- end }}
 subjects:
 - kind: ServiceAccount
   name: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.name }}

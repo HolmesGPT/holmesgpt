@@ -63,7 +63,21 @@ SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0
 EXTRA_HEADERS = os.environ.get("EXTRA_HEADERS", "")
 THINKING = os.environ.get("THINKING", "")
 REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "").strip().lower()
-TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.00000001"))
+
+
+def _load_temperature() -> Optional[float]:
+    # Set TEMPERATURE to an empty string / "none" / "null" to send NO temperature at
+    # all. Required for models that reject the parameter (e.g. Anthropic Opus 4.7+:
+    # "temperature is deprecated for this model"); LiteLLM's drop_params can't strip
+    # it because the deprecation isn't in its static param metadata, so it must be
+    # omitted at the source.
+    raw = os.environ.get("TEMPERATURE", "0.00000001").strip()
+    if raw.lower() in ("", "none", "null"):
+        return None
+    return float(raw)
+
+
+TEMPERATURE = _load_temperature()
 
 # Set default memory limit based on CPU architecture
 # ARM architectures typically need more memory
@@ -197,11 +211,24 @@ ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
 CONVERSATION_WORKER_MAX_CONCURRENT = int(
     os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
 )
+
+# Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
+# Tool calls run in their own pool so they never compete with user chats.
+TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10))
+# Hard cap on the uncompressed serialized tool result returned to the caller.
+REMOTE_TOOL_RESULT_MAX_BYTES = int(
+    os.environ.get("REMOTE_TOOL_RESULT_MAX_BYTES", 1024 * 1024)
+)
+# Results whose data exceeds this many chars are stored gzip+base64 in the DB
+# (relay inflates before replying, callers always see plain text).
+REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS = int(
+    os.environ.get("REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS", 100_000)
+)
 # Only used when realtime is disabled or disconnected. When realtime is enabled
 # and connected, Holmes relies on Postgres Changes notifications and does not
 # poll.
 CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME = int(
-    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 60)
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 30)
 )
 # Safety-net poll interval when realtime IS connected. Supabase Realtime
 # has at-most-once delivery, so this caps the maximum latency for a missed

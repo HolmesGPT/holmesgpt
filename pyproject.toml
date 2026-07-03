@@ -10,7 +10,7 @@ packages = [{ include = "holmes" }]
 holmes = "holmes.main:run"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.14"
 openai = "^2.8.0"
 jiter = "!=0.13.0"  # Exclude 0.13.0 due to corrupted Windows wheel (RECORD file issue)
 jinja2 = "^3.1.2"
@@ -19,10 +19,10 @@ typer-slim = "^0.22.0"
 python-benedict = "^0.33.1"
 humanize = "^4.9.0"
 rich = "^13.7.1"
-fastapi = "^0.121.1"
+fastapi = "^0.136.3"
 uvicorn = "^0.40"
 pydantic = "^2.7"
-supabase = "2.28.0"
+supabase = "2.28.1"
 colorlog = "^6.8.2"
 strenum = "^0.4.15"
 markdown = "^3.6"
@@ -34,7 +34,12 @@ markdownify = "^1.1.0"
 opensearch-py = "^2.8.0"
 backoff = "^2.2.1"
 # Pin to stable release (check https://github.com/BerriAI/litellm/releases for updates)
-litellm = "1.83.7"
+# Python is capped at <3.14 because litellm (>=1.84.0) declares Requires-Python <3.14.
+# Lift python back to "^3.10" once https://github.com/BerriAI/litellm/pull/30687 is merged
+# and released (expected in litellm 1.90+).
+# litellm >= 1.84.0 also fixes CRITICAL CVE-2026-49468 (auth bypass via Host header
+# injection) and relaxes the pinned aiohttp to >=3.10,<4.0, letting us take aiohttp 3.14.1.
+litellm = "1.89.0"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
@@ -65,7 +70,20 @@ kopf = "^1.37.0"
 apscheduler = "^3.10.4"
 
 # Indirect dependencies to restrict vectors to address security vulnerability
-starlette = "^0.49.1"
+# Starlette >= 1.3.1 fixes CVE-2026-54283 (HIGH: request.form() size limits
+# silently ignored) and CVE-2026-54282; >= 1.0.1 already fixed CVE-2026-48710 /
+# GHSA-86qp-5c8j-p5mr (Host header validation when reconstructing request.url).
+starlette = ">=1.3.1"
+# cryptography >= 48.0.1 ships a patched OpenSSL in its wheels (GHSA-537c-gmf6-5ccf, HIGH).
+# Use >= (not ^): ^48.0.1 caps at <49 and would downgrade newer majors already on master.
+cryptography = ">=48.0.1"
+# pydantic-settings >= 2.14.2 fixes GHSA-4xgf-cpjx-pc3j (symlink escape out of secrets_dir).
+pydantic-settings = ">=2.14.2"
+# python-multipart >= 0.0.31 fixes CVE-2026-53540 (negative Content-Length buffers the whole body).
+# Use >= (not ^) because Poetry reads ^0.0.31 as ==0.0.31, which would exclude future 0.0.x patches.
+python-multipart = ">=0.0.31"
+# aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x hardening fixes.
+aiohttp = ">=3.14.1"
 urllib3 = "^2.6.3"
 sqlalchemy = "^2.0.46"
 pg8000 = "^1.31.5"
@@ -84,6 +102,7 @@ optional = true
 opentelemetry-api = "^1.30.0"
 opentelemetry-sdk = "^1.30.0"
 opentelemetry-exporter-otlp-proto-grpc = "^1.30.0"
+opentelemetry-exporter-otlp-proto-http = "^1.30.0"
 opentelemetry-instrumentation-httpx = ">=0.51b0"
 
 [tool.poetry.group.dev]
@@ -116,7 +135,7 @@ respx = "^0.22.0"
 opentelemetry-api = "^1.30.0"
 opentelemetry-sdk = "^1.30.0"
 opentelemetry-exporter-otlp-proto-grpc = "^1.30.0"
-opentelemetry-exporter-otlp-proto-http = "^1.20.0"
+opentelemetry-exporter-otlp-proto-http = "^1.30.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -187,7 +206,9 @@ markers = [
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",
     "manual: Tests requiring manual interaction (browser login, etc.) — skipped in CI",
-    "token-limit: Tests that enforce a maximum token usage budget"
+    "token-limit: Tests that enforce a maximum token usage budget",
+    "multi-cluster: Multi-cluster / multi-environment topology and scope-awareness evals (PR #2042 set) — cluster mismatches, name disambiguation across clusters/namespaces/regions, labeling discipline in cross-cluster data, toolset vs no-data distinction, time-window gaps",
+    "fable-not-opus: Tests that fable-5 passes and opus-4.6 fails — useful for measuring the capability gap between these two specific models"
 ]
 
 addopts = [

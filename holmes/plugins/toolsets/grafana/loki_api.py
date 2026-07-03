@@ -2,6 +2,7 @@ from typing import Dict, List, Optional, Union
 
 import backoff
 import requests  # type: ignore
+from requests.auth import HTTPBasicAuth
 
 from holmes.plugins.toolsets.grafana.common import build_headers
 
@@ -38,6 +39,7 @@ def execute_loki_query(
     verify_ssl: bool = True,
     timeout: Optional[int] = None,
     max_retries: Optional[int] = None,
+    auth: Optional[HTTPBasicAuth] = None,
 ) -> List[Dict]:
     params = {"query": query, "limit": limit, "start": start, "end": end}
     effective_timeout = timeout if timeout is not None else 30
@@ -56,6 +58,7 @@ def execute_loki_query(
         response = requests.get(
             url,
             headers=build_headers(api_key=api_key, additional_headers=headers),
+            auth=auth,
             params=params,  # type: ignore
             verify=verify_ssl,
             timeout=effective_timeout,
@@ -65,10 +68,19 @@ def execute_loki_query(
 
     try:
         response = _make_request()
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Failed to query Loki logs: {str(e)}")
+
+    try:
         result = response.json()
         if "data" in result and "result" in result["data"]:
             return parse_loki_response(result["data"]["result"])
         return []
-
-    except requests.exceptions.RequestException as e:
-        raise Exception(f"Failed to query Loki logs: {str(e)}")
+    except Exception as e:
+        raw = response.text
+        raise Exception(
+            f"Failed to process Loki response: {e}\n"
+            f"--- raw response ({len(raw)} chars, content-type={response.headers.get('Content-Type', 'unknown')}) ---\n"
+            f"{raw}\n"
+            f"--- end raw response ---"
+        )
