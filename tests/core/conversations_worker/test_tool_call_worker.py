@@ -9,6 +9,7 @@ import base64
 import gzip
 import random
 import string
+import threading
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
@@ -208,6 +209,193 @@ def test_prometheus_single_instance_locality_narrows_exposure():
             {"prometheus_url": "http://prometheus.monitoring.svc:9090"}
         )
         assert local.expose_remotely is True
+
+
+# ---- bounded claiming (free pool capacity) ----
+
+
+def _claimable_worker(monkeypatch, max_concurrent=10):
+    """A ToolCallWorker wired with a mock pool/dal so _try_claim_and_dispatch
+    and _execute_safe can be driven without real threads."""
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.tool_call_worker.TOOL_CALLER_MAX_CONCURRENT",
+        max_concurrent,
+    )
+    worker = ToolCallWorker(dal=MagicMock(), config=MagicMock(), holmes_id="h-test")
+    worker._running = True
+    worker._pool = MagicMock()
+    return worker
+
+
+def test_tool_calls_claim_only_free_slots(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker.dal.claim_n_pending_tool_calls.return_value = [{"id": "t1"}, {"id": "t2"}]
+    worker._try_claim_and_dispatch()
+    # No free work yet -> asks for the full pool size.
+    worker.dal.claim_n_pending_tool_calls.assert_called_once_with("h-test", 10)
+    assert worker._pool.submit.call_count == 2
+    # Both submitted rows count against capacity.
+    assert worker._active_count == 2
+
+
+def test_tool_calls_limit_reflects_in_flight(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker._active_count = 7  # 7 already running -> 3 free
+    worker.dal.claim_n_pending_tool_calls.return_value = []
+    worker._try_claim_and_dispatch()
+    worker.dal.claim_n_pending_tool_calls.assert_called_once_with("h-test", 3)
+
+
+def test_tool_calls_skip_claim_when_at_capacity(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=2)
+    worker._active_count = 2  # full
+    worker._try_claim_and_dispatch()
+    worker.dal.claim_n_pending_tool_calls.assert_not_called()
+    worker._pool.submit.assert_not_called()
+
+
+def test_tool_call_submit_failure_decrements_active(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker.dal.claim_n_pending_tool_calls.return_value = [{"id": "t1"}]
+    worker._pool.submit.side_effect = RuntimeError("pool shut down")
+    worker._try_claim_and_dispatch()
+    # The failed submit must not leak a slot.
+    assert worker._active_count == 0
+
+
+def test_execute_safe_frees_slot_and_wakes_claim_loop(monkeypatch):
+    worker = _claimable_worker(monkeypatch, max_concurrent=10)
+    worker._active_count = 1
+    worker._notify_event.clear()
+    worker.dal.post_remote_tool_call_result.return_value = True
+    with patch.object(ToolCallWorker, "_execute", lambda self, row: {"status": "SUCCESS"}):
+        worker._execute_safe({"id": "t1"})
+    assert worker._active_count == 0
+    assert worker._notify_event.is_set()
+
+
+def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
+    """Exact-accounting test: draining a 12-row backlog at capacity 5 must
+
+      * call claim exactly once per iteration that has free capacity,
+      * pass limit == free slots on every call (never more),
+      * dispatch exactly the rows it claimed — each tool call once, never
+        exceeding TOOL_CALLER_MAX_CONCURRENT — so no work is missed or
+        double-claimed,
+      * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
+    """
+    worker = _claimable_worker(monkeypatch, max_concurrent=5)
+
+    pending = [f"t{i}" for i in range(12)]
+
+    def fake_claim(_holmes_id, limit):
+        assert limit > 0  # the worker must never call claim with no free capacity
+        batch, pending[:] = pending[:limit], pending[limit:]
+        return [{"id": tid} for tid in batch]
+
+    worker.dal.claim_n_pending_tool_calls.side_effect = fake_claim
+
+    dispatched: list = []
+    worker._pool.submit.side_effect = lambda _fn, row: dispatched.append(row["id"])
+
+    observed_limits = []
+    dispatched_per_iter = []
+    max_active = 0
+    # Each iteration: claim+dispatch, then simulate every running tool call
+    # finishing (frees the whole pool for the next claim), until drained.
+    while pending or worker._active_count:
+        free_before = 5 - worker._active_count
+        before = worker.dal.claim_n_pending_tool_calls.call_count
+        dispatched_before = len(dispatched)
+        worker._try_claim_and_dispatch()
+        after = worker.dal.claim_n_pending_tool_calls.call_count
+
+        assert after == before + 1, "exactly one claim call per iteration"
+        limit = worker.dal.claim_n_pending_tool_calls.call_args.args[1]
+        assert limit == free_before, "claim limit must equal free capacity"
+        observed_limits.append(limit)
+        dispatched_per_iter.append(len(dispatched) - dispatched_before)
+
+        max_active = max(max_active, worker._active_count)
+        assert worker._active_count <= 5, "never exceed TOOL_CALLER_MAX_CONCURRENT"
+
+        worker._active_count = 0  # every dispatched tool call finishes
+
+    # The whole pool is freed each iteration, so every claim requests the full
+    # 5 free slots; the final batch simply returns fewer rows (the remaining 2).
+    assert observed_limits == [5, 5, 5]
+    assert dispatched_per_iter == [5, 5, 2]  # ceil(12/5): 5, 5, then 2
+    assert max_active == 5
+    # Every tool call dispatched exactly once — none missed, none duplicated.
+    assert sorted(dispatched) == sorted(f"t{i}" for i in range(12))
+
+    # Backlog drained: one more pass issues a claim that returns nothing and
+    # dispatches nothing (no phantom work).
+    calls_before = worker.dal.claim_n_pending_tool_calls.call_count
+    worker._try_claim_and_dispatch()
+    assert worker.dal.claim_n_pending_tool_calls.call_count == calls_before + 1
+    assert len(dispatched) == 12
+
+
+def test_two_tool_workers_claim_disjoint_sets(monkeypatch):
+    """Cross-instance load balancing for tool calls: two workers draining the
+    SAME backlog must never both dispatch the same row. Simulates the DB's
+    FOR UPDATE SKIP LOCKED (each claim atomically takes a disjoint slice) and
+    asserts no double-dispatch, every row handled once, both workers active."""
+    pending = [f"t{i}" for i in range(12)]
+    db_lock = threading.Lock()
+
+    def fake_claim(_holmes_id, limit):
+        with db_lock:
+            batch, pending[:] = pending[:limit], pending[limit:]
+        return [{"id": tid} for tid in batch]
+
+    dispatched: dict = {}  # id -> worker label (detects double dispatch)
+
+    def make_worker(label):
+        w = _claimable_worker(monkeypatch, max_concurrent=5)
+        w.dal.claim_n_pending_tool_calls.side_effect = fake_claim
+
+        def record(_fn, row, _label=label):
+            assert row["id"] not in dispatched, (
+                f"{row['id']} dispatched twice (by "
+                f"{dispatched.get(row['id'])} and {_label})"
+            )
+            dispatched[row["id"]] = _label
+
+        w._pool.submit.side_effect = record
+        return w
+
+    w1 = make_worker("w1")
+    w2 = make_worker("w2")
+
+    while pending or w1._active_count or w2._active_count:
+        for w in (w1, w2):
+            w._try_claim_and_dispatch()
+            w._active_count = 0  # whole pool frees after each claim
+
+    assert sorted(dispatched) == sorted(f"t{i}" for i in range(12))
+    assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
+        "backlog exceeded one pool, so both workers should have claimed some"
+    )
+
+
+def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
+    """The tool-call claim loop clears _notify_event before claiming, so a
+    'pending_tool_calls' broadcast that lands mid-claim re-sets the event and
+    the next wait() wakes immediately — the wakeup is never lost."""
+    worker = _claimable_worker(monkeypatch, max_concurrent=5)
+
+    def claim_then_broadcast(_holmes_id, _limit):
+        worker.claim_pending_tool_calls()  # == _notify_event.set()
+        return []
+
+    worker.dal.claim_n_pending_tool_calls.side_effect = claim_then_broadcast
+
+    worker._notify_event.clear()
+    worker._try_claim_and_dispatch()
+    assert worker._notify_event.is_set()
+    assert worker._notify_event.wait(timeout=0) is True
 
 
 # ---- _wake_all routes to both workers ----
