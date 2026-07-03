@@ -1,0 +1,58 @@
+{{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.serviceAccount.create (not .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole) }}
+---
+# Scoped, least-privilege ClusterRole created when serviceAccount.clusterRole is
+# empty. This grants only a narrow set of verbs, never broad admin rights.
+# Cluster-scoped because node operations require it. Secret resources are
+# intentionally not granted (defense in depth on top of the server's file-read
+# denylist). Set serviceAccount.clusterRole to bring your own role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-k8s-remediation-mcp-role
+  labels:
+    app: {{ .Release.Name }}-k8s-remediation-mcp
+    app.kubernetes.io/name: k8s-remediation-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+rules:
+  # Workloads: scale / rollout restart|undo / edit / patch / delete
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "patch", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
+    verbs: ["get", "update", "patch"]
+  # Pods: restart(=delete), exec (read tools), run diagnostic images (create),
+  # cleanup (delete), logs
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # Drain: evict pods
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  # Nodes: cordon / uncordon / drain / taint / label
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch", "update"]
+  # Batch remediation
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
+  # Read-only context (no secret access)
+  - apiGroups: [""]
+    resources: ["events", "services", "configmaps", "namespaces", "replicationcontrollers"]
+    verbs: ["get", "list"]
+{{- end }}

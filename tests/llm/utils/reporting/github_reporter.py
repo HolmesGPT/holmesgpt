@@ -1,8 +1,11 @@
-"""GitHub Actions reporting functionality."""
+"""GitHub Actions reporting functionality.
+
+Rows include closed-loop replay output when an eval has rerun_with_memory.
+"""
 
 import logging
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from tests.llm.utils.braintrust import get_braintrust_url
@@ -63,6 +66,25 @@ def _fmt_tokens(value: Optional[int]) -> str:
     return "—"
 
 
+def _fmt_event_icons(
+    skills_written: int, skills_read: int, compactions: int
+) -> str:
+    """Compact event markers appended to the Status cell so rows with
+    special events can be spotted while skimming, without scrolling right
+    to the dedicated columns: ✍️ skill(s) written (SuggestSkills emitted),
+    📖 skill(s) read (fetch_skill called), 🗜️ context compaction occurred.
+    Returns an empty string when none apply.
+    """
+    icons = ""
+    if skills_written:
+        icons += "✍️"
+    if skills_read:
+        icons += "📖"
+    if compactions:
+        icons += "🗜️"
+    return f" {icons}" if icons else ""
+
+
 def _fmt_denied_commands(commands: Optional[List[str]]) -> str:
     """Format denied bash commands for a markdown table cell.
 
@@ -96,6 +118,65 @@ def _calc_diff_pct(current: Optional[float], baseline: Optional[float]) -> Optio
     if not current or not baseline or baseline == 0:
         return None
     return (current - baseline) / baseline * 100
+
+
+def _generate_skills_summary(rows: List[Dict[str, Any]]) -> str:
+    """Aggregate primary→replay cost/token deltas across rows that emitted a
+    memory and ran a replay.
+
+    Output is the raw counts and the mean delta only — no interpretation,
+    wrapped in a collapsed `<details>` block so it doesn't dominate the
+    report.
+    """
+    emitted_rows = [r for r in rows if (r.get("memories_count") or 0) > 0]
+    replay_rows = [r for r in rows if r.get("replay_attempted")]
+    skill_loaded_rows = [r for r in replay_rows if r.get("replay_skill_loaded")]
+    replay_correct_rows = [r for r in replay_rows if r.get("replay_correctness") == 1]
+
+    if not emitted_rows and not replay_rows:
+        return ""
+
+    # Per-row primary→replay delta on rows where both costs and tokens are
+    # available. Average the per-row pct deltas (not weighted by absolute
+    # cost) so one expensive eval doesn't dominate.
+    cost_deltas: List[float] = []
+    token_deltas: List[float] = []
+    for r in replay_rows:
+        primary_cost = r.get("cost") or 0
+        replay_cost = r.get("replay_total_cost") or 0
+        if primary_cost > 0 and replay_cost > 0:
+            cost_deltas.append((replay_cost - primary_cost) / primary_cost * 100)
+        primary_tokens = r.get("total_tokens") or 0
+        replay_tokens = r.get("replay_total_tokens") or 0
+        if primary_tokens > 0 and replay_tokens > 0:
+            token_deltas.append((replay_tokens - primary_tokens) / primary_tokens * 100)
+
+    def _avg_delta(deltas: List[float]) -> str:
+        if not deltas:
+            return "—"
+        avg = sum(deltas) / len(deltas)
+        arrow = "↑" if avg > 0 else "↓"
+        return f"{arrow}{abs(avg):.0f}%"
+
+    lines = [
+        "",
+        "<details>",
+        "<summary>Skills mechanism stats</summary>",
+        "",
+        f"- Evals that emitted at least one memory: **{len(emitted_rows)}**",
+        f"- Replays attempted: **{len(replay_rows)}**",
+        f"- Replays where the agent loaded the captured skill: "
+        f"**{len(skill_loaded_rows)}/{len(replay_rows)}**",
+        f"- Replays that answered correctly: "
+        f"**{len(replay_correct_rows)}/{len(replay_rows)}**",
+        f"- Mean replay vs primary delta (per-row average): "
+        f"{_avg_delta(cost_deltas)} cost, {_avg_delta(token_deltas)} tokens "
+        f"(n={len(cost_deltas)})",
+        "",
+        "</details>",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _diff_cell(cur, base) -> str:
@@ -468,8 +549,8 @@ def generate_markdown_report(
         )
 
     # Generate detailed table
-    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Compactions | Denied commands | Src |\n"
-    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    markdown += "\n\n| Status | Test case | Time | Turns | Tools | Cost | Total tokens | Input | Max input | Output | Max output | Cached | Non-cached | Reasoning | Skill Generated | Skills Read | Compactions | Denied commands | Src |\n"
+    markdown += "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
     # Track totals for summary row
     total_time = 0.0
@@ -509,6 +590,16 @@ def generate_markdown_report(
         source_str = f"[src]({source_url})" if source_url else "—"
 
         status = TestStatus(result)
+
+        # When a replay was attempted AND the primary pass succeeded, the
+        # primary row should show ✅ regardless of whether the replay
+        # assertion later failed pytest. Without this override the
+        # primary row would inherit pytest's red status and conflate two
+        # independent measurements. The replay row gets its own status
+        # from replay_correctness / replay_skill_loaded below.
+        primary_status_symbol = status.markdown_symbol
+        if result.get("replay_attempted") and result.get("primary_passed"):
+            primary_status_symbol = ":white_check_mark:"
 
         # Format time (plain, no inline comparison)
         exec_time = result.get("holmes_duration")
@@ -587,13 +678,130 @@ def generate_markdown_report(
         max_prompt_str = _fmt_tokens(max_prompt)
         compactions_str = str(num_compactions) if num_compactions > 0 else "—"
 
+        # Populated when the eval injects the SuggestSkills frontend tool; the
+        # count is how many
+        # env-specific corrections the LLM judged worth capturing this run.
+        memories_count = result.get("memories_count", 0) or 0
+        skill_generated_str = str(memories_count) if memories_count else "—"
+        # Count of fetch_skill calls the primary made (consulting any
+        # pre-loaded or builtin skills).
+        skills_read_count = result.get("skills_read_count", 0) or 0
+        skills_read_str = str(skills_read_count) if skills_read_count else "—"
+
         # Bash commands HolmesGPT tried to run that were denied by the eval's
         # allow/deny list (no interactive approver exists during evals).
         denied_commands = result.get("denied_commands") or []
         total_denied_commands += len(denied_commands)
         denied_commands_str = _fmt_denied_commands(denied_commands)
 
-        markdown += f"| {status.markdown_symbol} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {compactions_str} | {denied_commands_str} | {source_str} |\n"
+        # Event markers next to the status icon make special rows skimmable.
+        primary_events = _fmt_event_icons(
+            memories_count, skills_read_count, num_compactions
+        )
+
+        markdown += f"| {primary_status_symbol}{primary_events} | {test_case_name} | {time_str} | {turns_str} | {tools_str} | {cost_str} | {total_tokens_str} | {input_str} | {max_prompt_str} | {output_str} | {max_completion_str} | {cached_tokens_str} | {non_cached_tokens_str} | {reasoning_str} | {skill_generated_str} | {skills_read_str} | {compactions_str} | {denied_commands_str} | {source_str} |\n"
+
+        # If this test ran a closed-loop replay (rerun_with_memory: true and
+        # a memory was actually captured), emit a second row labeled
+        # `[replay]` right after, so the comparison is visible inline. The
+        # replay metrics live in dedicated user_properties; missing fields
+        # render as em dashes.
+        if result.get("replay_attempted"):
+            replay_correct = result.get("replay_correctness")
+            skill_loaded = result.get("replay_skill_loaded")
+            # The replay passes only when BOTH the judge accepted the
+            # answer AND the agent loaded the captured skill. The
+            # fetch_skill assertion is logged *after* the correctness
+            # score, so without the AND-with-skill_loaded check the row
+            # would show :white_check_mark: when pytest had actually
+            # failed the test on the skill-not-loaded assertion.
+            if replay_correct == 1 and skill_loaded:
+                replay_status = ":white_check_mark:"
+            elif replay_correct is None:
+                replay_status = ":heavy_minus_sign:"
+            else:
+                replay_status = ":x:"
+            # The replay runs as its own Braintrust trace; link the [replay]
+            # row to it rather than reusing the primary trace's link.
+            replay_braintrust_url = get_braintrust_url(
+                result.get("replay_braintrust_span_id"),
+                result.get("replay_braintrust_root_span_id"),
+            )
+            if replay_braintrust_url:
+                replay_name = (
+                    f"[{result['test_case_name']} \\[replay\\]]"
+                    f"({replay_braintrust_url})"
+                )
+            else:
+                replay_name = f"{test_case_name} [replay]"
+            # Replay never injects suggest_skills, so Skill Generated is
+            # always "—" on the replay row.
+            replay_skill_generated_str = "—"
+            r_skills_read_count = result.get("replay_skills_read_count", 0) or 0
+            replay_skills_read_str = (
+                str(r_skills_read_count) if r_skills_read_count else "—"
+            )
+
+            r_duration = result.get("replay_duration")
+            r_time_str = (
+                f"{r_duration:.1f}s" if r_duration and r_duration > 0 else "—"
+            )
+            r_turns = result.get("replay_turns")
+            r_turns_str = str(r_turns) if r_turns else "—"
+            r_tools = result.get("replay_tool_calls_count")
+            r_tools_str = str(r_tools) if r_tools else "—"
+            r_cost = result.get("replay_total_cost")
+            r_cost_str = f"${r_cost:.4f}" if r_cost and r_cost > 0 else "—"
+            r_total_tokens = result.get("replay_total_tokens") or 0
+            r_prompt_tokens = result.get("replay_prompt_tokens") or 0
+            r_completion_tokens = result.get("replay_completion_tokens") or 0
+            r_cached_tokens = result.get("replay_cached_tokens")
+            r_reasoning_tokens = result.get("replay_reasoning_tokens") or 0
+            r_max_completion = (
+                result.get("replay_max_completion_tokens_per_call") or 0
+            )
+            r_max_prompt = result.get("replay_max_prompt_tokens_per_call") or 0
+            r_num_compactions = result.get("replay_num_compactions") or 0
+            if r_total_tokens == 0:
+                r_total_tokens = r_prompt_tokens + r_completion_tokens
+            if r_prompt_tokens > 0 and r_cached_tokens is not None:
+                r_non_cached = r_prompt_tokens - r_cached_tokens
+            else:
+                r_non_cached = None
+
+            r_total_tokens_str = _fmt_tokens(r_total_tokens)
+            r_input_str = _fmt_tokens(r_prompt_tokens)
+            r_output_str = _fmt_tokens(r_completion_tokens)
+            r_cached_str = (
+                f"{r_cached_tokens:,}" if r_cached_tokens is not None else "—"
+            )
+            r_non_cached_str = (
+                f"{r_non_cached:,}" if r_non_cached is not None else "—"
+            )
+            r_reasoning_str = _fmt_tokens(r_reasoning_tokens)
+            r_max_completion_str = _fmt_tokens(r_max_completion)
+            r_max_prompt_str = _fmt_tokens(r_max_prompt)
+            r_compactions_str = (
+                str(r_num_compactions) if r_num_compactions > 0 else "—"
+            )
+
+            # Replays never write skills (SuggestSkills isn't injected), so
+            # only the read/compaction markers can apply.
+            replay_events = _fmt_event_icons(
+                0, r_skills_read_count, r_num_compactions
+            )
+
+            # Replay shares the parent row's Src link — same test_case.yaml.
+            # Denied commands aren't tracked separately for replays.
+            markdown += (
+                f"| {replay_status}{replay_events} | {replay_name} | "
+                f"{r_time_str} | {r_turns_str} | {r_tools_str} | {r_cost_str} | "
+                f"{r_total_tokens_str} | {r_input_str} | {r_max_prompt_str} | "
+                f"{r_output_str} | {r_max_completion_str} | {r_cached_str} | "
+                f"{r_non_cached_str} | {r_reasoning_str} | "
+                f"{replay_skill_generated_str} | {replay_skills_read_str} | "
+                f"{r_compactions_str} | — | {source_str} |\n"
+            )
 
     # Add summary row
     avg_time_str = f"{total_time / time_count:.1f}s" if time_count > 0 else "—"
@@ -609,8 +817,26 @@ def generate_markdown_report(
     max_completion_max_str = _fmt_tokens(max_completion_per_call_max)
     max_prompt_max_str = _fmt_tokens(max_prompt_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
+    # Skills generated/read totals across primary + replay rows.
+    total_skill_generated = sum(
+        (r.get("memories_count") or 0) for r in sorted_results
+    )
+    skill_generated_total_str = (
+        f"**{total_skill_generated}**" if total_skill_generated else "—"
+    )
+    total_skills_read = sum(
+        (r.get("skills_read_count") or 0)
+        + (r.get("replay_skills_read_count") or 0)
+        for r in sorted_results
+    )
+    skills_read_total_str = (
+        f"**{total_skills_read}**" if total_skills_read else "—"
+    )
     total_denied_str = str(total_denied_commands) if total_denied_commands > 0 else "—"
-    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | **{total_compactions_str}** | **{total_denied_str}** | |\n"
+    markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | {skill_generated_total_str} | {skills_read_total_str} | **{total_compactions_str}** | **{total_denied_str}** | |\n"
+
+    # Collapsed skills-mechanism stats (counts + mean replay delta only).
+    markdown += _generate_skills_summary(sorted_results)
 
     # Add footer explaining when no baseline available
     if not benchmark and not master:

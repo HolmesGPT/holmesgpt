@@ -4,12 +4,14 @@ import gzip
 import json
 import logging
 import os
+import ssl
 import threading
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+import httpx
 import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
@@ -22,6 +24,7 @@ from pydantic import BaseModel
 from supabase import create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     retry_if_not_exception_type,
@@ -163,6 +166,61 @@ class SupabaseConnectionException(Exception):
         )
 
 
+_DISCONNECT_RETRY_ATTEMPTS = 3
+
+
+def _log_remote_protocol_retry(retry_state: RetryCallState) -> None:
+    """Log each RemoteProtocolError retry. ``handle_request`` is decorated, so its
+    request is the second positional arg (``self`` is the first)."""
+    request = retry_state.args[1] if len(retry_state.args) > 1 else None
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    logging.warning(
+        "Supabase request %s %s hit RemoteProtocolError (%s); "
+        "retrying on a fresh connection (attempt %d/%d)",
+        getattr(request, "method", "?"),
+        getattr(request, "url", "?"),
+        exc,
+        retry_state.attempt_number,
+        _DISCONNECT_RETRY_ATTEMPTS,
+    )
+
+
+class SupabaseRetryTransport(httpx.HTTPTransport):
+    """HTTP/1.1 transport that retries transient ``RemoteProtocolError``s.
+
+    Two problems are fixed at this transport, so every Supabase sub-client
+    (postgrest, auth/gotrue, storage, realtime) is hardened uniformly rather
+    than just postgrest table queries:
+
+    1. ``http2=False`` — httpcore's *sync* HTTP/2 connection is not thread-safe,
+       and one ``SupabaseDal`` client is shared across the conversation worker,
+       realtime callbacks and request threads. HTTP/1.1 gives each concurrent
+       request its own pooled, thread-safe connection.
+    2. Retry on ``RemoteProtocolError`` — even on HTTP/1.1, Supabase's edge
+       (Cloudflare / Kong / load balancer) closes idle keep-alive connections
+       server-side. A pooled connection the edge has already closed gets reused
+       and the next request fails with ``RemoteProtocolError: Server
+       disconnected without sending a response`` *before* it reaches Supabase.
+       The request was never processed, so retrying it on a fresh connection is
+       safe (postgrest/auth/storage bodies are buffered bytes, hence replayable).
+
+    This is the hardening Supabase support recommended (mirrors relay#573 /
+    ROB-4012; see ROB-4017).
+    """
+
+    # No backoff (no wait): a reaped keep-alive socket just needs a fresh
+    # connection, not a delay (see the class docstring for why retrying is safe).
+    # The budget is a fixed constant, so the @retry decorator suffices.
+    @retry(
+        retry=retry_if_exception_type(httpx.RemoteProtocolError),
+        stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
+        reraise=True,
+        before_sleep=_log_remote_protocol_retry,
+    )
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return super().handle_request(request)
+
+
 class SupabaseDal:
     def __init__(self, cluster: str):
         self.enabled = self.__init_config()
@@ -175,7 +233,38 @@ class SupabaseDal:
         logging.info(
             f"Initializing Robusta platform connection for account {self.account_id}"
         )
-        options = ClientOptions(postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS)
+        # Build the client on SupabaseRetryTransport (HTTP/1.1 + RemoteProtocolError
+        # retry — see its docstring) and hand it to postgrest so postgrest doesn't
+        # build its own HTTP/2 client.
+        #
+        # Honor the environment's CA bundle (corporate / TLS-proxy CA in
+        # SSL_CERT_FILE / REQUESTS_CA_BUNDLE) the way supabase's default client does;
+        # our own client otherwise falls back to certifi and breaks TLS verification
+        # behind an intercepting proxy. Pass an SSLContext, not the path string
+        # (httpx deprecated `verify=<str>`), honoring a CA file or directory.
+        ca_bundle = os.environ.get("SSL_CERT_FILE") or os.environ.get(
+            "REQUESTS_CA_BUNDLE"
+        )
+        verify: "ssl.SSLContext | bool"
+        if not ca_bundle:
+            verify = True
+        elif os.path.isdir(ca_bundle):
+            verify = ssl.create_default_context(capath=ca_bundle)
+        else:
+            verify = ssl.create_default_context(cafile=ca_bundle)
+        # verify/http2 go on the transport (httpx ignores them on the client once a
+        # custom transport is supplied); timeout/follow_redirects stay on the client
+        # (supabase ignores postgrest_client_timeout once an httpx_client is given).
+        transport = SupabaseRetryTransport(http2=False, verify=verify)
+        httpx_client = httpx.Client(
+            transport=transport,
+            timeout=SUPABASE_TIMEOUT_SECONDS,
+            follow_redirects=True,
+        )
+        options = ClientOptions(
+            postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS,
+            httpx_client=httpx_client,
+        )
         sentry_sdk.set_tag("db_url", self.url)
         self.client = create_client(self.url, self.api_key, options)  # type: ignore
         self.user_id = self.sign_in()
@@ -1130,16 +1219,20 @@ class SupabaseDal:
         )
         return None
 
-    def claim_conversations(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_conversations(
+        self, holmes_id: str, limit: int
+    ) -> List[Dict]:
         """
-        Atomically claim all pending conversations for this cluster.
-        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
+        Claim up to ``limit`` pending conversations (oldest first), landing them
+        directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
+        nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        # Retry transient infrastructure errors (Supabase proxy DNS/cache
-        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),
@@ -1148,11 +1241,12 @@ class SupabaseDal:
         )
         def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_conversations",
+                "claim_n_pending_conversations",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1170,22 +1264,32 @@ class SupabaseDal:
             )
             return []
 
-    def claim_tool_calls(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_tool_calls(self, holmes_id: str, limit: int) -> List[Dict]:
         """
-        Atomically claim all pending remote tool calls targeting this cluster.
-        Returns claimed RemoteToolCalls rows (status='queued', assignee=holmes_id).
-        Stale pending rows (>5 minutes) are swept to 'timeout' server-side.
+        Claim up to ``limit`` pending remote tool calls (oldest first), landing
+        them directly in 'running' ('queued' is deprecated). ``limit`` <= 0
+        claims nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        try:
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_tool_calls",
+                "claim_n_pending_tool_calls",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1193,8 +1297,14 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim_with_retry()
         except Exception:
-            logging.exception("Supabase error while claiming tool calls", exc_info=True)
+            logging.exception(
+                "Supabase error while claiming tool calls (after retries)",
+                exc_info=True,
+            )
             return []
 
     def post_remote_tool_call_result(
