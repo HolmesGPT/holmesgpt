@@ -19,6 +19,7 @@ from typing import List, Optional
 
 import colorlog
 import litellm
+from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
 from holmes.core.oauth_utils import _get_token_manager
@@ -44,6 +45,7 @@ from holmes.common.env_vars import (
     TRACE_TOKEN_USAGE,
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
+from holmes.core.llm import MODEL_LIST_FILE_LOCATION
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -336,6 +338,7 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+_SERVER_START_TIME = time.time()
 
 HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
 
@@ -745,6 +748,95 @@ if ENABLE_CONVERSATION_WORKER:
 @app.get("/api/model")
 def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
+
+
+class ToolsetsSummary(BaseModel):
+    """Aggregate toolset counts by status."""
+
+    total: int
+    enabled: int
+    failed: int
+    disabled: int
+
+
+class ToolsetInfo(BaseModel):
+    """Per-toolset detail returned in full info mode."""
+
+    name: str
+    enabled: bool
+    status: str
+    type: Optional[str] = None
+    error: Optional[str] = None
+    tool_count: int
+
+
+class InfoResponse(BaseModel):
+    """Response model for the ``/api/info`` endpoint."""
+
+    version: str
+    uptime_seconds: float
+    auth_enabled: bool
+    models: List[str]
+    toolsets_summary: ToolsetsSummary
+    runbooks_count: int
+    config_path: Optional[str] = None
+    model_list_path: Optional[str] = None
+    toolsets: Optional[List[ToolsetInfo]] = None
+    runbooks: Optional[List[str]] = None
+    mcp_servers: Optional[List[str]] = None
+
+
+@app.get("/api/info", response_model=InfoResponse, response_model_exclude_none=True)
+def get_info(detail: Optional[str] = None) -> InfoResponse:
+    """Return server info. Use ?detail=full for per-toolset breakdown."""
+    executor = config.create_tool_executor(
+        dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED,
+    )
+    all_toolsets = executor.toolsets
+
+    enabled_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.ENABLED)
+    failed_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.FAILED)
+    total = len(all_toolsets)
+    disabled_count = total - enabled_count - failed_count
+
+    runbook_names: List[str] = []
+    for t in all_toolsets:
+        if t.name == "runbook" and t.tools:
+            runbook_names = list(getattr(t.tools[0], "available_runbooks", []) or [])
+            break
+
+    resp = InfoResponse(
+        version=get_version(),
+        uptime_seconds=round(time.time() - _SERVER_START_TIME, 1),
+        auth_enabled=bool(os.environ.get("HOLMES_API_KEY", "")),
+        models=config.get_models_list(),
+        toolsets_summary=ToolsetsSummary(
+            total=total,
+            enabled=enabled_count,
+            failed=failed_count,
+            disabled=disabled_count,
+        ),
+        runbooks_count=len(runbook_names),
+    )
+
+    if detail == "full":
+        resp.config_path = str(config._config_file_path) if config._config_file_path else None
+        resp.model_list_path = MODEL_LIST_FILE_LOCATION
+        resp.toolsets = [
+            ToolsetInfo(
+                name=t.name,
+                enabled=t.enabled,
+                status=t.status.value,
+                type=t.type.value if t.type else None,
+                error=t.error,
+                tool_count=len(t.tools) if t.tools else 0,
+            )
+            for t in all_toolsets
+        ]
+        resp.runbooks = runbook_names
+        resp.mcp_servers = list(config.mcp_servers.keys()) if config.mcp_servers else []
+
+    return resp
 
 
 @app.get("/healthz")
