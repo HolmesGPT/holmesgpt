@@ -106,7 +106,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mongodb-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/mongodb-atlas/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["atlas_mongodb", "MongoDBAtlas", "mongodbatlas"]
+      "backendToolsetNames": ["atlas_mongodb", "MongoDBAtlas", "mongodbatlas"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "azure-sql",
@@ -116,7 +117,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/azure-sql/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["azure_sql", "Azure/Sql", "azure/sql"]
+      "backendToolsetNames": ["azure_sql", "Azure/Sql", "azure/sql"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "mysql",
@@ -230,7 +232,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["datadog/logs"]
+      "backendToolsetNames": ["datadog/logs"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "grafana/loki",
@@ -240,7 +243,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/grafanaloki/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["grafana/loki"]
+      "backendToolsetNames": ["grafana/loki"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "opensearch/logs",
@@ -260,7 +264,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/elasticsearch.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["elasticsearch/data"]
+      "backendToolsetNames": ["elasticsearch/data"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "prometheus/metrics",
@@ -270,7 +275,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/prometheus.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/prometheus/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["prometheus/metrics"]
+      "backendToolsetNames": ["prometheus/metrics"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "victoriametrics",
@@ -282,7 +288,8 @@
       "configType": "native",
       "backendToolsetNames": ["prometheus/metrics"],
       "metaFilter": {"subtype": "victoriametrics"},
-      "variantKey": "VictoriaMetricsConfig"
+      "variantKey": "VictoriaMetricsConfig",
+      "supportsMultipleInstances": true
     },
     {
       "id": "datadog/metrics",
@@ -292,7 +299,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["datadog/metrics"]
+      "backendToolsetNames": ["datadog/metrics"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "opensearch/metrics",
@@ -312,7 +320,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/grafanatempo/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["grafana/tempo"]
+      "backendToolsetNames": ["grafana/tempo"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "datadog/traces",
@@ -322,7 +331,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["datadog/traces"]
+      "backendToolsetNames": ["datadog/traces"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "opensearch/traces",
@@ -342,7 +352,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/new-relic-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/newrelic/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["newrelic"]
+      "backendToolsetNames": ["newrelic"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "coralogix",
@@ -352,7 +363,8 @@
       "iconUrl": "https://avatars.githubusercontent.com/u/35295744?s=200&v=4",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/coralogix-logs/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["coralogix"]
+      "backendToolsetNames": ["coralogix"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "dynatrace-mcp",
@@ -372,7 +384,8 @@
       "iconUrl": "https://upload.wikimedia.org/wikipedia/commons/5/57/ServiceNow_logo.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/servicenow/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["servicenow/tables"]
+      "backendToolsetNames": ["servicenow/tables"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "jira",
@@ -404,7 +417,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/confluence.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/confluence/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["confluence"]
+      "backendToolsetNames": ["confluence"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "notion",
