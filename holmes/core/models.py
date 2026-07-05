@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, model_validator
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
+from holmes.core.tools_utils.tool_result_imaging import maybe_image_tool_output
 
 
 class ToolCallResult(BaseModel):
@@ -16,7 +17,12 @@ class ToolCallResult(BaseModel):
     size: Optional[int] = None
     toolset_name: Optional[str] = None
 
-    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None, supports_vision: bool = True):
+    def to_llm_message(
+        self,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+        supports_vision: bool = True,
+        enable_imaging: bool = True,
+    ):
         text_content = format_tool_result_data(
             tool_result=self.result,
             tool_call_id=self.tool_call_id,
@@ -38,11 +44,57 @@ class ToolCallResult(BaseModel):
                 "name": self.tool_name,
                 "content": content,
             }
+        if (
+            enable_imaging
+            and supports_vision
+            and self.result.status == StructuredToolResultStatus.SUCCESS
+        ):
+            imaged_message = self._to_imaged_llm_message(extra_metadata)
+            if imaged_message is not None:
+                return imaged_message
+
         return {
             "tool_call_id": self.tool_call_id,
             "role": "tool",
             "name": self.tool_name,
             "content": text_content,
+        }
+
+    def _to_imaged_llm_message(
+        self, extra_metadata: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Experimental pxpipe-style compression: render a large text tool
+        output as dense monospace PNG pages, which cost fewer tokens than the
+        equivalent text on vision models. Returns None when imaging is
+        disabled or not profitable for this result (the common case).
+
+        See holmes/core/tools_utils/tool_result_imaging.py for details.
+        """
+        data_text = self.result.get_stringified_data()
+        pages = maybe_image_tool_output(data_text)
+        if not pages:
+            return None
+
+        stub = format_tool_result_data(
+            tool_result=self.result,
+            tool_call_id=self.tool_call_id,
+            tool_name=self.tool_name,
+            extra_metadata=extra_metadata,
+            data_override=(
+                f"[The full tool output ({len(data_text)} characters) is rendered "
+                f"as the {len(pages)} attached PNG image(s), in order. Read the "
+                f"images as the literal plain-text output of this tool call.]"
+            ),
+        )
+        content: List[Dict[str, Any]] = [{"type": "text", "text": stub}]
+        for img in pages:
+            data_uri = f"data:{img['mimeType']};base64,{img['data']}"
+            content.append({"type": "image_url", "image_url": {"url": data_uri}})
+        return {
+            "tool_call_id": self.tool_call_id,
+            "role": "tool",
+            "name": self.tool_name,
+            "content": content,
         }
 
     def to_client_dict(self):
@@ -85,6 +137,7 @@ def format_tool_result_data(
     tool_call_id: str,
     tool_name: str,
     extra_metadata: Optional[Dict[str, Any]] = None,
+    data_override: Optional[str] = None,
 ) -> str:
     tool_call_metadata: Dict[str, Any] = {}
     if extra_metadata:
@@ -97,7 +150,9 @@ def format_tool_result_data(
     if tool_result.status == StructuredToolResultStatus.ERROR:
         tool_response += f"{tool_result.error or 'Tool execution failed'}:\n\n"
 
-    tool_response += tool_result.get_stringified_data()
+    tool_response += (
+        data_override if data_override is not None else tool_result.get_stringified_data()
+    )
 
     if tool_result.params:
         tool_response = (
