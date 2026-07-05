@@ -91,7 +91,9 @@ class ToolCallResult(BaseModel):
                 f"images as the literal plain-text output of this tool call. "
                 f"When quoting exact identifiers (pod names, IDs, hashes) from "
                 f"the images, transcribe them character-by-character and take "
-                f"care with visually similar glyphs (0/O, 1/l/I, 5/S, 8/B).]"
+                f"care with visually similar glyphs (0/O, 1/l/I, 5/S, 8/B). "
+                f"Pages may use multiple columns separated by a thin vertical "
+                f"line: read column by column, top to bottom, left column first.]"
             ),
         )
         content: List[Dict[str, Any]] = [{"type": "text", "text": stub}]

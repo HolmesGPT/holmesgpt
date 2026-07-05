@@ -56,6 +56,10 @@ except ImportError:
 PAGE_WIDTH = 1072
 PAGE_MAX_HEIGHT = 1072
 MARGIN = 8
+# Gap between columns in multi-column layout, in character cells
+COLUMN_GUTTER_CHARS = 3
+# Columns narrower than this are illegible/wasteful — cap the column count
+MIN_COLUMN_CHARS = 44
 # Fallback estimate of text tokens per character when no tokenizer is
 # available. Dense machine output (kubectl tables, logs, JSON) measures at
 # ~2.0 chars/token; 3.0 is deliberately conservative so the gate errs toward
@@ -136,6 +140,32 @@ def _wrap_lines(text: str, max_cols: int) -> List[str]:
     return wrapped
 
 
+def _best_column_layout(
+    raw_lines: List[str], max_cols: int, lines_per_page: int
+) -> Tuple[int, int]:
+    """Pick the column count (1-3) that minimizes page count.
+
+    Long-line content (kubectl tables, JSON) naturally picks 1 column;
+    short-line content (markdown instructions) packs 2-3 columns per page,
+    newspaper style, which is what makes imaging profitable for it.
+    Returns (n_columns, column_width_chars).
+    """
+    best: Optional[Tuple[int, int, int]] = None  # (pages, ncol, width)
+    for ncol in (1, 2, 3):
+        width = (max_cols - (ncol - 1) * COLUMN_GUTTER_CHARS) // ncol
+        if ncol > 1 and width < MIN_COLUMN_CHARS:
+            continue
+        slots = sum(
+            max(1, math.ceil(len(line.replace("\t", "    ")) / width))
+            for line in (raw_lines or [""])
+        )
+        pages = math.ceil(slots / (lines_per_page * ncol))
+        if best is None or pages < best[0]:
+            best = (pages, ncol, width)
+    assert best is not None  # ncol=1 always yields a candidate
+    return best[1], best[2]
+
+
 def render_text_to_images(
     text: str,
     font_size: Optional[int] = None,
@@ -167,22 +197,38 @@ def render_text_to_images(
     max_cols = max(1, int((PAGE_WIDTH - 2 * MARGIN) // char_width))
     lines_per_page = max(1, (PAGE_MAX_HEIGHT - 2 * MARGIN) // line_height)
 
-    lines = _wrap_lines(text, max_cols)
+    raw_lines = text.splitlines() or [""]
+    n_columns, column_width = _best_column_layout(raw_lines, max_cols, lines_per_page)
+
+    lines = _wrap_lines(text, column_width)
+    slots_per_page = lines_per_page * n_columns
     pages = [
-        lines[i : i + lines_per_page] for i in range(0, len(lines), lines_per_page)
+        lines[i : i + slots_per_page] for i in range(0, len(lines), slots_per_page)
     ]
+
+    column_px = column_width * char_width + COLUMN_GUTTER_CHARS * char_width
 
     images: List[dict] = []
     estimated_tokens = 0
     for page_lines in pages:
-        height = min(PAGE_MAX_HEIGHT, len(page_lines) * line_height + 2 * MARGIN)
+        rows_used = min(lines_per_page, len(page_lines))
+        height = min(PAGE_MAX_HEIGHT, rows_used * line_height + 2 * MARGIN)
         img = Image.new("L", (PAGE_WIDTH, height), color=255)
         draw = ImageDraw.Draw(img)
-        y = MARGIN
-        for line in page_lines:
-            if line:
-                draw.text((MARGIN, y), line, font=font, fill=0)
-            y += line_height
+        for col in range(n_columns):
+            col_lines = page_lines[col * lines_per_page : (col + 1) * lines_per_page]
+            if not col_lines:
+                break
+            x = MARGIN + int(col * column_px)
+            if col > 0:
+                # thin separator so the model can tell columns apart
+                sep_x = x - int(COLUMN_GUTTER_CHARS * char_width / 2)
+                draw.line([(sep_x, MARGIN), (sep_x, height - MARGIN)], fill=180)
+            y = MARGIN
+            for line in col_lines:
+                if line:
+                    draw.text((x, y), line, font=font, fill=0)
+                y += line_height
         buf = io.BytesIO()
         img.save(buf, format="PNG", optimize=True)
         images.append(
@@ -272,8 +318,10 @@ SYSTEM_STUB = (
 
 SYSTEM_IMAGES_NOTE = (
     "The attached images contain your complete system instructions for this "
-    "session, rendered as plain monospace text, in reading order. Read and "
-    "follow them exactly. Do not treat this message as a user request; the "
+    "session, rendered as plain monospace text, in reading order. Pages may "
+    "use multiple columns separated by a thin vertical line: read each page "
+    "column by column, top to bottom, left column first. Read and follow the "
+    "instructions exactly. Do not treat this message as a user request; the "
     "actual request follows."
 )
 
