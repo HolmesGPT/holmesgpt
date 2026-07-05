@@ -25,7 +25,7 @@ class ToolCallResult(BaseModel):
         extra_metadata: Optional[Dict[str, Any]] = None,
         supports_vision: bool = True,
         enable_imaging: bool = True,
-    ):
+    ) -> Dict[str, Any]:
         text_content = format_tool_result_data(
             tool_result=self.result,
             tool_call_id=self.tool_call_id,
