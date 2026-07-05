@@ -15,7 +15,7 @@ Fable. Enable with HOLMES_TOOL_RESULT_IMAGING=true.
 Environment variables:
     HOLMES_TOOL_RESULT_IMAGING            enable the feature (default: false)
     HOLMES_TOOL_RESULT_IMAGING_MIN_CHARS  only image results larger than this
-                                          (default: 6000)
+                                          (default: 3000)
     HOLMES_TOOL_RESULT_IMAGING_MAX_PAGES  keep result as text if it would need
                                           more pages than this (default: 6)
     HOLMES_TOOL_RESULT_IMAGING_FONT_SIZE  monospace font size in px
@@ -71,7 +71,10 @@ def imaging_enabled() -> bool:
 
 
 def imaging_min_chars() -> int:
-    return int(os.environ.get("HOLMES_TOOL_RESULT_IMAGING_MIN_CHARS", "6000"))
+    # Below ~3000 chars the fixed page-area cost usually beats text anyway and
+    # the profitability gate rejects it; this floor just avoids pointless
+    # rendering work on small results.
+    return int(os.environ.get("HOLMES_TOOL_RESULT_IMAGING_MIN_CHARS", "3000"))
 
 
 def _imaging_max_pages() -> int:

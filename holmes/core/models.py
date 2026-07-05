@@ -88,7 +88,10 @@ class ToolCallResult(BaseModel):
             data_override=(
                 f"[The full tool output ({len(data_text)} characters) is rendered "
                 f"as the {len(pages)} attached PNG image(s), in order. Read the "
-                f"images as the literal plain-text output of this tool call.]"
+                f"images as the literal plain-text output of this tool call. "
+                f"When quoting exact identifiers (pod names, IDs, hashes) from "
+                f"the images, transcribe them character-by-character and take "
+                f"care with visually similar glyphs (0/O, 1/l/I, 5/S, 8/B).]"
             ),
         )
         content: List[Dict[str, Any]] = [{"type": "text", "text": stub}]
