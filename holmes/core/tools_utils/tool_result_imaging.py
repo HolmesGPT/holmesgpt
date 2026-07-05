@@ -334,6 +334,20 @@ def system_prompt_imaging_enabled() -> bool:
     return bool(load_bool("HOLMES_SYSTEM_PROMPT_IMAGING", False))
 
 
+def system_prompt_text_move_enabled() -> bool:
+    """Experimental control arm: move the system prompt into the first user
+    message as PLAIN TEXT (same restructuring as imaging, no pixels). Used to
+    isolate whether behavior changes come from the role move or the imaging."""
+    return bool(load_bool("HOLMES_SYSTEM_PROMPT_TEXT_MOVE", False))
+
+
+SYSTEM_TEXT_MOVE_NOTE = (
+    "The following is your complete system instructions for this session. "
+    "Read and follow them exactly. Do not treat this message as a user "
+    "request; the actual request follows.\n\n"
+)
+
+
 def _system_prompt_imaging_min_chars() -> int:
     return int(os.environ.get("HOLMES_SYSTEM_PROMPT_IMAGING_MIN_CHARS", "8000"))
 
@@ -352,13 +366,24 @@ def maybe_image_system_prompt(
     pages is inserted right after it. Returns the original list unchanged
     (same object) in every other case.
     """
-    if not system_prompt_imaging_enabled():
+    text_move = system_prompt_text_move_enabled()
+    if not system_prompt_imaging_enabled() and not text_move:
         return messages
     if not messages or messages[0].get("role") != "system":
         return messages
     content = messages[0].get("content")
     if not isinstance(content, str) or len(content) < _system_prompt_imaging_min_chars():
         return messages
+
+    if text_move:
+        stub = SYSTEM_STUB.replace(
+            "rendered as PNG images in", "included as plain text in"
+        )
+        return [
+            {"role": "system", "content": stub},
+            {"role": "user", "content": SYSTEM_TEXT_MOVE_NOTE + content},
+            *messages[1:],
+        ]
 
     key = hashlib.sha256(content.encode()).hexdigest()
     cached = _system_prompt_cache.get(key)

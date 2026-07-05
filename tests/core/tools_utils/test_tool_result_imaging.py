@@ -111,6 +111,19 @@ def test_system_prompt_imaging_replaces_system_with_stub(monkeypatch):
     assert messages[0]["content"].startswith("* `tool_0_")
 
 
+def test_system_prompt_text_move_control_arm(monkeypatch):
+    monkeypatch.setenv("HOLMES_SYSTEM_PROMPT_TEXT_MOVE", "true")
+    messages = _system_messages()
+    out = maybe_image_system_prompt(messages)
+    assert out is not messages
+    assert out[0]["role"] == "system"
+    assert "plain text" in out[0]["content"]
+    assert out[1]["role"] == "user"
+    assert isinstance(out[1]["content"], str)
+    assert messages[0]["content"] in out[1]["content"]
+    assert out[2] == messages[1]
+
+
 def test_system_prompt_imaging_skips_small_prompts(monkeypatch):
     monkeypatch.setenv("HOLMES_SYSTEM_PROMPT_IMAGING", "true")
     messages = [
