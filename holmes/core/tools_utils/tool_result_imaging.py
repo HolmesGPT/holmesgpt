@@ -31,6 +31,16 @@ from typing import List, Optional, Tuple
 
 from holmes.common.env_vars import load_bool
 
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:  # Pillow is optional; imaging degrades to plain text
+    Image = ImageDraw = ImageFont = None  # type: ignore[assignment,misc]
+
+try:
+    from litellm import token_counter
+except ImportError:
+    token_counter = None  # type: ignore[assignment]
+
 # Anthropic resizes images above ~1.15 megapixels (~1600 image tokens at
 # width*height/750). Staying below that avoids a lossy server-side downscale
 # that would blur the text.
@@ -68,13 +78,26 @@ def _imaging_max_pages() -> int:
     return int(os.environ.get("HOLMES_TOOL_RESULT_IMAGING_MAX_PAGES", "6"))
 
 
+DEFAULT_FONT_SIZE = 13
+
+
 def _imaging_font_size() -> int:
-    return int(os.environ.get("HOLMES_TOOL_RESULT_IMAGING_FONT_SIZE", "13"))
+    size = int(
+        os.environ.get("HOLMES_TOOL_RESULT_IMAGING_FONT_SIZE", str(DEFAULT_FONT_SIZE))
+    )
+    if size < 1 or size > PAGE_MAX_HEIGHT // 4:
+        logging.warning(
+            "Invalid HOLMES_TOOL_RESULT_IMAGING_FONT_SIZE=%d, using default %d",
+            size,
+            DEFAULT_FONT_SIZE,
+        )
+        return DEFAULT_FONT_SIZE
+    return size
 
 
 def _load_font(size: int):
-    from PIL import ImageFont
-
+    if ImageFont is None:
+        return None
     if size in _font_cache:
         return _font_cache[size]
     for path in _FONT_CANDIDATES:
@@ -111,9 +134,7 @@ def render_text_to_images(
     {"mimeType": "image/png", "data": <base64>} dicts in reading order,
     or None if rendering is not possible (Pillow or fonts unavailable).
     """
-    try:
-        from PIL import Image, ImageDraw
-    except ImportError:
+    if Image is None or ImageDraw is None:
         logging.warning(
             "HOLMES_TOOL_RESULT_IMAGING is enabled but Pillow is not installed"
         )
@@ -129,8 +150,10 @@ def render_text_to_images(
 
     char_width = font.getlength("M")
     line_height = font_size + 2
-    max_cols = int((PAGE_WIDTH - 2 * MARGIN) // char_width)
-    lines_per_page = (PAGE_MAX_HEIGHT - 2 * MARGIN) // line_height
+    # Clamp to >=1 so a pathological font size can't zero these out (max_cols=0
+    # would make _wrap_lines loop forever; lines_per_page=0 breaks pagination)
+    max_cols = max(1, int((PAGE_WIDTH - 2 * MARGIN) // char_width))
+    lines_per_page = max(1, (PAGE_MAX_HEIGHT - 2 * MARGIN) // line_height)
 
     lines = _wrap_lines(text, max_cols)
     pages = [
@@ -167,9 +190,9 @@ def _estimate_text_tokens(text: str) -> float:
     Uses litellm's tokenizer (fast, tiktoken-based) as an approximation of the
     provider tokenizer; falls back to a chars-per-token heuristic.
     """
+    if token_counter is None:
+        return len(text) / TEXT_CHARS_PER_TOKEN_ESTIMATE
     try:
-        from litellm import token_counter
-
         return token_counter(model="gpt-4o", text=text)
     except Exception:
         return len(text) / TEXT_CHARS_PER_TOKEN_ESTIMATE

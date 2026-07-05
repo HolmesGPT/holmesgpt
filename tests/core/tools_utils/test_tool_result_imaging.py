@@ -48,6 +48,24 @@ def test_maybe_image_tool_output_images_dense_results(monkeypatch):
     assert len(images) >= 1
 
 
+def test_maybe_image_tool_output_skips_unprofitable_sparse_text(monkeypatch):
+    monkeypatch.setenv("HOLMES_TOOL_RESULT_IMAGING", "true")
+    # Short lines waste most of each page's width: many rendered pages for few
+    # text tokens, so the profitability gate must keep this as plain text.
+    sparse = "\n".join(f"line number {i}" for i in range(400))
+    assert maybe_image_tool_output(sparse) is None
+
+
+def test_render_clamps_pathological_font_size(monkeypatch):
+    # An absurd font size must not zero out max_cols (infinite wrap loop) or
+    # lines_per_page — the invalid value falls back to the default font size.
+    monkeypatch.setenv("HOLMES_TOOL_RESULT_IMAGING_FONT_SIZE", "100000")
+    rendered = render_text_to_images(_dense_text(50))
+    assert rendered is not None
+    images, _ = rendered
+    assert len(images) >= 1
+
+
 def test_maybe_image_tool_output_respects_max_pages(monkeypatch):
     monkeypatch.setenv("HOLMES_TOOL_RESULT_IMAGING", "true")
     monkeypatch.setenv("HOLMES_TOOL_RESULT_IMAGING_MAX_PAGES", "1")

@@ -6,7 +6,10 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, model_validator
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-from holmes.core.tools_utils.tool_result_imaging import maybe_image_tool_output
+from holmes.core.tools_utils.tool_result_imaging import (
+    imaging_enabled,
+    maybe_image_tool_output,
+)
 
 
 class ToolCallResult(BaseModel):
@@ -70,6 +73,8 @@ class ToolCallResult(BaseModel):
 
         See holmes/core/tools_utils/tool_result_imaging.py for details.
         """
+        if not imaging_enabled():
+            return None
         data_text = self.result.get_stringified_data()
         pages = maybe_image_tool_output(data_text)
         if not pages:
