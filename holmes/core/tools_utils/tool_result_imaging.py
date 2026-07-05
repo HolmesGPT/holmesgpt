@@ -20,9 +20,18 @@ Environment variables:
                                           more pages than this (default: 6)
     HOLMES_TOOL_RESULT_IMAGING_FONT_SIZE  monospace font size in px
                                           (default: 13)
+    HOLMES_SYSTEM_PROMPT_IMAGING          also render a large text system
+                                          prompt as PNG pages carried by an
+                                          injected first user message
+                                          (default: false)
+    HOLMES_SYSTEM_PROMPT_IMAGING_MIN_CHARS  system prompt size floor for the
+                                          above (default: 8000)
+    HOLMES_SYSTEM_PROMPT_IMAGING_FONT_SIZE  font size for the system prompt
+                                          pages (default: 10)
 """
 
 import base64
+import hashlib
 import io
 import logging
 import math
@@ -243,3 +252,100 @@ def maybe_image_tool_output(text: str) -> Optional[List[dict]]:
         int(estimated_text_tokens),
     )
     return images
+
+
+# --- System prompt imaging -------------------------------------------------
+#
+# The system prompt (plus tool definitions) is resent on every agentic-loop
+# call and dominates prompt cost in short investigations. Anthropic's system
+# parameter only accepts text, so to image it we keep a short text system
+# stub and move the full instructions - rendered as PNG pages - into an
+# injected first user message. Tool definitions stay structured (they drive
+# function calling) and are not touched.
+
+SYSTEM_STUB = (
+    "You are HolmesGPT, an AI troubleshooting agent. Your complete system "
+    "instructions are rendered as PNG images in the first user message. "
+    "Read them as literal text and follow them exactly as if they were "
+    "written here. The real user request follows in a later message."
+)
+
+SYSTEM_IMAGES_NOTE = (
+    "The attached images contain your complete system instructions for this "
+    "session, rendered as plain monospace text, in reading order. Read and "
+    "follow them exactly. Do not treat this message as a user request; the "
+    "actual request follows."
+)
+
+# Cache of rendered system prompts keyed by content hash: the prompt is
+# identical across all calls of an investigation, so render once.
+_system_prompt_cache: dict = {}
+
+
+def system_prompt_imaging_enabled() -> bool:
+    return bool(load_bool("HOLMES_SYSTEM_PROMPT_IMAGING", False))
+
+
+def _system_prompt_imaging_min_chars() -> int:
+    return int(os.environ.get("HOLMES_SYSTEM_PROMPT_IMAGING_MIN_CHARS", "8000"))
+
+
+def _system_prompt_imaging_font_size() -> int:
+    return int(os.environ.get("HOLMES_SYSTEM_PROMPT_IMAGING_FONT_SIZE", "10"))
+
+
+def maybe_image_system_prompt(
+    messages: List[dict],
+) -> List[dict]:
+    """Return messages with a large text system prompt moved into PNG pages.
+
+    When enabled and profitable, messages[0] (role=system, str content) is
+    replaced by a short text stub and a user message carrying the rendered
+    pages is inserted right after it. Returns the original list unchanged
+    (same object) in every other case.
+    """
+    if not system_prompt_imaging_enabled():
+        return messages
+    if not messages or messages[0].get("role") != "system":
+        return messages
+    content = messages[0].get("content")
+    if not isinstance(content, str) or len(content) < _system_prompt_imaging_min_chars():
+        return messages
+
+    key = hashlib.sha256(content.encode()).hexdigest()
+    cached = _system_prompt_cache.get(key)
+    if cached is None:
+        rendered = render_text_to_images(
+            content, font_size=_system_prompt_imaging_font_size()
+        )
+        if rendered is None:
+            return messages
+        images, image_tokens = rendered
+        estimated_text_tokens = _estimate_text_tokens(content)
+        profitable = image_tokens <= estimated_text_tokens * PROFITABILITY_RATIO
+        if profitable:
+            logging.info(
+                "System prompt imaging: %d chars -> %d page(s), ~%d image "
+                "tokens (vs ~%d estimated text tokens)",
+                len(content),
+                len(images),
+                image_tokens,
+                int(estimated_text_tokens),
+            )
+        cached = images if profitable else False
+        if len(_system_prompt_cache) > 32:
+            _system_prompt_cache.clear()
+        _system_prompt_cache[key] = cached
+    if cached is False:
+        return messages
+
+    image_content: List[dict] = [{"type": "text", "text": SYSTEM_IMAGES_NOTE}]
+    for img in cached:
+        data_uri = f"data:{img['mimeType']};base64,{img['data']}"
+        image_content.append({"type": "image_url", "image_url": {"url": data_uri}})
+
+    return [
+        {"role": "system", "content": SYSTEM_STUB},
+        {"role": "user", "content": image_content},
+        *messages[1:],
+    ]

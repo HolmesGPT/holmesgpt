@@ -5,7 +5,9 @@ import pytest
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_result_imaging import (
+    SYSTEM_STUB,
     imaging_enabled,
+    maybe_image_system_prompt,
     maybe_image_tool_output,
     render_text_to_images,
 )
@@ -70,6 +72,61 @@ def test_maybe_image_tool_output_respects_max_pages(monkeypatch):
     monkeypatch.setenv("HOLMES_TOOL_RESULT_IMAGING", "true")
     monkeypatch.setenv("HOLMES_TOOL_RESULT_IMAGING_MAX_PAGES", "1")
     assert maybe_image_tool_output(_dense_text()) is None
+
+
+def _system_messages():
+    # instruction prose mixed with dense identifiers (tool names, selectors,
+    # examples) like the real system prompt — token-dense enough that the
+    # profitability gate accepts it
+    system = "\n".join(
+        f"* `tool_{i}_kubectl_describe--v{i % 9}`: use with `-n app-{i}` and "
+        f"selector `app.kubernetes.io/name=svc-{i:03d},rev={i % 7}` "
+        f"(e.g. {{\"pod\": \"svc-{i:03d}-7d9f8b{i:04x}\", \"since\": \"{i}m\"}})"
+        for i in range(200)
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "why is my pod crashing?"},
+    ]
+
+
+def test_system_prompt_imaging_disabled_by_default():
+    messages = _system_messages()
+    assert maybe_image_system_prompt(messages) is messages
+
+
+def test_system_prompt_imaging_replaces_system_with_stub(monkeypatch):
+    monkeypatch.setenv("HOLMES_SYSTEM_PROMPT_IMAGING", "true")
+    messages = _system_messages()
+    out = maybe_image_system_prompt(messages)
+    assert out is not messages
+    assert out[0] == {"role": "system", "content": SYSTEM_STUB}
+    assert out[1]["role"] == "user"
+    parts = out[1]["content"]
+    assert parts[0]["type"] == "text"
+    assert any(p["type"] == "image_url" for p in parts[1:])
+    # original user question preserved after the injected message
+    assert out[2] == messages[1]
+    # original list untouched (callers keep text history)
+    assert messages[0]["content"].startswith("* `tool_0_")
+
+
+def test_system_prompt_imaging_skips_small_prompts(monkeypatch):
+    monkeypatch.setenv("HOLMES_SYSTEM_PROMPT_IMAGING", "true")
+    messages = [
+        {"role": "system", "content": "short prompt"},
+        {"role": "user", "content": "hi"},
+    ]
+    assert maybe_image_system_prompt(messages) is messages
+
+
+def test_system_prompt_imaging_skips_multimodal_system(monkeypatch):
+    monkeypatch.setenv("HOLMES_SYSTEM_PROMPT_IMAGING", "true")
+    messages = [
+        {"role": "system", "content": [{"type": "text", "text": "x" * 20000}]},
+        {"role": "user", "content": "hi"},
+    ]
+    assert maybe_image_system_prompt(messages) is messages
 
 
 @pytest.fixture

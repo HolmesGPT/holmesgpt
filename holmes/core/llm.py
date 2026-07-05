@@ -39,6 +39,7 @@ from holmes.common.env_vars import (
 )
 from holmes.core.azure_token import get_azure_ad_token
 from holmes.core.llm_usage import extract_usage_from_response
+from holmes.core.tools_utils.tool_result_imaging import maybe_image_system_prompt
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
@@ -723,6 +724,11 @@ class DefaultLLM(LLM):
             else m
             for m in messages
         ]
+
+        # Experimental: replace a large text system prompt with rendered PNG
+        # pages (opt-in via HOLMES_SYSTEM_PROMPT_IMAGING). Applied only to the
+        # outgoing request; callers keep the original text messages.
+        sanitized_messages = maybe_image_system_prompt(sanitized_messages)
 
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
 
