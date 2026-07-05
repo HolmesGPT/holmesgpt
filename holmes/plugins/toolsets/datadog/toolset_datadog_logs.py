@@ -74,6 +74,9 @@ class DatadogLogsToolset(Toolset):
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],  # Initialize with empty tools first
             tags=[ToolsetTag.CORE],
+            # Superseded by the unified `datadog` toolset; kept for backwards
+            # compatibility and hidden from the catalog unless explicitly enabled.
+            experimental=True,
         )
         # Now that parent is initialized and self.name exists, create the tool
         self.tools = [GetLogs(toolset=self)]

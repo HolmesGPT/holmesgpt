@@ -37,6 +37,7 @@ from holmes.plugins.toolsets.datadog.toolset_datadog_metrics import (
 from holmes.plugins.toolsets.datadog.toolset_datadog_traces import (
     DatadogTracesToolset,
 )
+from holmes.plugins.toolsets.datadog.toolset_datadog import DatadogToolset
 from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
     ElasticsearchClusterToolset,
     ElasticsearchDataToolset,
@@ -113,10 +114,16 @@ def load_python_toolsets(
         multi_instance(GrafanaToolset),
         NotionToolset(),
         KafkaToolset(),
+        # Legacy per-signal Datadog toolsets: kept registered (marked
+        # experimental so they're hidden from the catalog) for backwards
+        # compatibility with existing `holmes.toolsets.datadog/<signal>` configs.
         multi_instance(DatadogLogsToolset),
         multi_instance(DatadogGeneralToolset),
         multi_instance(DatadogMetricsToolset),
         multi_instance(DatadogTracesToolset),
+        # Unified Datadog toolset (registered after the legacy ones so, if a user
+        # enables both, its tools win the last-wins override in ToolExecutor).
+        multi_instance(DatadogToolset),
         OpenSearchQueryAssistToolset(),
         multi_instance(CoralogixToolset),
         RabbitMQToolset(),

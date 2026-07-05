@@ -2,6 +2,11 @@
 
 Connect HolmesGPT to Datadog for comprehensive observability including logs, metrics, traces, and more.
 
+A single `datadog` toolset covers logs, metrics, APM traces, and general read-only Datadog APIs (monitors, dashboards, SLOs, incidents, and more) from one set of credentials — enable it once and all Datadog capabilities are available.
+
+!!! note "Legacy per-signal toolsets"
+    The separate `datadog/logs`, `datadog/metrics`, `datadog/traces`, and `datadog/general` toolsets still work for existing configurations, but are superseded by the unified `datadog` toolset. See [Advanced: per-signal toolsets](#advanced-per-signal-toolsets) for their options.
+
 
 ## Quick Start
 
@@ -40,16 +45,7 @@ You'll need two keys and your site URL from your Datadog account:
         api_url: https://api.datadoghq.com  # Change for EU/other regions
 
     toolsets:
-      datadog/general:
-        enabled: true
-        config: *dd_config
-      datadog/logs:
-        enabled: true
-        config: *dd_config
-      datadog/metrics:
-        enabled: true
-        config: *dd_config
-      datadog/traces:
+      datadog:
         enabled: true
         config: *dd_config
     ```
@@ -82,34 +78,13 @@ You'll need two keys and your site URL from your Datadog account:
             key: datadog-app-key
 
     toolsets:
-      # Enable all Datadog toolsets
-      datadog/logs:
+      # Enable all Datadog capabilities from one toolset
+      datadog:
         enabled: true
         config:
           api_key: "{{ env.DATADOG_API_KEY }}"
           app_key: "{{ env.DATADOG_APP_KEY }}"
           api_url: https://api.datadoghq.com  # Change for EU/other regions
-
-      datadog/metrics:
-        enabled: true
-        config:
-          api_key: "{{ env.DATADOG_API_KEY }}"
-          app_key: "{{ env.DATADOG_APP_KEY }}"
-          api_url: https://api.datadoghq.com
-
-      datadog/traces:
-        enabled: true
-        config:
-          api_key: "{{ env.DATADOG_API_KEY }}"
-          app_key: "{{ env.DATADOG_APP_KEY }}"
-          api_url: https://api.datadoghq.com
-
-      datadog/general:
-        enabled: true
-        config:
-          api_key: "{{ env.DATADOG_API_KEY }}"
-          app_key: "{{ env.DATADOG_APP_KEY }}"
-          api_url: https://api.datadoghq.com
     ```
 
 === "Robusta Helm Chart"
@@ -141,34 +116,13 @@ You'll need two keys and your site URL from your Datadog account:
               key: datadog-app-key
 
       toolsets:
-        # Enable all Datadog toolsets
-        datadog/logs:
+        # Enable all Datadog capabilities from one toolset
+        datadog:
           enabled: true
           config:
             api_key: "{{ env.DATADOG_API_KEY }}"
             app_key: "{{ env.DATADOG_APP_KEY }}"
             api_url: https://api.datadoghq.com  # Change for EU/other regions
-
-        datadog/metrics:
-          enabled: true
-          config:
-            api_key: "{{ env.DATADOG_API_KEY }}"
-            app_key: "{{ env.DATADOG_APP_KEY }}"
-            api_url: https://api.datadoghq.com
-
-        datadog/traces:
-          enabled: true
-          config:
-            api_key: "{{ env.DATADOG_API_KEY }}"
-            app_key: "{{ env.DATADOG_APP_KEY }}"
-            api_url: https://api.datadoghq.com
-
-        datadog/general:
-          enabled: true
-          config:
-            api_key: "{{ env.DATADOG_API_KEY }}"
-            app_key: "{{ env.DATADOG_APP_KEY }}"
-            api_url: https://api.datadoghq.com
     ```
 
 ### 3. Test It Works
@@ -184,12 +138,39 @@ holmes ask "list available Datadog metrics"
 holmes ask "list Datadog monitors"
 ```
 
-That's it! You're now connected to Datadog with all toolsets enabled.
+That's it! You're now connected to Datadog with all capabilities enabled.
+
+### Optional configuration
+
+The unified toolset accepts these optional fields alongside the credentials:
+
+```yaml
+toolsets:
+  datadog:
+    enabled: true
+    config:
+      api_key: "{{ env.DATADOG_API_KEY }}"
+      app_key: "{{ env.DATADOG_APP_KEY }}"
+      api_url: https://api.datadoghq.com
+      timeout_seconds: 60           # HTTP request timeout (default: 60)
+
+      # Logs
+      logs_default_limit: 100       # Max log events per query (default: 100)
+      storage_tier: indexes         # indexes | flex | online-archives (default: indexes)
+      compact_logs: true            # Trim log metadata to save context (default: true)
+
+      # Metrics
+      metrics_default_limit: 100    # Max metric data points per query (default: 100)
+
+      # General API access
+      max_response_size: 10485760   # Max API response size in bytes (default: 10MB)
+      allow_custom_endpoints: false # Allow non-whitelisted read-only endpoints (default: false)
+```
 
 ## Multiple Instances
 
 ```multi-instance
-toolset: datadog/logs
+toolset: datadog
 name: Datadog
 config: |
   api_key: "{{ env.DATADOG_API_KEY }}"
@@ -197,19 +178,21 @@ config: |
   api_url: https://api.datadoghq.com
 ```
 
-## Available Toolsets
+## Capabilities
 
-HolmesGPT provides four specialized Datadog toolsets:
+The unified `datadog` toolset exposes the following capabilities:
 
-| Toolset | Purpose | Common Use Cases |
+| Capability | Purpose | Common Use Cases |
 |---------|---------|------------------|
-| **[datadog/logs](#datadog-logs)** | Query application logs | Debugging errors, tracking deployments, historical analysis |
-| **[datadog/metrics](#datadog-metrics)** | Access performance metrics | CPU/memory monitoring, custom metrics, SLI tracking |
-| **[datadog/traces](#datadog-traces)** | Analyze distributed traces | Latency issues, service dependencies, bottlenecks |
-| **[datadog/general](#datadog-general)** | Access other Datadog APIs | Monitors, dashboards, SLOs, incidents, synthetics |
+| **Logs** | Query application logs | Debugging errors, tracking deployments, historical analysis |
+| **Metrics** | Access performance metrics | CPU/memory monitoring, custom metrics, SLI tracking |
+| **APM traces** | Analyze distributed traces | Latency issues, service dependencies, bottlenecks |
+| **General API** | Access other Datadog APIs | Monitors, dashboards, SLOs, incidents, synthetics |
 
 
-## Toolset Details
+## Advanced: per-signal toolsets
+
+The `datadog` toolset above is the recommended way to connect Datadog. The four per-signal toolsets below (`datadog/logs`, `datadog/metrics`, `datadog/traces`, `datadog/general`) remain available for backwards compatibility — for example if you want to enable only one signal, or already have them configured. Each takes the same credentials plus a few signal-specific options.
 
 ### Datadog Logs
 

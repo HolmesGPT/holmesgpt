@@ -64,6 +64,9 @@ class DatadogTracesToolset(Toolset):
                 AggregateSpans(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
+            # Superseded by the unified `datadog` toolset; kept for backwards
+            # compatibility and hidden from the catalog unless explicitly enabled.
+            experimental=True,
         )
         self._load_llm_instructions_from_file(
             os.path.dirname(__file__), "instructions_datadog_traces.jinja2"

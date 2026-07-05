@@ -224,6 +224,9 @@ class DatadogGeneralToolset(Toolset):
                 ListDatadogAPIResources(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
+            # Superseded by the unified `datadog` toolset; kept for backwards
+            # compatibility and hidden from the catalog unless explicitly enabled.
+            experimental=True,
         )
         template_file_path = os.path.abspath(
             os.path.join(

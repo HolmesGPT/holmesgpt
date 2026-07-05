@@ -725,6 +725,9 @@ class DatadogMetricsToolset(Toolset):
                 ListMetricTags(toolset=self),
             ],
             tags=[ToolsetTag.CORE],
+            # Superseded by the unified `datadog` toolset; kept for backwards
+            # compatibility and hidden from the catalog unless explicitly enabled.
+            experimental=True,
         )
         self._reload_instructions()
 
