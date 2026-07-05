@@ -463,6 +463,17 @@
       "backendToolsetNames": ["prefect", "prefect-mcp"]
     },
     {
+      "id": "kubernetes-mcp",
+      "name": "Kubernetes MCP",
+      "description": "Use Kubernetes tools with per-user OAuth and cluster RBAC, as an alternative to the default shared service account. Requires disabling some of the built-in Kubernetes tools. Read the docs for more info.",
+      "categories": ["other"],
+      "iconUrl": "https://cdn.simpleicons.org/kubernetes/326CE5",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/kubernetes-mcp/#per-user-auth-oauth-or-oidc",
+      "configType": "native-mcp",
+      "helmPath": "holmes.mcpAddons.kubernetes",
+      "backendToolsetNames": ["kubernetes", "kubernetes-mcp", "kubernetes_mcp"]
+    },
+    {
       "id": "kubernetes-remediation-mcp",
       "name": "Kubernetes Remediation",
       "description": "Execute safe kubectl commands with RBAC enforcement",
