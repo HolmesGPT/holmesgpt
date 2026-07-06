@@ -69,9 +69,13 @@ TEXT_CHARS_PER_TOKEN_ESTIMATE = 3.0
 # of the estimated text tokens.
 PROFITABILITY_RATIO = 0.75
 
+# Liberation Mono first: on an adversarial probe of 64 deliberately confusable
+# IDs (1/l, 0/o, rn/m, vv/w) at font size 13, both Opus 4.8 and Fable 5
+# transcribed 64/64 with Liberation Mono, while DejaVu variants produced
+# occasional single-character misreads on Fable. Same token cost.
 _FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
     "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",  # some RH-based images
     "/System/Library/Fonts/Menlo.ttc",  # macOS
 ]
