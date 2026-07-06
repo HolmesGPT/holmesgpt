@@ -80,7 +80,15 @@ _font_cache: dict = {}
 
 
 def imaging_enabled() -> bool:
-    return bool(load_bool("HOLMES_TOOL_RESULT_IMAGING", False))
+    return bool(load_bool("HOLMES_TOOL_RESULT_IMAGING", False)) or imaging_all_enabled()
+
+
+def imaging_all_enabled() -> bool:
+    """Experimental "convert everything" arm: image every tool output, of any
+    size and status, bypassing the page cap and the profitability gate.
+    Implies HOLMES_TOOL_RESULT_IMAGING. Exists to measure the maximal version
+    of the trick; not intended for real use."""
+    return bool(load_bool("HOLMES_TOOL_RESULT_IMAGING_ALL", False))
 
 
 def imaging_min_chars() -> int:
@@ -264,7 +272,10 @@ def maybe_image_tool_output(text: str) -> Optional[List[dict]]:
     """
     if not imaging_enabled():
         return None
-    if len(text) < imaging_min_chars():
+    if not text.strip():
+        return None
+    all_mode = imaging_all_enabled()
+    if not all_mode and len(text) < imaging_min_chars():
         return None
 
     rendered = render_text_to_images(text)
@@ -272,7 +283,7 @@ def maybe_image_tool_output(text: str) -> Optional[List[dict]]:
         return None
     images, image_tokens = rendered
 
-    if len(images) > _imaging_max_pages():
+    if not all_mode and len(images) > _imaging_max_pages():
         logging.debug(
             "Tool result imaging skipped: %d pages exceeds max %d",
             len(images),
@@ -281,7 +292,7 @@ def maybe_image_tool_output(text: str) -> Optional[List[dict]]:
         return None
 
     estimated_text_tokens = _estimate_text_tokens(text)
-    if image_tokens > estimated_text_tokens * PROFITABILITY_RATIO:
+    if not all_mode and image_tokens > estimated_text_tokens * PROFITABILITY_RATIO:
         logging.debug(
             "Tool result imaging skipped: ~%d image tokens vs ~%d text tokens",
             image_tokens,

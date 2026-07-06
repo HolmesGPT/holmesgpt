@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_result_imaging import (
+    imaging_all_enabled,
     imaging_enabled,
     maybe_image_tool_output,
 )
@@ -50,7 +51,12 @@ class ToolCallResult(BaseModel):
         if (
             enable_imaging
             and supports_vision
-            and self.result.status == StructuredToolResultStatus.SUCCESS
+            and (
+                self.result.status == StructuredToolResultStatus.SUCCESS
+                # "convert everything" arm also images failed/no-data outputs
+                # (their error field stays text in the stub either way)
+                or imaging_all_enabled()
+            )
         ):
             imaged_message = self._to_imaged_llm_message(extra_metadata)
             if imaged_message is not None:
