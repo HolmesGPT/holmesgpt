@@ -30,7 +30,9 @@ are required, so keep `RUN_LIVE=true` (the default).
 ```bash
 export BRAINTRUST_API_KEY=<your key>
 export BRAINTRUST_ORG=robustadev          # default; the HolmesGPT project
-export MODEL=<the model the UI uses>       # e.g. anthropic/claude-sonnet-4-5-20250929
+export MODEL=anthropic/claude-opus-4-6     # Opus 4.6 (adjust the id to your provider
+                                           # routing, e.g. openai/anthropic/claude-opus-4.6
+                                           # via OpenRouter)
 export RUN_LIVE=true
 export ITERATIONS=5                        # average over a few runs; latency varies
 
