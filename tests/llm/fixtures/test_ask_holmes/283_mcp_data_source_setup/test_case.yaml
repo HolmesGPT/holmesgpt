@@ -1,0 +1,47 @@
+# Latency-baseline eval for the "Add MCP data source" chat wizard.
+#
+# Reproduces the robusta-frontend "Set up with Holmes" chat for a CUSTOM MCP data
+# source (customSetup='mcp') with a preset app (Sentry). The frontend payload
+# (additional_system_prompt + the four noop frontend tools) lives in the shared
+# fixture referenced by `frontend_tools` below.
+#
+# PURPOSE: measure where the time goes in this flow. The wizard instructs Holmes to
+# read the app's docs page first, then Robusta's remote-MCP docs, then (if needed)
+# the MCP registry, and to call ReportDataSourceProgress before every step. Each doc
+# read is a fetch_webpage call, and Holmes's agentic loop is sequential per turn, so
+# the run is dominated by the number of turns and doc fetches. Read `holmes_duration`,
+# `num_llm_calls`, and `tool_call_count` (and per-fetch_webpage span durations in
+# Braintrust) as the baseline. See README.md for the run command.
+#
+# The production flow is multi-turn (Holmes asks hosting/auth/intended-use via
+# PromptMultipleChoice and waits). CLI-mode evals are single-turn and PromptMultipleChoice
+# is a noop, so the user_prompt inlines those answers to drive the full flow through to
+# DataSourceSetupGuide in one uninterrupted agentic run - the latency-driving doc reads
+# and per-step turns are preserved.
+user_prompt: "I want to connect Sentry (a MCP server) to Holmes on cluster \"prod\". Read its documentation (or look it up), then guide me step by step to the right Helm configuration - don't ask me which product, it's Sentry. To keep this to one message: use the vendor-hosted Sentry MCP endpoint (not self-hosted), authenticate with an API token (I will create the Kubernetes secret myself), and I want Holmes to be able to read Sentry issues and errors and list projects. Don't ask me any more questions - read the documentation you need and then produce the final setup guide."
+
+cluster_name: prod
+
+# Point at the shared fixture that mirrors the frontend's additional_system_prompt +
+# the four noop frontend tools (ReportDataSourceProgress, IdentifyDataSourceApp,
+# PromptMultipleChoice, DataSourceSetupGuide). Path is relative to this test folder.
+frontend_tools: ../../shared/data_source_mcp_setup.yaml
+
+# Output is generic enough that an LLM could guess plausible Helm YAML, so we verify
+# the doc-read path actually ran (include_tool_calls) rather than only checking prose.
+include_tool_calls: true
+
+tags:
+  - mcp
+  - frontend
+  - network
+  - manual
+
+expected_output:
+  - "Holmes must call the fetch_webpage tool at least once to read documentation (it must not produce the config purely from memory)."
+  - "Holmes must read the Sentry MCP documentation page at https://docs.sentry.io/product/sentry-mcp/ (a fetch_webpage call to that URL, or to a Sentry docs sub-page it links to)."
+  - "Holmes must read Robusta's remote MCP servers documentation at https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/ (a fetch_webpage call to that URL) to ground the Helm values structure."
+  - "Holmes must call the DataSourceSetupGuide tool exactly once to deliver the result."
+  - "The DataSourceSetupGuide must include a `helm` step whose YAML configures an `mcp_servers` entry for Sentry with `mode: streamable-http` and an Authorization/bearer header referencing an env var (written as <env.NAME>), not a raw secret value."
+  - "The MCP server `url` in the generated config must be Sentry's real vendor-hosted MCP endpoint (mcp.sentry.dev), not an invented placeholder host."
+  - "Holmes must NOT reveal any secret value; the config must reference the token via an env var, and the guide should include the kubectl create secret command rather than a raw token."
