@@ -1,8 +1,22 @@
 #!/usr/bin/env python3
 import json
 import random
+import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# The full log history is emitted immediately at container start so the eval's
+# setup can verify it deterministically. The incident timeline is carried by
+# backdated timestamps spread over the window below, ending at "now".
+HISTORY_WINDOW = timedelta(hours=1)
+TOTAL_RECORDS = 2000
+
+_start = None
+_step = None
+
+
+def _ts(sequence_num):
+    return (_start + _step * sequence_num).isoformat() + "Z"
 
 
 def generate_log_entry(
@@ -12,8 +26,6 @@ def generate_log_entry(
     error=None,
     sequence_num=None,
 ):
-    timestamp = datetime.utcnow()
-
     level = "INFO"
     message = f"Database pool status: {active_connections}/{max_connections} connections active"
 
@@ -30,7 +42,7 @@ def generate_log_entry(
         message = f"High connection pool usage: {active_connections}/{max_connections}"
 
     entry = {
-        "timestamp": timestamp.isoformat() + "Z",
+        "timestamp": _ts(sequence_num or 0),
         "level": level,
         "service": "backend-service",
         "component": "database-pool",
@@ -50,13 +62,18 @@ def generate_log_entry(
 
 
 def main():
+    global _start, _step
+    _start = datetime.utcnow() - HISTORY_WINDOW
+    _step = HISTORY_WINDOW / TOTAL_RECORDS
+
+    lines = []
     seq = 0
 
     # Normal operation for first ~1000 logs (5-20 connections)
     # Was 50,000, now 1000 (50% of total)
     for i in range(1000):
         connections = random.randint(5, 20)
-        print(generate_log_entry(connections, sequence_num=seq))
+        lines.append(generate_log_entry(connections, sequence_num=seq))
         seq += 1
 
     # Gradual increase during peak hours
@@ -65,14 +82,14 @@ def main():
         # Gradually increase from 20 to 80 connections
         connections = 20 + int((i / 200) * 60)
         wait_time = None if connections < 70 else random.randint(100, 500)
-        print(generate_log_entry(connections, wait_time=wait_time, sequence_num=seq))
+        lines.append(generate_log_entry(connections, wait_time=wait_time, sequence_num=seq))
         seq += 1
 
     # Warning phase - approaching limit
-    print(
+    lines.append(
         json.dumps(
             {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": _ts(seq),
                 "level": "WARN",
                 "service": "backend-service",
                 "component": "database-pool",
@@ -90,14 +107,14 @@ def main():
     for i in range(100):
         connections = 80 + int((i / 100) * 15)  # 80 to 95
         wait_time = random.randint(500, 2000)
-        print(generate_log_entry(connections, wait_time=wait_time, sequence_num=seq))
+        lines.append(generate_log_entry(connections, wait_time=wait_time, sequence_num=seq))
         seq += 1
 
     # Critical phase - pool exhausted
-    print(
+    lines.append(
         json.dumps(
             {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": _ts(seq),
                 "level": "ERROR",
                 "service": "backend-service",
                 "component": "database-pool",
@@ -114,7 +131,7 @@ def main():
     # Multiple timeout errors
     # Was 1,000, now 20 (1% of total)
     for i in range(20):
-        print(
+        lines.append(
             generate_log_entry(
                 100,
                 error="Timeout waiting for database connection after 30000ms - Pool exhausted (100/100)",
@@ -125,7 +142,7 @@ def main():
 
         # Some successful requests that managed to get connections
         if i % 10 == 0:
-            print(
+            lines.append(
                 generate_log_entry(
                     100, wait_time=random.randint(25000, 30000), sequence_num=seq
                 )
@@ -137,8 +154,11 @@ def main():
     remaining = 2000 - seq
     for i in range(remaining):
         connections = random.randint(5, 20)
-        print(generate_log_entry(connections, sequence_num=seq))
+        lines.append(generate_log_entry(connections, sequence_num=seq))
         seq += 1
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
 
     # Keep pod running
     while True:
