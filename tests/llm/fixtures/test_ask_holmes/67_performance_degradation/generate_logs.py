@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 import json
 import math
+import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# The full log history is emitted immediately at container start so the eval's
+# setup can verify it deterministically. The degradation timeline is carried by
+# backdated timestamps spread over the window below, ending at "now".
+HISTORY_WINDOW = timedelta(hours=2)
+TOTAL_RECORDS = 100000
 
 
-def generate_log_entry(response_time_ms, status="success", message=None):
-    timestamp = datetime.utcnow()
-
+def generate_log_entry(timestamp, response_time_ms, status="success", message=None):
     if response_time_ms > 5000:
         status = "timeout"
         message = "Request timeout after 5000ms"
@@ -40,7 +45,11 @@ def main():
     # Generate 100,000 logs showing gradual degradation
     base_time = 100  # Start at 100ms
 
-    for i in range(100000):
+    start = datetime.utcnow() - HISTORY_WINDOW
+    step = HISTORY_WINDOW / TOTAL_RECORDS
+
+    lines = []
+    for i in range(TOTAL_RECORDS):
         # Exponential growth in response time
         # At i=0: 100ms, at i=50000: ~500ms, at i=90000: ~3000ms, at i=100000: timeout
         response_time = int(base_time * math.exp(i / 20000))
@@ -48,7 +57,10 @@ def main():
         # Cap at 6000ms to show timeouts
         response_time = min(6000, response_time)
 
-        print(generate_log_entry(response_time))
+        lines.append(generate_log_entry(start + step * i, response_time))
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
 
     # Keep pod running
     while True:

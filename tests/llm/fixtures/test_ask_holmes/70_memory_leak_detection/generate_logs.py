@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 import json
+import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# The full log history is emitted immediately at container start so the eval's
+# setup can verify it deterministically. The memory-leak timeline is carried by
+# backdated timestamps spread over the window below, ending at "now" (the OOM).
+HISTORY_WINDOW = timedelta(hours=2)
+TOTAL_RECORDS = 100000
 
 
-def generate_log_entry(memory_mb, gc_pause_ms=None, error=None):
-    timestamp = datetime.utcnow()
-
+def generate_log_entry(timestamp, memory_mb, gc_pause_ms=None, error=None):
     entry = {
         "timestamp": timestamp.isoformat() + "Z",
         "level": "ERROR" if error else "WARN" if memory_mb > 3000 else "INFO",
@@ -37,7 +42,13 @@ def main():
     base_memory = 100
     records_per_gb = 25000  # Distribute memory growth across logs
 
-    for i in range(100000):
+    start = datetime.utcnow() - HISTORY_WINDOW
+    step = HISTORY_WINDOW / TOTAL_RECORDS
+
+    lines = []
+    for i in range(TOTAL_RECORDS):
+        ts = start + step * i
+
         # Calculate current memory usage (exponential growth)
         memory_mb = int(base_memory + (i / records_per_gb) * 1000)
 
@@ -47,17 +58,17 @@ def main():
         # GC pauses get longer as memory pressure increases
         if i % 1000 == 0 and memory_mb > 1000:
             gc_pause = int((memory_mb / 4096) * 500)  # Max 500ms GC pause
-            print(generate_log_entry(memory_mb, gc_pause_ms=gc_pause))
+            lines.append(generate_log_entry(ts, memory_mb, gc_pause_ms=gc_pause))
 
         # Regular memory usage logs
-        print(generate_log_entry(memory_mb))
+        lines.append(generate_log_entry(ts, memory_mb))
 
         # Memory warnings as we approach limit
         if memory_mb > 3500 and i % 100 == 0:
-            print(
+            lines.append(
                 json.dumps(
                     {
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "timestamp": ts.isoformat() + "Z",
                         "level": "WARN",
                         "service": "data-processor",
                         "message": f"Memory usage critical: {memory_mb}MB of 4096MB ({round((memory_mb/4096)*100, 2)}%)",
@@ -68,15 +79,15 @@ def main():
 
         # OutOfMemoryError at the end
         if memory_mb == 4096 and i > 99000:
-            print(
+            lines.append(
                 generate_log_entry(
-                    memory_mb, error="java.lang.OutOfMemoryError: Java heap space"
+                    ts, memory_mb, error="java.lang.OutOfMemoryError: Java heap space"
                 )
             )
-            print(
+            lines.append(
                 json.dumps(
                     {
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "timestamp": ts.isoformat() + "Z",
                         "level": "ERROR",
                         "service": "data-processor",
                         "message": "Application crashed due to OutOfMemoryError",
@@ -85,6 +96,9 @@ def main():
                 )
             )
             break
+
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
 
     # Keep pod running
     while True:

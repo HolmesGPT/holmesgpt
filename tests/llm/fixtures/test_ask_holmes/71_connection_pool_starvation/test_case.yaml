@@ -12,7 +12,23 @@ before_test: |
   --from-file=generate_logs.py=./generate_logs.py \
   -n namespace-71 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f ./manifest.yaml
-  sleep 40
+  # Wait until the pod has emitted its complete log history (the script
+  # prints everything at startup); a fixed sleep is racy on slow clusters
+  LOGS_READY=false
+  for i in {1..60}; do
+    if kubectl logs deployment/backend-service -n namespace-71 2>/dev/null | grep -q "Pool exhausted (100/100)"; then
+      echo "✅ Log history fully emitted"
+      LOGS_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$LOGS_READY" = false ]; then
+    echo "❌ Log history did not appear within 120 seconds"
+    kubectl get pods -n namespace-71
+    kubectl logs deployment/backend-service -n namespace-71 --tail=5 2>/dev/null || true
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./manifest.yaml
   kubectl delete secret backend-service-logs-script -n namespace-71 --ignore-not-found
