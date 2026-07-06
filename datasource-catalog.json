@@ -225,14 +225,20 @@
       "backendToolsetNames": ["splunk", "splunk-mcp"]
     },
     {
-      "id": "datadog/logs",
-      "name": "Datadog Logs",
-      "description": "Search and query Datadog logs",
-      "categories": ["logs"],
+      "id": "datadog",
+      "name": "Datadog",
+      "description": "Search Datadog logs, metrics, and APM traces",
+      "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["datadog/logs"],
+      "backendToolsetNames": ["datadog/logs", "datadog/metrics", "datadog/traces", "datadog/general"],
+      "selectableToolsets": [
+        { "name": "datadog/logs", "label": "Logs", "default": true },
+        { "name": "datadog/metrics", "label": "Metrics", "default": true },
+        { "name": "datadog/traces", "label": "APM / Traces", "default": true },
+        { "name": "datadog/general", "label": "General API", "default": true, "description": "Raw read-only Datadog API access" }
+      ],
       "supportsMultipleInstances": true
     },
     {
@@ -247,24 +253,18 @@
       "supportsMultipleInstances": true
     },
     {
-      "id": "opensearch/logs",
-      "name": "OpenSearch Logs",
-      "description": "Search and query OpenSearch logs",
-      "categories": ["logs"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["opensearch/logs", "opensearch/query_assist"]
-    },
-    {
-      "id": "elasticsearch/data",
-      "name": "Elasticsearch",
-      "description": "Search and query Elasticsearch data",
+      "id": "elasticsearch",
+      "name": "Elasticsearch / OpenSearch",
+      "description": "Search and query Elasticsearch or OpenSearch data, and diagnose cluster health",
       "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/elasticsearch.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["elasticsearch/data"],
+      "backendToolsetNames": ["elasticsearch/data", "elasticsearch/cluster"],
+      "selectableToolsets": [
+        { "name": "elasticsearch/data", "label": "Data & Search", "default": true, "description": "Search logs, metrics, and documents" },
+        { "name": "elasticsearch/cluster", "label": "Cluster health", "default": true, "description": "Shards, nodes, allocation diagnostics" }
+      ],
       "supportsMultipleInstances": true
     },
     {
@@ -292,27 +292,6 @@
       "supportsMultipleInstances": true
     },
     {
-      "id": "datadog/metrics",
-      "name": "Datadog Metrics",
-      "description": "Query Datadog metrics",
-      "categories": ["metrics"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["datadog/metrics"],
-      "supportsMultipleInstances": true
-    },
-    {
-      "id": "opensearch/metrics",
-      "name": "OpenSearch Metrics",
-      "description": "Query OpenSearch metrics",
-      "categories": ["metrics"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["opensearch/metrics"]
-    },
-    {
       "id": "grafana/tempo",
       "name": "Tempo",
       "description": "Search and query Grafana Tempo traces",
@@ -322,27 +301,6 @@
       "configType": "native",
       "backendToolsetNames": ["grafana/tempo"],
       "supportsMultipleInstances": true
-    },
-    {
-      "id": "datadog/traces",
-      "name": "Datadog APM",
-      "description": "Query Datadog APM traces",
-      "categories": ["traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["datadog/traces"],
-      "supportsMultipleInstances": true
-    },
-    {
-      "id": "opensearch/traces",
-      "name": "OpenSearch Traces",
-      "description": "Query OpenSearch traces",
-      "categories": ["traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["opensearch/traces"]
     },
     {
       "id": "newrelic",
