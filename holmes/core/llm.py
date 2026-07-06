@@ -162,6 +162,78 @@ def get_context_window_compaction_threshold_pct() -> int:
 ROBUSTA_AI_MODEL_NAME = "Robusta"
 
 
+def _openrouter_claude_route(
+    litellm_model_name: str, api_base: Optional[str]
+) -> Optional[str]:
+    """Rewrite `openai/<claude-model>` to `openrouter/<claude-model>` when the
+    request targets OpenRouter.
+
+    Claude models are commonly configured as `openai/anthropic/claude-...`
+    with an OpenRouter api_base. On litellm's OpenAI-compatible path both
+    `cache_control_injection_points` and `cache_control` fields embedded in
+    message content are silently stripped, so every call is billed with zero
+    prompt caching (~6x the cost of the repeated prefix). litellm's native
+    `openrouter/` provider forwards embedded cache_control markers correctly,
+    so we swap the provider prefix and mark the messages ourselves (see
+    _inject_cache_control_into_last_message).
+
+    Returns the rewritten model name, or None when the route doesn't apply.
+    """
+    if not api_base or "openrouter.ai" not in api_base:
+        return None
+    if not litellm_model_name.startswith("openai/"):
+        return None
+    rest = litellm_model_name.split("/", 1)[1]
+    if "claude" not in rest.lower() and "anthropic" not in rest.lower():
+        return None
+    return f"openrouter/{rest}"
+
+
+def _inject_cache_control_into_last_message(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Embed an Anthropic prompt-caching breakpoint in the last message.
+
+    Anthropic bills cache reads at 10% of list price but only caches up to an
+    explicit `cache_control` marker. litellm injects one for us on its native
+    Anthropic route, but silently drops the hint on OpenAI-compatible routes,
+    so deployments behind OpenRouter or an OpenAI-style proxy were paying full
+    price for the whole repeated prefix on every agentic-loop call. Gateways
+    forward a `cache_control` field on a content block through to Anthropic,
+    so mark the last message ourselves (same placement litellm would use).
+
+    Returns a new list; the caller's message dicts are never mutated.
+    """
+    if not messages:
+        return messages
+    last = dict(messages[-1])
+    content = last.get("content")
+    if isinstance(content, str) and content:
+        last["content"] = [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ]
+    elif isinstance(content, list) and content:
+        blocks = [dict(b) if isinstance(b, dict) else b for b in content]
+        # Prefer the last text block; fall back to the last block of any type
+        target = next(
+            (
+                b
+                for b in reversed(blocks)
+                if isinstance(b, dict) and b.get("type") == "text"
+            ),
+            blocks[-1] if isinstance(blocks[-1], dict) else None,
+        )
+        if target is None:
+            return messages
+        target["cache_control"] = {"type": "ephemeral"}
+        last["content"] = blocks
+    else:
+        # e.g. an assistant message whose content is None (tool calls only):
+        # nothing to attach the marker to
+        return messages
+    return [*messages[:-1], last]
+
+
 def _is_gemini_route(litellm_model_name: str) -> bool:
     """True if the model goes through Google's Gemini GenerateContent API.
 
@@ -744,7 +816,17 @@ class DefaultLLM(LLM):
         # providers - including non-Gemini models on Vertex like Claude - keep
         # their cache benefit.
         cache_kwargs: Dict[str, Any] = {}
-        if not _is_gemini_route(litellm_model_name):
+        openrouter_model = _openrouter_claude_route(litellm_model_name, self.api_base)
+        if openrouter_model:
+            # litellm strips all cache_control hints on the openai/ path,
+            # disabling prompt caching entirely. Its native openrouter/
+            # provider forwards embedded markers, so swap the route and mark
+            # the last message ourselves (same placement litellm would use).
+            litellm_model_name = openrouter_model
+            sanitized_messages = _inject_cache_control_into_last_message(
+                sanitized_messages
+            )
+        elif not _is_gemini_route(litellm_model_name):
             cache_kwargs["cache_control_injection_points"] = [
                 {
                     "location": "message",
