@@ -1,0 +1,23 @@
+# Only the internet toolset (fetch_webpage) is needed for this flow - the wizard
+# prompt explicitly tells Holmes NOT to investigate Kubernetes. Disabling the k8s /
+# helm / bash / connectivity toolsets keeps the run focused on the doc-fetch path we
+# are profiling and lets the eval run anywhere (no cluster required).
+toolsets:
+  internet:
+    enabled: true
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  core_investigation:
+    enabled: false
+  skills:
+    enabled: false
+  robusta:
+    enabled: false
+  connectivity_check:
+    enabled: false
+  bash:
+    enabled: false
