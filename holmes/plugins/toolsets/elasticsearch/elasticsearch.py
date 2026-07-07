@@ -634,7 +634,7 @@ class ElasticsearchMappings(BaseElasticsearchTool, JsonFilterMixin):
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Get mappings for {index}"
 
 
-class ElasticsearchIndexStats(BaseElasticsearchTool):
+class ElasticsearchIndexStats(BaseElasticsearchTool, JsonFilterMixin):
     """Get index statistics including document counts, storage, and indexing rates."""
 
     def __init__(self, toolset: ElasticsearchBaseToolset):
@@ -643,24 +643,53 @@ class ElasticsearchIndexStats(BaseElasticsearchTool):
             name="elasticsearch_index_stats",
             description=(
                 "Get detailed statistics for indices including document count, "
-                "store size, indexing rate, and search rate."
+                "store size, indexing rate, and search rate. "
+                "IMPORTANT: the per-index response is very large on clusters with many indices. "
+                "For aggregate totals across a pattern or '_all', set level='cluster' "
+                "(returns only the '_all' rollup). To extract specific fields, use "
+                "filter_path (server-side) or jq (client-side)."
             ),
-            parameters={
-                "index": ToolParameter(
-                    description="Index name or pattern. Use '_all' for all indices.",
-                    type="string",
-                    required=True,
-                ),
-                "metrics": ToolParameter(
-                    description=(
-                        "Comma-separated list of metrics to return. Options: "
-                        "_all, docs, store, indexing, search, get, merge, refresh, flush, warmer, "
-                        "query_cache, fielddata, completion, segments, translog, recovery"
+            parameters=JsonFilterMixin.extend_parameters(
+                {
+                    "index": ToolParameter(
+                        description=(
+                            "Index name or pattern. Use '_all' for all indices, but when querying "
+                            "'_all' or a broad pattern, always narrow the response with "
+                            "level='cluster', filter_path, or jq to avoid returning data for every index."
+                        ),
+                        type="string",
+                        required=True,
                     ),
-                    type="string",
-                    required=False,
-                ),
-            },
+                    "metrics": ToolParameter(
+                        description=(
+                            "Comma-separated list of metrics to return. Options: "
+                            "_all, docs, store, indexing, search, get, merge, refresh, flush, warmer, "
+                            "query_cache, fielddata, completion, segments, translog, recovery"
+                        ),
+                        type="string",
+                        required=False,
+                    ),
+                    "level": ToolParameter(
+                        description=(
+                            "Aggregation level of the returned stats: 'cluster' returns only aggregate "
+                            "totals across all matched indices (smallest response - use this for totals "
+                            "on many indices), 'indices' (default) adds a per-index breakdown, "
+                            "'shards' adds a per-shard breakdown (largest response)."
+                        ),
+                        type="string",
+                        required=False,
+                    ),
+                    "filter_path": ToolParameter(
+                        description=(
+                            "Server-side response filtering (Elasticsearch filter_path). Comma-separated "
+                            "dot-notation paths, wildcards supported. Example: "
+                            "'_all.total.docs,_all.total.store' or 'indices.*.total.docs.count'."
+                        ),
+                        type="string",
+                        required=False,
+                    ),
+                }
+            ),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -672,7 +701,16 @@ class ElasticsearchIndexStats(BaseElasticsearchTool):
         else:
             path = f"{index}/_stats"
 
-        return self._make_request("GET", path, params)
+        query_params: Dict[str, Any] = {}
+        if params.get("level"):
+            query_params["level"] = params["level"]
+        if params.get("filter_path"):
+            query_params["filter_path"] = params["filter_path"]
+
+        result = self._make_request(
+            "GET", path, params, query_params=query_params or None
+        )
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         index = params.get("index", "")
@@ -732,7 +770,7 @@ class ElasticsearchAllocationExplain(BaseElasticsearchTool):
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Explain unassigned shard"
 
 
-class ElasticsearchNodesStats(BaseElasticsearchTool):
+class ElasticsearchNodesStats(BaseElasticsearchTool, JsonFilterMixin):
     """Get node-level statistics."""
 
     def __init__(self, toolset: ElasticsearchBaseToolset):
@@ -741,23 +779,36 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
             name="elasticsearch_nodes_stats",
             description=(
                 "Get statistics for cluster nodes including JVM, OS, process, "
-                "thread pool, filesystem, transport, and HTTP metrics."
+                "thread pool, filesystem, transport, and HTTP metrics. "
+                "On clusters with many nodes, narrow the response with the metrics "
+                "parameter plus filter_path (server-side) or jq (client-side)."
             ),
-            parameters={
-                "node_id": ToolParameter(
-                    description="Specific node ID or name. Use '_local' for current node, '_all' for all nodes.",
-                    type="string",
-                    required=False,
-                ),
-                "metrics": ToolParameter(
-                    description=(
-                        "Comma-separated list of metrics. Options: "
-                        "_all, breaker, fs, http, indices, jvm, os, process, thread_pool, transport, discovery"
+            parameters=JsonFilterMixin.extend_parameters(
+                {
+                    "node_id": ToolParameter(
+                        description="Specific node ID or name. Use '_local' for current node, '_all' for all nodes.",
+                        type="string",
+                        required=False,
                     ),
-                    type="string",
-                    required=False,
-                ),
-            },
+                    "metrics": ToolParameter(
+                        description=(
+                            "Comma-separated list of metrics. Options: "
+                            "_all, breaker, fs, http, indices, jvm, os, process, thread_pool, transport, discovery"
+                        ),
+                        type="string",
+                        required=False,
+                    ),
+                    "filter_path": ToolParameter(
+                        description=(
+                            "Server-side response filtering (Elasticsearch filter_path). Comma-separated "
+                            "dot-notation paths, wildcards supported. Example: 'nodes.*.jvm.mem' or "
+                            "'nodes.*.fs.total'."
+                        ),
+                        type="string",
+                        required=False,
+                    ),
+                }
+            ),
         )
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -769,7 +820,14 @@ class ElasticsearchNodesStats(BaseElasticsearchTool):
         else:
             path = f"_nodes/{node_id}/stats"
 
-        return self._make_request("GET", path, params)
+        query_params: Dict[str, Any] = {}
+        if params.get("filter_path"):
+            query_params["filter_path"] = params["filter_path"]
+
+        result = self._make_request(
+            "GET", path, params, query_params=query_params or None
+        )
+        return self.filter_result(result, params)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         node_id = params.get("node_id", "_all")

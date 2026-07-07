@@ -1,0 +1,23 @@
+toolsets:
+  # This eval reproduces deployments where the bash toolset is not available:
+  # oversized tool results are then NOT spilled to disk for `cat`-based recovery,
+  # so the Elasticsearch toolset itself must support narrowing large responses.
+  bash:
+    enabled: false
+  # Pure cloud-service test - no Kubernetes infrastructure needed
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  # Only the cluster toolset is enabled: this mirrors deployments where Holmes
+  # has cluster-monitoring credentials but no index-level data read access
+  # (the reason elasticsearch/cluster and elasticsearch/data are split).
+  # elasticsearch/data would allow bypassing index stats via search aggregations.
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: "{{ env.ELASTICSEARCH_URL }}"
+      api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
+      verify_ssl: true

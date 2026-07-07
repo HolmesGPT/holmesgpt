@@ -1,0 +1,153 @@
+# Test: Elasticsearch Aggregate Index Stats on a Large Cluster
+#
+# Reproduces a customer issue: on clusters with many/big indexes, asking Holmes
+# for aggregate index statistics failed. The elasticsearch_index_stats tool
+# returned the full per-index _stats payload (10MB+ on real clusters), which
+# exceeds the single-tool token budget, and the tool exposed no way to narrow
+# the response (no level=cluster, no filter_path, no jq) — so Holmes could not
+# retrieve the aggregate numbers and could not answer.
+#
+# Setup:
+# - 1800 indexes matching app-283-* (5 teams x 10 services x 36 days)
+# - Each index gets a deterministic pseudo-random doc count: ((i*3 % 23) + 2)
+# - Exact total: 23397 documents
+#
+# With this many indexes, on the unfixed toolset every path to the exact
+# aggregate fails:
+# - elasticsearch_index_stats on the pattern: multi-MB response, over the
+#   single-tool token budget even with the narrowest metrics filter
+# - elasticsearch_cat indices: ~1800 rows, over budget with index+docs.count
+#   columns, and an exact hand-sum of 1800 numbers is not feasible
+# With the fixed toolset this is one call: elasticsearch_index_stats with
+# level=cluster (or filter_path/jq), which returns the _all rollup only.
+#
+# Only elasticsearch/cluster is enabled (see toolsets.yaml) - this mirrors
+# deployments with cluster-monitoring credentials but no index data access.
+#
+# Anti-hallucination: 23397 is a deterministic but arbitrary-looking total that
+# can only be discovered by querying aggregate stats. Per-index doc counts vary
+# (2..24 docs), so summing a truncated listing by hand gives the wrong number.
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "We're sizing an Elasticsearch migration and I need exact capacity numbers for the indices matching 'app-283-*'. Exactly how many documents are stored across all of them in total (I need the exact count, not an estimate), and how much storage do they use combined?"
+
+expected_output:
+  - "Must report the exact total document count of 23397 (or 23,397) across the app-283-* indices"
+  - "Must report the combined storage size of the app-283-* indices (any reasonable unit, e.g. MB)"
+
+tags:
+  - elasticsearch
+  - counting
+  - hard
+
+setup_timeout: 600
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating 1800 test indexes with 23397 total documents..."
+
+  # Clean up any existing test data first for idempotency
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-283-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-283-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
+
+  # Single-shard, zero-replica indexes to stay within cluster shard limits
+  TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-283-template" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "index_patterns": ["app-283-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 1,
+          "number_of_replicas": 0
+        }
+      }
+    }')
+
+  if ! echo "$TEMPLATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index template: $TEMPLATE_RESPONSE"
+    exit 1
+  fi
+
+  # 5 teams x 10 services x 36 days = 1800 indexes.
+  # Index i (1-based) gets ((i*3 % 23) + 2) documents; total = 23397.
+  TEAMS="platform engineering data ml security"
+  SERVICES="api web worker cache db auth billing notification search analytics"
+
+  BULK_FILE="/tmp/es_bulk_283_$$.ndjson"
+  > "$BULK_FILE"
+
+  IDX=0
+  EXPECTED_TOTAL=0
+  for team in $TEAMS; do
+    for service in $SERVICES; do
+      for day in $(seq -w 1 36); do
+        IDX=$((IDX + 1))
+        DOC_COUNT=$(( ((IDX * 3) % 23) + 2 ))
+        EXPECTED_TOTAL=$((EXPECTED_TOTAL + DOC_COUNT))
+        INDEX_NAME="app-283-${team}-${service}-2024.02.${day}"
+        for n in $(seq 1 $DOC_COUNT); do
+          printf '{"index": {"_index": "%s"}}\n' "$INDEX_NAME" >> "$BULK_FILE"
+          printf '{"@timestamp": "2024-02-01T%02d:%02d:00Z", "level": "INFO", "team": "%s", "service": "%s", "message": "request completed in %dms"}\n' \
+            "$((n % 24))" "$((n % 60))" "$team" "$service" "$((n * 3 + 17))" >> "$BULK_FILE"
+        done
+      done
+    done
+  done
+
+  if [ "$EXPECTED_TOTAL" != "23397" ]; then
+    echo "❌ Doc count formula drifted: generated $EXPECTED_TOTAL docs, expected 23397"
+    exit 1
+  fi
+
+  echo "Uploading $(( $(wc -l < "$BULK_FILE") / 2 )) documents across 1800 indexes..."
+  split -l 4000 "$BULK_FILE" /tmp/es_bulk_283_chunk_
+  rm -f "$BULK_FILE"
+
+  for chunk in /tmp/es_bulk_283_chunk_*; do
+    RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+      -H "Content-Type: application/x-ndjson" \
+      -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+      --data-binary @"$chunk")
+
+    if ! echo "$RESPONSE" | grep -q '"errors":false'; then
+      echo "❌ Bulk chunk failed: $(echo "$RESPONSE" | head -c 500)"
+      rm -f /tmp/es_bulk_283_chunk_*
+      exit 1
+    fi
+    rm -f "$chunk"
+  done
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-283-*/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  # Verify the needle: the exact aggregate doc count Holmes must discover
+  DOC_COUNT=$(curl -sf "${ELASTICSEARCH_URL}/app-283-*/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  if [ "$DOC_COUNT" != "23397" ]; then
+    echo "❌ Expected 23397 total documents but found: $DOC_COUNT"
+    exit 1
+  fi
+
+  echo "✅ Setup complete: 1800 indexes, $DOC_COUNT documents"
+
+after_test: |
+  echo "Cleaning up test indexes (app-283-*)..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-283-*" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-283-template" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  rm -f /tmp/es_bulk_283_*.ndjson /tmp/es_bulk_283_chunk_*
+
+  echo "✅ Cleanup complete"
