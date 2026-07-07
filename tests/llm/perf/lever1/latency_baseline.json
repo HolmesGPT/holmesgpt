@@ -1,0 +1,496 @@
+{
+  "meta": {
+    "url": "https://stg.api.robusta.dev/integrations/stream/actions",
+    "model": "Robusta/Opus 4.7",
+    "braintrust_experiment": null
+  },
+  "summary": {
+    "runs": 5,
+    "ok": 5,
+    "failed": 0,
+    "total_wall": {
+      "mean": 113.11693420410157,
+      "median": 105.39430356025696,
+      "min": 91.69313955307007,
+      "max": 141.87501978874207
+    },
+    "time_to_first_event": {
+      "mean": 12.960607051849365,
+      "median": 15.302042722702026,
+      "min": 5.6769022941589355,
+      "max": 18.119108200073242
+    },
+    "turns": {
+      "mean": 5.4,
+      "median": 5.0,
+      "min": 4.0,
+      "max": 8.0
+    },
+    "tool_calls_per_run": {
+      "mean": 7.8,
+      "median": 8.0,
+      "min": 7.0,
+      "max": 9.0
+    },
+    "per_tool_duration": {
+      "DataSourceSetupGuide": {
+        "count": 5,
+        "mean": 0.01166071891784668,
+        "median": 0.008235454559326172,
+        "min": 0.005946636199951172,
+        "max": 0.021130084991455078
+      },
+      "IdentifyDataSourceApp": {
+        "count": 4,
+        "mean": 0.0023458003997802734,
+        "median": 0.002318263053894043,
+        "min": 6.365776062011719e-05,
+        "max": 0.004683017730712891
+      },
+      "ReportDataSourceProgress": {
+        "count": 14,
+        "mean": 0.002092548779078892,
+        "median": 0.0018401145935058594,
+        "min": 3.838539123535156e-05,
+        "max": 0.0060613155364990234
+      },
+      "fetch_webpage": {
+        "count": 16,
+        "mean": 0.4067475497722626,
+        "median": 0.23671793937683105,
+        "min": 0.0936436653137207,
+        "max": 1.2366724014282227
+      }
+    },
+    "fetch_webpage_invocations": [
+      "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/",
+      "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/#connecting-to-the-remote-mcp-server",
+      "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/getting-started/",
+      "Internet: Fetch Webpage https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/",
+      "Internet: Fetch Webpage https://mcp.sentry.dev",
+      "Internet: Fetch Webpage https://mcp.sentry.dev/",
+      "Internet: Fetch Webpage https://registry.modelcontextprotocol.io/v0/servers?search=sentry"
+    ]
+  },
+  "runs": [
+    {
+      "ok": true,
+      "total_wall": 133.54715704917908,
+      "time_to_first_event": 10.143585920333862,
+      "turns": 5,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading the Sentry MCP docs'})",
+          "duration": 0.000133514404296875,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Sentry'})",
+          "duration": 6.365776062011719e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/",
+          "duration": 0.25072455406188965,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/",
+          "duration": 1.2366724014282227,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Confirming Sentry MCP URL and auth'})",
+          "duration": 4.482269287109375e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/getting-started/",
+          "duration": 0.3804762363433838,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://mcp.sentry.dev/",
+          "duration": 0.09795236587524414,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting the Helm values'})",
+          "duration": 4.57763671875e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Sentry User Auth Token', 'detail': 'The hosted Sentry MCP needs a token scoped to read issues, events, and projects.', 'kind': 'app_config', 'instructions': '- Log in to Sentry and open **User Auth Tokens**:\\nhttps://sentry.io/settings/account/api/auth-tokens/\\n- Click **Create New Token** and give it a name like `holmes-mcp`.\\n- Grant these read scopes: `org:read`, `project:read`, `event:read`.\\n- Copy the token now - Sentry only shows it once.', 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret', 'detail': 'Store the Sentry token in the robusta namespace so the Holmes pod can read it.', 'kind': 'secret', 'instructions': '', 'command': 'kubectl create secret generic sentry-mcp-token -n robusta --from-literal=token=<PASTE_YOUR_SENTRY_TOKEN>', 'yaml': ''}, {'label': 'Add the Helm values', 'detail': 'Merge this snippet into your existing generated_values.yaml (do not create a new file).', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: SENTRY_MCP_TOKEN\\n      valueFrom:\\n        secretKeyRef:\\n          name: sentry-mcp-token\\n          key: token\\n\\n  mcp_servers:\\n    sentry-custom:\\n      description: \"Sentry error monitoring - read issues, events, and projects\"\\n      docs_url: \"https://docs.sentry.io/product/sentry-mcp/\"\\n      icon_url: \"https://cdn.simpleicons.org/sentry/362D59\"\\n      config:\\n        url: \"https://mcp.sentry.dev/mcp\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.SENTRY_MCP_TOKEN>\"\\n      llm_instructions: |\\n        ## When to use Sentry\\n        Use Sentry whenever investigating **application errors, exceptions, crashes, or regressions**, especially when correlating a Kubernetes symptom (pod restarts, 5xx spikes, elevated error rates) with an application-level stack trace.\\n\\n        ## Preferred tools\\n        - **List projects** with `find_projects` (or the equivalent list-projects tool) to discover which Sentry project a service maps to.\\n        - **Search / list issues** with `find_issues` / `search_issues`, filtered by project and time range, to find the top errors or a specific issue.\\n        - **Read issue details and events** with `get_issue_details` / `get_event_details` to retrieve the exception type, message, stack trace, and affected releases/environments.\\n\\n        ## Rules\\n        - Read-only only. Do **not** call any tool that resolves, assigns, comments on, or otherwise mutates a Sentry issue.\\n        - Always scope queries by `organization_slug` and `project_slug` when known, and by a tight time window that matches the incident.\\n'}, {'label': 'Apply the change', 'detail': 'Upgrade Robusta with your updated values. Holmes will restart automatically.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=prod', 'yaml': ''}, {'label': 'Verify the connection', 'detail': 'Confirm Sentry shows up as a data source and that Holmes can call it.', 'kind': 'verify', 'instructions': '- Wait for the Helm upgrade to finish and the Holmes pod to become Ready.\\n- Open the Robusta UI **Data Sources** page and confirm **Sentry** (key `sentry-custom`) appears as enabled.\\n- Ask Holmes something like: *\"List my Sentry projects\"* or *\"Show the top unresolved issues in project X in the last 24h\"* and confirm real data comes back.\\n- If it fails with `401 Unauthorized`, re-check the token scopes (`org:read`, `project:read`, `event:read`) and that the secret `sentry-mcp-token` exists in the `robusta` namespace.', 'command': '', 'yaml': ''}]})",
+          "duration": 0.007973432540893555,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 11,
+        "ai_message": 3,
+        "start_tool_calling": 9,
+        "tool_calling_result": 9,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 112,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 126346,
+          "completion_tokens": 39,
+          "total_tokens": 126385,
+          "cached_tokens": 122597
+        },
+        "tokens": {
+          "total_tokens": 60997,
+          "tools_tokens": 5499,
+          "system_tokens": 11477,
+          "user_tokens": 2833,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1272,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 141.87501978874207,
+      "time_to_first_event": 15.56139612197876,
+      "turns": 4,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading the Sentry MCP docs'})",
+          "duration": 4.1961669921875e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Sentry'})",
+          "duration": 0.004683017730712891,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/",
+          "duration": 0.2803313732147217,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Looking up Sentry MCP endpoint'})",
+          "duration": 0.0058746337890625,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://mcp.sentry.dev/",
+          "duration": 0.14908051490783691,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting the Helm values'})",
+          "duration": 0.0024042129516601562,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Sentry User Auth Token', 'detail': 'Generate a personal auth token in Sentry with read scopes for issues and projects.', 'kind': 'app_config', 'instructions': '- Open Sentry: https://sentry.io/settings/account/api/auth-tokens/\\n- Click **Create New Token**\\n- Give it a name (e.g. `holmes-mcp`)\\n- Grant the following read scopes: `org:read`, `project:read`, `event:read`, `member:read`, `team:read`\\n- Save and copy the token value (starts with `sntryu_...`) - you will paste it into the Kubernetes secret in the next step\\n- Docs: https://docs.sentry.io/product/sentry-mcp/', 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret with your Sentry token', 'detail': 'Stores your Sentry User Auth Token so the Robusta runner can read it at runtime.', 'kind': 'secret', 'instructions': '', 'command': 'kubectl create secret generic sentry-mcp-token -n robusta --from-literal=token=<PASTE_YOUR_SENTRY_TOKEN_HERE>', 'yaml': ''}, {'label': 'Merge the Sentry MCP values into generated_values.yaml', 'detail': \"Adds Sentry as a remote MCP server pointing at Sentry's vendor-hosted endpoint.\", 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: SENTRY_MCP_TOKEN\\n      valueFrom:\\n        secretKeyRef:\\n          name: sentry-mcp-token\\n          key: token\\n  mcp_servers:\\n    sentry-custom:\\n      description: \"Sentry MCP server - read issues, errors, and projects from Sentry.\"\\n      icon_url: \"https://s1.sentry-cdn.com/_static/dc7b6598d1cffdaef27b1ec72c6c92b1/sentry/images/favicon.ico\"\\n      docs_url: \"https://docs.sentry.io/product/sentry-mcp/\"\\n      config:\\n        url: \"https://mcp.sentry.dev/mcp\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.SENTRY_MCP_TOKEN>\"\\n      llm_instructions: |\\n        ## When to use Sentry\\n        Use this data source whenever the user asks about **application errors, exceptions, crashes, or issue triage** captured by Sentry, or when correlating a Kubernetes alert (crashloops, 5xx spikes) with recent Sentry issues in the affected service.\\n\\n        ## What Holmes should do\\n        - **List projects** to discover which Sentry project matches the service in question - do this first when the project slug is unknown.\\n        - **Search / list issues** in a project (filter by `is:unresolved`, environment, or a time window) to find the most recent or most frequent errors.\\n        - **Fetch issue details and events** (stack traces, breadcrumbs, tags, release, environment) to explain the root cause and cite exact error messages.\\n\\n        ## Guidelines\\n        - Prefer **read-only** Sentry tools; do not resolve, assign, or mutate issues unless the user explicitly asks.\\n        - Always include the Sentry **organization slug** and **project slug** when the tool requires them.\\n        - Quote the exact error message, event ID, and first-seen / last-seen timestamps when reporting findings.'}, {'label': 'Apply the Helm upgrade', 'detail': 'Rolls out the updated Robusta runner with the Sentry MCP server enabled.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=prod', 'yaml': ''}, {'label': 'Verify Sentry is connected', 'detail': 'Confirm the new data source is live and Holmes can call it.', 'kind': 'verify', 'instructions': '- Wait for the Helm upgrade to finish and the Robusta/Holmes pods to restart in the `robusta` namespace\\n- Open the **Data Sources** page in Robusta and confirm **Sentry** (key `sentry-custom`) appears as connected\\n- Ask Holmes: *\"List my Sentry projects\"* - a successful reply confirms the token and endpoint are working\\n- Then try: *\"Show the latest unresolved Sentry issues for project <your-project-slug>\"*', 'command': '', 'yaml': ''}]})",
+          "duration": 0.021130084991455078,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 9,
+        "ai_message": 3,
+        "start_tool_calling": 7,
+        "tool_calling_result": 7,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 104,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 120222,
+          "completion_tokens": 49,
+          "total_tokens": 120271,
+          "cached_tokens": 116321
+        },
+        "tokens": {
+          "total_tokens": 57200,
+          "tools_tokens": 1744,
+          "system_tokens": 11477,
+          "user_tokens": 2833,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1221,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 91.69313955307007,
+      "time_to_first_event": 5.6769022941589355,
+      "turns": 5,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Sentry MCP docs'})",
+          "duration": 0.0034084320068359375,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/",
+          "duration": 0.22098636627197266,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://mcp.sentry.dev/",
+          "duration": 0.11104607582092285,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Confirming remote endpoint and auth'})",
+          "duration": 0.0019757747650146484,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://registry.modelcontextprotocol.io/v0/servers?search=sentry",
+          "duration": 1.0653064250946045,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting the Helm values'})",
+          "duration": 0.0017044544219970703,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Sentry auth token', 'detail': 'Generate a User Auth Token in Sentry with read scopes for org, projects, issues and events.', 'kind': 'app_config', 'instructions': '- Open Sentry and go to **Settings \u2192 Account \u2192 User Auth Tokens** (or **Settings \u2192 Auth Tokens** for org tokens).\\n- Click **Create New Token**.\\n- Grant these read scopes at minimum:\\n  - `org:read`\\n  - `project:read`\\n  - `event:read`\\n  - `issue:read`\\n- Copy the token now (it will not be shown again).\\n\\nDocs:\\nhttps://docs.sentry.io/product/sentry-mcp/\\nhttps://docs.sentry.io/account/auth-tokens/', 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret', 'detail': 'Store the Sentry token in the robusta namespace so the runner can read it.', 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic sentry-mcp-token -n robusta --from-literal=token='YOUR_SENTRY_AUTH_TOKEN'\", 'yaml': ''}, {'label': 'Add the Helm values', 'detail': 'Merge this into your existing generated_values.yaml under holmes.', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: SENTRY_AUTH_TOKEN\\n      valueFrom:\\n        secretKeyRef:\\n          name: sentry-mcp-token\\n          key: token\\n  mcp_servers:\\n    sentry-custom:\\n      description: \"Sentry MCP server - read Sentry issues, errors and projects for triage\"\\n      icon_url: \"https://sentry.io/_assets/logos/sentry-glyph.svg\"\\n      docs_url: \"https://docs.sentry.io/product/sentry-mcp/\"\\n      config:\\n        url: \"https://mcp.sentry.dev/mcp\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.SENTRY_AUTH_TOKEN>\"\\n      llm_instructions: |\\n        ## When to use\\n        Use this when the user asks about **Sentry** errors, exceptions, crashes, issues, releases, or wants to see which Sentry projects exist in the organization. Also use it to enrich Kubernetes / application incidents with application-level error context from Sentry.\\n\\n        ## What to do\\n        - To list projects: call the Sentry MCP `find_projects` / `list_projects` tool (whichever is exposed) for the relevant organization slug.\\n        - To find issues / errors: use `find_issues` / `search_issues` scoped by `organization_slug` and `project_slug`; filter by query (e.g. `is:unresolved`), and by time range when the user gives one.\\n        - To inspect a specific error: use `get_issue_details` / `get_issue_summary` / `get_event_details` with the Sentry issue id or short id (e.g. `PROJECT-123`).\\n\\n        ## Rules\\n        - **Read-only.** Only call read / list / get tools. Do NOT resolve, assign, delete, mutate, or create anything in Sentry.\\n        - Always ask the user for the `organization_slug` / `project_slug` if it is not obvious from context.\\n        - Prefer narrow queries (specific project + short time window) over broad org-wide scans.'}, {'label': 'Apply the changes', 'detail': 'Run the Helm upgrade to reload Holmes with the new data source.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=prod', 'yaml': ''}, {'label': 'Verify the connection', 'detail': 'Confirm Sentry shows up as a data source and Holmes can query it.', 'kind': 'verify', 'instructions': '- Wait for the Helm upgrade to finish and for the Holmes pod in the `robusta` namespace to restart and become Ready.\\n- Open Holmes and check the **Data Sources** list - a `sentry-custom` entry (labelled Sentry) should appear as connected.\\n- Ask Holmes something like:\\n  - `List my Sentry projects`\\n  - `Show unresolved Sentry issues in project <your-project-slug> from the last 24 hours`\\n- If it fails to authenticate, re-check the secret contents and that the token has the required read scopes.', 'command': '', 'yaml': ''}]})",
+          "duration": 0.005946636199951172,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 11,
+        "ai_message": 4,
+        "start_tool_calling": 7,
+        "tool_calling_result": 7,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 52,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 133550,
+          "completion_tokens": 25,
+          "total_tokens": 133575,
+          "cached_tokens": 129584
+        },
+        "tokens": {
+          "total_tokens": 65499,
+          "tools_tokens": 9942,
+          "system_tokens": 11477,
+          "user_tokens": 2833,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1325,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 93.07505106925964,
+      "time_to_first_event": 18.119108200073242,
+      "turns": 5,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Sentry MCP documentation'})",
+          "duration": 4.220008850097656e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Sentry'})",
+          "duration": 0.0045664310455322266,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/",
+          "duration": 0.22271132469177246,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Looking up Sentry MCP endpoint URL'})",
+          "duration": 0.0060613155364990234,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://mcp.sentry.dev/",
+          "duration": 0.09812474250793457,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://registry.modelcontextprotocol.io/v0/servers?search=sentry",
+          "duration": 0.9322116374969482,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting Helm configuration'})",
+          "duration": 0.0053288936614990234,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'kind': 'app_config', 'label': 'Create a Sentry Auth Token', 'detail': 'You need a Sentry User Auth Token with read scopes so Holmes can query issues and projects.', 'instructions': '- Sign in to Sentry and open Settings \u2192 Account \u2192 User Auth Tokens\\n  https://sentry.io/settings/account/api/auth-tokens/\\n- Click **Create New Token**\\n- Grant these read scopes:\\n  - `org:read`\\n  - `project:read`\\n  - `event:read`\\n  - `issue:read`\\n- Copy the generated token - you will paste it into the Kubernetes secret in the next step', 'command': '', 'yaml': ''}, {'kind': 'secret', 'label': 'Create the Kubernetes secret', 'detail': 'Store the Sentry auth token as a Kubernetes secret in the robusta namespace so the Robusta runner can read it.', 'instructions': '', 'command': \"kubectl create secret generic sentry-token -n robusta --from-literal=token='<PASTE_YOUR_SENTRY_TOKEN>'\", 'yaml': ''}, {'kind': 'helm', 'label': 'Merge these values into your generated_values.yaml', 'detail': 'Adds the vendor-hosted Sentry MCP server (https://mcp.sentry.dev/mcp) as a data source for Holmes, authenticated with the token from the secret above.', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: SENTRY_TOKEN\\n      valueFrom:\\n        secretKeyRef:\\n          name: sentry-token\\n          key: token\\n  mcp_servers:\\n    sentry-custom:\\n      description: \"Sentry - read errors, issues, and projects from Sentry.\"\\n      icon_url: \"https://sentry.io/_assets/favicon-a1c5e3d3a2.ico\"\\n      docs_url: \"https://docs.sentry.io/product/sentry-mcp/\"\\n      config:\\n        url: \"https://mcp.sentry.dev/mcp\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.SENTRY_TOKEN>\"\\n      llm_instructions: |\\n        ## When to use Sentry\\n        Use this data source whenever the user asks about **application errors, exceptions, crashes, or Sentry issues** - especially when correlating a Kubernetes symptom (CrashLoopBackOff, 5xx spike, elevated error rate) with an application-level exception.\\n\\n        ## What you can do\\n        - **List projects** in the Sentry organization to discover the right project slug before drilling into issues.\\n        - **List and read issues / errors** for a project - filter by status (`unresolved`), environment, time range, or search query. Prefer the newest unresolved issues when triaging a live incident.\\n        - **Fetch issue details and events** to inspect the stack trace, breadcrumbs, tags, and release for a specific error.\\n\\n        ## Guidelines\\n        - Read-only: **do not resolve, assign, ignore, or otherwise mutate** issues - the token is scoped for read access only.\\n        - Always include the **project slug** (and org slug when required) when calling issue tools; use the project listing first if you don\\'t know it.\\n        - Quote the exact **exception type, message, and release/version** from Sentry in your answer so the user can match it to their code.\\n'}, {'kind': 'deploy', 'label': 'Apply the Helm upgrade', 'detail': 'Rolls out the updated Helm values so the Robusta runner picks up the new Sentry MCP data source.', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=prod', 'yaml': ''}, {'kind': 'verify', 'label': 'Verify the connection', 'detail': 'Confirm Holmes has loaded the new Sentry data source and can talk to it.', 'instructions': '- Wait for the Helm upgrade to finish and for the Holmes pod in the `robusta` namespace to restart\\n- Open the Robusta UI and check the **Data Sources** list - `sentry-custom` (Sentry) should appear as connected\\n- Ask Holmes something like *\"List my Sentry projects\"* or *\"Show the most recent unresolved Sentry issues for project <slug>\"* and confirm it returns real data', 'command': '', 'yaml': ''}]})",
+          "duration": 0.015017986297607422,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 11,
+        "ai_message": 4,
+        "start_tool_calling": 8,
+        "tool_calling_result": 8,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 89,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 133816,
+          "completion_tokens": 38,
+          "total_tokens": 133854,
+          "cached_tokens": 129861
+        },
+        "tokens": {
+          "total_tokens": 65503,
+          "tools_tokens": 10025,
+          "system_tokens": 11477,
+          "user_tokens": 2833,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1249,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 105.39430356025696,
+      "time_to_first_event": 15.302042722702026,
+      "turns": 8,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Sentry MCP docs'})",
+          "duration": 3.838539123535156e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/",
+          "duration": 0.19181180000305176,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://mcp.sentry.dev",
+          "duration": 0.0936436653137207,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.sentry.io/product/sentry-mcp/#connecting-to-the-remote-mcp-server",
+          "duration": 0.2676980495452881,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://registry.modelcontextprotocol.io/v0/servers?search=sentry",
+          "duration": 0.9091832637786865,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting Helm values'})",
+          "duration": 0.002191305160522461,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Sentry'})",
+          "duration": 7.009506225585938e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Sentry Auth Token', 'detail': 'Generate a User Auth Token with read scopes so Holmes can list projects and read issues/errors.', 'kind': 'app_config', 'instructions': '- Sign in to Sentry and open **Settings \u2192 Account \u2192 Auth Tokens**.\\n- https://sentry.io/settings/account/api/auth-tokens/\\n- Click **Create New Token**.\\n- Grant these read scopes: `org:read`, `project:read`, `event:read`, `issue:read`.\\n- Copy the token value now \u2014 Sentry only shows it once.', 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret', 'detail': 'Store the Sentry auth token in the robusta namespace so the runner can read it.', 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic sentry-mcp-token -n robusta --from-literal=token='<your-sentry-auth-token>'\", 'yaml': ''}, {'label': 'Add the Helm values', 'detail': 'Merge this snippet into your existing generated_values.yaml under the top-level holmes: key.', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: SENTRY_AUTH_TOKEN\\n      valueFrom:\\n        secretKeyRef:\\n          name: sentry-mcp-token\\n          key: token\\n  mcp_servers:\\n    sentry-custom:\\n      description: \"Sentry error monitoring and issue tracking\"\\n      icon_url: \"https://sentry.io/_assets/logos/sentry-logo-black.svg\"\\n      docs_url: \"https://docs.sentry.io/product/sentry-mcp/\"\\n      config:\\n        url: \"https://mcp.sentry.dev/mcp\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.SENTRY_AUTH_TOKEN>\"\\n      llm_instructions: |\\n        ## When to use\\n        Use Sentry whenever the user asks about application errors, exceptions, crashes,\\n        release health, or wants to inspect what is happening inside a Sentry-monitored\\n        service. Also use it to enumerate available Sentry projects when the user is not\\n        sure which project holds the data.\\n\\n        ## Preferred read-only tools\\n        - **List projects** in the organization when the user asks \"which projects exist\"\\n          or when a project slug is needed for another call.\\n        - **Search / list issues** (open, unresolved, by project, by environment, by query)\\n          to answer \"what is failing\" and \"top errors\" questions.\\n        - **Get issue / event details** to fetch stack traces, breadcrumbs, tags and the\\n          latest event payload for a specific issue.\\n\\n        ## Rules\\n        - This integration is **read-only** \u2014 do NOT resolve, assign, delete or otherwise\\n          mutate Sentry state.\\n        - Prefer filtering by `project` and a short time window to keep responses focused.\\n        - When correlating a Kubernetes incident with Sentry, match on service name,\\n          release, or environment before pulling issue details.'}, {'label': 'Apply the change', 'detail': 'Run the Helm upgrade so Holmes picks up the new MCP server.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=prod', 'yaml': ''}, {'label': 'Verify the connection', 'detail': 'Confirm Holmes restarted and can talk to Sentry.', 'kind': 'verify', 'instructions': '- Wait for the `helm upgrade` to finish and the Holmes pod in the `robusta` namespace to restart.\\n- Open the Robusta UI **Data Sources** page and confirm **Sentry** appears as connected.\\n- Ask Holmes: `List my Sentry projects` \u2014 you should get back the projects in your Sentry org.\\n- Then try: `Show the latest unresolved issues in Sentry for project <slug>` to confirm issue reads work.', 'command': '', 'yaml': ''}]})",
+          "duration": 0.008235454559326172,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 17,
+        "ai_message": 4,
+        "start_tool_calling": 8,
+        "tool_calling_result": 8,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 106,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 133329,
+          "completion_tokens": 49,
+          "total_tokens": 133378,
+          "cached_tokens": 130209
+        },
+        "tokens": {
+          "total_tokens": 65370,
+          "tools_tokens": 9940,
+          "system_tokens": 11477,
+          "user_tokens": 2833,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1210,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    }
+  ]
+}
