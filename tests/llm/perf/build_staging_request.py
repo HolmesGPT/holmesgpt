@@ -141,8 +141,13 @@ def main():
         session_token = create_session_token(access, user_id)
         print(f"[token] created FrontendSessionTokens row: {session_token}", file=sys.stderr)
 
-    model, all_models = fetch_default_model(session_token)
-    print(f"[model] default={model!r} (of {len(all_models)} available)", file=sys.stderr)
+    model_override = os.environ.get("MODEL")
+    if model_override:
+        model = model_override
+        print(f"[model] using MODEL override={model!r} (skipping relay lookup)", file=sys.stderr)
+    else:
+        model, all_models = fetch_default_model(session_token)
+        print(f"[model] default={model!r} (of {len(all_models)} available)", file=sys.stderr)
 
     additional_system_prompt, frontend_tools = build_additional_system_prompt()
 
