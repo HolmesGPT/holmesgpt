@@ -1,0 +1,332 @@
+{
+  "meta": {
+    "url": "https://stg.api.robusta.dev/integrations/stream/actions",
+    "model": "Robusta/Opus 4.7",
+    "braintrust_experiment": null
+  },
+  "summary": {
+    "runs": 3,
+    "ok": 3,
+    "failed": 0,
+    "total_wall": {
+      "mean": 152.395041068395,
+      "median": 145.59080600738525,
+      "min": 94.48040223121643,
+      "max": 217.11391496658325
+    },
+    "time_to_first_event": {
+      "mean": 14.498417774836222,
+      "median": 14.660753965377808,
+      "min": 13.200966358184814,
+      "max": 15.633533000946045
+    },
+    "turns": {
+      "mean": 5.666666666666667,
+      "median": 4.0,
+      "min": 4.0,
+      "max": 9.0
+    },
+    "tool_calls_per_run": {
+      "mean": 8.0,
+      "median": 7.0,
+      "min": 5.0,
+      "max": 12.0
+    },
+    "per_tool_duration": {
+      "DataSourceSetupGuide": {
+        "count": 3,
+        "mean": 0.026737372080485027,
+        "median": 0.02316594123840332,
+        "min": 0.019715309143066406,
+        "max": 0.03733086585998535
+      },
+      "IdentifyDataSourceApp": {
+        "count": 3,
+        "mean": 0.004305839538574219,
+        "median": 0.004133939743041992,
+        "min": 0.004076957702636719,
+        "max": 0.004706621170043945
+      },
+      "ReportDataSourceProgress": {
+        "count": 9,
+        "mean": 0.00038048956129286025,
+        "median": 2.8371810913085938e-05,
+        "min": 1.5497207641601562e-05,
+        "max": 0.0031659603118896484
+      },
+      "fetch_webpage": {
+        "count": 9,
+        "mean": 1.3485113779703777,
+        "median": 0.8851141929626465,
+        "min": 0.32739853858947754,
+        "max": 3.087773084640503
+      }
+    },
+    "fetch_webpage_invocations": [
+      "Internet: Fetch Webpage https://github.com/grafana/mcp-grafana",
+      "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/introduction/mcp/",
+      "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/machine-learning/mcp-server/",
+      "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/machine-learning/mcp/",
+      "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/monitor-infrastructure/mcp/",
+      "Internet: Fetch Webpage https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/",
+      "Internet: Fetch Webpage https://www.google.com/search?q=Grafana+Cloud+hosted+MCP+endpoint+URL+remote"
+    ]
+  },
+  "runs": [
+    {
+      "ok": true,
+      "total_wall": 217.11391496658325,
+      "time_to_first_event": 14.660753965377808,
+      "turns": 4,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Grafana MCP documentation'})",
+          "duration": 2.8371810913085938e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Grafana'})",
+          "duration": 0.004133939743041992,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://github.com/grafana/mcp-grafana",
+          "duration": 3.087773084640503,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting the Helm values and deployment'})",
+          "duration": 2.002716064453125e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Grafana service account and token', 'detail': 'Grant read-only access so Holmes can browse dashboards/datasources and query metrics/logs.', 'kind': 'app_config', 'instructions': '- Open your Grafana instance -> **Administration -> Users and access -> Service accounts**.\\n- Click **Add service account**, give it a name (e.g. `holmes-mcp`), and pick the **Viewer** role (simplest option that covers `dashboards:read`, `datasources:read`, and `datasources:query`).\\n- On the service account page click **Add service account token**, name it (e.g. `holmes-mcp-token`), leave the default expiration, and **copy the token** - you will not see it again.\\n- Note your Grafana base URL - for Grafana Cloud it looks like `https://<stack>.grafana.net`; for self-hosted it is your `https://grafana.example.com`.\\n- Docs:\\nhttps://grafana.com/docs/grafana/latest/administration/service-accounts/\\nhttps://github.com/grafana/mcp-grafana#usage', 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret with the Grafana URL and token', 'detail': 'Holds both the Grafana base URL and the service account token; consumed by the mcp-grafana pod.', 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic grafana-mcp-secrets -n robusta \\\\\\n  --from-literal=url='https://<your-grafana-url>' \\\\\\n  --from-literal=token='<your-grafana-service-account-token>'\", 'yaml': ''}, {'label': 'Deploy the Grafana MCP server in the cluster', 'detail': 'Runs grafana/mcp-grafana in streamable-http mode, reads the URL/token from the secret above, and exposes an in-cluster Service.', 'kind': 'info', 'instructions': 'Apply the following manifest to deploy the MCP server. It reads `GRAFANA_URL` and `GRAFANA_SERVICE_ACCOUNT_TOKEN` from the `grafana-mcp-secrets` secret you just created:\\n\\n```yaml\\napiVersion: apps/v1\\nkind: Deployment\\nmetadata:\\n  name: grafana-mcp\\n  namespace: robusta\\n  labels:\\n    app: grafana-mcp\\nspec:\\n  replicas: 1\\n  selector:\\n    matchLabels:\\n      app: grafana-mcp\\n  template:\\n    metadata:\\n      labels:\\n        app: grafana-mcp\\n    spec:\\n      containers:\\n      - name: grafana-mcp\\n        image: grafana/mcp-grafana:latest\\n        args:\\n        - \"-t\"\\n        - \"streamable-http\"\\n        - \"--address\"\\n        - \"0.0.0.0:8000\"\\n        - \"--endpoint-path\"\\n        - \"/mcp\"\\n        - \"--allowed-hosts\"\\n        - \"*\"\\n        - \"--disable-write\"\\n        ports:\\n        - containerPort: 8000\\n          name: http\\n        env:\\n        - name: GRAFANA_URL\\n          valueFrom:\\n            secretKeyRef:\\n              name: grafana-mcp-secrets\\n              key: url\\n        - name: GRAFANA_SERVICE_ACCOUNT_TOKEN\\n          valueFrom:\\n            secretKeyRef:\\n              name: grafana-mcp-secrets\\n              key: token\\n        readinessProbe:\\n          tcpSocket:\\n            port: 8000\\n          initialDelaySeconds: 5\\n          periodSeconds: 10\\n        resources:\\n          requests:\\n            cpu: 50m\\n            memory: 64Mi\\n          limits:\\n            cpu: 500m\\n            memory: 256Mi\\n---\\napiVersion: v1\\nkind: Service\\nmetadata:\\n  name: grafana-mcp\\n  namespace: robusta\\nspec:\\n  selector:\\n    app: grafana-mcp\\n  ports:\\n  - name: http\\n    port: 8000\\n    targetPort: 8000\\n```\\n\\nSave the manifest as `grafana-mcp.yaml` and apply it:\\n\\n```bash\\nkubectl apply -f grafana-mcp.yaml\\n```\\n\\nQuick sanity check:\\n\\n```bash\\nkubectl -n robusta rollout status deploy/grafana-mcp\\nkubectl -n robusta get svc grafana-mcp\\n```', 'command': '', 'yaml': ''}, {'label': 'Add the Grafana MCP server to your Holmes Helm values', 'detail': 'Merge this into your existing generated_values.yaml.', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  mcp_servers:\\n    grafana:\\n      description: \"Grafana MCP server - read dashboards, datasources, and query Prometheus/Loki via Grafana\"\\n      icon_url: \"https://grafana.com/static/assets/img/fav32.png\"\\n      docs_url: \"https://github.com/grafana/mcp-grafana\"\\n      config:\\n        url: \"http://grafana-mcp.robusta.svc.cluster.local:8000/mcp\"\\n        mode: streamable-http\\n      llm_instructions: |\\n        ## Grafana MCP - use for observability queries via the user\\'s Grafana\\n\\n        ### When to use\\n        - The user asks about **dashboards** or their panels (titles, queries, datasource, layout).\\n        - The user asks about what **datasources** exist in Grafana.\\n        - The user asks to query **metrics** stored in a Prometheus datasource that lives inside Grafana.\\n        - The user asks to query **logs** stored in a Loki datasource that lives inside Grafana.\\n        - You need to correlate an alert / issue with what a Grafana dashboard is showing.\\n\\n        ### Preferred tools (read-only)\\n        - **Dashboards**: prefer `search_dashboards` to find them, then `get_dashboard_summary` or `get_dashboard_property` (JSONPath) to inspect - these are context-window-friendly. Only fall back to `get_dashboard_by_uid` when the full JSON is truly needed. Use `get_dashboard_panel_queries` to see the queries a panel runs.\\n        - **Datasources**: `list_datasources` first to discover UIDs, then `get_datasource` for details.\\n        - **Metrics (Prometheus datasources in Grafana)**: `query_prometheus` for instant/range PromQL, plus `list_prometheus_metric_names`, `list_prometheus_label_names`, `list_prometheus_label_values`, and `query_prometheus_histogram` for percentiles. Always pass the correct datasource UID from `list_datasources`.\\n        - **Logs (Loki datasources in Grafana)**: `query_loki_logs` (LogQL) for log or metric queries, plus `list_loki_label_names`, `list_loki_label_values`, `query_loki_stats`, and `query_loki_patterns` for exploration.\\n\\n        ### Rules\\n        - Treat this integration as **read-only**: never call `update_dashboard`, alert-rule writes, or annotation writes.\\n        - Always resolve the datasource UID via `list_datasources` before running a Prometheus or Loki query - do not guess UIDs.\\n        - When answering with dashboard/panel data, cite the dashboard title and UID so the user can jump to it in Grafana.'}, {'label': 'Apply the Helm upgrade', 'detail': 'Rolls out the new Holmes configuration on cluster alon-elish-cluster.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=alon-elish-cluster', 'yaml': ''}, {'label': 'Verify the integration', 'detail': 'Confirm the new data source appears and Holmes can use it.', 'kind': 'verify', 'instructions': '- Wait for the Helm upgrade to finish and Holmes to restart:\\n\\n```bash\\nkubectl -n robusta rollout status deploy/robusta-holmes\\n```\\n\\n- Confirm both pods are healthy:\\n\\n```bash\\nkubectl -n robusta get pods -l app=grafana-mcp\\nkubectl -n robusta get pods -l app.kubernetes.io/name=holmes\\n```\\n\\n- In the Robusta UI, open **Data Sources** and confirm `grafana` shows up in the list.\\n- Ask Holmes to exercise it, for example:\\n  - *List all Grafana datasources.*\\n  - *Search Grafana dashboards for \"kubernetes\" and summarize the top result.*\\n  - *Run this PromQL against Grafana\\'s Prometheus datasource: `sum(rate(http_requests_total[5m]))`.*\\n- If Holmes reports it cannot reach the MCP server, check the mcp-grafana pod logs:\\n\\n```bash\\nkubectl -n robusta logs deploy/grafana-mcp\\n```', 'command': '', 'yaml': ''}]})",
+          "duration": 0.03733086585998535,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 9,
+        "ai_message": 2,
+        "start_tool_calling": 5,
+        "tool_calling_result": 5,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 187,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 160439,
+          "completion_tokens": 81,
+          "total_tokens": 160520,
+          "cached_tokens": 153934
+        },
+        "tokens": {
+          "total_tokens": 78334,
+          "tools_tokens": 21361,
+          "system_tokens": 11445,
+          "user_tokens": 2851,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 2746,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 145.59080600738525,
+      "time_to_first_event": 13.200966358184814,
+      "turns": 9,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Grafana MCP docs'})",
+          "duration": 1.8358230590820312e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Grafana'})",
+          "duration": 0.004076957702636719,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://github.com/grafana/mcp-grafana",
+          "duration": 3.020876407623291,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Checking Grafana Cloud hosted MCP endpoint'})",
+          "duration": 0.0031659603118896484,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/monitor-infrastructure/mcp/",
+          "duration": 0.3801236152648926,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/machine-learning/mcp-server/",
+          "duration": 0.32739853858947754,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://www.google.com/search?q=Grafana+Cloud+hosted+MCP+endpoint+URL+remote",
+          "duration": 0.6959319114685059,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/introduction/mcp/",
+          "duration": 0.3620030879974365,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Robusta remote MCP schema'})",
+          "duration": 5.984306335449219e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/",
+          "duration": 1.0648841857910156,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Building the Grafana setup guide'})",
+          "duration": 2.574920654296875e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Grafana service account and token', 'detail': 'Grafana does not offer a public vendor-hosted MCP endpoint, so mcp-grafana runs in-cluster and authenticates to your Grafana with a service account token.', 'kind': 'app_config', 'instructions': '- Open your Grafana instance (Grafana Cloud or self-hosted).\\n- Go to **Administration -> Users and access -> Service accounts** and click **Add service account**.\\n- Give it a name (e.g. `holmes-mcp`) and assign a role. Simplest: **Editor** (covers dashboards, datasources, Prometheus, Loki). For least-privilege, use **Viewer** plus `datasources:query` on the datasources you want Holmes to read.\\n- Open the service account and click **Add service account token**, generate the token, then copy it (it is shown once).\\n- Note your Grafana base URL - e.g. `https://<your-stack>.grafana.net` for Grafana Cloud, or your internal URL for self-hosted.\\n- Reference: https://grafana.com/docs/grafana/latest/administration/service-accounts/', 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret with your Grafana token', 'detail': 'Stores the service account token so the mcp-grafana pod can read it. Runs in the `robusta` namespace so both mcp-grafana and Holmes can access it.', 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic grafana-mcp-token \\\\\\n  --from-literal=token='<PASTE_YOUR_SERVICE_ACCOUNT_TOKEN>' \\\\\\n  -n robusta\", 'yaml': ''}, {'label': 'Deploy mcp-grafana in the cluster', 'detail': 'Runs the official grafana/mcp-grafana image as a Deployment + Service in the `robusta` namespace, exposing streamable-http on port 8000. Replace GRAFANA_URL with your Grafana base URL before applying.', 'kind': 'info', 'instructions': '- Save the manifest below as `mcp-grafana.yaml` and **replace `https://YOUR-GRAFANA-URL` with your actual Grafana base URL** (e.g. `https://mystack.grafana.net`).\\n- Apply it:\\n\\n```bash\\nkubectl apply -f mcp-grafana.yaml\\n```\\n\\n- Wait for the pod to be Ready:\\n\\n```bash\\nkubectl -n robusta rollout status deploy/mcp-grafana\\n```\\n\\n- Manifest:\\n\\n```yaml\\napiVersion: apps/v1\\nkind: Deployment\\nmetadata:\\n  name: mcp-grafana\\n  namespace: robusta\\nspec:\\n  replicas: 1\\n  selector:\\n    matchLabels:\\n      app: mcp-grafana\\n  template:\\n    metadata:\\n      labels:\\n        app: mcp-grafana\\n    spec:\\n      containers:\\n        - name: mcp-grafana\\n          image: grafana/mcp-grafana:latest\\n          args:\\n            - \"-t\"\\n            - \"streamable-http\"\\n            - \"--address\"\\n            - \":8000\"\\n            - \"--allowed-hosts\"\\n            - \"*\"\\n          ports:\\n            - containerPort: 8000\\n          env:\\n            - name: GRAFANA_URL\\n              value: \"https://YOUR-GRAFANA-URL\"\\n            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN\\n              valueFrom:\\n                secretKeyRef:\\n                  name: grafana-mcp-token\\n                  key: token\\n          readinessProbe:\\n            httpGet:\\n              path: /healthz\\n              port: 8000\\n            initialDelaySeconds: 5\\n            periodSeconds: 10\\n---\\napiVersion: v1\\nkind: Service\\nmetadata:\\n  name: mcp-grafana\\n  namespace: robusta\\nspec:\\n  selector:\\n    app: mcp-grafana\\n  ports:\\n    - protocol: TCP\\n      port: 8000\\n      targetPort: 8000\\n```', 'command': '', 'yaml': ''}, {'label': 'Add the Grafana MCP server to your Helm values', 'detail': \"Merge into your existing generated_values.yaml. Holmes talks to mcp-grafana over the in-cluster service - no auth header is needed on Holmes' side because mcp-grafana itself holds the token.\", 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  mcp_servers:\\n    grafana:\\n      description: \"Grafana MCP server - read dashboards, datasources, and query Prometheus/Loki metrics and logs\"\\n      icon_url: \"https://cdn.simpleicons.org/grafana/F46800\"\\n      docs_url: \"https://github.com/grafana/mcp-grafana\"\\n      config:\\n        url: \"http://mcp-grafana.robusta.svc.cluster.local:8000/mcp\"\\n        mode: streamable-http\\n      llm_instructions: |\\n        ## When to use\\n        Use Grafana to inspect the user\\'s observability configuration and to query their metrics and logs during investigations. Prefer this over guessing dashboard/datasource details.\\n\\n        ## Read observability config\\n        - `list_datasources` and `get_datasource` to discover which Prometheus, Loki, and other datasources exist and their UIDs.\\n        - `search_dashboards`, `get_dashboard_summary`, `get_dashboard_property`, `get_dashboard_panel_queries` to find and read dashboards. Prefer the summary/property tools over `get_dashboard_by_uid` to save context.\\n\\n        ## Query metrics (Prometheus)\\n        - `query_prometheus` for PromQL (instant or range) against a Prometheus datasource UID.\\n        - `list_prometheus_metric_names`, `list_prometheus_label_names`, `list_prometheus_label_values`, `list_prometheus_metric_metadata` for discovery before writing queries.\\n\\n        ## Query logs (Loki)\\n        - `query_loki_logs` for LogQL log or metric queries.\\n        - `list_loki_label_names`, `list_loki_label_values`, `query_loki_stats`, `query_loki_patterns` for label discovery and pattern analysis when logs are noisy.\\n\\n        ## Rules\\n        - Read-only usage only. Do not create, update, or delete dashboards, datasources, alert rules, incidents, or annotations.\\n        - Always resolve the datasource UID via `list_datasources` before running a query.\\n        - Keep time ranges tight to the incident window to reduce token cost.'}, {'label': 'Apply the Helm upgrade', 'detail': 'Rolls out the new Holmes config. Holmes restarts and picks up the Grafana MCP server.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=alon-elish-cluster', 'yaml': ''}, {'label': 'Verify the connection', 'detail': 'Confirm mcp-grafana is reachable and Holmes has loaded its tools.', 'kind': 'verify', 'instructions': '- Wait for Holmes to restart:\\n\\n```bash\\nkubectl -n robusta rollout status deploy/robusta-holmes\\n```\\n\\n- Confirm the mcp-grafana pod is Ready and its logs show no auth errors:\\n\\n```bash\\nkubectl -n robusta logs deploy/mcp-grafana --tail=50\\n```\\n\\n- Open the Robusta UI **Data Sources** page - `grafana` should appear as enabled.\\n- Ask Holmes to exercise it, e.g. **\"List my Grafana datasources\"** or **\"Search my Grafana dashboards for \\'checkout\\'\"**. A successful response confirms the token, network path, and Helm values are all correct.\\n- If it fails, check `kubectl -n robusta logs deploy/mcp-grafana` for `401`/`403` (bad or under-scoped token) or DNS errors (wrong GRAFANA_URL).', 'command': '', 'yaml': ''}]})",
+          "duration": 0.02316594123840332,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 19,
+        "ai_message": 6,
+        "start_tool_calling": 12,
+        "tool_calling_result": 12,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 211,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 165407,
+          "completion_tokens": 88,
+          "total_tokens": 165495,
+          "cached_tokens": 159333
+        },
+        "tokens": {
+          "total_tokens": 82706,
+          "tools_tokens": 25736,
+          "system_tokens": 11445,
+          "user_tokens": 2851,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 2779,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 94.48040223121643,
+      "time_to_first_event": 15.633533000946045,
+      "turns": 4,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Grafana MCP server docs'})",
+          "duration": 1.5497207641601562e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Grafana'})",
+          "duration": 0.004706621170043945,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://github.com/grafana/mcp-grafana",
+          "duration": 2.31249737739563,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Checking for hosted Grafana MCP endpoint'})",
+          "duration": 5.5789947509765625e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://grafana.com/docs/grafana-cloud/machine-learning/mcp/",
+          "duration": 0.8851141929626465,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting the Helm values and manifests'})",
+          "duration": 3.4809112548828125e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Grafana service account token', 'detail': 'Grafana has no vendor-hosted MCP endpoint, so we will run the official mcp-grafana server ourselves and point it at your Grafana. It authenticates with a service account token you generate in Grafana.', 'kind': 'app_config', 'instructions': \"- In Grafana, go to **Administration > Users and access > Service accounts** and click **Add service account**.\\n- Give it a name (e.g. `holmes-mcp`) and, for a quick setup, assign the built-in **Editor** role (or `Viewer` if you want strictly read-only). For least-privilege, grant `dashboards:read`, `datasources:read`, `datasources:query`, and `folders:read` instead.\\n- Click **Add service account token**, generate the token, and copy it - you will paste it into the Kubernetes secret in the next step.\\n- Note your Grafana base URL - for Grafana Cloud it looks like `https://<stack>.grafana.net`; for self-hosted it's whatever URL your Grafana is reachable on (must be reachable from cluster `alon-elish-cluster`).\\n- Docs:\\nhttps://grafana.com/docs/grafana/latest/administration/service-accounts/\\nhttps://github.com/grafana/mcp-grafana\", 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret with the token', 'detail': 'Stores the Grafana service account token in the `robusta` namespace so both the mcp-grafana pod and Holmes can read it.', 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic grafana-mcp-token -n robusta --from-literal=token='<PASTE_YOUR_GRAFANA_SERVICE_ACCOUNT_TOKEN>'\", 'yaml': ''}, {'label': 'Deploy the mcp-grafana server in-cluster', 'detail': 'Runs the official `grafana/mcp-grafana` image in streamable-http mode inside the `robusta` namespace, so Holmes can reach it via a Kubernetes Service URL. Replace `GRAFANA_URL` with your Grafana base URL.', 'kind': 'info', 'instructions': '- Save the manifest below to `mcp-grafana.yaml`, replace `GRAFANA_URL` with your Grafana base URL (e.g. `https://<stack>.grafana.net`), then apply it:\\n\\n`kubectl apply -f mcp-grafana.yaml`\\n\\n- Verify it is running:\\n\\n`kubectl get pods -n robusta -l app=mcp-grafana`\\n\\n```yaml\\napiVersion: apps/v1\\nkind: Deployment\\nmetadata:\\n  name: mcp-grafana\\n  namespace: robusta\\n  labels:\\n    app: mcp-grafana\\nspec:\\n  replicas: 1\\n  selector:\\n    matchLabels:\\n      app: mcp-grafana\\n  template:\\n    metadata:\\n      labels:\\n        app: mcp-grafana\\n    spec:\\n      containers:\\n        - name: mcp-grafana\\n          image: grafana/mcp-grafana:latest\\n          args:\\n            - \"-t\"\\n            - \"streamable-http\"\\n            - \"--address\"\\n            - \":8000\"\\n            - \"--allowed-hosts\"\\n            - \"*\"\\n            - \"--disable-write\"\\n          env:\\n            - name: GRAFANA_URL\\n              value: \"https://REPLACE-ME.grafana.net\"\\n            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN\\n              valueFrom:\\n                secretKeyRef:\\n                  name: grafana-mcp-token\\n                  key: token\\n          ports:\\n            - name: http\\n              containerPort: 8000\\n          readinessProbe:\\n            httpGet:\\n              path: /healthz\\n              port: 8000\\n            initialDelaySeconds: 5\\n            periodSeconds: 10\\n          livenessProbe:\\n            httpGet:\\n              path: /healthz\\n              port: 8000\\n            initialDelaySeconds: 15\\n            periodSeconds: 30\\n          resources:\\n            requests:\\n              cpu: 50m\\n              memory: 64Mi\\n            limits:\\n              cpu: 500m\\n              memory: 256Mi\\n---\\napiVersion: v1\\nkind: Service\\nmetadata:\\n  name: mcp-grafana\\n  namespace: robusta\\nspec:\\n  selector:\\n    app: mcp-grafana\\n  ports:\\n    - name: http\\n      port: 8000\\n      targetPort: 8000\\n```', 'command': '', 'yaml': ''}, {'label': 'Add the Helm values', 'detail': 'Merge this snippet into your existing `generated_values.yaml` under the `holmes:` key. Holmes will connect to the in-cluster mcp-grafana Service.', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  mcp_servers:\\n    grafana:\\n      description: \"Grafana MCP - read dashboards & datasources and query metrics/logs via Grafana\"\\n      icon_url: \"https://grafana.com/static/img/menu/grafana2.svg\"\\n      docs_url: \"https://github.com/grafana/mcp-grafana\"\\n      config:\\n        url: \"http://mcp-grafana.robusta.svc.cluster.local:8000/\"\\n        mode: streamable-http\\n      llm_instructions: |\\n        ## When to use Grafana MCP\\n        Use these tools whenever the user asks about Grafana **dashboards**, **datasources**, or wants to query **metrics** or **logs** that live behind Grafana (Prometheus, Loki, and other configured datasources). Prefer this over guessing dashboard URLs or metric names.\\n\\n        ## Preferred tools\\n        - **Dashboards**: use `search_dashboards` to find dashboards by title, then `get_dashboard_summary` for a compact overview and `get_dashboard_panel_queries` to see what a dashboard actually queries. Avoid `get_dashboard_by_uid` unless the full JSON is required - it is very large.\\n        - **Datasources**: use `list_datasources` to enumerate configured backends and `get_datasource` for details (needed to get the datasource `uid` used by the query tools).\\n        - **Metrics (Prometheus)**: use `query_prometheus` for PromQL (instant and range). Use `list_prometheus_metric_names`, `list_prometheus_label_names`, and `list_prometheus_label_values` for discovery before querying. Use `query_prometheus_histogram` for `p50/p90/p95/p99` percentiles.\\n        - **Logs (Loki)**: use `query_loki_logs` for LogQL. Use `list_loki_label_names` and `list_loki_label_values` first to discover labels; use `query_loki_patterns` to spot common log structures.\\n\\n        ## Guidance\\n        - This deployment is **read-only** (`--disable-write`). Do not attempt to create or update dashboards, alert rules, incidents, or annotations - those tools will be unavailable.\\n        - When the user asks about a specific service/pod/namespace, first `list_datasources` to identify the Prometheus/Loki `uid`, then run the query tool with that `uid`.\\n        - Prefer these Grafana tools when the user explicitly mentions Grafana; for direct cluster Prometheus queries the built-in Prometheus toolset is fine.'}, {'label': 'Apply the Helm upgrade', 'detail': 'Rolls out the new Holmes configuration on cluster alon-elish-cluster.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=alon-elish-cluster', 'yaml': ''}, {'label': 'Verify', 'detail': 'Confirm the mcp-grafana pod is healthy and Holmes picked up the new data source.', 'kind': 'verify', 'instructions': '- Wait for the Helm upgrade to finish and Holmes to restart:\\n\\n`kubectl rollout status deploy/robusta-holmes -n robusta`\\n\\n- Confirm the mcp-grafana pod is `Ready`:\\n\\n`kubectl get pods -n robusta -l app=mcp-grafana`\\n\\n- Open the Robusta UI and check that **Grafana** appears in the **Data Sources** list.\\n- Ask Holmes to exercise it, for example: *\"List my Grafana datasources\"* or *\"Search Grafana dashboards for \\'kubernetes\\'\"*.\\n- If Holmes says the tool is unavailable, check `kubectl logs -n robusta deploy/mcp-grafana` for auth or URL errors.', 'command': '', 'yaml': ''}]})",
+          "duration": 0.019715309143066406,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 9,
+        "ai_message": 3,
+        "start_tool_calling": 7,
+        "tool_calling_result": 7,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 161,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 158958,
+          "completion_tokens": 70,
+          "total_tokens": 159028,
+          "cached_tokens": 149649
+        },
+        "tokens": {
+          "total_tokens": 79363,
+          "tools_tokens": 22827,
+          "system_tokens": 11445,
+          "user_tokens": 2851,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 2315,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    }
+  ]
+}

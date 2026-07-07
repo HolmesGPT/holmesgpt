@@ -1,0 +1,279 @@
+{
+  "meta": {
+    "url": "https://stg.api.robusta.dev/integrations/stream/actions",
+    "model": "Robusta/Opus 4.7",
+    "braintrust_experiment": null
+  },
+  "summary": {
+    "runs": 3,
+    "ok": 3,
+    "failed": 0,
+    "total_wall": {
+      "mean": 81.81294298171997,
+      "median": 84.62712836265564,
+      "min": 62.71205019950867,
+      "max": 98.0996503829956
+    },
+    "time_to_first_event": {
+      "mean": 17.323206424713135,
+      "median": 12.141996383666992,
+      "min": 9.89246940612793,
+      "max": 29.935153484344482
+    },
+    "turns": {
+      "mean": 4.666666666666667,
+      "median": 4.0,
+      "min": 4.0,
+      "max": 6.0
+    },
+    "tool_calls_per_run": {
+      "mean": 5.333333333333333,
+      "median": 5.0,
+      "min": 5.0,
+      "max": 6.0
+    },
+    "per_tool_duration": {
+      "DataSourceSetupGuide": {
+        "count": 3,
+        "mean": 0.0036662419637044272,
+        "median": 0.0002295970916748047,
+        "min": 0.0002143383026123047,
+        "max": 0.010554790496826172
+      },
+      "IdentifyDataSourceApp": {
+        "count": 2,
+        "mean": 0.0029163360595703125,
+        "median": 0.0029163360595703125,
+        "min": 0.0019905567169189453,
+        "max": 0.0038421154022216797
+      },
+      "ReportDataSourceProgress": {
+        "count": 7,
+        "mean": 0.00026566641671316963,
+        "median": 1.9311904907226562e-05,
+        "min": 1.6689300537109375e-05,
+        "max": 0.0017032623291015625
+      },
+      "fetch_webpage": {
+        "count": 4,
+        "mean": 1.5349211692810059,
+        "median": 1.6036404371261597,
+        "min": 1.292259931564331,
+        "max": 1.640143871307373
+      }
+    },
+    "fetch_webpage_invocations": [
+      "Internet: Fetch Webpage https://docs.stripe.com/mcp",
+      "Internet: Fetch Webpage https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/"
+    ]
+  },
+  "runs": [
+    {
+      "ok": true,
+      "total_wall": 84.62712836265564,
+      "time_to_first_event": 29.935153484344482,
+      "turns": 4,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Stripe MCP documentation'})",
+          "duration": 0.0017032623291015625,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Stripe'})",
+          "duration": 0.0038421154022216797,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.stripe.com/mcp",
+          "duration": 1.5928890705108643,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting the Helm values'})",
+          "duration": 2.09808349609375e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Stripe restricted API key', 'detail': 'Generate a read-only restricted key in the Stripe Dashboard.', 'kind': 'app_config', 'instructions': \"- Open the Stripe Dashboard: https://dashboard.stripe.com/apikeys\\n- Click **Create restricted key** (produces a key starting with `rk_live_...` or `rk_test_...`).\\n- Give it a name like `holmes-mcp-read`.\\n- Set these resource permissions to **Read**: Charges, Customers, PaymentIntents, Disputes (and any other resources you want Holmes to read, e.g. Refunds, Balance, Payouts).\\n- Leave everything else as **None** so the key is read-only.\\n- Click **Create key**, copy the token, and store it in your password manager - Stripe won't show it again.\\n- Keep the token handy for the next step; you'll put it in a Kubernetes secret and never in the Helm values.\", 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret', 'detail': \"Stores the Stripe restricted key in the runner's namespace so Holmes can read it.\", 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic stripe-mcp-token -n robusta --from-literal=token='<paste-your-stripe-restricted-key>'\", 'yaml': ''}, {'label': 'Add the Stripe MCP server to your Helm values', 'detail': 'Merge this snippet into your existing generated_values.yaml (do not create a new file).', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: STRIPE_MCP_TOKEN\\n      valueFrom:\\n        secretKeyRef:\\n          name: stripe-mcp-token\\n          key: token\\n  mcp_servers:\\n    stripe:\\n      description: \"Stripe MCP server - read Stripe payments, charges, customers, and disputes.\"\\n      icon_url: \"https://stripe.com/favicon.ico\"\\n      docs_url: \"https://docs.stripe.com/mcp\"\\n      config:\\n        url: \"https://mcp.stripe.com\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.STRIPE_MCP_TOKEN>\"\\n      llm_instructions: |\\n        ## When to use\\n        Use Stripe when the user asks about **payments**, **charges**, **customers**, or **disputes** in Stripe - for example investigating a failed charge, checking a customer\\'s payment history, looking up a specific `pi_...` / `ch_...` / `cus_...` / `dp_...` ID, or triaging a dispute.\\n\\n        ## Preferred tools (read-only)\\n        - `stripe_api_read` for direct API `GET` calls - e.g. `GET /v1/charges/{id}`, `GET /v1/customers/{id}`, `GET /v1/payment_intents/{id}`, `GET /v1/disputes/{id}`, `GET /v1/charges?customer=...`.\\n        - `stripe_api_search` / `stripe_api_details` when you\\'re not sure which endpoint or parameters to use.\\n        - `search_stripe_resources` / `fetch_stripe_resources` to look up an object by ID or free-text query across payments, charges, customers, disputes.\\n        - `get_stripe_account_info` to confirm which Stripe account is being queried.\\n        - `search_stripe_documentation` when the user asks a conceptual Stripe question.\\n\\n        ## Rules\\n        - **Do not** call `stripe_api_write`, `create_refund`, or any mutating tool - the configured key is read-only and the user only asked for read access.\\n        - Always pass the concrete Stripe object ID when the user provides one (starts with `pi_`, `ch_`, `cus_`, `dp_`, `re_`, etc.).\\n        - Include relevant fields (amount, currency, status, failure reason, dispute reason) in your answer so the user doesn\\'t need to open the Dashboard.'}, {'label': 'Apply the change', 'detail': 'Runs helm upgrade so Holmes picks up the new data source.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=alon-elish-cluster', 'yaml': ''}, {'label': 'Verify the connection', 'detail': 'Confirm Holmes loaded the Stripe MCP server and can call it.', 'kind': 'verify', 'instructions': '- Wait for the `helm upgrade` to complete and the Holmes pod in namespace `robusta` to restart (`kubectl get pods -n robusta -w`).\\n- Open Robusta\\'s **Data Sources** list and confirm **Stripe** appears and is healthy.\\n- Ask Holmes a read query, e.g. *\"Look up Stripe charge ch_xxx and tell me its status and any dispute\"* or *\"Show the last 5 payment_intents for customer cus_xxx\"*.\\n- If it fails auth, double-check the secret with `kubectl get secret stripe-mcp-token -n robusta` and that the token has the expected Read permissions in the Stripe Dashboard.', 'command': '', 'yaml': ''}]})",
+          "duration": 0.010554790496826172,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 9,
+        "ai_message": 2,
+        "start_tool_calling": 5,
+        "tool_calling_result": 5,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 136,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 122409,
+          "completion_tokens": 58,
+          "total_tokens": 122467,
+          "cached_tokens": 118542
+        },
+        "tokens": {
+          "total_tokens": 58663,
+          "tools_tokens": 3016,
+          "system_tokens": 11436,
+          "user_tokens": 2845,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1435,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 98.0996503829956,
+      "time_to_first_event": 12.141996383666992,
+      "turns": 6,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading Stripe MCP docs'})",
+          "duration": 1.6689300537109375e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.stripe.com/mcp",
+          "duration": 1.614391803741455,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Verifying Robusta MCP schema'})",
+          "duration": 1.811981201171875e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://holmesgpt.dev/latest/data-sources/remote-mcp-servers/",
+          "duration": 1.292259931564331,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting setup guide'})",
+          "duration": 1.9311904907226562e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Stripe restricted API key', 'detail': 'Grant read-only scopes for the resources Holmes needs.', 'kind': 'app_config', 'instructions': \"- Sign in to the Stripe Dashboard and open **Developers \u2192 API keys \u2192 Restricted keys**.\\n- Click **Create restricted key** and give it a name like `holmes-readonly`.\\n- Set these permissions to **Read** (leave everything else at **None**):\\n  - Core \u2192 Charges\\n  - Core \u2192 Customers\\n  - Core \u2192 PaymentIntents\\n  - Core \u2192 Payments (if listed separately)\\n  - Core \u2192 Disputes\\n- Create the key and copy the `rk_live_...` (or `rk_test_...`) value. You'll pass it to the secret in the next step.\\n- Reference: https://docs.stripe.com/keys/restricted-api-keys\\n- Reference: https://docs.stripe.com/mcp\", 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret', 'detail': 'Stores your Stripe restricted key so Holmes can read it at runtime.', 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic stripe-mcp-credentials -n robusta --from-literal=token='rk_live_replace_me'\", 'yaml': ''}, {'label': 'Add the Helm values', 'detail': 'Merge this snippet into your existing generated_values.yaml.', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: STRIPE_API_KEY\\n      valueFrom:\\n        secretKeyRef:\\n          name: stripe-mcp-credentials\\n          key: token\\n\\n  mcp_servers:\\n    stripe:\\n      description: \"Stripe payments platform (hosted MCP server at mcp.stripe.com)\"\\n      icon_url: \"https://cdn.simpleicons.org/stripe/635BFF\"\\n      docs_url: \"https://docs.stripe.com/mcp\"\\n      config:\\n        url: \"https://mcp.stripe.com\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.STRIPE_API_KEY>\"\\n      llm_instructions: |\\n        ## When to use\\n        Use Stripe when investigating anything involving a **payment**, **charge**, **customer**, or **dispute** in Stripe - e.g. a failed payment, a chargeback, a refund question, or looking up a customer\\'s payment history.\\n\\n        ## Preferred tools (read-only)\\n        - `stripe_api_read` - fetch specific Stripe resources by ID via GET endpoints. Prefer this for `charges`, `payment_intents`, `customers`, and `disputes`.\\n        - `fetch_stripe_resources` - retrieve a Stripe object when you have its ID.\\n        - `search_stripe_resources` - find charges, customers, payment intents, or disputes by email, metadata, amount, status, or time range when the ID is unknown.\\n        - `stripe_api_search` / `stripe_api_details` - discover the right API method and its parameters before calling `stripe_api_read`.\\n        - `search_stripe_documentation` - answer \"how does Stripe X work\" questions from official docs.\\n\\n        ## Rules\\n        - **Do not** call `stripe_api_write` or `create_refund` (or any other mutating tool). This integration is scoped to reading data only.\\n        - Prefer narrow, ID-based reads over broad searches when you already have an ID.\\n        - Always report the resource `id`, `status`, `amount`, `currency`, and `created` timestamp when summarizing a payment, charge, or dispute.'}, {'label': 'Apply the Helm upgrade', 'detail': 'Rolls out the new data source on cluster alon-elish-cluster.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=alon-elish-cluster', 'yaml': ''}, {'label': 'Verify the connection', 'detail': 'Confirm Stripe shows up as a data source and Holmes can query it.', 'kind': 'verify', 'instructions': '- Wait for the Helm upgrade to finish and the Holmes pod in the `robusta` namespace to restart and become Ready.\\n- Open the Robusta UI and check that **Stripe** appears in the Data Sources list as enabled.\\n- Ask Holmes something that exercises the integration, for example:\\n  - `Look up Stripe charge ch_xxx and show its status and amount`\\n  - `Find recent Stripe disputes in the last 7 days`\\n  - `Show the last 5 payment intents for customer cus_xxx`\\n- If the toolset shows as disabled, check the Holmes pod logs for a Stripe auth error and confirm the `stripe-mcp-credentials` secret has the correct `rk_...` key.', 'command': '', 'yaml': ''}]})",
+          "duration": 0.0002143383026123047,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 13,
+        "ai_message": 3,
+        "start_tool_calling": 6,
+        "tool_calling_result": 6,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 128,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 128199,
+          "completion_tokens": 55,
+          "total_tokens": 128254,
+          "cached_tokens": 124489
+        },
+        "tokens": {
+          "total_tokens": 62146,
+          "tools_tokens": 6618,
+          "system_tokens": 11436,
+          "user_tokens": 2845,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1325,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    },
+    {
+      "ok": true,
+      "total_wall": 62.71205019950867,
+      "time_to_first_event": 9.89246940612793,
+      "turns": 4,
+      "tool_calls": [
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Reading the Stripe MCP docs'})",
+          "duration": 6.318092346191406e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "IdentifyDataSourceApp",
+          "description": "IdentifyDataSourceApp({'app': 'Stripe'})",
+          "duration": 0.0019905567169189453,
+          "status": "success"
+        },
+        {
+          "tool_name": "fetch_webpage",
+          "description": "Internet: Fetch Webpage https://docs.stripe.com/mcp",
+          "duration": 1.640143871307373,
+          "status": "success"
+        },
+        {
+          "tool_name": "ReportDataSourceProgress",
+          "description": "ReportDataSourceProgress({'status': 'Drafting the Helm values'})",
+          "duration": 1.811981201171875e-05,
+          "status": "success"
+        },
+        {
+          "tool_name": "DataSourceSetupGuide",
+          "description": "DataSourceSetupGuide({'steps': [{'label': 'Create a Stripe restricted API key', 'detail': 'Create a read-only restricted key in the Stripe Dashboard for Holmes to use.', 'kind': 'app_config', 'instructions': '- Go to the Stripe Dashboard API keys page and click **Create restricted key**.\\n- https://dashboard.stripe.com/apikeys/create\\n- Name it something like `holmes-mcp-readonly`.\\n- Grant **Read** permission on: **Payments (PaymentIntents)**, **Charges**, **Customers**, and **Disputes**. Leave everything else as **None**.\\n- Click **Create key** and copy the value (starts with `rk_live_...` or `rk_test_...`).\\n- Use test mode first if you want to try it safely.\\n- Docs: https://docs.stripe.com/keys/restricted-api-keys', 'command': '', 'yaml': ''}, {'label': 'Create the Kubernetes secret', 'detail': 'Store the Stripe restricted key in a secret the Robusta runner can read.', 'kind': 'secret', 'instructions': '', 'command': \"kubectl create secret generic stripe-mcp-token -n robusta --from-literal=token='<your-rk_-key>'\", 'yaml': ''}, {'label': 'Add the Helm values', 'detail': 'Merge into your existing generated_values.yaml under holmes:', 'kind': 'helm', 'instructions': '', 'command': '', 'yaml': 'holmes:\\n  additionalEnvVars:\\n    - name: STRIPE_MCP_TOKEN\\n      valueFrom:\\n        secretKeyRef:\\n          name: stripe-mcp-token\\n          key: token\\n  mcp_servers:\\n    stripe:\\n      description: \"Stripe MCP server - read payments, charges, customers, and disputes from Stripe.\"\\n      icon_url: \"https://stripe.com/favicon.ico\"\\n      docs_url: \"https://docs.stripe.com/mcp\"\\n      config:\\n        url: \"https://mcp.stripe.com\"\\n        mode: streamable-http\\n        headers:\\n          Authorization: \"Bearer <env.STRIPE_MCP_TOKEN>\"\\n      llm_instructions: |\\n        ## When to use\\n        Use this server whenever the user asks about **Stripe** payments, charges, customers, or disputes (e.g. \"why did charge `ch_...` fail\", \"look up customer `cus_...`\", \"list recent disputes\", \"show payment intent `pi_...`\").\\n\\n        ## Preferred tools (read-only)\\n        - `stripe_api_read` - primary tool for reading Stripe resources. Use it against these endpoints:\\n          - `GET /v1/payment_intents` and `GET /v1/payment_intents/{id}` for payments\\n          - `GET /v1/charges` and `GET /v1/charges/{id}` for charges\\n          - `GET /v1/customers` and `GET /v1/customers/{id}` for customers\\n          - `GET /v1/disputes` and `GET /v1/disputes/{id}` for disputes\\n        - `stripe_api_search` / `stripe_api_details` when you need to discover the right endpoint or its parameters.\\n        - `search_stripe_resources` / `fetch_stripe_resources` for quick lookups by object ID.\\n        - `search_stripe_documentation` when clarifying Stripe concepts or error codes.\\n\\n        ## Constraints\\n        - **Do NOT** call `stripe_api_write`, `create_refund`, or any other mutating tool - the configured restricted key is read-only and this data source is for investigation only.\\n        - Always pass real Stripe IDs from the user (`pi_...`, `ch_...`, `cus_...`, `dp_...`); do not invent IDs.\\n        - Prefer listing with filters (e.g. `customer=cus_...`, `created[gte]=...`) over unbounded scans.\\n'}, {'label': 'Apply the change', 'detail': 'Run the Helm upgrade so Holmes picks up the new data source.', 'kind': 'deploy', 'instructions': '', 'command': 'helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=alon-elish-cluster', 'yaml': ''}, {'label': 'Verify the connection', 'detail': 'Confirm Holmes can talk to Stripe.', 'kind': 'verify', 'instructions': '- Wait for the Helm upgrade to finish and the Holmes pod in the `robusta` namespace to restart and become `Ready`.\\n- Open the Data Sources page in Robusta and confirm **Stripe** appears in the list.\\n- Ask Holmes something like: *\"List my 5 most recent Stripe charges\"* or *\"Show details for customer cus_XXX\"* and confirm you get real Stripe data back.\\n- If it fails, check the Holmes pod logs and confirm the `stripe-mcp-token` secret exists in the `robusta` namespace and the restricted key has the right read permissions.', 'command': '', 'yaml': ''}]})",
+          "duration": 0.0002295970916748047,
+          "status": "success"
+        }
+      ],
+      "event_counts": {
+        "token_count": 9,
+        "ai_message": 2,
+        "start_tool_calling": 5,
+        "tool_calling_result": 5,
+        "ai_answer_end": 1
+      },
+      "answer_chars": 128,
+      "produced_setup_guide": true,
+      "tokens": {
+        "usage": {
+          "prompt_tokens": 122120,
+          "completion_tokens": 55,
+          "total_tokens": 122175,
+          "cached_tokens": 118435
+        },
+        "tokens": {
+          "total_tokens": 58496,
+          "tools_tokens": 2956,
+          "system_tokens": 11436,
+          "user_tokens": 2845,
+          "tools_to_call_tokens": 39964,
+          "assistant_tokens": 1328,
+          "other_tokens": 0
+        },
+        "max_tokens": 1000000,
+        "max_output_tokens": 64000
+      },
+      "error": null
+    }
+  ]
+}
