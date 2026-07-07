@@ -116,8 +116,11 @@ def build_additional_system_prompt():
 
 
 def main():
-    if not os.environ.get("E2E_USER_EMAIL") or not os.environ.get("E2E_USER_PASSWORD"):
-        print("ERROR: set E2E_USER_EMAIL and E2E_USER_PASSWORD", file=sys.stderr)
+    if not os.environ.get("ROBUSTA_STAGING_SESSION_TOKEN") and (
+        not os.environ.get("E2E_USER_EMAIL") or not os.environ.get("E2E_USER_PASSWORD")
+    ):
+        print("ERROR: set ROBUSTA_STAGING_SESSION_TOKEN, or E2E_USER_EMAIL + E2E_USER_PASSWORD",
+              file=sys.stderr)
         return 2
 
     with open(TEST_CASE, "r", encoding="utf-8") as f:

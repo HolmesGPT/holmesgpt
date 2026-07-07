@@ -1,0 +1,3 @@
+# Generated per-user replay artifacts (embed account_id / cluster; never commit)
+fixtures/mcp_wizard_request.json
+__pycache__/
