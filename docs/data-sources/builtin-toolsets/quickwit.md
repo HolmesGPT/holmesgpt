@@ -52,9 +52,3 @@ Dotted paths are resolved against nested JSON documents.
 - The time range is passed as `start_timestamp`/`end_timestamp` (unix seconds) and results are requested newest-first, so high-volume periods cannot rotate recent lines out of the window.
 - `filter`/`exclude_filter` are applied as case-insensitive regexes in code (a malformed regex degrades to a literal match), and rows with an empty message field (common for noisy sidecars) are dropped before the limit is applied.
 - When more lines match than the limit, the response says so explicitly (`[showing the N most recent of M matching lines]`) instead of truncating silently.
-
-## Capabilities
-
-| Tool Name | Description |
-|-----------|-------------|
-| fetch_pod_logs | Fetch logs for a Kubernetes pod from Quickwit with regex filtering, exclusion patterns and time ranges |

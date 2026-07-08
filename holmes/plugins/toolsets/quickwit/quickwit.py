@@ -151,6 +151,12 @@ class QuickwitLogsToolset(Toolset):
             response = requests.get(url, timeout=min(cfg.timeout_seconds, 10))
             response.raise_for_status()
             return True, f"Connected to Quickwit at {cfg.api_url}"
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "?"
+            body = e.response.text[:1000] if e.response is not None else ""
+            return False, (
+                f"Quickwit health check failed for {url}: HTTP {status}. Response: {body}"
+            )
         except Exception as e:
             return False, f"Quickwit health check failed for {url}: {e}"
 
@@ -183,12 +189,34 @@ class QuickwitLogsToolset(Toolset):
             )
             response.raise_for_status()
             payload = response.json()
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "?"
+            body = e.response.text[:1000] if e.response is not None else ""
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Quickwit search failed for {url} with HTTP {status} "
+                    f"(params={json.dumps(request_params, default=str)}). "
+                    f"Response: {body}"
+                ),
+                params=params.model_dump(),
+            )
         except Exception as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=(
                     f"Quickwit search failed for {url} "
                     f"(params={json.dumps(request_params, default=str)}): {e}"
+                ),
+                params=params.model_dump(),
+            )
+
+        if not isinstance(payload, dict):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Quickwit search for {url} returned an unexpected response shape "
+                    f"(expected a JSON object): {str(payload)[:500]}"
                 ),
                 params=params.model_dump(),
             )
