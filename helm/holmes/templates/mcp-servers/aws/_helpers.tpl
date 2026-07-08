@@ -7,6 +7,15 @@ Define the LLM instructions for AWS MCP
 {{- else -}}
 IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
 
+## Cost Explorer and other JSON-argument commands (READ THIS FIRST)
+
+call_aws tokenizes the command with shell rules, which makes inline JSON arguments (Cost Explorer `--filter`, `--cli-input-json`, CloudWatch `--metric-data-queries`, etc.) unreliable — double quotes inside an unquoted JSON value get stripped and AWS receives invalid JSON. Follow this order:
+
+1. **Avoid inline JSON — prefer shorthand that needs no JSON.** For a breakdown by a dimension use `--group-by Type=DIMENSION,Key=SERVICE` (no quotes to lose), then filter/aggregate the results yourself in your analysis (e.g. keep only the row whose service key is "Amazon Bedrock"). This is the most reliable approach and sidesteps the quoting problem entirely. Example:
+   `aws ce get-cost-and-usage --time-period Start=2026-01-01,End=2026-08-01 --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE`
+2. **Only if you truly need a JSON argument**, wrap the ENTIRE value in single quotes (not double quotes, and do not backslash-escape the inner double quotes): `--filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Bedrock"]}}'`. If a single-quoted attempt still fails, do not keep retrying variations — fall back to option 1 (`--group-by` + client-side filtering).
+3. When unsure of the exact syntax, call `suggest_aws_commands` first, then run the suggested command with call_aws.
+
 ## Investigation Principles
 
 **ALWAYS follow this investigation flow:**
