@@ -560,7 +560,7 @@ class ToolCallingLLM:
 
         return messages, events
 
-    def _get_tools(self) -> list:
+    def _get_tools(self, request_context: Optional[Dict[str, Any]] = None) -> list:
         """Get the tools list in OpenAI format.
 
         If a user_id is available (from request_context), per-user OAuth tools
@@ -570,8 +570,13 @@ class ToolCallingLLM:
         all user-defined tools with defer_loading=True so Claude can
         dynamically discover tools on-demand instead of loading every
         definition into the context window upfront (see issue #2107).
+
+        request_context is passed explicitly (not read from self) because
+        this class is shared/stateless across requests; caching it on self
+        would let concurrent requests race and leak each other's
+        OAuth-expanded tool lists.
         """
-        user_id = (self._request_context or {}).get("user_id") if hasattr(self, "_request_context") else None
+        user_id = (request_context or {}).get("user_id")
         tools = self.tool_executor.get_all_tools_openai_format(
             user_id=user_id,
         )
@@ -598,8 +603,8 @@ class ToolCallingLLM:
             "name": "tool_search_tool_regex",
         }
         deferred_tools = []
-        for tool in tools:
-            deferred = dict(tool)
+        for tool_def in tools:
+            deferred = dict(tool_def)
             deferred["defer_loading"] = True
             deferred_tools.append(deferred)
         return [tool_search_tool] + deferred_tools
@@ -1087,7 +1092,6 @@ class ToolCallingLLM:
         if trace_span is None:
             trace_span = DummySpan()
 
-        self._request_context = request_context
         all_tool_calls: list[dict] = []
 
         # Process tool decisions if provided (approval resume)
@@ -1123,7 +1127,7 @@ class ToolCallingLLM:
 
         messages: list[dict] = list(msgs) if msgs else []
         tool_calls: list[dict] = []
-        tools: Optional[list] = self._get_tools()
+        tools: Optional[list] = self._get_tools(request_context)
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
@@ -1481,9 +1485,17 @@ class ToolCallingLLM:
 
                 # Re-fetch tools if the tool list changed (skill activation, OAuth tool discovery, etc.)
                 if tools is not None:
-                    new_tools = self._get_tools()
-                    old_names = {t["function"]["name"] for t in tools}
-                    new_names = {t["function"]["name"] for t in new_tools}
+                    new_tools = self._get_tools(request_context)
+                    old_names = {
+                        t["function"]["name"]
+                        for t in tools
+                        if t.get("type") == "function"
+                    }
+                    new_names = {
+                        t["function"]["name"]
+                        for t in new_tools
+                        if t.get("type") == "function"
+                    }
                     if old_names != new_names:
                         logging.warning(
                             f"Tool list changed - refreshing ({len(tools)} -> {len(new_tools)} tools)"
