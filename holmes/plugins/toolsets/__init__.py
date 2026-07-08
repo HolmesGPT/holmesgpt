@@ -56,6 +56,7 @@ from holmes.plugins.toolsets.investigator.core_investigation import (
 from holmes.plugins.toolsets.kafka import KafkaToolset
 from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
+from holmes.plugins.toolsets.quickwit.quickwit import QuickwitLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.multi_instance import multi_instance
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
@@ -140,6 +141,8 @@ def load_python_toolsets(
 
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
+
+    toolsets.append(QuickwitLogsToolset())
 
     platform_mcp = make_robusta_platform_mcp_toolset(dal)
     if platform_mcp is not None:
