@@ -8,9 +8,12 @@ as a tightly packed monospace PNG can therefore carry the same characters for
 fewer tokens.
 
 This is an experimental, opt-in feature. It is lossy for byte-exact values
-(long hashes/IDs may be misread by the vision encoder), and per pxpipe's own
-benchmarks Opus-family models misread imaged content far more often than
-Fable. Enable with HOLMES_TOOL_RESULT_IMAGING=true.
+(long hashes/IDs may be misread by the vision encoder). Note: pxpipe's README
+claims Opus-family models misread imaged content more than Fable; our own
+legibility probes measured the opposite (Opus 4.8 transcribed adversarial
+confusable IDs perfectly at font size 13 in every trial, while Fable 5
+occasionally dropped characters in DejaVu variants). Enable with
+HOLMES_TOOL_RESULT_IMAGING=true.
 
 Environment variables:
     HOLMES_TOOL_RESULT_IMAGING            enable the feature (default: false)
