@@ -43,6 +43,68 @@ class DenyReason(Enum):
     HARDCODED_BLOCK = "hardcoded_block"
     DENY_LIST = "deny_list"
     PREFIX_NOT_IN_COMMAND = "fabricated_prefix"
+    FILESYSTEM_WRITE = "filesystem_write"
+
+
+# Commands whose purpose is to write to / mutate the filesystem. Holmes runs tools in
+# ephemeral, isolated containers with no writable or shared filesystem, so these never
+# work and files cannot be passed between tool calls. Denying them with a clear message
+# stops the model from repeatedly retrying file-based workarounds.
+FILESYSTEM_WRITE_COMMANDS: List[str] = [
+    "mkdir",
+    "rmdir",
+    "touch",
+    "tee",
+    "cp",
+    "mv",
+    "rm",
+    "ln",
+    "dd",
+    "install",
+    "truncate",
+    "mktemp",
+]
+
+# Output redirection to a real file (`>`, `>>`, optionally fd-prefixed like `1>`).
+# The negative lookahead skips fd duplications (`2>&1`) and the whitespace that would
+# precede a bare target; each captured target is then checked against the /dev/ allowlist.
+_FILE_REDIRECT_RE = re.compile(r"\d*>>?\s*(?![&\s])(\S+)")
+
+# Redirect targets that are not real files and are safe to allow (e.g. `2>/dev/null`).
+_REDIRECT_TARGET_ALLOWLIST_PREFIX = "/dev/"
+
+FILESYSTEM_WRITE_MESSAGE = (
+    "This tool runs in an ephemeral, isolated container with no writable or shared "
+    "filesystem. Writing files does not work and files cannot be passed between tool "
+    "calls. Do not create files or directories, redirect output to a file (`>`, `>>`, "
+    "`tee`), or reference files you tried to write (e.g. `--filter file://...`). Keep "
+    "intermediate data in your reasoning/context and pass values inline instead."
+)
+
+
+def check_filesystem_write(segment: str) -> Optional[str]:
+    """
+    Detect an attempt to write to the filesystem in a command segment.
+
+    Returns a short human-readable description of the offending part if the segment
+    redirects output to a real file, None otherwise. The command-name check (mkdir,
+    tee, cp, ...) is handled separately so that an explicit user allow-list entry can
+    still take precedence; file redirection is never legitimate for read-only
+    investigation and is checked regardless.
+    """
+    for match in _FILE_REDIRECT_RE.finditer(segment):
+        target = match.group(1)
+        if not target.startswith(_REDIRECT_TARGET_ALLOWLIST_PREFIX):
+            return f"output redirection to '{target}'"
+    return None
+
+
+def check_filesystem_write_command(segment: str) -> Optional[str]:
+    """Return the write command name if the segment starts with one, None otherwise."""
+    for cmd in FILESYSTEM_WRITE_COMMANDS:
+        if match_prefix(segment, cmd):
+            return cmd
+    return None
 
 
 @dataclass
@@ -280,12 +342,34 @@ def validate_segment(
                 message=f"Command matches deny list pattern '{deny_prefix}'. This command is blocked by configuration.",
             )
 
-    # Step 3: Check allow list
+    # Step 3: File redirection to a real file is never valid on the ephemeral filesystem.
+    # Checked before the allow list because the base command (e.g. `kubectl get`) may be
+    # allow-listed while the `> file` redirect still attempts a write.
+    redirect = check_filesystem_write(segment)
+    if redirect:
+        return ValidationResult(
+            status=ValidationStatus.DENIED,
+            deny_reason=DenyReason.FILESYSTEM_WRITE,
+            message=f"Command uses {redirect}. {FILESYSTEM_WRITE_MESSAGE}",
+        )
+
+    # Step 4: Check allow list (an explicit allow-list entry wins over the write-command
+    # check below, so users who intentionally allow e.g. `mkdir` keep that ability).
     for allow_prefix in allow_list:
         if match_prefix(segment, allow_prefix):
             return ValidationResult(status=ValidationStatus.ALLOWED)
 
-    # Step 4: Not in any list -> needs approval
+    # Step 5: Filesystem-mutating commands (mkdir, tee, cp, ...) that were not explicitly
+    # allow-listed -> deny with a clear message instead of a vague approval prompt.
+    write_cmd = check_filesystem_write_command(segment)
+    if write_cmd:
+        return ValidationResult(
+            status=ValidationStatus.DENIED,
+            deny_reason=DenyReason.FILESYSTEM_WRITE,
+            message=f"Command '{write_cmd}' writes to the filesystem. {FILESYSTEM_WRITE_MESSAGE}",
+        )
+
+    # Step 6: Not in any list -> needs approval
     return ValidationResult(
         status=ValidationStatus.APPROVAL_REQUIRED,
         message=f"Command segment '{segment}' is not in the allow list.",
@@ -337,6 +421,13 @@ def validate_command(
                 status=ValidationStatus.DENIED,
                 deny_reason=DenyReason.DENY_LIST,
                 message=f"Command matches deny list pattern '{denied}'. This command is blocked by configuration.",
+            )
+        redirect = check_filesystem_write(command)
+        if redirect:
+            return ValidationResult(
+                status=ValidationStatus.DENIED,
+                deny_reason=DenyReason.FILESYSTEM_WRITE,
+                message=f"Command uses {redirect}. {FILESYSTEM_WRITE_MESSAGE}",
             )
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,

@@ -22,6 +22,8 @@ from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
     ValidationStatus,
     check_blocked_in_raw_command,
+    check_filesystem_write,
+    check_filesystem_write_command,
     check_hardcoded_blocks,
     get_effective_lists,
     match_prefix,
@@ -1135,3 +1137,93 @@ class TestRequiresApprovalPrefixesToSave:
         }
         result = tool.requires_approval(params, context)
         assert result is None
+
+
+class TestFilesystemWriteDetection:
+    """Tests for the no-shared-filesystem guard (ROB-591)."""
+
+    @pytest.mark.parametrize(
+        "segment,expected",
+        [
+            ("kubectl get pods > out.json", "out.json"),
+            ("kubectl get pods >> log.txt", "log.txt"),
+            ("cat file 1>/tmp/o", "/tmp/o"),
+            # /dev/ targets are legitimate and must not be flagged
+            ("kubectl get pods 2>/dev/null", None),
+            ("cmd > /dev/null", None),
+            ("cmd &>/dev/null", None),
+            # fd duplication is not a file write
+            ("kubectl get pods 2>&1", None),
+            ("echo hi", None),
+        ],
+    )
+    def test_check_filesystem_write_redirect(self, segment, expected):
+        result = check_filesystem_write(segment)
+        if expected is None:
+            assert result is None
+        else:
+            assert result is not None and expected in result
+
+    @pytest.mark.parametrize(
+        "segment,expected",
+        [
+            ("mkdir -p /tmp/x", "mkdir"),
+            ("tee results.txt", "tee"),
+            ("cp a b", "cp"),
+            ("mv a b", "mv"),
+            ("touch f", "touch"),
+            ("rm -rf /tmp/x", "rm"),
+            ("kubectl get pods", None),
+            ("grep error", None),
+        ],
+    )
+    def test_check_filesystem_write_command(self, segment, expected):
+        assert check_filesystem_write_command(segment) == expected
+
+    def test_redirect_to_file_denied_even_when_base_command_allowed(self):
+        """A redirect to a real file is denied even if the base command is allow-listed."""
+        result = validate_segment(
+            "kubectl get pods > out.json",
+            allow_list=["kubectl get"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.FILESYSTEM_WRITE
+
+    def test_redirect_to_devnull_allowed(self):
+        result = validate_segment(
+            "kubectl get pods 2>/dev/null",
+            allow_list=["kubectl get"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_write_command_denied_by_default(self):
+        result = validate_segment(
+            "mkdir -p /tmp/data",
+            allow_list=["kubectl get"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.FILESYSTEM_WRITE
+
+    def test_explicit_allow_list_entry_wins_over_write_guard(self):
+        """A user who explicitly allow-lists a write command keeps that ability."""
+        result = validate_segment(
+            "mkdir -p /tmp/data",
+            allow_list=["mkdir"],
+            deny_list=[],
+        )
+        assert result.status == ValidationStatus.ALLOWED
+
+    def test_full_command_pipe_to_tee_denied(self):
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods | tee results.txt",
+            ["kubectl get", "tee"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.FILESYSTEM_WRITE
