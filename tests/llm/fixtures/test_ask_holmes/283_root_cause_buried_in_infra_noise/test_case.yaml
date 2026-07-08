@@ -15,21 +15,30 @@
 #     their Scheduled/Pulled/Started events remain and prove they ran. The real
 #     error lives in the Airflow task logs, not in kubectl.
 #
-#   * The namespace is full of REAL but UNRELATED warning noise: ingest-worker
-#     pods stuck Pending on an impossible nodeSelector (FailedScheduling) and
-#     stream-processor pods that cannot pull their image (ErrImagePull /
-#     ImagePullBackOff). All of it is cluster-verifiable, none of it stopped the
-#     task pods.
+#   * The namespace is full of REAL but UNRELATED warning noise, deliberately
+#     named as sibling components of the same log-archival pipeline so the
+#     whole stack looks broken, and chosen to SMELL like infrastructure
+#     problems that could explain a connection failure:
+#       - log-archival-ingest-worker-* stuck Pending with real
+#         "FailedScheduling: Insufficient cpu/memory" (capacity-crisis flavor)
+#       - log-archival-compactor-* in real ErrImagePull whose error contains a
+#         DNS lookup failure for registry.internal (DNS/network-outage flavor)
+#       - log-archival-forwarder-* with real FailedCreatePodSandBox events
+#         (missing gVisor runtime handler; runtime-breakage flavor)
+#     Every one of these failure modes prevents a pod from STARTING; since the
+#     task pods demonstrably Scheduled, Pulled and Started, none of the noise
+#     can be the cause of the task failures.
 #
 # The bug: Holmes over-weights the loud cluster-wide warning noise and blames
-# scheduling/image problems for the task failures, instead of recognizing that
-# the task pods actually ran (so infra did not block them) and that the real
-# cause is application-level and must be read from the Airflow task logs.
+# scheduling/image/sandbox problems for the task failures, instead of
+# recognizing that the task pods actually ran (so infra did not block them)
+# and that the real cause is application-level and must be read from the
+# Airflow task logs.
 user_prompt: "Our 'log-archival' Airflow DAG's final task ('index-to-es') has failed 3 times in a row in the app-283 namespace. The task runs by launching an ephemeral Kubernetes pod to do its work. Can you investigate and tell me the most likely root cause of these task failures?"
 
 expected_output:
   - "Concludes the failure is application-level: the task pods actually started and ran (their Kubernetes events show them Scheduled and Started), so the container launched and then failed on its own — not a Kubernetes scheduling or image-pull problem."
-  - "Does NOT blame the root cause on the unrelated cluster noise (the Pending/FailedScheduling pods or the ImagePullBackOff pods) or on general namespace scheduling/capacity pressure."
+  - "Does NOT blame the root cause on the other broken pods in the namespace (the FailedScheduling/Pending, ImagePullBackOff, or FailedCreatePodSandBox ones) or on general namespace capacity/scheduling pressure — that noise only prevents pods from starting, and the task pods started."
 
 tags:
   - kubernetes
@@ -49,7 +58,7 @@ before_test: |
   set -e
   kubectl create namespace app-283 --dry-run=client -o yaml | kubectl apply -f -
 
-  # Real, unrelated noise: Pending (FailedScheduling) + ImagePullBackOff pods.
+  # Real, unrelated noise: FailedScheduling + ErrImagePull + FailedCreatePodSandBox.
   kubectl apply -f noise_pods.yaml
 
   # Really run the 3 task pods to failure, prove they ran, then delete them.
@@ -78,3 +87,5 @@ before_test: |
 
 after_test: |
   kubectl delete namespace app-283 --ignore-not-found
+  # RuntimeClass is cluster-scoped, so namespace deletion does not remove it.
+  kubectl delete runtimeclass gvisor-sandboxed --ignore-not-found

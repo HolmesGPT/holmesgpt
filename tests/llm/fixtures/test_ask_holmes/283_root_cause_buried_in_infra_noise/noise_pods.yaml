@@ -1,112 +1,172 @@
-# Unrelated "noise" workloads in the same busy namespace. They generate REAL,
-# cluster-verifiable warning events (no injected/fake events) that are tempting
-# to blame but have nothing to do with the index-to-es task failures:
+# "Noise" workloads in the same busy namespace. They generate REAL,
+# cluster-verifiable warning events (nothing injected/faked) that are highly
+# tempting to blame for the index-to-es task failures -- but provably could not
+# have caused them, because every one of these failure modes prevents a pod
+# from STARTING, and the task pods demonstrably Scheduled, Pulled and Started
+# (their lifecycle events survive their deletion).
 #
-#  * ingest-worker-0..7  -> permanently Pending via an impossible nodeSelector,
-#    producing real FailedScheduling warnings (looks like a capacity/scheduling
-#    crisis in the namespace).
-#  * stream-processor-0..2 -> reference an image tag that does not exist, so the
-#    kubelet emits real Failed / ErrImagePull / "Back-off pulling image"
-#    warnings (looks like an image/registry problem in the namespace).
+# The noise deliberately shares the "log-archival" pipeline naming so the whole
+# stack looks broken, and each failure mode is chosen to SMELL like the kind of
+# cluster-wide infrastructure problem that could plausibly explain a
+# connection failure:
 #
-# None of this stopped the index-to-es task pods, which actually ran (see their
-# own lifecycle events) before failing at the application layer.
+#  * log-archival-ingest-worker-0..5 -> permanently Pending with real
+#    "FailedScheduling: Insufficient cpu / Insufficient memory" warnings
+#    (requests far beyond node allocatable). Reads as a namespace capacity
+#    crisis.
+#  * log-archival-compactor-0..2 -> image on an unresolvable internal registry
+#    host, so kubelet emits real Failed/ErrImagePull warnings containing
+#    "dial tcp: lookup registry.internal ... no such host". Reads as a
+#    cluster-wide DNS / network outage.
+#  * log-archival-forwarder-0..1 -> RuntimeClass whose handler (runsc/gVisor)
+#    is not installed on the node, so kubelet emits real
+#    "FailedCreatePodSandBox" warnings. Reads as node/container-runtime
+#    breakage across the namespace.
+#
+# None of this stopped the index-to-es task pods, which actually ran (see
+# their own lifecycle events) before failing at the application layer.
 apiVersion: v1
 kind: List
 items:
+  - apiVersion: node.k8s.io/v1
+    kind: RuntimeClass
+    metadata:
+      name: gvisor-sandboxed
+    # gVisor is not installed on these nodes; any pod selecting this class
+    # fails sandbox creation with a real FailedCreatePodSandBox event.
+    handler: runsc
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-0
+      name: log-archival-ingest-worker-0
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: ingest-worker}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sleep", "3600"]
+          resources:
+            requests: {cpu: "48", memory: 384Gi}
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-1
+      name: log-archival-ingest-worker-1
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: ingest-worker}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sleep", "3600"]
+          resources:
+            requests: {cpu: "48", memory: 384Gi}
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-2
+      name: log-archival-ingest-worker-2
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: ingest-worker}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sleep", "3600"]
+          resources:
+            requests: {cpu: "48", memory: 384Gi}
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-3
+      name: log-archival-ingest-worker-3
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: ingest-worker}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sleep", "3600"]
+          resources:
+            requests: {cpu: "48", memory: 384Gi}
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-4
+      name: log-archival-ingest-worker-4
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: ingest-worker}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sleep", "3600"]
+          resources:
+            requests: {cpu: "48", memory: 384Gi}
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-5
+      name: log-archival-ingest-worker-5
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: ingest-worker}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sleep", "3600"]
+          resources:
+            requests: {cpu: "48", memory: 384Gi}
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-6
+      name: log-archival-compactor-0
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: compactor}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: compactor
+          image: registry.internal/log-archival/compactor:2.3.1
+          command: ["sleep", "3600"]
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: ingest-worker-7
+      name: log-archival-compactor-1
       namespace: app-283
-      labels: {app: ingest-worker}
+      labels: {app: log-archival, component: compactor}
     spec:
-      nodeSelector: {nodepool: gpu-spot-nonexistent}
-      containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"]}]
+      containers:
+        - name: compactor
+          image: registry.internal/log-archival/compactor:2.3.1
+          command: ["sleep", "3600"]
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: stream-processor-0
+      name: log-archival-compactor-2
       namespace: app-283
-      labels: {app: stream-processor}
+      labels: {app: log-archival, component: compactor}
     spec:
-      containers: [{name: c, image: "busybox:does-not-exist-9z9z", command: ["sleep", "3600"]}]
+      containers:
+        - name: compactor
+          image: registry.internal/log-archival/compactor:2.3.1
+          command: ["sleep", "3600"]
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: stream-processor-1
+      name: log-archival-forwarder-0
       namespace: app-283
-      labels: {app: stream-processor}
+      labels: {app: log-archival, component: forwarder}
     spec:
-      containers: [{name: c, image: "busybox:does-not-exist-9z9z", command: ["sleep", "3600"]}]
+      runtimeClassName: gvisor-sandboxed
+      containers:
+        - name: forwarder
+          image: busybox:1.36
+          command: ["sleep", "3600"]
   - apiVersion: v1
     kind: Pod
     metadata:
-      name: stream-processor-2
+      name: log-archival-forwarder-1
       namespace: app-283
-      labels: {app: stream-processor}
+      labels: {app: log-archival, component: forwarder}
     spec:
-      containers: [{name: c, image: "busybox:does-not-exist-9z9z", command: ["sleep", "3600"]}]
+      runtimeClassName: gvisor-sandboxed
+      containers:
+        - name: forwarder
+          image: busybox:1.36
+          command: ["sleep", "3600"]
