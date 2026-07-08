@@ -1227,3 +1227,12 @@ class TestFilesystemWriteDetection:
         )
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.FILESYSTEM_WRITE
+
+    def test_unparseable_write_command_denied(self):
+        """A write command that fails to parse still gets a clear filesystem denial."""
+        config = BashExecutorConfig(allow=["kubectl get"])
+        allow_list, deny_list = get_effective_lists(config)
+        # trailing pipe makes bashlex fail -> unparseable fallback path
+        result = validate_command("mkdir foo |", [], allow_list, deny_list)
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.FILESYSTEM_WRITE

@@ -321,8 +321,10 @@ def validate_segment(
     Validation order:
     1. Hardcoded blocks -> DENIED
     2. Deny list -> DENIED
-    3. Allow list -> ALLOWED
-    4. Neither -> APPROVAL_REQUIRED
+    3. File redirection to a real file -> DENIED (filesystem write)
+    4. Allow list -> ALLOWED
+    5. Filesystem-mutating command (mkdir, tee, ...) not allow-listed -> DENIED
+    6. Neither -> APPROVAL_REQUIRED
     """
     # Step 1: Check hardcoded blocks
     blocked = check_hardcoded_blocks(segment)
@@ -428,6 +430,13 @@ def validate_command(
                 status=ValidationStatus.DENIED,
                 deny_reason=DenyReason.FILESYSTEM_WRITE,
                 message=f"Command uses {redirect}. {FILESYSTEM_WRITE_MESSAGE}",
+            )
+        write_cmd = check_filesystem_write_command(command)
+        if write_cmd:
+            return ValidationResult(
+                status=ValidationStatus.DENIED,
+                deny_reason=DenyReason.FILESYSTEM_WRITE,
+                message=f"Command '{write_cmd}' writes to the filesystem. {FILESYSTEM_WRITE_MESSAGE}",
             )
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,

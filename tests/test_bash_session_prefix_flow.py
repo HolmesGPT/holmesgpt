@@ -644,7 +644,7 @@ class TestCrossConversationIsolation:
         )
 
         # Verify shared config was never modified
-        assert "rm" not in shared_config.allow, (
+        assert "kubectl delete" not in shared_config.allow, (
             f"Shared config should not have been mutated. "
             f"shared_config.allow={shared_config.allow}"
         )
