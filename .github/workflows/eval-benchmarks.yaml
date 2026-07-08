@@ -16,7 +16,7 @@ on:
         description: 'Comma-separated list of models to test'
         required: false
         # NOTE: Keep in sync with DEFAULT_BENCHMARK_MODELS env var
-        default: 'opus-4.7,opus-4.6,sonnet-4.6,haiku-4.5,gpt-5.4,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-r1-reasoner,deepseek-v3.2-chat,gpt-5.3-codex'
+        default: 'opus-4.7,opus-4.6,sonnet-4.6,haiku-4.5,gpt-5.4,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-r1-reasoner,deepseek-v3.2-chat,gpt-5.3-codex,opus-4.8,gpt-5.5'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
@@ -25,6 +25,11 @@ on:
         description: 'Number of iterations per test (max 10)'
         required: false
         default: '5'
+      create_pr:
+        description: 'Open a PR with the benchmark results. Uncheck to only post a Slack notification (no PR).'
+        required: false
+        type: boolean
+        default: true
 
   # Run weekly on Sunday at 2 AM UTC
   schedule:
@@ -33,7 +38,7 @@ on:
 env:
   # Default models for benchmarks - single source of truth
   # NOTE: Keep workflow_dispatch default in sync with this for UI display
-  DEFAULT_BENCHMARK_MODELS: 'opus-4.7,opus-4.6,sonnet-4.6,haiku-4.5,gpt-5.4,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-r1-reasoner,deepseek-v3.2-chat,gpt-5.3-codex'
+  DEFAULT_BENCHMARK_MODELS: 'opus-4.7,opus-4.6,sonnet-4.6,haiku-4.5,gpt-5.4,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-r1-reasoner,deepseek-v3.2-chat,gpt-5.3-codex,opus-4.8,gpt-5.5'
 
 jobs:
   run-benchmarks:
@@ -119,6 +124,8 @@ jobs:
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
+          ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
+          ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
         run: |
@@ -138,7 +145,7 @@ jobs:
 
       - name: Create PR with benchmark results
         id: create-pr
-        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_pr == 'true'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -194,10 +201,15 @@ jobs:
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
         run: |
           PR_URL="${{ steps.create-pr.outputs.pr_url }}"
+          if [ -n "$PR_URL" ]; then
+            TEXT="Weekly eval benchmarks finished! Here is the PR: ${PR_URL}"
+          else
+            TEXT="Eval benchmarks finished! No PR was created for this run."
+          fi
           curl -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"channel\": \"#backend\", \"text\": \"Weekly eval benchmarks finished! Here is the PR: ${PR_URL}\"}"
+            -d "{\"channel\": \"#backend\", \"text\": \"${TEXT}\"}"
 
       - name: Notify Slack on failure or cancellation
         if: steps.run-benchmarks.outcome != 'success'

@@ -6,6 +6,7 @@ from uuid import uuid4
 display_logger = logging.getLogger("holmes.display.core_investigation")
 
 from holmes.core.todo_tasks_formatter import format_tasks
+from holmes.core.hypothesis_formatter import format_hypotheses
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -15,9 +16,39 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
-from holmes.plugins.toolsets.investigator.model import Task, TaskStatus
+from holmes.plugins.toolsets.investigator.model import (
+    Hypothesis,
+    HypothesisStatus,
+    Task,
+    TaskStatus,
+)
 
 TODO_WRITE_TOOL_NAME = "TodoWrite"
+HYPOTHESIS_WRITE_TOOL_NAME = "HypothesisWrite"
+
+
+def parse_hypotheses(hypotheses_data: Any) -> list[Hypothesis]:
+    hypotheses = []
+
+    for item in hypotheses_data:
+        if isinstance(item, dict):
+            statement = (item.get("statement") or "").strip()
+            if not statement:
+                logging.warning(
+                    "Skipping hypothesis with empty statement (id=%s)",
+                    item.get("id", "<none>"),
+                )
+                continue
+            hypotheses.append(
+                Hypothesis(
+                    id=item.get("id", str(uuid4())),
+                    statement=statement,
+                    status=HypothesisStatus(item.get("status", "proposed")),
+                    evidence=item.get("evidence", "") or "",
+                )
+            )
+
+    return hypotheses
 
 
 def parse_tasks(todos_data: Any) -> list[Task]:
@@ -132,6 +163,92 @@ class TodoWriteTool(Tool):
         return "Update investigation tasks"
 
 
+class HypothesisWriteTool(Tool):
+    name: str = HYPOTHESIS_WRITE_TOOL_NAME
+    description: str = (
+        "Track competing root-cause hypotheses while investigating, so you weigh "
+        "the evidence for each candidate cause instead of latching onto the first "
+        "or loudest signal. ALWAYS provide the COMPLETE list of all hypotheses, "
+        "not just the ones being updated."
+    )
+    parameters: Dict[str, ToolParameter] = {
+        "hypotheses": ToolParameter(
+            description=(
+                "COMPLETE list of ALL root-cause hypotheses. Each hypothesis has: "
+                "id (string), statement (string - the candidate root cause), "
+                "status (proposed/investigating/supported/refuted), and evidence "
+                "(string - what supports or refutes it)."
+            ),
+            type="array",
+            required=True,
+            items=ToolParameter(
+                type="object",
+                properties={
+                    "id": ToolParameter(type="string", required=True),
+                    "statement": ToolParameter(type="string", required=True),
+                    "status": ToolParameter(
+                        type="string",
+                        required=True,
+                        enum=["proposed", "investigating", "supported", "refuted"],
+                    ),
+                    "evidence": ToolParameter(type="string", required=False),
+                },
+            ),
+        ),
+    }
+
+    def print_hypotheses_table(self, hypotheses):
+        if not hypotheses:
+            display_logger.info("No root-cause hypotheses tracked yet.")
+            return
+
+        status_icons = {
+            "proposed": "[?]",
+            "investigating": "[~]",
+            "supported": "[✓]",
+            "refuted": "[✗]",
+        }
+
+        lines = []
+        for h in hypotheses:
+            icon = status_icons.get(h.status.value, "[?]")
+            line = f"  {icon} [{h.id}] ({h.status.value}) {h.statement}"
+            if h.evidence:
+                line += f" — {h.evidence}"
+            lines.append(line)
+
+        display_logger.info("Root-cause hypotheses:\n" + "\n".join(lines))
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        try:
+            hypotheses = parse_hypotheses(params.get("hypotheses", []))
+
+            self.print_hypotheses_table(hypotheses)
+            formatted = format_hypotheses(hypotheses)
+
+            response_data = (
+                f"✅ Updated root-cause hypotheses ({len(hypotheses)} tracked). "
+                "These are now stored in session and will appear in subsequent prompts.\n\n"
+            )
+            response_data += formatted or "No hypotheses currently tracked."
+
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.SUCCESS,
+                data=response_data,
+                params=params,
+            )
+        except Exception as e:
+            logging.exception("error using HypothesisWrite tool")
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Failed to process hypotheses: {str(e)}",
+                params=params,
+            )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return "Update root-cause hypotheses"
+
+
 class CoreInvestigationToolset(Toolset):
     """Core toolset for investigation management and task planning."""
 
@@ -140,9 +257,10 @@ class CoreInvestigationToolset(Toolset):
             name="core_investigation",
             description="Core investigation tools for task management and planning",
             enabled=True,
-            tools=[TodoWriteTool()],
+            tools=[TodoWriteTool(), HypothesisWriteTool()],
             tags=[ToolsetTag.CORE],
         )
+        self._is_core = True  # agent-loop machinery; never remotely exposable
 
     def _reload_instructions(self):
         template_file_path = os.path.abspath(

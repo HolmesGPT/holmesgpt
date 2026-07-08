@@ -10,6 +10,7 @@ expected_output:
   - The answer must state that the total across all namespaces is exactly 644 ConfigMaps
 
 tags:
+  - skills
   - kubernetes
   - counting
   - regression
@@ -63,3 +64,13 @@ after_test: |
   for NS in payments inventory shipping analytics notifications; do
     kubectl delete namespace "app-227-$NS" || true
   done
+
+# The SuggestSkills frontend tool is available to the agent in every eval by
+# default (it mirrors the tool the Robusta UI attaches to each chat request,
+# letting the agent propose reusable environment know-how as "skills"). This
+# investigation is routine and teaches nothing reusable about the environment,
+# so a well-behaved agent must NOT propose any skill here.
+# `memories_generated: false` fails the test if it proposes one anyway -
+# guarding against skill spam, where users get flooded with low-value
+# suggestion chips after ordinary investigations.
+memories_generated: false

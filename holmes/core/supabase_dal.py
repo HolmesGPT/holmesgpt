@@ -4,12 +4,14 @@ import gzip
 import json
 import logging
 import os
+import ssl
 import threading
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+import httpx
 import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
@@ -22,8 +24,10 @@ from pydantic import BaseModel
 from supabase import create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -112,12 +116,26 @@ class RunStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class _RemoteToolResultRejected(Exception):
+    """The post_remote_tool_call_result RPC rejected the write because the row
+    was reassigned, stopped, or already finished (first result wins). Terminal —
+    excluded from tenacity retry, since retrying cannot help."""
+
+
 class RobustaToken(BaseModel):
     store_url: str
     api_key: str
     account_id: str
     email: str
     password: str
+
+
+# Troubleshooting guide for an outbound firewall blocking egress to the Robusta
+# platform (surfaces as a connection reset during sign-in). Linked from the log
+# and exception so users can find the fix.
+FIREWALL_TROUBLESHOOTING_URL = (
+    "https://holmesgpt.dev/reference/troubleshooting/#firewall-blocking-robusta-platform"
+)
 
 
 class SupabaseDnsException(Exception):
@@ -129,6 +147,78 @@ class SupabaseDnsException(Exception):
             f"curl -I {url}\n"
         )
         super().__init__(message)
+
+
+class SupabaseConnectionException(Exception):
+    """Raised when Holmes cannot open a connection to the Robusta platform.
+
+    Almost always an outbound firewall / egress policy blocking traffic to the
+    Robusta platform (not a DNS or TLS certificate problem). The actionable
+    guidance - allowlist '*.robusta.dev' plus the docs link - is logged at
+    WARNING right before this is raised, so the exception message itself stays a
+    thin technical wrapper around the underlying connection error.
+    """
+
+    def __init__(self, error: Exception, url: str):
+        super().__init__(
+            f"Could not connect to the Robusta platform at {url} "
+            f"({error.__class__.__name__}: {error})"
+        )
+
+
+_DISCONNECT_RETRY_ATTEMPTS = 3
+
+
+def _log_remote_protocol_retry(retry_state: RetryCallState) -> None:
+    """Log each RemoteProtocolError retry. ``handle_request`` is decorated, so its
+    request is the second positional arg (``self`` is the first)."""
+    request = retry_state.args[1] if len(retry_state.args) > 1 else None
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    logging.warning(
+        "Supabase request %s %s hit RemoteProtocolError (%s); "
+        "retrying on a fresh connection (attempt %d/%d)",
+        getattr(request, "method", "?"),
+        getattr(request, "url", "?"),
+        exc,
+        retry_state.attempt_number,
+        _DISCONNECT_RETRY_ATTEMPTS,
+    )
+
+
+class SupabaseRetryTransport(httpx.HTTPTransport):
+    """HTTP/1.1 transport that retries transient ``RemoteProtocolError``s.
+
+    Two problems are fixed at this transport, so every Supabase sub-client
+    (postgrest, auth/gotrue, storage, realtime) is hardened uniformly rather
+    than just postgrest table queries:
+
+    1. ``http2=False`` — httpcore's *sync* HTTP/2 connection is not thread-safe,
+       and one ``SupabaseDal`` client is shared across the conversation worker,
+       realtime callbacks and request threads. HTTP/1.1 gives each concurrent
+       request its own pooled, thread-safe connection.
+    2. Retry on ``RemoteProtocolError`` — even on HTTP/1.1, Supabase's edge
+       (Cloudflare / Kong / load balancer) closes idle keep-alive connections
+       server-side. A pooled connection the edge has already closed gets reused
+       and the next request fails with ``RemoteProtocolError: Server
+       disconnected without sending a response`` *before* it reaches Supabase.
+       The request was never processed, so retrying it on a fresh connection is
+       safe (postgrest/auth/storage bodies are buffered bytes, hence replayable).
+
+    This is the hardening Supabase support recommended (mirrors relay#573 /
+    ROB-4012; see ROB-4017).
+    """
+
+    # No backoff (no wait): a reaped keep-alive socket just needs a fresh
+    # connection, not a delay (see the class docstring for why retrying is safe).
+    # The budget is a fixed constant, so the @retry decorator suffices.
+    @retry(
+        retry=retry_if_exception_type(httpx.RemoteProtocolError),
+        stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
+        reraise=True,
+        before_sleep=_log_remote_protocol_retry,
+    )
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return super().handle_request(request)
 
 
 class SupabaseDal:
@@ -143,7 +233,38 @@ class SupabaseDal:
         logging.info(
             f"Initializing Robusta platform connection for account {self.account_id}"
         )
-        options = ClientOptions(postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS)
+        # Build the client on SupabaseRetryTransport (HTTP/1.1 + RemoteProtocolError
+        # retry — see its docstring) and hand it to postgrest so postgrest doesn't
+        # build its own HTTP/2 client.
+        #
+        # Honor the environment's CA bundle (corporate / TLS-proxy CA in
+        # SSL_CERT_FILE / REQUESTS_CA_BUNDLE) the way supabase's default client does;
+        # our own client otherwise falls back to certifi and breaks TLS verification
+        # behind an intercepting proxy. Pass an SSLContext, not the path string
+        # (httpx deprecated `verify=<str>`), honoring a CA file or directory.
+        ca_bundle = os.environ.get("SSL_CERT_FILE") or os.environ.get(
+            "REQUESTS_CA_BUNDLE"
+        )
+        verify: "ssl.SSLContext | bool"
+        if not ca_bundle:
+            verify = True
+        elif os.path.isdir(ca_bundle):
+            verify = ssl.create_default_context(capath=ca_bundle)
+        else:
+            verify = ssl.create_default_context(cafile=ca_bundle)
+        # verify/http2 go on the transport (httpx ignores them on the client once a
+        # custom transport is supplied); timeout/follow_redirects stay on the client
+        # (supabase ignores postgrest_client_timeout once an httpx_client is given).
+        transport = SupabaseRetryTransport(http2=False, verify=verify)
+        httpx_client = httpx.Client(
+            transport=transport,
+            timeout=SUPABASE_TIMEOUT_SECONDS,
+            follow_redirects=True,
+        )
+        options = ClientOptions(
+            postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS,
+            httpx_client=httpx_client,
+        )
         sentry_sdk.set_tag("db_url", self.url)
         self.client = create_client(self.url, self.api_key, options)  # type: ignore
         self.user_id = self.sign_in()
@@ -284,6 +405,33 @@ class SupabaseDal:
                 ]
             ):
                 raise SupabaseDnsException(e, self.url) from e
+            if isinstance(e, (ConnectionError, TimeoutError)) or any(
+                conn_indicator in error_msg
+                for conn_indicator in [
+                    "connection reset by peer",
+                    "connection reset",
+                    "connection refused",
+                    "connection aborted",
+                    "connection timed out",
+                    "network is unreachable",
+                    "no route to host",
+                    "errno 104",  # ECONNRESET
+                    "errno 111",  # ECONNREFUSED
+                ]
+            ):
+                # The platform resolved but refused/reset the connection - almost
+                # always an outbound firewall. Log the full actionable guidance at
+                # WARNING (not ERROR, so it doesn't raise a Sentry alert) before
+                # raising; the exception below stays a thin technical wrapper.
+                logging.warning(
+                    "Could not connect to the Robusta platform at %s. This is "
+                    "usually an outbound firewall blocking egress to the platform - "
+                    "allowlist outbound HTTPS to '*.robusta.dev'. See %s for "
+                    "troubleshooting steps.",
+                    self.url,
+                    FIREWALL_TROUBLESHOOTING_URL,
+                )
+                raise SupabaseConnectionException(e, self.url) from e
             raise
 
     def get_resource_recommendation(
@@ -586,6 +734,16 @@ class SupabaseDal:
         truncate_evidences_entities_if_necessary(relevant_evidence)
 
         issue_data["evidence"] = relevant_evidence
+
+        # Surface a uniform "firing" boolean so the LLM doesn't have to infer the
+        # alert's current state from raw timestamps. For prometheus alerts the
+        # GroupedIssues row fetched above already carries an explicit `firing`
+        # column; for every other source the firing state is implicit in
+        # `ends_at` (a null ends_at means the issue is still firing). Compute it
+        # from `ends_at` when it isn't already present so callers see the same
+        # field regardless of source.
+        if issue_data.get("firing") is None:
+            issue_data["firing"] = issue_data.get("ends_at") is None
 
         # build issue investigation dates
         started_at = issue_data.get("starts_at")
@@ -1069,7 +1227,15 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        try:
+        # Retry transient infrastructure errors (Supabase proxy DNS/cache
+        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
                 "claim_conversations",
                 {
@@ -1083,11 +1249,101 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim_with_retry()
         except Exception:
             logging.exception(
-                "Supabase error while claiming conversations", exc_info=True
+                "Supabase error while claiming conversations (after retries)",
+                exc_info=True,
             )
             return []
+
+    def claim_tool_calls(self, holmes_id: str) -> List[Dict]:
+        """
+        Atomically claim all pending remote tool calls targeting this cluster.
+        Returns claimed RemoteToolCalls rows (status='queued', assignee=holmes_id).
+        Stale pending rows (>5 minutes) are swept to 'timeout' server-side.
+        """
+        if not self.enabled:
+            return []
+
+        try:
+            res = self.client.rpc(
+                "claim_tool_calls",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_id": self.cluster,
+                    "_assignee": holmes_id,
+                },
+            ).execute()
+            if not res.data:
+                return []
+            if isinstance(res.data, list):
+                return res.data
+            return [res.data]
+        except Exception:
+            logging.exception("Supabase error while claiming tool calls", exc_info=True)
+            return []
+
+    def post_remote_tool_call_result(
+        self,
+        tool_call_id: str,
+        assignee: str,
+        status: str,
+        tool_response: Dict,
+    ) -> bool:
+        """
+        Publish a remote tool call result: tool_response + terminal status
+        ('completed'/'failed') in one atomic, assignee-guarded UPDATE.
+        Returns False when the row was reassigned/stopped (stale worker) —
+        callers must log and drop, never retry.
+        """
+        if not self.enabled:
+            return False
+
+        # Retry transient infrastructure errors so a hiccup doesn't drop a
+        # finished tool result. MISMATCH / not-found mean the row was
+        # reassigned/stopped/already-finished — terminal, never retried.
+        @retry(
+            retry=retry_if_not_exception_type(_RemoteToolResultRejected),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _post_with_retry() -> bool:
+            try:
+                res = self.client.rpc(
+                    "post_remote_tool_call_result",
+                    {
+                        "_id": tool_call_id,
+                        "_account_id": self.account_id,
+                        "_assignee": assignee,
+                        "_status": status,
+                        "_tool_response": tool_response,
+                    },
+                ).execute()
+                return bool(res.data)
+            except Exception as e:
+                msg = str(e).lower()
+                if "mismatch" in msg or "not found" in msg:
+                    raise _RemoteToolResultRejected(str(e)) from e
+                raise
+
+        try:
+            return _post_with_retry()
+        except _RemoteToolResultRejected as e:
+            # Stale/duplicate worker: log calmly and drop (first result wins).
+            logging.info(
+                "Remote tool call result rejected (stale/duplicate worker): %s", e
+            )
+            return False
+        except Exception:
+            logging.exception(
+                "Supabase error while posting remote tool call result (after retries)",
+                exc_info=True,
+            )
+            return False
 
     def post_conversation_events(
         self,
@@ -1105,31 +1361,63 @@ class SupabaseDal:
         previous events in the conversation with seq < new_seq as compacted=true
         (global per conversation, not scoped to request_sequence).
         """
+        # Lazy imports avoid a circular import: conversations_worker pulls in
+        # conversations.py → config → llm → supabase_dal at module load time.
+        from holmes.core.conversations_worker.models import (
+            ConversationReassignedError,
+        )
+
         if not self.enabled:
             return None
 
-        try:
-            res = self.client.rpc(
-                "post_conversation_events",
-                {
-                    "_account_id": self.account_id,
-                    "_conversation_id": conversation_id,
-                    "_assignee": assignee,
-                    "_request_sequence": request_sequence,
-                    "_events": events,
-                    "_compact": compact,
-                },
-            ).execute()
-            if res.data is None:
-                return None
-            if isinstance(res.data, list):
-                if not res.data:
+        # Retry transient infrastructure errors so a hiccup doesn't drop a
+        # batch of events. MISMATCH means the row was reassigned — never
+        # retried, raised as ConversationReassignedError so the worker exits.
+        @retry(
+            retry=retry_if_not_exception_type(ConversationReassignedError),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _post_with_retry() -> Optional[int]:
+            try:
+                res = self.client.rpc(
+                    "post_conversation_events",
+                    {
+                        "_account_id": self.account_id,
+                        "_conversation_id": conversation_id,
+                        "_assignee": assignee,
+                        "_request_sequence": request_sequence,
+                        "_events": events,
+                        "_compact": compact,
+                    },
+                ).execute()
+                if res.data is None:
                     return None
-                return int(res.data[0]) if not isinstance(res.data[0], dict) else None
-            return int(res.data)
+                if isinstance(res.data, list):
+                    if not res.data:
+                        return None
+                    return (
+                        int(res.data[0])
+                        if not isinstance(res.data[0], dict)
+                        else None
+                    )
+                return int(res.data)
+            except ConversationReassignedError:
+                raise
+            except Exception as e:
+                if "mismatch" in str(e).lower():
+                    raise ConversationReassignedError(str(e)) from e
+                raise
+
+        try:
+            return _post_with_retry()
+        except ConversationReassignedError:
+            raise
         except Exception:
             logging.exception(
-                "Supabase error while posting conversation events", exc_info=True
+                "Supabase error while posting conversation events (after retries)",
+                exc_info=True,
             )
             raise
 
@@ -1150,7 +1438,10 @@ class SupabaseDal:
         """
         # Lazy imports avoid a circular import: conversations_worker pulls in
         # conversations.py → config → llm → supabase_dal at module load time.
-        from holmes.core.conversations_worker.models import ConversationStatus
+        from holmes.core.conversations_worker.models import (
+            ConversationReassignedError,
+            ConversationStatus,
+        )
 
         if not self.enabled:
             return False
@@ -1161,30 +1452,41 @@ class SupabaseDal:
             )
             return False
 
-        try:
-            res = self.client.rpc(
-                "update_conversation_status",
-                {
-                    "_account_id": self.account_id,
-                    "_conversation_id": conversation_id,
-                    "_request_sequence": request_sequence,
-                    "_assignee": assignee,
-                    "_status": status,
-                },
-            ).execute()
-            return bool(res.data)
-        except Exception as e:
-            # The RPC raises MISMATCH errors when assignee, request_sequence,
-            # or status guards fail — propagate these so the worker can exit
-            # cleanly rather than retrying a stale transition.
-            if "mismatch" in str(e).lower():
-                from holmes.core.conversations_worker.models import (
-                    ConversationReassignedError,
-                )
+        # Retry transient infrastructure errors so a hiccup doesn't leave the
+        # conversation stuck in a non-terminal state. MISMATCH means the row
+        # was reassigned — never retried, raised as ConversationReassignedError.
+        @retry(
+            retry=retry_if_not_exception_type(ConversationReassignedError),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _update_with_retry() -> bool:
+            try:
+                res = self.client.rpc(
+                    "update_conversation_status",
+                    {
+                        "_account_id": self.account_id,
+                        "_conversation_id": conversation_id,
+                        "_request_sequence": request_sequence,
+                        "_assignee": assignee,
+                        "_status": status,
+                    },
+                ).execute()
+                return bool(res.data)
+            except Exception as e:
+                if "mismatch" in str(e).lower():
+                    raise ConversationReassignedError(str(e)) from e
+                raise
 
-                raise ConversationReassignedError(str(e)) from e
+        try:
+            return _update_with_retry()
+        except ConversationReassignedError:
+            raise
+        except Exception:
             logging.exception(
-                "Supabase error while updating conversation status", exc_info=True
+                "Supabase error while updating conversation status (after retries)",
+                exc_info=True,
             )
             return False
 
@@ -1212,18 +1514,16 @@ class SupabaseDal:
         if not self.enabled:
             return []
 
-        # Retry a few times on transient infrastructure errors (DNS/cache
-        # overflows in the Supabase proxy, 5xx gateway errors, etc.).  The
-        # caller's fallback when this returns [] is to mark the conversation
-        # failed for lack of a user question, so a transient hiccup here
-        # would cause a spurious permanent failure.
+        # Retry transient infrastructure errors. The caller treats [] as "no
+        # user question" and fails the conversation, so a hiccup here would
+        # cause a spurious permanent failure.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
             reraise=True,
         )
-        def _fetch() -> List[Dict]:
+        def _fetch_with_retry() -> List[Dict]:
             res = self.client.rpc(
                 "get_conversation_events",
                 {
@@ -1236,7 +1536,7 @@ class SupabaseDal:
             return res.data or []
 
         try:
-            return _fetch()
+            return _fetch_with_retry()
         except Exception:
             logging.exception(
                 "Supabase error while fetching conversation events (after retries)",

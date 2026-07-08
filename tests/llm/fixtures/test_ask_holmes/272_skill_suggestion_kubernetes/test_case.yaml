@@ -1,0 +1,88 @@
+# Test: Skill suggestion quality — Kubernetes topology know-how.
+#
+# The user reports failing orders, but no workload in app-272 is named
+# anything like "orders": order processing is handled by the
+# "atlas-core" deployment, reachable through the "orders-api" service.
+# Holmes must discover this mapping (by inspecting services/labels/logs)
+# and then suggest a skill capturing the durable topology know-how — and NOT
+# incident specifics. The unique error code ORD-ERR-4Q8Z2F is the canary: it
+# must appear in the answer but NOT in the suggested skill.
+#
+# STATUS (tagged `hard`): the SuggestSkills trigger fires only ~25% of
+# the time on opus-4.6 for this scenario (measured 2/8 across runs on
+# 2026-06-10). Unlike the data-source schema scenarios (271, 273,
+# 275-282), the topology mapping is found via routine resource listing —
+# no failed query, no schema inspection — and the model usually judges
+# nothing non-obvious was learned. Improving this trigger requires
+# iterating on the SuggestSkills prompt/checklist (item d), which is
+# deliberately frozen right now.
+
+user_prompt: |
+  Customers say placing orders fails intermittently in namespace app-272.
+  Find the application error and tell me the exact error code.
+
+# Closed-loop validation: the captured topology skill (orders →
+# atlas-core) must be fetched on replay and the answer must stay
+# correct.
+memories_generated: true
+rerun_with_memory: true
+
+# The replay has no SuggestSkills tool, so it is judged on the answer only.
+expected_replay_output:
+  - "Must report the error code ORD-ERR-4Q8Z2F"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must report the error code ORD-ERR-4Q8Z2F in the answer"
+  - "Must call the SuggestSkills tool with at least one suggestion"
+  - "The SuggestSkills suggestion(s) must capture the environment topology know-how discovered during the investigation: that order processing in this namespace/environment is handled by the atlas-core deployment (and/or that the orders-api service routes to atlas-core pods), i.e. order issues should be investigated in atlas-core. Mentioning that its logs are structured JSON with failure details under a ctx/code field is a bonus but not required"
+  - "The SuggestSkills tool call arguments must NOT contain the error code ORD-ERR-4Q8Z2F, must NOT state the root cause or findings of this specific incident (e.g. inventory reservation failures), and must NOT contain timestamps of specific events. Skills must capture reusable environment knowledge, not incident memories. (This applies only to the SuggestSkills tool call arguments — the error code appearing in other tool outputs or in the final answer is expected.)"
+
+tags:
+  - kubernetes
+  - logs
+  - skills
+  - hard
+
+setup_timeout: 300
+
+before_test: |
+  set -e
+  kubectl create namespace app-272 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml -n app-272
+
+  PODS_READY=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod -l app=atlas-core -n app-272 --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=ready pod -l app=catalog-sync -n app-272 --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=ready pod -l app=notification-relay -n app-272 --timeout=5s 2>/dev/null; then
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PODS_READY" = false ]; then
+    echo "❌ Pods failed to become ready"
+    kubectl get pods -n app-272
+    exit 1
+  fi
+
+  # Verify the needle is discoverable: the error code must show up in logs
+  NEEDLE_FOUND=false
+  for i in $(seq 1 30); do
+    if kubectl logs -n app-272 deployment/atlas-core --tail=50 2>/dev/null | grep -q "ORD-ERR-4Q8Z2F"; then
+      NEEDLE_FOUND=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$NEEDLE_FOUND" = false ]; then
+    echo "❌ Error code not found in atlas-core logs"
+    kubectl logs -n app-272 deployment/atlas-core --tail=20 || true
+    exit 1
+  fi
+  echo "✅ Test data ready in app-272"
+
+after_test: |
+  kubectl delete namespace app-272 --ignore-not-found

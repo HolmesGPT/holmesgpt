@@ -277,6 +277,17 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
 
     --8<-- "snippets/helm_upgrade_command.md"
 
+## Multiple Instances
+
+```multi-instance
+toolset: grafana/tempo
+name: Grafana Tempo
+config: |
+  api_url: <your grafana url>
+  api_key: <your grafana service account token>
+  grafana_datasource_uid: <the UID of the Tempo datasource>
+```
+
 ## Advanced Configuration
 
 ### SSL Verification

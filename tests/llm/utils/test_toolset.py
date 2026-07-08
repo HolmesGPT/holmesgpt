@@ -13,6 +13,10 @@ from holmes.core.tools import (
     YAMLToolset,
 )
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_file
+from holmes.plugins.toolsets.investigator.core_investigation import (
+    HYPOTHESIS_WRITE_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
+)
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from tests.llm.utils.mock_dal import load_test_dal
 
@@ -42,12 +46,20 @@ class TestToolsetManager:
         test_case_folder: str,
         allow_toolset_failures: bool = False,
         toolsets_config_path: Optional[str] = None,
+        additional_skill_paths: Optional[list] = None,
         enable_todo: bool = False,
+        enable_hypothesis: bool = False,
     ):
         self.test_case_folder = test_case_folder
         self.allow_toolset_failures = allow_toolset_failures
         self.toolsets_config_path = toolsets_config_path
+        # Extra directories the SkillsToolset should scan in addition to the
+        # test fixture folder. Used by the rerun_with_memory replay flow to
+        # inject captured suggestions (rendered as SKILL.md files in a
+        # tempdir) as available skills, and by pre_loaded_skills_path.
+        self.additional_skill_paths = additional_skill_paths or []
         self.enable_todo = enable_todo
+        self.enable_hypothesis = enable_hypothesis
 
         # Initialize components
         self._initialize_toolsets()
@@ -173,11 +185,23 @@ class TestToolsetManager:
                 or toolset.name in database_toolsets
             ):
                 continue
-            # Todos (TodoWrite tool) are disabled by default in evals. Drop the
-            # core_investigation toolset entirely unless the test opts in via
-            # enable_todo, so the tool isn't even offered to the LLM.
-            if toolset.name == "core_investigation" and not self.enable_todo:
-                continue
+            # The core_investigation toolset bundles the optional TodoWrite and
+            # HypothesisWrite tools, both disabled by default in evals. Drop the
+            # whole toolset unless the test opts into at least one of them, then
+            # offer only the tools that were opted into so the LLM never sees a
+            # tool the test didn't enable.
+            if toolset.name == "core_investigation":
+                if not self.enable_todo and not self.enable_hypothesis:
+                    continue
+                toolset.tools = [
+                    tool
+                    for tool in toolset.tools
+                    if (tool.name != TODO_WRITE_TOOL_NAME or self.enable_todo)
+                    and (
+                        tool.name != HYPOTHESIS_WRITE_TOOL_NAME
+                        or self.enable_hypothesis
+                    )
+                ]
             # Replace SkillsToolset with one that has test folder search path
             if toolset.name == "skills":
                 from holmes.plugins.toolsets.skills.skills_fetcher import (
@@ -185,7 +209,11 @@ class TestToolsetManager:
                 )
 
                 new_skills_toolset = SkillsToolset(
-                    dal=dal, additional_search_paths=[self.test_case_folder]
+                    dal=dal,
+                    additional_search_paths=[
+                        self.test_case_folder,
+                        *self.additional_skill_paths,
+                    ],
                 )
                 new_skills_toolset.enabled = toolset.enabled
                 new_skills_toolset.status = toolset.status

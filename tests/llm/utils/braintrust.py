@@ -1,7 +1,7 @@
 import base64
 import logging
 import os
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from braintrust import Attachment
 from pydantic import BaseModel
@@ -33,6 +33,8 @@ def log_to_braintrust(
     result: Optional[Union[LLMResult, CompactionResult]] = None,
     scores: Optional[dict] = None,
     error: Optional[Exception] = None,
+    suggested_memories: Optional[List[Any]] = None,
+    expected_override: Optional[str] = None,
 ) -> None:
     """Log evaluation data to Braintrust.
 
@@ -46,6 +48,12 @@ def log_to_braintrust(
         result: LLMResult for ask_holmes tests, CompactionResult for compaction tests
         scores: Dictionary of scores (e.g., correctness)
         error: Exception if the test failed
+        suggested_memories: Skill suggestions captured from SuggestSkills calls
+            during the run; pass when the test collects them so the count and
+            contents are logged in the span metadata
+        expected_override: Replaces the test case's expected_output in the
+            logged row. Used by the closed-loop replay, which is judged
+            against expected_replay_output when the fixture declares one.
     """
 
     # Prepare tags
@@ -89,6 +97,11 @@ def log_to_braintrust(
         "eval_id": base_test_id,  # Base test case ID without variant suffix
         "test_id": test_case.id,  # Full test case ID with variant suffix if present
     }
+
+    if suggested_memories is not None:
+        metadata["memories_count"] = len(suggested_memories)
+        if suggested_memories:
+            metadata["suggested_memories"] = suggested_memories
 
     # Add test type for ask tests
     if isinstance(test_case, AskHolmesTestCase):
@@ -174,6 +187,9 @@ def log_to_braintrust(
         input_data = ""
         expected = ""
 
+    if expected_override is not None:
+        expected = expected_override
+
     # Collect images from tool call results as Braintrust Attachments
     tool_call_images: list[Attachment] = []
     if result and getattr(result, "tool_calls", None):
@@ -234,9 +250,11 @@ def get_braintrust_url(
     # Build URL with available parameters
     url = f"https://www.braintrust.dev/app/{BRAINTRUST_ORG}/p/{BRAINTRUST_PROJECT}/experiments/{encoded_experiment_name}?c="
 
-    # Add span IDs if available
+    # Add span IDs if available. In Braintrust's experiment URLs `r` selects
+    # the row (the trace's root span id) and `s` selects a span inside that
+    # trace — passing them the other way round opens the experiment without
+    # focusing the row, which looks like the link "isn't filtering".
     if span_id and root_span_id:
-        # Use span_id as r parameter and root_span_id as s parameter
-        url += f"&r={span_id}&s={root_span_id}"
+        url += f"&r={root_span_id}&s={span_id}"
 
     return url

@@ -1,0 +1,29 @@
+# Self-call repro (ROB-310): a local stdio MCP server whose
+# remote_fetch_cluster_diagnostics takes a free-string agent_name and
+# validates it in-handler (like relay), returning a self-correcting error when
+# the caller passes its OWN cluster. See mock_fleet_mcp.py.
+toolsets:
+  fleet_diagnostics:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/274_remote_tools_self_call/mock_fleet_mcp.py"]
+
+  # The sandbox/CI runner for these evals needs no Kubernetes: disable the
+  # default-enabled toolsets whose prerequisites (kubectl, helm) would fail.
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false
+  internet:
+    enabled: false
+  robusta:
+    enabled: false
+  connectivity_check:
+    enabled: false
