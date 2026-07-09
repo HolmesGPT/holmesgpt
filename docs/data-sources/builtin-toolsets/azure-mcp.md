@@ -350,9 +350,15 @@ curl -O https://raw.githubusercontent.com/HolmesGPT/holmesgpt/master/examples/az
 The manifest uses two placeholders that must be replaced before applying:
 
 - `replaceme` → a **unique, DNS-safe** name for this instance (lowercase letters, digits, `-`), e.g. `prod`, `dev`, `tenant-a`. Every resource name and label is derived from it, so a unique value guarantees this instance never collides with another.
-- `NAMESPACE_REPLACE_ME` → the namespace Holmes runs in. It is set explicitly on every resource so nothing is created in `default` by mistake.
+- `NAMESPACE_REPLACE_ME` → the **same namespace the `robusta`/`holmes` release is installed in** (where the Holmes pod runs). Deploying into Holmes's own namespace keeps things simple: the Service resolves and the bundled NetworkPolicy matches the Holmes pods out of the box. It is set explicitly on every resource so nothing lands in `default` by accident.
 
-For example, to name this instance `prod` and deploy it into the `monitoring` namespace, replace both placeholders in one shot:
+Not sure which namespace that is? Find it with:
+
+```bash
+kubectl get pods -A -l app.kubernetes.io/name=holmes
+```
+
+For example, if Holmes runs in the `monitoring` namespace and you want to name this instance `prod`, replace both placeholders in one shot:
 
 ```bash
 sed -i '' 's/replaceme/prod/g; s/NAMESPACE_REPLACE_ME/monitoring/g' azure-mcp-additional-instance.yaml   # macOS
@@ -398,11 +404,7 @@ data:
 
 The manifest includes a NetworkPolicy that restricts the server to Holmes traffic. If your cluster does not enforce NetworkPolicies, delete that block (the last document in the file).
 
-**Step 6: Confirm the namespace matches Holmes**
-
-Deploy into the **same namespace as Holmes** so the in-cluster Service URL resolves. This is the value you set for `NAMESPACE_REPLACE_ME` in Step 2, and it is baked into every resource — you do not need to pass `-n` on apply.
-
-**Step 7: Apply the manifest**
+**Step 6: Apply the manifest**
 
 ```bash
 kubectl apply -f azure-mcp-additional-instance.yaml
@@ -412,7 +414,7 @@ kubectl get pods -n monitoring -l app=azure-prod
 kubectl logs  -n monitoring -l app=azure-prod
 ```
 
-**Step 8: Register the server with Holmes (Helm values)**
+**Step 7: Register the server with Holmes (Helm values)**
 
 Add an `mcp_servers` entry pointing at the new Service, then upgrade the release. The examples below use the same `prod` / `monitoring` values from Step 2 — **adjust them to match the name and namespace you chose**:
 
