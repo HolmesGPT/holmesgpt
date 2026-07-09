@@ -181,6 +181,12 @@ additionalVolumeMounts: []
 #         mountPath: /shared
 initContainers: []
 
+# Override command used to launch the Holmes server
+# Use it to try out experimental features or for custom configurations
+# Example:
+# command: ["python3", "-u", "experimental/ag-ui/server-agui.py"]
+command: ["python3", "-u", "server.py"]
+
 # Additional arguments to pass to the Holmes server
 # Example:
 # args:

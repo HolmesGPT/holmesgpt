@@ -102,7 +102,10 @@ spec:
           {{- with .Values.containerSecurityContext }}
           {{- toYaml . | nindent 10 }}
           {{- end }}
-        command: ["python3", "-u", "server.py"]
+        {{- with .Values.command }}
+        command:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         {{- with .Values.args }}
         args:
           {{- toYaml . | nindent 10 }}
