@@ -309,7 +309,7 @@ When you need to connect to multiple Azure tenants or subscriptions with differe
 
 #### Example 1: Multiple Instances with Workload Identity (AKS - No Secrets Required)
 
-Use this for AKS clusters with Workload Identity enabled. No secrets are needed.
+Use this for AKS clusters with Workload Identity enabled. No secrets are needed. Each instance can have its own custom LLM instructions to guide Holmes' investigation behavior.
 
 ```yaml
 mcpAddons:
@@ -353,7 +353,23 @@ mcpAddons:
       networkPolicy:
         enabled: false
 
-      llmInstructions: ""
+      # Custom instructions for production investigations
+      llmInstructions: |
+        ## Production Azure Investigation Guidelines
+        
+        **CRITICAL**: You are investigating PRODUCTION resources. Exercise extreme caution.
+        
+        **Before making any changes:**
+        1. Check Azure Activity Log for recent changes (last 24 hours)
+        2. Verify change windows and maintenance schedules
+        3. Always report findings to the on-call engineer before suggesting fixes
+        4. For critical systems, request approval before proceeding
+        
+        **Focus areas for prod:**
+        - Check Azure Monitor alerts and metrics
+        - Review cost anomalies (may indicate issues)
+        - Verify RBAC role assignments haven't been modified
+        - Check for service outages in Activity Log
 
     - name: "staging"
       enabled: true
@@ -389,7 +405,23 @@ mcpAddons:
       networkPolicy:
         enabled: false
 
-      llmInstructions: ""
+      # Custom instructions for staging investigations
+      llmInstructions: |
+        ## Staging Azure Investigation Guidelines
+        
+        **SAFE TO EXPERIMENT**: You are investigating STAGING resources. 
+        
+        **Investigation approach:**
+        1. Feel free to gather detailed diagnostics and check configurations
+        2. You can safely query resources without worry of impacting production
+        3. Focus on testing, validation, and reproducing issues
+        4. Check Azure Monitor for metrics and diagnostics
+        
+        **Use for:**
+        - Testing Azure configurations before production deployment
+        - Reproducing reported issues in a safe environment
+        - Validating fixes and changes
+        - Learning Azure resource behavior
 ```
 
 #### Example 2: Multiple Instances with Service Principal (Non-AKS Clusters - Secrets Required)
@@ -452,6 +484,24 @@ mcpAddons:
       networkPolicy:
         enabled: false
 
+      # Custom instructions for production investigations
+      llmInstructions: |
+        ## Production Azure Investigation Guidelines
+        
+        **CRITICAL**: You are investigating PRODUCTION resources. Exercise extreme caution.
+        
+        **Before making any changes:**
+        1. Check Azure Activity Log for recent changes (last 24 hours)
+        2. Verify change windows and maintenance schedules
+        3. Always report findings to the on-call engineer before suggesting fixes
+        4. For critical systems, request approval before proceeding
+        
+        **Focus areas for prod:**
+        - Check Azure Monitor alerts and metrics
+        - Review cost anomalies (may indicate issues)
+        - Verify RBAC role assignments haven't been modified
+        - Check for service outages in Activity Log
+
     - name: "staging"
       enabled: true
 
@@ -483,11 +533,29 @@ mcpAddons:
 
       networkPolicy:
         enabled: false
+
+      # Custom instructions for staging investigations
+      llmInstructions: |
+        ## Staging Azure Investigation Guidelines
+        
+        **SAFE TO EXPERIMENT**: You are investigating STAGING resources. 
+        
+        **Investigation approach:**
+        1. Feel free to gather detailed diagnostics and check configurations
+        2. You can safely query resources without worry of impacting production
+        3. Focus on testing, validation, and reproducing issues
+        4. Check Azure Monitor for metrics and diagnostics
+        
+        **Use for:**
+        - Testing Azure configurations before production deployment
+        - Reproducing reported issues in a safe environment
+        - Validating fixes and changes
+        - Learning Azure resource behavior
 ```
 
 #### Example 3: Mixed Setup (Workload Identity + Service Principal)
 
-Use this when you have multiple clusters or authentication methods.
+Use this when you have multiple clusters or authentication methods. Each instance maintains its own custom LLM instructions.
 
 ```yaml
 mcpAddons:
@@ -515,6 +583,18 @@ mcpAddons:
       service:
         port: 8000
 
+      llmInstructions: |
+        ## Production AKS on Azure Investigation
+        
+        You have access to a production AKS cluster running on Azure.
+        Be cautious - focus on diagnostics, not changes.
+        
+        Priority checks:
+        - Node health and capacity
+        - Pod resource constraints
+        - Network connectivity issues
+        - Azure storage and networking
+
     # Non-AKS cluster with Service Principal - requires secret
     - name: "staging-on-prem"
       enabled: true
@@ -532,6 +612,18 @@ mcpAddons:
 
       service:
         port: 8001
+
+      llmInstructions: |
+        ## Staging On-Premises Azure Investigation
+        
+        You have access to on-premises staging infrastructure integrated with Azure.
+        This is a lower-risk environment - safe to investigate thoroughly.
+        
+        Investigation focus:
+        - Azure-to-on-prem connectivity
+        - Hybrid network configuration
+        - Resource synchronization
+        - Staging test results
 ```
 
 **Secret Creation for Mixed Setup:**
@@ -543,6 +635,39 @@ kubectl create secret generic azure-staging-mcp-creds \
   --from-literal=AZURE_CLIENT_SECRET=staging-client-secret \
   -n YOUR_NAMESPACE
 ```
+
+#### Custom LLM Instructions Per Instance
+
+Each Azure instance can have its own custom `llmInstructions` field to guide Holmes' investigation behavior. This is optional — if omitted, Holmes uses the default Azure MCP instructions.
+
+**Use custom instructions to:**
+- **Distinguish environments**: Tell Holmes if it's investigating production vs staging
+- **Set investigation scope**: Limit what Holmes should investigate per tenant
+- **Define escalation paths**: Specify when to report findings vs making changes
+- **Provide context**: Include environment-specific priorities and known issues
+
+**Example: Production vs Staging Instructions**
+
+```yaml
+azureInstances:
+  - name: "prod"
+    # ... config ...
+    llmInstructions: |
+      # CRITICAL: Production environment
+      - Always verify changes in Activity Log first
+      - Report findings before taking action
+      - Check maintenance windows before suggesting changes
+  
+  - name: "staging"
+    # ... config ...
+    llmInstructions: |
+      # SAFE: Staging environment  
+      - Feel free to investigate thoroughly
+      - Safe to gather detailed diagnostics
+      - No approval needed for diagnostics
+```
+
+If you omit `llmInstructions`, Holmes uses the default Azure MCP instructions (which cover general Azure investigation patterns).
 
 #### When to Use Each Authentication Method
 
