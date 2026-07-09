@@ -1,4 +1,237 @@
-{{- if .Values.mcpAddons.azure.enabled }}
+{{- /* Support for multiple Azure MCP instances */ -}}
+{{- if .Values.mcpAddons.azureInstances }}
+{{- range .Values.mcpAddons.azureInstances }}
+{{- if .enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-azure-{{ .name }}-mcp-config
+  namespace: {{ .config.namespace | default .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-azure-{{ .name }}-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" $ | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" $) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  AZURE_TENANT_ID: {{ .config.tenantId | quote }}
+  AZURE_SUBSCRIPTION_ID: {{ .config.subscriptionId | quote }}
+  AZ_AUTH_METHOD: {{ .config.authMethod | default "workload-identity" | quote }}
+  READ_ONLY_MODE: {{ .config.readOnlyMode | default "true" | quote }}
+---
+{{- if .serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .serviceAccount.name | default (printf "azure-%s-mcp-sa" .name) }}
+  namespace: {{ .config.namespace | default $.Release.Namespace }}
+  labels:
+    app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" $ | nindent 4 }}
+    {{- if eq .config.authMethod "workload-identity" }}
+    azure.workload.identity/use: "true"
+    {{- end }}
+  {{- $ann := dict -}}
+  {{- with (include "holmes.commonAnnotations" $ | fromYaml) -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- with .serviceAccount.annotations -}}
+  {{- $ann = mergeOverwrite $ann . -}}
+  {{- end -}}
+  {{- if $ann }}
+  annotations:
+    {{- toYaml $ann | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-azure-{{ .name }}-mcp-server
+  namespace: {{ .config.namespace | default $.Release.Namespace }}
+  labels:
+    app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" $ | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" $) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+      app.kubernetes.io/name: azure-mcp-server
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+        app.kubernetes.io/name: azure-mcp-server
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" $ | nindent 8 }}
+        {{- if eq .config.authMethod "workload-identity" }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+      annotations:
+        {{- with (include "holmes.commonAnnotations" $) }}
+          {{- . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ . | toYaml | sha256sum }}
+    spec:
+      {{- if or .serviceAccount.create .serviceAccount.name }}
+      serviceAccountName: {{ .serviceAccount.name | default (printf "azure-%s-mcp-sa" .name) }}
+      {{- end }}
+      containers:
+      - name: azure-mcp
+        image: {{ .registry }}/{{ .image }}
+        imagePullPolicy: {{ .imagePullPolicy | default "IfNotPresent" }}
+
+        args:
+          - "--transport"
+          - "streamable-http"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - {{ .service.port | default 8000 | quote }}
+          {{- if .config.readOnlyMode }}
+          - "--readonly"
+          {{- end }}
+          {{- if .config.enableSecurityPolicy }}
+          - "--enable-security-policy"
+          {{- end }}
+          {{- if .config.timeout }}
+          - "--timeout"
+          - {{ .config.timeout | quote }}
+          {{- end }}
+
+        ports:
+        - name: http
+          containerPort: {{ .service.port | default 8000 }}
+          protocol: TCP
+
+        env:
+        - name: AZURE_TENANT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: {{ $.Release.Name }}-azure-{{ .name }}-mcp-config
+              key: AZURE_TENANT_ID
+        - name: AZURE_SUBSCRIPTION_ID
+          valueFrom:
+            configMapKeyRef:
+              name: {{ $.Release.Name }}-azure-{{ .name }}-mcp-config
+              key: AZURE_SUBSCRIPTION_ID
+        - name: AZ_AUTH_METHOD
+          valueFrom:
+            configMapKeyRef:
+              name: {{ $.Release.Name }}-azure-{{ .name }}-mcp-config
+              key: AZ_AUTH_METHOD
+        {{- if eq .config.authMethod "workload-identity" }}
+        - name: AZURE_CLIENT_ID
+          value: {{ .config.clientId | quote }}
+        {{- end }}
+        {{- if eq .config.authMethod "service-principal" }}
+        - name: AZURE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .secretName | default "azure-mcp-creds" }}
+              key: AZURE_CLIENT_ID
+        - name: AZURE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .secretName | default "azure-mcp-creds" }}
+              key: AZURE_CLIENT_SECRET
+        {{- end }}
+        {{- if eq .config.authMethod "managed-identity" }}
+        - name: AZURE_CLIENT_ID
+          value: {{ .config.clientId | quote }}
+        {{- end }}
+        {{- if .additionalEnvVars }}
+        {{- toYaml .additionalEnvVars | nindent 8 }}
+        {{- end }}
+
+        resources:
+          {{- toYaml .resources | nindent 10 }}
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+      {{- if .nodeSelector }}
+      nodeSelector:
+        {{- toYaml .nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .tolerations }}
+      tolerations:
+        {{- toYaml .tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .affinity }}
+      affinity:
+        {{- toYaml .affinity | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-azure-{{ .name }}-mcp-server
+  namespace: {{ .config.namespace | default $.Release.Namespace }}
+  labels:
+    app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" $ | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" $) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+  ports:
+  - name: http
+    port: {{ .service.port | default 8000 }}
+    targetPort: http
+    protocol: TCP
+{{- end }}
+{{- end }}
+{{- else if .Values.mcpAddons.azure.enabled }}
+{{- /* Backward compatibility: single azure instance */ -}}
 ---
 apiVersion: v1
 kind: ConfigMap

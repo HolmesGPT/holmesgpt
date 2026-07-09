@@ -294,6 +294,108 @@ Choose an authentication method based on your environment:
 
 Holmes can automatically discover and switch between subscriptions within the same tenant. Just ensure your identity has the appropriate roles in each subscription.
 
+### Multiple Azure MCP Instances
+
+When you need to connect to multiple Azure tenants or subscriptions with different credentials, deploy multiple Azure MCP instances. Each instance runs in its own pod with its own configuration, service account, and network policies.
+
+**Example: Connecting to Two Azure Tenants**
+
+```yaml
+mcpAddons:
+  # Disable the single instance (backward compatible)
+  azure:
+    enabled: false
+
+  # Configure multiple instances
+  azureInstances:
+    - name: "prod"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-prod-mcp-sa"
+        annotations:
+          azure.workload.identity/client-id: "prod-client-id"
+          azure.workload.identity/tenant-id: "prod-tenant-id"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "prod-tenant-id"
+        subscriptionId: "prod-subscription-id"
+        clientId: "prod-client-id"
+        authMethod: "workload-identity"
+        readOnlyMode: true
+        timeout: "120"
+
+      service:
+        port: 8000
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+
+      llmInstructions: ""
+
+    - name: "staging"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-staging-mcp-sa"
+        annotations:
+          azure.workload.identity/client-id: "staging-client-id"
+          azure.workload.identity/tenant-id: "staging-tenant-id"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "staging-tenant-id"
+        subscriptionId: "staging-subscription-id"
+        clientId: "staging-client-id"
+        authMethod: "workload-identity"
+        readOnlyMode: true
+        timeout: "120"
+
+      service:
+        port: 8001  # Each instance needs a unique port
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+
+      llmInstructions: ""
+```
+
+**Key Points for Multiple Instances:**
+
+- **Instance Name**: The `name` field must be unique across all instances (used for resource naming)
+- **Unique Ports**: Each instance must have a unique `service.port` to avoid conflicts
+- **Unique Service Accounts**: Recommended to use unique service account names per instance
+- **Unique Credentials**: Each instance can have its own tenant ID, subscription ID, and credentials
+- **Backward Compatible**: The single `azure` configuration still works — you only need `azureInstances` when deploying multiple instances
+
+When using multiple instances, Holmes will route requests to the appropriate instance based on the context (tenant/subscription). You can specify which instance to use in your investigation prompt:
+
+```
+"List all resource groups in the prod tenant"
+"Get VM details from the staging subscription"
+```
+
 ### Troubleshooting
 
 ```bash
