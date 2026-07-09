@@ -5,7 +5,8 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock* ./
 RUN pip install --no-cache-dir poetry && \
     poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi --no-root
+    poetry install --no-interaction --no-ansi --no-root && \
+    pip install --no-cache-dir -U "pip" "setuptools>=83.0.0" "wheel>=0.46.2"
 
 COPY holmes_operator/ ./holmes_operator/
 
