@@ -363,35 +363,35 @@ That example yields the `prod` instance in the `monitoring` namespace — i.e. `
 
 **Step 3: Set the credentials in the Secret**
 
-Put this account's service-principal credentials (create one with [Creating a Service Principal](#creating-a-service-principal-non-aks-clusters)) into the `Secret` block:
+Open the downloaded file and find the `Secret` block. **Leave `name` and `namespace` alone** — Step 2 already set them. Edit **only** the two credential values, replacing `YOUR_CLIENT_ID` and `YOUR_CLIENT_SECRET` with this account's service principal (create one with [Creating a Service Principal](#creating-a-service-principal-non-aks-clusters)):
 
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: azure-prod-secret        # after Step 2
-  namespace: monitoring          # after Step 2
+  name: azure-replaceme-secret      # leave as-is (Step 2 set this, e.g. azure-prod-secret)
+  namespace: NAMESPACE_REPLACE_ME   # leave as-is (Step 2 set this, e.g. monitoring)
 type: Opaque
 stringData:
-  AZURE_CLIENT_ID: "YOUR_CLIENT_ID"
-  AZURE_CLIENT_SECRET: "YOUR_CLIENT_SECRET"
+  AZURE_CLIENT_ID: "YOUR_CLIENT_ID"          # <-- EDIT: service principal appId
+  AZURE_CLIENT_SECRET: "YOUR_CLIENT_SECRET"  # <-- EDIT: service principal password
 ```
 
 **Step 4: Set the account details in the ConfigMap**
 
-Point the server at the right tenant and subscription and confirm the auth method:
+In the same file, find the `ConfigMap` block. Again **leave `name` and `namespace` alone**. Edit **only** `YOUR_TENANT_ID` and `YOUR_SUBSCRIPTION_ID`; keep `AZ_AUTH_METHOD: "service-principal"` unless you know you need a different method:
 
 ```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: azure-prod-configmap     # after Step 2
-  namespace: monitoring          # after Step 2
+  name: azure-replaceme-configmap   # leave as-is (Step 2 set this, e.g. azure-prod-configmap)
+  namespace: NAMESPACE_REPLACE_ME   # leave as-is (Step 2 set this, e.g. monitoring)
 data:
-  AZURE_TENANT_ID: "YOUR_TENANT_ID"
-  AZURE_SUBSCRIPTION_ID: "YOUR_SUBSCRIPTION_ID"
-  AZ_AUTH_METHOD: "service-principal"
-  READ_ONLY_MODE: "true"          # set to "false" to allow write operations (use with caution)
+  AZURE_TENANT_ID: "YOUR_TENANT_ID"              # <-- EDIT: service principal tenant
+  AZURE_SUBSCRIPTION_ID: "YOUR_SUBSCRIPTION_ID"  # <-- EDIT: subscription to investigate
+  AZ_AUTH_METHOD: "service-principal"            # leave as-is
+  READ_ONLY_MODE: "true"                         # "false" to allow writes (use with caution)
 ```
 
 **Step 5: (Optional) Remove the NetworkPolicy**
