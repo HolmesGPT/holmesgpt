@@ -38,6 +38,7 @@ data:
     {{- if .Values.mcpAddons.azureInstances }}
     {{- range .Values.mcpAddons.azureInstances }}
     {{- if .enabled }}
+    {{- $llmInstructions := .llmInstructions | default (include "holmes.azureMcp.llmInstructions" $) }}
     {{- $azureInstanceMcpServers := dict (printf "azure_%s" .name) (dict
         "description" (printf "Azure API MCP Server (%s) - access to %s tenant. Execute Azure CLI commands." .name .config.tenantId)
         "config" (dict
@@ -45,7 +46,7 @@ data:
           "mode" "streamable-http"
           "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
         )
-        "llm_instructions" (if .llmInstructions (.llmInstructions | trim) else (include "holmes.azureMcp.llmInstructions" $ | trim) end)
+        "llm_instructions" ($llmInstructions | trim)
       )
     }}
     {{- $mcpServers = merge $mcpServers $azureInstanceMcpServers }}

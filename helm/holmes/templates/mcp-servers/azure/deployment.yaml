@@ -6,12 +6,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-azure-{{ .name }}-mcp-config
-  namespace: {{ .config.namespace | default .Release.Namespace }}
+  name: {{ $.Release.Name }}-azure-{{ .name }}-mcp-config
+  namespace: {{ .config.namespace | default $.Release.Namespace }}
   labels:
-    app: {{ .Release.Name }}-azure-{{ .name }}-mcp
+    app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
     app.kubernetes.io/name: azure-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" $ | nindent 4 }}
@@ -241,7 +241,7 @@ metadata:
   labels:
     app: {{ .Release.Name }}-azure-mcp
     app.kubernetes.io/name: azure-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
@@ -264,7 +264,7 @@ metadata:
   labels:
     app: {{ .Release.Name }}-azure-mcp
     app.kubernetes.io/name: azure-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
@@ -292,7 +292,7 @@ metadata:
   labels:
     app: {{ .Release.Name }}-azure-mcp
     app.kubernetes.io/name: azure-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
@@ -306,13 +306,13 @@ spec:
     matchLabels:
       app: {{ .Release.Name }}-azure-mcp
       app.kubernetes.io/name: azure-mcp-server
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
   template:
     metadata:
       labels:
         app: {{ .Release.Name }}-azure-mcp
         app.kubernetes.io/name: azure-mcp-server
-        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/instance: {{ $.Release.Name }}
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
         {{- include "holmes.commonLabels" . | nindent 8 }}
@@ -439,7 +439,7 @@ metadata:
   labels:
     app: {{ .Release.Name }}-azure-mcp
     app.kubernetes.io/name: azure-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
@@ -452,7 +452,7 @@ spec:
   selector:
     app: {{ .Release.Name }}-azure-mcp
     app.kubernetes.io/name: azure-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
   ports:
   - name: http
     port: 8000
