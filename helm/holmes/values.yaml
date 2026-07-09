@@ -421,6 +421,38 @@ mcpAddons:
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
 
+    # Multiple accounts (optional).
+    # By default the single set of fields above deploys ONE Azure MCP server
+    # (backwards compatible - resource names and the `azure_api` toolset are
+    # unchanged). To connect Holmes to several Azure accounts/subscriptions
+    # with different credentials, list them here. Each entry gets its own
+    # Deployment, Service, ConfigMap, ServiceAccount and NetworkPolicy, plus a
+    # dedicated toolset named `azure_api_<accountName>`.
+    #
+    # Every entry inherits the fields above (image, registry, resources,
+    # service, networkPolicy, etc.) as defaults and overrides only what it
+    # sets. Resources for a named account are suffixed with `-<accountName>`
+    # (e.g. `<release>-azure-mcp-server-prod`), and the ServiceAccount defaults
+    # to `<release>-azure-mcp-sa-<accountName>` unless you set
+    # `serviceAccount.name` explicitly.
+    accounts: {}
+      # prod:
+      #   config:
+      #     tenantId: "prod-tenant-id"
+      #     subscriptionId: "prod-subscription-id"
+      #     clientId: "prod-client-id"
+      #     authMethod: "workload-identity"
+      #   serviceAccount:
+      #     annotations:
+      #       azure.workload.identity/client-id: "prod-client-id"
+      #       azure.workload.identity/tenant-id: "prod-tenant-id"
+      # dev:
+      #   config:
+      #     tenantId: "dev-tenant-id"
+      #     subscriptionId: "dev-subscription-id"
+      #     authMethod: "service-principal"
+      #   secretName: "azure-mcp-creds-dev"   # must contain AZURE_CLIENT_ID / AZURE_CLIENT_SECRET
+
   # GitHub MCP Server Configuration
   # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions
   #

@@ -35,17 +35,25 @@ data:
     {{- $mcpServers = merge $mcpServers $awsMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.azure.enabled }}
-    {{- $azureMcpServers := dict "azure_api" (dict
-        "description" "Azure API MCP Server - comprehensive Azure service access. Execute any Azure CLI commands."
+    {{- $azureRoot := . }}
+    {{- range $account := include "holmes.azureMcp.accounts" . | fromYamlArray }}
+    {{- $azureNs := $account.config.namespace | default $azureRoot.Release.Namespace }}
+    {{- $azureDesc := "Azure API MCP Server - comprehensive Azure service access. Execute any Azure CLI commands." }}
+    {{- if $account._suffix }}
+    {{- $azureDesc = printf "%s (account: %s)" $azureDesc (trimPrefix "-" $account._suffix) }}
+    {{- end }}
+    {{- $azureMcpServers := dict $account._mcpKey (dict
+        "description" $azureDesc
         "config" (dict
-          "url" (printf "http://%s-azure-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name (.Values.mcpAddons.azure.config.namespace | default .Release.Namespace))
+          "url" (printf "http://%s-azure-mcp-server%s.%s.svc.cluster.local:8000/mcp" $azureRoot.Release.Name $account._suffix $azureNs)
           "mode" "streamable-http"
           "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
         )
-        "llm_instructions" (include "holmes.azureMcp.llmInstructions" . | trim)
+        "llm_instructions" (include "holmes.azureMcp.llmInstructions" $account | trim)
       )
     }}
     {{- $mcpServers = merge $mcpServers $azureMcpServers }}
+    {{- end }}
     {{- end }}
     {{- if .Values.mcpAddons.mariadb.enabled }}
     {{- $mariadbMcpServers := dict "mariadb" (dict

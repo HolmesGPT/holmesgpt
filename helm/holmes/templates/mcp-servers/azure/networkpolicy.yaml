@@ -1,27 +1,34 @@
-{{- if and .Values.mcpAddons.azure.enabled .Values.mcpAddons.azure.networkPolicy.enabled }}
+{{- if .Values.mcpAddons.azure.enabled }}
+{{- $root := . }}
+{{- range $account := include "holmes.azureMcp.accounts" . | fromYamlArray }}
+{{- if $account.networkPolicy.enabled }}
+{{- $suffix := $account._suffix }}
+{{- $ns := $account.config.namespace | default $root.Release.Namespace }}
+{{- $name := printf "%s-azure-mcp%s" $root.Release.Name $suffix }}
+{{- $serverName := printf "%s-azure-mcp-server%s" $root.Release.Name $suffix }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ .Release.Name }}-azure-mcp-server
-  namespace: {{ .Values.mcpAddons.azure.config.namespace | default .Release.Namespace }}
+  name: {{ $serverName }}
+  namespace: {{ $ns }}
   labels:
-    app: {{ .Release.Name }}-azure-mcp
+    app: {{ $name }}
     app.kubernetes.io/name: azure-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
-    {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
+    {{- include "holmes.commonLabels" $root | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" $root) }}
   annotations:
     {{- . | nindent 4 }}
   {{- end }}
 spec:
   podSelector:
     matchLabels:
-      app: {{ .Release.Name }}-azure-mcp
+      app: {{ $name }}
       app.kubernetes.io/name: azure-mcp-server
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
   policyTypes:
   - Ingress
   - Egress
@@ -31,13 +38,13 @@ spec:
     - podSelector:
         matchLabels:
           app.kubernetes.io/name: holmes
-          app.kubernetes.io/instance: {{ .Release.Name }}
+          app.kubernetes.io/instance: {{ $root.Release.Name }}
     # Allow traffic from pods with specific label
     - podSelector:
         matchLabels:
           holmes.mcp.client: "true"
-    {{- if .Values.mcpAddons.azure.networkPolicy.additionalIngressRules }}
-    {{- toYaml .Values.mcpAddons.azure.networkPolicy.additionalIngressRules | nindent 4 }}
+    {{- if $account.networkPolicy.additionalIngressRules }}
+    {{- toYaml $account.networkPolicy.additionalIngressRules | nindent 4 }}
     {{- end }}
     ports:
     - protocol: TCP
@@ -58,7 +65,9 @@ spec:
     ports:
     - protocol: TCP
       port: 443
-  {{- if .Values.mcpAddons.azure.networkPolicy.additionalEgressRules }}
-  {{- toYaml .Values.mcpAddons.azure.networkPolicy.additionalEgressRules | nindent 2 }}
+  {{- if $account.networkPolicy.additionalEgressRules }}
+  {{- toYaml $account.networkPolicy.additionalEgressRules | nindent 2 }}
   {{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

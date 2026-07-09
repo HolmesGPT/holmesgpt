@@ -1,9 +1,53 @@
 {{/*
-Define the LLM instructions for Azure MCP
+Normalize the Azure MCP config into a list of accounts so that a single set of
+templates can render one Deployment/Service/ConfigMap/ServiceAccount per account.
+
+Backwards compatible: when `azure.accounts` is not set, a single account is
+synthesized from the top-level `azure` fields and its resource names are left
+unsuffixed (`<release>-azure-mcp-server`, mcp key `azure_api`, etc.) so existing
+installs are unchanged. When `azure.accounts` (a map keyed by account name) is
+set, each entry inherits the top-level fields as defaults and overrides them,
+and every resource is suffixed with `-<accountName>`.
+
+Each returned account carries three resolved helper keys:
+  _suffix  - "" for the legacy account, "-<name>" for named accounts
+  _mcpKey  - "azure_api" for the legacy account, "azure_api_<name>" otherwise
+  _saName  - resolved ServiceAccount name (unique per named account)
+
+Usage: {{- range include "holmes.azureMcp.accounts" . | fromYamlArray }}
+*/}}
+{{- define "holmes.azureMcp.accounts" -}}
+{{- $root := .Values.mcpAddons.azure -}}
+{{- $out := list -}}
+{{- if $root.accounts -}}
+{{- $defaults := omit $root "accounts" "enabled" -}}
+{{- range $name, $acct := $root.accounts -}}
+{{- $acct = default (dict) $acct -}}
+{{- $merged := merge (deepCopy $acct) (deepCopy $defaults) -}}
+{{- $_ := set $merged "_suffix" (printf "-%s" $name) -}}
+{{- $_ := set $merged "_mcpKey" (printf "azure_api_%s" $name) -}}
+{{- $sa := default (dict) $acct.serviceAccount -}}
+{{- $_ := set $merged "_saName" (default (printf "%s-azure-mcp-sa-%s" $.Release.Name $name) $sa.name) -}}
+{{- $out = append $out $merged -}}
+{{- end -}}
+{{- else -}}
+{{- $merged := deepCopy (omit $root "accounts") -}}
+{{- $_ := set $merged "_suffix" "" -}}
+{{- $_ := set $merged "_mcpKey" "azure_api" -}}
+{{- $_ := set $merged "_saName" $root.serviceAccount.name -}}
+{{- $out = append $out $merged -}}
+{{- end -}}
+{{- $out | toYaml -}}
+{{- end -}}
+
+{{/*
+Define the LLM instructions for Azure MCP.
+Accepts the account dict as the context (falls back to root when rendered
+without an account) so a per-account `llmInstructions` override wins.
 */}}
 {{- define "holmes.azureMcp.llmInstructions" -}}
-{{- if .Values.mcpAddons.azure.llmInstructions -}}
-{{ .Values.mcpAddons.azure.llmInstructions }}
+{{- if .llmInstructions -}}
+{{ .llmInstructions }}
 {{- else -}}
 IMPORTANT: When investigating Kubernetes issues, ALWAYS check if Azure infrastructure could be the root cause. Many K8s problems originate from Azure-level configurations.
 IMPORTANT: Always use paging, where possible, to avoid reaching the size limit. Use pagination parameters like  --max-items and --next-token or similar.

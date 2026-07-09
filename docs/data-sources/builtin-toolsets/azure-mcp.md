@@ -294,6 +294,44 @@ Choose an authentication method based on your environment:
 
 Holmes can automatically discover and switch between subscriptions within the same tenant. Just ensure your identity has the appropriate roles in each subscription.
 
+### Multiple Accounts (Different Credentials)
+
+When you need to reach several Azure accounts, tenants, or subscriptions that use **different credentials** (for example a separate service principal per environment, or accounts in different tenants), define them under `accounts`. Each entry deploys its own Azure MCP server (Deployment, Service, ConfigMap, ServiceAccount, and NetworkPolicy) and is exposed to Holmes as a dedicated toolset named `azure_api_<accountName>`.
+
+Every account inherits the top-level `azure` settings (`image`, `registry`, `resources`, `service`, `networkPolicy`, etc.) as defaults and overrides only what it sets:
+
+```yaml
+mcpAddons:
+  azure:
+    enabled: true
+    # Shared defaults inherited by every account below
+    config:
+      readOnlyMode: true
+      authMethod: "workload-identity"
+    accounts:
+      prod:
+        config:
+          tenantId: "PROD_TENANT_ID"
+          subscriptionId: "PROD_SUBSCRIPTION_ID"
+          clientId: "PROD_CLIENT_ID"
+        serviceAccount:
+          annotations:
+            azure.workload.identity/client-id: "PROD_CLIENT_ID"
+            azure.workload.identity/tenant-id: "PROD_TENANT_ID"
+      dev:
+        config:
+          tenantId: "DEV_TENANT_ID"
+          subscriptionId: "DEV_SUBSCRIPTION_ID"
+          authMethod: "service-principal"
+        secretName: "azure-mcp-creds-dev"   # must contain AZURE_CLIENT_ID / AZURE_CLIENT_SECRET
+```
+
+Notes:
+
+- Resources for a named account are suffixed with `-<accountName>` (e.g. `RELEASE_NAME-azure-mcp-server-prod`), and the ServiceAccount defaults to `RELEASE_NAME-azure-mcp-sa-<accountName>` unless you set `serviceAccount.name` explicitly.
+- For `service-principal` accounts, create a distinct secret per account (`secretName`) holding `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`.
+- Leaving `accounts` empty keeps the previous single-server behavior unchanged (one `azure_api` toolset), so existing installs need no changes.
+
 ### Troubleshooting
 
 ```bash
