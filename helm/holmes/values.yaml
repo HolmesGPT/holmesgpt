@@ -195,6 +195,20 @@ args: []
 
 priorityClassName: ""
 
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 10
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 15
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
 # List of Kubernetes Secret names whose keys are auto-mounted as env vars on
 # the Holmes pod via `envFrom`. Use this together with the `envRef:` sugar
 # below to avoid repeating each API key in `additionalEnvVars`. Every listed
