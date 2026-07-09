@@ -577,6 +577,17 @@
       "configType": "mcp",
       "backendToolsetNames": [],
       "setupShortcut": "mcp"
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "description": "Read issues, projects, and cycles for incident context",
+      "categories": ["itsm-knowledgebase"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=linear.app",
+      "docsUrl": "https://linear.app/docs/mcp",
+      "configType": "mcp",
+      "backendToolsetNames": [],
+      "setupShortcut": "mcp"
     }
   ]
 }
