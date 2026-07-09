@@ -755,6 +755,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#serving-the-api-over-https-tls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serving the API over HTTPS (TLS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#upgrading" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5501,6 +5512,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#serving-the-api-over-https-tls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serving the API over HTTPS (TLS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#upgrading" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5784,12 +5806,37 @@
 <p><strong>Note</strong>: Responses may take some time when HolmesGPT needs to gather large amounts of data to answer your question. Streaming APIs are coming soon to stream results.</p>
 </blockquote>
 <p>For complete API documentation, see the <a href="../../reference/http-api/">HTTP API Reference</a>.</p>
+<h2 id="serving-the-api-over-https-tls">Serving the API over HTTPS (TLS)<a class="headerlink" href="#serving-the-api-over-https-tls" title="Permanent link">&para;</a></h2>
+<p>By default the pod serves the API over plain HTTP. HolmesGPT can serve <strong>HTTPS directly from the pod</strong> (in-app TLS) — no ingress, gateway, or sidecar proxy is required. This is disabled by default and is fully backward compatible: existing installs are unchanged until you enable it.</p>
+<p>When enabled, the chart mounts your TLS secret into the pod, points the server at it via the <code>HOLMES_SSL_*</code> environment variables, and switches the Service <code>appProtocol</code> to HTTPS automatically. The liveness/readiness probes also switch to HTTPS — except when <code>caCertsSecretKey</code> is set for mTLS, in which case the chart falls back to <code>tcpSocket</code> probes because the kubelet cannot present a client certificate.</p>
+<p><strong>Provide your own certificate.</strong> The chart does not generate a self-signed certificate — supply a Kubernetes TLS secret containing <code>tls.crt</code> and <code>tls.key</code>. You can create it with <a href="https://cert-manager.io/">cert-manager</a> or manually:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>tls<span class="w"> </span>holmes-tls<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--cert<span class="o">=</span>/path/to/tls.crt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--key<span class="o">=</span>/path/to/tls.key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>-n<span class="w"> </span><span class="o">{</span>your-namespace<span class="o">}</span>
+</span></code></pre></div>
+<p><strong>Enable TLS in <code>values.yaml</code>:</strong></p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">tls</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">secretName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-tls</span><span class="w">               </span><span class="c1"># required: secret with tls.crt and tls.key</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="c1"># keyfilePasswordSecretKey: &quot;&quot;       # optional: key in the secret with the encrypted-key password</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="c1"># caCertsSecretKey: ca.crt           # optional: a key in the same secret; enables mTLS</span>
+</span></code></pre></div>
+<p>To require client certificates (<strong>mutual TLS</strong>), add a CA bundle under an extra key in the same secret (e.g. <code>ca.crt</code>) and set <code>caCertsSecretKey</code> to that key name. Clients without a certificate signed by that CA are rejected.</p>
+<blockquote>
+<p><strong>Note</strong>: Enabling <code>tls</code> without <code>secretName</code> fails the Helm render with a clear error, so a misconfiguration can't silently downgrade to HTTP. The server reads the certificate once at startup and does not hot-reload it — after rotating the certificate/secret, restart the pod (<code>kubectl rollout restart deployment/{release-name}-holmes</code>).</p>
+</blockquote>
+<p>After enabling, port-forward and call the service over <code>https</code> (use <code>-k</code> for a self-signed/private-CA certificate):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>svc/holmesgpt-holmes<span class="w"> </span><span class="m">8080</span>:80
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>curl<span class="w"> </span>-k<span class="w"> </span>https://localhost:8080/api/chat<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;ask&quot;: &quot;list pods in namespace default?&quot;, &quot;model&quot;: &quot;anthropic/claude-sonnet-4-5-20250929&quot;}&#39;</span>
+</span></code></pre></div>
 <h2 id="upgrading">Upgrading<a class="headerlink" href="#upgrading" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>helm<span class="w"> </span>repo<span class="w"> </span>update
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>holmesgpt<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>helm<span class="w"> </span>repo<span class="w"> </span>update
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>holmesgpt<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
 </span></code></pre></div>
 <h2 id="uninstalling">Uninstalling<a class="headerlink" href="#uninstalling" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>helm<span class="w"> </span>uninstall<span class="w"> </span>holmesgpt
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>helm<span class="w"> </span>uninstall<span class="w"> </span>holmesgpt
 </span></code></pre></div>
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
