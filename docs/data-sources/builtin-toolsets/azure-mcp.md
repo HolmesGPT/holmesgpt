@@ -298,7 +298,18 @@ Holmes can automatically discover and switch between subscriptions within the sa
 
 When you need to connect to multiple Azure tenants or subscriptions with different credentials, deploy multiple Azure MCP instances. Each instance runs in its own pod with its own configuration, service account, and network policies.
 
-**Example: Connecting to Two Azure Tenants**
+**Key Points for Multiple Instances:**
+
+- **Instance Name**: The `name` field must be unique across all instances (used for resource naming)
+- **Unique Ports**: Each instance must have a unique `service.port` to avoid conflicts
+- **Unique Service Accounts**: Recommended to use unique service account names per instance
+- **Unique Credentials**: Each instance can have its own tenant ID, subscription ID, and credentials
+- **Backward Compatible**: The single `azure` configuration still works — you only need `azureInstances` when deploying multiple instances
+- **Secrets are Optional**: Secrets are only required when using `service-principal` authentication. For `workload-identity` and `managed-identity`, no secrets are needed.
+
+#### Example 1: Multiple Instances with Workload Identity (AKS - No Secrets Required)
+
+Use this for AKS clusters with Workload Identity enabled. No secrets are needed.
 
 ```yaml
 mcpAddons:
@@ -306,7 +317,7 @@ mcpAddons:
   azure:
     enabled: false
 
-  # Configure multiple instances
+  # Configure multiple instances with Workload Identity
   azureInstances:
     - name: "prod"
       enabled: true
@@ -381,13 +392,165 @@ mcpAddons:
       llmInstructions: ""
 ```
 
-**Key Points for Multiple Instances:**
+#### Example 2: Multiple Instances with Service Principal (Non-AKS Clusters - Secrets Required)
 
-- **Instance Name**: The `name` field must be unique across all instances (used for resource naming)
-- **Unique Ports**: Each instance must have a unique `service.port` to avoid conflicts
-- **Unique Service Accounts**: Recommended to use unique service account names per instance
-- **Unique Credentials**: Each instance can have its own tenant ID, subscription ID, and credentials
-- **Backward Compatible**: The single `azure` configuration still works — you only need `azureInstances` when deploying multiple instances
+Use this for non-AKS clusters or when you prefer service principal authentication. **Requires creating secrets.**
+
+**Step 1: Create secrets for each instance**
+
+```bash
+# Create secret for prod instance
+kubectl create secret generic azure-prod-mcp-creds \
+  --from-literal=AZURE_CLIENT_ID=prod-client-id \
+  --from-literal=AZURE_CLIENT_SECRET=prod-client-secret \
+  -n YOUR_NAMESPACE
+
+# Create secret for staging instance
+kubectl create secret generic azure-staging-mcp-creds \
+  --from-literal=AZURE_CLIENT_ID=staging-client-id \
+  --from-literal=AZURE_CLIENT_SECRET=staging-client-secret \
+  -n YOUR_NAMESPACE
+```
+
+**Step 2: Configure Helm chart**
+
+```yaml
+mcpAddons:
+  azure:
+    enabled: false
+
+  azureInstances:
+    - name: "prod"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-prod-mcp-sa"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "prod-tenant-id"
+        subscriptionId: "prod-subscription-id"
+        authMethod: "service-principal"
+        readOnlyMode: true
+        timeout: "120"
+
+      secretName: "azure-prod-mcp-creds"  # Secret created in Step 1
+
+      service:
+        port: 8000
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+
+    - name: "staging"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-staging-mcp-sa"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "staging-tenant-id"
+        subscriptionId: "staging-subscription-id"
+        authMethod: "service-principal"
+        readOnlyMode: true
+        timeout: "120"
+
+      secretName: "azure-staging-mcp-creds"  # Secret created in Step 1
+
+      service:
+        port: 8001
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+```
+
+#### Example 3: Mixed Setup (Workload Identity + Service Principal)
+
+Use this when you have multiple clusters or authentication methods.
+
+```yaml
+mcpAddons:
+  azure:
+    enabled: false
+
+  azureInstances:
+    # AKS cluster with Workload Identity - no secret
+    - name: "prod-aks"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        annotations:
+          azure.workload.identity/client-id: "prod-client-id"
+          azure.workload.identity/tenant-id: "prod-tenant-id"
+
+      config:
+        tenantId: "prod-tenant-id"
+        subscriptionId: "prod-subscription-id"
+        clientId: "prod-client-id"
+        authMethod: "workload-identity"
+        readOnlyMode: true
+
+      service:
+        port: 8000
+
+    # Non-AKS cluster with Service Principal - requires secret
+    - name: "staging-on-prem"
+      enabled: true
+
+      serviceAccount:
+        create: true
+
+      config:
+        tenantId: "staging-tenant-id"
+        subscriptionId: "staging-subscription-id"
+        authMethod: "service-principal"
+        readOnlyMode: true
+
+      secretName: "azure-staging-mcp-creds"  # Secret required for this instance
+
+      service:
+        port: 8001
+```
+
+**Secret Creation for Mixed Setup:**
+
+```bash
+# Only create secret for instances using service-principal auth
+kubectl create secret generic azure-staging-mcp-creds \
+  --from-literal=AZURE_CLIENT_ID=staging-client-id \
+  --from-literal=AZURE_CLIENT_SECRET=staging-client-secret \
+  -n YOUR_NAMESPACE
+```
+
+#### When to Use Each Authentication Method
+
+| Method | Best For | Secret Required | Example |
+|--------|----------|-----------------|---------|
+| `workload-identity` | AKS clusters | ❌ No | Production AKS environments |
+| `service-principal` | Non-AKS clusters, legacy setups | ✅ Yes | On-premises, EKS, GKE |
+| `managed-identity` | AKS with node-level managed identity | ❌ No | Simplified AKS setup |
 
 When using multiple instances, Holmes will route requests to the appropriate instance based on the context (tenant/subscription). You can specify which instance to use in your investigation prompt:
 
