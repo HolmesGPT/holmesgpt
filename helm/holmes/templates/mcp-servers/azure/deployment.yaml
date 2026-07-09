@@ -21,6 +21,15 @@ data:
   AZURE_SUBSCRIPTION_ID: {{ .Values.mcpAddons.azure.config.subscriptionId | quote }}
   AZ_AUTH_METHOD: {{ .Values.mcpAddons.azure.config.authMethod | default "workload-identity" | quote }}
   READ_ONLY_MODE: {{ .Values.mcpAddons.azure.config.readOnlyMode | default "true" | quote }}
+  {{- if and .Values.mcpAddons.azure.multiAccount.enabled .Values.mcpAddons.azure.multiAccount.accounts }}
+  accounts.yaml: |
+    accounts:
+      {{- range $name, $config := .Values.mcpAddons.azure.multiAccount.accounts }}
+      - name: {{ $name | quote }}
+        tenant_id: {{ $config.tenant_id | quote }}
+        client_id: {{ $config.client_id | quote }}
+      {{- end }}
+  {{- end }}
 ---
 {{- if .Values.mcpAddons.azure.serviceAccount.create }}
 apiVersion: v1
@@ -35,7 +44,7 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-    {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
+    {{- if and (not .Values.mcpAddons.azure.multiAccount.enabled) (eq .Values.mcpAddons.azure.config.authMethod "workload-identity") }}
     azure.workload.identity/use: "true"
     {{- end }}
   {{- $ann := dict -}}
@@ -83,7 +92,7 @@ spec:
         app.kubernetes.io/component: mcp-server
         app.kubernetes.io/part-of: holmes
         {{- include "holmes.commonLabels" . | nindent 8 }}
-        {{- if eq .Values.mcpAddons.azure.config.authMethod "workload-identity" }}
+        {{- if and (not .Values.mcpAddons.azure.multiAccount.enabled) (eq .Values.mcpAddons.azure.config.authMethod "workload-identity") }}
         azure.workload.identity/use: "true"
         {{- end }}
       annotations:
@@ -95,11 +104,32 @@ spec:
       {{- if or .Values.mcpAddons.azure.serviceAccount.create .Values.mcpAddons.azure.serviceAccount.name }}
       serviceAccountName: {{ .Values.mcpAddons.azure.serviceAccount.name }}
       {{- end }}
+      {{- if and .Values.mcpAddons.azure.multiAccount.enabled .Values.mcpAddons.azure.multiAccount.accounts }}
+      volumes:
+      - name: azure-accounts
+        configMap:
+          name: {{ .Release.Name }}-azure-mcp-config
+          items:
+          - key: accounts.yaml
+            path: accounts.yaml
+      - name: azure-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: azure-identity-token
+              expirationSeconds: 3600
+              audience: api://AzureADTokenExchange
+      {{- end }}
       containers:
       - name: azure-mcp
+        {{- if and .Values.mcpAddons.azure.multiAccount.enabled .Values.mcpAddons.azure.multiAccount.image }}
+        image: {{ .Values.mcpAddons.azure.registry }}/{{ .Values.mcpAddons.azure.multiAccount.image }}
+        {{- else }}
         image: {{ .Values.mcpAddons.azure.registry }}/{{ .Values.mcpAddons.azure.image }}
+        {{- end }}
         imagePullPolicy: {{ .Values.mcpAddons.azure.imagePullPolicy | default "IfNotPresent" }}
 
+        {{- if not .Values.mcpAddons.azure.multiAccount.enabled }}
         args:
           - "--transport"
           - "streamable-http"
@@ -117,6 +147,7 @@ spec:
           - "--timeout"
           - {{ .Values.mcpAddons.azure.config.timeout | quote }}
           {{- end }}
+        {{- end }}
 
         ports:
         - name: http
@@ -124,6 +155,14 @@ spec:
           protocol: TCP
 
         env:
+        {{- if and .Values.mcpAddons.azure.multiAccount.enabled .Values.mcpAddons.azure.multiAccount.accounts }}
+        # Multi-account: the wrapper logs into every account listed in accounts.yaml.
+        # Both paths below match the wrapper defaults; set explicitly for clarity.
+        - name: AZURE_ACCOUNTS_FILE
+          value: "/etc/azure/accounts.yaml"
+        - name: AZURE_FEDERATED_TOKEN_FILE
+          value: "/var/run/secrets/azure/tokens/azure-identity-token"
+        {{- else }}
         - name: AZURE_TENANT_ID
           valueFrom:
             configMapKeyRef:
@@ -159,8 +198,19 @@ spec:
         - name: AZURE_CLIENT_ID
           value: {{ .Values.mcpAddons.azure.config.clientId | quote }}
         {{- end }}
+        {{- end }}
         {{- if .Values.mcpAddons.azure.additionalEnvVars }}
         {{- toYaml .Values.mcpAddons.azure.additionalEnvVars | nindent 8 }}
+        {{- end }}
+
+        {{- if and .Values.mcpAddons.azure.multiAccount.enabled .Values.mcpAddons.azure.multiAccount.accounts }}
+        volumeMounts:
+        - name: azure-accounts
+          mountPath: /etc/azure
+          readOnly: true
+        - name: azure-token
+          mountPath: /var/run/secrets/azure/tokens
+          readOnly: true
         {{- end }}
 
         resources:

@@ -204,4 +204,12 @@ az resource list --query "[].{Name:name, Type:type, ResourceGroup:resourceGroup}
 
 Remember: Many Kubernetes issues have Azure infrastructure as the root cause. Always investigate both layers.
 {{- end -}}
+{{- if and .Values.mcpAddons.azure.multiAccount.enabled .Values.mcpAddons.azure.multiAccount.llm_account_descriptions }}
+
+## Multiple Azure Accounts
+
+This MCP is configured with multiple Azure accounts (tenants). Azure CLI selects an account by subscription id, not tenant id: pass the matching `--subscription <id>` on every command (e.g. `az vm list --subscription <id>`). If you omit `--subscription`, the call falls back to an arbitrary default account and returns misleading results. A tenant can contain multiple subscriptions, each with different resources, and there is no way to query all accounts or a whole account at once — query each subscription individually.
+
+{{ .Values.mcpAddons.azure.multiAccount.llm_account_descriptions }}
+{{- end -}}
 {{- end }}

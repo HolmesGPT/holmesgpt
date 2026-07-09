@@ -294,6 +294,92 @@ Choose an authentication method based on your environment:
 
 Holmes can automatically discover and switch between subscriptions within the same tenant. Just ensure your identity has the appropriate roles in each subscription.
 
+## Multi-Account Setup (Multiple Tenants)
+
+If a single Holmes agent needs to query Azure resources across **multiple separate accounts (different Entra ID tenants)** — not just multiple subscriptions in one tenant — use the multi-account setup instead of the single-account setup above.
+
+When multi-account mode is enabled, the chart switches to the multi-account image (`multi-azure-cli-mcp`), mounts an `accounts.yaml` config, and projects a federated token. On startup the server logs into every configured account (no secrets — each tenant's identity is federated to the Holmes service account) so one instance can reach all of them.
+
+### Step 1: Set up the identities and federation
+
+Run the multi-account setup script against each target tenant. It creates a managed identity + federated credential (trusting your AKS OIDC issuer and the Holmes service account) and assigns the "Azure MCP Reader" role, then emits the `accounts.yaml` values you paste into Helm.
+
+```bash
+# Requires yq and az access to each target tenant
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/azure-multi-account/setup-azure-identity.sh
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/azure-multi-account/accounts-config-example.yaml
+chmod +x setup-azure-identity.sh
+
+# Edit accounts-config-example.yaml with your tenants, then:
+./setup-azure-identity.sh \
+  --auth-method multi-account \
+  --resource-group YOUR_AKS_RG \
+  --aks-cluster YOUR_AKS_CLUSTER \
+  --accounts-file accounts-config-example.yaml
+```
+
+The script fails fast if the config is malformed or any tenant isn't logged in. To remove everything it created, re-run with `--teardown`.
+
+### Step 2: Enable multi-account mode in Helm
+
+=== "Holmes Helm Chart"
+
+    Add the following to your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      azure:
+        enabled: true
+
+        # Multi-account (multiple tenants) configuration
+        multiAccount:
+          enabled: true
+          accounts:
+            dev:
+              tenant_id: "11111111-1111-1111-1111-111111111111"
+              client_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"   # managed identity in that tenant
+            prod:
+              tenant_id: "22222222-2222-2222-2222-222222222222"
+              client_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+          # Tell the model which subscription belongs to which account
+          llm_account_descriptions: |
+            You must pass --subscription <id> to target an account.
+            dev tenant 11111111-...: subscriptions [aaaa-1111, aaaa-2222] - development resources
+            prod tenant 22222222-...: subscriptions [bbbb-1111] - production resources
+
+        # The service account uses token projection; workload-identity annotations are ignored.
+        serviceAccount:
+          create: true
+    ```
+
+=== "Robusta Helm Chart"
+
+    Add the same block nested under `holmes:`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        azure:
+          enabled: true
+          multiAccount:
+            enabled: true
+            accounts:
+              dev:
+                tenant_id: "11111111-1111-1111-1111-111111111111"
+                client_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+              prod:
+                tenant_id: "22222222-2222-2222-2222-222222222222"
+                client_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+            llm_account_descriptions: |
+              You must pass --subscription <id> to target an account.
+              dev tenant 11111111-...: subscriptions [aaaa-1111, aaaa-2222] - development resources
+              prod tenant 22222222-...: subscriptions [bbbb-1111] - production resources
+          serviceAccount:
+            create: true
+    ```
+
+**Limitations:** Azure CLI targets a subscription id, not a tenant id — every query must include the specific `--subscription`; if omitted it falls back to an arbitrary default account and returns misleading results. A tenant can have multiple subscriptions with different data, and there is no way to query a whole account or all accounts at once — each subscription is queried individually.
+
 ### Troubleshooting
 
 ```bash
