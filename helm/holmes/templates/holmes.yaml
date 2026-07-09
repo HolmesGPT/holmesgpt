@@ -103,9 +103,9 @@ spec:
           {{- toYaml . | nindent 10 }}
           {{- end }}
         command: ["python3", "-u", "server.py"]
-        {{- if .Values.args }}
+        {{- with .Values.args }}
         args:
-        {{- toYaml .Values.args | nindent 8 }}
+          {{- toYaml . | nindent 10 }}
         {{- end }}
         ports:
         - containerPort: 5050
