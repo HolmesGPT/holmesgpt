@@ -226,6 +226,22 @@ data:
     {{- end }}
     mcp_servers: {{ toYaml $mcpServers | nindent 6 }}
   model_list.yaml: |-
-    {{ .Values.modelList | toYaml | nindent 4 }}
+    {{- /*
+      Rewrite any string value in modelList that starts with `envRef:VAR`
+      to the runtime template `"{{ env.VAR }}"`. The corresponding env var
+      must be present on the Holmes pod — set `extraEnvVarsSecrets` (or add
+      `additional_env_froms` / `additionalEnvVars`) so it is.
+
+      The regex is anchored to the value position of a YAML mapping (i.e.
+      `key: envRef:VAR` at end-of-line) so `envRef:` occurring inside
+      a longer string (e.g. inside a `notes:` or `description:` field) is
+      left untouched. Helm's `toYaml` always emits scalar values as unquoted
+      plain scalars in `key: value` form, so this anchor covers every
+      real-world usage.
+    */ -}}
+    {{- $rendered := .Values.modelList | toYaml -}}
+    {{- $replacement := printf ": \"%s env.${1} %s\"" "{{" "}}" -}}
+    {{- $rewritten := regexReplaceAll "(?m): envRef:([A-Za-z_][A-Za-z0-9_]*)$" $rendered $replacement -}}
+    {{ $rewritten | nindent 4 }}
 
 {{- end }}

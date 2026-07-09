@@ -202,9 +202,15 @@ spec:
                 name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
                 key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
           {{- end }}
-        {{- if .Values.additional_env_froms }}
+        {{- if or .Values.additional_env_froms .Values.extraEnvVarsSecrets }}
         envFrom:
-        {{ toYaml .Values.additional_env_froms | nindent 8 }}
+        {{- range .Values.extraEnvVarsSecrets }}
+        - secretRef:
+            name: {{ . }}
+        {{- end }}
+        {{- with .Values.additional_env_froms }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
         {{- end }}
         lifecycle:
           preStop:
