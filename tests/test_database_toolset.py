@@ -12,6 +12,8 @@ from holmes.plugins.toolsets.database.database import (  # noqa: E402
     DatabaseConfig,
     DatabaseSubtype,
     DatabaseToolset,
+    _is_non_executing_explain,
+    _strip_sql_comments,
     _READONLY_PATTERN,
     _WRITE_ANYWHERE_PATTERN,
     _WRITE_PATTERN,
@@ -212,6 +214,153 @@ class TestReadOnlyValidation:
     def test_explain_allowed(self):
         assert _READONLY_PATTERN.match("EXPLAIN SELECT * FROM users")
         assert not _WRITE_PATTERN.match("EXPLAIN SELECT * FROM users")
+
+    def test_explain_on_write_queries_allowed(self):
+        """EXPLAIN (without ANALYZE) on write statements is read-only.
+
+        This is particularly important for ClickHouse which supports
+        EXPLAIN INSERT, EXPLAIN AST, EXPLAIN PIPELINE, etc.
+        """
+        explain_write_queries = [
+            "EXPLAIN INSERT INTO t SELECT * FROM s",
+            "EXPLAIN AST INSERT INTO t VALUES (1)",
+            "EXPLAIN PIPELINE INSERT INTO t SELECT * FROM s",
+            "EXPLAIN CREATE TABLE t AS SELECT 1",
+            "explain insert into t select * from s",
+            "  EXPLAIN  INSERT INTO t SELECT * FROM s",
+        ]
+        for sql in explain_write_queries:
+            assert _is_non_executing_explain(sql), f"Should be non-executing EXPLAIN: {sql}"
+            assert _READONLY_PATTERN.match(sql), f"Should match readonly pattern: {sql}"
+            # These contain write keywords but should NOT be blocked because EXPLAIN is read-only
+            assert _WRITE_ANYWHERE_PATTERN.search(sql), f"Should contain write keyword: {sql}"
+
+    def test_explain_analyze_on_write_queries_blocked(self):
+        """EXPLAIN ANALYZE/ANALYSE executes the statement, so it must be blocked for writes."""
+        dangerous_queries = [
+            # Bare keyword syntax
+            "EXPLAIN ANALYZE INSERT INTO t VALUES (1)",
+            "EXPLAIN ANALYZE DELETE FROM t WHERE id = 1",
+            "EXPLAIN ANALYZE UPDATE t SET x = 1",
+            "explain analyze insert into t values (1)",
+            "  EXPLAIN  ANALYZE  INSERT INTO t VALUES (1)",
+            # British spelling
+            "EXPLAIN ANALYSE INSERT INTO t VALUES (1)",
+            "EXPLAIN ANALYSE DELETE FROM t WHERE id = 1",
+            # Parenthesized option syntax (with and without space before paren)
+            "EXPLAIN (ANALYZE) INSERT INTO t VALUES (1)",
+            "EXPLAIN (ANALYZE, BUFFERS) UPDATE t SET x = 1",
+            "EXPLAIN (ANALYSE) INSERT INTO t VALUES (1)",
+            "EXPLAIN (ANALYSE, BUFFERS) DELETE FROM t",
+            "EXPLAIN(ANALYZE) INSERT INTO t VALUES (1)",
+            "EXPLAIN(ANALYZE, BUFFERS) UPDATE t SET x = 1",
+            "EXPLAIN(ANALYSE) INSERT INTO t VALUES (1)",
+        ]
+        for sql in dangerous_queries:
+            assert not _is_non_executing_explain(sql), (
+                f"EXPLAIN ANALYZE should NOT bypass write check: {sql}"
+            )
+
+    def test_explain_with_sql_comment_injection_blocked(self):
+        """SQL comments between EXPLAIN and ANALYZE must not bypass the check."""
+        comment_injection_queries = [
+            "EXPLAIN -- sneaky\nANALYZE INSERT INTO t VALUES (1)",
+            "EXPLAIN /* hide */ ANALYZE DELETE FROM t",
+            "EXPLAIN /* comment */ANALYZE INSERT INTO t VALUES (1)",
+            "EXPLAIN --comment\n ANALYSE INSERT INTO t VALUES (1)",
+        ]
+        for sql in comment_injection_queries:
+            assert not _is_non_executing_explain(sql), (
+                f"Comment injection should NOT bypass write check: {sql}"
+            )
+
+    def test_explain_analyze_select_allowed(self):
+        """EXPLAIN ANALYZE SELECT is safe (executes a read-only query)."""
+        assert _READONLY_PATTERN.match("EXPLAIN ANALYZE SELECT * FROM users")
+        assert not _WRITE_ANYWHERE_PATTERN.search("EXPLAIN ANALYZE SELECT * FROM users")
+
+    def test_explain_on_write_via_execute_query(self):
+        """EXPLAIN on write statements must not raise via execute_query()."""
+        explain_queries = [
+            "EXPLAIN INSERT INTO users VALUES (1, 'test')",
+            "EXPLAIN AST INSERT INTO users VALUES (1, 'test')",
+            "EXPLAIN PIPELINE DELETE FROM users WHERE id = 1",
+        ]
+        for sql in explain_queries:
+            # execute_query will fail at the DB connection level (no real DB),
+            # but it must NOT fail at the read-only validation stage.
+            try:
+                self.toolset.execute_query(sql)
+            except ValueError:
+                pytest.fail(f"execute_query() incorrectly blocked read-only EXPLAIN: {sql}")
+            except (sqlalchemy.exc.OperationalError, sqlalchemy.exc.SQLAlchemyError):
+                pass  # Expected: connection/execution error (no real DB)
+
+    def test_explain_analyze_write_via_execute_query_blocked(self):
+        """EXPLAIN ANALYZE on write statements must be blocked by execute_query()."""
+        dangerous_queries = [
+            "EXPLAIN ANALYZE INSERT INTO users VALUES (1, 'test')",
+            "EXPLAIN ANALYSE DELETE FROM users WHERE id = 1",
+            "EXPLAIN (ANALYZE) INSERT INTO users VALUES (1, 'test')",
+            "EXPLAIN(ANALYZE, BUFFERS) UPDATE users SET name = 'x'",
+            "EXPLAIN -- sneaky\nANALYZE INSERT INTO users VALUES (1, 'test')",
+        ]
+        for sql in dangerous_queries:
+            with pytest.raises(ValueError, match="Write operations are not allowed"):
+                self.toolset.execute_query(sql)
+
+    def test_multi_statement_explain_blocked(self):
+        """EXPLAIN followed by semicolon + write statement must be blocked."""
+        dangerous_queries = [
+            "EXPLAIN SELECT 1; DELETE FROM users",
+            "EXPLAIN SELECT 1; INSERT INTO users VALUES (1)",
+            "EXPLAIN SELECT 1 ; DROP TABLE users",
+        ]
+        for sql in dangerous_queries:
+            with pytest.raises(ValueError, match="Write operations are not allowed"):
+                self.toolset.execute_query(sql)
+
+    def test_nested_comment_stripping(self):
+        """Nested block comments must be fully stripped."""
+        # The entire nested comment should be removed as one unit
+        stripped = _strip_sql_comments("EXPLAIN /* a /* b */ c */ SELECT 1")
+        assert "a" not in stripped
+        assert "b" not in stripped
+        assert "c" not in stripped
+        assert "SELECT" in stripped
+
+        # ANALYZE inside a nested comment is stripped — the resulting query
+        # is a plain EXPLAIN (non-executing)
+        stripped = _strip_sql_comments(
+            "EXPLAIN /* outer /* inner */ ANALYZE */ SELECT 1"
+        )
+        assert "ANALYZE" not in stripped
+        assert "EXPLAIN" in stripped
+        assert "SELECT" in stripped
+
+    def test_nested_comment_with_semicolon_blocked(self):
+        """Nested comment hiding ANALYZE + semicolon write must be blocked by execute_query."""
+        # After stripping nested comments this becomes "EXPLAIN  SELECT 1; DELETE FROM users"
+        # which is blocked by the semicolon check
+        with pytest.raises(ValueError, match="Write operations are not allowed"):
+            self.toolset.execute_query(
+                "EXPLAIN /* outer /* inner */ ANALYZE */ SELECT 1; DELETE FROM users"
+            )
+
+    def test_nested_comment_explain_write_allowed(self):
+        """Nested comment that results in plain EXPLAIN + write is safe (single statement)."""
+        # After stripping: "EXPLAIN  INSERT INTO t VALUES (1)" — legitimate single-statement EXPLAIN
+        explain_queries = [
+            "EXPLAIN /* a /* b */ ANALYSE */ INSERT INTO t VALUES (1)",
+            "EXPLAIN /* comment */ CREATE TABLE t AS SELECT 1",
+        ]
+        for sql in explain_queries:
+            try:
+                self.toolset.execute_query(sql)
+            except ValueError:
+                pytest.fail(f"execute_query() incorrectly blocked: {sql}")
+            except (sqlalchemy.exc.OperationalError, sqlalchemy.exc.SQLAlchemyError):
+                pass  # Expected: connection/execution error (no real DB)
 
     def test_with_cte_allowed(self):
         assert _READONLY_PATTERN.match("WITH cte AS (SELECT 1) SELECT * FROM cte")
