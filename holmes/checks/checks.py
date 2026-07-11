@@ -144,6 +144,10 @@ def execute_check(
                 query=check.query,
                 duration=duration,
                 rationale=check_response.rationale,
+                total_cost=response.total_cost,
+                total_tokens=response.total_tokens,
+                prompt_tokens=response.prompt_tokens,
+                completion_tokens=response.completion_tokens,
             )
         else:
             result = CheckResult(
@@ -153,6 +157,10 @@ def execute_check(
                 query=check.query,
                 duration=duration,
                 rationale=check_response.rationale,
+                total_cost=response.total_cost,
+                total_tokens=response.total_tokens,
+                prompt_tokens=response.prompt_tokens,
+                completion_tokens=response.completion_tokens,
             )
 
     except Exception as e:
