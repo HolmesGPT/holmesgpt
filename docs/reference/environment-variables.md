@@ -305,7 +305,7 @@ export LOG_LEVEL="DEBUG"
 ```
 
 ### ENABLE_JSON_LOGS_FORMAT
-When enabled, HolmesGPT emits logs as JSON (one object per line) instead of the default colored text format. This makes logs easier to index, search, and filter with log scrapers such as Filebeat. The same toggle is used across Robusta services (runner, relay).
+When enabled, HolmesGPT emits logs as JSON (one object per line) instead of the default colored text format. This makes logs easier to index, search, and filter with log scrapers such as Filebeat.
 
 **Default:** `false`
 
