@@ -123,79 +123,6 @@ def _extract_text_from_content(content: Any) -> str:
     return ""
 
 
-def _picker_option_titles(tool_call: Dict[str, Any]) -> Optional[List[str]]:
-    """Return a multiple-choice picker call's option titles, or None if it isn't one.
-
-    Detected structurally from the tool-call arguments shape
-    (``{"options": [{"title": ...}, ...]}``) so it isn't coupled to a specific
-    frontend tool name. Unresolved pause-flow calls (``pending_frontend``) are
-    skipped — those are handled by the frontend-tool-result path, not here.
-    """
-    if tool_call.get("pending_frontend"):
-        return None
-    function = tool_call.get("function") or {}
-    raw_args = function.get("arguments")
-    if isinstance(raw_args, str):
-        try:
-            args = json.loads(raw_args)
-        except (ValueError, TypeError):
-            return None
-    elif isinstance(raw_args, dict):
-        args = raw_args
-    else:
-        return None
-    options = args.get("options") if isinstance(args, dict) else None
-    if not isinstance(options, list) or not options:
-        return None
-    titles = [
-        opt["title"]
-        for opt in options
-        if isinstance(opt, dict) and isinstance(opt.get("title"), str)
-    ]
-    return titles or None
-
-
-def pickers_to_suppress(messages: List[Dict[str, Any]]) -> set:
-    """Frontend picker tool names to withhold from the LLM for this turn.
-
-    When the previous assistant turn presented a multiple-choice picker and the
-    user's latest message is NOT one of the offered option titles (i.e. a
-    clarifying question, not a selection), we withhold the picker tool so the
-    model must answer the question instead of deterministically re-emitting the
-    same picker. The picker stays visible in the UI, so the user can still pick
-    afterward. On an actual selection (the reply matches an option title), or
-    when there's no recent picker, nothing is withheld and the flow is unchanged.
-    """
-    # The latest user message is the reply we are classifying.
-    last_user_idx: Optional[int] = None
-    for idx in range(len(messages) - 1, -1, -1):
-        if messages[idx].get("role") == "user":
-            last_user_idx = idx
-            break
-    if last_user_idx is None:
-        return set()
-    ask_text = _extract_text_from_content(messages[last_user_idx].get("content")).strip()
-
-    # The most recent picker call before that reply defines the offered options.
-    for idx in range(last_user_idx - 1, -1, -1):
-        msg = messages[idx]
-        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
-            continue
-        for tool_call in msg.get("tool_calls", []):
-            titles = _picker_option_titles(tool_call)
-            if titles is None:
-                continue
-            name = (tool_call.get("function") or {}).get("name")
-            if not name:
-                continue
-            normalized_ask = ask_text.casefold()
-            is_selection = any(
-                normalized_ask == title.strip().casefold() for title in titles
-            )
-            return set() if is_selection else {name}
-    return set()
-
-
 def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
     """Extract bash session approved prefixes from conversation history.
 
@@ -1189,21 +1116,6 @@ class ToolCallingLLM:
         messages: list[dict] = list(msgs) if msgs else []
         tool_calls: list[dict] = []
         tools: Optional[list] = self._get_tools()
-        # If the previous turn showed a multiple-choice picker and the user replied
-        # with a clarifying question (not an option title), withhold the picker tool
-        # this turn so the model answers instead of re-emitting the same picker.
-        suppressed_pickers = pickers_to_suppress(messages)
-        if suppressed_pickers and tools:
-            tools = [
-                tool_def
-                for tool_def in tools
-                if (tool_def.get("function") or {}).get("name") not in suppressed_pickers
-            ]
-            logging.info(
-                "Withholding picker tool(s) %s this turn: the user's reply is a "
-                "clarifying question, not a selection.",
-                suppressed_pickers,
-            )
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
