@@ -417,6 +417,9 @@ mcpAddons:
       storage: ""
 
   # Azure MCP Server Configuration
+  # BACKWARD COMPATIBILITY NOTE: The single `azure` configuration below is fully supported
+  # for backward compatibility. For multiple Azure MCP instances with different credentials
+  # and tenants, use `azureInstances` below instead.
   azure:
     enabled: false
     # Service account configuration for Azure Workload Identity
@@ -466,6 +469,69 @@ mcpAddons:
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
+
+  # Multiple Azure MCP Instances Configuration
+  # When you need multiple Azure MCP servers with different credentials and tenants,
+  # enable instances here. Each instance will have its own pod, service account, and configuration.
+  #
+  # Example:
+  #   azureInstances:
+  #     - name: "prod"
+  #       enabled: true
+  #       tenantId: "tenant-1"
+  #       subscriptionId: "sub-1"
+  #       ...
+  #     - name: "staging"
+  #       enabled: true
+  #       tenantId: "tenant-2"
+  #       subscriptionId: "sub-2"
+  #       ...
+  azureInstances: []
+    # - name: ""                           # Instance name (required) - used in resource naming
+    #   enabled: true
+    #
+    #   serviceAccount:
+    #     create: true
+    #     name: ""                         # Service account name (defaults to azure-<name>-mcp-sa if empty)
+    #     annotations: {}                  # Workload Identity annotations
+    #
+    #   image: "azure-cli-mcp:1.0.2"
+    #   registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+    #   imagePullPolicy: "IfNotPresent"
+    #
+    #   config:
+    #     tenantId: ""                     # Azure tenant ID (required)
+    #     subscriptionId: ""               # Azure subscription ID
+    #     clientId: ""                     # Azure client ID
+    #     readOnlyMode: true
+    #     authMethod: "workload-identity"  # Options: workload-identity, managed-identity, service-principal
+    #     enableSecurityPolicy: false
+    #     timeout: "120"
+    #     namespace: ""                    # Kubernetes namespace
+    #
+    #   secretName: ""                     # Secret name for service-principal auth
+    #
+    #   resources:
+    #     requests:
+    #       memory: "256Mi"
+    #       cpu: "100m"
+    #     limits:
+    #       memory: "512Mi"
+    #
+    #   service:
+    #     port: 8000                       # Each instance needs a unique port
+    #
+    #   networkPolicy:
+    #     enabled: false
+    #     additionalIngressRules: []
+    #     additionalEgressRules: []
+    #
+    #   additionalEnvVars: []
+    #   nodeSelector: {}
+    #   tolerations: []
+    #   affinity: {}
+    #
+    #   llmInstructions: ""
 
   # GitHub MCP Server Configuration
   # Provides access to GitHub repositories, pull requests, issues, and GitHub Actions

@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Dict, List, Optional, Tuple
 
 import sentry_sdk
 
@@ -12,6 +13,43 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.oauth_tool_connector import OAuthToolConnector
 
 display_logger = logging.getLogger("holmes.display.tool_executor")
+
+
+def resolve_tool_name_collisions(
+    toolsets: List[Toolset],
+) -> List[Tuple[Toolset, "Tool", str]]:
+    """Resolve each tool's exposed name. An MCP tool is prefixed with its toolset
+    name (``{toolset}__{tool}``) only when its raw name collides across toolsets;
+    otherwise the raw name is kept. Pure: computes from the immutable
+    ``mcp_tool_name`` and does not mutate any tool or toolset."""
+
+    def mcp_name(tool: "Tool") -> str:
+        # Real MCP tools carry a non-empty string mcp_tool_name; anything else
+        # (builtin tools, test mocks) is treated as non-MCP.
+        mtn = getattr(tool, "mcp_tool_name", "")
+        return mtn if isinstance(mtn, str) else ""
+
+    def raw(tool: "Tool") -> str:
+        return mcp_name(tool) or tool.name
+
+    counts: Dict[str, int] = {}
+    for ts in toolsets:
+        for tool in ts.tools:
+            counts[raw(tool)] = counts.get(raw(tool), 0) + 1
+
+    resolved: List[Tuple[Toolset, "Tool", str]] = []
+    for ts in toolsets:
+        for tool in ts.tools:
+            r = raw(tool)
+            # Only MCP tools are namespaced, and only when their raw name collides.
+            if counts[r] > 1 and mcp_name(tool):
+                # Sanitize the toolset prefix so the LLM function name stays valid
+                # even if the toolset name has spaces/dashes/dots.
+                prefix = re.sub(r"[^a-zA-Z0-9]+", "_", ts.name).strip("_")
+                resolved.append((ts, tool, f"{prefix}__{r}"))
+            else:
+                resolved.append((ts, tool, r))
+    return resolved
 
 
 class ToolExecutor:
@@ -29,28 +67,45 @@ class ToolExecutor:
                 msg = f"Overriding toolset '{ts.name}'!"
                 display_logger.warning(msg)
                 if on_event is not None:
-                    on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=ts.name, message=msg))
+                    on_event(
+                        StatusEvent(
+                            kind=StatusEventKind.TOOL_OVERRIDE,
+                            name=ts.name,
+                            message=msg,
+                        )
+                    )
             toolsets_by_name[ts.name] = ts
 
         self.tools_by_name: dict[str, Tool] = {}
         self._tool_to_toolset: dict[str, Toolset] = {}
-        for ts in toolsets_by_name.values():
-            for tool in ts.tools:
-                if tool.icon_url is None and ts.icon_url is not None:
-                    tool.icon_url = ts.icon_url
-                if tool.name in self.tools_by_name:
-                    msg = f"Overriding existing tool '{tool.name} with new tool from {ts.name} at {ts.path}'!"
-                    display_logger.warning(msg)
-                    if on_event is not None:
-                        on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=tool.name, message=msg))
-                self.tools_by_name[tool.name] = tool
-                self._tool_to_toolset[tool.name] = ts
+        for ts, tool, resolved_name in resolve_tool_name_collisions(
+            list(toolsets_by_name.values())
+        ):
+            if tool.icon_url is None and ts.icon_url is not None:
+                tool.icon_url = ts.icon_url
+            if resolved_name != tool.name:
+                tool.name = resolved_name
+            if resolved_name in self.tools_by_name:
+                msg = f"Overriding existing tool '{resolved_name} with new tool from {ts.name} at {ts.path}'!"
+                display_logger.warning(msg)
+                if on_event is not None:
+                    on_event(
+                        StatusEvent(
+                            kind=StatusEventKind.TOOL_OVERRIDE,
+                            name=resolved_name,
+                            message=msg,
+                        )
+                    )
+            self.tools_by_name[resolved_name] = tool
+            self._tool_to_toolset[resolved_name] = ts
 
         self.oauth_connector = OAuthToolConnector()
 
     # ── Tool lookup ────────────────────────────────────────────────────
 
-    def get_tool_by_name(self, name: str, user_id: Optional[str] = None) -> Optional[Tool]:
+    def get_tool_by_name(
+        self, name: str, user_id: Optional[str] = None
+    ) -> Optional[Tool]:
         if name in self.tools_by_name:
             return self.tools_by_name[name]
         # Check per-user OAuth tools (registered in _tool_to_toolset but not in tools_by_name)
@@ -60,9 +115,13 @@ class ToolExecutor:
         logging.warning(f"could not find tool {name}. skipping")
         return None
 
-    def get_toolset_name(self, tool_name: str, user_id: Optional[str] = None) -> Optional[str]:
+    def get_toolset_name(
+        self, tool_name: str, user_id: Optional[str] = None
+    ) -> Optional[str]:
         """Return the toolset name that provides a given tool, or None."""
-        ts = self._tool_to_toolset.get(tool_name) or self.oauth_connector.get_toolset(tool_name, user_id)
+        ts = self._tool_to_toolset.get(tool_name) or self.oauth_connector.get_toolset(
+            tool_name, user_id
+        )
         return ts.name if ts else None
 
     def ensure_toolset_initialized(self, tool_name: str) -> Optional[str]:
@@ -80,7 +139,9 @@ class ToolExecutor:
 
         if toolset.needs_initialization:
             if not toolset.lazy_initialize():
-                error_msg = f"Toolset '{toolset.name}' failed to initialize: {toolset.error}"
+                error_msg = (
+                    f"Toolset '{toolset.name}' failed to initialize: {toolset.error}"
+                )
                 logging.error(error_msg)
                 return error_msg
         elif toolset.status == ToolsetStatusEnum.FAILED:
@@ -116,9 +177,7 @@ class ToolExecutor:
 
         for tool in extra_tools:
             if tool.name in clone.tools_by_name:
-                logging.warning(
-                    f"Frontend tool '{tool.name}' overrides existing tool"
-                )
+                logging.warning(f"Frontend tool '{tool.name}' overrides existing tool")
             clone.tools_by_name[tool.name] = tool
             # No toolset mapping — frontend tools don't belong to a toolset,
             # so ensure_toolset_initialized() returns None (no-op) for them.
@@ -139,7 +198,9 @@ class ToolExecutor:
                      user's real tools (loaded after authentication).
         """
         tools = self._get_base_tools()
-        return self.oauth_connector.apply_user_tools(tools, user_id, self._tool_to_toolset)
+        return self.oauth_connector.apply_user_tools(
+            tools, user_id, self._tool_to_toolset
+        )
 
     def _get_base_tools(self) -> list:
         """Get all tools in OpenAI format (base set, no per-user overrides)."""

@@ -1,4 +1,73 @@
-{{- if and .Values.mcpAddons.azure.enabled .Values.mcpAddons.azure.networkPolicy.enabled }}
+{{- /* Network policies for multiple Azure MCP instances */ -}}
+{{- if .Values.mcpAddons.azureInstances }}
+{{- range .Values.mcpAddons.azureInstances }}
+{{- if and .enabled .networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $.Release.Name }}-azure-{{ .name }}-mcp-server
+  namespace: {{ .config.namespace | default $.Release.Namespace }}
+  labels:
+    app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" $ | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" $) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ $.Release.Name }}-azure-{{ .name }}-mcp
+      app.kubernetes.io/name: azure-mcp-server
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    # Allow traffic from Holmes pods
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: holmes
+          app.kubernetes.io/instance: {{ $.Release.Name }}
+    # Allow traffic from pods with specific label
+    - podSelector:
+        matchLabels:
+          holmes.mcp.client: "true"
+    {{- if .networkPolicy.additionalIngressRules }}
+    {{- toYaml .networkPolicy.additionalIngressRules | nindent 4 }}
+    {{- end }}
+    ports:
+    - protocol: TCP
+      port: {{ .service.port | default 8000 }}
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS traffic to Azure APIs
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+  {{- if .networkPolicy.additionalEgressRules }}
+  {{- toYaml .networkPolicy.additionalEgressRules | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- else if and .Values.mcpAddons.azure.enabled .Values.mcpAddons.azure.networkPolicy.enabled }}
+{{- /* Backward compatibility: single azure instance */ -}}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

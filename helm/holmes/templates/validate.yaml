@@ -30,3 +30,67 @@
     {{- end }}
   {{- end }}
 {{- end }}
+
+{{- /*
+  Azure instances validation.
+
+  When using multiple Azure MCP instances, validate:
+  - Each instance has a unique name
+  - Each instance has a unique service port
+  - Required fields (tenantId, subscriptionId, authMethod) are set
+  - authMethod is one of: workload-identity, managed-identity, service-principal
+  - service-principal instances have a secretName specified
+*/ -}}
+{{- if .Values.mcpAddons.azureInstances }}
+  {{- $instanceNames := list }}
+  {{- $instancePorts := list }}
+  {{- range .Values.mcpAddons.azureInstances }}
+    {{- if .enabled }}
+      {{- /* Validate required fields */ -}}
+      {{- if not .name }}
+        {{- fail "mcpAddons.azureInstances: each instance must have a 'name' field" }}
+      {{- end }}
+      {{- if not .config.tenantId }}
+        {{- fail (printf "mcpAddons.azureInstances[%s]: 'config.tenantId' is required" .name) }}
+      {{- end }}
+      {{- if not .config.subscriptionId }}
+        {{- fail (printf "mcpAddons.azureInstances[%s]: 'config.subscriptionId' is required" .name) }}
+      {{- end }}
+      {{- if not .config.authMethod }}
+        {{- fail (printf "mcpAddons.azureInstances[%s]: 'config.authMethod' is required (workload-identity, managed-identity, or service-principal)" .name) }}
+      {{- end }}
+
+      {{- /* Validate authMethod value */ -}}
+      {{- if not (has .config.authMethod (list "workload-identity" "managed-identity" "service-principal")) }}
+        {{- fail (printf "mcpAddons.azureInstances[%s]: invalid authMethod %q. Must be one of: workload-identity, managed-identity, service-principal" .name .config.authMethod) }}
+      {{- end }}
+
+      {{- /* Validate service-principal requires secretName */ -}}
+      {{- if eq .config.authMethod "service-principal" }}
+        {{- if not .secretName }}
+          {{- fail (printf "mcpAddons.azureInstances[%s]: when using authMethod 'service-principal', 'secretName' must be specified" .name) }}
+        {{- end }}
+      {{- end }}
+
+      {{- /* Validate workload-identity requires clientId */ -}}
+      {{- if eq .config.authMethod "workload-identity" }}
+        {{- if not .config.clientId }}
+          {{- fail (printf "mcpAddons.azureInstances[%s]: when using authMethod 'workload-identity', 'config.clientId' is required" .name) }}
+        {{- end }}
+      {{- end }}
+
+      {{- /* Check for duplicate names */ -}}
+      {{- if has .name $instanceNames }}
+        {{- fail (printf "mcpAddons.azureInstances: duplicate instance name %q. Each instance must have a unique name." .name) }}
+      {{- end }}
+      {{- $instanceNames = append $instanceNames .name }}
+
+      {{- /* Check for duplicate ports */ -}}
+      {{- $port := (.service.port | default 8000) | int }}
+      {{- if has $port $instancePorts }}
+        {{- fail (printf "mcpAddons.azureInstances[%s]: duplicate service port %d. Each instance must have a unique port." .name $port) }}
+      {{- end }}
+      {{- $instancePorts = append $instancePorts $port }}
+    {{- end }}
+  {{- end }}
+{{- end }}

@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.azureInstances .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -34,7 +34,26 @@ data:
     }}
     {{- $mcpServers = merge $mcpServers $awsMcpServers }}
     {{- end }}
-    {{- if .Values.mcpAddons.azure.enabled }}
+    {{- /* Multiple Azure MCP instances */ -}}
+    {{- if .Values.mcpAddons.azureInstances }}
+    {{- range .Values.mcpAddons.azureInstances }}
+    {{- if .enabled }}
+    {{- $llmInstructions := .llmInstructions | default (include "holmes.azureMcp.llmInstructions" $) }}
+    {{- $azureInstanceMcpServers := dict (printf "azure_%s" .name) (dict
+        "description" (printf "Azure API MCP Server (%s) - access to %s tenant. Execute Azure CLI commands." .name .config.tenantId)
+        "config" (dict
+          "url" (printf "http://%s-azure-%s-mcp-server.%s.svc.cluster.local:%d/mcp" $.Release.Name .name (.config.namespace | default $.Release.Namespace) (int .service.port | default 8000))
+          "mode" "streamable-http"
+          "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
+        )
+        "llm_instructions" ($llmInstructions | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $azureInstanceMcpServers }}
+    {{- end }}
+    {{- end }}
+    {{- else if .Values.mcpAddons.azure.enabled }}
+    {{- /* Backward compatibility: single azure instance */ -}}
     {{- $azureMcpServers := dict "azure_api" (dict
         "description" "Azure API MCP Server - comprehensive Azure service access. Execute any Azure CLI commands."
         "config" (dict

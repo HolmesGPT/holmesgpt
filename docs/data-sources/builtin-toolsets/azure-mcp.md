@@ -294,6 +294,396 @@ Choose an authentication method based on your environment:
 
 Holmes can automatically discover and switch between subscriptions within the same tenant. Just ensure your identity has the appropriate roles in each subscription.
 
+### Multiple Azure MCP Instances
+
+When you need to connect to multiple Azure tenants or subscriptions with different credentials, deploy multiple Azure MCP instances. Each instance runs in its own pod with its own configuration, service account, and network policies.
+
+**Key Points for Multiple Instances:**
+
+- **Instance Name**: The `name` field must be unique across all instances (used for resource naming)
+- **Unique Ports**: Each instance must have a unique `service.port` to avoid conflicts
+- **Unique Service Accounts**: Recommended to use unique service account names per instance
+- **Unique Credentials**: Each instance can have its own tenant ID, subscription ID, and credentials
+- **Backward Compatible**: The single `azure` configuration still works — you only need `azureInstances` when deploying multiple instances
+- **Secrets are Optional**: Secrets are only required when using `service-principal` authentication. For `workload-identity` and `managed-identity`, no secrets are needed.
+
+#### Example 1: Multiple Instances with Workload Identity (AKS - No Secrets Required)
+
+Use this for AKS clusters with Workload Identity enabled. No secrets are needed. Each instance can have its own custom LLM instructions to guide Holmes' investigation behavior.
+
+```yaml
+mcpAddons:
+  # Disable the single instance (backward compatible)
+  azure:
+    enabled: false
+
+  # Configure multiple instances with Workload Identity
+  azureInstances:
+    - name: "prod"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-prod-mcp-sa"
+        annotations:
+          azure.workload.identity/client-id: "prod-client-id"
+          azure.workload.identity/tenant-id: "prod-tenant-id"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "prod-tenant-id"
+        subscriptionId: "prod-subscription-id"
+        clientId: "prod-client-id"
+        authMethod: "workload-identity"
+        readOnlyMode: true
+        timeout: "120"
+
+      service:
+        port: 8000
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+
+      # Custom instructions for production investigations
+      llmInstructions: |
+        ## Production Azure Investigation Guidelines
+        
+        **CRITICAL**: You are investigating PRODUCTION resources. Exercise extreme caution.
+        
+        **Before making any changes:**
+        1. Check Azure Activity Log for recent changes (last 24 hours)
+        2. Verify change windows and maintenance schedules
+        3. Always report findings to the on-call engineer before suggesting fixes
+        4. For critical systems, request approval before proceeding
+        
+        **Focus areas for prod:**
+        - Check Azure Monitor alerts and metrics
+        - Review cost anomalies (may indicate issues)
+        - Verify RBAC role assignments haven't been modified
+        - Check for service outages in Activity Log
+
+    - name: "staging"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-staging-mcp-sa"
+        annotations:
+          azure.workload.identity/client-id: "staging-client-id"
+          azure.workload.identity/tenant-id: "staging-tenant-id"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "staging-tenant-id"
+        subscriptionId: "staging-subscription-id"
+        clientId: "staging-client-id"
+        authMethod: "workload-identity"
+        readOnlyMode: true
+        timeout: "120"
+
+      service:
+        port: 8001  # Each instance needs a unique port
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+
+      # Custom instructions for staging investigations
+      llmInstructions: |
+        ## Staging Azure Investigation Guidelines
+        
+        **SAFE TO EXPERIMENT**: You are investigating STAGING resources. 
+        
+        **Investigation approach:**
+        1. Feel free to gather detailed diagnostics and check configurations
+        2. You can safely query resources without worry of impacting production
+        3. Focus on testing, validation, and reproducing issues
+        4. Check Azure Monitor for metrics and diagnostics
+        
+        **Use for:**
+        - Testing Azure configurations before production deployment
+        - Reproducing reported issues in a safe environment
+        - Validating fixes and changes
+        - Learning Azure resource behavior
+```
+
+#### Example 2: Multiple Instances with Service Principal (Non-AKS Clusters - Secrets Required)
+
+Use this for non-AKS clusters or when you prefer service principal authentication. **Requires creating secrets.**
+
+**Step 1: Create secrets for each instance**
+
+```bash
+# Create secret for prod instance
+kubectl create secret generic azure-prod-mcp-creds \
+  --from-literal=AZURE_CLIENT_ID=prod-client-id \
+  --from-literal=AZURE_CLIENT_SECRET=prod-client-secret \
+  -n YOUR_NAMESPACE
+
+# Create secret for staging instance
+kubectl create secret generic azure-staging-mcp-creds \
+  --from-literal=AZURE_CLIENT_ID=staging-client-id \
+  --from-literal=AZURE_CLIENT_SECRET=staging-client-secret \
+  -n YOUR_NAMESPACE
+```
+
+**Step 2: Configure Helm chart**
+
+```yaml
+mcpAddons:
+  azure:
+    enabled: false
+
+  azureInstances:
+    - name: "prod"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-prod-mcp-sa"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "prod-tenant-id"
+        subscriptionId: "prod-subscription-id"
+        authMethod: "service-principal"
+        readOnlyMode: true
+        timeout: "120"
+
+      secretName: "azure-prod-mcp-creds"  # Secret created in Step 1
+
+      service:
+        port: 8000
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+
+      # Custom instructions for production investigations
+      llmInstructions: |
+        ## Production Azure Investigation Guidelines
+        
+        **CRITICAL**: You are investigating PRODUCTION resources. Exercise extreme caution.
+        
+        **Before making any changes:**
+        1. Check Azure Activity Log for recent changes (last 24 hours)
+        2. Verify change windows and maintenance schedules
+        3. Always report findings to the on-call engineer before suggesting fixes
+        4. For critical systems, request approval before proceeding
+        
+        **Focus areas for prod:**
+        - Check Azure Monitor alerts and metrics
+        - Review cost anomalies (may indicate issues)
+        - Verify RBAC role assignments haven't been modified
+        - Check for service outages in Activity Log
+
+    - name: "staging"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        name: "azure-staging-mcp-sa"
+
+      image: "azure-cli-mcp:1.0.2"
+      registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+
+      config:
+        tenantId: "staging-tenant-id"
+        subscriptionId: "staging-subscription-id"
+        authMethod: "service-principal"
+        readOnlyMode: true
+        timeout: "120"
+
+      secretName: "azure-staging-mcp-creds"  # Secret created in Step 1
+
+      service:
+        port: 8001
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+
+      networkPolicy:
+        enabled: false
+
+      # Custom instructions for staging investigations
+      llmInstructions: |
+        ## Staging Azure Investigation Guidelines
+        
+        **SAFE TO EXPERIMENT**: You are investigating STAGING resources. 
+        
+        **Investigation approach:**
+        1. Feel free to gather detailed diagnostics and check configurations
+        2. You can safely query resources without worry of impacting production
+        3. Focus on testing, validation, and reproducing issues
+        4. Check Azure Monitor for metrics and diagnostics
+        
+        **Use for:**
+        - Testing Azure configurations before production deployment
+        - Reproducing reported issues in a safe environment
+        - Validating fixes and changes
+        - Learning Azure resource behavior
+```
+
+#### Example 3: Mixed Setup (Workload Identity + Service Principal)
+
+Use this when you have multiple clusters or authentication methods. Each instance maintains its own custom LLM instructions.
+
+```yaml
+mcpAddons:
+  azure:
+    enabled: false
+
+  azureInstances:
+    # AKS cluster with Workload Identity - no secret
+    - name: "prod-aks"
+      enabled: true
+
+      serviceAccount:
+        create: true
+        annotations:
+          azure.workload.identity/client-id: "prod-client-id"
+          azure.workload.identity/tenant-id: "prod-tenant-id"
+
+      config:
+        tenantId: "prod-tenant-id"
+        subscriptionId: "prod-subscription-id"
+        clientId: "prod-client-id"
+        authMethod: "workload-identity"
+        readOnlyMode: true
+
+      service:
+        port: 8000
+
+      llmInstructions: |
+        ## Production AKS on Azure Investigation
+        
+        You have access to a production AKS cluster running on Azure.
+        Be cautious - focus on diagnostics, not changes.
+        
+        Priority checks:
+        - Node health and capacity
+        - Pod resource constraints
+        - Network connectivity issues
+        - Azure storage and networking
+
+    # Non-AKS cluster with Service Principal - requires secret
+    - name: "staging-on-prem"
+      enabled: true
+
+      serviceAccount:
+        create: true
+
+      config:
+        tenantId: "staging-tenant-id"
+        subscriptionId: "staging-subscription-id"
+        authMethod: "service-principal"
+        readOnlyMode: true
+
+      secretName: "azure-staging-mcp-creds"  # Secret required for this instance
+
+      service:
+        port: 8001
+
+      llmInstructions: |
+        ## Staging On-Premises Azure Investigation
+        
+        You have access to on-premises staging infrastructure integrated with Azure.
+        This is a lower-risk environment - safe to investigate thoroughly.
+        
+        Investigation focus:
+        - Azure-to-on-prem connectivity
+        - Hybrid network configuration
+        - Resource synchronization
+        - Staging test results
+```
+
+**Secret Creation for Mixed Setup:**
+
+```bash
+# Only create secret for instances using service-principal auth
+kubectl create secret generic azure-staging-mcp-creds \
+  --from-literal=AZURE_CLIENT_ID=staging-client-id \
+  --from-literal=AZURE_CLIENT_SECRET=staging-client-secret \
+  -n YOUR_NAMESPACE
+```
+
+#### Custom LLM Instructions Per Instance
+
+Each Azure instance can have its own custom `llmInstructions` field to guide Holmes' investigation behavior. This is optional — if omitted, Holmes uses the default Azure MCP instructions.
+
+**Use custom instructions to:**
+- **Distinguish environments**: Tell Holmes if it's investigating production vs staging
+- **Set investigation scope**: Limit what Holmes should investigate per tenant
+- **Define escalation paths**: Specify when to report findings vs making changes
+- **Provide context**: Include environment-specific priorities and known issues
+
+**Example: Production vs Staging Instructions**
+
+```yaml
+azureInstances:
+  - name: "prod"
+    # ... config ...
+    llmInstructions: |
+      # CRITICAL: Production environment
+      - Always verify changes in Activity Log first
+      - Report findings before taking action
+      - Check maintenance windows before suggesting changes
+  
+  - name: "staging"
+    # ... config ...
+    llmInstructions: |
+      # SAFE: Staging environment  
+      - Feel free to investigate thoroughly
+      - Safe to gather detailed diagnostics
+      - No approval needed for diagnostics
+```
+
+If you omit `llmInstructions`, Holmes uses the default Azure MCP instructions (which cover general Azure investigation patterns).
+
+#### When to Use Each Authentication Method
+
+| Method | Best For | Secret Required | Example |
+|--------|----------|-----------------|---------|
+| `workload-identity` | AKS clusters | ❌ No | Production AKS environments |
+| `service-principal` | Non-AKS clusters, legacy setups | ✅ Yes | On-premises, EKS, GKE |
+| `managed-identity` | AKS with node-level managed identity | ❌ No | Simplified AKS setup |
+
+When using multiple instances, Holmes will route requests to the appropriate instance based on the context (tenant/subscription). You can specify which instance to use in your investigation prompt:
+
+```
+"List all resource groups in the prod tenant"
+"Get VM details from the staging subscription"
+```
+
 ### Troubleshooting
 
 ```bash
