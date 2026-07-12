@@ -83,7 +83,8 @@ class ToolExecutor:
             if tool.icon_url is None and ts.icon_url is not None:
                 tool.icon_url = ts.icon_url
             if resolved_name != tool.name:
-                tool.name = resolved_name
+                # Copy so we never rename the toolset's own tool instance.
+                tool = tool.model_copy(update={"name": resolved_name})
             if resolved_name in self.tools_by_name:
                 msg = f"Overriding existing tool '{resolved_name} with new tool from {ts.name} at {ts.path}'!"
                 display_logger.warning(msg)

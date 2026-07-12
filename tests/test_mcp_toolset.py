@@ -973,6 +973,10 @@ class TestStreamableHttp:
             ex._tool_to_toolset["azure_newaccount__call_az"].name == "azure_newaccount"
         )
 
+        # The toolset's own tool instances keep the raw name (not mutated).
+        assert [t.name for t in ts_main.tools] == ["call_az"]
+        assert [t.name for t in ts_new.tools] == ["call_az"]
+
         # Invoking the prefixed tool routes to its own server with the RAW name.
         tool = ex.tools_by_name["azure_newaccount__call_az"]
         assert tool.mcp_tool_name == "call_az"
