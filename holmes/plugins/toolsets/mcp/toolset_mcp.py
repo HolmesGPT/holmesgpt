@@ -320,7 +320,7 @@ async def get_initialized_mcp_session(
 
 class RemoteMCPTool(Tool):
     toolset: "RemoteMCPToolset" = Field(exclude=True)
-    # Real server-side tool name; exposed name is prefixed.
+    # Real server-side tool name; exposed name is prefixed on collision.
     mcp_tool_name: str = Field(default="", exclude=True)
 
     @property
