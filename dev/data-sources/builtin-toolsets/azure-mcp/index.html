@@ -2185,10 +2185,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#creating-a-service-principal-non-aks-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a Service Principal (non-AKS clusters)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#multi-subscription-access" class="md-nav__link">
     <span class="md-ellipsis">
       
         Multi-Subscription Access
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adding-another-azure-account-different-credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding Another Azure Account (Different Credentials)
       
     </span>
   </a>
@@ -5551,10 +5573,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#creating-a-service-principal-non-aks-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a Service Principal (non-AKS clusters)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#multi-subscription-access" class="md-nav__link">
     <span class="md-ellipsis">
       
         Multi-Subscription Access
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adding-another-azure-account-different-credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding Another Azure Account (Different Credentials)
       
     </span>
   </a>
@@ -5944,35 +5988,158 @@
 </div>
 </div>
 </div>
+<h3 id="creating-a-service-principal-non-aks-clusters">Creating a Service Principal (non-AKS clusters)<a class="headerlink" href="#creating-a-service-principal-non-aks-clusters" title="Permanent link">&para;</a></h3>
+<p>On non-AKS clusters (e.g. AWS EKS, GKE, self-managed) workload identity is not available, so use <strong>service-principal</strong> authentication — the <code>authMethod: "service-principal"</code> option shown in <a href="#step-2-deploy-with-helm">Step 2</a>. If you don't already have service-principal credentials, create one in the target tenant:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Log into the target tenant (skip if you are already in it)</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>az<span class="w"> </span>login<span class="w"> </span>--tenant<span class="w"> </span>YOUR_TENANT_ID
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Create the service principal (no role yet - RBAC is assigned separately below)</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>az<span class="w"> </span>ad<span class="w"> </span>sp<span class="w"> </span>create-for-rbac<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;holmes-azure-mcp&quot;</span><span class="w"> </span>--skip-assignment
+</span></code></pre></div>
+<p>The command prints the values you need:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="p">{</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">&quot;appId&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w">   </span><span class="c1">// -&gt; AZURE_CLIENT_ID</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">  </span><span class="nt">&quot;password&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w">   </span><span class="c1">// -&gt; AZURE_CLIENT_SECRET (shown only once)</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="nt">&quot;tenant&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;...&quot;</span><span class="w">    </span><span class="c1">// -&gt; AZURE_TENANT_ID</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Then:</p>
+<ol>
+<li>
+<p>Grant the service principal the roles from the <a href="#step-1-set-up-azure-rbac-roles">RBAC table</a> (at minimum <strong>Reader</strong>) on the target subscription:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>az<span class="w"> </span>role<span class="w"> </span>assignment<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span>--assignee<span class="w"> </span>YOUR_CLIENT_ID<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">  </span>--role<span class="w"> </span>Reader<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span>--scope<span class="w"> </span>/subscriptions/YOUR_SUBSCRIPTION_ID
+</span></code></pre></div>
+</li>
+<li>
+<p>Put <code>appId</code>/<code>password</code> into the <code>azure-mcp-creds</code> secret and set <code>tenantId</code>/<code>subscriptionId</code> in the <strong>Service Principal</strong> Helm values from <a href="#step-2-deploy-with-helm">Step 2</a>.</p>
+</li>
+</ol>
 <h3 id="multi-subscription-access">Multi-Subscription Access<a class="headerlink" href="#multi-subscription-access" title="Permanent link">&para;</a></h3>
 <p>Holmes can automatically discover and switch between subscriptions within the same tenant. Just ensure your identity has the appropriate roles in each subscription.</p>
+<h3 id="adding-another-azure-account-different-credentials">Adding Another Azure Account (Different Credentials)<a class="headerlink" href="#adding-another-azure-account-different-credentials" title="Permanent link">&para;</a></h3>
+<p>The Helm chart deploys a single Azure MCP server. When you need Holmes to reach <strong>another Azure account, tenant, or subscription that uses different credentials</strong> (for example a separate service principal per environment), deploy an additional, standalone MCP server from the ready-made manifest below and register it with Holmes as an extra <code>mcp_servers</code> entry.</p>
+<p>The manifest (<a href="https://github.com/HolmesGPT/holmesgpt/blob/master/examples/azure-mcp-additional-instance.yaml"><code>examples/azure-mcp-additional-instance.yaml</code></a>) is self-contained: it creates a Secret, ConfigMap, ServiceAccount, Deployment, Service, and (optionally) a NetworkPolicy — everything the extra server needs.</p>
+<div class="admonition warning">
+<p class="admonition-title">Every instance needs a unique name</p>
+<p>All resource names are built from a <code>replaceme</code> placeholder. You <strong>must</strong> replace it with a unique name (Step 2) before applying. Deploying a second copy without changing it will <strong>overwrite</strong> the first instance's Secret, Deployment, Service, etc. The namespace placeholder is also mandatory so nothing lands in <code>default</code> by accident.</p>
+</div>
+<p><strong>Step 1: Download the manifest</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>curl<span class="w"> </span>-O<span class="w"> </span>https://raw.githubusercontent.com/HolmesGPT/holmesgpt/master/examples/azure-mcp-additional-instance.yaml
+</span></code></pre></div>
+<p><strong>Step 2: Set a unique name and the namespace (required)</strong></p>
+<p>The manifest uses two placeholders that must be replaced before applying:</p>
+<ul>
+<li><code>replaceme</code> → a <strong>unique, DNS-safe</strong> name for this instance (lowercase letters, digits, <code>-</code>), e.g. <code>prod</code>, <code>dev</code>, <code>tenant-a</code>. Every resource name and label is derived from it, so a unique value guarantees this instance never collides with another.</li>
+<li><code>NAMESPACE_REPLACE_ME</code> → the <strong>same namespace the <code>robusta</code>/<code>holmes</code> release is installed in</strong> (where the Holmes pod runs). Deploying into Holmes's own namespace keeps things simple: the Service resolves and the bundled NetworkPolicy matches the Holmes pods out of the box. It is set explicitly on every resource so nothing lands in <code>default</code> by accident.</li>
+</ul>
+<p>Not sure which namespace that is? Find it with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-A<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/name<span class="o">=</span>holmes
+</span></code></pre></div>
+<p>For example, if Holmes runs in the <code>monitoring</code> namespace and you want to name this instance <code>prod</code>, replace both placeholders in one shot:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>sed<span class="w"> </span>-i<span class="w"> </span><span class="s1">&#39;&#39;</span><span class="w"> </span><span class="s1">&#39;s/replaceme/prod/g; s/NAMESPACE_REPLACE_ME/monitoring/g&#39;</span><span class="w"> </span>azure-mcp-additional-instance.yaml<span class="w">   </span><span class="c1"># macOS</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="c1"># sed -i &#39;s/replaceme/prod/g; s/NAMESPACE_REPLACE_ME/monitoring/g&#39; azure-mcp-additional-instance.yaml     # Linux</span>
+</span></code></pre></div>
+<p>That example yields the <code>prod</code> instance in the <code>monitoring</code> namespace — i.e. <code>azure-prod-secret</code>, <code>azure-prod-configmap</code>, <code>azure-prod-serviceaccount</code>, <code>azure-prod-deployment</code>, <code>azure-prod-service</code>, and <code>azure-prod-networkpolicy</code>.</p>
+<p><strong>Step 3: Set the credentials in the Secret</strong></p>
+<p>Open the downloaded file and find the <code>Secret</code> block. <strong>Leave <code>name</code> and <code>namespace</code> alone</strong> — Step 2 already set them. Edit <strong>only</strong> the two credential values, replacing <code>YOUR_CLIENT_ID</code> and <code>YOUR_CLIENT_SECRET</code> with this account's service principal (create one with <a href="#creating-a-service-principal-non-aks-clusters">Creating a Service Principal</a>):</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Secret</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">azure-replaceme-secret</span><span class="w">      </span><span class="c1"># leave as-is (Step 2 set this, e.g. azure-prod-secret)</span>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NAMESPACE_REPLACE_ME</span><span class="w">   </span><span class="c1"># leave as-is (Step 2 set this, e.g. monitoring)</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Opaque</span>
+</span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="nt">stringData</span><span class="p">:</span>
+</span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="w">  </span><span class="nt">AZURE_CLIENT_ID</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;YOUR_CLIENT_ID&quot;</span><span class="w">          </span><span class="c1"># &lt;-- EDIT: service principal appId</span>
+</span><span id="__span-24-9"><a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a><span class="w">  </span><span class="nt">AZURE_CLIENT_SECRET</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;YOUR_CLIENT_SECRET&quot;</span><span class="w">  </span><span class="c1"># &lt;-- EDIT: service principal password</span>
+</span></code></pre></div>
+<p><strong>Step 4: Set the account details in the ConfigMap</strong></p>
+<p>In the same file, find the <code>ConfigMap</code> block. Again <strong>leave <code>name</code> and <code>namespace</code> alone</strong>. Edit <strong>only</strong> <code>YOUR_TENANT_ID</code> and <code>YOUR_SUBSCRIPTION_ID</code>; keep <code>AZ_AUTH_METHOD: "service-principal"</code> unless you know you need a different method:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ConfigMap</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">azure-replaceme-configmap</span><span class="w">   </span><span class="c1"># leave as-is (Step 2 set this, e.g. azure-prod-configmap)</span>
+</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NAMESPACE_REPLACE_ME</span><span class="w">   </span><span class="c1"># leave as-is (Step 2 set this, e.g. monitoring)</span>
+</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="nt">data</span><span class="p">:</span>
+</span><span id="__span-25-7"><a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="w">  </span><span class="nt">AZURE_TENANT_ID</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;YOUR_TENANT_ID&quot;</span><span class="w">              </span><span class="c1"># &lt;-- EDIT: service principal tenant</span>
+</span><span id="__span-25-8"><a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a><span class="w">  </span><span class="nt">AZURE_SUBSCRIPTION_ID</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;YOUR_SUBSCRIPTION_ID&quot;</span><span class="w">  </span><span class="c1"># &lt;-- EDIT: subscription to investigate</span>
+</span><span id="__span-25-9"><a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a><span class="w">  </span><span class="nt">AZ_AUTH_METHOD</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;service-principal&quot;</span><span class="w">            </span><span class="c1"># leave as-is</span>
+</span><span id="__span-25-10"><a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a><span class="w">  </span><span class="nt">READ_ONLY_MODE</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;true&quot;</span><span class="w">                         </span><span class="c1"># &quot;false&quot; to allow writes (use with caution)</span>
+</span></code></pre></div>
+<p><strong>Step 5: (Optional) Remove the NetworkPolicy</strong></p>
+<p>The manifest includes a NetworkPolicy that restricts the server to Holmes traffic. If your cluster does not enforce NetworkPolicies, delete that block (the last document in the file).</p>
+<p><strong>Step 6: Apply the manifest</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>azure-mcp-additional-instance.yaml
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="c1"># verify it comes up (use the name/namespace you chose in Step 2)</span>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>monitoring<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>azure-prod
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a>kubectl<span class="w"> </span>logs<span class="w">  </span>-n<span class="w"> </span>monitoring<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>azure-prod
+</span></code></pre></div>
+<p><strong>Step 7: Register the server with Holmes (Helm values)</strong></p>
+<p>Add an <code>mcp_servers</code> entry pointing at the new Service, then upgrade the release. The examples below use the same <code>prod</code> / <code>monitoring</code> values from Step 2 — <strong>adjust them to match the name and namespace you chose</strong>:</p>
+<ul>
+<li>The <code>url</code> host is <code>&lt;name&gt;-service.&lt;namespace&gt;.svc.cluster.local</code>. With the Step 2 example (<code>prod</code> / <code>monitoring</code>) that is <code>azure-prod-service.monitoring.svc.cluster.local</code>. If you named the instance <code>dev</code> in the <code>holmes</code> namespace, use <code>azure-dev-service.holmes.svc.cluster.local</code> instead.</li>
+<li>Use a <strong>unique</strong> <code>mcp_servers</code> key per instance (e.g. <code>azure_api_prod</code>, <code>azure_api_dev</code>) so multiple accounts don't overwrite each other.</li>
+</ul>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="adding-another-azure-account-different-credentials-holmes-helm-chart" name="__tabbed_3" type="radio" /><input id="adding-another-azure-account-different-credentials-robusta-helm-chart" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="adding-another-azure-account-different-credentials-holmes-helm-chart">Holmes Helm Chart</label><label for="adding-another-azure-account-different-credentials-robusta-helm-chart">Robusta Helm Chart</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nt">mcp_servers</span><span class="p">:</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">  </span><span class="nt">azure_api_prod</span><span class="p">:</span>
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Azure</span><span class="nv"> </span><span class="s">API</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">Server</span><span class="nv"> </span><span class="s">(prod</span><span class="nv"> </span><span class="s">account)</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">comprehensive</span><span class="nv"> </span><span class="s">Azure</span><span class="nv"> </span><span class="s">service</span><span class="nv"> </span><span class="s">access.</span><span class="nv"> </span><span class="s">Execute</span><span class="nv"> </span><span class="s">any</span><span class="nv"> </span><span class="s">Azure</span><span class="nv"> </span><span class="s">CLI</span><span class="nv"> </span><span class="s">commands.&quot;</span>
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://azure-prod-service.monitoring.svc.cluster.local:8000/mcp&quot;</span>
+</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="w">      </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg&quot;</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>--install<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="w">  </span><span class="nt">mcp_servers</span><span class="p">:</span>
+</span><span id="__span-29-3"><a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="w">    </span><span class="nt">azure_api_prod</span><span class="p">:</span>
+</span><span id="__span-29-4"><a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Azure</span><span class="nv"> </span><span class="s">API</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">Server</span><span class="nv"> </span><span class="s">(prod</span><span class="nv"> </span><span class="s">account)</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">comprehensive</span><span class="nv"> </span><span class="s">Azure</span><span class="nv"> </span><span class="s">service</span><span class="nv"> </span><span class="s">access.</span><span class="nv"> </span><span class="s">Execute</span><span class="nv"> </span><span class="s">any</span><span class="nv"> </span><span class="s">Azure</span><span class="nv"> </span><span class="s">CLI</span><span class="nv"> </span><span class="s">commands.&quot;</span>
+</span><span id="__span-29-5"><a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-29-6"><a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a><span class="w">        </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://azure-prod-service.monitoring.svc.cluster.local:8000/mcp&quot;</span>
+</span><span id="__span-29-7"><a id="__codelineno-29-7" name="__codelineno-29-7" href="#__codelineno-29-7"></a><span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-29-8"><a id="__codelineno-29-8" name="__codelineno-29-8" href="#__codelineno-29-8"></a><span class="w">        </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg&quot;</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>--install<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>YOUR_CLUSTER_NAME
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<p>Once Holmes restarts, the account is available as the <code>azure_api_prod</code> toolset. To add another account, download a <strong>fresh copy</strong> of the manifest and repeat from Step 2 with a <strong>different</strong> unique name (e.g. <code>dev</code>) and a new <code>mcp_servers</code> key.</p>
 <h3 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Check pod status</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/name<span class="o">=</span>azure-mcp-server
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Check logs</span>
-</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/name<span class="o">=</span>azure-mcp-server
-</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>
-</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="c1"># Verify service account annotations</span>
-</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>sa<span class="w"> </span>azure-api-mcp-sa<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>-o<span class="w"> </span>yaml
-</span><span id="__span-18-9"><a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a>
-</span><span id="__span-18-10"><a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="c1"># Check RBAC role assignments</span>
-</span><span id="__span-18-11"><a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a>az<span class="w"> </span>role<span class="w"> </span>assignment<span class="w"> </span>list<span class="w"> </span>--assignee<span class="w"> </span>YOUR_CLIENT_ID<span class="w"> </span>--output<span class="w"> </span>table
-</span><span id="__span-18-12"><a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a>
-</span><span id="__span-18-13"><a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a><span class="c1"># Test connectivity from Holmes pod</span>
-</span><span id="__span-18-14"><a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>HOLMES_POD<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-18-15"><a id="__codelineno-18-15" name="__codelineno-18-15" href="#__codelineno-18-15"></a><span class="w">  </span>curl<span class="w"> </span>http://RELEASE_NAME-azure-mcp-server.YOUR_NAMESPACE.svc.cluster.local:8000/health
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="c1"># Check pod status</span>
+</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/name<span class="o">=</span>azure-mcp-server
+</span><span id="__span-31-3"><a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a>
+</span><span id="__span-31-4"><a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="c1"># Check logs</span>
+</span><span id="__span-31-5"><a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>-l<span class="w"> </span>app.kubernetes.io/name<span class="o">=</span>azure-mcp-server
+</span><span id="__span-31-6"><a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a>
+</span><span id="__span-31-7"><a id="__codelineno-31-7" name="__codelineno-31-7" href="#__codelineno-31-7"></a><span class="c1"># Verify service account annotations</span>
+</span><span id="__span-31-8"><a id="__codelineno-31-8" name="__codelineno-31-8" href="#__codelineno-31-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>sa<span class="w"> </span>azure-api-mcp-sa<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>-o<span class="w"> </span>yaml
+</span><span id="__span-31-9"><a id="__codelineno-31-9" name="__codelineno-31-9" href="#__codelineno-31-9"></a>
+</span><span id="__span-31-10"><a id="__codelineno-31-10" name="__codelineno-31-10" href="#__codelineno-31-10"></a><span class="c1"># Check RBAC role assignments</span>
+</span><span id="__span-31-11"><a id="__codelineno-31-11" name="__codelineno-31-11" href="#__codelineno-31-11"></a>az<span class="w"> </span>role<span class="w"> </span>assignment<span class="w"> </span>list<span class="w"> </span>--assignee<span class="w"> </span>YOUR_CLIENT_ID<span class="w"> </span>--output<span class="w"> </span>table
+</span><span id="__span-31-12"><a id="__codelineno-31-12" name="__codelineno-31-12" href="#__codelineno-31-12"></a>
+</span><span id="__span-31-13"><a id="__codelineno-31-13" name="__codelineno-31-13" href="#__codelineno-31-13"></a><span class="c1"># Test connectivity from Holmes pod</span>
+</span><span id="__span-31-14"><a id="__codelineno-31-14" name="__codelineno-31-14" href="#__codelineno-31-14"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>HOLMES_POD<span class="w"> </span>-n<span class="w"> </span>YOUR_NAMESPACE<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-31-15"><a id="__codelineno-31-15" name="__codelineno-31-15" href="#__codelineno-31-15"></a><span class="w">  </span>curl<span class="w"> </span>http://RELEASE_NAME-azure-mcp-server.YOUR_NAMESPACE.svc.cluster.local:8000/health
 </span></code></pre></div>
 <h2 id="example-usage">Example Usage<a class="headerlink" href="#example-usage" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>&quot;Pods in namespace production can&#39;t reach Azure SQL database&quot;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>&quot;Pods in namespace production can&#39;t reach Azure SQL database&quot;
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>&quot;Our ingress is showing TLS errors since yesterday&quot;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>&quot;Our ingress is showing TLS errors since yesterday&quot;
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>&quot;After AKS upgrade, some pods are failing to schedule&quot;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>&quot;After AKS upgrade, some pods are failing to schedule&quot;
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>&quot;Applications intermittently can&#39;t connect to PostgreSQL since 2 PM&quot;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>&quot;Applications intermittently can&#39;t connect to PostgreSQL since 2 PM&quot;
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>&quot;Our Azure costs increased 50% last week&quot;
+<div class="language-text highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>&quot;Our Azure costs increased 50% last week&quot;
 </span></code></pre></div>
 
 
