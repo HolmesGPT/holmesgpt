@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import Dict, List, Optional, Tuple
 
 import sentry_sdk
@@ -52,9 +51,7 @@ def resolve_tool_name_collisions(
     resolved: List[Tuple[Toolset, "Tool", str]] = []
     for ts, tool, is_mcp, raw in entries:
         if is_mcp and counts[raw] > 1:
-            # Sanitize so the function name stays valid.
-            prefix = re.sub(r"[^a-zA-Z0-9]+", "_", ts.name).strip("_")
-            resolved.append((ts, tool, f"{prefix}__{raw}"))
+            resolved.append((ts, tool, tool.collision_safe_name))  # type: ignore[attr-defined]
         else:
             resolved.append((ts, tool, raw))
     return resolved

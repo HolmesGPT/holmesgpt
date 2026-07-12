@@ -4,6 +4,7 @@ import binascii
 import json
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -321,6 +322,12 @@ class RemoteMCPTool(Tool):
     toolset: "RemoteMCPToolset" = Field(exclude=True)
     # Real server-side tool name; exposed name is prefixed.
     mcp_tool_name: str = Field(default="", exclude=True)
+
+    @property
+    def collision_safe_name(self) -> str:
+        """Raw name prefixed with the sanitized toolset name."""
+        prefix = re.sub(r"[^a-zA-Z0-9]+", "_", self.toolset.name).strip("_")
+        return f"{prefix}__{self.mcp_tool_name}"
 
     def requires_approval(
         self, params: Dict, context: ToolInvokeContext
