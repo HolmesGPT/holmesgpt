@@ -15,40 +15,38 @@ from holmes.core.tools_utils.oauth_tool_connector import OAuthToolConnector
 display_logger = logging.getLogger("holmes.display.tool_executor")
 
 
+def _mcp_tool_name(tool: "Tool") -> str:
+    """The server-side MCP tool name, or "" for non-MCP tools (builtins, mocks)."""
+    name = getattr(tool, "mcp_tool_name", "")
+    return name if isinstance(name, str) else ""
+
+
 def resolve_tool_name_collisions(
     toolsets: List[Toolset],
 ) -> List[Tuple[Toolset, "Tool", str]]:
-    """Resolve each tool's exposed name. An MCP tool is prefixed with its toolset
-    name (``{toolset}__{tool}``) only when its raw name collides across toolsets;
-    otherwise the raw name is kept. Pure: computes from the immutable
-    ``mcp_tool_name`` and does not mutate any tool or toolset."""
-
-    def mcp_name(tool: "Tool") -> str:
-        # Real MCP tools carry a non-empty string mcp_tool_name; anything else
-        # (builtin tools, test mocks) is treated as non-MCP.
-        mtn = getattr(tool, "mcp_tool_name", "")
-        return mtn if isinstance(mtn, str) else ""
-
-    def raw(tool: "Tool") -> str:
-        return mcp_name(tool) or tool.name
-
+    """Resolve each tool's exposed name. An MCP tool whose raw name collides with
+    another tool across toolsets is prefixed with its (sanitized) toolset name
+    (``{toolset}__{tool}``); every other tool keeps its raw name. Does not mutate
+    any tool or toolset."""
+    # (toolset, tool, is_mcp, raw_name) plus a count of each raw name.
+    entries = []
     counts: Dict[str, int] = {}
     for ts in toolsets:
         for tool in ts.tools:
-            counts[raw(tool)] = counts.get(raw(tool), 0) + 1
+            mcp_name = _mcp_tool_name(tool)
+            raw = mcp_name or tool.name
+            entries.append((ts, tool, bool(mcp_name), raw))
+            counts[raw] = counts.get(raw, 0) + 1
 
     resolved: List[Tuple[Toolset, "Tool", str]] = []
-    for ts in toolsets:
-        for tool in ts.tools:
-            r = raw(tool)
-            # Only MCP tools are namespaced, and only when their raw name collides.
-            if counts[r] > 1 and mcp_name(tool):
-                # Sanitize the toolset prefix so the LLM function name stays valid
-                # even if the toolset name has spaces/dashes/dots.
-                prefix = re.sub(r"[^a-zA-Z0-9]+", "_", ts.name).strip("_")
-                resolved.append((ts, tool, f"{prefix}__{r}"))
-            else:
-                resolved.append((ts, tool, r))
+    for ts, tool, is_mcp, raw in entries:
+        if is_mcp and counts[raw] > 1:
+            # Sanitize the prefix so the LLM function name stays valid even if the
+            # toolset name has spaces/dashes/dots.
+            prefix = re.sub(r"[^a-zA-Z0-9]+", "_", ts.name).strip("_")
+            resolved.append((ts, tool, f"{prefix}__{raw}"))
+        else:
+            resolved.append((ts, tool, raw))
     return resolved
 
 
