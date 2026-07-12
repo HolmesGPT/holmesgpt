@@ -1015,14 +1015,14 @@ class TestStreamableHttp:
         with caplog.at_level(logging.WARNING):
             ex = ToolExecutor([ts_a, ts_b])
 
-        # Collision → the name is namespaced and a warning is logged.
+        # Collision → name namespaced, warning logged.
         assert "run_kubectl_command" not in ex.tools_by_name
         assert any(
             "Multiple tools named 'run_kubectl_command'" in r.getMessage()
             for r in caplog.records
         )
 
-        # The approval gate still fires, matched on the real (un-prefixed) name.
+        # Approval still fires, matched on the real name.
         tool = ex.tools_by_name["remediation_a__run_kubectl_command"]
         assert tool.mcp_tool_name == "run_kubectl_command"
         approval = tool._check_approval_config()

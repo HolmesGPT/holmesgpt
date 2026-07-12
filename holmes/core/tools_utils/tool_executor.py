@@ -16,7 +16,7 @@ display_logger = logging.getLogger("holmes.display.tool_executor")
 
 
 def _mcp_tool_name(tool: "Tool") -> str:
-    """The server-side MCP tool name, or "" for non-MCP tools (builtins, mocks)."""
+    """Server-side MCP tool name, or "" for non-MCP tools."""
     name = getattr(tool, "mcp_tool_name", "")
     return name if isinstance(name, str) else ""
 
@@ -24,12 +24,12 @@ def _mcp_tool_name(tool: "Tool") -> str:
 def resolve_tool_name_collisions(
     toolsets: List[Toolset],
 ) -> List[Tuple[Toolset, "Tool", str]]:
-    """Resolve each tool's exposed name. An MCP tool whose raw name collides with
-    another tool across toolsets is prefixed with its (sanitized) toolset name
-    (``{toolset}__{tool}``); every other tool keeps its raw name. Does not mutate
-    any tool or toolset."""
-    # (toolset, tool, is_mcp, raw_name) plus a count of each raw name.
-    entries = []
+    """Return (toolset, tool, exposed_name) for every tool.
+
+    MCP tools whose raw name collides across toolsets are namespaced as
+    ``{toolset}__{tool}``; all others keep their raw name. Does not mutate.
+    """
+    entries = []  # (toolset, tool, is_mcp, raw_name)
     counts: Dict[str, int] = {}
     for ts in toolsets:
         for tool in ts.tools:
@@ -52,8 +52,7 @@ def resolve_tool_name_collisions(
     resolved: List[Tuple[Toolset, "Tool", str]] = []
     for ts, tool, is_mcp, raw in entries:
         if is_mcp and counts[raw] > 1:
-            # Sanitize the prefix so the LLM function name stays valid even if the
-            # toolset name has spaces/dashes/dots.
+            # Sanitize so the function name stays valid.
             prefix = re.sub(r"[^a-zA-Z0-9]+", "_", ts.name).strip("_")
             resolved.append((ts, tool, f"{prefix}__{raw}"))
         else:
