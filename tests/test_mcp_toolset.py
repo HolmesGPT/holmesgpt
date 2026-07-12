@@ -1016,7 +1016,9 @@ class TestStreamableHttp:
         ts_a.approval_required_tools = ["run_kubectl_command"]
         ts_b.approval_required_tools = ["run_kubectl_command"]
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(
+            logging.WARNING, logger="holmes.display.tool_executor"
+        ):
             ex = ToolExecutor([ts_a, ts_b])
 
         # Collision → name namespaced, warning logged.
