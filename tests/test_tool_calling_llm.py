@@ -1702,3 +1702,99 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+class TestFrontendToolProseInFinalContent:
+    """Regression: an assistant turn that emits BOTH prose and a frontend tool call
+    must deliver the prose as the turn's final content (ai_answer_end for noop,
+    approval_required for pause), not lose it to the model's empty post-tool message.
+    """
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_prose_with_noop_tool_lands_in_answer_end_content(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
+        # Iteration 1: the answer prose PLUS a noop picker call (resolved same-turn).
+        picker = _make_mock_tool_call(
+            tool_call_id="pick_1", tool_name="navigate_to_page",
+            arguments={"question": "Which auth?", "options": [{"title": "A"}, {"title": "B"}]},
+        )
+        resp1 = _make_llm_response(
+            content="Here's the comparison: A is the most secure; B is simpler.",
+            tool_calls=[picker],
+        )
+        # Iteration 2: model has nothing to add after re-presenting the picker.
+        resp2 = _make_llm_response(content="", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "what is the difference between them?"}])
+        )
+
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        assert (
+            answer_ends[0].data["content"]
+            == "Here's the comparison: A is the most secure; B is simpler."
+        )
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_final_answer_still_wins_when_present(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
+        """If the model DOES produce a final answer after the noop tool, that wins
+        (the picker-turn prose is only a fallback for empty final content)."""
+        picker = _make_mock_tool_call(tool_call_id="pick_1", tool_name="navigate_to_page")
+        resp1 = _make_llm_response(content="one moment", tool_calls=[picker])
+        resp2 = _make_llm_response(content="the real final answer", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "hi"}])
+        )
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert answer_ends[0].data["content"] == "the real final answer"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_regular_tool_prose_not_leaked_into_empty_answer(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        """Scoped to frontend tools: a normal (backend) tool's intermediate prose
+        must NOT surface as the answer when the final message is empty."""
+        tc = _make_mock_tool_call()  # kubectl_get — a backend tool
+        resp1 = _make_llm_response(content="Let me check the pods", tool_calls=[tc])
+        resp2 = _make_llm_response(content="", tool_calls=None)
+        mock_llm.completion.side_effect = [resp1, resp2]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "pods?"}])
+        )
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        # Empty stays empty — the "thinking" prose is not promoted to the answer.
+        assert not answer_ends[0].data["content"]
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_pause_tool_carries_accompanying_prose_as_content(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
+        """A pause-mode frontend tool with accompanying prose surfaces that prose
+        in the approval_required event's content (previously always None)."""
+        ft_call = _make_mock_tool_call(
+            tool_call_id="ft_1", tool_name="show_chart",
+            arguments={"chart_type": "line", "data_source": "cpu_usage"},
+        )
+        resp = _make_llm_response(content="Here is the chart you asked for.", tool_calls=[ft_call])
+        mock_llm.completion.return_value = resp
+
+        ai = _make_ai_with_frontend_tools(make_ai, mock_tool_executor)
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "show cpu chart"}])
+        )
+        approvals = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        assert len(approvals) == 1
+        assert approvals[0].data["content"] == "Here is the chart you asked for."

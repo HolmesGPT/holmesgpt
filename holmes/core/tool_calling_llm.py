@@ -45,6 +45,10 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.tool_context_window_limiter import (
     spill_oversized_tool_result,
 )
+from holmes.core.tools_utils.frontend_tools import (
+    FrontendNoopTool,
+    FrontendPauseTool,
+)
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.otel_tracing import (
     ATTR_GEN_AI_REQUEST_MODEL,
@@ -117,6 +121,79 @@ def _extract_text_from_content(content: Any) -> str:
                 return item.get("text", "")
 
     return ""
+
+
+def _picker_option_titles(tool_call: Dict[str, Any]) -> Optional[List[str]]:
+    """Return a multiple-choice picker call's option titles, or None if it isn't one.
+
+    Detected structurally from the tool-call arguments shape
+    (``{"options": [{"title": ...}, ...]}``) so it isn't coupled to a specific
+    frontend tool name. Unresolved pause-flow calls (``pending_frontend``) are
+    skipped — those are handled by the frontend-tool-result path, not here.
+    """
+    if tool_call.get("pending_frontend"):
+        return None
+    function = tool_call.get("function") or {}
+    raw_args = function.get("arguments")
+    if isinstance(raw_args, str):
+        try:
+            args = json.loads(raw_args)
+        except (ValueError, TypeError):
+            return None
+    elif isinstance(raw_args, dict):
+        args = raw_args
+    else:
+        return None
+    options = args.get("options") if isinstance(args, dict) else None
+    if not isinstance(options, list) or not options:
+        return None
+    titles = [
+        opt["title"]
+        for opt in options
+        if isinstance(opt, dict) and isinstance(opt.get("title"), str)
+    ]
+    return titles or None
+
+
+def pickers_to_suppress(messages: List[Dict[str, Any]]) -> set:
+    """Frontend picker tool names to withhold from the LLM for this turn.
+
+    When the previous assistant turn presented a multiple-choice picker and the
+    user's latest message is NOT one of the offered option titles (i.e. a
+    clarifying question, not a selection), we withhold the picker tool so the
+    model must answer the question instead of deterministically re-emitting the
+    same picker. The picker stays visible in the UI, so the user can still pick
+    afterward. On an actual selection (the reply matches an option title), or
+    when there's no recent picker, nothing is withheld and the flow is unchanged.
+    """
+    # The latest user message is the reply we are classifying.
+    last_user_idx: Optional[int] = None
+    for idx in range(len(messages) - 1, -1, -1):
+        if messages[idx].get("role") == "user":
+            last_user_idx = idx
+            break
+    if last_user_idx is None:
+        return set()
+    ask_text = _extract_text_from_content(messages[last_user_idx].get("content")).strip()
+
+    # The most recent picker call before that reply defines the offered options.
+    for idx in range(last_user_idx - 1, -1, -1):
+        msg = messages[idx]
+        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            continue
+        for tool_call in msg.get("tool_calls", []):
+            titles = _picker_option_titles(tool_call)
+            if titles is None:
+                continue
+            name = (tool_call.get("function") or {}).get("name")
+            if not name:
+                continue
+            normalized_ask = ask_text.casefold()
+            is_selection = any(
+                normalized_ask == title.strip().casefold() for title in titles
+            )
+            return set() if is_selection else {name}
+    return set()
 
 
 def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
@@ -570,6 +647,27 @@ class ToolCallingLLM:
         return self.tool_executor.get_all_tools_openai_format(
             user_id=user_id,
         )
+
+    def _calls_frontend_tool(
+        self, tool_calls: Any, request_context: Optional[Dict[str, Any]]
+    ) -> bool:
+        """True if any of these LLM tool calls target a frontend tool (noop/pause).
+
+        Prose emitted in the same assistant message as a frontend tool call is the
+        turn's user-facing answer, so callers use this to preserve it as the final
+        assistant content (see call_stream's ANSWER_END / APPROVAL_REQUIRED paths).
+        """
+        if not tool_calls:
+            return False
+        user_id = (request_context or {}).get("user_id")
+        for tool_call in tool_calls:
+            name = getattr(getattr(tool_call, "function", None), "name", None)
+            if not name:
+                continue
+            tool = self.tool_executor.get_tool_by_name(name, user_id=user_id)
+            if isinstance(tool, (FrontendNoopTool, FrontendPauseTool)):
+                return True
+        return False
 
     @sentry_sdk.trace
     def call(  # type: ignore
@@ -1091,9 +1189,29 @@ class ToolCallingLLM:
         messages: list[dict] = list(msgs) if msgs else []
         tool_calls: list[dict] = []
         tools: Optional[list] = self._get_tools()
+        # If the previous turn showed a multiple-choice picker and the user replied
+        # with a clarifying question (not an option title), withhold the picker tool
+        # this turn so the model answers instead of re-emitting the same picker.
+        suppressed_pickers = pickers_to_suppress(messages)
+        if suppressed_pickers and tools:
+            tools = [
+                tool_def
+                for tool_def in tools
+                if (tool_def.get("function") or {}).get("name") not in suppressed_pickers
+            ]
+            logging.info(
+                "Withholding picker tool(s) %s this turn: the user's reply is a "
+                "clarifying question, not a selection.",
+                suppressed_pickers,
+            )
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
+        # Prose that accompanied a frontend tool call (noop/pause) is the user-facing
+        # answer for the turn — the model won't restate it after the tool resolves.
+        # Remember it so the terminal event carries it instead of the (usually empty)
+        # content of the model's post-tool message. See the ANSWER_END/APPROVAL paths.
+        pending_answer_text: Optional[str] = None
         if iteration_offset < 0:
             raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
@@ -1262,7 +1380,10 @@ class ToolCallingLLM:
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
-                        "content": response_message.content,
+                        # Fall back to prose emitted alongside a frontend tool call
+                        # this turn, so a picker turn's answer isn't lost when the
+                        # model's final message is empty.
+                        "content": response_message.content or pending_answer_text,
                         "messages": messages,
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,
@@ -1284,6 +1405,14 @@ class ToolCallingLLM:
                         "metadata": metadata,
                     },
                 )
+
+            # When this prose accompanies a frontend tool call (e.g. a
+            # PromptMultipleChoice picker), it is the turn's user-facing answer:
+            # the frontend tool resolves same-turn (noop) or pauses (pause), and
+            # the model's next message is typically empty. Remember the prose so
+            # the terminal event surfaces it instead of that empty content.
+            if message and self._calls_frontend_tool(tools_to_call, request_context):
+                pending_answer_text = message
 
             # Check if any tools require approval or are frontend-defined
             pending_approvals = []
@@ -1429,7 +1558,9 @@ class ToolCallingLLM:
                     yield StreamMessage(
                         event=StreamEvents.APPROVAL_REQUIRED,
                         data={
-                            "content": None,
+                            # Surface prose that accompanied a frontend (pause) tool
+                            # call so a paused picker turn's answer isn't dropped.
+                            "content": pending_answer_text,
                             "messages": messages,
                             "pending_approvals": [
                                 approval.model_dump() for approval in pending_approvals
