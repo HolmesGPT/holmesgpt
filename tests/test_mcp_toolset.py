@@ -995,6 +995,85 @@ class TestStreamableHttp:
         assert result.status == StructuredToolResultStatus.SUCCESS
         mock_session.call_tool.assert_awaited_once_with("call_az", {})
 
+    def test_remote_publish_uses_namespaced_name_on_collision(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        # Collided tools must publish the exposed name the worker resolves.
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+        from holmes.utils.holmes_sync_toolsets import build_remote_tools_meta
+
+        mcp_tool = Tool(
+            name="call_az",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="run az",
+        )
+        ts_main = self._enabled_mcp_toolset(
+            monkeypatch, "azure_main", "http://main:8000/mcp", [mcp_tool]
+        )
+        ts_new = self._enabled_mcp_toolset(
+            monkeypatch, "azure_newaccount", "http://new:8001/mcp", [mcp_tool]
+        )
+        ts_main.expose_remotely = True
+        ts_new.expose_remotely = True
+
+        ex = ToolExecutor([ts_main, ts_new])
+
+        meta = build_remote_tools_meta(ts_main, ex)
+        names = {t["function"]["name"] for t in meta["tools"]}
+        assert names == {"azure_main__call_az"}
+        # The published name is exactly what the remote worker resolves.
+        assert "azure_main__call_az" in ex.tools_by_name
+
+    def test_remote_publish_keeps_raw_name_without_collision(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+        from holmes.utils.holmes_sync_toolsets import build_remote_tools_meta
+
+        mcp_tool = Tool(
+            name="call_az",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="run az",
+        )
+        ts = self._enabled_mcp_toolset(
+            monkeypatch, "azure_main", "http://main:8000/mcp", [mcp_tool]
+        )
+        ts.expose_remotely = True
+
+        ex = ToolExecutor([ts])
+
+        meta = build_remote_tools_meta(ts, ex)
+        names = {t["function"]["name"] for t in meta["tools"]}
+        assert names == {"call_az"}
+        assert "call_az" in ex.tools_by_name
+
+    def test_remote_publish_excludes_approval_tool_on_collision(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        # Approval filter must match the raw name, not the namespaced one.
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+        from holmes.utils.holmes_sync_toolsets import build_remote_tools_meta
+
+        gated = Tool(
+            name="run_kubectl_command",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="mutating catch-all",
+        )
+        ts_a = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_a", "http://a:8000/mcp", [gated]
+        )
+        ts_b = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_b", "http://b:8001/mcp", [gated]
+        )
+        for ts in (ts_a, ts_b):
+            ts.expose_remotely = True
+            ts.approval_required_tools = ["run_kubectl_command"]
+
+        ex = ToolExecutor([ts_a, ts_b])
+
+        # Only tool is approval-gated -> excluded -> nothing to publish.
+        assert build_remote_tools_meta(ts_a, ex) is None
+
     def test_collision_preserves_approval_gate_and_warns(
         self, monkeypatch, caplog, suppress_migration_warnings
     ):
@@ -1016,10 +1095,14 @@ class TestStreamableHttp:
         ts_a.approval_required_tools = ["run_kubectl_command"]
         ts_b.approval_required_tools = ["run_kubectl_command"]
 
-        with caplog.at_level(
-            logging.WARNING, logger="holmes.display.tool_executor"
-        ):
+        # Attach directly to the emitting logger (propagation capture is flaky).
+        exec_logger = logging.getLogger("holmes.display.tool_executor")
+        exec_logger.addHandler(caplog.handler)
+        exec_logger.setLevel(logging.WARNING)
+        try:
             ex = ToolExecutor([ts_a, ts_b])
+        finally:
+            exec_logger.removeHandler(caplog.handler)
 
         # Collision → name namespaced, warning logged.
         assert "run_kubectl_command" not in ex.tools_by_name
