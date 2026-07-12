@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from pythonjsonlogger.json import JsonFormatter
+
 JSON_LOG_FMT = "%(asctime)s %(levelname)s %(name)s %(filename)s %(lineno)d %(funcName)s %(message)s"
 JSON_LOG_DATEFMT = "%Y-%m-%dT%H:%M:%S"
 JSON_LOG_RENAME_FIELDS = {"levelname": "severity"}
@@ -21,8 +23,6 @@ class EndpointFilter(logging.Filter):
 
 def build_json_formatter() -> logging.Formatter:
     """Build the JSON log formatter shared by the server and operator entrypoints."""
-    from pythonjsonlogger.json import JsonFormatter
-
     return JsonFormatter(
         fmt=JSON_LOG_FMT,
         datefmt=JSON_LOG_DATEFMT,

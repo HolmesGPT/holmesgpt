@@ -76,7 +76,13 @@ from holmes.utils.holmes_status import (
 )
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
-from holmes.utils.log import EndpointFilter, build_json_formatter
+from holmes.utils.log import (
+    EndpointFilter,
+    JSON_LOG_DATEFMT,
+    JSON_LOG_FMT,
+    JSON_LOG_RENAME_FIELDS,
+    build_json_formatter,
+)
 from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
@@ -104,8 +110,8 @@ def init_logging():
 
     if ENABLE_JSON_LOGS_FORMAT:
         # JSON logs (one object per line) are easier for log scrapers like
-        # Filebeat to index, search, and filter.
-        print("setting up json logging")
+        # Filebeat to index, search, and filter. Avoid printing anything to
+        # stdout here so the JSON stream is not corrupted by a plain-text line.
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(build_json_formatter())
         logging.basicConfig(handlers=[handler], level=logging_level, force=True)
@@ -113,7 +119,6 @@ def init_logging():
         logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
         logging_datefmt = "%Y-%m-%d %H:%M:%S"
 
-        print("setting up colored logging")
         colorlog.basicConfig(
             format=logging_format, level=logging_level, datefmt=logging_datefmt
         )
@@ -933,8 +938,6 @@ def main():
     if ENABLE_JSON_LOGS_FORMAT:
         # Emit uvicorn's own access/error lines as JSON too, so the whole pod's
         # stdout is one consistent JSON stream for log scrapers.
-        from holmes.utils.log import JSON_LOG_DATEFMT, JSON_LOG_FMT, JSON_LOG_RENAME_FIELDS
-
         for formatter_name in ("default", "access"):
             log_config["formatters"][formatter_name] = {
                 "()": "pythonjsonlogger.json.JsonFormatter",
