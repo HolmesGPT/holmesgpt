@@ -38,6 +38,17 @@ def resolve_tool_name_collisions(
             entries.append((ts, tool, bool(mcp_name), raw))
             counts[raw] = counts.get(raw, 0) + 1
 
+    for name, count in counts.items():
+        if count > 1:
+            owners = sorted({ts.name for ts, _, _, r in entries if r == name})
+            display_logger.warning(
+                "Multiple tools named '%s' across toolsets (%s); "
+                "MCP copies are namespaced as '<toolset>__%s'.",
+                name,
+                ", ".join(owners),
+                name,
+            )
+
     resolved: List[Tuple[Toolset, "Tool", str]] = []
     for ts, tool, is_mcp, raw in entries:
         if is_mcp and counts[raw] > 1:

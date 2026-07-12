@@ -991,6 +991,43 @@ class TestStreamableHttp:
         assert result.status == StructuredToolResultStatus.SUCCESS
         mock_session.call_tool.assert_awaited_once_with("call_az", {})
 
+    def test_collision_preserves_approval_gate_and_warns(
+        self, monkeypatch, caplog, suppress_migration_warnings
+    ):
+        import logging
+
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+        gated = Tool(
+            name="run_kubectl_command",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="mutating catch-all",
+        )
+        ts_a = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_a", "http://a:8000/mcp", [gated]
+        )
+        ts_b = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_b", "http://b:8001/mcp", [gated]
+        )
+        ts_a.approval_required_tools = ["run_kubectl_command"]
+        ts_b.approval_required_tools = ["run_kubectl_command"]
+
+        with caplog.at_level(logging.WARNING):
+            ex = ToolExecutor([ts_a, ts_b])
+
+        # Collision → the name is namespaced and a warning is logged.
+        assert "run_kubectl_command" not in ex.tools_by_name
+        assert any(
+            "Multiple tools named 'run_kubectl_command'" in r.getMessage()
+            for r in caplog.records
+        )
+
+        # The approval gate still fires, matched on the real (un-prefixed) name.
+        tool = ex.tools_by_name["remediation_a__run_kubectl_command"]
+        assert tool.mcp_tool_name == "run_kubectl_command"
+        approval = tool._check_approval_config()
+        assert approval is not None and approval.needs_approval
+
     def test_single_mcp_instance_keeps_raw_tool_name(
         self, monkeypatch, suppress_migration_warnings
     ):
