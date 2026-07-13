@@ -45,6 +45,10 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.tool_context_window_limiter import (
     spill_oversized_tool_result,
 )
+from holmes.core.tools_utils.frontend_tools import (
+    FrontendNoopTool,
+    FrontendPauseTool,
+)
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.otel_tracing import (
     ATTR_GEN_AI_REQUEST_MODEL,
@@ -571,6 +575,27 @@ class ToolCallingLLM:
             user_id=user_id,
         )
 
+    def _calls_frontend_tool(
+        self, tool_calls: Any, request_context: Optional[Dict[str, Any]]
+    ) -> bool:
+        """True if any of these LLM tool calls target a frontend tool (noop/pause).
+
+        Prose emitted in the same assistant message as a frontend tool call is the
+        turn's user-facing answer, so callers use this to preserve it as the final
+        assistant content (see call_stream's ANSWER_END / APPROVAL_REQUIRED paths).
+        """
+        if not tool_calls:
+            return False
+        user_id = (request_context or {}).get("user_id")
+        for tool_call in tool_calls:
+            name = getattr(getattr(tool_call, "function", None), "name", None)
+            if not name:
+                continue
+            tool = self.tool_executor.get_tool_by_name(name, user_id=user_id)
+            if isinstance(tool, (FrontendNoopTool, FrontendPauseTool)):
+                return True
+        return False
+
     @sentry_sdk.trace
     def call(  # type: ignore
         self,
@@ -1094,6 +1119,11 @@ class ToolCallingLLM:
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
+        # Prose that accompanied a frontend tool call (noop/pause) is the user-facing
+        # answer for the turn — the model won't restate it after the tool resolves.
+        # Remember it so the terminal event carries it instead of the (usually empty)
+        # content of the model's post-tool message. See the ANSWER_END/APPROVAL paths.
+        pending_answer_text: Optional[str] = None
         if iteration_offset < 0:
             raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
@@ -1259,10 +1289,26 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
+                # The turn's answer is the most substantial assistant prose from
+                # this turn. pending_answer_text holds prose that accompanied a
+                # frontend tool call (only set on such turns); response_message.content
+                # is the model's trailing message. Pick whichever is longer so a
+                # picker/pause answer wins over a short "please pick" nudge, while a
+                # fire-and-forget action tool's real trailing result still wins over
+                # its pre-tool filler. Backend-tool turns never set pending_answer_text,
+                # so they keep using the model's final content unchanged.
+                answer_candidates = [
+                    c for c in (pending_answer_text, response_message.content) if c
+                ]
+                answer_content = (
+                    max(answer_candidates, key=len)
+                    if answer_candidates
+                    else response_message.content
+                )
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
-                        "content": response_message.content,
+                        "content": answer_content,
                         "messages": messages,
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,
@@ -1284,6 +1330,14 @@ class ToolCallingLLM:
                         "metadata": metadata,
                     },
                 )
+
+            # When this prose accompanies a frontend tool call (e.g. a
+            # PromptMultipleChoice picker), it is the turn's user-facing answer:
+            # the frontend tool resolves same-turn (noop) or pauses (pause), and
+            # the model's next message is typically empty. Remember the prose so
+            # the terminal event surfaces it instead of that empty content.
+            if message and self._calls_frontend_tool(tools_to_call, request_context):
+                pending_answer_text = message
 
             # Check if any tools require approval or are frontend-defined
             pending_approvals = []
@@ -1429,7 +1483,9 @@ class ToolCallingLLM:
                     yield StreamMessage(
                         event=StreamEvents.APPROVAL_REQUIRED,
                         data={
-                            "content": None,
+                            # Surface prose that accompanied a frontend (pause) tool
+                            # call so a paused picker turn's answer isn't dropped.
+                            "content": pending_answer_text,
                             "messages": messages,
                             "pending_approvals": [
                                 approval.model_dump() for approval in pending_approvals
