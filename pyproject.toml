@@ -136,6 +136,7 @@ opentelemetry-api = "^1.30.0"
 opentelemetry-sdk = "^1.30.0"
 opentelemetry-exporter-otlp-proto-grpc = "^1.30.0"
 opentelemetry-exporter-otlp-proto-http = "^1.30.0"
+pillow = "^12.3.0"
 
 [build-system]
 requires = ["poetry-core"]

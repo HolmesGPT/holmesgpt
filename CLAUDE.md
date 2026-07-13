@@ -312,6 +312,53 @@ raw = buf.getvalue()  # Contains full ANSI escape sequences
 
 When reverting or fixing a suspect PR, read its full diff (`git show --stat <commit>`) before deciding what to change — a PR often has multiple effects, and reverting only the file you noticed leaves the others still acting on the model.
 
+### Pulling Trace-Level Data from Braintrust (works in the sandbox)
+
+`BRAINTRUST_SERVICE_TOKEN` in the sandbox env is a **read-only** service token
+("HolmesGPT Read Only Service Token"). It cannot create experiments — that is
+why it must stay UNSET while *running* evals (the logger crashes on experiment
+creation) — but it has full READ access to all existing experiments, including
+per-LLM-call spans with rendered prompts, outputs, tool-call sequences, and
+token/cache metrics. Verified working recipe (REST API, no SDK needed):
+
+```bash
+# 1. List experiments (newest first). Naming: master-<run_id> = post-merge
+#    regression runs on master; ci-benchmark-<run_id> = weekly benchmark.
+curl -s "https://api.braintrust.dev/v1/experiment?project_name=HolmesGPT&limit=20" \
+  -H "Authorization: Bearer $BRAINTRUST_SERVICE_TOKEN"
+
+# 2. Fetch spans for an experiment (POST, paginate via returned "cursor").
+curl -s -X POST "https://api.braintrust.dev/v1/experiment/<EXPERIMENT_ID>/fetch" \
+  -H "Authorization: Bearer $BRAINTRUST_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" -d '{"limit": 500}'
+```
+
+Span anatomy (in `events[]`): root spans (`is_root: true`) are eval cases —
+`span_attributes.name` is like `112_find_pvcs_by_uuid[opus-4.6][default]`, with
+`scores`, `expected`, and `metadata.model`. Child spans share the root's
+`root_span_id`: `span_attributes.type == "llm"` spans carry `input` (the full
+rendered message list), `output`, and `metrics` (`prompt_tokens`,
+`completion_tokens`, `prompt_cached_tokens`, `prompt_cache_creation_tokens`,
+`time_to_first_token`); `type == "tool"` spans record each tool invocation.
+Sort children by `metrics.start` to reconstruct the agentic loop. A working
+Python client already exists in `tests/llm/utils/braintrust_history.py`.
+
+Gotchas learned the hard way:
+
+- Use `requests`/`curl`, not `urllib` — the API 302-redirects POSTs and
+  urllib's redirect handling turns them into bodyless GETs (HTTP 400).
+- CI/master experiments run with **prompt caching active** (~80%+ of prompt
+  tokens are cache reads at 10% price). Local sandbox runs through OpenRouter
+  do NOT cache (`prompt_cached_tokens=0`), so absolute token/cost numbers from
+  local runs overstate production cost — compare arms against each other, not
+  against CI numbers.
+- Local sandbox eval runs cannot log new experiments to Braintrust (read-only
+  token). To get per-call trace data for local runs, register a litellm
+  `success_callback` via a pytest plugin (`-p my_plugin` with the plugin dir on
+  `PYTHONPATH`; read `PYTEST_CURRENT_TEST` env var inside the callback to tag
+  each record with its test). Log per call: `kwargs["messages"]` shape/sizes
+  and `response.usage` token counts, appended as JSONL.
+
 ## Security Notes
 
 - All tools have read-only access by design
