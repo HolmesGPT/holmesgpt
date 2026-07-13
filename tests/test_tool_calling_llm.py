@@ -1707,7 +1707,8 @@ class TestFrontendNoopToolFlow:
 class TestFrontendToolProseInFinalContent:
     """Regression: an assistant turn that emits BOTH prose and a frontend tool call
     must deliver the prose as the turn's final content (ai_answer_end for noop,
-    approval_required for pause), not lose it to the model's empty post-tool message.
+    approval_required for pause), not lose it to the model's trailing post-tool
+    message (whether empty or a short "please pick" nudge).
     """
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
@@ -1740,22 +1741,31 @@ class TestFrontendToolProseInFinalContent:
         )
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_final_answer_still_wins_when_present(
+    def test_picker_prose_wins_over_trailing_nudge(
         self, _mock_limit, make_ai, mock_llm, mock_tool_executor
     ):
-        """If the model DOES produce a final answer after the noop tool, that wins
-        (the picker-turn prose is only a fallback for empty final content)."""
-        picker = _make_mock_tool_call(tool_call_id="pick_1", tool_name="navigate_to_page")
-        resp1 = _make_llm_response(content="one moment", tool_calls=[picker])
-        resp2 = _make_llm_response(content="the real final answer", tool_calls=None)
+        """Second-picker-onward regression: the model's trailing post-tool message
+        is a short non-empty "please pick" nudge, NOT empty. The picker-accompanying
+        prose must still win — a truthy trailing nudge must not override the answer
+        (this is the turn-dependent bug: worked on turn 1 only because the trailing
+        message happened to be empty there)."""
+        picker = _make_mock_tool_call(tool_call_id="pick_2", tool_name="navigate_to_page")
+        resp1 = _make_llm_response(
+            content="Here's the detailed breakdown of the three options ...",
+            tool_calls=[picker],
+        )
+        resp2 = _make_llm_response(content="Please pick one.", tool_calls=None)  # 16-char nudge
         mock_llm.completion.side_effect = [resp1, resp2]
 
         ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
         events = _collect_stream_events(
-            ai.call_stream(msgs=[{"role": "user", "content": "hi"}])
+            ai.call_stream(msgs=[{"role": "user", "content": "which is most secure?"}])
         )
         answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
-        assert answer_ends[0].data["content"] == "the real final answer"
+        assert (
+            answer_ends[0].data["content"]
+            == "Here's the detailed breakdown of the three options ..."
+        )
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_regular_tool_prose_not_leaked_into_empty_answer(

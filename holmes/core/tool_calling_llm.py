@@ -1289,13 +1289,26 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
+                # The turn's answer is the most substantial assistant prose from
+                # this turn. pending_answer_text holds prose that accompanied a
+                # frontend tool call (only set on such turns); response_message.content
+                # is the model's trailing message. Pick whichever is longer so a
+                # picker/pause answer wins over a short "please pick" nudge, while a
+                # fire-and-forget action tool's real trailing result still wins over
+                # its pre-tool filler. Backend-tool turns never set pending_answer_text,
+                # so they keep using the model's final content unchanged.
+                answer_candidates = [
+                    c for c in (pending_answer_text, response_message.content) if c
+                ]
+                answer_content = (
+                    max(answer_candidates, key=len)
+                    if answer_candidates
+                    else response_message.content
+                )
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
-                        # Fall back to prose emitted alongside a frontend tool call
-                        # this turn, so a picker turn's answer isn't lost when the
-                        # model's final message is empty.
-                        "content": response_message.content or pending_answer_text,
+                        "content": answer_content,
                         "messages": messages,
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,
