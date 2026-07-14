@@ -228,6 +228,50 @@ class TestOTelSpan:
         detach.assert_not_called()
         assert otel_span._token is None  # token cleared either way
 
+    def test_rob278_reproduce_bug_then_verify_fix(self, in_memory_exporter, caplog):
+        """Reproduce the real ROB-278 error, then prove _safe_detach avoids it.
+
+        The error ("Token was created in a different Context") happens when a
+        context token is attached in one contextvars.Context and detached in
+        another — exactly what happens when Holmes' span wraps a streaming
+        generator and is ended from the caller's context. We reproduce it by
+        attaching here and detaching inside a fresh contextvars.Context (where
+        our span is NOT the current one).
+        """
+        import contextvars
+        import logging
+
+        from opentelemetry import context as otel_context
+        from opentelemetry import trace as _trace
+
+        from holmes.core.otel_tracing import OTelSpan
+
+        tracer = _trace.get_tracer("test")
+        span_a = tracer.start_span("a")
+        token_a = otel_context.attach(_trace.set_span_in_context(span_a))
+        try:
+            # 1) Naive detach in a DIFFERENT context reproduces the OTel error.
+            def naive_detach():
+                otel_context.detach(token_a)
+
+            caplog.clear()
+            with caplog.at_level(logging.ERROR, logger="opentelemetry.context"):
+                contextvars.Context().run(naive_detach)
+            assert "Failed to detach context" in caplog.text
+
+            # 2) _safe_detach in that same cross-context situation stays silent:
+            #    span_a is not current there, so it skips the detach.
+            def safe_detach():
+                OTelSpan(span_a, tracer, token_a)._safe_detach()
+
+            caplog.clear()
+            with caplog.at_level(logging.ERROR, logger="opentelemetry.context"):
+                contextvars.Context().run(safe_detach)
+            assert "Failed to detach context" not in caplog.text
+        finally:
+            # in-order detach in the original context — clean, no error
+            otel_context.detach(token_a)
+
     def test_otel_span_set_attributes(self):
         """OTelSpan.set_attributes() updates span name and attributes."""
         from holmes.core.otel_tracing import OTelSpan
