@@ -1208,6 +1208,33 @@ class ToolCallingLLM:
                     "holmesgpt.iteration": i,
                 })
 
+                # Capture the prompt (input) and the assistant response — content,
+                # thinking/reasoning, and chosen tool calls — (output) on the same
+                # span so Langfuse shows a full audit of this LLM interaction.
+                # Must happen inside the `with` block (it closes before
+                # response_message is re-read below).
+                _resp_msg = full_response.choices[0].message  # type: ignore
+                _reasoning = getattr(_resp_msg, "reasoning_content", None)
+                _raw_tool_calls = getattr(_resp_msg, "tool_calls", None) or []
+                _tool_calls_out = []
+                for _tc in _raw_tool_calls:
+                    _dump = getattr(_tc, "model_dump", None)
+                    if callable(_dump):
+                        try:
+                            _tool_calls_out.append(_dump())
+                        except Exception:
+                            _tool_calls_out.append(str(_tc))
+                    else:
+                        _tool_calls_out.append(str(_tc))
+                llm_span.log(
+                    input=messages,
+                    output={
+                        "content": getattr(_resp_msg, "content", None),
+                        "reasoning": _reasoning,
+                        "tool_calls": _tool_calls_out,
+                    },
+                )
+
               # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
               except BadRequestError as e:
                 if "Unrecognized request arguments supplied: tool_choice, tools" in str(

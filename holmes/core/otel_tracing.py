@@ -18,11 +18,17 @@ Dynatrace, Grafana and Prometheus which normalise dots to underscores.
 Two sets of constants are provided below to keep the distinction explicit.
 """
 
+import json
 import logging
 import os
 from typing import Any, Dict, Optional
 
-from holmes.core.tracing import DummySpan, SpanType, TracingFactory
+from holmes.core.tracing import (
+    DummySpan,
+    SpanType,
+    TracingFactory,
+    langfuse_attributes_enabled,
+)
 
 try:
     from opentelemetry import context as otel_context
@@ -35,6 +41,12 @@ try:
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.metrics.view import View
     from opentelemetry.trace import StatusCode
+    from opentelemetry.sdk.trace.sampling import (
+        ALWAYS_ON,
+        Decision,
+        Sampler,
+        SamplingResult,
+    )
 
     OTEL_AVAILABLE = True
 except ImportError:
@@ -72,6 +84,71 @@ logger = logging.getLogger(__name__)
 # Default OTLP endpoints per protocol (OTel spec: gRPC uses 4317, HTTP uses 4318)
 DEFAULT_GRPC_ENDPOINT = "http://localhost:4317"
 DEFAULT_HTTP_ENDPOINT = "http://localhost:4318"
+
+# Max characters for input/output span attributes. Prompts + tool outputs can be
+# large; the default is generous so a full interaction audit isn't truncated, but
+# still bounded to stay within OTLP/backend attribute limits. Override via env.
+_MAX_ATTR_CHARS = int(os.environ.get("HOLMES_OTEL_MAX_ATTR_CHARS", "100000"))
+
+
+def _to_attr_str(value: Any) -> str:
+    """Render a span attribute value as a (bounded) string.
+
+    Strings are used verbatim; everything else is JSON-encoded (falling back to
+    ``str`` for non-serializable objects). The result is truncated to
+    ``_MAX_ATTR_CHARS``. Used for the Langfuse ``input``/``output`` attributes,
+    which Langfuse parses as JSON when possible and otherwise shows as text.
+    """
+    if isinstance(value, str):
+        rendered = value
+    else:
+        try:
+            rendered = json.dumps(value, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            rendered = str(value)
+    return rendered[:_MAX_ATTR_CHARS]
+
+
+# HTTP method names used by the httpx auto-instrumentation as span names.
+_HTTP_METHOD_SPAN_NAMES = {
+    "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE",
+}
+
+if OTEL_AVAILABLE:
+
+    class _DropOrphanHttpSampler(Sampler):
+        """Drop root spans created by httpx auto-instrumentation.
+
+        Holmes auto-instruments httpx so that HTTP calls made *inside* an
+        investigation nest under the tool/LLM spans. But every background HTTP
+        call the server makes *outside* an investigation (health checks, platform
+        polling, etc.) also becomes a span — and with no parent it lands as its
+        own root trace, flooding the backend and burying the real
+        ``holmesgpt.investigation`` traces.
+
+        This sampler drops a span only when it is BOTH a root (no valid parent)
+        AND named like a bare HTTP method. httpx spans that have a parent (i.e.
+        created within an investigation) and all Holmes spans are unaffected.
+        """
+
+        def __init__(self, delegate: "Sampler" = ALWAYS_ON):
+            self._delegate = delegate
+
+        def should_sample(
+            self, parent_context, trace_id, name, kind=None,
+            attributes=None, links=None, trace_state=None,
+        ) -> "SamplingResult":
+            parent_span = trace.get_current_span(parent_context)
+            parent_ctx = parent_span.get_span_context() if parent_span else None
+            is_root = not (parent_ctx and parent_ctx.is_valid)
+            if is_root and name in _HTTP_METHOD_SPAN_NAMES:
+                return SamplingResult(Decision.DROP, attributes, trace_state)
+            return self._delegate.should_sample(
+                parent_context, trace_id, name, kind, attributes, links, trace_state
+            )
+
+        def get_description(self) -> str:
+            return f"DropOrphanHttp({self._delegate.get_description()})"
 
 # ---------------------------------------------------------------------------
 # OTel GenAI semantic convention — span attribute names (dot-delimited)
@@ -223,23 +300,43 @@ class OTelSpan:
         """Log attributes to the span.
 
         Supported keyword arguments:
-            input: Stored as the ``input`` span attribute (truncated to 4096 chars).
-            output: Stored as the ``output`` span attribute (truncated to 4096 chars).
+            input: Stored as the ``langfuse.observation.input`` span attribute
+                (JSON-encoded if not a string, truncated to ``_MAX_ATTR_CHARS``).
+            output: Stored as the ``langfuse.observation.output`` span attribute
+                (same encoding). Langfuse reads these to populate the observation
+                Input/Output panels.
+            error: When truthy, marks the observation as an error via
+                ``langfuse.observation.level`` / ``.status_message``.
             metadata: A ``dict`` whose entries are set as individual span attributes.
             metrics: A ``dict`` of numeric values set as span attributes; names
                 with a GenAI semantic convention equivalent (e.g. ``prompt_tokens``)
                 are renamed to it.
         """
-        if "input" in kwargs:
-            val = str(kwargs["input"])
-            self._span.set_attribute("input", val[:4096])
-        if "output" in kwargs:
-            val = str(kwargs["output"])
-            self._span.set_attribute("output", val[:4096])
+        # input/output/error map to Langfuse-vendor-specific attributes; only emit
+        # them when Langfuse enrichment is enabled (off by default).
+        if langfuse_attributes_enabled():
+            if "input" in kwargs:
+                self._span.set_attribute(
+                    "langfuse.observation.input", _to_attr_str(kwargs["input"])
+                )
+            if "output" in kwargs:
+                self._span.set_attribute(
+                    "langfuse.observation.output", _to_attr_str(kwargs["output"])
+                )
+            if kwargs.get("error"):
+                self._span.set_attribute("langfuse.observation.level", "ERROR")
+                self._span.set_attribute(
+                    "langfuse.observation.status_message", _to_attr_str(kwargs["error"])
+                )
         if "metadata" in kwargs and isinstance(kwargs["metadata"], dict):
             for k, v in kwargs["metadata"].items():
                 if isinstance(v, (str, int, float, bool)):
                     self._span.set_attribute(k, v)
+                elif isinstance(v, (list, tuple)) and all(
+                    isinstance(e, str) for e in v
+                ):
+                    # native OTel string-array attribute (e.g. langfuse.trace.tags)
+                    self._span.set_attribute(k, list(v))
                 else:
                     self._span.set_attribute(k, str(v))
         if "metrics" in kwargs and isinstance(kwargs["metrics"], dict):
@@ -343,7 +440,11 @@ class OpenTelemetryTracer:
         )
 
         # --- Traces ---
-        trace_provider = TracerProvider(resource=resource)
+        # Drop orphan httpx root spans (background HTTP calls) so they don't
+        # flood the backend and bury real investigation traces.
+        trace_provider = TracerProvider(
+            resource=resource, sampler=_DropOrphanHttpSampler()
+        )
         trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
         trace.set_tracer_provider(trace_provider)
         self._tracer = trace.get_tracer("holmesgpt", "0.1.0")
