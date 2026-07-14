@@ -24,10 +24,10 @@ import os
 from typing import Any, Dict, Optional
 
 from holmes.core.tracing import (
+    HOLMES_LANGFUSE_ATTRIBUTES,
     DummySpan,
     SpanType,
     TracingFactory,
-    langfuse_attributes_enabled,
 )
 
 try:
@@ -325,7 +325,7 @@ class OTelSpan:
         """
         # input/output/error map to Langfuse-vendor-specific attributes; only emit
         # them when Langfuse enrichment is enabled (off by default).
-        if langfuse_attributes_enabled():
+        if HOLMES_LANGFUSE_ATTRIBUTES:
             if "input" in kwargs:
                 self._span.set_attribute(
                     "langfuse.observation.input", _to_attr_str(kwargs["input"])

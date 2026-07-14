@@ -87,7 +87,7 @@ class TestOTelSpan:
         mock_span = MagicMock()
         otel_span = OTelSpan(mock_span, MagicMock())
 
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "true"}):
+        with patch("holmes.core.otel_tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             otel_span.log(input="the prompt", output="the answer")
 
         mock_span.set_attribute.assert_any_call(
@@ -104,7 +104,7 @@ class TestOTelSpan:
         mock_span = MagicMock()
         otel_span = OTelSpan(mock_span, MagicMock())
 
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "false"}):
+        with patch("holmes.core.otel_tracing.HOLMES_LANGFUSE_ATTRIBUTES", False):
             otel_span.log(input="the prompt", output="the answer", error="x")
 
         keys = [c[0][0] for c in mock_span.set_attribute.call_args_list]
@@ -118,7 +118,7 @@ class TestOTelSpan:
         otel_span = OTelSpan(mock_span, MagicMock())
 
         long_string = "x" * (_MAX_ATTR_CHARS + 5000)
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "true"}):
+        with patch("holmes.core.otel_tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             otel_span.log(input=long_string, output=long_string)
 
         for call in mock_span.set_attribute.call_args_list:
@@ -134,7 +134,7 @@ class TestOTelSpan:
         otel_span = OTelSpan(mock_span, MagicMock())
 
         payload = {"content": "hi", "reasoning": "because", "tool_calls": []}
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "true"}):
+        with patch("holmes.core.otel_tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             otel_span.log(input=[{"role": "user", "content": "q"}], output=payload)
 
         recorded = {c[0][0]: c[0][1] for c in mock_span.set_attribute.call_args_list}
@@ -150,7 +150,7 @@ class TestOTelSpan:
         mock_span = MagicMock()
         otel_span = OTelSpan(mock_span, MagicMock())
 
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "true"}):
+        with patch("holmes.core.otel_tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             otel_span.log(output="partial", error="boom failed")
 
         mock_span.set_attribute.assert_any_call("langfuse.observation.level", "ERROR")
@@ -217,13 +217,13 @@ class TestLangfuseTraceAttributes:
         """Returns {} unless HOLMES_LANGFUSE_ATTRIBUTES is enabled."""
         from holmes.core.tracing import langfuse_trace_attributes
 
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "false"}):
+        with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", False):
             assert langfuse_trace_attributes("q", user_id="u1", session_id="c1") == {}
 
     def test_full_attrs(self):
         from holmes.core.tracing import langfuse_trace_attributes
 
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "true"}):
+        with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             attrs = langfuse_trace_attributes(
                 "why is my pod crashing?",
                 user_id="u123",
@@ -254,7 +254,7 @@ class TestLangfuseTraceAttributes:
     def test_user_id_fallback_chain(self):
         from holmes.core.tracing import langfuse_trace_attributes
 
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "true"}):
+        with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             assert (
                 langfuse_trace_attributes("q", user_email="a@b.com")["langfuse.user.id"]
                 == "a@b.com"
@@ -267,7 +267,7 @@ class TestLangfuseTraceAttributes:
     def test_empty_values_omitted(self):
         from holmes.core.tracing import langfuse_trace_attributes
 
-        with patch.dict(os.environ, {"HOLMES_LANGFUSE_ATTRIBUTES": "true"}):
+        with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             attrs = langfuse_trace_attributes("q")
         # no user/session/metadata/tags keys when nothing is provided
         assert "langfuse.user.id" not in attrs

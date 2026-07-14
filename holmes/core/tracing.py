@@ -120,20 +120,13 @@ class SpanType(Enum):
     TOOL = "tool"
 
 
-def langfuse_attributes_enabled() -> bool:
-    """Whether to emit Langfuse-vendor-specific span attributes (``langfuse.*``).
-
-    Off by default: these attributes are proprietary to Langfuse and would be
-    noise for a vendor-neutral OTel backend. Enable with
-    ``HOLMES_LANGFUSE_ATTRIBUTES=true`` when exporting to Langfuse to get the
-    full audit (input/output content, initiating user, session, tags, metadata).
-    """
-    return os.environ.get("HOLMES_LANGFUSE_ATTRIBUTES", "false").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+# Whether to emit Langfuse-vendor-specific span attributes (``langfuse.*``).
+# Off by default: these are proprietary to Langfuse and would be noise for a
+# vendor-neutral OTel backend. Enable with ``HOLMES_LANGFUSE_ATTRIBUTES=true``
+# to get the full audit (input/output, initiating user, session, tags, metadata).
+HOLMES_LANGFUSE_ATTRIBUTES = (
+    os.environ.get("HOLMES_LANGFUSE_ATTRIBUTES", "false").lower() == "true"
+)
 
 
 def langfuse_trace_attributes(
@@ -152,10 +145,10 @@ def langfuse_trace_attributes(
     Langfuse reads these from the trace's root span to populate the trace name,
     input, the initiating user, the session grouping, tags, and filterable
     metadata. Only non-empty values are included (empty attributes add UI noise).
-    Returns ``{}`` unless :func:`langfuse_attributes_enabled` is true.
+    Returns ``{}`` unless :data:`HOLMES_LANGFUSE_ATTRIBUTES` is true.
     Pass the result as ``trace_span.log(metadata=...)``.
     """
-    if not langfuse_attributes_enabled():
+    if not HOLMES_LANGFUSE_ATTRIBUTES:
         return {}
 
     # Trace name = "Holmes: <question>" so the Langfuse trace list is scannable.
