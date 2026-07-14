@@ -364,17 +364,28 @@ class OTelSpan:
         self._span.end()
 
     def _safe_detach(self) -> None:
-        """Detach context token, tolerating cross-context calls (generators/threads)."""
-        if self._token is not None:
-            try:
-                otel_context.detach(self._token)
-            except ValueError:
-                # Token created in a different context (e.g., streaming generator
-                # yielding across thread/coroutine boundaries). This is expected
-                # for long-lived spans that wrap generators. The span still exports
-                # correctly; we just can't restore the previous context.
-                logger.debug("Context detach skipped (cross-context span lifecycle)")
-            self._token = None
+        """Detach our context token, but only when it's safe (in LIFO order).
+
+        OpenTelemetry's ``context.detach()`` does NOT re-raise on failure — it
+        catches the error and logs ``Failed to detach context`` at ERROR (with a
+        ``ValueError: <Token ...> was created in a different Context`` traceback).
+        That fires routinely for Holmes' long-lived spans that wrap streaming
+        generators / cross thread boundaries, where the token is detached from a
+        different execution context than the one it was attached in (ROB-278).
+
+        A plain ``try/except`` around ``detach()`` can't suppress it (the error is
+        already swallowed and logged inside OTel). Instead we only detach when our
+        span is still the current one — i.e. the detach would be in order.
+        Otherwise we skip it; the contextvar is reset when its execution unit
+        ends, and export is unaffected either way.
+        """
+        if self._token is None:
+            return
+        token, self._token = self._token, None
+        if trace.get_current_span() is self._span:
+            otel_context.detach(token)
+        else:
+            logger.debug("Context detach skipped (cross-context span lifecycle)")
 
     def set_attributes(self, name: Optional[str] = None, span_type: Optional[str] = None, span_attributes: Optional[Dict[str, Any]] = None) -> None:
         """Update the span's name and/or set additional attributes.

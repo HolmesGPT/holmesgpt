@@ -193,6 +193,41 @@ class TestOTelSpan:
             "langfuse.trace.tags", ["source:alert", "cluster:x"]
         )
 
+    def test_safe_detach_detaches_when_in_order(self):
+        """When our span is current, detach happens normally."""
+        from holmes.core.otel_tracing import OTelSpan
+
+        span = MagicMock()
+        token = object()
+        otel_span = OTelSpan(span, MagicMock(), token)
+
+        with patch(
+            "holmes.core.otel_tracing.trace.get_current_span", return_value=span
+        ), patch("holmes.core.otel_tracing.otel_context.detach") as detach:
+            otel_span._safe_detach()
+
+        detach.assert_called_once_with(token)
+
+    def test_safe_detach_skips_when_out_of_order(self):
+        """When a different span is current (cross-context), detach is skipped.
+
+        This is the ROB-278 case: calling OTel detach out of LIFO order makes it
+        log "Failed to detach context" at ERROR. Skipping avoids that entirely.
+        """
+        from holmes.core.otel_tracing import OTelSpan
+
+        span = MagicMock()
+        otel_span = OTelSpan(span, MagicMock(), object())
+
+        with patch(
+            "holmes.core.otel_tracing.trace.get_current_span",
+            return_value=MagicMock(),  # some other span is current
+        ), patch("holmes.core.otel_tracing.otel_context.detach") as detach:
+            otel_span._safe_detach()
+
+        detach.assert_not_called()
+        assert otel_span._token is None  # token cleared either way
+
     def test_otel_span_set_attributes(self):
         """OTelSpan.set_attributes() updates span name and attributes."""
         from holmes.core.otel_tracing import OTelSpan
