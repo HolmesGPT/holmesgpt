@@ -1,0 +1,34 @@
+# Freshservice (ITSM)
+
+The freshservice_* tools read and write records in a Freshservice service desk.
+
+Numeric field values (use these when filtering, reading or writing):
+* Ticket status: 2=Open, 3=Pending, 4=Resolved, 5=Closed
+* Ticket/problem/change priority: 1=Low, 2=Medium, 3=High, 4=Urgent
+* Ticket source: 1=Email, 2=Portal, 3=Phone
+* Ticket urgency/impact: 1=Low, 2=Medium, 3=High (ticket priority is auto-computed from urgency+impact when a priority matrix is enabled, so set urgency and impact rather than priority)
+* Problem status: 1=Open, 2=Change Requested, 3=Closed
+* Change status: 1=Open, 2=Planning, 3=Awaiting Approval, 4=Pending Release, 5=Pending Review, 6=Closed
+* Change type: 1=Minor, 2=Standard, 3=Major, 4=Emergency; risk: 1=Low..4=Very High
+* Release status: 1=Open, 2=On Hold, 3=In Progress, 4=Incomplete, 5=Completed
+
+Investigating an outage or failure reported in tickets:
+1. Find the affected tickets with freshservice_filter_tickets (e.g. "status:2 AND priority:>2") or freshservice_list_records.
+2. Read each relevant ticket's description AND its conversations (freshservice_get_ticket_conversations) - agent notes usually contain log excerpts and triage findings.
+3. Check open problems (freshservice_list_records object_type=problems, then freshservice_get_record) for a tracking problem and its analysis fields (symptom/impact/cause).
+4. Correlate with recent changes: list changes and inspect ones whose planned_start_date/planned_end_date precede the failure onset. Read each candidate change with freshservice_get_record - the planning_fields (rollout plan, backout plan) and change notes often reveal exactly what was modified.
+5. Search the knowledge base (freshservice_search_solution_articles) for runbooks documenting expected baselines and known errors.
+6. Timestamps are UTC ISO8601. Compare incident report times against change windows to establish causality.
+
+Reading data:
+* IDs must come from previous tool responses or the user - NEVER fabricate IDs.
+* Descriptions are HTML in `description` with a plain-text copy in `description_text`.
+* Listing solution_articles requires a folder_id query param: list solution_folders first, or use freshservice_search_solution_articles.
+* Results are paginated; increase `page` to fetch more.
+
+Writing data:
+* freshservice_create_record / freshservice_update_record take the record fields as a JSON string. On a 400 error the response lists the invalid fields - correct them and retry once.
+* Create tickets with: subject, description (HTML), email (requester), status, urgency, impact, and optionally category, tags, group_id.
+* Changes follow a stateflow: create them with status 1 and transition via updates (1 -> 4 -> 5 -> 6 on the default flow); moving past Open requires an assigned agent who is a member of the change's group.
+* Use freshservice_add_note to document investigation findings on a ticket/problem/change rather than overwriting its description.
+* Do not resolve or close records unless the user asked you to.

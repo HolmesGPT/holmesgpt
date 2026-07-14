@@ -93,6 +93,7 @@ Existing single-instance configs keep working unchanged — `instances:` is pure
 - [Azure SQL](builtin-toolsets/azure-sql.md)
 - [MongoDB Atlas](builtin-toolsets/mongodb-atlas.md)
 - [ServiceNow](builtin-toolsets/servicenow.md)
+- [Freshservice](builtin-toolsets/freshservice.md)
 - [Confluence](builtin-toolsets/confluence.md)
 
 !!! note "RabbitMQ and Kafka"

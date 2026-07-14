@@ -63,7 +63,7 @@ HolmesGPT ships with read-only integrations for every major observability vendor
 - **CI/CD**: Jenkins
 - **Cloud**: AWS RDS, Azure SQL, Azure AKS, GCP
 - **Databases**: PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, MongoDB Atlas
-- **ITSM**: ServiceNow
+- **ITSM**: ServiceNow, Freshservice
 - **Messaging**: Kafka, RabbitMQ
 - **Knowledge**: Confluence, Notion, Slab, Internet/web search
 

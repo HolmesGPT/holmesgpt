@@ -287,6 +287,9 @@ def responses():
         rsps.add_passthru(re.compile(r"https://.*\.atlassian\.net"))
         rsps.add_passthru("https://api.atlassian.com")  # Atlassian Cloud API gateway
 
+        # Allow Freshservice (Freshworks) API calls for live toolset tests
+        rsps.add_passthru(re.compile(r"https://.*\.freshservice\.com"))
+
         # Allow
         rsps.add_passthru("https://google.com")
         rsps.add_passthru("https://burgergooglenetworkspam.co.uk")
