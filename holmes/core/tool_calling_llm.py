@@ -1208,11 +1208,8 @@ class ToolCallingLLM:
                     "holmesgpt.iteration": i,
                 })
 
-                # Capture the prompt (input) and the assistant response — content,
-                # thinking/reasoning, and chosen tool calls — (output) on the same
-                # span so Langfuse shows a full audit of this LLM interaction.
-                # Must happen inside the `with` block (it closes before
-                # response_message is re-read below).
+                # Log prompt (input) + response content/reasoning/tool_calls (output).
+                # Must stay inside the `with` block.
                 _resp_msg = full_response.choices[0].message  # type: ignore
                 _reasoning = getattr(_resp_msg, "reasoning_content", None)
                 _raw_tool_calls = getattr(_resp_msg, "tool_calls", None) or []
@@ -1286,10 +1283,7 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
-                # Record the final answer as the investigation's top-level output
-                # so Langfuse shows the answer at the trace root (not only on the
-                # gen_ai.chat child). The prompt is set as the root input by the
-                # caller. Both go through the gated log().
+                # Final answer as the trace root output (prompt set as root input by caller).
                 if response_message.content:
                     trace_span.log(output=response_message.content)
                 yield StreamMessage(

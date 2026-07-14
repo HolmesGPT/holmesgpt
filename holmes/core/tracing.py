@@ -120,10 +120,7 @@ class SpanType(Enum):
     TOOL = "tool"
 
 
-# Whether to emit Langfuse-vendor-specific span attributes (``langfuse.*``).
-# Off by default: these are proprietary to Langfuse and would be noise for a
-# vendor-neutral OTel backend. Enable with ``HOLMES_LANGFUSE_ATTRIBUTES=true``
-# to get the full audit (input/output, initiating user, session, tags, metadata).
+# Emit Langfuse-vendor-specific ``langfuse.*`` span attributes. Off by default.
 HOLMES_LANGFUSE_ATTRIBUTES = (
     os.environ.get("HOLMES_LANGFUSE_ATTRIBUTES", "false").lower() == "true"
 )
@@ -140,33 +137,24 @@ def langfuse_trace_attributes(
     model: Optional[str] = None,
     request_source: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build Langfuse trace-level span attributes for an investigation root span.
-
-    Langfuse reads these from the trace's root span to populate the trace name,
-    input, the initiating user, the session grouping, tags, and filterable
-    metadata. Only non-empty values are included (empty attributes add UI noise).
-    Returns ``{}`` unless :data:`HOLMES_LANGFUSE_ATTRIBUTES` is true.
-    Pass the result as ``trace_span.log(metadata=...)``.
-    """
+    """Build Langfuse trace-level root-span attributes; ``{}`` unless enrichment is enabled."""
     if not HOLMES_LANGFUSE_ATTRIBUTES:
         return {}
 
-    # Trace name = "Holmes: <question>" so the Langfuse trace list is scannable.
-    # The observation name stays "holmesgpt.investigation" (filterable), and the
-    # question is also surfaced as the trace input.
+    # Trace name "Holmes: <question>"; observation name stays holmesgpt.investigation.
     ask = ask or ""
     attrs: Dict[str, Any] = {
         "langfuse.trace.name": f"Holmes: {ask[:80]}",
         "langfuse.trace.input": ask,
     }
-    # user id (Langfuse "Users" view) with fallback; email/user shown separately too.
+    # user id (Users view) with fallback
     uid = user_id or user_email or account_id
     if uid:
         attrs["langfuse.user.id"] = uid
-    # session grouping (Langfuse "Sessions" view). In Holmes this is the conversation id.
+    # session grouping (Sessions view) = conversation id
     if session_id:
         attrs["langfuse.session.id"] = session_id
-    # Filterable trace metadata (only "langfuse.trace.metadata.*" keys are top-level filterable).
+    # filterable metadata (only langfuse.trace.metadata.* is filterable)
     for key, val in (
         ("user_id", user_id),
         ("user_email", user_email),
@@ -178,7 +166,7 @@ def langfuse_trace_attributes(
     ):
         if val:
             attrs[f"langfuse.trace.metadata.{key}"] = val
-    # Trace tags (Langfuse "Trace Tags" facet). Native string-array attribute.
+    # trace tags (Trace Tags facet)
     tags = [
         f"{label}:{val}"
         for label, val in (

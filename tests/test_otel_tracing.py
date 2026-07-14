@@ -209,11 +209,7 @@ class TestOTelSpan:
         detach.assert_called_once_with(token)
 
     def test_safe_detach_skips_when_out_of_order(self):
-        """When a different span is current (cross-context), detach is skipped.
-
-        This is the ROB-278 case: calling OTel detach out of LIFO order makes it
-        log "Failed to detach context" at ERROR. Skipping avoids that entirely.
-        """
+        """Out-of-order (cross-context) detach is skipped — the ROB-278 case."""
         from holmes.core.otel_tracing import OTelSpan
 
         span = MagicMock()
@@ -229,15 +225,7 @@ class TestOTelSpan:
         assert otel_span._token is None  # token cleared either way
 
     def test_rob278_reproduce_bug_then_verify_fix(self, in_memory_exporter, caplog):
-        """Reproduce the real ROB-278 error, then prove _safe_detach avoids it.
-
-        The error ("Token was created in a different Context") happens when a
-        context token is attached in one contextvars.Context and detached in
-        another — exactly what happens when Holmes' span wraps a streaming
-        generator and is ended from the caller's context. We reproduce it by
-        attaching here and detaching inside a fresh contextvars.Context (where
-        our span is NOT the current one).
-        """
+        """Reproduce the real ROB-278 detach error, then prove _safe_detach avoids it."""
         import contextvars
         import logging
 

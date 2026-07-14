@@ -85,14 +85,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_GRPC_ENDPOINT = "http://localhost:4317"
 DEFAULT_HTTP_ENDPOINT = "http://localhost:4318"
 
-# Max characters for input/output span attributes. Prompts + tool outputs can be
-# large; the default is generous so a full interaction audit isn't truncated, but
-# still bounded to stay within OTLP/backend attribute limits. Override via env.
+# Max chars for input/output span attributes; bounded for OTLP limits. Override via env.
 def _int_env(name: str, default: int) -> int:
-    """Parse an int env var, falling back to ``default`` on missing/invalid value.
-
-    Guarded so a bad ``HOLMES_OTEL_MAX_ATTR_CHARS`` can't crash import/startup.
-    """
+    """Parse an int env var; fall back to ``default`` on missing/invalid value."""
     try:
         return int(os.environ[name])
     except (KeyError, ValueError):
@@ -103,13 +98,7 @@ _MAX_ATTR_CHARS = _int_env("HOLMES_OTEL_MAX_ATTR_CHARS", 100000)
 
 
 def _to_attr_str(value: Any) -> str:
-    """Render a span attribute value as a (bounded) string.
-
-    Strings are used verbatim; everything else is JSON-encoded (falling back to
-    ``str`` for non-serializable objects). The result is truncated to
-    ``_MAX_ATTR_CHARS``. Used for the Langfuse ``input``/``output`` attributes,
-    which Langfuse parses as JSON when possible and otherwise shows as text.
-    """
+    """Render a value as a bounded string: verbatim if str, else JSON, truncated."""
     if isinstance(value, str):
         rendered = value
     else:
@@ -128,18 +117,10 @@ _HTTP_METHOD_SPAN_NAMES = {
 if OTEL_AVAILABLE:
 
     class _DropOrphanHttpSampler(Sampler):
-        """Drop root spans created by httpx auto-instrumentation.
+        """Drop root httpx spans (background HTTP calls) that would bury real investigation traces.
 
-        Holmes auto-instruments httpx so that HTTP calls made *inside* an
-        investigation nest under the tool/LLM spans. But every background HTTP
-        call the server makes *outside* an investigation (health checks, platform
-        polling, etc.) also becomes a span — and with no parent it lands as its
-        own root trace, flooding the backend and burying the real
-        ``holmesgpt.investigation`` traces.
-
-        This sampler drops a span only when it is BOTH a root (no valid parent)
-        AND named like a bare HTTP method. httpx spans that have a parent (i.e.
-        created within an investigation) and all Holmes spans are unaffected.
+        Only drops spans that are both a root (no parent) and named like a bare
+        HTTP method; httpx spans nested in an investigation are kept.
         """
 
         def __init__(self, delegate: "Sampler" = ALWAYS_ON):
@@ -308,23 +289,8 @@ class OTelSpan:
     }
 
     def log(self, *args: Any, **kwargs: Any) -> None:
-        """Log attributes to the span.
-
-        Supported keyword arguments:
-            input: Stored as the ``langfuse.observation.input`` span attribute
-                (JSON-encoded if not a string, truncated to ``_MAX_ATTR_CHARS``).
-            output: Stored as the ``langfuse.observation.output`` span attribute
-                (same encoding). Langfuse reads these to populate the observation
-                Input/Output panels.
-            error: When truthy, marks the observation as an error via
-                ``langfuse.observation.level`` / ``.status_message``.
-            metadata: A ``dict`` whose entries are set as individual span attributes.
-            metrics: A ``dict`` of numeric values set as span attributes; names
-                with a GenAI semantic convention equivalent (e.g. ``prompt_tokens``)
-                are renamed to it.
-        """
-        # input/output/error map to Langfuse-vendor-specific attributes; only emit
-        # them when Langfuse enrichment is enabled (off by default).
+        """Set span attributes from input/output/error (Langfuse, gated), metadata, and metrics."""
+        # Langfuse-specific input/output/error; gated (off by default).
         if HOLMES_LANGFUSE_ATTRIBUTES:
             if "input" in kwargs:
                 self._span.set_attribute(
@@ -344,12 +310,12 @@ class OTelSpan:
                 if isinstance(v, bool) or isinstance(v, (int, float)):
                     self._span.set_attribute(k, v)
                 elif isinstance(v, str):
-                    # cap free-text metadata (e.g. langfuse.trace.input) like input/output
+                    # cap free-text metadata
                     self._span.set_attribute(k, v[:_MAX_ATTR_CHARS])
                 elif isinstance(v, (list, tuple)) and all(
                     isinstance(e, str) for e in v
                 ):
-                    # native OTel string-array attribute (e.g. langfuse.trace.tags)
+                    # string-array attribute (e.g. tags)
                     self._span.set_attribute(k, list(v))
                 else:
                     self._span.set_attribute(k, str(v)[:_MAX_ATTR_CHARS])
@@ -364,24 +330,12 @@ class OTelSpan:
         self._span.end()
 
     def _safe_detach(self) -> None:
-        """Detach our context token, but only when it's safe (in LIFO order).
-
-        OpenTelemetry's ``context.detach()`` does NOT re-raise on failure — it
-        catches the error and logs ``Failed to detach context`` at ERROR (with a
-        ``ValueError: <Token ...> was created in a different Context`` traceback).
-        That fires routinely for Holmes' long-lived spans that wrap streaming
-        generators / cross thread boundaries, where the token is detached from a
-        different execution context than the one it was attached in (ROB-278).
-
-        A plain ``try/except`` around ``detach()`` can't suppress it (the error is
-        already swallowed and logged inside OTel). Instead we only detach when our
-        span is still the current one — i.e. the detach would be in order.
-        Otherwise we skip it; the contextvar is reset when its execution unit
-        ends, and export is unaffected either way.
-        """
+        """Detach our context token only when in LIFO order, else skip (ROB-278)."""
         if self._token is None:
             return
         token, self._token = self._token, None
+        # Out-of-order detach makes OTel log "Failed to detach context" (it swallows
+        # the error, so try/except can't help); only detach when our span is current.
         if trace.get_current_span() is self._span:
             otel_context.detach(token)
         else:
@@ -465,8 +419,7 @@ class OpenTelemetryTracer:
         )
 
         # --- Traces ---
-        # Drop orphan httpx root spans (background HTTP calls) so they don't
-        # flood the backend and bury real investigation traces.
+        # Drop orphan httpx root spans so they don't bury real investigation traces.
         trace_provider = TracerProvider(
             resource=resource, sampler=_DropOrphanHttpSampler()
         )

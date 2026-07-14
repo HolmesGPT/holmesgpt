@@ -875,8 +875,7 @@ class ConversationWorker:
                     "holmesgpt.investigation.question": chat_request.ask[:1024],
                     "holmesgpt.investigation.stream": True,
                     "holmesgpt.conversation_id": task.conversation_id,
-                    # Langfuse trace-level attributes (initiating user, session,
-                    # filterable metadata) read from the root span.
+                    # Langfuse trace-level attributes (user, session, metadata).
                     **langfuse_trace_attributes(
                         chat_request.ask,
                         user_id=chat_request.user_id,
