@@ -870,6 +870,7 @@ class ConversationWorker:
             # Write an initial ai_message event (optional) - skip; call_stream will emit events
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
             trace_span.log(
+                input=chat_request.ask,
                 metadata={
                     "holmesgpt.investigation.question": chat_request.ask[:1024],
                     "holmesgpt.investigation.stream": True,

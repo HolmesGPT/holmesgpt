@@ -88,7 +88,18 @@ DEFAULT_HTTP_ENDPOINT = "http://localhost:4318"
 # Max characters for input/output span attributes. Prompts + tool outputs can be
 # large; the default is generous so a full interaction audit isn't truncated, but
 # still bounded to stay within OTLP/backend attribute limits. Override via env.
-_MAX_ATTR_CHARS = int(os.environ.get("HOLMES_OTEL_MAX_ATTR_CHARS", "100000"))
+def _int_env(name: str, default: int) -> int:
+    """Parse an int env var, falling back to ``default`` on missing/invalid value.
+
+    Guarded so a bad ``HOLMES_OTEL_MAX_ATTR_CHARS`` can't crash import/startup.
+    """
+    try:
+        return int(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+
+
+_MAX_ATTR_CHARS = _int_env("HOLMES_OTEL_MAX_ATTR_CHARS", 100000)
 
 
 def _to_attr_str(value: Any) -> str:
@@ -330,15 +341,18 @@ class OTelSpan:
                 )
         if "metadata" in kwargs and isinstance(kwargs["metadata"], dict):
             for k, v in kwargs["metadata"].items():
-                if isinstance(v, (str, int, float, bool)):
+                if isinstance(v, bool) or isinstance(v, (int, float)):
                     self._span.set_attribute(k, v)
+                elif isinstance(v, str):
+                    # cap free-text metadata (e.g. langfuse.trace.input) like input/output
+                    self._span.set_attribute(k, v[:_MAX_ATTR_CHARS])
                 elif isinstance(v, (list, tuple)) and all(
                     isinstance(e, str) for e in v
                 ):
                     # native OTel string-array attribute (e.g. langfuse.trace.tags)
                     self._span.set_attribute(k, list(v))
                 else:
-                    self._span.set_attribute(k, str(v))
+                    self._span.set_attribute(k, str(v)[:_MAX_ATTR_CHARS])
         if "metrics" in kwargs and isinstance(kwargs["metrics"], dict):
             for k, v in kwargs["metrics"].items():
                 if isinstance(v, (int, float)):

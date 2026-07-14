@@ -622,7 +622,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.stream:
             # Create root investigation span for streaming (same as non-streaming)
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
-            trace_span.log(metadata={
+            trace_span.log(input=chat_request.ask, metadata={
                 "holmesgpt.investigation.question": chat_request.ask[:1024],
                 "holmesgpt.investigation.stream": True,
                 **langfuse_trace_attributes(
@@ -678,7 +678,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span = server_tracer.start_trace(
                         "holmesgpt.investigation",
                     )
-                    trace_span.log(metadata={
+                    trace_span.log(input=chat_request.ask, metadata={
                         "holmesgpt.investigation.question": chat_request.ask[:1024],
                         **langfuse_trace_attributes(
                             chat_request.ask,

@@ -158,6 +158,28 @@ class TestOTelSpan:
             "langfuse.observation.status_message", "boom failed"
         )
 
+    def test_otel_span_log_metadata_string_truncated(self):
+        """Free-text metadata values are capped to _MAX_ATTR_CHARS."""
+        from holmes.core.otel_tracing import _MAX_ATTR_CHARS, OTelSpan
+
+        mock_span = MagicMock()
+        otel_span = OTelSpan(mock_span, MagicMock())
+
+        otel_span.log(metadata={"langfuse.trace.input": "y" * (_MAX_ATTR_CHARS + 10)})
+
+        recorded = {c[0][0]: c[0][1] for c in mock_span.set_attribute.call_args_list}
+        assert len(recorded["langfuse.trace.input"]) == _MAX_ATTR_CHARS
+
+    def test_int_env_invalid_falls_back(self):
+        """A non-numeric HOLMES_OTEL_MAX_ATTR_CHARS doesn't crash; uses default."""
+        from holmes.core.otel_tracing import _int_env
+
+        with patch.dict(os.environ, {"X_TEST_INT": "not-a-number"}):
+            assert _int_env("X_TEST_INT", 4242) == 4242
+        with patch.dict(os.environ, {"X_TEST_INT": "77"}):
+            assert _int_env("X_TEST_INT", 4242) == 77
+        assert _int_env("X_TEST_INT_MISSING", 4242) == 4242
+
     def test_otel_span_log_tags_as_string_array(self):
         """List metadata values (e.g. langfuse.trace.tags) set as native arrays."""
         from holmes.core.otel_tracing import OTelSpan

@@ -244,6 +244,7 @@ echo -n "pk-lf-xxxx:sk-lf-xxxx" | base64
 
 **What `HOLMES_LANGFUSE_ATTRIBUTES=true` adds** (all under the `langfuse.*` namespace):
 
+- **Trace-level input/output** — the user's question (input) and Holmes's final answer (output) on the `holmesgpt.investigation` root, so the top of the trace shows the prompt and the answer at a glance.
 - **Observation input/output** — the prompt messages, the assistant's response, its `reasoning` (thinking), and the tool calls it chose (on `gen_ai.chat` spans); tool arguments and results (on `holmesgpt.tool.*` spans).
 - **Trace user & session** — `langfuse.user.id` (initiating user, falling back through user id → email → account id) and `langfuse.session.id` (the conversation id), powering Langfuse's Users and Sessions views.
 - **Trace tags** — `source:<request_source>`, `cluster:<cluster>`, `model:<model>`.

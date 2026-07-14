@@ -1286,6 +1286,12 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
+                # Record the final answer as the investigation's top-level output
+                # so Langfuse shows the answer at the trace root (not only on the
+                # gen_ai.chat child). The prompt is set as the root input by the
+                # caller. Both go through the gated log().
+                if response_message.content:
+                    trace_span.log(output=response_message.content)
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
