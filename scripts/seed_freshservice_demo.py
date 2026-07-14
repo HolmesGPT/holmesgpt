@@ -28,6 +28,11 @@ Usage:
 
 Also accepts FRESHWORK_URL / FRESHWORK_API_KEY as fallback env var names.
 
+To also seed ITOM monitoring alerts, set FRESHSERVICE_ALERTS_URL to a
+monitoring-tool integration's webhook URL and FRESHSERVICE_ALERTS_AUTH to that
+integration's auth key (FRESHWORK_* fallbacks accepted); otherwise the alert
+section is skipped.
+
 The script is idempotent: it looks records up by name/email/subject before
 creating them, so re-running it will not duplicate data.
 """
@@ -1089,6 +1094,142 @@ def seed_service_requests() -> None:
             print(f"  ! could not place request for '{item['name']}': {exc}")
 
 
+# ---------------------------------------------------------------------------
+# 7. ITOM monitoring alerts (Alert Management Service)
+# ---------------------------------------------------------------------------
+
+# Alerts are ingested through a monitoring-tool integration webhook
+# (Admin -> IT Operations Management -> Monitoring Tools), which uses its own
+# URL and auth key, separate from the main API:
+#   FRESHSERVICE_ALERTS_URL:  https://<account>.alerts.freshservice.com/integrations/<id>/alerts
+#   FRESHSERVICE_ALERTS_AUTH: the integration's auth key (a JWT shown on its settings page)
+# The integration's field mapping determines which payload fields are used;
+# this script assumes the default mapping of title/description/severity.
+# Severity names map to codes: ok/clear=51 (arrives resolved), info/warning/
+# minor=101, error/major=151, critical=201. Alerts with severity >= 151
+# auto-create an incident ticket linked via the alert's incident_id.
+ALERTS_URL = (
+    os.environ.get("FRESHSERVICE_ALERTS_URL")
+    or os.environ.get("FRESHWORK_ALERTS_URL")
+    or ""
+)
+ALERTS_AUTH = os.environ.get("FRESHSERVICE_ALERTS_AUTH") or os.environ.get(
+    "FRESHWORK_ALERTS_AUTH"
+)
+
+
+def seed_alerts() -> None:
+    print("\n== ITOM alerts ==")
+    if not ALERTS_URL or not ALERTS_AUTH:
+        print(
+            "  ! FRESHSERVICE_ALERTS_URL / FRESHSERVICE_ALERTS_AUTH not set, "
+            "skipping alert seeding"
+        )
+        return
+
+    monday_morning = last_friday_at(18, 0) + timedelta(days=3) - timedelta(hours=9)
+
+    def at(hour: int, minute: int) -> str:
+        return (
+            monday_morning.replace(hour=hour, minute=minute).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            )
+        )
+
+    # The ingestion API stamps occurrence_time itself, so the measured window
+    # is embedded in each description to keep the timeline reconstructable.
+    alerts = [
+        {
+            "title": "payment-db-01: PostgreSQL client connections at 90% of max_connections",
+            "description": (
+                f"Connection usage on payment-db-01 crossed 90% of max_connections "
+                f"at {at(8, 47)} and is still climbing. Threshold: 80%. "
+                "Source check: postgres_connection_usage."
+            ),
+            "severity": "warning",
+        },
+        {
+            "title": "payment-db-01: PostgreSQL connection limit reached - new connections rejected",
+            "description": (
+                f"payment-db-01 is rejecting new client connections since {at(9, 4)}: "
+                "'FATAL: remaining connection slots are reserved for non-replication "
+                "superuser connections'. Connection usage at 100% of max_connections. "
+                "Source check: postgres_connection_usage."
+            ),
+            "severity": "critical",
+        },
+        {
+            "title": "pgbouncer on payment-db-01: client waiting queue above threshold",
+            "description": (
+                f"pgbouncer pool 'payments' on payment-db-01 has had more than 50 "
+                f"clients in cl_waiting state since {at(9, 9)}. Average wait time 28s. "
+                "Source check: pgbouncer_pool_status."
+            ),
+            "severity": "warning",
+        },
+        {
+            "title": "checkout-web: p95 latency above 20s on /checkout",
+            "description": (
+                f"p95 response time for POST /checkout exceeded 20s starting {at(9, 12)}; "
+                "upstream gateway timeouts producing HTTP 502 responses. "
+                "Source check: checkout_http_slo."
+            ),
+            "severity": "warning",
+        },
+        {
+            "title": "edge-fw-01: WAN link latency back to normal",
+            "description": (
+                "WAN uplink latency on edge-fw-01 returned below the 100ms threshold. "
+                "Source check: wan_link_latency."
+            ),
+            "severity": "ok",
+        },
+    ]
+
+    existing_subjects = {
+        (a.get("subject") or "") for a in get_all("ams/alerts", "alerts")
+    }
+    posted = []
+    for alert in alerts:
+        if alert["title"] in existing_subjects:
+            print(f"  = alert exists: {alert['title']}")
+            continue
+        resp = requests.post(
+            ALERTS_URL,
+            params={"auth-key": ALERTS_AUTH},
+            json=alert,
+            timeout=30,
+        )
+        if resp.status_code != 202:
+            raise RuntimeError(
+                f"POST {ALERTS_URL} -> {resp.status_code}: {resp.text[:500]}"
+            )
+        posted.append(alert["title"])
+        print(f"  + posted alert ({alert['severity']}): {alert['title']}")
+        time.sleep(0.5)
+
+    # Ingestion is asynchronous (the webhook returns 202 Accepted); wait for
+    # the posted alerts to become visible through the read API.
+    for _ in range(30):
+        if not posted:
+            break
+        visible = {
+            (a.get("subject") or "") for a in get_all("ams/alerts", "alerts")
+        }
+        posted = [t for t in posted if t not in visible]
+        if posted:
+            time.sleep(2)
+    if posted:
+        print(f"  ! alerts not visible after 60s: {posted}")
+    else:
+        for a in get_all("ams/alerts", "alerts"):
+            link = f" -> incident #{a['incident_id']}" if a.get("incident_id") else ""
+            print(
+                f"  alert #{a['id']} sev={a['severity']} state={a['state']}: "
+                f"{a['subject']}{link}"
+            )
+
+
 def main() -> None:
     print(f"Seeding Freshservice demo data at {BASE_URL}")
     ctx = seed_foundation()
@@ -1097,6 +1238,7 @@ def main() -> None:
     changes = seed_changes(ctx)
     seed_tickets(ctx, changes)
     seed_service_requests()
+    seed_alerts()
     print("\nDone. The 'failure caused by a change' scenario is ready:")
     print(" - Culprit change: 'Apply PostgreSQL tuning parameters on payment-db-01'")
     print(" - Ask Holmes: 'Customers report checkout failures since Monday - find the root cause using Freshservice'")

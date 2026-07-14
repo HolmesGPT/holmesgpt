@@ -59,6 +59,10 @@ OBJECT_TYPES: Dict[str, FreshserviceObjectType] = {
     "devices": FreshserviceObjectType(
         "itam/devices", "devices", "device", trailing_slash=True
     ),
+    # ITOM alerts (Alert Management Service). Alerts are created by posting to
+    # a monitoring-tool integration webhook, not through this API, so the type
+    # is read-only here; acknowledge/resolve go through freshservice_manage_alert.
+    "alerts": FreshserviceObjectType("ams/alerts", "alerts", "alert", writable=False),
     "software": FreshserviceObjectType("applications", "applications", "application"),
     "contracts": FreshserviceObjectType("contracts", "contracts", "contract"),
     "purchase_orders": FreshserviceObjectType(
@@ -119,7 +123,7 @@ class FreshserviceToolset(Toolset):
     def __init__(self):
         super().__init__(
             name="freshservice",
-            description="Read and write Freshservice (Freshworks) ITSM data: tickets, problems, changes, releases, assets, requesters, knowledge base and more",
+            description="Read and write Freshservice (Freshworks) ITSM data: tickets, problems, changes, releases, assets, monitoring alerts, requesters, knowledge base and more",
             icon_url="https://raw.githubusercontent.com/robusta-dev/holmesgpt/master/images/integration_logos/freshservice-icon.png",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/freshservice/",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
@@ -132,6 +136,7 @@ class FreshserviceToolset(Toolset):
                 FreshserviceCreateRecord(self),
                 FreshserviceUpdateRecord(self),
                 FreshserviceAddNote(self),
+                FreshserviceManageAlert(self),
             ],
         )
         self._load_llm_instructions_from_file(
@@ -291,7 +296,8 @@ class FreshserviceListRecords(BaseFreshserviceTool):
                     description=(
                         "Optional additional query parameters as a URL query string, e.g. "
                         "'updated_since=2026-07-01T00:00:00Z' or 'email=user@example.com' for tickets/requesters, "
-                        "'filter=new_and_my_open' for tickets, 'folder_id=123' for solution_articles. "
+                        "'filter=new_and_my_open' for tickets, 'folder_id=123' for solution_articles, "
+                        "'order_by=created_at&order_type=desc' for alerts (alerts support no other filters). "
                         "Only parameters supported by the Freshservice API for that record type are accepted."
                     ),
                     type="string",
@@ -573,6 +579,56 @@ class FreshserviceUpdateRecord(BaseFreshserviceTool):
         return (
             f"{toolset_name_for_one_liner(self._toolset.name)}: "
             f"Update {params.get('object_type', 'record')} {params.get('record_id', '')}"
+        )
+
+
+ALERT_ACTIONS = ("acknowledge", "resolve")
+
+
+class FreshserviceManageAlert(BaseFreshserviceTool):
+    def __init__(self, toolset: FreshserviceToolset):
+        super().__init__(
+            toolset=toolset,
+            name="freshservice_manage_alert",
+            description=(
+                "Acknowledge or resolve an ITOM alert using PUT /api/v2/ams/alerts/{id}/{action}. "
+                "Acknowledging marks the alert as being handled; resolving sets its state to resolved. "
+                "The alert ID must come from a previous freshservice_list_records object_type=alerts response."
+            ),
+            parameters={
+                "alert_id": ToolParameter(
+                    description="The alert ID (from a previous list/get response, never guessed)",
+                    type="integer",
+                    required=True,
+                ),
+                "action": ToolParameter(
+                    description=f"The action to perform. One of: {', '.join(ALERT_ACTIONS)}",
+                    type="string",
+                    required=True,
+                    enum=list(ALERT_ACTIONS),
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        rejected = self._reject_if_readonly(params)
+        if rejected:
+            return rejected
+        action = params.get("action", "")
+        if action not in ALERT_ACTIONS:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Unknown action '{action}'. Valid actions: {', '.join(ALERT_ACTIONS)}",
+                params=params,
+            )
+        return self._call_api(
+            "PUT", f"ams/alerts/{params['alert_id']}/{action}", params
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return (
+            f"{toolset_name_for_one_liner(self._toolset.name)}: "
+            f"{params.get('action', 'update').capitalize()} alert {params.get('alert_id', '')}"
         )
 
 

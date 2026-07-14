@@ -71,7 +71,7 @@ By default the toolset can both read and write (create tickets, update records, 
 
 | Tool Name | Description |
 |-----------|-------------|
-| freshservice_list_records | List records of any supported type: tickets, problems, changes, releases, requesters, agents, groups, departments, locations, assets, devices, contracts, knowledge base categories/folders/articles, service catalog items and more |
+| freshservice_list_records | List records of any supported type: tickets, problems, changes, releases, requesters, agents, groups, departments, locations, assets, devices, monitoring alerts, contracts, knowledge base categories/folders/articles, service catalog items and more |
 | freshservice_get_record | Fetch a single record by ID, optionally embedding related data (e.g. ticket stats or conversations) |
 | freshservice_filter_tickets | Search tickets with the Freshservice filter query language (e.g. `priority:4 AND status:2`) |
 | freshservice_get_ticket_conversations | Read the replies and private agent notes on a ticket |
@@ -79,8 +79,11 @@ By default the toolset can both read and write (create tickets, update records, 
 | freshservice_create_record | Create a record (e.g. open a ticket) |
 | freshservice_update_record | Update fields on an existing record (e.g. reassign or resolve a ticket) |
 | freshservice_add_note | Add a note to a ticket, problem, change or release |
+| freshservice_manage_alert | Acknowledge or resolve an ITOM monitoring alert |
 
 Assets and devices are read and written through Freshservice's newer ITAM API (`/api/v2/itam/...`). Some classic record types (vendors, products, software) require Freshservice plans that include the classic CMDB; on other plans the API returns a clear error that HolmesGPT relays.
+
+Monitoring alerts are read from Freshservice's Alert Management Service (`/api/v2/ams/alerts`) and require the IT Operations Management module. Alerts are created by your monitoring tools posting to an integration webhook (**Admin → IT Operations Management → Monitoring Tools**), not by HolmesGPT; HolmesGPT reads them, correlates them with tickets/changes/assets (alerts with Error or Critical severity link to their auto-created incident via `incident_id`), and can acknowledge or resolve them.
 
 ## Common Use Cases
 
@@ -107,5 +110,14 @@ The repository ships with a seeding script that populates a Freshservice instanc
 ```bash
 FRESHSERVICE_URL=https://yourdomain.freshservice.com \
 FRESHSERVICE_API_KEY=xxx \
+python scripts/seed_freshservice_demo.py
+```
+
+To also seed ITOM monitoring alerts, create a monitoring-tool integration (**Admin → IT Operations Management → Monitoring Tools**) and pass its webhook URL and auth key:
+
+```bash
+FRESHSERVICE_ALERTS_URL=https://yourdomain.alerts.freshservice.com/integrations/<id>/alerts \
+FRESHSERVICE_ALERTS_AUTH=<integration-auth-key> \
+FRESHSERVICE_URL=... FRESHSERVICE_API_KEY=... \
 python scripts/seed_freshservice_demo.py
 ```

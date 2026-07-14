@@ -575,6 +575,92 @@ class TestItamAssetsAndDevices:
         assert "/api/v2/itam/assets/" in result.error
 
 
+class TestItomAlerts:
+    """Alerts route through the Alert Management Service (/api/v2/ams)."""
+
+    def test_list_alerts_uses_ams_path(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.GET,
+                f"{API_URL}/api/v2/ams/alerts",
+                json={
+                    "alerts": [
+                        {
+                            "id": 14,
+                            "subject": "payment-db-01: connection limit reached",
+                            "severity": 201,
+                            "state": 1,
+                            "incident_id": 21,
+                        }
+                    ]
+                },
+                status=200,
+            )
+            result = tools["freshservice_list_records"]._invoke(
+                {"object_type": "alerts"}, context
+            )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data["alerts"][0]["incident_id"] == 21
+
+    def test_get_alert(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.GET,
+                f"{API_URL}/api/v2/ams/alerts/14",
+                json={"alert": {"id": 14, "severity": 201, "state": 1}},
+                status=200,
+            )
+            result = tools["freshservice_get_record"]._invoke(
+                {"object_type": "alerts", "record_id": 14}, context
+            )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data["alert"]["id"] == 14
+
+    def test_create_alert_is_rejected(self, tools, context):
+        result = tools["freshservice_create_record"]._invoke(
+            {"object_type": "alerts", "data": "{}"}, context
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "does not support creating" in result.error
+
+    @pytest.mark.parametrize("action", ["acknowledge", "resolve"])
+    def test_manage_alert_actions(self, tools, context, action):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.PUT,
+                f"{API_URL}/api/v2/ams/alerts/14/{action}",
+                json={"alert": {"id": 14, "state": 2}},
+                status=200,
+            )
+            result = tools["freshservice_manage_alert"]._invoke(
+                {"alert_id": 14, "action": action}, context
+            )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data["alert"]["id"] == 14
+
+    def test_manage_alert_unknown_action_rejected(self, tools, context):
+        result = tools["freshservice_manage_alert"]._invoke(
+            {"alert_id": 14, "action": "archive"}, context
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "Unknown action" in result.error
+
+    def test_manage_alert_error_is_passed_through(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.PUT,
+                f"{API_URL}/api/v2/ams/alerts/999/resolve",
+                json={"code": "not_found", "message": "Alert not found"},
+                status=404,
+            )
+            result = tools["freshservice_manage_alert"]._invoke(
+                {"alert_id": 999, "action": "resolve"}, context
+            )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "404" in result.error
+        assert "/api/v2/ams/alerts/999/resolve" in result.error
+
+
 class TestReadonlyMode:
     @pytest.fixture()
     def readonly_tools(self):
@@ -595,6 +681,10 @@ class TestReadonlyMode:
             (
                 "freshservice_add_note",
                 {"object_type": "tickets", "record_id": 1, "body": "x"},
+            ),
+            (
+                "freshservice_manage_alert",
+                {"alert_id": 1, "action": "resolve"},
             ),
         ],
     )

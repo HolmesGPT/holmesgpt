@@ -15,8 +15,10 @@ Write tests create records tagged 'holmes-live-test' and delete them afterwards.
 
 import json
 import os
+import time
 
 import pytest
+import requests
 
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.freshservice.freshservice import FreshserviceToolset
@@ -33,6 +35,15 @@ pytestmark = pytest.mark.skipif(
     not FRESHSERVICE_URL or not FRESHSERVICE_API_KEY,
     reason="FRESHSERVICE_URL / FRESHSERVICE_API_KEY (or FRESHWORK_*) not set",
 )
+
+# ITOM alert ingestion goes through a monitoring-tool integration webhook with
+# its own URL and auth key (see scripts/seed_freshservice_demo.py).
+FRESHSERVICE_ALERTS_URL = os.environ.get("FRESHSERVICE_ALERTS_URL") or os.environ.get(
+    "FRESHWORK_ALERTS_URL"
+)
+FRESHSERVICE_ALERTS_AUTH = os.environ.get(
+    "FRESHSERVICE_ALERTS_AUTH"
+) or os.environ.get("FRESHWORK_ALERTS_AUTH")
 
 
 @pytest.fixture(scope="module")
@@ -99,7 +110,13 @@ class TestLiveReads:
         filtered = tools["freshservice_filter_tickets"]._invoke(
             {"query": "priority:4 AND status:2"}, context
         )
-        ticket_id = filtered.data["tickets"][0]["id"]
+        # Target the seeded checkout incident specifically: alert-created
+        # incidents also match this filter but carry no triage notes.
+        ticket_id = next(
+            t["id"]
+            for t in filtered.data["tickets"]
+            if "Checkout" in (t.get("subject") or "")
+        )
         result = tools["freshservice_get_ticket_conversations"]._invoke(
             {"ticket_id": ticket_id}, context
         )
@@ -152,6 +169,31 @@ class TestLiveReads:
         )
         assert detail.status == StructuredToolResultStatus.SUCCESS, detail.error
         assert "PostgreSQL" in detail.data["notes"]
+
+    def test_list_alerts_finds_seeded_scenario(self, tools, context):
+        result = tools["freshservice_list_records"]._invoke(
+            {"object_type": "alerts", "per_page": 100}, context
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+        alerts = result.data["alerts"]
+        critical = next(
+            (
+                a
+                for a in alerts
+                if "connection limit reached" in (a.get("subject") or "")
+            ),
+            None,
+        )
+        assert critical, "seeded critical payment-db-01 alert not found"
+        assert critical["severity"] == 201
+        # critical alerts auto-create an incident
+        assert critical["incident_id"], critical
+
+        detail = tools["freshservice_get_record"]._invoke(
+            {"object_type": "alerts", "record_id": critical["id"]}, context
+        )
+        assert detail.status == StructuredToolResultStatus.SUCCESS, detail.error
+        assert detail.data["alert"]["id"] == critical["id"]
 
     def test_list_devices(self, tools, context):
         result = tools["freshservice_list_records"]._invoke(
@@ -246,4 +288,60 @@ class TestLiveWrites:
             assert detail.data["impact"] == "medium"
         finally:
             response = toolset._request("DELETE", f"itam/assets/{asset_id}/")
+            assert response.ok, response.text
+
+    @pytest.mark.skipif(
+        not FRESHSERVICE_ALERTS_URL or not FRESHSERVICE_ALERTS_AUTH,
+        reason="FRESHSERVICE_ALERTS_URL / FRESHSERVICE_ALERTS_AUTH (or FRESHWORK_*) not set",
+    )
+    def test_alert_ingest_acknowledge_resolve_roundtrip(
+        self, toolset, tools, context
+    ):
+        subject = "holmes-live-test alert (safe to delete)"
+        # The webhook authenticates with the integration's auth key passed as
+        # the auth-key query parameter and returns 202 (ingestion is async).
+        response = requests.post(
+            FRESHSERVICE_ALERTS_URL,
+            params={"auth-key": FRESHSERVICE_ALERTS_AUTH},
+            json={
+                "title": subject,
+                "description": "Created by the Freshservice toolset live test.",
+                "severity": "warning",
+            },
+            timeout=30,
+        )
+        assert response.status_code == 202, response.text
+
+        alert = None
+        for _ in range(30):
+            listed = tools["freshservice_list_records"]._invoke(
+                {"object_type": "alerts", "per_page": 100}, context
+            )
+            assert listed.status == StructuredToolResultStatus.SUCCESS, listed.error
+            alert = next(
+                (a for a in listed.data["alerts"] if a.get("subject") == subject),
+                None,
+            )
+            if alert:
+                break
+            time.sleep(2)
+        assert alert, "ingested alert did not become visible within 60s"
+
+        try:
+            acked = tools["freshservice_manage_alert"]._invoke(
+                {"alert_id": alert["id"], "action": "acknowledge"}, context
+            )
+            assert acked.status == StructuredToolResultStatus.SUCCESS, acked.error
+            assert acked.data["alert"]["acknowledged_at"]
+
+            resolved = tools["freshservice_manage_alert"]._invoke(
+                {"alert_id": alert["id"], "action": "resolve"}, context
+            )
+            assert resolved.status == StructuredToolResultStatus.SUCCESS, (
+                resolved.error
+            )
+            assert resolved.data["alert"]["state"] == 2
+        finally:
+            # Clean up: delete the test alert (delete is deliberately not a tool)
+            response = toolset._request("DELETE", f"ams/alerts/{alert['id']}")
             assert response.ok, response.text

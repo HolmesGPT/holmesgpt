@@ -33,6 +33,14 @@ Assets and devices (ITAM):
 * Creating an asset requires `type` (a type name such as "Server" or "Laptop" - an unknown name creates a new asset type, so reuse existing types). Valid `state` values: In Use, Missing, In Transit, In Stock, Retired, Reserved, Disposed. Valid `impact` values: Low, Medium, High.
 * Creating an asset whose name already exists makes a duplicate - list first and update by ID instead.
 
+Monitoring alerts (ITOM):
+* `alerts` are read from the Alert Management Service (/api/v2/ams/alerts). They are created by monitoring-tool integrations, not by these tools.
+* Alert severity is numeric: 51=OK, 101=Warning, 151=Error/Major, 201=Critical. Alert state: 1=Open, 2=Resolved.
+* Alerts with severity >= 151 auto-create an incident; the linked ticket ID is in the alert's `incident_id` field. Use it to pivot between an alert and its incident ticket.
+* The alert list supports only pagination (`page`, `per_page`) and ordering (`order_by=created_at&order_type=desc`) - no field filters. Filter client-side after listing.
+* The affected system is usually named in the alert `subject`/`description` (the `resource`/`node`/`metric_name` fields are often null, depending on the integration's field mapping); correlate alerts with tickets, changes and assets by matching those names and by comparing `occurrence_time` (UTC) against ticket creation times and change windows.
+* Use freshservice_manage_alert to acknowledge or resolve an alert, but only when the user asked for it.
+
 Writing data:
 * freshservice_create_record / freshservice_update_record take the record fields as a JSON string. On a 400 error the response lists the invalid fields - correct them and retry once.
 * Create tickets with: subject, description (HTML), email (requester), status, urgency, impact, and optionally category, tags, group_id.
