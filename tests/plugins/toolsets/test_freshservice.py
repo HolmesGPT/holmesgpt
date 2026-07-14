@@ -153,17 +153,17 @@ class TestListRecords:
         with responses_.RequestsMock() as rsps:
             rsps.add(
                 responses_.GET,
-                f"{API_URL}/api/v2/assets",
+                f"{API_URL}/api/v2/vendors",
                 json={"code": "require_feature", "message": "Cmdb not supported"},
                 status=403,
             )
             result = tools["freshservice_list_records"]._invoke(
-                {"object_type": "assets"}, context
+                {"object_type": "vendors"}, context
             )
         assert result.status == StructuredToolResultStatus.ERROR
         assert "403" in result.error
         assert "require_feature" in result.error
-        assert "/api/v2/assets" in result.error
+        assert "/api/v2/vendors" in result.error
 
 
 class TestGetRecord:
@@ -477,6 +477,102 @@ class TestAddNote:
         )
         assert result.status == StructuredToolResultStatus.ERROR
         assert "Notes are only supported" in result.error
+
+
+class TestItamAssetsAndDevices:
+    """Assets/devices route through the newer /api/v2/itam API, whose write
+    URLs require a trailing slash (POST without it acts as a list call)."""
+
+    def test_list_assets_uses_itam_path(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.GET,
+                f"{API_URL}/api/v2/itam/assets",
+                json={
+                    "meta": {"total_count": 1},
+                    "assets": [{"asset_id": 7007, "name": "payment-db-01"}],
+                },
+                status=200,
+            )
+            result = tools["freshservice_list_records"]._invoke(
+                {"object_type": "assets"}, context
+            )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data["assets"][0]["asset_id"] == 7007
+
+    def test_get_device_uses_itam_path(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.GET,
+                f"{API_URL}/api/v2/itam/devices/47937",
+                json={"device_id": 47937, "name": "payment-db-01"},
+                status=200,
+            )
+            result = tools["freshservice_get_record"]._invoke(
+                {"object_type": "devices", "record_id": 47937}, context
+            )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data["device_id"] == 47937
+
+    def test_create_asset_posts_to_trailing_slash_url(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.POST,
+                f"{API_URL}/api/v2/itam/assets/",
+                json={"code": 0, "msg": ["asset added/edited.", 7019, "db-03", True, True]},
+                status=200,
+                match=[
+                    responses_.matchers.json_params_matcher(
+                        {"name": "db-03", "type": "Server"}
+                    )
+                ],
+            )
+            result = tools["freshservice_create_record"]._invoke(
+                {
+                    "object_type": "assets",
+                    "data": json.dumps({"name": "db-03", "type": "Server"}),
+                },
+                context,
+            )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data["msg"][1] == 7019
+
+    def test_update_asset_puts_to_trailing_slash_url(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.PUT,
+                f"{API_URL}/api/v2/itam/assets/7007/",
+                json={"code": 0, "msg": ["asset added/edited.", 7007, "payment-db-01", True, True]},
+                status=200,
+                match=[
+                    responses_.matchers.json_params_matcher({"impact": "High"})
+                ],
+            )
+            result = tools["freshservice_update_record"]._invoke(
+                {
+                    "object_type": "assets",
+                    "record_id": 7007,
+                    "data": json.dumps({"impact": "High"}),
+                },
+                context,
+            )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+
+    def test_asset_validation_error_is_passed_through(self, tools, context):
+        with responses_.RequestsMock() as rsps:
+            rsps.add(
+                responses_.POST,
+                f"{API_URL}/api/v2/itam/assets/",
+                json={"code": "1", "msg": "Required parameter missing, Asset Type"},
+                status=500,
+            )
+            result = tools["freshservice_create_record"]._invoke(
+                {"object_type": "assets", "data": json.dumps({"name": "db-03"})},
+                context,
+            )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "Asset Type" in result.error
+        assert "/api/v2/itam/assets/" in result.error
 
 
 class TestReadonlyMode:

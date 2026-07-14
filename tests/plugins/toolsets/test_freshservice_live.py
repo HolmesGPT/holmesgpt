@@ -126,14 +126,40 @@ class TestLiveReads:
         assert any("payment" in s.lower() for s in subjects), subjects
 
     def test_unavailable_module_returns_detailed_error(self, tools, context):
-        # The demo plan does not include CMDB; if the target plan does, the
-        # call succeeds and the test is a no-op.
+        # The demo plan does not include classic CMDB modules like vendors; if
+        # the target plan does, the call succeeds and the test is a no-op.
         result = tools["freshservice_list_records"]._invoke(
-            {"object_type": "assets"}, context
+            {"object_type": "vendors"}, context
         )
         if result.status == StructuredToolResultStatus.ERROR:
             assert "403" in result.error
-            assert "/api/v2/assets" in result.error
+            assert "/api/v2/vendors" in result.error
+
+    def test_list_assets_finds_payment_db(self, tools, context):
+        result = tools["freshservice_list_records"]._invoke(
+            {"object_type": "assets", "per_page": 100}, context
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+        db = next(
+            (a for a in result.data["assets"] if a["name"] == "payment-db-01"),
+            None,
+        )
+        assert db, "seeded asset payment-db-01 not found"
+        assert db["type"] == "Server"
+
+        detail = tools["freshservice_get_record"]._invoke(
+            {"object_type": "assets", "record_id": db["asset_id"]}, context
+        )
+        assert detail.status == StructuredToolResultStatus.SUCCESS, detail.error
+        assert "PostgreSQL" in detail.data["notes"]
+
+    def test_list_devices(self, tools, context):
+        result = tools["freshservice_list_records"]._invoke(
+            {"object_type": "devices", "per_page": 100}, context
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+        names = [d["name"] for d in result.data["devices"]]
+        assert "payment-db-01" in names, names
 
 
 class TestLiveWrites:
@@ -181,4 +207,43 @@ class TestLiveWrites:
         finally:
             # Clean up: delete the test ticket (delete is deliberately not a tool)
             response = toolset._request("DELETE", f"tickets/{ticket_id}")
+            assert response.ok, response.text
+
+    def test_asset_create_update_roundtrip(self, toolset, tools, context):
+        created = tools["freshservice_create_record"]._invoke(
+            {
+                "object_type": "assets",
+                "data": json.dumps(
+                    {
+                        "name": "holmes-live-test-asset",
+                        "type": "Server",
+                        "notes": "Created by the Freshservice toolset live test - safe to delete.",
+                        "state": "In Stock",
+                    }
+                ),
+            },
+            context,
+        )
+        assert created.status == StructuredToolResultStatus.SUCCESS, created.error
+        # itam create response: {"code": 0, "msg": ["asset added/edited.", <id>, ...]}
+        asset_id = created.data["msg"][1]
+
+        try:
+            updated = tools["freshservice_update_record"]._invoke(
+                {
+                    "object_type": "assets",
+                    "record_id": asset_id,
+                    "data": json.dumps({"impact": "Medium"}),
+                },
+                context,
+            )
+            assert updated.status == StructuredToolResultStatus.SUCCESS, updated.error
+
+            detail = tools["freshservice_get_record"]._invoke(
+                {"object_type": "assets", "record_id": asset_id}, context
+            )
+            assert detail.status == StructuredToolResultStatus.SUCCESS, detail.error
+            assert detail.data["impact"] == "medium"
+        finally:
+            response = toolset._request("DELETE", f"itam/assets/{asset_id}/")
             assert response.ok, response.text

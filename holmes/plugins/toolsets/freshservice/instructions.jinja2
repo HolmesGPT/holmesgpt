@@ -26,6 +26,13 @@ Reading data:
 * Listing solution_articles requires a folder_id query param: list solution_folders first, or use freshservice_search_solution_articles.
 * Results are paginated; increase `page` to fetch more.
 
+Assets and devices (ITAM):
+* `assets` and `devices` use the newer ITAM API (/api/v2/itam/...). List responses include a `meta` object with `total_count`; single records are returned unwrapped.
+* Asset IDs are in `asset_id` (not `display_id`); device IDs in `device_id`.
+* Assets link to the rest of the instance via `department_id`, `location_id`, `user_id`, `agent_id` and owner fields; correlate an asset with tickets/changes by its `name` appearing in their subject, description or planning fields.
+* Creating an asset requires `type` (a type name such as "Server" or "Laptop" - an unknown name creates a new asset type, so reuse existing types). Valid `state` values: In Use, Missing, In Transit, In Stock, Retired, Reserved, Disposed. Valid `impact` values: Low, Medium, High.
+* Creating an asset whose name already exists makes a duplicate - list first and update by ID instead.
+
 Writing data:
 * freshservice_create_record / freshservice_update_record take the record fields as a JSON string. On a 400 error the response lists the invalid fields - correct them and retry once.
 * Create tickets with: subject, description (HTML), email (requester), status, urgency, impact, and optionally category, tags, group_id.

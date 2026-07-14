@@ -31,10 +31,14 @@ class FreshserviceObjectType(NamedTuple):
     list_key: str  # key wrapping records in list responses
     item_key: str  # key wrapping the record in single-record responses
     writable: bool = True  # whether create/update are supported by the API
+    # The newer ITAM API (/api/v2/itam/*, Device42-based) requires a trailing
+    # slash on create/update/delete URLs; POST without it silently behaves as
+    # a list call instead of a create.
+    trailing_slash: bool = False
 
 
 # Object types exposed by the generic list/get/create/update tools.
-# Note: some modules (e.g. assets, vendors, products) are plan-dependent and
+# Note: some modules (e.g. vendors, products) are plan-dependent and
 # the API returns 403 require_feature when unavailable - that error is
 # passed through to the LLM.
 OBJECT_TYPES: Dict[str, FreshserviceObjectType] = {
@@ -49,7 +53,12 @@ OBJECT_TYPES: Dict[str, FreshserviceObjectType] = {
     "locations": FreshserviceObjectType("locations", "locations", "location"),
     "vendors": FreshserviceObjectType("vendors", "vendors", "vendor"),
     "products": FreshserviceObjectType("products", "products", "product"),
-    "assets": FreshserviceObjectType("assets", "assets", "asset"),
+    "assets": FreshserviceObjectType(
+        "itam/assets", "assets", "asset", trailing_slash=True
+    ),
+    "devices": FreshserviceObjectType(
+        "itam/devices", "devices", "device", trailing_slash=True
+    ),
     "software": FreshserviceObjectType("applications", "applications", "application"),
     "contracts": FreshserviceObjectType("contracts", "contracts", "contract"),
     "purchase_orders": FreshserviceObjectType(
@@ -315,12 +324,12 @@ class FreshserviceGetRecord(BaseFreshserviceTool):
             description=(
                 "Get a single Freshservice record by ID using GET /api/v2/{type}/{id}. "
                 "The ID must come from a previous list/filter tool response or from the user - never guess IDs. "
-                "For assets, use the display_id."
+                "For assets use the asset_id field, for devices the device_id field."
             ),
             parameters={
                 "object_type": OBJECT_TYPE_PARAM,
                 "record_id": ToolParameter(
-                    description="The record ID (display_id for assets)",
+                    description="The record ID (asset_id for assets, device_id for devices)",
                     type="integer",
                     required=True,
                 ),
@@ -469,6 +478,8 @@ class FreshserviceCreateRecord(BaseFreshserviceTool):
                 "Create a Freshservice record using POST /api/v2/{type} with a JSON payload. "
                 "Example ticket payload: {\"subject\": \"...\", \"description\": \"<p>html</p>\", "
                 "\"email\": \"requester@example.com\", \"status\": 2, \"priority\": 2}. "
+                "Assets require a \"type\" field (e.g. \"Server\", \"Laptop\"); creating an asset "
+                "with an existing name makes a duplicate, so list assets first. "
                 "On validation errors the API response lists the offending fields - fix them and retry."
             ),
             parameters={
@@ -500,7 +511,8 @@ class FreshserviceCreateRecord(BaseFreshserviceTool):
                 error=f"Invalid JSON in 'data' parameter: {str(e)}",
                 params=params,
             )
-        return self._call_api("POST", obj.path, params, payload=payload)
+        path = f"{obj.path}/" if obj.trailing_slash else obj.path
+        return self._call_api("POST", path, params, payload=payload)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return f"{toolset_name_for_one_liner(self._toolset.name)}: Create {params.get('object_type', 'record')}"
@@ -552,9 +564,10 @@ class FreshserviceUpdateRecord(BaseFreshserviceTool):
                 error=f"Invalid JSON in 'data' parameter: {str(e)}",
                 params=params,
             )
-        return self._call_api(
-            "PUT", f"{obj.path}/{params['record_id']}", params, payload=payload
-        )
+        path = f"{obj.path}/{params['record_id']}"
+        if obj.trailing_slash:
+            path += "/"
+        return self._call_api("PUT", path, params, payload=payload)
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         return (

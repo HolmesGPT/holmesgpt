@@ -231,6 +231,223 @@ def seed_foundation() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# 1b. ITAM: assets and devices (newer /api/v2/itam API, Device42-based)
+# ---------------------------------------------------------------------------
+#
+# Unlike the classic API, itam create/update/delete URLs need a trailing
+# slash (POST without it silently acts as a list call), asset creation does
+# NOT upsert by name, and the create response is Device42-style:
+# {"code": 0, "msg": ["asset added/edited.", <id>, <name>, true, true]}.
+
+def seed_itam(ctx: Dict[str, Any]) -> None:
+    print("\n== ITAM assets ==")
+    try:
+        existing_assets = get_all("itam/assets", "assets")
+    except RuntimeError as e:
+        print(f"  ! ITAM API unavailable, skipping assets/devices: {e}")
+        return
+
+    departments = ctx["departments"]
+    locations = ctx["locations"]
+    requesters = ctx["requesters"]
+
+    def dept(name: str) -> Optional[int]:
+        return departments[name]["id"] if name in departments else None
+
+    def loc(name: str) -> Optional[int]:
+        return locations[name]["id"] if name in locations else None
+
+    def user(email: str) -> Optional[int]:
+        r = requesters.get(email)
+        return r["id"] if r else None
+
+    asset_specs: List[dict] = [
+        # The payments stack - payment-db-01 is the host the culprit change
+        # (max_connections typo) was applied to. Notes stay neutral: specs and
+        # ownership only, the KB runbook holds the config baseline.
+        {
+            "name": "payment-db-01",
+            "type": "Server",
+            "serial_no": "DL380-2023-04417",
+            "asset_no": "AST-SRV-0001",
+            "impact": "High",
+            "state": "In Use",
+            "notes": (
+                "Primary PostgreSQL 15 node for the payments stack (orders, payments, "
+                "refunds databases). Runs postgres and pgbouncer 1.21. HPE ProLiant "
+                "DL380 Gen11, 64GB RAM, 2x1.92TB NVMe RAID1. Owned by Platform "
+                "Engineering. Streaming replication to payment-db-02."
+            ),
+            "department_id": dept("Engineering"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+        {
+            "name": "payment-db-02",
+            "type": "Server",
+            "serial_no": "DL380-2023-04418",
+            "asset_no": "AST-SRV-0002",
+            "impact": "High",
+            "state": "In Use",
+            "notes": (
+                "Hot-standby PostgreSQL 15 replica of payment-db-01 (streaming "
+                "replication, async). HPE ProLiant DL380 Gen11, 64GB RAM. Owned by "
+                "Platform Engineering."
+            ),
+            "department_id": dept("Engineering"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+        {
+            "name": "checkout-web-01",
+            "type": "Cloud Instance",
+            "asset_no": "AST-CLD-0001",
+            "impact": "Medium",
+            "state": "In Use",
+            "notes": (
+                "AWS EC2 c6i.xlarge (eu-central-1a) serving the storefront checkout "
+                "frontend behind the public ALB. Auto Scaling group checkout-web."
+            ),
+            "department_id": dept("Engineering"),
+        },
+        {
+            "name": "checkout-web-02",
+            "type": "Cloud Instance",
+            "asset_no": "AST-CLD-0002",
+            "impact": "Medium",
+            "state": "In Use",
+            "notes": (
+                "AWS EC2 c6i.xlarge (eu-central-1b) serving the storefront checkout "
+                "frontend behind the public ALB. Auto Scaling group checkout-web."
+            ),
+            "department_id": dept("Engineering"),
+        },
+        {
+            "name": "payment-api-01",
+            "type": "Cloud Instance",
+            "asset_no": "AST-CLD-0003",
+            "impact": "High",
+            "state": "In Use",
+            "notes": (
+                "AWS EC2 m6i.large running the payment-api service (Django). "
+                "Connects to payment-db-01 through pgbouncer. Handles card capture "
+                "and refunds via the PSP."
+            ),
+            "department_id": dept("Engineering"),
+        },
+        {
+            "name": "core-switch-tlv-01",
+            "type": "Switch",
+            "serial_no": "FDO27110QBX",
+            "asset_no": "AST-NET-0001",
+            "impact": "High",
+            "state": "In Use",
+            "notes": "Cisco Catalyst 9300 48-port core switch, Tel Aviv HQ server room rack A1.",
+            "department_id": dept("IT Operations"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+        {
+            "name": "edge-fw-tlv-01",
+            "type": "Firewall",
+            "serial_no": "PA-3410-00981",
+            "asset_no": "AST-NET-0002",
+            "impact": "High",
+            "state": "In Use",
+            "notes": "Palo Alto PA-3410 edge firewall, Tel Aviv HQ. HA pair peer edge-fw-tlv-02 (planned).",
+            "department_id": dept("IT Operations"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+        {
+            "name": "backup-nas-01",
+            "type": "Storage",
+            "serial_no": "SYN-RS4021-7742",
+            "asset_no": "AST-STO-0001",
+            "impact": "Medium",
+            "state": "In Use",
+            "notes": "Synology RS4021xs+ backup target for nightly database dumps and office file shares. 96TB raw.",
+            "department_id": dept("IT Operations"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+        # End-user hardware tied to real requesters
+        {
+            "name": "MBP14-M3-0117",
+            "type": "Laptop",
+            "serial_no": "C02ZK1ANMD6T",
+            "asset_no": "AST-LAP-0117",
+            "impact": "Low",
+            "state": "In Use",
+            "notes": 'MacBook Pro 14" M3 Pro, 18GB/512GB. Assigned to Sarah Mizrahi (Backend Developer).',
+            "user_id": user("sarah.mizrahi@demo.robustalabs.dev"),
+            "department_id": dept("Engineering"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+        {
+            "name": "TP-X1C-0242",
+            "type": "Laptop",
+            "serial_no": "PF-4XJTQ9",
+            "asset_no": "AST-LAP-0242",
+            "impact": "Low",
+            "state": "In Use",
+            "notes": "Lenovo ThinkPad X1 Carbon Gen 12, 32GB/1TB. Assigned to Maya Cohen (Financial Analyst).",
+            "user_id": user("maya.cohen@demo.robustalabs.dev"),
+            "department_id": dept("Finance"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+        {
+            "name": "MBP16-M3-0305",
+            "type": "Laptop",
+            "serial_no": "C02WV3PLQ05N",
+            "asset_no": "AST-LAP-0305",
+            "impact": "Low",
+            "state": "In Use",
+            "notes": 'MacBook Pro 16" M3 Max, 36GB/1TB. Assigned to James Wong (Site Reliability Engineer).',
+            "user_id": user("james.wong@demo.robustalabs.dev"),
+            "department_id": dept("Engineering"),
+            "location_id": loc("London Office"),
+        },
+        {
+            "name": "DELL-LAT-0418",
+            "type": "Laptop",
+            "serial_no": "8Y2VJ34",
+            "asset_no": "AST-LAP-0418",
+            "impact": "Low",
+            "state": "In Stock",
+            "notes": "Dell Latitude 7450, 16GB/512GB. Spare pool unit held by IT Support for loaners.",
+            "department_id": dept("IT Operations"),
+            "location_id": loc("Tel Aviv HQ"),
+        },
+    ]
+
+    for spec in asset_specs:
+        payload = {k: v for k, v in spec.items() if v is not None}
+        if find_by(existing_assets, "name", spec["name"]):
+            print(f"  = asset exists: {spec['name']}")
+            continue
+        # itam asset creation needs the trailing slash and does not upsert
+        api("POST", "itam/assets/", payload)
+        print(f"  + created asset: {spec['name']} ({spec['type']})")
+        time.sleep(0.3)
+
+    print("\n== ITAM devices ==")
+    # Devices are the discovery-level view of the server fleet; unlike assets
+    # they DO upsert by name, so plain POSTs are already idempotent.
+    device_specs = [
+        {"name": "payment-db-01", "os": "Ubuntu", "osver": "22.04 LTS"},
+        {"name": "payment-db-02", "os": "Ubuntu", "osver": "22.04 LTS"},
+        {"name": "checkout-web-01", "os": "Amazon Linux", "osver": "2023"},
+        {"name": "checkout-web-02", "os": "Amazon Linux", "osver": "2023"},
+        {"name": "payment-api-01", "os": "Amazon Linux", "osver": "2023"},
+    ]
+    for spec in device_specs:
+        try:
+            api("POST", "itam/devices/", spec)
+            print(f"  + upserted device: {spec['name']}")
+        except RuntimeError:
+            # some optional fields may be rejected depending on plan; retry bare
+            api("POST", "itam/devices/", {"name": spec["name"]})
+            print(f"  + upserted device (name only): {spec['name']}")
+        time.sleep(0.3)
+
+
+# ---------------------------------------------------------------------------
 # 2. Knowledge base
 # ---------------------------------------------------------------------------
 
@@ -875,6 +1092,7 @@ def seed_service_requests() -> None:
 def main() -> None:
     print(f"Seeding Freshservice demo data at {BASE_URL}")
     ctx = seed_foundation()
+    seed_itam(ctx)
     seed_knowledge_base()
     changes = seed_changes(ctx)
     seed_tickets(ctx, changes)

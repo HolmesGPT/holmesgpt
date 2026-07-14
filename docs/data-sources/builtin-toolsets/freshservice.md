@@ -71,7 +71,7 @@ By default the toolset can both read and write (create tickets, update records, 
 
 | Tool Name | Description |
 |-----------|-------------|
-| freshservice_list_records | List records of any supported type: tickets, problems, changes, releases, requesters, agents, groups, departments, locations, assets, contracts, knowledge base categories/folders/articles, service catalog items and more |
+| freshservice_list_records | List records of any supported type: tickets, problems, changes, releases, requesters, agents, groups, departments, locations, assets, devices, contracts, knowledge base categories/folders/articles, service catalog items and more |
 | freshservice_get_record | Fetch a single record by ID, optionally embedding related data (e.g. ticket stats or conversations) |
 | freshservice_filter_tickets | Search tickets with the Freshservice filter query language (e.g. `priority:4 AND status:2`) |
 | freshservice_get_ticket_conversations | Read the replies and private agent notes on a ticket |
@@ -80,7 +80,7 @@ By default the toolset can both read and write (create tickets, update records, 
 | freshservice_update_record | Update fields on an existing record (e.g. reassign or resolve a ticket) |
 | freshservice_add_note | Add a note to a ticket, problem, change or release |
 
-Some record types (assets, vendors, products, software) require Freshservice plans that include asset management; on other plans the API returns a clear error that HolmesGPT relays.
+Assets and devices are read and written through Freshservice's newer ITAM API (`/api/v2/itam/...`). Some classic record types (vendors, products, software) require Freshservice plans that include the classic CMDB; on other plans the API returns a clear error that HolmesGPT relays.
 
 ## Common Use Cases
 
