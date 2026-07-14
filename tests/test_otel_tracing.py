@@ -293,7 +293,7 @@ class TestLangfuseTraceAttributes:
             )
         assert attrs["langfuse.user.id"] == "u123"  # user_id wins
         assert attrs["langfuse.session.id"] == "conv1"
-        assert attrs["langfuse.trace.name"] == "Holmes: why is my pod crashing?"
+        assert attrs["langfuse.trace.name"] == "conv1"  # conversation id, not the prompt
         assert attrs["langfuse.trace.input"] == "why is my pod crashing?"
         # explicit identity metadata
         assert attrs["langfuse.trace.metadata.user_id"] == "u123"

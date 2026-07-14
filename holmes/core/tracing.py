@@ -141,12 +141,13 @@ def langfuse_trace_attributes(
     if not HOLMES_LANGFUSE_ATTRIBUTES:
         return {}
 
-    # Trace name "Holmes: <question>"; observation name stays holmesgpt.investigation.
     ask = ask or ""
     attrs: Dict[str, Any] = {
-        "langfuse.trace.name": f"Holmes: {ask[:80]}",
         "langfuse.trace.input": ask,
     }
+    # trace name = conversation id (short + filterable; prompt is in trace.input)
+    if session_id:
+        attrs["langfuse.trace.name"] = session_id
     # user id (Users view) with fallback
     uid = user_id or user_email or account_id
     if uid:
