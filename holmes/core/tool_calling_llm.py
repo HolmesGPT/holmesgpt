@@ -57,7 +57,11 @@ from holmes.core.otel_tracing import (
     DIM_GEN_AI_TOKEN_TYPE,
     DIM_TOOL_NAME,
 )
-from holmes.core.tracing import DummySpan, TracingFactory
+from holmes.core.tracing import (
+    HOLMES_LANGFUSE_ATTRIBUTES,
+    DummySpan,
+    TracingFactory,
+)
 from holmes.core.truncation.input_context_window_limiter import (
     CompactionInsufficientError,
     check_compaction_needed,
@@ -1209,28 +1213,22 @@ class ToolCallingLLM:
                 })
 
                 # Log prompt (input) + response content/reasoning/tool_calls (output).
-                # Must stay inside the `with` block.
-                _resp_msg = full_response.choices[0].message  # type: ignore
-                _reasoning = getattr(_resp_msg, "reasoning_content", None)
-                _raw_tool_calls = getattr(_resp_msg, "tool_calls", None) or []
-                _tool_calls_out = []
-                for _tc in _raw_tool_calls:
-                    _dump = getattr(_tc, "model_dump", None)
-                    if callable(_dump):
-                        try:
-                            _tool_calls_out.append(_dump())
-                        except Exception:
-                            _tool_calls_out.append(str(_tc))
-                    else:
-                        _tool_calls_out.append(str(_tc))
-                llm_span.log(
-                    input=messages,
-                    output={
-                        "content": getattr(_resp_msg, "content", None),
-                        "reasoning": _reasoning,
-                        "tool_calls": _tool_calls_out,
-                    },
-                )
+                # Only needed when Langfuse enrichment is on. Must stay in the `with` block.
+                if HOLMES_LANGFUSE_ATTRIBUTES:
+                    _resp_msg = full_response.choices[0].message  # type: ignore
+                    _raw_tool_calls = getattr(_resp_msg, "tool_calls", None) or []
+                    _tool_calls_out = []
+                    for _tc in _raw_tool_calls:
+                        _dump = getattr(_tc, "model_dump", None)
+                        _tool_calls_out.append(_dump() if callable(_dump) else str(_tc))
+                    llm_span.log(
+                        input=messages,
+                        output={
+                            "content": getattr(_resp_msg, "content", None),
+                            "reasoning": getattr(_resp_msg, "reasoning_content", None),
+                            "tool_calls": _tool_calls_out,
+                        },
+                    )
 
               # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
               except BadRequestError as e:

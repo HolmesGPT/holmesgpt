@@ -299,7 +299,7 @@ class OTelSpan:
                 )
         if "metadata" in kwargs and isinstance(kwargs["metadata"], dict):
             for k, v in kwargs["metadata"].items():
-                if isinstance(v, bool) or isinstance(v, (int, float)):
+                if isinstance(v, (int, float, bool)):
                     self._span.set_attribute(k, v)
                 elif isinstance(v, str):
                     # cap free-text metadata
