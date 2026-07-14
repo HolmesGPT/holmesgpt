@@ -86,15 +86,7 @@ DEFAULT_GRPC_ENDPOINT = "http://localhost:4317"
 DEFAULT_HTTP_ENDPOINT = "http://localhost:4318"
 
 # Max chars for input/output span attributes; bounded for OTLP limits. Override via env.
-def _int_env(name: str, default: int) -> int:
-    """Parse an int env var; fall back to ``default`` on missing/invalid value."""
-    try:
-        return int(os.environ[name])
-    except (KeyError, ValueError):
-        return default
-
-
-_MAX_ATTR_CHARS = _int_env("HOLMES_OTEL_MAX_ATTR_CHARS", 100000)
+_MAX_ATTR_CHARS = int(os.environ.get("HOLMES_OTEL_MAX_ATTR_CHARS", 100000))
 
 
 def _to_attr_str(value: Any) -> str:

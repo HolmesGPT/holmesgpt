@@ -170,16 +170,6 @@ class TestOTelSpan:
         recorded = {c[0][0]: c[0][1] for c in mock_span.set_attribute.call_args_list}
         assert len(recorded["langfuse.trace.input"]) == _MAX_ATTR_CHARS
 
-    def test_int_env_invalid_falls_back(self):
-        """A non-numeric HOLMES_OTEL_MAX_ATTR_CHARS doesn't crash; uses default."""
-        from holmes.core.otel_tracing import _int_env
-
-        with patch.dict(os.environ, {"X_TEST_INT": "not-a-number"}):
-            assert _int_env("X_TEST_INT", 4242) == 4242
-        with patch.dict(os.environ, {"X_TEST_INT": "77"}):
-            assert _int_env("X_TEST_INT", 4242) == 77
-        assert _int_env("X_TEST_INT_MISSING", 4242) == 4242
-
     def test_otel_span_log_tags_as_string_array(self):
         """List metadata values (e.g. langfuse.trace.tags) set as native arrays."""
         from holmes.core.otel_tracing import OTelSpan
