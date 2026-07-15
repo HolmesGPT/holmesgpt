@@ -5445,6 +5445,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#langfuse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Langfuse
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5848,6 +5859,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#langfuse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Langfuse
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6003,6 +6025,16 @@
 <td><code>OTEL_EXPORTER_OTLP_METRICS_ENDPOINT</code></td>
 <td>Override metrics endpoint (if different from traces)</td>
 <td><em>(uses OTEL_EXPORTER_OTLP_ENDPOINT)</em></td>
+</tr>
+<tr>
+<td><code>HOLMES_LANGFUSE_ATTRIBUTES</code></td>
+<td>Emit Langfuse-specific span attributes (prompts, tool I/O, thinking, user/session, tags). See <a href="#langfuse">Langfuse</a>.</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>HOLMES_OTEL_MAX_ATTR_CHARS</code></td>
+<td>Max characters for the input/output attributes emitted when <code>HOLMES_LANGFUSE_ATTRIBUTES</code> is enabled</td>
+<td><code>100000</code></td>
 </tr>
 </tbody>
 </table>
@@ -6194,32 +6226,82 @@
 </span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTEL_EXPORTER_OTLP_HEADERS</span>
 </span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Authorization=Basic</span><span class="nv"> </span><span class="s">BASE64_ENCODED_INSTANCE:TOKEN&quot;</span>
 </span></code></pre></div>
+<h3 id="langfuse">Langfuse<a class="headerlink" href="#langfuse" title="Permanent link">&para;</a></h3>
+<p><a href="https://langfuse.com/">Langfuse</a> is an LLM-observability platform that ingests OpenTelemetry traces natively. HolmesGPT can export each investigation to Langfuse as a full audit trail — the initiating user, the prompts sent to the LLM, the model's thinking/reasoning, the tools it called with their arguments and outputs, and the final answer.</p>
+<p><strong>Two things are required:</strong></p>
+<ol>
+<li>Point the OTLP exporter at your Langfuse project's OTLP endpoint over <strong>HTTP</strong> (Langfuse does not support gRPC), authenticated with a Basic-auth header of <code>base64(&lt;public-key&gt;:&lt;secret-key&gt;)</code>.</li>
+<li>Set <strong><code>HOLMES_LANGFUSE_ATTRIBUTES=true</code></strong>. This is opt-in and <strong>off by default</strong> because it emits Langfuse-vendor-specific span attributes (<code>langfuse.*</code>) that would be noise for a generic OTel backend. Without it, Holmes exports only vendor-neutral OTel/<code>gen_ai.*</code> spans and the Langfuse Input/Output panels stay empty.</li>
+</ol>
+<p>Generate the Basic-auth value:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">echo</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;pk-lf-xxxx:sk-lf-xxxx&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64
+</span></code></pre></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="langfuse-holmes-cli" name="__tabbed_1" type="radio" /><input id="langfuse-helm--kubernetes" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="langfuse-holmes-cli">Holmes CLI</label><label for="langfuse-helm--kubernetes">Helm / Kubernetes</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">OTEL_EXPORTER_OTLP_ENDPOINT</span><span class="o">=</span><span class="s2">&quot;https://cloud.langfuse.com/api/public/otel&quot;</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">OTEL_EXPORTER_OTLP_PROTOCOL</span><span class="o">=</span><span class="s2">&quot;http/protobuf&quot;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">OTEL_SERVICE_NAME</span><span class="o">=</span><span class="s2">&quot;holmesgpt&quot;</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">OTEL_EXPORTER_OTLP_HEADERS</span><span class="o">=</span><span class="s2">&quot;Authorization=Basic &lt;base64(public:secret)&gt;&quot;</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_LANGFUSE_ATTRIBUTES</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Why is my pod crashing?&quot;</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Store the Basic-auth value in a secret, then:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTEL_EXPORTER_OTLP_ENDPOINT</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://cloud.langfuse.com/api/public/otel&quot;</span><span class="w">  </span><span class="c1"># or your EU / self-hosted host</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTEL_EXPORTER_OTLP_PROTOCOL</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http/protobuf&quot;</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTEL_SERVICE_NAME</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">    </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;holmesgpt&quot;</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOLMES_LANGFUSE_ATTRIBUTES</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">    </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;true&quot;</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTEL_EXPORTER_OTLP_HEADERS</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">    </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">      </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-langfuse-otlp</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTEL_EXPORTER_OTLP_HEADERS</span><span class="w">   </span><span class="c1"># value: &quot;Authorization=Basic &lt;base64(public:secret)&gt;&quot;</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<p><strong>What <code>HOLMES_LANGFUSE_ATTRIBUTES=true</code> adds</strong> (all under the <code>langfuse.*</code> namespace):</p>
+<ul>
+<li><strong>Trace-level input/output</strong> — the user's question (input) and Holmes's final answer (output) on the <code>holmesgpt.investigation</code> root, so the top of the trace shows the prompt and the answer at a glance.</li>
+<li><strong>Observation input/output</strong> — the prompt messages, the assistant's response, its <code>reasoning</code> (thinking), and the tool calls it chose (on <code>gen_ai.chat</code> spans); tool arguments and results (on <code>holmesgpt.tool.*</code> spans).</li>
+<li><strong>Trace user &amp; session</strong> — <code>langfuse.user.id</code> (initiating user, falling back through user id → email → account id) and <code>langfuse.session.id</code> (the conversation id), powering Langfuse's Users and Sessions views.</li>
+<li><strong>Trace tags</strong> — <code>source:&lt;request_source&gt;</code>, <code>cluster:&lt;cluster&gt;</code>, <code>model:&lt;model&gt;</code>.</li>
+<li><strong>Filterable trace metadata</strong> — <code>user_id</code>, <code>user_email</code>, <code>conversation_id</code>, <code>account_id</code>, <code>cluster_id</code>, <code>model</code>, <code>request_source</code>.</li>
+</ul>
+<p>Since Holmes emits OTel <strong>metrics</strong> as well and Langfuse ingests <strong>traces only</strong>, metric exports to the Langfuse endpoint are rejected harmlessly (traces are unaffected). To avoid that noise entirely, route Holmes through an OTel Collector and forward only traces to Langfuse.</p>
 <h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>┌──────────────────────────────────────────────────────┐
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>│                    HolmesGPT                         │
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>│                                                      │
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>│  │  Tracer   │  │  Metrics  │  │ httpx auto-instr │   │
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>│  │ (traces)  │  │(counters, │  │ (W3C traceparent)│   │
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>│  │          │  │histograms)│  │                  │   │
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>│  └────┬─────┘  └────┬─────┘  └────────┬─────────┘   │
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>│       │              │                 │             │
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>└───────┼──────────────┼─────────────────┼─────────────┘
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>        │              │                 │
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>        │ OTLP (gRPC or│                 │ W3C traceparent
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>        │ HTTP/protobuf)│                │
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>        ▼              ▼                 ▼
-</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>┌─────────────────┐              ┌─────────────────┐
-</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>│  OTel Collector  │              │   MCP Servers    │
-</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>│  or Direct OTLP  │              │  (child spans)   │
-</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>└────────┬────────┘              └─────────────────┘
-</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>         │
-</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>         ▼
-</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>┌─────────────────┐
-</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>│    Backend       │
-</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>│ (Dynatrace,     │
-</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>│  Grafana, etc.) │
-</span><span id="__span-8-25"><a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>└─────────────────┘
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>┌──────────────────────────────────────────────────────┐
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>│                    HolmesGPT                         │
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>│                                                      │
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>│  │  Tracer   │  │  Metrics  │  │ httpx auto-instr │   │
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>│  │ (traces)  │  │(counters, │  │ (W3C traceparent)│   │
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>│  │          │  │histograms)│  │                  │   │
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>│  └────┬─────┘  └────┬─────┘  └────────┬─────────┘   │
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>│       │              │                 │             │
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>└───────┼──────────────┼─────────────────┼─────────────┘
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>        │              │                 │
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>        │ OTLP (gRPC or│                 │ W3C traceparent
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>        │ HTTP/protobuf)│                │
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>        ▼              ▼                 ▼
+</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>┌─────────────────┐              ┌─────────────────┐
+</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>│  OTel Collector  │              │   MCP Servers    │
+</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>│  or Direct OTLP  │              │  (child spans)   │
+</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>└────────┬────────┘              └─────────────────┘
+</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>         │
+</span><span id="__span-11-20"><a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>         ▼
+</span><span id="__span-11-21"><a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>┌─────────────────┐
+</span><span id="__span-11-22"><a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>│    Backend       │
+</span><span id="__span-11-23"><a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>│ (Dynatrace,     │
+</span><span id="__span-11-24"><a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>│  Grafana, etc.) │
+</span><span id="__span-11-25"><a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a>└─────────────────┘
 </span></code></pre></div>
 
 
