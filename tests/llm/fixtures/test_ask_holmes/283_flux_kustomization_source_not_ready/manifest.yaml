@@ -1,0 +1,24 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/stefanprodan/podinfo
+  ref:
+    branch: this-branch-does-not-exist
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 1m
+  path: ./kustomize
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: podinfo
+  targetNamespace: default

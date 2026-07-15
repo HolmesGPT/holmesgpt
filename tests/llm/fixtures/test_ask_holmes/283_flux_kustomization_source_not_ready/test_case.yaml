@@ -1,0 +1,8 @@
+user_prompt: "Why is the podinfo Kustomization in the flux-system namespace not becoming Ready?"
+expected_output:
+  - Identifies the GitRepository named podinfo as the actual root cause, not the Kustomization itself
+  - Mentions the git branch/ref could not be found or a clone/checkout failure
+before_test: kubectl apply -f ./manifest.yaml
+after_test: kubectl delete -f ./manifest.yaml --ignore-not-found
+evaluation:
+  correctness: 1
