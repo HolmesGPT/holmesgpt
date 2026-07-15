@@ -1,0 +1,60 @@
+toolsets:
+  flux/core:
+    description: "Set of tools to inspect FluxCD GitOps resources and their reconciliation status"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/flux/"
+    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/flux.svg"
+    llm_instructions: |
+      You have access to a set of FluxCD tools for debugging GitOps-managed Kubernetes deployments.
+      Flux resources (GitRepository, HelmRepository, OCIRepository, Kustomization, HelmRelease) are also
+      plain Kubernetes CRDs, so kubectl tools (describe, get events) work on them too and are useful for
+      deeper detail than flux_get provides.
+      IMPORTANT: A Kustomization or HelmRelease failing to become Ready is very often caused by its
+      source (GitRepository/HelmRepository/OCIRepository) failing first, not by the Kustomization/HelmRelease
+      itself. ALWAYS check `flux_get resource=all` first to see the whole picture and find which resource
+      in the chain is actually failing, before investigating further.
+      In addition to the general investigation steps, ALWAYS follow these steps as well:
+        1. Run flux_get with resource=all to see the reconciliation status of every Flux resource
+        2. Identify which resource has Ready=False and read its message - that is usually the true root cause
+        3. If a Kustomization's managed resources need to be inspected (e.g. "what does this Kustomization deploy"), use flux_tree
+        4. Cross-reference with kubectl describe/events on the failing resource for full condition history
+      {% if tool_names|list|length > 0 %}
+      The following commands are available to introspect into FluxCD: {{ ", ".join(tool_names) }}
+      {% endif %}
+      DO NOT tell the user to check reconciliation status themselves - DO run these tools yourself and report the specific failing resource and message.
+    tags:
+      - core
+    prerequisites:
+      - command: "flux version"
+    tools:
+      - name: "flux_get"
+        user_description: "flux get {{ resource }}{% if name %} {{ name }}{% endif %}"
+        description: >
+          Get the reconciliation status of FluxCD resources. The 'resource' parameter must be one of:
+          "all" (every Flux resource - start here), "sources-git", "sources-helm", "sources-oci",
+          "sources-chart", "sources-bucket", "kustomizations", "helmreleases", "images",
+          "alert-providers", "alerts", "receivers", "artifacts".
+          Optionally pass 'name' to get a single resource instead of listing all of them.
+        script: |
+          #!/bin/bash
+          set -e
+          case "{{ resource }}" in
+            sources-git) SUBCMD="sources git" ;;
+            sources-helm) SUBCMD="sources helm" ;;
+            sources-oci) SUBCMD="sources oci" ;;
+            sources-chart) SUBCMD="sources chart" ;;
+            sources-bucket) SUBCMD="sources bucket" ;;
+            sources-external) SUBCMD="sources external" ;;
+            images) SUBCMD="images all" ;;
+            *) SUBCMD="{{ resource }}" ;;
+          esac
+          flux get $SUBCMD {% if name %}{{ name }}{% endif %} \
+            -n {{ namespace if namespace is string else "flux-system" }} \
+            {% if all_namespaces %}-A{% endif %}
+
+      - name: "flux_tree"
+        description: >
+          Show the tree of Kubernetes resources reconciled/managed by a Flux Kustomization.
+          Use this to answer "what does this Kustomization deploy" or to see the dependency
+          chain of resources it manages. Requires the Kustomization's name.
+        command: >
+          flux tree kustomization {{ name }} -n {{ namespace if namespace is string else "flux-system" }}
