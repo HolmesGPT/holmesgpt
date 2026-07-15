@@ -70,13 +70,53 @@ def _get_check_prompt() -> str:
 
 
 def _execute_ai_check(check: Check, ai: ToolCallingLLM) -> LLMResult:
+    """Run a health check in two phases.
+
+    Phase 1 investigates using tools, with no response_format set. Some
+    models (e.g. Qwen served via vLLM) will satisfy a strict
+    response_format schema immediately instead of calling tools first when
+    both tools and response_format are present on the same call - see
+    https://github.com/HolmesGPT/holmesgpt/issues/2031. The CLI ask/
+    investigate flows never hit this because they don't set
+    response_format, so phase 1 mirrors that by omitting it.
+
+    Phase 2 classifies the investigation's findings into the required
+    pass/fail schema. No tools are relevant to this call - the model only
+    needs to read the investigation result and decide - so response_format
+    is safe to set here without risking a premature, tool-less answer.
+    """
     system_message = _get_check_prompt()
     messages = [
         {"role": "system", "content": system_message},
         {"role": "user", "content": check.query},
     ]
-    response: LLMResult = ai.call(messages, response_format=CHECK_RESPONSE_FORMAT)
-    return response
+    investigation: LLMResult = ai.call(messages)
+
+    classification_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You already completed an investigation for a health check. "
+                "Based solely on the investigation result below, decide "
+                "whether the check passes or fails."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Original check query:\n{check.query}\n\n"
+                f"Investigation result:\n{investigation.result or ''}"
+            ),
+        },
+    ]
+    classification: LLMResult = ai.call(
+        classification_messages, response_format=CHECK_RESPONSE_FORMAT
+    )
+    classification.num_llm_calls = (investigation.num_llm_calls or 0) + (
+        classification.num_llm_calls or 0
+    )
+    classification += investigation
+    return classification
 
 
 def _parse_check_response(response: LLMResult) -> CheckResponse:

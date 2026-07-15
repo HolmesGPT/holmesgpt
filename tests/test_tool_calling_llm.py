@@ -1702,3 +1702,90 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Issue #2107: Anthropic Tool Search Tool injection
+# ---------------------------------------------------------------------------
+
+class TestApplyToolSearch:
+    """_apply_tool_search() prepends the Tool Search Tool and marks all
+    user-defined tools with defer_loading=True for Anthropic models."""
+
+    def _make_tool(self, name: str) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": f"Tool {name}",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_apply_tool_search_prepends_search_tool(self, _mock_limit, make_ai, mock_llm):
+        ai = make_ai(tools=[])
+        tools = [self._make_tool("kubectl_get"), self._make_tool("kubectl_describe")]
+        result = ai._apply_tool_search(tools)
+
+        assert result[0]["type"] == "tool_search_tool_regex_20251119"
+        assert result[0]["name"] == "tool_search_tool_regex"
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_apply_tool_search_marks_defer_loading(self, _mock_limit, make_ai, mock_llm):
+        ai = make_ai(tools=[])
+        tools = [self._make_tool("kubectl_get"), self._make_tool("kubectl_describe")]
+        result = ai._apply_tool_search(tools)
+
+        for tool in result[1:]:
+            assert tool.get("defer_loading") is True
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_apply_tool_search_preserves_tool_count(self, _mock_limit, make_ai, mock_llm):
+        ai = make_ai(tools=[])
+        tools = [self._make_tool(f"tool_{i}") for i in range(5)]
+        result = ai._apply_tool_search(tools)
+
+        # 1 search tool + 5 user tools
+        assert len(result) == 6
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_apply_tool_search_does_not_mutate_original(self, _mock_limit, make_ai, mock_llm):
+        ai = make_ai(tools=[])
+        tools = [self._make_tool("kubectl_get")]
+        _ = ai._apply_tool_search(tools)
+
+        assert "defer_loading" not in tools[0]
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_get_tools_applies_search_for_anthropic(self, _mock_limit, make_ai, mock_llm):
+        ai = make_ai(tools=[])
+        ai.llm._is_anthropic_model = MagicMock(return_value=True)
+        ai.tool_executor.get_all_tools_openai_format = MagicMock(
+            return_value=[self._make_tool("kubectl_get")]
+        )
+        result = ai._get_tools()
+
+        assert result[0]["type"] == "tool_search_tool_regex_20251119"
+        assert result[1].get("defer_loading") is True
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_get_tools_skips_search_for_non_anthropic(self, _mock_limit, make_ai, mock_llm):
+        ai = make_ai(tools=[])
+        ai.llm._is_anthropic_model = MagicMock(return_value=False)
+        ai.tool_executor.get_all_tools_openai_format = MagicMock(
+            return_value=[self._make_tool("kubectl_get")]
+        )
+        result = ai._get_tools()
+
+        assert result[0]["type"] == "function"
+        assert "defer_loading" not in result[0]
+
+    @patch("holmes.core.tool_calling_llm.compact_if_necessary")
+    def test_get_tools_skips_search_when_no_tools(self, _mock_limit, make_ai, mock_llm):
+        ai = make_ai(tools=[])
+        ai.llm._is_anthropic_model = MagicMock(return_value=True)
+        ai.tool_executor.get_all_tools_openai_format = MagicMock(return_value=[])
+        result = ai._get_tools()
+
+        assert result == []
