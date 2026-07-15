@@ -29,8 +29,7 @@ spec:
   - from:
     - podSelector:
         matchLabels:
-          app.kubernetes.io/instance: {{ .Release.Name }}
-          app.kubernetes.io/name: holmes
+          app: holmes
     ports:
     {{- if .Values.mcpAddons.gcp.gcloud.enabled }}
     - protocol: TCP
