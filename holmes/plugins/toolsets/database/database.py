@@ -109,11 +109,9 @@ def _detect_subtype(connection_url: str) -> DatabaseSubtype:
     return info.subtype if info else DatabaseSubtype.UNKNOWN
 
 
-# Per-subtype icon URLs. Copied from the frontend data-source catalog
-# (datasource-catalog.json) so the tool-call icon matches the catalog card
-# shown on the Data Sources page. A single DatabaseToolset backs every SQL
-# subtype, so the icon must be chosen from the resolved subtype rather than
-# hardcoded (see FRO-190: SQL Server was showing the PostgreSQL icon).
+# Per-subtype icons, copied from the frontend data-source catalog so tool-call
+# icons match the catalog card. One DatabaseToolset backs every SQL subtype, so
+# the icon is picked from the subtype rather than hardcoded (FRO-190).
 _ICON_URL_BASE = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos"
 _SUBTYPE_ICON_URLS: Dict[DatabaseSubtype, str] = {
     DatabaseSubtype.POSTGRESQL: f"{_ICON_URL_BASE}/postgresql.svg",
@@ -124,8 +122,7 @@ _SUBTYPE_ICON_URLS: Dict[DatabaseSubtype, str] = {
     DatabaseSubtype.CLICKHOUSE: "https://cdn.simpleicons.org/clickhouse/FFCC01",
 }
 
-# Fallback for an unknown/undetected subtype. Matches the generic
-# "database/sql" entry in the data-source catalog.
+# Fallback for an unknown subtype; matches the catalog's generic "database/sql".
 _DEFAULT_DATABASE_ICON_URL = f"{_ICON_URL_BASE}/mysql-icon.svg"
 
 
@@ -374,8 +371,7 @@ class DatabaseToolset(Toolset):
             description=description,
             type=ToolsetType.DATABASE,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/database/",
-            # Generic placeholder; replaced per-subtype by _apply_icon_url()
-            # once the subtype is resolved (explicitly or auto-detected).
+            # Placeholder; replaced per-subtype by _apply_icon_url().
             icon_url=_DEFAULT_DATABASE_ICON_URL,
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],
@@ -412,8 +408,7 @@ class DatabaseToolset(Toolset):
         # Set initial meta — updated with detected subtype in prerequisites_callable
         self.meta = {"type": "database", "subtype": self._subtype.value}
 
-        # Apply the subtype-specific icon (explicit subtype, or the generic
-        # default until auto-detection runs in prerequisites_callable).
+        # Apply icon for the explicit subtype (or the default until detection).
         self._apply_icon_url()
 
         self._user_llm_instructions = llm_instructions
@@ -432,21 +427,18 @@ class DatabaseToolset(Toolset):
             if self._subtype == DatabaseSubtype.UNKNOWN:
                 self._subtype = _detect_subtype(self.database_config.connection_url)
             self.meta = {"type": "database", "subtype": self._subtype.value}
-            # Re-apply the icon now that the subtype is known (covers the
-            # auto-detect path and toolsets initialized lazily from cache).
+            # Re-apply now the subtype is known (covers auto-detect and lazy init).
             self._apply_icon_url()
             return self._perform_health_check()
         except Exception as e:
             return False, f"Invalid database configuration: {e}"
 
     def _apply_icon_url(self) -> None:
-        """Set the toolset and per-tool icon based on the resolved subtype.
+        """Set the toolset and per-tool icon from the resolved subtype.
 
-        The tool icon is stamped onto every tool-call result (Tool.invoke sets
-        ``result.icon_url = self.icon_url``), and ToolExecutor only copies the
-        toolset icon to a tool when the tool's icon is None — so we update the
-        tools directly to also cover the lazy-initialization path, where the
-        executor has already registered the tools before this runs.
+        Tools are updated directly (not just the toolset) so the correct icon is
+        stamped onto results even under lazy init, where ToolExecutor has already
+        registered the tools and won't re-copy the toolset icon.
         """
         icon_url = _icon_url_for_subtype(self._subtype)
         self.icon_url = icon_url

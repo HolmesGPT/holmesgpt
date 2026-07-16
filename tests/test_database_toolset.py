@@ -145,18 +145,12 @@ class TestDatabaseToolset:
 
 
 class TestSubtypeIcons:
-    """Icon must match the resolved DB subtype (FRO-190).
-
-    A single DatabaseToolset backs every SQL subtype, so the icon has to be
-    chosen from the subtype rather than hardcoded to PostgreSQL.
-    """
+    """Icon must match the resolved DB subtype, not be hardcoded (FRO-190)."""
 
     def test_every_known_subtype_has_a_distinct_icon(self):
-        # Every subtype except UNKNOWN maps to an icon...
         known = [s for s in DatabaseSubtype if s is not DatabaseSubtype.UNKNOWN]
         for subtype in known:
             assert subtype in _SUBTYPE_ICON_URLS
-        # ...and each icon is distinct so subtypes are visually distinguishable.
         icons = list(_SUBTYPE_ICON_URLS.values())
         assert len(icons) == len(set(icons))
 
@@ -171,8 +165,7 @@ class TestSubtypeIcons:
         toolset = DatabaseToolset(subtype=subtype)
         expected = _SUBTYPE_ICON_URLS[DatabaseSubtype(subtype)]
         assert toolset.icon_url == expected
-        # The icon is what gets stamped onto tool-call results, so every tool
-        # must carry it too.
+        # Tools carry the icon too — it's what's stamped onto results.
         for tool in toolset.tools:
             assert tool.icon_url == expected
 
@@ -184,13 +177,8 @@ class TestSubtypeIcons:
         assert toolset.icon_url == _SUBTYPE_ICON_URLS[DatabaseSubtype.MSSQL]
 
     def test_autodetected_subtype_updates_icon(self):
-        """Icon is corrected during prerequisites even if the DB is unreachable.
-
-        _apply_icon_url() runs before the health check, so the icon reflects the
-        detected subtype regardless of whether the connection succeeds.
-        """
+        """Icon reflects the detected subtype even if the DB is unreachable."""
         toolset = DatabaseToolset()
-        # Generic default before any connection info is known.
         assert toolset.icon_url == _DEFAULT_DATABASE_ICON_URL
         toolset.prerequisites_callable(
             {"connection_url": "mssql://user:pass@unreachable-host:1433/db"}
