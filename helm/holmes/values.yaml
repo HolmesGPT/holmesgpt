@@ -1,12 +1,37 @@
 certificate: "" # base64 encoded
 logLevel: INFO
+# When true, logs are emitted as JSON (one object per line) instead of colored
+# text. Useful for log scrapers like Filebeat. When Holmes is deployed as a
+# subchart of the Robusta umbrella chart, global.enableJsonLogsFormat takes
+# precedence over this value.
+enableJsonLogsFormat: false
+
+# Values shared with/from a parent umbrella chart. Declared so templates can
+# safely reference .Values.global.* when Holmes is installed standalone.
+global: {}
+
+# Serve the Holmes API over HTTPS directly from the pod (in-app TLS, no ingress/proxy).
+# When enabled you must provide your own TLS secret via secretName (e.g. issued by
+# cert-manager or created manually); the chart does not generate a self-signed cert.
+tls:
+  enabled: false
+  # Name of a kubernetes.io/tls (or generic) secret containing tls.crt and tls.key.
+  secretName: ""
+  # Optional: key within secretName holding the password for an encrypted private
+  # key (tls.key). Sourced via secretKeyRef so the password is not stored in the
+  # pod spec in plaintext.
+  keyfilePasswordSecretKey: ""
+  # Optional: key within the same secret holding a CA bundle. When set, mTLS is
+  # enabled and the server requires & verifies client certificates.
+  caCertsSecretKey: ""
 
 additionalEnvVars: []
 additional_env_vars: []
 # Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
-# configMapRef) loaded onto the Holmes pod. Use to share a Secret between the
-# runner and Holmes (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring
-# each key twice.
+# configMapRef) loaded onto the Holmes pod. Prefer `extraEnvVarsSecrets` below
+# when all you need is to mount one or more Secrets by name — this block
+# remains for the configMapRef case and for sharing entries with the runner
+# (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring each key twice.
 additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
@@ -173,6 +198,36 @@ args: []
 
 priorityClassName: ""
 
+# List of Kubernetes Secret names whose keys are auto-mounted as env vars on
+# the Holmes pod via `envFrom`. Use this together with the `envRef:` sugar
+# below to avoid repeating each API key in `additionalEnvVars`. Every listed
+# Secret becomes an `envFrom.secretRef` entry, so keys across secrets share a
+# single env-var namespace — same-name keys shadow each other in list order.
+#
+# Example:
+#   kubectl create secret generic holmes-llm-keys \
+#     --from-literal=OPENAI_API_KEY=sk-... \
+#     --from-literal=ANTHROPIC_API_KEY=sk-ant-... \
+#     -n <namespace>
+#   kubectl create secret generic holmes-aws-keys \
+#     --from-literal=AWS_ACCESS_KEY_ID=... \
+#     --from-literal=AWS_SECRET_ACCESS_KEY=... \
+#     -n <namespace>
+#
+#   extraEnvVarsSecrets:
+#     - holmes-llm-keys
+#     - holmes-aws-keys
+#   modelList:
+#     gpt-4.1:
+#       model: openai/gpt-4.1
+#       api_key: envRef:OPENAI_API_KEY   # rewritten to "{{ env.OPENAI_API_KEY }}"
+extraEnvVarsSecrets: []
+
+# List of models available to Holmes. Any string value prefixed with
+# `envRef:` is rewritten at chart-render time to the runtime env-var
+# templating (`{{ env.<KEY> }}`), so you never repeat the key name in an
+# `additionalEnvVars` block. Set `extraEnvVarsSecrets` above so the
+# underlying Kubernetes Secrets are actually mounted on the pod.
 modelList: {}
 
 # MCP (Model Context Protocol) Add-ons

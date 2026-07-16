@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import sentry_sdk
 
@@ -12,6 +12,49 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.oauth_tool_connector import OAuthToolConnector
 
 display_logger = logging.getLogger("holmes.display.tool_executor")
+
+
+def _mcp_tool_name(tool: "Tool") -> str:
+    """Server-side MCP tool name, or "" for non-MCP tools."""
+    name = getattr(tool, "mcp_tool_name", "")
+    return name if isinstance(name, str) else ""
+
+
+def resolve_tool_name_collisions(
+    toolsets: List[Toolset],
+) -> List[Tuple[Toolset, "Tool", str]]:
+    """Return (toolset, tool, exposed_name) for every tool.
+
+    MCP tools whose raw name collides across toolsets are namespaced as
+    ``{toolset}__{tool}``; all others keep their raw name. Does not mutate.
+    """
+    entries = []  # (toolset, tool, is_mcp, raw_name)
+    counts: Dict[str, int] = {}
+    for ts in toolsets:
+        for tool in ts.tools:
+            mcp_name = _mcp_tool_name(tool)
+            raw = mcp_name or tool.name
+            entries.append((ts, tool, bool(mcp_name), raw))
+            counts[raw] = counts.get(raw, 0) + 1
+
+    for name, count in counts.items():
+        if count > 1:
+            owners = sorted({ts.name for ts, _, _, r in entries if r == name})
+            display_logger.warning(
+                "Multiple tools named '%s' across toolsets (%s); "
+                "MCP copies are namespaced as '<toolset>__%s'.",
+                name,
+                ", ".join(owners),
+                name,
+            )
+
+    resolved: List[Tuple[Toolset, "Tool", str]] = []
+    for ts, tool, is_mcp, raw in entries:
+        if is_mcp and counts[raw] > 1:
+            resolved.append((ts, tool, tool.collision_safe_name))  # type: ignore[attr-defined]
+        else:
+            resolved.append((ts, tool, raw))
+    return resolved
 
 
 class ToolExecutor:
@@ -34,17 +77,21 @@ class ToolExecutor:
 
         self.tools_by_name: dict[str, Tool] = {}
         self._tool_to_toolset: dict[str, Toolset] = {}
-        for ts in toolsets_by_name.values():
-            for tool in ts.tools:
-                if tool.icon_url is None and ts.icon_url is not None:
-                    tool.icon_url = ts.icon_url
-                if tool.name in self.tools_by_name:
-                    msg = f"Overriding existing tool '{tool.name} with new tool from {ts.name} at {ts.path}'!"
-                    display_logger.warning(msg)
-                    if on_event is not None:
-                        on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=tool.name, message=msg))
-                self.tools_by_name[tool.name] = tool
-                self._tool_to_toolset[tool.name] = ts
+        for ts, tool, resolved_name in resolve_tool_name_collisions(
+            list(toolsets_by_name.values())
+        ):
+            if tool.icon_url is None and ts.icon_url is not None:
+                tool.icon_url = ts.icon_url
+            if resolved_name != tool.name:
+                # Copy so we never rename the toolset's own tool instance.
+                tool = tool.model_copy(update={"name": resolved_name})
+            if resolved_name in self.tools_by_name:
+                msg = f"Overriding existing tool '{resolved_name} with new tool from {ts.name} at {ts.path}'!"
+                display_logger.warning(msg)
+                if on_event is not None:
+                    on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=resolved_name, message=msg))
+            self.tools_by_name[resolved_name] = tool
+            self._tool_to_toolset[resolved_name] = ts
 
         self.oauth_connector = OAuthToolConnector()
 
