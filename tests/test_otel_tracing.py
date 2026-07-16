@@ -1,12 +1,15 @@
 """Tests for OpenTelemetry tracing implementation."""
+import contextvars
 import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from holmes.core.otel_tracing import OTelSpan
 from holmes.core.tracing import DummySpan, DummyTracer, SpanType, TracingFactory
 
 
@@ -216,16 +219,9 @@ class TestOTelSpan:
 
     def test_rob278_reproduce_bug_then_verify_fix(self, in_memory_exporter):
         """Reproduce the real ROB-278 detach error, then prove _safe_detach avoids it."""
-        import contextvars
-
-        from opentelemetry import context as otel_context
-        from opentelemetry import trace as _trace
-
-        from holmes.core.otel_tracing import OTelSpan
-
-        tracer = _trace.get_tracer("test")
+        tracer = trace.get_tracer("test")
         span_a = tracer.start_span("a")
-        token_a = otel_context.attach(_trace.set_span_in_context(span_a))
+        token_a = otel_context.attach(trace.set_span_in_context(span_a))
         try:
             # 1) Naive detach in a DIFFERENT context reproduces the OTel error.
             #    Spy on the module logger directly — caplog can't be trusted here
