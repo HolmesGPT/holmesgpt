@@ -229,7 +229,11 @@ class ChatRequestBaseModel(BaseModel):
         default=None,
         description=(
             "FE-supplied UI flow label, free-form. Examples: 'freeform', "
-            "'followup_logs', 'alert_investigation', 'resource_chat'."
+            "'followup_logs', 'manual_investigation', 'resource_chat'. "
+            "Canonical FE values: robusta-frontend "
+            "src/features/holmes/request-sources.ts; the full origin/"
+            "request_type/request_source taxonomy is documented in relay "
+            "relay/pkg/model/conversation_request_type.py."
         ),
     )
     source_ref: Optional[str] = Field(
