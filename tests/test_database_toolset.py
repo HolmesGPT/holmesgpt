@@ -12,10 +12,13 @@ from holmes.plugins.toolsets.database.database import (  # noqa: E402
     DatabaseConfig,
     DatabaseSubtype,
     DatabaseToolset,
+    _DEFAULT_DATABASE_ICON_URL,
     _READONLY_PATTERN,
+    _SUBTYPE_ICON_URLS,
     _WRITE_ANYWHERE_PATTERN,
     _WRITE_PATTERN,
     _detect_subtype,
+    _icon_url_for_subtype,
     _lookup_driver_info,
     _normalise_url,
     _serialize_value,
@@ -139,6 +142,61 @@ class TestDatabaseToolset:
     def test_toolset_disabled_by_default(self):
         toolset = DatabaseToolset()
         assert toolset.enabled is False
+
+
+class TestSubtypeIcons:
+    """Icon must match the resolved DB subtype, not be hardcoded (FRO-190)."""
+
+    def test_every_known_subtype_has_a_distinct_icon(self):
+        known = [s for s in DatabaseSubtype if s is not DatabaseSubtype.UNKNOWN]
+        for subtype in known:
+            assert subtype in _SUBTYPE_ICON_URLS
+        icons = list(_SUBTYPE_ICON_URLS.values())
+        assert len(icons) == len(set(icons))
+
+    def test_icon_for_subtype_falls_back_for_unknown(self):
+        assert (
+            _icon_url_for_subtype(DatabaseSubtype.UNKNOWN)
+            == _DEFAULT_DATABASE_ICON_URL
+        )
+
+    @pytest.mark.parametrize("subtype", ["mssql", "mysql", "mariadb", "postgresql"])
+    def test_explicit_subtype_sets_icon_at_construction(self, subtype):
+        toolset = DatabaseToolset(subtype=subtype)
+        expected = _SUBTYPE_ICON_URLS[DatabaseSubtype(subtype)]
+        assert toolset.icon_url == expected
+        # Tools carry the icon too — it's what's stamped onto results.
+        for tool in toolset.tools:
+            assert tool.icon_url == expected
+
+    def test_sql_server_does_not_get_postgres_icon(self):
+        """Direct regression for FRO-190."""
+        toolset = DatabaseToolset(subtype="mssql")
+        postgres_icon = _SUBTYPE_ICON_URLS[DatabaseSubtype.POSTGRESQL]
+        assert toolset.icon_url != postgres_icon
+        assert toolset.icon_url == _SUBTYPE_ICON_URLS[DatabaseSubtype.MSSQL]
+
+    def test_autodetected_subtype_updates_icon(self):
+        """Icon reflects the detected subtype even if the DB is unreachable."""
+        toolset = DatabaseToolset()
+        assert toolset.icon_url == _DEFAULT_DATABASE_ICON_URL
+        toolset.prerequisites_callable(
+            {"connection_url": "mssql://user:pass@unreachable-host:1433/db"}
+        )
+        expected = _SUBTYPE_ICON_URLS[DatabaseSubtype.MSSQL]
+        assert toolset._subtype == DatabaseSubtype.MSSQL
+        assert toolset.icon_url == expected
+        for tool in toolset.tools:
+            assert tool.icon_url == expected
+
+    def test_sqlite_icon_applied_on_successful_connection(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        toolset = DatabaseToolset()
+        success, _ = toolset.prerequisites_callable(
+            {"connection_url": f"sqlite:///{db_path}"}
+        )
+        assert success is True
+        assert toolset.icon_url == _SUBTYPE_ICON_URLS[DatabaseSubtype.SQLITE]
 
 
 class TestReadOnlyValidation:

@@ -143,6 +143,23 @@ toolsets:
 
 For a complete reference on writing YAML toolsets, see [Custom Toolsets](../data-sources/custom-toolsets.md).
 
+## Loading Custom Skills
+
+[Skills](skills.md) are loaded from the directories listed in `custom_skill_paths` in your config. Read the resolved skill catalog programmatically:
+
+```python
+from pathlib import Path
+
+from holmes.config import Config
+
+config = Config.load_from_file(
+    config_file=Path("~/.holmes/config.yaml").expanduser(),
+)
+catalog = config.get_skill_catalog()
+```
+
+See [Skills](skills.md) for how to author skills and load them via Helm, the CLI, or a GitHub repository.
+
 ## Writing Custom Python Toolsets
 
 For toolsets that need more than shell commands (e.g., API clients with authentication or response parsing), you can write Python-based toolsets and pass them to the SDK via `additional_toolsets`.

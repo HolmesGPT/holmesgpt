@@ -31,6 +31,12 @@ ENABLED_BY_DEFAULT_TOOLSETS = os.environ.get(
 )
 HOLMES_HOST = os.environ.get("HOLMES_HOST", "0.0.0.0")
 HOLMES_PORT = int(os.environ.get("HOLMES_PORT", 5050))
+# TLS: when both certfile and keyfile are set, the API server serves HTTPS instead
+# of HTTP. HOLMES_SSL_CA_CERTS additionally enables mTLS (client-cert verification).
+HOLMES_SSL_CERTFILE = os.environ.get("HOLMES_SSL_CERTFILE", "")
+HOLMES_SSL_KEYFILE = os.environ.get("HOLMES_SSL_KEYFILE", "")
+HOLMES_SSL_KEYFILE_PASSWORD = os.environ.get("HOLMES_SSL_KEYFILE_PASSWORD", "")
+HOLMES_SSL_CA_CERTS = os.environ.get("HOLMES_SSL_CA_CERTS", "")
 ROBUSTA_CONFIG_PATH = os.environ.get(
     "ROBUSTA_CONFIG_PATH", "/etc/robusta/config/active_playbooks.yaml"
 )
@@ -57,6 +63,10 @@ AZURE_COGNITIVE_SERVICES_SCOPE = os.environ.get(
 
 ENABLE_TELEMETRY = load_bool("ENABLE_TELEMETRY", False)
 DEVELOPMENT_MODE = load_bool("DEVELOPMENT_MODE", False)
+# When true, logs are emitted as JSON (one object per line) instead of the
+# default colored text format. Useful for log scrapers like Filebeat. Matches
+# the toggle used by the Robusta runner and relay. Defaults to false.
+ENABLE_JSON_LOGS_FORMAT = load_bool("ENABLE_JSON_LOGS_FORMAT", False)
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.0"))
 
@@ -211,11 +221,24 @@ ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
 CONVERSATION_WORKER_MAX_CONCURRENT = int(
     os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
 )
+
+# Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
+# Tool calls run in their own pool so they never compete with user chats.
+TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10))
+# Hard cap on the uncompressed serialized tool result returned to the caller.
+REMOTE_TOOL_RESULT_MAX_BYTES = int(
+    os.environ.get("REMOTE_TOOL_RESULT_MAX_BYTES", 1024 * 1024)
+)
+# Results whose data exceeds this many chars are stored gzip+base64 in the DB
+# (relay inflates before replying, callers always see plain text).
+REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS = int(
+    os.environ.get("REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS", 100_000)
+)
 # Only used when realtime is disabled or disconnected. When realtime is enabled
 # and connected, Holmes relies on Postgres Changes notifications and does not
 # poll.
 CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME = int(
-    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 60)
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 30)
 )
 # Safety-net poll interval when realtime IS connected. Supabase Realtime
 # has at-most-once delivery, so this caps the maximum latency for a missed

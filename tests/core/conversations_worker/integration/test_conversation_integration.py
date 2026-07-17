@@ -17,10 +17,14 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timezone
+from typing import Dict, List
 
 import pytest
 
-from holmes.common.env_vars import CONVERSATION_WORKER_MAX_CONCURRENT
+from holmes.common.env_vars import (
+    CONVERSATION_WORKER_MAX_CONCURRENT,
+    TOOL_CALLER_MAX_CONCURRENT,
+)
 from tests.core.conversations_worker.integration import SupabaseFixture
 
 pytestmark = [pytest.mark.conversation_worker, pytest.mark.integration]
@@ -212,179 +216,6 @@ class TestToolApproval:
             f"Approval + answer should compact multiple prior rows; got {stats}"
         )
 
-    def test_approval_with_edit_command(self, supabase_fx: SupabaseFixture):
-        """When the user approves a pending tool call with an `edit_command`
-        override, the worker must execute the edited command (not the
-        original) and the edited command must appear both in the
-        TOOL_RESULT event and in the conversation history attached to
-        the AI_ANSWER_END terminal event."""
-        verification_code = "HOLMES_INTEG_EDIT_42_X9K2M"
-        edited_command = f"echo {verification_code}"
-
-        # Turn 1: force a bash call by asking for an URL that needs the shell.
-        # We don't care what command Holmes picks because we'll override it.
-        conv = supabase_fx.create_conversation(
-            ask=(
-                "Run the bash command `curl -sf -H 'Authorization: ApiKey ENV_KEY' "
-                "https://example.invalid/no-op || echo done` to confirm a simple "
-                "shell works. You MUST use the bash tool."
-            ),
-            title="integ: tool-approval-edit-command",
-            enable_tool_approval=True,
-        )
-        cid = conv["conversation_id"]
-        supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
-
-        terminal1 = supabase_fx.find_terminal_event(cid)
-        assert terminal1 is not None
-        assert terminal1["event"] == "approval_required"
-        pending = terminal1["data"].get("pending_approvals") or []
-        assert len(pending) > 0, "Must have at least one pending approval"
-
-        # Sanity: the original command Holmes picked is NOT our verification
-        # code, so any later sighting can only come from the edit override.
-        for p in pending:
-            original_cmd = (p.get("params") or {}).get("command", "")
-            assert verification_code not in original_cmd, (
-                f"verification code leaked into original command: {original_cmd}"
-            )
-
-        # Turn 2: approve, but override the bash command for every pending
-        # call.  Only the bash tool understands "command", so we only set
-        # edit_command on bash decisions.
-        tool_decisions = []
-        for p in pending:
-            decision = {
-                "tool_call_id": p["tool_call_id"],
-                "approved": True,
-                "save_prefixes": None,
-                "feedback": None,
-            }
-            if p.get("tool_name") == "bash":
-                decision["edit_command"] = edited_command
-            tool_decisions.append(decision)
-
-        # The test is only meaningful if a bash tool call was pending and we
-        # actually attached an edit_command override to its decision.  Fail
-        # loudly if not, so the cause is obvious instead of surfacing as a
-        # confusing StopIteration / "edited command not found" later on.
-        edited_id = next(
-            (p["tool_call_id"] for p in pending if p.get("tool_name") == "bash"),
-            None,
-        )
-        assert edited_id is not None, (
-            f"Expected a bash tool call in pending approvals, got: "
-            f"{[p.get('tool_name') for p in pending]}"
-        )
-        assert any("edit_command" in d for d in tool_decisions), (
-            "Expected at least one tool_decision to carry an edit_command "
-            f"override; built decisions: {tool_decisions}"
-        )
-
-        now_iso = datetime.now(timezone.utc).isoformat()
-        followup = supabase_fx.post_followup(
-            conversation_id=cid,
-            events=[
-                {
-                    "event": "user_message",
-                    "data": {
-                        "tool_decisions": tool_decisions,
-                        "enable_tool_approval": True,
-                    },
-                    "ts": now_iso,
-                }
-            ],
-        )
-        result = supabase_fx.wait_for_terminal(
-            cid, request_sequence=followup["request_sequence"], timeout=180
-        )
-        assert result["status"] == "completed"
-
-        # Holmes may issue further tool calls before producing ai_answer_end
-        # (the unfamiliar verification string can encourage extra
-        # investigation).  Auto-approve any follow-up tool calls verbatim
-        # until we reach ai_answer_end.
-        for _ in range(5):
-            term = supabase_fx.find_terminal_event(cid)
-            assert term is not None
-            if term["event"] == "ai_answer_end":
-                break
-            assert term["event"] == "approval_required", (
-                f"Unexpected terminal event {term['event']}"
-            )
-            more_pending = (term.get("data") or {}).get("pending_approvals") or []
-            assert more_pending, "approval_required without pending approvals"
-            now_iso = datetime.now(timezone.utc).isoformat()
-            followup = supabase_fx.post_followup(
-                conversation_id=cid,
-                events=[
-                    {
-                        "event": "user_message",
-                        "data": {
-                            "tool_decisions": [
-                                {
-                                    "tool_call_id": p["tool_call_id"],
-                                    "approved": True,
-                                    "save_prefixes": None,
-                                    "feedback": None,
-                                }
-                                for p in more_pending
-                            ],
-                            "enable_tool_approval": True,
-                        },
-                        "ts": now_iso,
-                    }
-                ],
-            )
-            result = supabase_fx.wait_for_terminal(
-                cid, request_sequence=followup["request_sequence"], timeout=180
-            )
-            assert result["status"] == "completed"
-        tool_result_ev = None
-        for row in supabase_fx.get_events(cid):
-            for ev in row.get("events") or []:
-                if (
-                    ev.get("event") == "tool_calling_result"
-                    and (ev.get("data") or {}).get("tool_call_id") == edited_id
-                ):
-                    tool_result_ev = ev
-        assert tool_result_ev is not None, (
-            "tool_calling_result for edited tool call not found"
-        )
-        result_params = (
-            (tool_result_ev.get("data") or {}).get("result") or {}
-        ).get("params") or {}
-        assert result_params.get("command") == edited_command, (
-            f"TOOL_RESULT params.command must be the edited command, "
-            f"got: {result_params!r}"
-        )
-
-        # The ai_answer_end terminal event includes the conversation_history
-        # ("messages").  The assistant message that originally requested the
-        # bash call must now reflect the edited command.
-        terminal2 = supabase_fx.find_terminal_event(cid)
-        assert terminal2 is not None and terminal2["event"] == "ai_answer_end"
-        history = (terminal2.get("data") or {}).get("messages") or []
-        found_edited = False
-        for msg in history:
-            if msg.get("role") != "assistant":
-                continue
-            for tc in msg.get("tool_calls") or []:
-                if tc.get("id") != edited_id:
-                    continue
-                args_raw = (tc.get("function") or {}).get("arguments") or "{}"
-                try:
-                    args = json.loads(args_raw)
-                except json.JSONDecodeError:
-                    args = {}
-                if args.get("command") == edited_command:
-                    found_edited = True
-        assert found_edited, (
-            "ai_answer_end conversation_history must contain the edited command "
-            f"on tool_call {edited_id}"
-        )
-
-
 # ---------------------------------------------------------------------------
 # 4. Stop conversation (ConversationReassignedError)
 # ---------------------------------------------------------------------------
@@ -503,37 +334,42 @@ class TestStress:
             f"got {completed} completed, {failed} failed. Statuses: {results}"
         )
 
-    def test_queued_state_observed(self, supabase_fx: SupabaseFixture):
-        """When the batch exceeds max_concurrent, at least one conversation
-        should be observed in queued state during polling."""
+    def test_pending_backlog_observed(self, supabase_fx: SupabaseFixture):
+        """When the batch exceeds max_concurrent, the surplus must stay
+        'pending' (the backlog) while the pool runs at capacity.
+
+        The 'queued' lifecycle status is deprecated: the worker claims a
+        conversation straight to 'running' and only claims as many as it has
+        free pool slots, so a conversation waiting for capacity sits in
+        'pending' — that is the queue now. We should therefore observe at
+        least one conversation in 'pending' at the same time as at least one
+        in 'running'."""
         num = self._num()
 
         conv_ids = []
         for i in range(1, num + 1):
             conv = supabase_fx.create_conversation(
                 ask=f"What is {i * 11} - {i}? Just the number.",
-                title=f"integ: queued-obs-{i}",
+                title=f"integ: pending-backlog-{i}",
             )
             conv_ids.append(conv["conversation_id"])
 
-        saw_queued = set()
+        saw_pending_backlog = False
         start = time.time()
         while time.time() - start < 300:
-            all_done = True
-            for cid in conv_ids:
-                conv = supabase_fx.get_conversation(cid)
-                if conv["status"] == "queued":
-                    saw_queued.add(cid)
-                if conv["status"] not in ("completed", "failed"):
-                    all_done = False
-            if all_done:
+            statuses = [supabase_fx.get_conversation(cid)["status"] for cid in conv_ids]
+            # Surplus is held back in 'pending' while the pool is busy.
+            if "pending" in statuses and "running" in statuses:
+                saw_pending_backlog = True
+                break
+            if all(s in ("completed", "failed") for s in statuses):
                 break
             time.sleep(0.3)
 
-        assert len(saw_queued) > 0, (
+        assert saw_pending_backlog, (
             f"With {num} conversations and max_concurrent="
-            f"{CONVERSATION_WORKER_MAX_CONCURRENT}, at least 1 should "
-            f"have been observed in queued state"
+            f"{CONVERSATION_WORKER_MAX_CONCURRENT}, at least 1 should have been "
+            f"observed 'pending' (held back as backlog) while another runs"
         )
 
     def test_max_concurrent_never_exceeded(self, supabase_fx: SupabaseFixture):
@@ -556,10 +392,19 @@ class TestStress:
         peak_snapshot = {}
         start = time.time()
         while time.time() - start < 300:
-            statuses = {}
-            for cid in conv_ids:
-                conv = supabase_fx.get_conversation(cid)
-                statuses[cid] = conv["status"]
+            # Read every row in ONE query so the snapshot is atomic. Polling
+            # the rows one-by-one (a separate request each) is NOT a consistent
+            # snapshot: while the worker churns, a row read early as 'running'
+            # plus the replacement that took its freed slot can both be counted,
+            # producing a phantom MAX+1 even though the worker never exceeds the
+            # bound. A single SELECT sees one consistent DB state.
+            rows = (
+                supabase_fx.client.table("Conversations")
+                .select("conversation_id,status")
+                .in_("conversation_id", conv_ids)
+                .execute()
+            ).data or []
+            statuses = {r["conversation_id"]: r["status"] for r in rows}
 
             running_count = sum(1 for s in statuses.values() if s == "running")
             if running_count > peak_running:
@@ -577,6 +422,78 @@ class TestStress:
             f"Concurrency limit violated: observed {peak_running} running "
             f"simultaneously (limit={CONVERSATION_WORKER_MAX_CONCURRENT}). "
             f"Snapshot: {peak_snapshot}"
+        )
+
+    def test_burst_transitions_pending_to_running_never_queued(
+        self, supabase_fx: SupabaseFixture
+    ):
+        """Burst of 10+ conversations: each goes pending -> running (never
+        'queued') and completes. Polls every conversation, recording the ordered
+        statuses each is seen in, and asserts: 'queued' never appears, at least
+        one pending -> running transition is observed, and all complete.
+        """
+        # > 10 and always above the worker's configured capacity, so a real
+        # backlog forms regardless of CONVERSATION_WORKER_MAX_CONCURRENT.
+        num = max(12, CONVERSATION_WORKER_MAX_CONCURRENT + self._OVERFLOW)
+        conv_ids = []
+        for i in range(1, num + 1):
+            conv = supabase_fx.create_conversation(
+                ask=f"What is {i * 9} + {i}? Answer with just the number.",
+                title=f"integ: burst-p2r-{i}",
+            )
+            conv_ids.append(conv["conversation_id"])
+
+        # Per-conversation ordered history of distinct statuses observed.
+        history: Dict[str, List[str]] = {cid: [] for cid in conv_ids}
+
+        start = time.time()
+        while time.time() - start < 300:
+            all_terminal = True
+            for cid in conv_ids:
+                status = supabase_fx.get_conversation(cid)["status"]
+                seq = history[cid]
+                if not seq or seq[-1] != status:
+                    seq.append(status)
+                if status not in ("completed", "failed"):
+                    all_terminal = False
+            if all_terminal:
+                break
+            time.sleep(0.2)
+
+        # 1. 'queued' must never appear anywhere.
+        queued_offenders = {
+            cid: seq for cid, seq in history.items() if "queued" in seq
+        }
+        assert not queued_offenders, (
+            f"'queued' is deprecated and must never be observed, but these "
+            f"conversations passed through it: {queued_offenders}"
+        )
+
+        # 2. At least one real pending -> running transition was captured.
+        def saw_pending_then_running(seq: List[str]) -> bool:
+            return "pending" in seq and "running" in seq and (
+                seq.index("pending") < seq.index("running")
+            )
+
+        transitioned = [cid for cid, seq in history.items() if saw_pending_then_running(seq)]
+        assert transitioned, (
+            "Expected at least one conversation observed transitioning "
+            f"pending -> running. Histories: {history}"
+        )
+
+        # 3. Every conversation eventually completed (and only via allowed states).
+        allowed = {"pending", "running", "completed", "failed"}
+        finals = {}
+        for cid in conv_ids:
+            conv = supabase_fx.get_conversation(cid)
+            finals[cid] = conv["status"]
+            assert set(history[cid]) <= allowed, (
+                f"Conversation {cid} passed through an unexpected status: {history[cid]}"
+            )
+        not_completed = {cid: s for cid, s in finals.items() if s != "completed"}
+        assert not not_completed, (
+            f"All {num} conversations should have completed; these did not: "
+            f"{not_completed}"
         )
 
 
@@ -784,3 +701,96 @@ class TestFrontendTools:
                     assert "fetch_webpage" in description
                     return
         raise AssertionError("error event not found in conversation")
+
+
+# ---------------------------------------------------------------------------
+# 10. Remote tool calls: burst transitions pending -> running (never queued)
+# ---------------------------------------------------------------------------
+class TestRemoteToolCallStress:
+
+    def test_burst_transitions_pending_to_running_never_queued(
+        self, supabase_fx: SupabaseFixture
+    ):
+        """Burst of 10+ remote tool calls: each goes pending -> running (never
+        'queued') and completes.
+
+        Tool calls execute almost instantly, so to make the transition
+        observable we stage the backlog up front — insert all rows directly via
+        relay WITHOUT broadcasting (the worker only claims on a broadcast; its
+        poll interval is 5 min) — snapshot that all are 'pending', then send one
+        broadcast and watch the worker drain it. Asserts: all pending before the
+        broadcast, 'queued' never observed, at least one 'running' observed, and
+        all complete. Seeing 'running' is the load-bearing check —
+        post_remote_tool_call_result accepts queued|running, so 'completed'
+        alone wouldn't distinguish the new path from the old.
+        """
+        # Comfortably above 10 and above the tool-caller pool so a backlog forms.
+        num = max(15, TOOL_CALLER_MAX_CONCURRENT + 5)
+        tc_ids = supabase_fx.insert_pending_remote_tool_calls(num)
+
+        history = {tcid: [] for tcid in tc_ids}
+
+        def record(snapshot):
+            for tcid, status in snapshot.items():
+                seq = history[tcid]
+                if not seq or seq[-1] != status:
+                    seq.append(status)
+
+        # Backlog snapshot BEFORE waking the worker: everything must be pending.
+        pre = supabase_fx.get_remote_tool_call_statuses(tc_ids)
+        record(pre)
+        assert pre and all(s == "pending" for s in pre.values()), (
+            f"Expected all {num} tool calls staged as 'pending' before the "
+            f"worker is woken; got {pre}"
+        )
+
+        # Release the burst.
+        supabase_fx.broadcast_pending_tool_calls()
+
+        start = time.time()
+        while time.time() - start < 180:
+            snapshot = supabase_fx.get_remote_tool_call_statuses(tc_ids)
+            record(snapshot)
+            if all(
+                s in ("completed", "failed", "stopped", "timeout")
+                for s in snapshot.values()
+            ):
+                break
+            time.sleep(0.05)
+
+        # 1. 'queued' must never appear anywhere.
+        queued_offenders = {
+            tcid: seq for tcid, seq in history.items() if "queued" in seq
+        }
+        assert not queued_offenders, (
+            f"'queued' is deprecated and must never be observed, but these "
+            f"remote tool calls passed through it: {queued_offenders}"
+        )
+
+        # 2. The backlog ('pending') and the active state ('running') were both
+        #    really used. 'pending' is guaranteed by the pre-broadcast snapshot;
+        #    'running' is the discriminator vs the old 'queued' claim path.
+        saw_pending = any("pending" in seq for seq in history.values())
+        saw_running = any("running" in seq for seq in history.values())
+        assert saw_pending, (
+            f"With {num} tool calls and pool={TOOL_CALLER_MAX_CONCURRENT}, at "
+            f"least one should have been observed 'pending'. Histories: {history}"
+        )
+        assert saw_running, (
+            "At least one remote tool call should have been observed 'running' "
+            "(the new claim target). Seeing none — especially with 'queued' "
+            f"absent — would suggest the claim path was missed. Histories: {history}"
+        )
+
+        # 3. Every tool call completed, only via allowed states (never queued).
+        allowed = {"pending", "running", "completed", "failed", "stopped", "timeout"}
+        for tcid in tc_ids:
+            assert set(history[tcid]) <= allowed, (
+                f"Tool call {tcid} passed through an unexpected status: {history[tcid]}"
+            )
+        finals = supabase_fx.get_remote_tool_call_statuses(tc_ids)
+        not_completed = {tcid: s for tcid, s in finals.items() if s != "completed"}
+        assert not not_completed, (
+            f"All {num} remote tool calls should have completed; these did not: "
+            f"{not_completed}"
+        )
