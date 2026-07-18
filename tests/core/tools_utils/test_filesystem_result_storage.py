@@ -69,6 +69,16 @@ class TestSaveImages:
         assert len(paths) == 1
         assert "img1" in paths[0]
 
+    def test_save_with_litellm_thought_signature(self, tmp_path):
+        """Long thought signatures embedded by LiteLLM do not exceed NAME_MAX."""
+        images = [{"data": base64.b64encode(b"data").decode(), "mimeType": "image/png"}]
+        call_id = "call_123__thought__" + "A" * 3000
+
+        paths = save_images(tmp_path, "tool", call_id, images)
+
+        assert len(paths) == 1
+        assert __import__("pathlib").Path(paths[0]).read_bytes() == b"data"
+
 
 class TestSaveLargeResult:
     def test_save_text_result(self, tmp_path):
@@ -85,3 +95,12 @@ class TestSaveLargeResult:
         )
         assert path is not None
         assert path.endswith(".json")
+
+    def test_save_with_litellm_thought_signature(self, tmp_path):
+        """Long thought signatures embedded by LiteLLM do not exceed NAME_MAX."""
+        call_id = "call_123__thought__" + "A" * 3000
+
+        path = save_large_result(tmp_path, "tool", call_id, "result")
+
+        assert path is not None
+        assert __import__("pathlib").Path(path).read_text() == "result"
