@@ -90,12 +90,8 @@ def test_renders_disabled_toolsets():
     ]
     result = load_and_render_prompt(template, {"toolsets": toolsets})
     expected = """
-* toolset "Toolset1": this is tool 1
-    *  status: disabled
-* toolset "Toolset2": this is tool 2
-    *  status: The toolset is enabled but misconfigured and failed to initialize.
-    *  error: Health check failed
-    *  setup instructions: https://example.com
+* "Toolset1" (disabled): this is tool 1
+* "Toolset2" (FAILED — enabled but misconfigured, error: Health check failed): this is tool 2 [setup: https://example.com]
 """.strip()
     print(f"** result:\n{result}")
     print(f"** expected:\n{expected}")

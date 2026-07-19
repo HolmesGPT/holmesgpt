@@ -157,24 +157,16 @@ class PodLoggingTool(Tool):
                 required=False,
             ),
             "filter": ToolParameter(
-                description="""An optional filter for logs - can be a simple keyword/phrase or a regex pattern (case-insensitive).
-Examples of useful filters:
-- For errors: filter='err|error|fatal|critical|fail|exception|panic|crash'
-- For warnings: filter='warn|warning|caution'
-- For specific HTTP errors: filter='5[0-9]{2}|404|403'
-- For Java exceptions: filter='Exception|Error|Throwable|StackTrace'
-- For timeouts: filter='timeout|timed out|deadline exceeded'
+                description="""An optional filter for logs - a simple keyword/phrase or a regex pattern (case-insensitive).
+Examples: errors filter='err|error|fatal|critical|fail|exception|panic|crash'; HTTP errors filter='5[0-9]{2}|404|403'; timeouts filter='timeout|timed out|deadline exceeded'.
 If you get no results with a filter, try a broader pattern or drop the filter.""",
                 type="string",
                 required=False,
             ),
             "exclude_filter": ToolParameter(
-                description="""An optional exclusion filter - logs matching this pattern will be excluded. Can be a simple keyword or regex pattern (case-insensitive).
-Examples of useful exclude filters:
-- Exclude HTTP 200s: exclude_filter='GET.*200|POST.*200'
-- Exclude health/metrics: exclude_filter='health|metrics|ping|heartbeat'
-- Exclude specific log levels: exclude_filter='"level": "INFO"'
-If you hit the log limit and see lots of repetitive INFO logs, use exclude_filter to remove the noise and focus on what matters.""",
+                description="""An optional exclusion filter - logs matching this keyword or regex pattern (case-insensitive) are excluded.
+Examples: exclude_filter='health|metrics|ping|heartbeat'; exclude_filter='"level": "INFO"'.
+If you hit the log limit and see lots of repetitive INFO logs, use exclude_filter to remove the noise.""",
                 type="string",
                 required=False,
             ),
