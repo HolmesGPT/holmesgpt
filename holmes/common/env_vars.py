@@ -31,6 +31,12 @@ ENABLED_BY_DEFAULT_TOOLSETS = os.environ.get(
 )
 HOLMES_HOST = os.environ.get("HOLMES_HOST", "0.0.0.0")
 HOLMES_PORT = int(os.environ.get("HOLMES_PORT", 5050))
+# TLS: when both certfile and keyfile are set, the API server serves HTTPS instead
+# of HTTP. HOLMES_SSL_CA_CERTS additionally enables mTLS (client-cert verification).
+HOLMES_SSL_CERTFILE = os.environ.get("HOLMES_SSL_CERTFILE", "")
+HOLMES_SSL_KEYFILE = os.environ.get("HOLMES_SSL_KEYFILE", "")
+HOLMES_SSL_KEYFILE_PASSWORD = os.environ.get("HOLMES_SSL_KEYFILE_PASSWORD", "")
+HOLMES_SSL_CA_CERTS = os.environ.get("HOLMES_SSL_CA_CERTS", "")
 ROBUSTA_CONFIG_PATH = os.environ.get(
     "ROBUSTA_CONFIG_PATH", "/etc/robusta/config/active_playbooks.yaml"
 )
@@ -57,6 +63,10 @@ AZURE_COGNITIVE_SERVICES_SCOPE = os.environ.get(
 
 ENABLE_TELEMETRY = load_bool("ENABLE_TELEMETRY", False)
 DEVELOPMENT_MODE = load_bool("DEVELOPMENT_MODE", False)
+# When true, logs are emitted as JSON (one object per line) instead of the
+# default colored text format. Useful for log scrapers like Filebeat. Matches
+# the toggle used by the Robusta runner and relay. Defaults to false.
+ENABLE_JSON_LOGS_FORMAT = load_bool("ENABLE_JSON_LOGS_FORMAT", False)
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.0"))
 

@@ -926,6 +926,374 @@ class TestStreamableHttp:
             return_value=mock_session_context,
         )
 
+    def _enabled_mcp_toolset(self, monkeypatch, name, url, tools):
+        from holmes.core.tools import ToolsetStatusEnum
+
+        ts = RemoteMCPToolset(
+            name=name,
+            description=name,
+            config={"url": url, "mode": "streamable-http"},
+        )
+
+        async def _get_tools():
+            return ListToolsResult(tools=tools)
+
+        monkeypatch.setattr(ts, "_get_server_tools", _get_tools)
+        ts.prerequisites_callable(config=ts.config)
+        ts.status = ToolsetStatusEnum.ENABLED
+        return ts
+
+    def test_colliding_mcp_tools_prefixed_and_resolve_to_correct_server(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+        mcp_tool = Tool(
+            name="call_az",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="run az",
+        )
+        ts_main = self._enabled_mcp_toolset(
+            monkeypatch, "azure_main", "http://main:8000/mcp", [mcp_tool]
+        )
+        ts_new = self._enabled_mcp_toolset(
+            monkeypatch, "azure_newaccount", "http://new:8001/mcp", [mcp_tool]
+        )
+
+        ex = ToolExecutor([ts_main, ts_new])
+
+        # The colliding tool is namespaced per server; the raw name is gone.
+        assert ex.tools_by_name.keys() >= {
+            "azure_main__call_az",
+            "azure_newaccount__call_az",
+        }
+        assert "call_az" not in ex.tools_by_name
+        assert ex._tool_to_toolset["azure_main__call_az"].name == "azure_main"
+        assert (
+            ex._tool_to_toolset["azure_newaccount__call_az"].name == "azure_newaccount"
+        )
+
+        # The toolset's own tool instances keep the raw name (not mutated).
+        assert [t.name for t in ts_main.tools] == ["call_az"]
+        assert [t.name for t in ts_new.tools] == ["call_az"]
+
+        # Invoking the prefixed tool routes to its own server with the RAW name.
+        tool = ex.tools_by_name["azure_newaccount__call_az"]
+        assert tool.mcp_tool_name == "call_az"
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        mock_session.call_tool = AsyncMock(
+            return_value=CallToolResult(
+                content=[TextContent(type="text", text="ok")],
+                isError=False,
+            )
+        )
+        c_ctx, s_ctx = self._setup_mocks(mock_session)
+        c_patch, s_patch = self._patch_clients(c_ctx, s_ctx)
+        with c_patch, s_patch:
+            result = asyncio.run(tool._invoke_async({}, None))
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        mock_session.call_tool.assert_awaited_once_with("call_az", {})
+
+    def test_remote_publish_uses_namespaced_name_on_collision(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        # Collided tools must publish the exposed name the worker resolves.
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+        from holmes.utils.holmes_sync_toolsets import build_remote_tools_meta
+
+        mcp_tool = Tool(
+            name="call_az",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="run az",
+        )
+        ts_main = self._enabled_mcp_toolset(
+            monkeypatch, "azure_main", "http://main:8000/mcp", [mcp_tool]
+        )
+        ts_new = self._enabled_mcp_toolset(
+            monkeypatch, "azure_newaccount", "http://new:8001/mcp", [mcp_tool]
+        )
+        ts_main.expose_remotely = True
+        ts_new.expose_remotely = True
+
+        ex = ToolExecutor([ts_main, ts_new])
+
+        meta = build_remote_tools_meta(ts_main, ex)
+        names = {t["function"]["name"] for t in meta["tools"]}
+        assert names == {"azure_main__call_az"}
+        # The published name is exactly what the remote worker resolves.
+        assert "azure_main__call_az" in ex.tools_by_name
+
+    def test_remote_publish_keeps_raw_name_without_collision(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+        from holmes.utils.holmes_sync_toolsets import build_remote_tools_meta
+
+        mcp_tool = Tool(
+            name="call_az",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="run az",
+        )
+        ts = self._enabled_mcp_toolset(
+            monkeypatch, "azure_main", "http://main:8000/mcp", [mcp_tool]
+        )
+        ts.expose_remotely = True
+
+        ex = ToolExecutor([ts])
+
+        meta = build_remote_tools_meta(ts, ex)
+        names = {t["function"]["name"] for t in meta["tools"]}
+        assert names == {"call_az"}
+        assert "call_az" in ex.tools_by_name
+
+    def test_remote_publish_excludes_approval_tool_on_collision(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        # Approval filter must match the raw name, not the namespaced one.
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+        from holmes.utils.holmes_sync_toolsets import build_remote_tools_meta
+
+        gated = Tool(
+            name="run_kubectl_command",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="mutating catch-all",
+        )
+        ts_a = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_a", "http://a:8000/mcp", [gated]
+        )
+        ts_b = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_b", "http://b:8001/mcp", [gated]
+        )
+        for ts in (ts_a, ts_b):
+            ts.expose_remotely = True
+            ts.approval_required_tools = ["run_kubectl_command"]
+
+        ex = ToolExecutor([ts_a, ts_b])
+
+        # Only tool is approval-gated -> excluded -> nothing to publish.
+        assert build_remote_tools_meta(ts_a, ex) is None
+
+    def test_collision_preserves_approval_gate_and_warns(
+        self, monkeypatch, caplog, suppress_migration_warnings
+    ):
+        import logging
+
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+        gated = Tool(
+            name="run_kubectl_command",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="mutating catch-all",
+        )
+        ts_a = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_a", "http://a:8000/mcp", [gated]
+        )
+        ts_b = self._enabled_mcp_toolset(
+            monkeypatch, "remediation_b", "http://b:8001/mcp", [gated]
+        )
+        ts_a.approval_required_tools = ["run_kubectl_command"]
+        ts_b.approval_required_tools = ["run_kubectl_command"]
+
+        # Attach directly to the emitting logger (propagation capture is flaky).
+        exec_logger = logging.getLogger("holmes.display.tool_executor")
+        exec_logger.addHandler(caplog.handler)
+        exec_logger.setLevel(logging.WARNING)
+        try:
+            ex = ToolExecutor([ts_a, ts_b])
+        finally:
+            exec_logger.removeHandler(caplog.handler)
+
+        # Collision → name namespaced, warning logged.
+        assert "run_kubectl_command" not in ex.tools_by_name
+        assert any(
+            "Multiple tools named 'run_kubectl_command'" in r.getMessage()
+            for r in caplog.records
+        )
+
+        # Approval still fires, matched on the real name.
+        tool = ex.tools_by_name["remediation_a__run_kubectl_command"]
+        assert tool.mcp_tool_name == "run_kubectl_command"
+        approval = tool._check_approval_config()
+        assert approval is not None and approval.needs_approval
+
+    def test_single_mcp_instance_keeps_raw_tool_name(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+        mcp_tool = Tool(
+            name="call_az",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="run az",
+        )
+        ts = self._enabled_mcp_toolset(
+            monkeypatch, "azure", "http://a:8000/mcp", [mcp_tool]
+        )
+        ex = ToolExecutor([ts])
+        # No collision → name unchanged from the raw server name.
+        assert "call_az" in ex.tools_by_name
+        assert ex.tools_by_name["call_az"].name == "call_az"
+
+    def test_resolve_tool_name_collisions_only_prefixes_collisions(
+        self, suppress_migration_warnings
+    ):
+        from holmes.core.tools_utils.tool_executor import resolve_tool_name_collisions
+
+        def mk(name):
+            return Tool(
+                name=name,
+                inputSchema={"type": "object", "properties": {}, "required": []},
+                description="d",
+            )
+
+        ts1 = RemoteMCPToolset(
+            name="azure_main",
+            description="d",
+            config={"url": "http://a/mcp", "mode": "streamable-http"},
+        )
+        ts2 = RemoteMCPToolset(
+            name="azure_newaccount",
+            description="d",
+            config={"url": "http://b/mcp", "mode": "streamable-http"},
+        )
+        ts1.tools = [
+            RemoteMCPTool.create(mk("call_az"), ts1),
+            RemoteMCPTool.create(mk("only_here"), ts1),
+        ]
+        ts2.tools = [RemoteMCPTool.create(mk("call_az"), ts2)]
+
+        resolved = {
+            (ts.name, tool.mcp_tool_name): name
+            for ts, tool, name in resolve_tool_name_collisions([ts1, ts2])
+        }
+        assert resolved[("azure_main", "call_az")] == "azure_main__call_az"
+        assert resolved[("azure_newaccount", "call_az")] == "azure_newaccount__call_az"
+        assert (
+            resolved[("azure_main", "only_here")] == "only_here"
+        )  # no collision → raw
+
+    def test_collision_prefix_is_sanitized(self, suppress_migration_warnings):
+        # Toolset names with spaces/dashes/dots must yield valid LLM function names.
+        from holmes.core.tools_utils.tool_executor import resolve_tool_name_collisions
+
+        def mk(name):
+            return Tool(
+                name=name,
+                inputSchema={"type": "object", "properties": {}, "required": []},
+                description="d",
+            )
+
+        ts1 = RemoteMCPToolset(
+            name="azure prod.1",
+            description="d",
+            config={"url": "http://a/mcp", "mode": "streamable-http"},
+        )
+        ts2 = RemoteMCPToolset(
+            name="azure-prod 2",
+            description="d",
+            config={"url": "http://b/mcp", "mode": "streamable-http"},
+        )
+        ts1.tools = [RemoteMCPTool.create(mk("call_az"), ts1)]
+        ts2.tools = [RemoteMCPTool.create(mk("call_az"), ts2)]
+
+        names = {n for _, _, n in resolve_tool_name_collisions([ts1, ts2])}
+        assert names == {"azure_prod_1__call_az", "azure_prod_2__call_az"}
+
+    def test_oauth_connect_placeholders_do_not_collide_across_servers(
+        self, suppress_migration_warnings
+    ):
+        # Two OAuth MCP servers each expose a `<toolset>_connect` placeholder;
+        # those names are per-server unique, so there is no collision to resolve.
+        from holmes.core.tools import ToolsetStatusEnum
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+        def connect_placeholder(ts):
+            t = Tool(
+                name=ts.connect_tool_name,
+                inputSchema={"type": "object", "properties": {}},
+                description="connect",
+            )
+            return RemoteMCPTool.create(t, ts)
+
+        ts1 = RemoteMCPToolset(
+            name="azure_main",
+            description="d",
+            config={"url": "http://a/mcp", "mode": "streamable-http"},
+        )
+        ts2 = RemoteMCPToolset(
+            name="azure_newaccount",
+            description="d",
+            config={"url": "http://b/mcp", "mode": "streamable-http"},
+        )
+        ts1.tools = [connect_placeholder(ts1)]
+        ts2.tools = [connect_placeholder(ts2)]
+        ts1.status = ts2.status = ToolsetStatusEnum.ENABLED
+
+        ex = ToolExecutor([ts1, ts2])
+        assert "azure_main_connect" in ex.tools_by_name
+        assert "azure_newaccount_connect" in ex.tools_by_name
+        # No collision → nothing was namespaced with the `__` prefix.
+        assert not any("__" in name for name in ex.tools_by_name)
+
+    def test_mixed_only_collisions_are_renamed_and_all_resolve(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Two servers share `shared` (collides) and each has a unique tool.
+        Proves: non-colliding tools are untouched; colliding ones are namespaced;
+        every tool resolves to the right server and invokes with its RAW name."""
+        from holmes.core.tools_utils.tool_executor import ToolExecutor
+
+        def mk(name):
+            return Tool(
+                name=name,
+                inputSchema={"type": "object", "properties": {}, "required": []},
+                description=name,
+            )
+
+        ts_a = self._enabled_mcp_toolset(
+            monkeypatch, "svc_a", "http://a:8000/mcp", [mk("shared"), mk("only_a")]
+        )
+        ts_b = self._enabled_mcp_toolset(
+            monkeypatch, "svc_b", "http://b:8001/mcp", [mk("shared"), mk("only_b")]
+        )
+        ex = ToolExecutor([ts_a, ts_b])
+        keys = set(ex.tools_by_name)
+
+        # NO-collision tools: names unchanged (raw), never prefixed.
+        assert {"only_a", "only_b"} <= keys
+        assert ex.tools_by_name["only_a"].name == "only_a"
+        assert ex.tools_by_name["only_b"].name == "only_b"
+        assert not any(k.endswith("__only_a") or k.endswith("__only_b") for k in keys)
+
+        # COLLISION tool: raw name gone, namespaced per server, each to right server.
+        assert "shared" not in keys
+        assert {"svc_a__shared", "svc_b__shared"} <= keys
+        assert ex._tool_to_toolset["svc_a__shared"].name == "svc_a"
+        assert ex._tool_to_toolset["svc_b__shared"].name == "svc_b"
+
+        # Every tool (colliding or not) invokes its server with the RAW name.
+        for key, expected_raw in (
+            ("only_a", "only_a"),
+            ("svc_a__shared", "shared"),
+            ("svc_b__shared", "shared"),
+        ):
+            t = ex.tools_by_name[key]
+            mock_session = AsyncMock()
+            mock_session.initialize = AsyncMock(return_value=None)
+            mock_session.call_tool = AsyncMock(
+                return_value=CallToolResult(
+                    content=[TextContent(type="text", text="ok")],
+                    isError=False,
+                )
+            )
+            c_ctx, s_ctx = self._setup_mocks(mock_session)
+            c_patch, s_patch = self._patch_clients(c_ctx, s_ctx)
+            with c_patch, s_patch:
+                res = asyncio.run(t._invoke_async({}, None))
+            assert res.status == StructuredToolResultStatus.SUCCESS
+            mock_session.call_tool.assert_awaited_once_with(expected_raw, {})
+
     @pytest.mark.parametrize(
         "tool_name,tool_schema,params,response_text,expected_in_response",
         [
