@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import pytest
+from litellm.types.utils import Choices, Message, ModelResponse
 
 from holmes.core.llm import DefaultLLM
 from holmes.core.truncation.compaction import (
@@ -342,8 +343,6 @@ class RecordingFakeLLM:
 
 
 def _make_response(content=None, tool_calls=None, **message_kwargs):
-    from litellm.types.utils import Choices, Message, ModelResponse
-
     message = Message(
         content=content, role="assistant", tool_calls=tool_calls, **message_kwargs
     )

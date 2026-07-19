@@ -99,23 +99,19 @@ def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
 
 def _append_text_to_content(content: Any, text: str) -> Any:
     """Append a text snippet to a message content (str, block list, or None)."""
+    if isinstance(content, list):
+        return [*content, {"type": "text", "text": text}]
     if not content:
         return text
-    if isinstance(content, str):
-        return f"{content}\n{text}"
-    if isinstance(content, list):
-        return content + [{"type": "text", "text": text}]
     return f"{content}\n{text}"
 
 
 def _prepend_text_to_content(content: Any, text: str) -> Any:
     """Prepend a text snippet to a message content (str, block list, or None)."""
+    if isinstance(content, list):
+        return [{"type": "text", "text": text}, *content]
     if not content:
         return text
-    if isinstance(content, str):
-        return f"{text}\n{content}"
-    if isinstance(content, list):
-        return [{"type": "text", "text": text}] + content
     return f"{text}\n{content}"
 
 
@@ -150,7 +146,7 @@ def _flatten_tool_messages_for_compaction(messages: list[dict]) -> list[dict]:
             label = f"[tool result{f' for {tool_call_id}' if tool_call_id else ''}]"
             new_msg["content"] = _prepend_text_to_content(msg.get("content"), label)
             flattened.append(new_msg)
-        elif role == "assistant" and tool_calls:
+        elif role == "assistant" and isinstance(tool_calls, list) and tool_calls:
             new_msg = dict(msg)
             new_msg.pop("token_count", None)
             new_msg.pop("tool_calls", None)
@@ -158,6 +154,7 @@ def _flatten_tool_messages_for_compaction(messages: list[dict]) -> list[dict]:
                 f"[tool call] {tc.get('function', {}).get('name', '')} "
                 f"{tc.get('function', {}).get('arguments', '')}".rstrip()
                 for tc in tool_calls
+                if isinstance(tc, dict)
             )
             new_msg["content"] = _append_text_to_content(msg.get("content"), calls_text)
             flattened.append(new_msg)
