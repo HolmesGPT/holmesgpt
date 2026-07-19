@@ -42,6 +42,8 @@ additionalEnvVars:
 | `OTEL_SERVICE_NAME` | Service name in traces/metrics | `holmesgpt` |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Headers for OTLP exporter (e.g., auth tokens) | *(none)* |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Override metrics endpoint (if different from traces) | *(uses OTEL_EXPORTER_OTLP_ENDPOINT)* |
+| `HOLMES_LANGFUSE_ATTRIBUTES` | Emit Langfuse-specific span attributes (prompts, tool I/O, thinking, user/session, tags). See [Langfuse](#langfuse). | `false` |
+| `HOLMES_OTEL_MAX_ATTR_CHARS` | Max characters for the input/output attributes emitted when `HOLMES_LANGFUSE_ATTRIBUTES` is enabled | `100000` |
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, HolmesGPT uses a no-op `DummyTracer` with zero overhead.
 
@@ -192,6 +194,63 @@ additionalEnvVars:
   - name: OTEL_EXPORTER_OTLP_HEADERS
     value: "Authorization=Basic BASE64_ENCODED_INSTANCE:TOKEN"
 ```
+
+### Langfuse
+
+[Langfuse](https://langfuse.com/) is an LLM-observability platform that ingests OpenTelemetry traces natively. HolmesGPT can export each investigation to Langfuse as a full audit trail — the initiating user, the prompts sent to the LLM, the model's thinking/reasoning, the tools it called with their arguments and outputs, and the final answer.
+
+**Two things are required:**
+
+1. Point the OTLP exporter at your Langfuse project's OTLP endpoint over **HTTP** (Langfuse does not support gRPC), authenticated with a Basic-auth header of `base64(<public-key>:<secret-key>)`.
+2. Set **`HOLMES_LANGFUSE_ATTRIBUTES=true`**. This is opt-in and **off by default** because it emits Langfuse-vendor-specific span attributes (`langfuse.*`) that would be noise for a generic OTel backend. Without it, Holmes exports only vendor-neutral OTel/`gen_ai.*` spans and the Langfuse Input/Output panels stay empty.
+
+Generate the Basic-auth value:
+
+```bash
+echo -n "pk-lf-xxxx:sk-lf-xxxx" | base64
+```
+
+=== "Holmes CLI"
+
+    ```bash
+    export OTEL_EXPORTER_OTLP_ENDPOINT="https://cloud.langfuse.com/api/public/otel"
+    export OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
+    export OTEL_SERVICE_NAME="holmesgpt"
+    export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64(public:secret)>"
+    export HOLMES_LANGFUSE_ATTRIBUTES="true"
+    holmes ask "Why is my pod crashing?"
+    ```
+
+=== "Helm / Kubernetes"
+
+    Store the Basic-auth value in a secret, then:
+
+    ```yaml
+    additionalEnvVars:
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "https://cloud.langfuse.com/api/public/otel"  # or your EU / self-hosted host
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: "http/protobuf"
+      - name: OTEL_SERVICE_NAME
+        value: "holmesgpt"
+      - name: HOLMES_LANGFUSE_ATTRIBUTES
+        value: "true"
+      - name: OTEL_EXPORTER_OTLP_HEADERS
+        valueFrom:
+          secretKeyRef:
+            name: holmes-langfuse-otlp
+            key: OTEL_EXPORTER_OTLP_HEADERS   # value: "Authorization=Basic <base64(public:secret)>"
+    ```
+
+**What `HOLMES_LANGFUSE_ATTRIBUTES=true` adds** (all under the `langfuse.*` namespace):
+
+- **Trace-level input/output** — the user's question (input) and Holmes's final answer (output) on the `holmesgpt.investigation` root, so the top of the trace shows the prompt and the answer at a glance.
+- **Observation input/output** — the prompt messages, the assistant's response, its `reasoning` (thinking), and the tool calls it chose (on `gen_ai.chat` spans); tool arguments and results (on `holmesgpt.tool.*` spans).
+- **Trace user & session** — `langfuse.user.id` (initiating user, falling back through user id → email → account id) and `langfuse.session.id` (the conversation id), powering Langfuse's Users and Sessions views.
+- **Trace tags** — `source:<request_source>`, `cluster:<cluster>`, `model:<model>`.
+- **Filterable trace metadata** — `user_id`, `user_email`, `conversation_id`, `account_id`, `cluster_id`, `model`, `request_source`.
+
+Since Holmes emits OTel **metrics** as well and Langfuse ingests **traces only**, metric exports to the Langfuse endpoint are rejected harmlessly (traces are unaffected). To avoid that noise entirely, route Holmes through an OTel Collector and forward only traces to Langfuse.
 
 ## Architecture
 
