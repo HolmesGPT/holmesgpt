@@ -164,6 +164,7 @@ def _flatten_tool_messages_for_compaction(messages: list[dict]) -> list[dict]:
 
 
 def _get_response_message(response: Optional[ModelResponse]) -> Optional[Any]:
+    """Return the first choice's message from a completion response, if any."""
     if (
         response
         and response.choices

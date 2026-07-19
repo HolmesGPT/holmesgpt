@@ -313,6 +313,7 @@ def test_flatten_tool_messages_passes_through_plain_messages():
 
 
 class _Usage:
+    """Minimal token-usage stub for the fake LLM."""
     total_tokens = 100
 
 
@@ -343,6 +344,7 @@ class RecordingFakeLLM:
 
 
 def _make_response(content=None, tool_calls=None, **message_kwargs):
+    """Build a minimal litellm ModelResponse wrapping one assistant message."""
     message = Message(
         content=content, role="assistant", tool_calls=tool_calls, **message_kwargs
     )
@@ -362,6 +364,7 @@ _TOOLS = [
 
 
 def _history_with_tool_calls():
+    """A small agentic history containing a tool call and its result."""
     return [
         {"role": "system", "content": "sys prompt"},
         {"role": "user", "content": "why is my pod crashing?"},
@@ -381,6 +384,7 @@ def _history_with_tool_calls():
 
 
 def test_compaction_primary_call_keeps_native_history_and_attaches_tools():
+    """The primary summarization call keeps native history and attaches tools."""
     llm = RecordingFakeLLM([_make_response(content="THE SUMMARY")])
     result = compact_conversation_history(
         original_conversation_history=_history_with_tool_calls(),
@@ -404,6 +408,7 @@ def test_compaction_primary_call_keeps_native_history_and_attaches_tools():
 
 
 def test_compaction_output_shape_user_summary_no_trailing_system():
+    """The compacted history is [system, user summary, last user prompt]."""
     llm = RecordingFakeLLM([_make_response(content="THE SUMMARY")])
     result = compact_conversation_history(
         original_conversation_history=_history_with_tool_calls(),
@@ -422,6 +427,7 @@ def test_compaction_output_shape_user_summary_no_trailing_system():
 
 
 def test_compaction_falls_back_when_model_calls_a_tool():
+    """A tool-call response triggers the flattened, tool-less retry."""
     tool_call_response = _make_response(
         tool_calls=[
             {
@@ -451,6 +457,7 @@ def test_compaction_falls_back_when_model_calls_a_tool():
 
 
 def test_compaction_falls_back_when_primary_request_fails():
+    """A failing primary request triggers the flattened, tool-less retry."""
     llm = RecordingFakeLLM(
         [RuntimeError("400 toolConfig must be defined"), _make_response(content="FALLBACK SUMMARY")]
     )
@@ -464,6 +471,7 @@ def test_compaction_falls_back_when_primary_request_fails():
 
 
 def test_compaction_summary_never_stores_thinking_blocks():
+    """Thinking blocks from the summarization response never enter history."""
     response = _make_response(
         content="THE SUMMARY",
         reasoning_content="thinking about it...",
@@ -486,6 +494,7 @@ def test_compaction_summary_never_stores_thinking_blocks():
 
 
 def test_compaction_returns_original_history_when_both_attempts_unusable():
+    """When both attempts yield no text the original history is returned."""
     llm = RecordingFakeLLM([_make_response(content=""), _make_response(content="")])
     history = _history_with_tool_calls()
     result = compact_conversation_history(
