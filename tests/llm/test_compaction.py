@@ -33,6 +33,7 @@ TEST_CASES_FOLDER = Path(
 
 
 def get_compaction_test_cases():
+    """Load the compaction eval test cases from the fixtures folder."""
     return get_test_cases(TEST_CASES_FOLDER)
 
 

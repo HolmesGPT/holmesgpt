@@ -61,6 +61,7 @@ class CompactionInsufficientError(Exception):
     """Raised when conversation compaction was not sufficient to fit the context window."""
 
     def __init__(self, message: str, events: list[StreamMessage], compaction_usage: Optional[RequestStats] = None):
+        """Store the failure message plus the stream events and usage gathered so far."""
         super().__init__(message)
         self.events = events
         self.compaction_usage = compaction_usage
@@ -81,6 +82,7 @@ class ContextWindowLimiterOutput(BaseModel):
 def compact_if_necessary(
     llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]]
 ) -> ContextWindowLimiterOutput:
+    """Compact the conversation history when it approaches the context-window threshold."""
     t0 = time.monotonic()
     events = []
     metadata = {}

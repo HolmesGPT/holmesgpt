@@ -31,6 +31,7 @@ _requires_azure = pytest.mark.skipif(
 
 @_requires_azure
 def test_conversation_history_compaction_system_prompt_untouched():
+    """Live compaction keeps the system prompt as the first message."""
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
         conversation_history = json.load(file)
@@ -59,6 +60,7 @@ def test_conversation_history_compaction_system_prompt_untouched():
 
 @_requires_azure
 def test_conversation_history_compaction():
+    """Live compaction produces a [user summary, last user prompt] history."""
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
         conversation_history = json.load(file)
@@ -186,6 +188,7 @@ def test_count_image_tokens_no_images():
 
     class FakeLLM:
         def count_tokens(self, messages):
+            """Return a fixed token usage for any input."""
             class Usage:
                 total_tokens = 0
             return Usage()
@@ -207,6 +210,7 @@ def test_count_image_tokens_with_images():
 
     class FakeLLM:
         def count_tokens(self, messages):
+            """Return a fixed token usage for any input."""
             # Should receive a synthetic message with only image blocks
             class Usage:
                 total_tokens = 1600
@@ -321,10 +325,12 @@ class RecordingFakeLLM:
     """Fake LLM that records completion calls and replays canned responses."""
 
     def __init__(self, responses):
+        """Store canned responses to replay, newest first."""
         self.responses = list(responses)
         self.calls: list[dict] = []
 
     def completion(self, messages, tools=None, tool_choice=None, **kwargs):
+        """Record the call and replay the next canned response (or raise it)."""
         self.calls.append(
             {"messages": messages, "tools": tools, "tool_choice": tool_choice}
         )
@@ -334,12 +340,15 @@ class RecordingFakeLLM:
         return result
 
     def count_tokens(self, messages, tools=None):
+        """Return a fixed token usage for any input."""
         return _Usage()
 
     def get_context_window_size(self):
+        """Return a fixed context window size."""
         return 100000
 
     def get_maximum_output_token(self):
+        """Return a fixed maximum output token count."""
         return 4096
 
 

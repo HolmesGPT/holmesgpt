@@ -37,6 +37,7 @@ COMPACTION_SUMMARY_SUFFIX = (
 def strip_system_prompt(
     conversation_history: list[dict],
 ) -> tuple[list[dict], Optional[dict]]:
+    """Split off the leading system message, returning (rest, system_message)."""
     if not conversation_history:
         return conversation_history, None
     first_message = conversation_history[0]
@@ -46,6 +47,7 @@ def strip_system_prompt(
 
 
 def find_last_user_prompt(conversation_history: list[dict]) -> Optional[dict]:
+    """Return the last user message in the conversation, if any."""
     if not conversation_history:
         return None
     last_user_prompt: Optional[dict] = None
