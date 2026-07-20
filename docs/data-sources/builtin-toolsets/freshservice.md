@@ -1,8 +1,8 @@
 # Freshservice
 
-Connect HolmesGPT to [Freshservice](https://www.freshworks.com/freshservice/) (Freshworks ITSM) to read tickets, problems, changes, releases, assets, requesters, agents, the service catalog, the knowledge base and every other Freshservice object via the [Freshservice API v2](https://api.freshservice.com/).
+Connect HolmesGPT to [Freshservice](https://www.freshworks.com/freshservice/) (Freshworks ITSM) to work with tickets, problems, changes, releases, assets, requesters, agents, the service catalog, the knowledge base and every other Freshservice object via the [Freshservice API v2](https://api.freshservice.com/).
 
-All access is read-only.
+Access is read-only by default. Create/update/delete tools can be enabled with `enable_write_tools: true`, and each write requires human approval unless you disable that too (see [Write access](#write-access-optional)).
 
 ## Prerequisites
 
@@ -114,6 +114,28 @@ curl -u <your-api-key>:X "https://<your-domain>.freshservice.com/api/v2/tickets?
 | `default_page_size` | `30` | Number of records returned per page when the LLM does not specify one (max 100). |
 | `timeout_seconds` | `30` | Timeout for Freshservice API requests. |
 | `health_check_object` | `tickets` | Object type listed on startup to verify connectivity and permissions. Change this if your API key cannot access tickets. |
+| `enable_write_tools` | `false` | Expose tools that create, update and delete Freshservice objects. When `false`, only read tools are available. |
+| `require_approval_for_writes` | `true` | When write tools are enabled, require human approval before each create/update/delete call. Set to `false` for fully autonomous writes. |
+
+## Write Access (optional)
+
+By default HolmesGPT can only read from Freshservice. To let it create, update and delete objects (tickets, problems, changes, notes, tasks, time entries, custom object records and more), enable write tools:
+
+```yaml
+toolsets:
+  freshservice:
+    enabled: true
+    config:
+      api_url: <your Freshservice URL>
+      api_key: <your Freshservice API key>
+      enable_write_tools: true
+      # require_approval_for_writes: false  # only for fully autonomous writes
+```
+
+With writes enabled, six additional tools become available: `freshservice_create_object`, `freshservice_update_object`, `freshservice_delete_object` and their `*_related_object` counterparts for notes, replies, tasks and time entries.
+
+!!! warning
+    Every write call requires interactive human approval by default. Only set `require_approval_for_writes: false` in automated flows where the API key's own Freshservice role is scoped to what Holmes should be allowed to touch — deletes move tickets to trash and deactivate requesters/agents. Some object types are read-only in the Freshservice API itself (roles, workspaces, form fields, SLA policies, business hours, service catalog) regardless of this setting.
 
 ## Multiple Instances
 

@@ -23,3 +23,14 @@ Use the freshservice_* tools to read data from a Freshservice (Freshworks) servi
 * Results are paginated (default {{ config.default_page_size if config else 30 }} per page); a `_pagination` entry indicates more pages. Fetch further pages only when needed.
 * Ticket descriptions and conversations can be large. Use the `jq` parameter to project only needed fields when listing many records, e.g. `jq='.tickets[] | {id, subject, status, priority}'`.
 * An HTTP 403 error means the API key or plan lacks access to that object type - report this instead of retrying.
+{% if config and config.enable_write_tools %}
+
+### Writing data (create/update/delete)
+
+* `freshservice_create_object` / `freshservice_update_object` / `freshservice_delete_object` modify whole objects; the `*_related_object` variants manage notes, replies, tasks, time entries and custom object records.
+* Pass fields as a JSON object string in `object_data`. On update, include ONLY the fields to change.
+* Before updating or deleting, fetch the object first to confirm it is the right one. Never guess IDs.
+* Creating a ticket requires `subject`, `description`, a requester (`email` or `requester_id`), `status` and `priority` (numeric codes).
+* To document investigation findings on a ticket, prefer adding a note (`relation: notes`, body in HTML, `"private": true` unless asked otherwise) over editing the description.
+* Deletes are destructive: tickets go to trash, requesters/agents are deactivated. Only delete when the user explicitly asks.
+{% endif %}

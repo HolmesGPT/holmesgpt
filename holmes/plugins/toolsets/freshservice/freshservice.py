@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from requests.auth import HTTPBasicAuth
 
 from holmes.core.tools import (
+    ApprovalRequirement,
     CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -47,6 +48,12 @@ class FreshserviceObjectType(BaseModel):
     filter_style: Optional[str] = None
     includes: List[str] = []  # documented values for the `include` query param
     sub_resources: List[str] = []  # relations available at {path}/{id}/{relation}
+    # Whether the object type supports create/update/delete through the standard
+    # REST pattern (POST {path}, PUT {path}/{id}, DELETE {path}/{id}).
+    writable: bool = True
+    # Relations that can be created/updated/deleted at {path}/{id}/{relation}
+    # (e.g. notes, tasks, time_entries, custom object records).
+    write_sub_resources: List[str] = []
     notes: str = ""
 
 
@@ -78,6 +85,7 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
             "activities",
             "approvals",
         ],
+        write_sub_resources=["notes", "reply", "tasks", "time_entries"],
         notes=(
             "Status: 2=Open, 3=Pending, 4=Resolved, 5=Closed. Priority: 1=Low, 2=Medium, 3=High, 4=Urgent. "
             "Listing returns only tickets created in the last 30 days unless updated_since is set."
@@ -89,6 +97,7 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
         singular_key="problem",
         supports_updated_since=True,
         sub_resources=["tasks", "time_entries", "notes"],
+        write_sub_resources=["notes", "tasks", "time_entries"],
         notes="Status: 1=Open, 2=Change Requested, 3=Closed. Priority: 1=Low, 2=Medium, 3=High, 4=Urgent.",
     ),
     "changes": FreshserviceObjectType(
@@ -98,6 +107,7 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
         supports_updated_since=True,
         filter_style="query_param",
         sub_resources=["tasks", "time_entries", "notes", "approvals"],
+        write_sub_resources=["notes", "tasks", "time_entries"],
         notes="Status: 1=Open, 2=Planning, 3=Approval, 4=Pending Release, 5=Pending Review, 6=Closed. Search example: status:1 AND priority:4",
     ),
     "releases": FreshserviceObjectType(
@@ -106,6 +116,7 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
         singular_key="release",
         supports_updated_since=True,
         sub_resources=["tasks", "time_entries", "notes"],
+        write_sub_resources=["notes", "tasks", "time_entries"],
         notes=(
             "Status: 1=Open, 2=On hold, 3=In Progress, 4=Incomplete, 5=Completed. "
             "Predefined filters via additional_query_params='filter_name=my_open' (all, my_open, unassigned, completed, incompleted, deleted)."
@@ -116,14 +127,20 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
         plural_key="requesters",
         singular_key="requester",
         filter_style="query_param",
-        notes="End users who raise tickets. Search example: primary_email:'jane@example.com'",
+        notes=(
+            "End users who raise tickets. Search example: primary_email:'jane@example.com'. "
+            "Deleting a requester deactivates it (it is not permanently removed)."
+        ),
     ),
     "agents": FreshserviceObjectType(
         path="agents",
         plural_key="agents",
         singular_key="agent",
         filter_style="query_param",
-        notes="Support staff. Search example: email:'ops@example.com'",
+        notes=(
+            "Support staff. Search example: email:'ops@example.com'. "
+            "Deleting an agent deactivates it (it is not permanently removed)."
+        ),
     ),
     "agent_groups": FreshserviceObjectType(
         path="groups",
@@ -193,12 +210,14 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
         path="service_catalog/categories",
         plural_key="service_categories",
         singular_key="service_category",
+        writable=False,
     ),
     "service_catalog_items": FreshserviceObjectType(
         path="service_catalog/items",
         plural_key="service_items",
         singular_key="service_item",
-        notes="Service catalog items are addressed by display_id.",
+        writable=False,
+        notes="Service catalog items are addressed by display_id. Read-only via the API.",
     ),
     "solution_categories": FreshserviceObjectType(
         path="solutions/categories",
@@ -221,11 +240,13 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
         path="sla_policies",
         plural_key="sla_policies",
         singular_key="sla_policy",
+        writable=False,
     ),
     "business_hours": FreshserviceObjectType(
         path="business_hours",
         plural_key="business_hours",
         singular_key="business_hours",
+        writable=False,
     ),
     "announcements": FreshserviceObjectType(
         path="announcements",
@@ -236,26 +257,32 @@ OBJECT_REGISTRY: Dict[str, FreshserviceObjectType] = {
         path="ticket_form_fields",
         plural_key="ticket_fields",
         singular_key="ticket_field",
+        writable=False,
         notes="Field definitions for tickets, including custom fields and allowed values.",
     ),
     "roles": FreshserviceObjectType(
         path="roles",
         plural_key="roles",
         singular_key="role",
+        writable=False,
     ),
     "workspaces": FreshserviceObjectType(
         path="workspaces",
         plural_key="workspaces",
         singular_key="workspace",
+        writable=False,
     ),
     "custom_objects": FreshserviceObjectType(
         path="objects",
         plural_key="custom_objects",
         singular_key="custom_object",
         sub_resources=["records"],
+        writable=False,
+        write_sub_resources=["records"],
         notes=(
-            "User-defined objects. List records of an object with the 'records' sub-resource; "
-            "record pagination uses additional non-standard parameters (page_size, next_page_link)."
+            "User-defined objects. Object definitions are read-only, but their records support "
+            "full CRUD via the 'records' sub-resource; record pagination uses additional "
+            "non-standard parameters (page_size, next_page_link)."
         ),
     ),
 }
@@ -268,6 +295,14 @@ SEARCHABLE_OBJECT_TYPES = ", ".join(
 
 SUB_RESOURCE_OBJECT_TYPES = ", ".join(
     sorted(name for name, spec in OBJECT_REGISTRY.items() if spec.sub_resources)
+)
+
+WRITABLE_OBJECT_TYPES = ", ".join(
+    sorted(name for name, spec in OBJECT_REGISTRY.items() if spec.writable)
+)
+
+WRITE_SUB_RESOURCE_OBJECT_TYPES = ", ".join(
+    sorted(name for name, spec in OBJECT_REGISTRY.items() if spec.write_sub_resources)
 )
 
 
@@ -307,6 +342,22 @@ class FreshserviceConfig(ToolsetConfig):
         description="Object type listed on startup to verify connectivity and permissions. Change this if your API key cannot access the default object type.",
         examples=["tickets", "agents", "departments"],
     )
+    enable_write_tools: bool = Field(
+        default=False,
+        title="Enable Write Tools",
+        description=(
+            "Expose tools that create, update and delete Freshservice objects. "
+            "When false (default), only read tools are available."
+        ),
+    )
+    require_approval_for_writes: bool = Field(
+        default=True,
+        title="Require Approval For Writes",
+        description=(
+            "When write tools are enabled, require human approval before each "
+            "create/update/delete call. Set to false for fully autonomous writes."
+        ),
+    )
 
 
 class FreshserviceToolset(Toolset):
@@ -315,20 +366,39 @@ class FreshserviceToolset(Toolset):
     def __init__(self):
         super().__init__(
             name="freshservice",
-            description="Read access to Freshservice (Freshworks ITSM): tickets, problems, changes, releases, assets, requesters, agents and every other Freshservice object",
+            description=(
+                "Access to Freshservice (Freshworks ITSM): tickets, problems, changes, releases, "
+                "assets, requesters, agents and every other Freshservice object. Read-only by "
+                "default; create/update/delete tools can be enabled via config."
+            ),
             icon_url="https://upload.wikimedia.org/wikipedia/commons/2/2f/Freshworks-vector-logo.svg",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/freshservice/",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
-            tools=[
-                ListObjectTypes(self),
-                ListObjects(self),
-                GetObject(self),
-                SearchObjects(self),
-                ListRelatedObjects(self),
-            ],
+            tools=self._build_tools(include_write_tools=True),
         )
 
         self._reload_instructions()
+
+    def _build_tools(self, include_write_tools: bool) -> List[Tool]:
+        tools: List[Tool] = [
+            ListObjectTypes(self),
+            ListObjects(self),
+            GetObject(self),
+            SearchObjects(self),
+            ListRelatedObjects(self),
+        ]
+        if include_write_tools:
+            tools.extend(
+                [
+                    CreateObject(self),
+                    UpdateObject(self),
+                    DeleteObject(self),
+                    CreateRelatedObject(self),
+                    UpdateRelatedObject(self),
+                    DeleteRelatedObject(self),
+                ]
+            )
+        return tools
 
     def _reload_instructions(self):
         """Load Freshservice specific instructions for the LLM."""
@@ -345,6 +415,13 @@ class FreshserviceToolset(Toolset):
             self.config = FreshserviceConfig(**config)
         except Exception as e:
             return False, f"Failed to validate Freshservice configuration: {str(e)}"
+
+        # Only expose write tools when explicitly enabled; rebuild so a config
+        # reload can both add and remove them.
+        self.tools = self._build_tools(
+            include_write_tools=self.fs_config.enable_write_tools
+        )
+        self._reload_instructions()
 
         return self._perform_health_check()
 
@@ -430,6 +507,36 @@ class FreshserviceToolset(Toolset):
         )
         response.raise_for_status()
         return response.json(), dict(response.headers)
+
+    def _make_write_api_request(
+        self,
+        method: str,
+        endpoint: str,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Dict[str, Any], int]:
+        """Make a POST/PUT/DELETE request to the Freshservice API.
+
+        Returns:
+            Tuple of (parsed JSON response or empty dict for bodyless responses,
+            HTTP status code)
+
+        Raises:
+            requests.exceptions.RequestException subclasses on failure
+        """
+        url = urljoin(self.fs_config.api_url.rstrip("/") + "/", endpoint.lstrip("/"))
+        response = requests.request(
+            method,
+            url,
+            headers={"Accept": "application/json"},
+            auth=HTTPBasicAuth(self.fs_config.api_key, "X"),
+            json=payload,
+            timeout=self.fs_config.timeout_seconds,
+        )
+        response.raise_for_status()
+        # DELETE typically returns 204 with no body
+        if response.status_code == 204 or not response.content:
+            return {}, response.status_code
+        return response.json(), response.status_code
 
 
 def _resolve_updated_since(value: Any) -> str:
@@ -940,3 +1047,515 @@ class ListRelatedObjects(BaseFreshserviceTool, JsonFilterMixin):
         object_id = params.get("object_id", "")
         relation = params.get("relation", "")
         return f"{toolset_name_for_one_liner(self._toolset.name)}: List {relation} of {object_type} {object_id}"
+
+
+class BaseFreshserviceWriteTool(BaseFreshserviceTool, ABC):
+    """Base class for tools that create, update or delete Freshservice objects.
+
+    Write tools are only exposed when `enable_write_tools` is true, and by
+    default each call requires human approval (`require_approval_for_writes`).
+    """
+
+    def __init__(self, toolset: FreshserviceToolset, *args, **kwargs):
+        super().__init__(toolset, *args, **kwargs)
+
+    def requires_approval(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        config = self._toolset.config
+        if (
+            isinstance(config, FreshserviceConfig)
+            and not config.require_approval_for_writes
+        ):
+            return None
+        return ApprovalRequirement(
+            needs_approval=True,
+            reason=(
+                f"'{self.name}' modifies data in Freshservice. "
+                "Set require_approval_for_writes: false in the toolset config to skip this approval."
+            ),
+        )
+
+    def _parse_object_data(
+        self, params: dict
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[StructuredToolResult]]:
+        raw = params.get("object_data")
+        if not raw:
+            return None, StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error='object_data is required and must be a JSON object string, e.g. \'{"subject": "...", "priority": 2}\'',
+                params=params,
+            )
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            return None, StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"object_data is not valid JSON: {e}. Received: {raw[:500]}",
+                params=params,
+            )
+        if not isinstance(data, dict):
+            return None, StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"object_data must be a JSON object (dict), got {type(data).__name__}",
+                params=params,
+            )
+        return data, None
+
+    def _check_writable(
+        self, spec: FreshserviceObjectType, params: dict
+    ) -> Optional[StructuredToolResult]:
+        if not spec.writable:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Object type '{params['object_type']}' is read-only in the Freshservice API. "
+                    f"Writable object types: {WRITABLE_OBJECT_TYPES}."
+                ),
+                params=params,
+            )
+        return None
+
+    def _write(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> StructuredToolResult:
+        request_description = f"{method} /{endpoint}"
+        if payload is not None:
+            request_description += (
+                f" with body {json.dumps(payload, default=str)[:1000]}"
+            )
+        try:
+            data, status_code = self._toolset._make_write_api_request(
+                method=method, endpoint=endpoint, payload=payload
+            )
+        except requests.exceptions.HTTPError as e:
+            http_status = e.response.status_code if e.response is not None else "?"
+            body = e.response.text[:1000] if e.response is not None else ""
+            hints = []
+            if http_status == 403:
+                hints.append(
+                    "The API key lacks permission for this operation, or the Freshservice plan does not include it."
+                )
+            if http_status == 400:
+                hints.append(
+                    "The request body failed validation; check the 'errors' array in the response for the offending fields."
+                )
+            if http_status == 405:
+                hints.append("This endpoint does not support this operation.")
+            hint_text = (" " + " ".join(hints)) if hints else ""
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Freshservice write request failed with HTTP {http_status}.{hint_text}\n"
+                    f"Request: {request_description}\n"
+                    f"Response body: {body}"
+                ),
+                params=params,
+            )
+        except requests.exceptions.RequestException as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Failed to reach Freshservice.\nRequest: {request_description}\nError: {str(e)}",
+                params=params,
+            )
+
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data={"http_status": status_code, **data},
+            params=params,
+        )
+
+
+class CreateObject(BaseFreshserviceWriteTool):
+    def __init__(self, toolset: FreshserviceToolset):
+        super().__init__(
+            toolset=toolset,
+            name="freshservice_create_object",
+            description=(
+                "Creates a Freshservice object (POST /api/v2/{object_path}). "
+                f"Writable object types: {WRITABLE_OBJECT_TYPES}. "
+                "Requires the object fields as a JSON string. Check freshservice_list_object_types "
+                "for status/priority codes, and use real IDs for reference fields (requester_id, group_id, ...)."
+            ),
+            parameters={
+                "object_type": ToolParameter(
+                    description=f"The type of Freshservice object to create. One of: {WRITABLE_OBJECT_TYPES}",
+                    type="string",
+                    required=True,
+                ),
+                "object_data": ToolParameter(
+                    description=(
+                        "The object fields as a JSON object string. Example for tickets: "
+                        '\'{"subject": "DB connection errors", "description": "...", "email": "reporter@example.com", '
+                        '"status": 2, "priority": 3}\''
+                    ),
+                    type="string",
+                    required=True,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        error = self._ensure_configured(params)
+        if error:
+            return error
+        spec, error = self._get_object_spec(params)
+        if error or not spec:
+            return error  # type: ignore[return-value]
+        error = self._check_writable(spec, params)
+        if error:
+            return error
+        payload, error = self._parse_object_data(params)
+        if error:
+            return error
+
+        return self._write(
+            method="POST",
+            endpoint=f"api/v2/{spec.path}",
+            params=params,
+            payload=payload,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        object_type = params.get("object_type", "unknown")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Create {object_type} object"
+
+
+class UpdateObject(BaseFreshserviceWriteTool):
+    def __init__(self, toolset: FreshserviceToolset):
+        super().__init__(
+            toolset=toolset,
+            name="freshservice_update_object",
+            description=(
+                "Updates fields of an existing Freshservice object (PUT /api/v2/{object_path}/{id}). "
+                f"Writable object types: {WRITABLE_OBJECT_TYPES}. "
+                "Only include the fields to change in object_data. The ID MUST come from the user or a "
+                "previous freshservice_list_objects/freshservice_search_objects response - never guess IDs."
+            ),
+            parameters={
+                "object_type": ToolParameter(
+                    description=f"The type of Freshservice object to update. One of: {WRITABLE_OBJECT_TYPES}",
+                    type="string",
+                    required=True,
+                ),
+                "object_id": ToolParameter(
+                    description=(
+                        "The object's numeric ID from a real Freshservice record (the 'id' field, "
+                        "or 'display_id' for assets). Never fabricate this value."
+                    ),
+                    type="integer",
+                    required=True,
+                ),
+                "object_data": ToolParameter(
+                    description=(
+                        "The fields to update as a JSON object string. Example: "
+                        '\'{"status": 4, "priority": 1}\''
+                    ),
+                    type="string",
+                    required=True,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        error = self._ensure_configured(params)
+        if error:
+            return error
+        spec, error = self._get_object_spec(params)
+        if error or not spec:
+            return error  # type: ignore[return-value]
+        error = self._check_writable(spec, params)
+        if error:
+            return error
+        payload, error = self._parse_object_data(params)
+        if error:
+            return error
+
+        return self._write(
+            method="PUT",
+            endpoint=f"api/v2/{spec.path}/{params['object_id']}",
+            params=params,
+            payload=payload,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        object_type = params.get("object_type", "unknown")
+        object_id = params.get("object_id", "")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Update {object_type} {object_id}"
+
+
+class DeleteObject(BaseFreshserviceWriteTool):
+    def __init__(self, toolset: FreshserviceToolset):
+        super().__init__(
+            toolset=toolset,
+            name="freshservice_delete_object",
+            description=(
+                "Deletes a Freshservice object (DELETE /api/v2/{object_path}/{id}). "
+                f"Writable object types: {WRITABLE_OBJECT_TYPES}. "
+                "Deleting tickets moves them to trash; deleting requesters/agents deactivates them. "
+                "The ID MUST come from the user or a previous tool response - never guess IDs."
+            ),
+            parameters={
+                "object_type": ToolParameter(
+                    description=f"The type of Freshservice object to delete. One of: {WRITABLE_OBJECT_TYPES}",
+                    type="string",
+                    required=True,
+                ),
+                "object_id": ToolParameter(
+                    description=(
+                        "The object's numeric ID from a real Freshservice record (the 'id' field, "
+                        "or 'display_id' for assets). Never fabricate this value."
+                    ),
+                    type="integer",
+                    required=True,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        error = self._ensure_configured(params)
+        if error:
+            return error
+        spec, error = self._get_object_spec(params)
+        if error or not spec:
+            return error  # type: ignore[return-value]
+        error = self._check_writable(spec, params)
+        if error:
+            return error
+
+        return self._write(
+            method="DELETE",
+            endpoint=f"api/v2/{spec.path}/{params['object_id']}",
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        object_type = params.get("object_type", "unknown")
+        object_id = params.get("object_id", "")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Delete {object_type} {object_id}"
+
+
+class CreateRelatedObject(BaseFreshserviceWriteTool):
+    def __init__(self, toolset: FreshserviceToolset):
+        super().__init__(
+            toolset=toolset,
+            name="freshservice_create_related_object",
+            description=(
+                "Creates a sub-resource on a Freshservice object (POST /api/v2/{object_path}/{id}/{relation}), "
+                "e.g. add a note or reply to a ticket, a task or time entry to a ticket/problem/change/release, "
+                "or a record to a custom object. "
+                f"Object types with writable sub-resources: {WRITE_SUB_RESOURCE_OBJECT_TYPES}. "
+                "Check freshservice_list_object_types for the writable relations per object type."
+            ),
+            parameters={
+                "object_type": ToolParameter(
+                    description=f"The type of the parent Freshservice object. One of: {WRITE_SUB_RESOURCE_OBJECT_TYPES}",
+                    type="string",
+                    required=True,
+                ),
+                "object_id": ToolParameter(
+                    description="The parent object's numeric ID from a real Freshservice record. Never fabricate this value.",
+                    type="integer",
+                    required=True,
+                ),
+                "relation": ToolParameter(
+                    description="The sub-resource to create, e.g. 'notes', 'reply', 'tasks', 'time_entries', 'records'",
+                    type="string",
+                    required=True,
+                ),
+                "object_data": ToolParameter(
+                    description=(
+                        "The sub-resource fields as a JSON object string. Example for a ticket note: "
+                        '\'{"body": "Investigation findings: ...", "private": true}\''
+                    ),
+                    type="string",
+                    required=True,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        error = self._ensure_configured(params)
+        if error:
+            return error
+        spec, error = self._get_object_spec(params)
+        if error or not spec:
+            return error  # type: ignore[return-value]
+
+        relation = params["relation"]
+        if relation not in spec.write_sub_resources:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Object type '{params['object_type']}' has no writable '{relation}' sub-resource. "
+                    f"Writable sub-resources: {', '.join(spec.write_sub_resources) or 'none'}."
+                ),
+                params=params,
+            )
+
+        payload, error = self._parse_object_data(params)
+        if error:
+            return error
+
+        return self._write(
+            method="POST",
+            endpoint=f"api/v2/{spec.path}/{params['object_id']}/{relation}",
+            params=params,
+            payload=payload,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        object_type = params.get("object_type", "unknown")
+        object_id = params.get("object_id", "")
+        relation = params.get("relation", "")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Add {relation} to {object_type} {object_id}"
+
+
+class UpdateRelatedObject(BaseFreshserviceWriteTool):
+    def __init__(self, toolset: FreshserviceToolset):
+        super().__init__(
+            toolset=toolset,
+            name="freshservice_update_related_object",
+            description=(
+                "Updates a sub-resource of a Freshservice object "
+                "(PUT /api/v2/{object_path}/{id}/{relation}/{related_id}), e.g. edit a task, "
+                "time entry or note of a ticket/problem/change/release, or a custom object record. "
+                f"Object types with writable sub-resources: {WRITE_SUB_RESOURCE_OBJECT_TYPES}."
+            ),
+            parameters={
+                "object_type": ToolParameter(
+                    description=f"The type of the parent Freshservice object. One of: {WRITE_SUB_RESOURCE_OBJECT_TYPES}",
+                    type="string",
+                    required=True,
+                ),
+                "object_id": ToolParameter(
+                    description="The parent object's numeric ID from a real Freshservice record. Never fabricate this value.",
+                    type="integer",
+                    required=True,
+                ),
+                "relation": ToolParameter(
+                    description="The sub-resource type, e.g. 'tasks', 'time_entries', 'notes', 'records'",
+                    type="string",
+                    required=True,
+                ),
+                "related_object_id": ToolParameter(
+                    description="The sub-resource's ID from a real Freshservice record. Never fabricate this value.",
+                    type="integer",
+                    required=True,
+                ),
+                "object_data": ToolParameter(
+                    description="The fields to update as a JSON object string.",
+                    type="string",
+                    required=True,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        error = self._ensure_configured(params)
+        if error:
+            return error
+        spec, error = self._get_object_spec(params)
+        if error or not spec:
+            return error  # type: ignore[return-value]
+
+        relation = params["relation"]
+        if relation not in spec.write_sub_resources:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Object type '{params['object_type']}' has no writable '{relation}' sub-resource. "
+                    f"Writable sub-resources: {', '.join(spec.write_sub_resources) or 'none'}."
+                ),
+                params=params,
+            )
+
+        payload, error = self._parse_object_data(params)
+        if error:
+            return error
+
+        return self._write(
+            method="PUT",
+            endpoint=f"api/v2/{spec.path}/{params['object_id']}/{relation}/{params['related_object_id']}",
+            params=params,
+            payload=payload,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        object_type = params.get("object_type", "unknown")
+        object_id = params.get("object_id", "")
+        relation = params.get("relation", "")
+        related_id = params.get("related_object_id", "")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Update {relation} {related_id} of {object_type} {object_id}"
+
+
+class DeleteRelatedObject(BaseFreshserviceWriteTool):
+    def __init__(self, toolset: FreshserviceToolset):
+        super().__init__(
+            toolset=toolset,
+            name="freshservice_delete_related_object",
+            description=(
+                "Deletes a sub-resource of a Freshservice object "
+                "(DELETE /api/v2/{object_path}/{id}/{relation}/{related_id}), e.g. remove a task, "
+                "time entry or note of a ticket/problem/change/release, or a custom object record. "
+                f"Object types with writable sub-resources: {WRITE_SUB_RESOURCE_OBJECT_TYPES}."
+            ),
+            parameters={
+                "object_type": ToolParameter(
+                    description=f"The type of the parent Freshservice object. One of: {WRITE_SUB_RESOURCE_OBJECT_TYPES}",
+                    type="string",
+                    required=True,
+                ),
+                "object_id": ToolParameter(
+                    description="The parent object's numeric ID from a real Freshservice record. Never fabricate this value.",
+                    type="integer",
+                    required=True,
+                ),
+                "relation": ToolParameter(
+                    description="The sub-resource type, e.g. 'tasks', 'time_entries', 'notes', 'records'",
+                    type="string",
+                    required=True,
+                ),
+                "related_object_id": ToolParameter(
+                    description="The sub-resource's ID from a real Freshservice record. Never fabricate this value.",
+                    type="integer",
+                    required=True,
+                ),
+            },
+        )
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        error = self._ensure_configured(params)
+        if error:
+            return error
+        spec, error = self._get_object_spec(params)
+        if error or not spec:
+            return error  # type: ignore[return-value]
+
+        relation = params["relation"]
+        if relation not in spec.write_sub_resources:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Object type '{params['object_type']}' has no writable '{relation}' sub-resource. "
+                    f"Writable sub-resources: {', '.join(spec.write_sub_resources) or 'none'}."
+                ),
+                params=params,
+            )
+
+        return self._write(
+            method="DELETE",
+            endpoint=f"api/v2/{spec.path}/{params['object_id']}/{relation}/{params['related_object_id']}",
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        object_type = params.get("object_type", "unknown")
+        object_id = params.get("object_id", "")
+        relation = params.get("relation", "")
+        related_id = params.get("related_object_id", "")
+        return f"{toolset_name_for_one_liner(self._toolset.name)}: Delete {relation} {related_id} of {object_type} {object_id}"

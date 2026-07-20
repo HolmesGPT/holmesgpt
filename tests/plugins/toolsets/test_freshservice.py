@@ -1,5 +1,6 @@
 """Tests for the Freshservice toolset."""
 
+import json
 import os
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
@@ -69,16 +70,61 @@ class TestFreshserviceConfig:
             FreshserviceConfig(api_key="abc")
 
 
+READ_TOOL_NAMES = {
+    "freshservice_list_object_types",
+    "freshservice_list_objects",
+    "freshservice_get_object",
+    "freshservice_search_objects",
+    "freshservice_list_related_objects",
+}
+
+WRITE_TOOL_NAMES = {
+    "freshservice_create_object",
+    "freshservice_update_object",
+    "freshservice_delete_object",
+    "freshservice_create_related_object",
+    "freshservice_update_related_object",
+    "freshservice_delete_related_object",
+}
+
+
 class TestFreshserviceToolsetInit:
     def test_toolset_has_expected_tools(self, toolset):
         names = {t.name for t in toolset.tools}
-        assert names == {
-            "freshservice_list_object_types",
-            "freshservice_list_objects",
-            "freshservice_get_object",
-            "freshservice_search_objects",
-            "freshservice_list_related_objects",
-        }
+        assert names == READ_TOOL_NAMES | WRITE_TOOL_NAMES
+
+    def test_write_tools_removed_by_default(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                f"{API_URL}/api/v2/tickets",
+                json={"tickets": []},
+                status=200,
+            )
+            ok, _ = toolset.prerequisites_callable(
+                {"api_url": API_URL, "api_key": "test-key"}
+            )
+            assert ok is True
+        assert {t.name for t in toolset.tools} == READ_TOOL_NAMES
+
+    def test_write_tools_exposed_when_enabled(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                f"{API_URL}/api/v2/tickets",
+                json={"tickets": []},
+                status=200,
+            )
+            ok, _ = toolset.prerequisites_callable(
+                {
+                    "api_url": API_URL,
+                    "api_key": "test-key",
+                    "enable_write_tools": True,
+                }
+            )
+            assert ok is True
+        assert {t.name for t in toolset.tools} == READ_TOOL_NAMES | WRITE_TOOL_NAMES
+        assert "Writing data" in toolset.llm_instructions
 
     def test_instructions_loaded(self, toolset):
         assert toolset.llm_instructions
@@ -567,6 +613,219 @@ class TestListRelatedObjects:
         assert "none" in result.error
 
 
+class TestWriteTools:
+    def test_create_ticket(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.POST,
+                f"{API_URL}/api/v2/tickets",
+                json={"ticket": {**SAMPLE_TICKET, "id": 42}},
+                status=201,
+            )
+            tool = _tool(toolset, "freshservice_create_object")
+            result = tool._invoke(
+                {
+                    "object_type": "tickets",
+                    "object_data": '{"subject": "DB errors", "description": "x", "email": "a@b.com", "status": 2, "priority": 3}',
+                },
+                MagicMock(),
+            )
+            assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+            assert result.data["http_status"] == 201
+            assert result.data["ticket"]["id"] == 42
+            sent = json.loads(rsps.calls[0].request.body)
+            assert sent["subject"] == "DB errors"
+            assert sent["priority"] == 3
+
+    def test_update_ticket(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.PUT,
+                f"{API_URL}/api/v2/tickets/21",
+                json={"ticket": {**SAMPLE_TICKET, "status": 4}},
+                status=200,
+            )
+            tool = _tool(toolset, "freshservice_update_object")
+            result = tool._invoke(
+                {
+                    "object_type": "tickets",
+                    "object_id": 21,
+                    "object_data": '{"status": 4}',
+                },
+                MagicMock(),
+            )
+            assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+            assert result.data["ticket"]["status"] == 4
+
+    def test_delete_ticket_returns_204(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.DELETE,
+                f"{API_URL}/api/v2/tickets/21",
+                body="",
+                status=204,
+            )
+            tool = _tool(toolset, "freshservice_delete_object")
+            result = tool._invoke(
+                {"object_type": "tickets", "object_id": 21}, MagicMock()
+            )
+            assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+            assert result.data["http_status"] == 204
+
+    def test_create_ticket_note(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.POST,
+                f"{API_URL}/api/v2/tickets/21/notes",
+                json={"conversation": {"id": 7, "body": "<div>found it</div>"}},
+                status=201,
+            )
+            tool = _tool(toolset, "freshservice_create_related_object")
+            result = tool._invoke(
+                {
+                    "object_type": "tickets",
+                    "object_id": 21,
+                    "relation": "notes",
+                    "object_data": '{"body": "found it", "private": true}',
+                },
+                MagicMock(),
+            )
+            assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+            assert result.data["conversation"]["id"] == 7
+
+    def test_update_related_task(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.PUT,
+                f"{API_URL}/api/v2/tickets/21/tasks/3",
+                json={"task": {"id": 3, "status": 2}},
+                status=200,
+            )
+            tool = _tool(toolset, "freshservice_update_related_object")
+            result = tool._invoke(
+                {
+                    "object_type": "tickets",
+                    "object_id": 21,
+                    "relation": "tasks",
+                    "related_object_id": 3,
+                    "object_data": '{"status": 2}',
+                },
+                MagicMock(),
+            )
+            assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+
+    def test_delete_related_task(self, toolset):
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.DELETE,
+                f"{API_URL}/api/v2/tickets/21/tasks/3",
+                body="",
+                status=204,
+            )
+            tool = _tool(toolset, "freshservice_delete_related_object")
+            result = tool._invoke(
+                {
+                    "object_type": "tickets",
+                    "object_id": 21,
+                    "relation": "tasks",
+                    "related_object_id": 3,
+                },
+                MagicMock(),
+            )
+            assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+
+    def test_readonly_object_type_rejected(self, toolset):
+        tool = _tool(toolset, "freshservice_create_object")
+        result = tool._invoke(
+            {"object_type": "roles", "object_data": '{"name": "x"}'}, MagicMock()
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "read-only" in result.error
+
+    def test_non_writable_relation_rejected(self, toolset):
+        tool = _tool(toolset, "freshservice_create_related_object")
+        result = tool._invoke(
+            {
+                "object_type": "tickets",
+                "object_id": 21,
+                "relation": "licenses",
+                "object_data": "{}",
+            },
+            MagicMock(),
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "no writable 'licenses' sub-resource" in result.error
+
+    def test_invalid_json_rejected(self, toolset):
+        tool = _tool(toolset, "freshservice_create_object")
+        result = tool._invoke(
+            {"object_type": "tickets", "object_data": "{not json"}, MagicMock()
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "not valid JSON" in result.error
+
+    def test_non_dict_json_rejected(self, toolset):
+        tool = _tool(toolset, "freshservice_create_object")
+        result = tool._invoke(
+            {"object_type": "tickets", "object_data": "[1, 2]"}, MagicMock()
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "must be a JSON object" in result.error
+
+    def test_validation_error_surfaced(self, toolset):
+        api_error = {
+            "description": "Validation failed",
+            "errors": [
+                {
+                    "field": "priority",
+                    "message": "It should be one of these values: '1,2,3,4'",
+                    "code": "invalid_value",
+                }
+            ],
+        }
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.POST,
+                f"{API_URL}/api/v2/tickets",
+                json=api_error,
+                status=400,
+            )
+            tool = _tool(toolset, "freshservice_create_object")
+            result = tool._invoke(
+                {"object_type": "tickets", "object_data": '{"priority": 9}'},
+                MagicMock(),
+            )
+            assert result.status == StructuredToolResultStatus.ERROR
+            assert "400" in result.error
+            assert "invalid_value" in result.error
+            assert "POST /api/v2/tickets" in result.error
+
+    def test_writes_require_approval_by_default(self, toolset):
+        tool = _tool(toolset, "freshservice_create_object")
+        requirement = tool.requires_approval(
+            {"object_type": "tickets", "object_data": "{}"}, MagicMock()
+        )
+        assert requirement is not None
+        assert requirement.needs_approval is True
+
+    def test_approval_can_be_disabled(self, toolset):
+        toolset.config = FreshserviceConfig(
+            api_url=API_URL,
+            api_key="test-key",
+            enable_write_tools=True,
+            require_approval_for_writes=False,
+        )
+        tool = _tool(toolset, "freshservice_create_object")
+        requirement = tool.requires_approval(
+            {"object_type": "tickets", "object_data": "{}"}, MagicMock()
+        )
+        assert requirement is None
+
+    def test_read_tools_never_require_approval(self, toolset):
+        tool = _tool(toolset, "freshservice_list_objects")
+        assert tool.requires_approval({"object_type": "tickets"}, MagicMock()) is None
+
+
 class TestOneLiners:
     def test_one_liners(self, toolset):
         cases = [
@@ -698,3 +957,91 @@ class TestLiveFreshservice:
         )
         assert result.status == StructuredToolResultStatus.SUCCESS, result.error
         assert result.data["tickets"] == []
+
+
+@pytest.mark.skipif(
+    not (
+        LIVE_URL
+        and LIVE_API_KEY
+        and os.environ.get("FRESHSERVICE_TEST_WRITES", "").lower() == "true"
+    ),
+    reason="Live write tests require FRESHSERVICE_TEST_WRITES=true in addition to the URL/API key env vars (they create and delete a test ticket)",
+)
+class TestLiveFreshserviceWrites:
+    """Live write tests: create -> update -> add note -> delete a marked test ticket.
+
+    Opt-in via FRESHSERVICE_TEST_WRITES=true so CI never writes to a real
+    instance accidentally. The ticket is deleted (trashed) at the end.
+    """
+
+    @pytest.fixture
+    def live_toolset(self):
+        ts = FreshserviceToolset()
+        ok, msg = ts.prerequisites_callable(
+            {
+                "api_url": LIVE_URL,
+                "api_key": LIVE_API_KEY,
+                "enable_write_tools": True,
+                "require_approval_for_writes": False,
+            }
+        )
+        assert ok, f"Health check failed: {msg}"
+        return ts
+
+    def test_full_write_lifecycle(self, live_toolset):
+        create_tool = _tool(live_toolset, "freshservice_create_object")
+        created = create_tool._invoke(
+            {
+                "object_type": "tickets",
+                "object_data": json.dumps(
+                    {
+                        "subject": "[HOLMES-TOOLSET-TEST] temporary ticket - safe to ignore",
+                        "description": "Created by the HolmesGPT Freshservice live write test. Deleted automatically.",
+                        "email": "holmes-toolset-test@example.com",
+                        "status": 2,
+                        "priority": 1,
+                    }
+                ),
+            },
+            MagicMock(),
+        )
+        assert created.status == StructuredToolResultStatus.SUCCESS, created.error
+        ticket_id = created.data["ticket"]["id"]
+
+        try:
+            update_tool = _tool(live_toolset, "freshservice_update_object")
+            updated = update_tool._invoke(
+                {
+                    "object_type": "tickets",
+                    "object_id": ticket_id,
+                    "object_data": '{"priority": 2}',
+                },
+                MagicMock(),
+            )
+            assert updated.status == StructuredToolResultStatus.SUCCESS, updated.error
+            assert updated.data["ticket"]["priority"] == 2
+
+            note_tool = _tool(live_toolset, "freshservice_create_related_object")
+            note = note_tool._invoke(
+                {
+                    "object_type": "tickets",
+                    "object_id": ticket_id,
+                    "relation": "notes",
+                    "object_data": '{"body": "<div>live write test note</div>", "private": true}',
+                },
+                MagicMock(),
+            )
+            assert note.status == StructuredToolResultStatus.SUCCESS, note.error
+        finally:
+            delete_tool = _tool(live_toolset, "freshservice_delete_object")
+            deleted = delete_tool._invoke(
+                {"object_type": "tickets", "object_id": ticket_id}, MagicMock()
+            )
+            assert deleted.status == StructuredToolResultStatus.SUCCESS, deleted.error
+
+        get_tool = _tool(live_toolset, "freshservice_get_object")
+        after = get_tool._invoke(
+            {"object_type": "tickets", "object_id": ticket_id}, MagicMock()
+        )
+        if after.status == StructuredToolResultStatus.SUCCESS:
+            assert after.data["ticket"].get("deleted") is True
