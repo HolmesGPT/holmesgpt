@@ -1075,10 +1075,8 @@ class TestStreamableHttp:
         assert build_remote_tools_meta(ts_a, ex) is None
 
     def test_collision_preserves_approval_gate_and_warns(
-        self, monkeypatch, caplog, suppress_migration_warnings
+        self, monkeypatch, suppress_migration_warnings
     ):
-        import logging
-
         from holmes.core.tools_utils.tool_executor import ToolExecutor
 
         gated = Tool(
@@ -1095,21 +1093,18 @@ class TestStreamableHttp:
         ts_a.approval_required_tools = ["run_kubectl_command"]
         ts_b.approval_required_tools = ["run_kubectl_command"]
 
-        # Attach directly to the emitting logger (propagation capture is flaky).
-        exec_logger = logging.getLogger("holmes.display.tool_executor")
-        exec_logger.addHandler(caplog.handler)
-        exec_logger.setLevel(logging.WARNING)
-        try:
+        # Spy on the emitting logger method directly — capturing dispatched log
+        # records (even with a handler attached to this exact logger) is flaky
+        # when other tests in the session reconfigure logging state.
+        with patch(
+            "holmes.core.tools_utils.tool_executor.display_logger.warning"
+        ) as warn:
             ex = ToolExecutor([ts_a, ts_b])
-        finally:
-            exec_logger.removeHandler(caplog.handler)
 
         # Collision → name namespaced, warning logged.
         assert "run_kubectl_command" not in ex.tools_by_name
-        assert any(
-            "Multiple tools named 'run_kubectl_command'" in r.getMessage()
-            for r in caplog.records
-        )
+        warned = [c.args[0] % tuple(c.args[1:]) for c in warn.call_args_list]
+        assert any("Multiple tools named 'run_kubectl_command'" in m for m in warned)
 
         # Approval still fires, matched on the real name.
         tool = ex.tools_by_name["remediation_a__run_kubectl_command"]
