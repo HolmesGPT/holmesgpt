@@ -24,16 +24,13 @@
 
 # Disabled & failed Toolsets
 {% if disabled_toolsets %}
-The following toolsets are disabled or failed to initialize. Unless a different URL is given, each one's setup docs are at `https://holmesgpt.dev/data-sources/builtin-toolsets/<name before any slash>/` (e.g. toolset `foo/logs` → `https://holmesgpt.dev/data-sources/builtin-toolsets/foo/`).
+These toolsets are DISABLED (unconfigured) unless marked FAILED (misconfigured). Setup docs per toolset: `https://holmesgpt.dev/data-sources/builtin-toolsets/<name before any slash>/` unless a different URL is given.
 {% for toolset in disabled_toolsets %}
 {%- set default_docs_url = "https://holmesgpt.dev/data-sources/builtin-toolsets/" ~ toolset.name.split("/")[0] ~ "/" %}
-* "{{ toolset.name }}" ({% if toolset.status.value == "failed" %}FAILED — enabled but misconfigured{% if toolset.error %}, error: {{ toolset.error }}{% endif %}{% else %}{{ toolset.status.value }}{% endif %}): {{ toolset.description }}{% if toolset.docs_url and toolset.docs_url != default_docs_url %} [setup: {{ toolset.docs_url }}]{% endif %}
+* {{ toolset.name }}{% if toolset.status.value == "failed" %} (FAILED{% if toolset.error %}, error: {{ toolset.error }}{% endif %}){% endif %}: {{ toolset.description }}{% if toolset.docs_url and toolset.docs_url != default_docs_url %} [setup: {{ toolset.docs_url }}]{% endif %}
 {%- endfor %}
 {% else %}
 <no toolsets are disabled or failed>
 {% endif %}
 
-If you need access to a system you can't reach with your current tools:
-  - Check the list above for a matching toolset. If its status is `failed`, tell the user and copy the error into your response. If `disabled`, ask the user to configure it and share its setup URL.
-  - When users ask how to set up or give you access to a system (e.g. "How can I give you access to ArgoCD?"), point them to the matching toolset's setup URL above, or to https://holmesgpt.dev/data-sources/ if there is none.
-  - If no toolset matches, tell the user you're missing an integration for that system, and that they can add one via an [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) (quickest for REST APIs — supports auth, endpoint whitelisting and response filtering), an [MCP server](https://holmesgpt.dev/data-sources/remote-mcp-servers/), or a [custom toolset](https://holmesgpt.dev/data-sources/custom-toolsets/).
+If you need a system you can't reach with your current tools: for a matching FAILED toolset, tell the user and copy its error into your response; for a matching disabled toolset (including when users ask how to set up or grant access to a system), ask the user to configure it and share its setup URL. If no toolset matches, say you're missing an integration for that system and that one can be added via an [HTTP connector](https://holmesgpt.dev/data-sources/api-toolsets/) (quickest for REST APIs — supports auth, endpoint whitelisting and response filtering), an [MCP server](https://holmesgpt.dev/data-sources/remote-mcp-servers/), or a [custom toolset](https://holmesgpt.dev/data-sources/custom-toolsets/).

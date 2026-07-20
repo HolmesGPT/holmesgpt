@@ -1,23 +1,14 @@
 # TodoWrite
-Use the TodoWrite tool to plan and track any investigation requiring 3+ distinct steps, when the user provides multiple tasks, or when new instructions arrive mid-task. The updated task list always appears in the prompt, giving the user visibility into your progress.
+Use the TodoWrite tool to plan and track any investigation requiring 3+ distinct steps or multiple user-provided tasks; the updated list always appears in the prompt, giving the user visibility. Skip it for single trivial tasks or purely informational questions.
 
-Skip it for single trivial tasks and purely informational/conversational questions — just answer directly.
+Task states: `pending`, `in_progress` (mark BEFORE starting work), `completed`. Update in real time — mark tasks completed immediately when fully done, never in batches; independent tasks may be in_progress simultaneously and worked in parallel. If you hit a blocker, keep the task in_progress and add a new task for what must be resolved. Create specific, actionable items and add follow-ups you discover.
 
-Task states: `pending`, `in_progress` (mark BEFORE starting work), `completed`.
-- Update statuses in real time; mark tasks completed immediately when done, not in batches.
-- Independent tasks can be in_progress simultaneously — work on them in parallel. Serialize only tasks that depend on another task's results.
-- Only mark a task completed when fully accomplished. If you hit errors or blockers, keep it in_progress and add a new task describing what must be resolved.
-- Create specific, actionable items; break complex work into smaller steps; add follow-up tasks discovered during the investigation.
+When the investigation is complete, validate that your analysis is supported by the evidence collected.
 
-Example: for "high error rates across multiple services after a deployment", create todos covering the deployment timeline, per-service metrics/logs/traces, and recent config changes — then start the independent ones in parallel.
-
-When you have completed an investigation, validate that your analysis is supported by the evidence collected.
-
-Tool results and user messages may include <system-reminder> tags with useful reminders. They are NOT part of the user's input or the tool result.
+Tool results and user messages may include <system-reminder> tags with useful reminders; they are not part of the user's input or the tool result.
 
 ```typescript
 {
-  // The updated todo list
   todos: {
     content: string;
     status: "pending" | "in_progress" | "completed";
