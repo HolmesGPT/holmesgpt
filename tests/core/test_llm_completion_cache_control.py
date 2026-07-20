@@ -144,6 +144,7 @@ class TestBuildCacheControlInjectionPoints:
     """Unit tests for the breakpoint-placement helper itself."""
 
     def test_single_user_message_gets_trailing_breakpoint_only(self):
+        """First request of a conversation has no previous prefix to break on."""
         points = build_cache_control_injection_points(
             [
                 {"role": "system", "content": "sys"},
@@ -153,6 +154,7 @@ class TestBuildCacheControlInjectionPoints:
         assert points == [{"location": "message", "index": -1}]
 
     def test_no_user_messages_gets_trailing_breakpoint_only(self):
+        """Requests without user messages keep the single trailing breakpoint."""
         points = build_cache_control_injection_points(
             [{"role": "system", "content": "sys"}]
         )
