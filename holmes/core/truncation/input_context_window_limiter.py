@@ -127,6 +127,8 @@ def compact_if_necessary(
                     "prompt_tokens": compaction_usage.prompt_tokens,
                     "completion_tokens": compaction_usage.completion_tokens,
                     "total_tokens": compaction_usage.total_tokens,
+                    "cached_tokens": compaction_usage.cached_tokens,
+                    "cache_creation_tokens": compaction_usage.cache_creation_tokens,
                 }
 
             events.append(
