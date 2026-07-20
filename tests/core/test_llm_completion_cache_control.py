@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
-from holmes.core.llm import DefaultLLM
+from holmes.core.llm import DefaultLLM, build_cache_control_injection_points
 
 
 def _mock_model_response() -> ModelResponse:
@@ -136,5 +136,43 @@ class TestCacheControlInjectionPoints:
         kwargs = mock_completion.call_args.kwargs
         assert kwargs.get("cache_control_injection_points") == [
             {"location": "message", "index": 1},
+            {"location": "message", "index": -1},
+        ]
+
+
+class TestBuildCacheControlInjectionPoints:
+    """Unit tests for the breakpoint-placement helper itself."""
+
+    def test_single_user_message_gets_trailing_breakpoint_only(self):
+        points = build_cache_control_injection_points(
+            [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "q1"},
+            ]
+        )
+        assert points == [{"location": "message", "index": -1}]
+
+    def test_no_user_messages_gets_trailing_breakpoint_only(self):
+        points = build_cache_control_injection_points(
+            [{"role": "system", "content": "sys"}]
+        )
+        assert points == [{"location": "message", "index": -1}]
+
+    def test_second_to_last_user_message_gets_breakpoint(self):
+        """Compaction-shaped request: the second-to-last user message is where
+        the previous agentic request's cache entry ends."""
+        points = build_cache_control_injection_points(
+            [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "q1"},
+                {"role": "assistant", "content": "a1"},
+                {"role": "user", "content": "q2"},  # previous request's boundary
+                {"role": "assistant", "content": None, "tool_calls": [{}]},
+                {"role": "tool", "tool_call_id": "c1", "content": "r1"},
+                {"role": "user", "content": "summarize"},
+            ]
+        )
+        assert points == [
+            {"location": "message", "index": 3},
             {"location": "message", "index": -1},
         ]
