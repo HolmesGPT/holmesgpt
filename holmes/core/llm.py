@@ -177,42 +177,6 @@ def _is_gemini_route(litellm_model_name: str) -> bool:
     return False
 
 
-def build_cache_control_injection_points(
-    messages: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """Choose where litellm should inject prompt-cache breakpoints.
-
-    A breakpoint on the last message caches this request's prefix for the
-    next one. That alone is not enough: providers scan only a limited window
-    (~20 content blocks on Anthropic/Bedrock) behind each breakpoint when
-    looking up cached prefixes, so a request whose new tail is large — an
-    iteration after ~10+ parallel tool calls, or a compaction summarization
-    request (which appends an instructions message on top of such a burst) —
-    puts its only breakpoint out of reach of the previously cached prefix.
-    The lookup then misses entirely: cache_read=0 and the whole prompt is
-    re-written at cache-write rates.
-
-    The second breakpoint goes on the second-to-last user message, which is
-    where the previous request's cache entry ends (the previous request's
-    last message), so a cache hit is found there regardless of how many
-    blocks the new tail adds. Anthropic allows up to 4 breakpoints per
-    request, so two is safe; requests with fewer than two user messages
-    keep the single trailing breakpoint.
-    """
-    injection_points: List[Dict[str, Any]] = [
-        {
-            "location": "message",
-            "index": -1,  # -1 targets the last message.
-        }
-    ]
-    user_indices = [i for i, m in enumerate(messages) if m.get("role") == "user"]
-    if len(user_indices) >= 2:
-        injection_points.insert(
-            0, {"location": "message", "index": user_indices[-2]}
-        )
-    return injection_points
-
-
 class ContextWindowUsage(BaseModel):
     total_tokens: int
     tools_tokens: int
@@ -793,9 +757,12 @@ class DefaultLLM(LLM):
         # their cache benefit.
         cache_kwargs: Dict[str, Any] = {}
         if not _is_gemini_route(litellm_model_name):
-            cache_kwargs["cache_control_injection_points"] = (
-                build_cache_control_injection_points(sanitized_messages)
-            )
+            cache_kwargs["cache_control_injection_points"] = [
+                {
+                    "location": "message",
+                    "index": -1,  # -1 targets the last message.
+                }
+            ]
 
         # A caller-supplied max_tokens overrides the default output budget for
         # this call only (self.args is shared across calls, so don't mutate it).
@@ -1174,12 +1141,6 @@ def build_usage_metadata(
     }
     if raw["cached_tokens"] is not None:
         usage["cached_tokens"] = raw["cached_tokens"]
-    # Per-call cache writes make prompt-cache regressions diagnosable from
-    # conversation events alone: cached_tokens=0 with cache_creation_tokens
-    # covering the whole prompt means the cache lookup missed and the prefix
-    # was re-written at premium write rates.
-    if raw["cache_creation_tokens"] is not None:
-        usage["cache_creation_tokens"] = raw["cache_creation_tokens"]
     if raw["reasoning_tokens"]:
         usage["reasoning_tokens"] = raw["reasoning_tokens"]
     return usage

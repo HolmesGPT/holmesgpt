@@ -1,6 +1,5 @@
 """Cache-token observability: prompt-cache reads/writes must flow from the
-litellm response into RequestStats (and from there into the compaction event)
-and into the per-call usage metadata on TOKEN_COUNT events."""
+litellm response into RequestStats (and from there into the compaction event)."""
 
 from litellm.types.utils import (
     Choices,
@@ -10,7 +9,6 @@ from litellm.types.utils import (
     Usage,
 )
 
-from holmes.core.llm import build_usage_metadata
 from holmes.core.llm_usage import RequestStats
 
 
@@ -60,29 +58,3 @@ def test_iadd_accumulates_cache_fields():
     )
     assert total.cached_tokens == 100
     assert total.cache_creation_tokens == 15
-
-
-def test_build_usage_metadata_includes_per_call_cache_fields():
-    """Per-call usage metadata (TOKEN_COUNT events) carries cache reads AND
-    writes, so a cache-lookup miss (cached=0, creation=whole prompt) is
-    diagnosable from conversation events alone."""
-    response = _response_with_usage(
-        prompt_tokens=1000,
-        completion_tokens=50,
-        total_tokens=1050,
-        prompt_tokens_details=PromptTokensDetailsWrapper(cached_tokens=800),
-        cache_creation_input_tokens=150,
-    )
-    usage = build_usage_metadata(response)
-    assert usage["cached_tokens"] == 800
-    assert usage["cache_creation_tokens"] == 150
-
-
-def test_build_usage_metadata_omits_absent_cache_fields():
-    """Providers that report no cache metrics don't get zero-noise fields."""
-    response = _response_with_usage(
-        prompt_tokens=100, completion_tokens=10, total_tokens=110
-    )
-    usage = build_usage_metadata(response)
-    assert "cached_tokens" not in usage
-    assert "cache_creation_tokens" not in usage
