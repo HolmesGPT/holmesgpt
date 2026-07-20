@@ -68,6 +68,68 @@ def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
     return True
 
 
+def _is_azure_compatible(tool_parameters: dict) -> bool:
+    """Check if a tool's parameters are compatible with Azure OpenAI strict schema.
+
+    Azure OpenAI requires that 'required' only includes keys present in 'properties'.
+    Tools with dynamic object arguments (additionalProperties with a schema) may have
+    'required' keys that don't match 'properties', causing Azure to reject the schema.
+
+    Returns True if compatible, False if the tool should be filtered out for Azure.
+    """
+    for param_name, param_attributes in tool_parameters.items():
+        if not hasattr(param_attributes, 'type'):
+            continue
+        param_type = param_attributes.type if isinstance(param_attributes.type, str) else str(param_attributes.type)
+        if param_type != 'object':
+            continue
+
+        # If it has explicit properties, it's fine
+        if hasattr(param_attributes, 'properties') and param_attributes.properties:
+            continue
+
+        # If it has additionalProperties with a schema (dynamic keys), it's Azure-incompatible
+        if hasattr(param_attributes, 'additional_properties'):
+            ap = param_attributes.additional_properties
+            if ap is not None and ap is not False:
+                return False
+
+        # If it's a generic object with no properties and required=True, it's problematic
+        if hasattr(param_attributes, 'required') and param_attributes.required:
+            if not hasattr(param_attributes, 'properties') or not param_attributes.properties:
+                return False
+
+    return True
+
+
+def filter_azure_incompatible_tools(tools: list) -> list:
+    """Filter out tools that have Azure-incompatible schemas.
+
+    Azure OpenAI requires 'required' to only include keys in 'properties'.
+    Tools with dynamic object arguments violate this and cause the entire
+    tool catalog to be rejected.
+
+    Returns a filtered list of tools that are Azure-compatible.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    compatible = []
+    for tool in tools:
+        if hasattr(tool, 'parameters') and tool.parameters:
+            if _is_azure_compatible(tool.parameters):
+                compatible.append(tool)
+            else:
+                tool_name = getattr(tool, 'name', 'unknown')
+                logger.warning(
+                    f"Tool '{tool_name}' filtered out: Azure-incompatible schema "
+                    f"(dynamic object arguments with additionalProperties)"
+                )
+        else:
+            compatible.append(tool)
+    return compatible
+
+
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
     # Handle union types (anyOf with multiple non-null branches) first.
     if hasattr(param_attributes, "any_of") and param_attributes.any_of:

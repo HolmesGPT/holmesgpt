@@ -935,11 +935,15 @@ class RemoteMCPToolset(Toolset):
             tools_result = asyncio.run(self._get_server_tools_with_context(request_context))
         else:
             tools_result = asyncio.run(self._get_server_tools())
+        # Filter out tools with Azure-incompatible schemas (Issue #2297)
+        from holmes.core.openai_formatting import filter_azure_incompatible_tools
+        compatible_tools = filter_azure_incompatible_tools(tools_result.tools)
+
         return [
             RemoteMCPTool.create(
                 tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
             )
-            for tool in tools_result.tools
+            for tool in compatible_tools
         ]
 
     def _render_headers(
