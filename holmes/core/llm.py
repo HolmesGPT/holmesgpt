@@ -347,6 +347,7 @@ class LLM:
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        max_tokens: Optional[int] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         pass
 
@@ -654,6 +655,7 @@ class DefaultLLM(LLM):
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        max_tokens: Optional[int] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         tools_args = {}
         allowed_openai_params = None
@@ -752,6 +754,18 @@ class DefaultLLM(LLM):
                 }
             ]
 
+        # A caller-supplied max_tokens overrides the default output budget for
+        # this call only (self.args is shared across calls, so don't mutate it).
+        # Used by compaction: its input is near the context window by definition,
+        # so the full agentic budget would make input + max_tokens exceed the
+        # window and get the request rejected.
+        per_call_args = self.args
+        if max_tokens is not None:
+            per_call_args = {
+                k: v for k, v in self.args.items() if k != "max_completion_tokens"
+            }
+            per_call_args["max_tokens"] = max_tokens
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
@@ -765,7 +779,7 @@ class DefaultLLM(LLM):
             timeout=LLM_REQUEST_TIMEOUT,
             **azure_ad_kwargs,
             **tools_args,
-            **self.args,
+            **per_call_args,
             **cache_kwargs,
         )
 

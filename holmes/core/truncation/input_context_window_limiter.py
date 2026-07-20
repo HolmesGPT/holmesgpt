@@ -120,7 +120,14 @@ def compact_if_necessary(
                 "num_messages_after": num_messages_after,
                 "max_context_size": max_context_size,
                 "threshold_pct": get_context_window_compaction_threshold_pct(),
+                # Whether the cache-friendly primary summarization request was
+                # abandoned for the flattened/no-tools fallback (which cannot
+                # reuse the agentic prompt cache). Key for diagnosing zero
+                # cached_tokens on the compaction call from event data alone.
+                "fallback_used": compaction_result.fallback_used,
             }
+            if compaction_result.fallback_reason:
+                compaction_stats["fallback_reason"] = compaction_result.fallback_reason
             if compaction_usage:
                 compaction_stats["compaction_cost"] = {
                     "total_cost": compaction_usage.total_cost,

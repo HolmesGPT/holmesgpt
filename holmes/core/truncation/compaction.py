@@ -11,6 +11,7 @@ from typing import Any, Optional
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
+from holmes.common.env_vars import COMPACTION_MAX_OUTPUT_TOKENS
 from holmes.core.llm import LLM
 from holmes.core.llm_usage import RequestStats
 from holmes.plugins.prompts import load_and_render_prompt
@@ -22,6 +23,8 @@ class CompactionResult(BaseModel):
     messages_after_compaction: list[dict]
     usage: Optional[RequestStats] = None
     summary: Optional[str] = None
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
 
 
 COMPACTION_SUMMARY_PREAMBLE = (
@@ -252,6 +255,14 @@ def compact_conversation_history(
     instructions_message = {"role": "user", "content": compaction_instructions}
     compaction_usage = RequestStats()
 
+    # Cap the output budget for summarization. Compaction runs when the input is
+    # near the context window by definition, so requesting the full agentic
+    # output budget (e.g. 64k) can make input + max_tokens exceed the window —
+    # Anthropic/Bedrock reject such requests outright, which silently kicks us
+    # to the fallback path and forfeits the prompt-cache reuse this request
+    # shape exists for. Summaries are ~4k tokens, so a small budget is safe.
+    summarization_max_tokens = min(maximum_output_token, COMPACTION_MAX_OUTPUT_TOKENS)
+
     response_message = None
     fallback_reason: Optional[str] = None
     try:
@@ -261,10 +272,13 @@ def compact_conversation_history(
                 tools=tools,
                 tool_choice="auto",
                 drop_params=True,
+                max_tokens=summarization_max_tokens,
             )  # type: ignore
         else:
             response = llm.completion(
-                messages=conversation_history + [instructions_message], drop_params=True
+                messages=conversation_history + [instructions_message],
+                drop_params=True,
+                max_tokens=summarization_max_tokens,
             )  # type: ignore
         compaction_usage += RequestStats.from_response(response)
         response_message = _get_response_message(response)
@@ -289,7 +303,9 @@ def compact_conversation_history(
         flattened_history, _ = strip_system_prompt(conversation_history)
         flattened_history = _flatten_tool_messages_for_compaction(flattened_history)
         response = llm.completion(
-            messages=flattened_history + [instructions_message], drop_params=True
+            messages=flattened_history + [instructions_message],
+            drop_params=True,
+            max_tokens=summarization_max_tokens,
         )  # type: ignore
         compaction_usage += RequestStats.from_response(response)
         response_message = _get_response_message(response)
@@ -304,6 +320,8 @@ def compact_conversation_history(
         return CompactionResult(
             messages_after_compaction=original_conversation_history,
             usage=compaction_usage,
+            fallback_used=bool(fallback_reason),
+            fallback_reason=fallback_reason,
         )
 
     compacted_conversation_history: list[dict] = []
@@ -327,4 +345,6 @@ def compact_conversation_history(
         messages_after_compaction=compacted_conversation_history,
         usage=compaction_usage,
         summary=summary_text,
+        fallback_used=bool(fallback_reason),
+        fallback_reason=fallback_reason,
     )

@@ -151,6 +151,17 @@ ENABLE_CONVERSATION_HISTORY_COMPACTION = load_bool(
     "ENABLE_CONVERSATION_HISTORY_COMPACTION", default=True
 )
 
+# Output-token cap for the compaction summarization request. Compaction runs when
+# the conversation is near the context window, so requesting the full agentic
+# output budget (e.g. 64k) on top of that input can exceed the model's context
+# limit and get the request rejected (Anthropic/Bedrock validate
+# input + max_tokens <= context window). Summaries are typically ~4k tokens,
+# so a much smaller budget is safe and keeps the cache-friendly primary
+# summarization request within the window.
+COMPACTION_MAX_OUTPUT_TOKENS = int(
+    os.environ.get("COMPACTION_MAX_OUTPUT_TOKENS", 16000)
+)
+
 DISABLE_PROMETHEUS_TOOLSET = load_bool("DISABLE_PROMETHEUS_TOOLSET", False)
 
 RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION = load_bool(
