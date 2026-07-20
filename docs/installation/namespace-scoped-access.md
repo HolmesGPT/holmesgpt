@@ -21,12 +21,15 @@ customServiceAccountName: holmes
 
 Create the service account, `Role`, and `RoleBinding` (`holmes-namespace-scoped.yaml`). Replace `monitoring` with the namespace you want Holmes to investigate, and `holmes` with the namespace Holmes is installed in:
 
+!!! important
+    The `holmes` ServiceAccount must be created in the **same namespace where Holmes is deployed**, not in a dedicated namespace of its own. If it lives in a different namespace than the Holmes agent, Holmes won't use it and may fail to work. In the example below, replace the `holmes` namespace with your Holmes install namespace everywhere it appears — the `ServiceAccount`, the `RoleBinding` subject, and the `kubectl auth can-i` commands.
+
 ```yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: holmes
-  namespace: holmes
+  namespace: holmes  # must match the namespace where Holmes is deployed
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -83,7 +86,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: holmes
-    namespace: holmes
+    namespace: holmes  # same namespace as the ServiceAccount above
 ```
 
 Apply it, then upgrade Holmes with the values above:
