@@ -98,3 +98,43 @@ class TestCacheControlInjectionPoints:
         assert kwargs["model"] == "gemini/gemini-3.1-pro-preview"
         assert kwargs["messages"] == messages
         assert kwargs["temperature"] == 0.3
+
+    def test_second_breakpoint_on_previous_user_message(self, mock_completion):
+        """Multi-turn requests get a second breakpoint on the second-to-last user
+        message so providers with a limited cache-lookback window (~20 content
+        blocks on Anthropic/Bedrock) still find the previously cached prefix
+        after long parallel tool-call bursts and on compaction requests.
+        """
+        llm = _make_llm("bedrock/anthropic.claude-sonnet-4-20250514-v1:0")
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "q1"},  # index 1: previous request's boundary
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "t", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "content": "result"},
+            {"role": "user", "content": "summarize the conversation"},
+        ]
+        llm.completion(messages=messages)
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs.get("cache_control_injection_points") == [
+            {"location": "message", "index": 1},
+            {"location": "message", "index": -1},
+        ]
+
+    def test_second_breakpoint_on_multi_turn_chat(self, mock_completion):
+        """A follow-up turn breaks on the previous turn's user message (where the
+        previous request's cache entry ends) plus the new last message."""
+        llm = _make_llm("bedrock/anthropic.claude-sonnet-4-20250514-v1:0")
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+        ]
+        llm.completion(messages=messages)
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs.get("cache_control_injection_points") == [
+            {"location": "message", "index": 1},
+            {"location": "message", "index": -1},
+        ]

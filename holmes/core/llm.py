@@ -757,12 +757,28 @@ class DefaultLLM(LLM):
         # their cache benefit.
         cache_kwargs: Dict[str, Any] = {}
         if not _is_gemini_route(litellm_model_name):
-            cache_kwargs["cache_control_injection_points"] = [
+            # Breakpoint on the last message extends the cache; a second one on
+            # the second-to-last user message lands on (or near) the prefix the
+            # previous request cached, so providers whose cache lookup only
+            # scans a limited number of content blocks behind each breakpoint
+            # (Anthropic/Bedrock: ~20) still find the cached prefix after long
+            # tool bursts and on compaction summarization requests.
+            injection_points = [
                 {
                     "location": "message",
                     "index": -1,  # -1 targets the last message.
                 }
             ]
+            user_indices = [
+                i
+                for i, m in enumerate(sanitized_messages)
+                if m.get("role") == "user"
+            ]
+            if len(user_indices) >= 2:
+                injection_points.insert(
+                    0, {"location": "message", "index": user_indices[-2]}
+                )
+            cache_kwargs["cache_control_injection_points"] = injection_points
 
         # A caller-supplied max_tokens overrides the default output budget for
         # this call only (self.args is shared across calls, so don't mutate it).
