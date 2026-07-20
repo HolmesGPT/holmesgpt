@@ -1,12 +1,15 @@
 """Tests for OpenTelemetry tracing implementation."""
+import contextvars
 import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from holmes.core.otel_tracing import OTelSpan
 from holmes.core.tracing import DummySpan, DummyTracer, SpanType, TracingFactory
 
 
@@ -214,38 +217,30 @@ class TestOTelSpan:
         detach.assert_not_called()
         assert otel_span._token is None  # token cleared either way
 
-    def test_rob278_reproduce_bug_then_verify_fix(self, in_memory_exporter, caplog):
+    def test_rob278_reproduce_bug_then_verify_fix(self, in_memory_exporter):
         """Reproduce the real ROB-278 detach error, then prove _safe_detach avoids it."""
-        import contextvars
-        import logging
-
-        from opentelemetry import context as otel_context
-        from opentelemetry import trace as _trace
-
-        from holmes.core.otel_tracing import OTelSpan
-
-        tracer = _trace.get_tracer("test")
+        tracer = trace.get_tracer("test")
         span_a = tracer.start_span("a")
-        token_a = otel_context.attach(_trace.set_span_in_context(span_a))
+        token_a = otel_context.attach(trace.set_span_in_context(span_a))
         try:
             # 1) Naive detach in a DIFFERENT context reproduces the OTel error.
+            #    Spy on the module logger directly — caplog can't be trusted here
+            #    because other tests in the session may reconfigure logging.
             def naive_detach():
                 otel_context.detach(token_a)
 
-            caplog.clear()
-            with caplog.at_level(logging.ERROR, logger="opentelemetry.context"):
+            with patch.object(otel_context.logger, "exception") as log_exc:
                 contextvars.Context().run(naive_detach)
-            assert "Failed to detach context" in caplog.text
+            log_exc.assert_called_once_with("Failed to detach context")
 
             # 2) _safe_detach in that same cross-context situation stays silent:
             #    span_a is not current there, so it skips the detach.
             def safe_detach():
                 OTelSpan(span_a, tracer, token_a)._safe_detach()
 
-            caplog.clear()
-            with caplog.at_level(logging.ERROR, logger="opentelemetry.context"):
+            with patch.object(otel_context.logger, "exception") as log_exc:
                 contextvars.Context().run(safe_detach)
-            assert "Failed to detach context" not in caplog.text
+            log_exc.assert_not_called()
         finally:
             # in-order detach in the original context — clean, no error
             otel_context.detach(token_a)
