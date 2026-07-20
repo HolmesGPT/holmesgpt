@@ -349,6 +349,11 @@ class LLM:
         stream: Optional[bool] = None,
         max_tokens: Optional[int] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one LLM completion request.
+
+        max_tokens, when given, overrides the implementation's default output
+        budget for this call only (e.g. compaction's summarization cap).
+        """
         pass
 
 
@@ -657,6 +662,11 @@ class DefaultLLM(LLM):
         stream: Optional[bool] = None,
         max_tokens: Optional[int] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one litellm completion request with the model's configured args.
+
+        max_tokens, when given, overrides the default output budget for this
+        call only, without mutating the shared model args.
+        """
         tools_args = {}
         allowed_openai_params = None
 

@@ -42,6 +42,7 @@ class MyCustomLLM(LLM):
         drop_params: Optional[bool] = None,
         max_tokens: Optional[int] = None,
     ) -> ModelResponse:
+        """Return a canned response demonstrating the LLM interface."""
         return ModelResponse(
             choices=[
                 {
