@@ -34,9 +34,22 @@ toolsets:
           "sources-chart", "sources-bucket", "kustomizations", "helmreleases", "images",
           "alert-providers", "alerts", "receivers", "artifacts".
           Optionally pass 'name' to get a single resource instead of listing all of them.
+        parameters:
+          resource:
+            description: "The Flux resource type to query, e.g. 'all', 'kustomizations', 'sources-git'"
+            required: true
+          name:
+            description: "Optional: get only this specific resource instead of listing all of them"
+            required: false
+          namespace:
+            description: "Optional: namespace to query. Defaults to flux-system"
+            required: false
+          all_namespaces:
+            description: "Optional: query across all namespaces instead of a single one"
+            type: boolean
+            required: false
         script: |
           #!/bin/bash
-          set -e
           case "{{ resource }}" in
             sources-git) SUBCMD="sources git" ;;
             sources-helm) SUBCMD="sources helm" ;;
@@ -47,14 +60,58 @@ toolsets:
             images) SUBCMD="images all" ;;
             *) SUBCMD="{{ resource }}" ;;
           esac
-          flux get $SUBCMD {% if name %}{{ name }}{% endif %} \
-            -n {{ namespace if namespace is string else "flux-system" }} \
-            {% if all_namespaces %}-A{% endif %}
+          NAME="{% if name %}{{ name }}{% endif %}"
+          NS="{{ namespace if namespace is string else 'flux-system' }}"
+          ALLNS=""
+          {% if all_namespaces %}ALLNS="-A"{% endif %}
+
+          CMD="flux get $SUBCMD $NAME -n $NS $ALLNS"
+          echo "Running: $CMD"
+          OUTPUT=$(eval "$CMD" 2>&1)
+          STATUS=$?
+
+          if [ $STATUS -ne 0 ]; then
+            echo "Command failed with exit code $STATUS."
+            echo "$OUTPUT"
+            exit $STATUS
+          fi
+
+          if [ -z "$OUTPUT" ]; then
+            echo "No Flux '{{ resource }}' resources found (searched namespace: $NS${ALLNS:+, all namespaces})."
+            exit 0
+          fi
+
+          echo "$OUTPUT"
 
       - name: "flux_tree"
         description: >
           Show the tree of Kubernetes resources reconciled/managed by a Flux Kustomization.
           Use this to answer "what does this Kustomization deploy" or to see the dependency
           chain of resources it manages. Requires the Kustomization's name.
-        command: >
-          flux tree kustomization {{ name }} -n {{ namespace if namespace is string else "flux-system" }}
+        parameters:
+          name:
+            description: "Name of the Kustomization to show the resource tree for"
+            required: true
+          namespace:
+            description: "Optional: namespace the Kustomization lives in. Defaults to flux-system"
+            required: false
+        script: |
+          #!/bin/bash
+          NS="{{ namespace if namespace is string else 'flux-system' }}"
+          CMD="flux tree kustomization {{ name }} -n $NS"
+          echo "Running: $CMD"
+          OUTPUT=$(eval "$CMD" 2>&1)
+          STATUS=$?
+
+          if [ $STATUS -ne 0 ]; then
+            echo "Command failed with exit code $STATUS."
+            echo "$OUTPUT"
+            exit $STATUS
+          fi
+
+          if [ -z "$OUTPUT" ]; then
+            echo "No resources found for Kustomization '{{ name }}' in namespace '$NS'."
+            exit 0
+          fi
+
+          echo "$OUTPUT"
