@@ -121,15 +121,21 @@ def pytest_configure(config):
     if confluence_base and not os.environ.get("CONFLUENCE_SA_BASE_URL"):
         parsed = urllib.parse.urlparse(confluence_base)
         if parsed.scheme not in ("http", "https"):
-            logging.warning(f"CONFLUENCE_BASE_URL has unsupported scheme '{parsed.scheme}', skipping SA URL derivation")
+            logging.warning(
+                f"CONFLUENCE_BASE_URL has unsupported scheme '{parsed.scheme}', skipping SA URL derivation"
+            )
         else:
             try:
                 tenant_url = f"{confluence_base.rstrip('/')}/_edge/tenant_info"
                 with urllib.request.urlopen(tenant_url, timeout=10) as resp:
                     cloud_id = json.loads(resp.read())["cloudId"]
-                os.environ["CONFLUENCE_SA_BASE_URL"] = f"https://api.atlassian.com/ex/confluence/{cloud_id}"
+                os.environ["CONFLUENCE_SA_BASE_URL"] = (
+                    f"https://api.atlassian.com/ex/confluence/{cloud_id}"
+                )
                 os.environ["CONFLUENCE_CLOUD_ID"] = cloud_id
-                logging.info(f"Auto-derived CONFLUENCE_SA_BASE_URL and CONFLUENCE_CLOUD_ID from cloud ID {cloud_id}")
+                logging.info(
+                    f"Auto-derived CONFLUENCE_SA_BASE_URL and CONFLUENCE_CLOUD_ID from cloud ID {cloud_id}"
+                )
             except Exception as e:
                 logging.warning(f"Could not auto-derive CONFLUENCE_SA_BASE_URL: {e}")
 
@@ -286,6 +292,9 @@ def responses():
         # Allow Confluence/Atlassian Cloud API calls
         rsps.add_passthru(re.compile(r"https://.*\.atlassian\.net"))
         rsps.add_passthru("https://api.atlassian.com")  # Atlassian Cloud API gateway
+
+        # Allow Freshservice (Freshworks) API calls
+        rsps.add_passthru(re.compile(r"https://.*\.freshservice\.com"))
 
         # Allow
         rsps.add_passthru("https://google.com")
