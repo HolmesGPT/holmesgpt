@@ -5643,17 +5643,17 @@ files = [
 
 [[package]]
 name = "python-json-logger"
-version = "4.1.0"
+version = "3.3.0"
 description = "JSON Log Formatter for the Python Logging Package"
 optional = false
-python-versions = ">=3.10"
+python-versions = ">=3.8"
 files = [
-    {file = "python_json_logger-4.1.0-py3-none-any.whl", hash = "sha256:132994765cf75bf44554be9aa49b06ef2345d23661a96720262716438141b6b2"},
-    {file = "python_json_logger-4.1.0.tar.gz", hash = "sha256:b396b9e3ed782b09ff9d6e4f1683d46c83ad0d35d2e407c09a9ebbf038f88195"},
+    {file = "python_json_logger-3.3.0-py3-none-any.whl", hash = "sha256:dd980fae8cffb24c13caf6e158d3d61c0d6d22342f932cb6e9deedab3d35eec7"},
+    {file = "python_json_logger-3.3.0.tar.gz", hash = "sha256:12b7e74b17775e7d565129296105bbe3910842d9d0eb083fc83a6a617aa8df84"},
 ]
 
 [package.extras]
-dev = ["black", "build", "freezegun", "mdx_truly_sane_lists", "mike", "mkdocs", "mkdocs-awesome-pages-plugin", "mkdocs-gen-files", "mkdocs-literate-nav", "mkdocs-material (>=8.5)", "mkdocstrings[python]", "msgspec", "mypy", "orjson", "pylint", "pytest", "tzdata", "validate-pyproject[all]"]
+dev = ["backports.zoneinfo", "black", "build", "freezegun", "mdx_truly_sane_lists", "mike", "mkdocs", "mkdocs-awesome-pages-plugin", "mkdocs-gen-files", "mkdocs-literate-nav", "mkdocs-material (>=8.5)", "mkdocstrings[python]", "msgspec", "mypy", "orjson", "pylint", "pytest", "tzdata", "validate-pyproject[all]"]
 
 [[package]]
 name = "python-multipart"
@@ -7761,4 +7761,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.14"
-content-hash = "9d55d2344bf4567ff1759266958254d626a82ce19aeeba407a3aaabe9a1da9c6"
+content-hash = "5cb3dc3ce4771a6b4b91e46f6f4450090c4cb93709de75f01c4438c4bbb653ad"
