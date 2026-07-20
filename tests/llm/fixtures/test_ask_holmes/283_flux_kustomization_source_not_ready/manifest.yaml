@@ -1,7 +1,7 @@
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
-  name: podinfo
+  name: podinfo-283
   namespace: flux-system
 spec:
   interval: 1m
@@ -12,7 +12,7 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: podinfo
+  name: podinfo-283
   namespace: flux-system
 spec:
   interval: 1m
@@ -20,5 +20,5 @@ spec:
   prune: true
   sourceRef:
     kind: GitRepository
-    name: podinfo
+    name: podinfo-283
   targetNamespace: default
