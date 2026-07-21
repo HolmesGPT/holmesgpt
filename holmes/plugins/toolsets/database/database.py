@@ -109,6 +109,28 @@ def _detect_subtype(connection_url: str) -> DatabaseSubtype:
     return info.subtype if info else DatabaseSubtype.UNKNOWN
 
 
+# Per-subtype icons, copied from the frontend data-source catalog so tool-call
+# icons match the catalog card. One DatabaseToolset backs every SQL subtype, so
+# the icon is picked from the subtype rather than hardcoded (FRO-190).
+_ICON_URL_BASE = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos"
+_SUBTYPE_ICON_URLS: Dict[DatabaseSubtype, str] = {
+    DatabaseSubtype.POSTGRESQL: f"{_ICON_URL_BASE}/postgresql.svg",
+    DatabaseSubtype.MYSQL: f"{_ICON_URL_BASE}/mysql-icon.svg",
+    DatabaseSubtype.MARIADB: f"{_ICON_URL_BASE}/mariadb-icon.svg",
+    DatabaseSubtype.MSSQL: f"{_ICON_URL_BASE}/microsoft-icon.svg",
+    DatabaseSubtype.SQLITE: "https://cdn.simpleicons.org/sqlite/003B57",
+    DatabaseSubtype.CLICKHOUSE: "https://cdn.simpleicons.org/clickhouse/FFCC01",
+}
+
+# Fallback for an unknown subtype; matches the catalog's generic "database/sql".
+_DEFAULT_DATABASE_ICON_URL = f"{_ICON_URL_BASE}/mysql-icon.svg"
+
+
+def _icon_url_for_subtype(subtype: DatabaseSubtype) -> str:
+    """Return the catalog icon URL for a database subtype."""
+    return _SUBTYPE_ICON_URLS.get(subtype, _DEFAULT_DATABASE_ICON_URL)
+
+
 def _parse_clickhouse_http_url(
     url: str,
 ) -> Tuple[str, str, Optional[Tuple[str, str]]]:
@@ -349,7 +371,8 @@ class DatabaseToolset(Toolset):
             description=description,
             type=ToolsetType.DATABASE,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/database/",
-            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/postgresql.svg",
+            # Placeholder; replaced per-subtype by _apply_icon_url().
+            icon_url=_DEFAULT_DATABASE_ICON_URL,
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],
             tags=[ToolsetTag.CORE],
@@ -385,6 +408,9 @@ class DatabaseToolset(Toolset):
         # Set initial meta — updated with detected subtype in prerequisites_callable
         self.meta = {"type": "database", "subtype": self._subtype.value}
 
+        # Apply icon for the explicit subtype (or the default until detection).
+        self._apply_icon_url()
+
         self._user_llm_instructions = llm_instructions
         self._dialect: Optional[str] = None
         if self._user_llm_instructions:
@@ -401,9 +427,23 @@ class DatabaseToolset(Toolset):
             if self._subtype == DatabaseSubtype.UNKNOWN:
                 self._subtype = _detect_subtype(self.database_config.connection_url)
             self.meta = {"type": "database", "subtype": self._subtype.value}
+            # Re-apply now the subtype is known (covers auto-detect and lazy init).
+            self._apply_icon_url()
             return self._perform_health_check()
         except Exception as e:
             return False, f"Invalid database configuration: {e}"
+
+    def _apply_icon_url(self) -> None:
+        """Set the toolset and per-tool icon from the resolved subtype.
+
+        Tools are updated directly (not just the toolset) so the correct icon is
+        stamped onto results even under lazy init, where ToolExecutor has already
+        registered the tools and won't re-copy the toolset icon.
+        """
+        icon_url = _icon_url_for_subtype(self._subtype)
+        self.icon_url = icon_url
+        for tool in self.tools:
+            tool.icon_url = icon_url
 
     def _perform_health_check(self) -> Tuple[bool, str]:
         try:

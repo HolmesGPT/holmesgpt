@@ -1,3 +1,7 @@
+{{- $tls := .Values.tls | default dict -}}
+{{- if and $tls.enabled (not $tls.secretName) }}
+{{- fail "tls.enabled requires tls.secretName (a secret providing tls.crt and tls.key)" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -107,17 +111,37 @@ spec:
         - containerPort: 5050
           name: http
         livenessProbe:
+          {{- if and $tls.enabled $tls.caCertsSecretKey }}
+          # mTLS requires a client cert; kubelet httpGet probes can't present one,
+          # so the TLS handshake would be rejected. Fall back to a TCP connect check.
+          tcpSocket:
+            port: http
+          {{- else }}
           httpGet:
             path: /healthz
             port: http
+            {{- if $tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          {{- end }}
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 10
         readinessProbe:
+          {{- if and $tls.enabled $tls.caCertsSecretKey }}
+          # mTLS requires a client cert; kubelet httpGet probes can't present one,
+          # so the TLS handshake would be rejected. Fall back to a TCP connect check.
+          tcpSocket:
+            port: http
+          {{- else }}
           httpGet:
             path: /readyz
             port: http
+            {{- if $tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          {{- end }}
           initialDelaySeconds: 15
           periodSeconds: 5
           timeoutSeconds: 3
@@ -125,10 +149,29 @@ spec:
         env:
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
+          - name: ENABLE_JSON_LOGS_FORMAT
+            value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
           - name: SENTRY_DSN
             value: {{ .Values.sentryDSN }}
+          {{- if $tls.enabled }}
+          - name: HOLMES_SSL_CERTFILE
+            value: /etc/holmes/tls/tls.crt
+          - name: HOLMES_SSL_KEYFILE
+            value: /etc/holmes/tls/tls.key
+          {{- if $tls.keyfilePasswordSecretKey }}
+          - name: HOLMES_SSL_KEYFILE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ $tls.secretName }}
+                key: {{ $tls.keyfilePasswordSecretKey }}
+          {{- end }}
+          {{- if $tls.caCertsSecretKey }}
+          - name: HOLMES_SSL_CA_CERTS
+            value: /etc/holmes/tls/ca.crt
+          {{- end }}
+          {{- end }}
           {{ if .Values.certificate -}}
           - name: CERTIFICATE
             value: {{ .Values.certificate }}
@@ -161,9 +204,15 @@ spec:
                 name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
                 key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
           {{- end }}
-        {{- if .Values.additional_env_froms }}
+        {{- if or .Values.additional_env_froms .Values.extraEnvVarsSecrets }}
         envFrom:
-        {{ toYaml .Values.additional_env_froms | nindent 8 }}
+        {{- range .Values.extraEnvVarsSecrets }}
+        - secretRef:
+            name: {{ . }}
+        {{- end }}
+        {{- with .Values.additional_env_froms }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
         {{- end }}
         lifecycle:
           preStop:
@@ -172,6 +221,11 @@ spec:
         volumeMounts:
           - name: tmp-volume
             mountPath: /tmp
+          {{- if $tls.enabled }}
+          - name: holmes-tls
+            mountPath: /etc/holmes/tls
+            readOnly: true
+          {{- end }}
           - name: playbooks-config-secret
             mountPath: /etc/robusta/config
           - name: custom-toolsets-configmap
@@ -198,6 +252,22 @@ spec:
         - name: tmp-volume
           emptyDir:
             sizeLimit: 256Mi
+        {{- if $tls.enabled }}
+        - name: holmes-tls
+          secret:
+            secretName: {{ $tls.secretName }}
+            # Project only the files the server reads, so the keyfile password (and
+            # any other keys in the secret) are not written to disk.
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+              {{- if $tls.caCertsSecretKey }}
+              - key: {{ $tls.caCertsSecretKey }}
+                path: ca.crt
+              {{- end }}
+        {{- end }}
         - name: playbooks-config-secret
           secret:
             secretName: robusta-playbooks-config-secret
@@ -240,4 +310,4 @@ spec:
       protocol: TCP
       port: 80
       targetPort: 5050
-      appProtocol: http
+      appProtocol: {{ if $tls.enabled }}https{{ else }}http{{ end }}

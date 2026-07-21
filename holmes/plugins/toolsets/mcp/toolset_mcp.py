@@ -4,6 +4,7 @@ import binascii
 import json
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -319,6 +320,14 @@ async def get_initialized_mcp_session(
 
 class RemoteMCPTool(Tool):
     toolset: "RemoteMCPToolset" = Field(exclude=True)
+    # Real server-side tool name; exposed name is prefixed on collision.
+    mcp_tool_name: str = Field(default="", exclude=True)
+
+    @property
+    def collision_safe_name(self) -> str:
+        """Raw name prefixed with the sanitized toolset name."""
+        prefix = re.sub(r"[^a-zA-Z0-9]+", "_", self.toolset.name).strip("_")
+        return f"{prefix}__{self.mcp_tool_name}"
 
     def requires_approval(
         self, params: Dict, context: ToolInvokeContext
@@ -392,7 +401,7 @@ class RemoteMCPTool(Tool):
         )
 
     def _is_placeholder_connect_tool(self) -> bool:
-        return self.name == self.toolset.connect_tool_name
+        return (self.mcp_tool_name or self.name) == self.toolset.connect_tool_name
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         try:
@@ -518,7 +527,7 @@ class RemoteMCPTool(Tool):
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
-            tool_result = await session.call_tool(self.name, params)
+            tool_result = await session.call_tool(self.mcp_tool_name or self.name, params)
 
         text_chunks = [
             self._extract_text_from_content_block(c) for c in tool_result.content
@@ -556,6 +565,7 @@ class RemoteMCPTool(Tool):
         parameters = cls.parse_input_schema(tool.inputSchema)
         return cls(
             name=tool.name,
+            mcp_tool_name=tool.name,
             description=tool.description or "",
             parameters=parameters,
             toolset=toolset,
@@ -777,7 +787,7 @@ class RemoteMCPTool(Tool):
             return f"{params.get('cli_command')}"
 
         # gcloud MCP run_gcloud_command
-        if self.name == "run_gcloud_command" and params and "args" in params:
+        if (self.mcp_tool_name or self.name) == "run_gcloud_command" and params and "args" in params:
             args = params.get("args", [])
             if isinstance(args, list):
                 return f"gcloud {' '.join(str(arg) for arg in args)}"
@@ -992,7 +1002,7 @@ class RemoteMCPToolset(Toolset):
         Returns the name of the first allowlisted tool the server exposes, or
         None if it exposes none (in which case the auth health check is skipped).
         """
-        tool_names = {t.name for t in self.tools}
+        tool_names = {(t.mcp_tool_name or t.name) for t in self.tools}
         for candidate in DEFAULT_HEALTH_CHECK_TOOLS:
             if candidate in tool_names:
                 logging.info(
@@ -1020,7 +1030,7 @@ class RemoteMCPToolset(Toolset):
         GitHub token). This method calls a specified read-only tool with empty
         arguments to verify the connection is fully functional.
         """
-        matching_tools = [t for t in self.tools if t.name == tool_name]
+        matching_tools = [t for t in self.tools if (t.mcp_tool_name or t.name) == tool_name]
         if not matching_tools:
             available = [t.name for t in self.tools]
             return (

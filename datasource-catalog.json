@@ -106,7 +106,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mongodb-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/mongodb-atlas/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["atlas_mongodb", "MongoDBAtlas", "mongodbatlas"]
+      "backendToolsetNames": ["atlas_mongodb", "MongoDBAtlas", "mongodbatlas"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "azure-sql",
@@ -116,7 +117,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/azure-sql/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["azure_sql", "Azure/Sql", "azure/sql"]
+      "backendToolsetNames": ["azure_sql", "Azure/Sql", "azure/sql"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "mysql",
@@ -223,14 +225,21 @@
       "backendToolsetNames": ["splunk", "splunk-mcp"]
     },
     {
-      "id": "datadog/logs",
-      "name": "Datadog Logs",
-      "description": "Search and query Datadog logs",
-      "categories": ["logs"],
+      "id": "datadog",
+      "name": "Datadog",
+      "description": "Search Datadog logs, metrics, and APM traces",
+      "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["datadog/logs"]
+      "backendToolsetNames": ["datadog/logs", "datadog/metrics", "datadog/traces", "datadog/general"],
+      "selectableToolsets": [
+        { "name": "datadog/logs", "label": "Logs", "default": true },
+        { "name": "datadog/metrics", "label": "Metrics", "default": true },
+        { "name": "datadog/traces", "label": "APM / Traces", "default": true },
+        { "name": "datadog/general", "label": "General API", "default": true, "description": "Raw read-only Datadog API access" }
+      ],
+      "supportsMultipleInstances": true
     },
     {
       "id": "grafana/loki",
@@ -240,27 +249,23 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/grafanaloki/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["grafana/loki"]
+      "backendToolsetNames": ["grafana/loki"],
+      "supportsMultipleInstances": true
     },
     {
-      "id": "opensearch/logs",
-      "name": "OpenSearch Logs",
-      "description": "Search and query OpenSearch logs",
-      "categories": ["logs"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["opensearch/logs", "opensearch/query_assist"]
-    },
-    {
-      "id": "elasticsearch/data",
-      "name": "Elasticsearch",
-      "description": "Search and query Elasticsearch data",
+      "id": "elasticsearch",
+      "name": "Elasticsearch / OpenSearch",
+      "description": "Search and query Elasticsearch or OpenSearch data, and diagnose cluster health",
       "categories": ["logs", "metrics", "traces"],
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/elasticsearch.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["elasticsearch/data"]
+      "backendToolsetNames": ["elasticsearch/data", "elasticsearch/cluster"],
+      "selectableToolsets": [
+        { "name": "elasticsearch/data", "label": "Data & Search", "default": true, "description": "Search logs, metrics, and documents" },
+        { "name": "elasticsearch/cluster", "label": "Cluster health", "default": true, "description": "Shards, nodes, allocation diagnostics" }
+      ],
+      "supportsMultipleInstances": true
     },
     {
       "id": "prometheus/metrics",
@@ -270,7 +275,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/prometheus.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/prometheus/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["prometheus/metrics"]
+      "backendToolsetNames": ["prometheus/metrics"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "victoriametrics",
@@ -282,27 +288,8 @@
       "configType": "native",
       "backendToolsetNames": ["prometheus/metrics"],
       "metaFilter": {"subtype": "victoriametrics"},
-      "variantKey": "VictoriaMetricsConfig"
-    },
-    {
-      "id": "datadog/metrics",
-      "name": "Datadog Metrics",
-      "description": "Query Datadog metrics",
-      "categories": ["metrics"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["datadog/metrics"]
-    },
-    {
-      "id": "opensearch/metrics",
-      "name": "OpenSearch Metrics",
-      "description": "Query OpenSearch metrics",
-      "categories": ["metrics"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["opensearch/metrics"]
+      "variantKey": "VictoriaMetricsConfig",
+      "supportsMultipleInstances": true
     },
     {
       "id": "grafana/tempo",
@@ -312,27 +299,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/grafanatempo/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["grafana/tempo"]
-    },
-    {
-      "id": "datadog/traces",
-      "name": "Datadog APM",
-      "description": "Query Datadog APM traces",
-      "categories": ["traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/datadog/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["datadog/traces"]
-    },
-    {
-      "id": "opensearch/traces",
-      "name": "OpenSearch Traces",
-      "description": "Query OpenSearch traces",
-      "categories": ["traces"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/?tab=robusta-helm-chart",
-      "configType": "native",
-      "backendToolsetNames": ["opensearch/traces"]
+      "backendToolsetNames": ["grafana/tempo"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "newrelic",
@@ -342,7 +310,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/new-relic-icon.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/newrelic/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["newrelic"]
+      "backendToolsetNames": ["newrelic"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "coralogix",
@@ -352,7 +321,8 @@
       "iconUrl": "https://avatars.githubusercontent.com/u/35295744?s=200&v=4",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/coralogix-logs/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["coralogix"]
+      "backendToolsetNames": ["coralogix"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "dynatrace-mcp",
@@ -372,7 +342,8 @@
       "iconUrl": "https://upload.wikimedia.org/wikipedia/commons/5/57/ServiceNow_logo.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/servicenow/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["servicenow/tables"]
+      "backendToolsetNames": ["servicenow/tables"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "jira",
@@ -404,7 +375,8 @@
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/confluence.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/confluence/?tab=robusta-helm-chart",
       "configType": "native",
-      "backendToolsetNames": ["confluence"]
+      "backendToolsetNames": ["confluence"],
+      "supportsMultipleInstances": true
     },
     {
       "id": "notion",
@@ -461,6 +433,17 @@
       "helmPath": "holmes.mcpAddons.prefectMcp",
       "minRobustaVersion": "0.33.0",
       "backendToolsetNames": ["prefect", "prefect-mcp"]
+    },
+    {
+      "id": "kubernetes-mcp",
+      "name": "Kubernetes MCP",
+      "description": "Use Kubernetes tools with per-user OAuth and cluster RBAC, as an alternative to the default shared service account. Requires disabling some of the built-in Kubernetes tools. Read the docs for more info.",
+      "categories": ["other"],
+      "iconUrl": "https://cdn.simpleicons.org/kubernetes/326CE5",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/kubernetes-mcp/#per-user-auth-oauth-or-oidc",
+      "configType": "native-mcp",
+      "helmPath": "holmes.mcpAddons.kubernetes",
+      "backendToolsetNames": ["kubernetes", "kubernetes-mcp", "kubernetes_mcp"]
     },
     {
       "id": "kubernetes-remediation-mcp",

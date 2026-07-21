@@ -410,11 +410,13 @@ class Tool(ABC, BaseModel):
         if not toolset:
             return None
 
+        # Match the real name, not the collision-namespaced exposed name.
+        real_name = getattr(self, "mcp_tool_name", "") or self.name
         for pattern in getattr(toolset, "approval_required_tools", []):
-            if fnmatch.fnmatch(self.name, pattern):
+            if fnmatch.fnmatch(real_name, pattern):
                 return ApprovalRequirement(
                     needs_approval=True,
-                    reason=f"Tool '{self.name}' matches approval pattern '{pattern}'",
+                    reason=f"Tool '{real_name}' matches approval pattern '{pattern}'",
                 )
         return None
 
