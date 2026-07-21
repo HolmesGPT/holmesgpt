@@ -104,7 +104,6 @@ def _register_custom_pricing(litellm_name: str, pricing: Dict[str, float]) -> No
             f"input={entry['input_cost_per_token']}, output={entry['output_cost_per_token']}"
         )
     except Exception as e:
-        logging.warning(
         logging.warning(f"Failed to register custom pricing for '{litellm_name}': {e}")
 
 
