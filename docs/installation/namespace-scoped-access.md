@@ -112,6 +112,7 @@ kubectl get role holmes-namespace-scoped -n monitoring
 kubectl get rolebinding holmes-namespace-scoped -n monitoring
 
 # Check what the service account can and cannot do
+# Replace <HOLMES_NAMESPACE> with the namespace where Holmes is deployed before running these commands.
 # Format: system:serviceaccount:<HOLMES_NAMESPACE>:<serviceaccount-name>
 kubectl auth can-i list pods -n monitoring --as=system:serviceaccount:<HOLMES_NAMESPACE>:holmes
 kubectl auth can-i list nodes --as=system:serviceaccount:<HOLMES_NAMESPACE>:holmes  # expected: no
