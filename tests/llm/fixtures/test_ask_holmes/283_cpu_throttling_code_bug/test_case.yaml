@@ -1,0 +1,191 @@
+# Eval 283: high CPU throttling caused by a bug in the application code.
+#
+# Scenario: the quote-service pod (CPU limit 200m) is slow and Prometheus
+# fires CPUThrottlingHigh. The cause is a cache-key mismatch introduced by
+# a refactor: TariffEngine stores computed tariff matrices under the key
+# format "ORIGIN->DEST" but looks them up via _cache_key(), which builds
+# "ORIGIN:DEST". The cache never hits, so every quote request recomputes
+# the expensive tariff matrix (compute_tariff_matrix), pegging the
+# container at its CFS quota under even light traffic (a rate-sync worker
+# cycling 12 fixed routes).
+#
+# Investigation chain the eval tests:
+#   1. Prometheus (real cAdvisor metrics via the cluster's
+#      kube-prometheus-stack) confirms sustained CPU throttling.
+#   2. Loki logs hint at the slow FUNCTION only ("compute_tariff_matrix
+#      took NNNNms for route X-Y") — nothing about the cache.
+#   3. The GitLab MCP server exposes the source code (the exact files the
+#      pod runs — both mount the same Secret). Reading tariff_engine.py
+#      reveals the key mismatch.
+#
+# Anti-hallucination: the expected root cause (write key "ORIGIN->DEST" vs
+# read key "ORIGIN:DEST" in tariff_engine.py) can only be produced by
+# reading the file via MCP. Metrics and logs alone cannot reveal it.
+#
+# Known alternate discovery path: kubernetes/core could in principle read
+# the quote-service-src Secret. That still requires finding and reading
+# the actual code, so it demonstrates the same root-causing ability; the
+# scripts live in a Secret (not a ConfigMap) per the standard eval pattern.
+#
+# It is expected that weaker models may fail this eval — that is
+# acceptable; the eval accurately tests metrics -> logs -> source-code
+# root-cause analysis. Verified passing 1/1 with opus-4.6 (via OpenRouter)
+# in the Claude Code sandbox: Holmes queried the throttling metrics, read
+# the Loki warnings, opened tariff_engine.py over the MCP server and named
+# the exact key mismatch and the commit that introduced it.
+#
+# Sandbox note (Claude Code sandbox k3s only — real clusters unaffected):
+#   - CPU limits are NOT enforced (cpu.cfs_quota_us stays -1), so cAdvisor
+#     exposes no container_cpu_cfs_* metrics and the needle-3 check cannot
+#     pass without a metrics stand-in feeding the Prometheus service.
+#   - `pip install` inside pods fails TLS verification because the sandbox
+#     MITMs pypi.org; mount /root/.ccr/ca-bundle.crt into the gitlab-mcp
+#     init container and set PIP_CERT to work around it.
+
+user_prompt: "Prometheus fired the CPUThrottlingHigh alert for the quote-service pod in namespace app-283, and customers report that shipping quotes now take many seconds to load. Find the root cause of the high CPU usage. Be specific about exactly what is wrong and what needs to be fixed."
+
+expected_output:
+  - The root cause is a cache-key mismatch in tariff_engine.py of the quote-service source code (logistics/quote-service repo); tariff matrices are stored in the cache under a key formatted with "->" (ORIGIN->DEST) but looked up with a key formatted with ":" (ORIGIN:DEST, built by _cache_key), so cache lookups never hit.
+  - Because the cache never hits, compute_tariff_matrix runs on every quote request; this CPU-heavy recomputation drives the container to its CPU limit, which causes the CFS throttling and the slow responses. Raising the CPU limit may be mentioned as a mitigation but must not be presented as the root cause or the fix.
+
+tags:
+  - kubernetes
+  - prometheus
+  - loki
+  - mcp
+  - chain-of-causation
+  - medium
+  - no-cicd
+
+# First run on a fresh cluster pulls several images, pip-installs the MCP
+# server deps, and then waits for throttling metrics to accumulate
+# (cAdvisor scrape interval ~30s), so allow a generous budget.
+setup_timeout: 900
+
+port_forwards:
+  - namespace: app-283
+    service: loki
+    local_port: 10283
+    remote_port: 3100
+  - namespace: default
+    service: robusta-kube-prometheus-st-prometheus
+    local_port: 11283
+    remote_port: 9090
+  - namespace: app-283
+    service: gitlab-mcp
+    local_port: 12283
+    remote_port: 8000
+
+before_test: |
+  set -e
+  NAMESPACE="app-283"
+
+  # This test assumes kube-prometheus-stack already runs in the cluster
+  # (same prerequisite as eval 159) — it provides the real cAdvisor
+  # throttling metrics and the CPUThrottlingHigh alert rule.
+  [ "$(kubectl get svc robusta-kube-prometheus-st-prometheus -n default -o jsonpath='{.spec.ports[?(@.port==9090)].port}' 2>/dev/null)" = "9090" ] \
+    || { echo "❌ Prometheus service missing or port 9090 not found in default namespace"; exit 1; }
+
+  kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+
+  # Shared Loki backend
+  kubectl apply -f ../../shared/loki.yaml -n ${NAMESPACE}
+
+  # Application source. The same Secret is executed by the quote-service
+  # pod and served as repository content by the GitLab MCP server.
+  kubectl create secret generic quote-service-src \
+    --from-file=server.py=./app/server.py \
+    --from-file=tariff_engine.py=./app/tariff_engine.py \
+    --from-file=README.md=./app/README.md \
+    -n ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+
+  kubectl create secret generic gitlab-mcp-code \
+    --from-file=gitlab_mcp_server.py=./gitlab_mcp_server.py \
+    -n ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+
+  kubectl apply -f deployment.yaml -n ${NAMESPACE}
+
+  # --- Wait for pods (retry loops handle scheduling races) ---
+  for app in loki quote-service gitlab-mcp rate-sync-worker; do
+    READY=false
+    for i in $(seq 1 120); do
+      if kubectl wait --for=condition=ready pod -l app=${app} -n ${NAMESPACE} --timeout=5s 2>/dev/null; then
+        READY=true
+        break
+      fi
+      sleep 1
+    done
+    if [ "$READY" = false ]; then
+      echo "❌ Pods for app=${app} failed to become ready"
+      kubectl get pods -n ${NAMESPACE}
+      kubectl logs -l app=${app} -n ${NAMESPACE} --tail=20 --all-containers || true
+      exit 1
+    fi
+    echo "✅ ${app} ready"
+  done
+
+  # --- Wait for Loki ingester ---
+  for i in $(seq 1 30); do
+    if kubectl exec -n ${NAMESPACE} deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
+      break
+    fi
+    [ $i -eq 30 ] && echo "❌ Loki not ready" && exit 1
+    sleep 1
+  done
+
+  # --- Needle 1: slow-function hint is discoverable in Loki ---
+  LOKI_OK=false
+  for i in $(seq 1 60); do
+    RESP=$(kubectl exec -n ${NAMESPACE} deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={app="quote-service"}&limit=100' 2>/dev/null || true)
+    if echo "$RESP" | grep -q "compute_tariff_matrix"; then
+      echo "✅ Loki has the compute_tariff_matrix slow-function warnings"
+      LOKI_OK=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$LOKI_OK" = false ]; then
+    echo "❌ compute_tariff_matrix warnings never appeared in Loki"
+    kubectl logs -l app=quote-service -n ${NAMESPACE} -c quote-service --tail=20 || true
+    exit 1
+  fi
+
+  # --- Needle 2: the bug (write key with '->') is in the code served by the MCP pod ---
+  kubectl exec -n ${NAMESPACE} deployment/gitlab-mcp -c gitlab-mcp -- grep -q -- "->" /repo/tariff_engine.py \
+    || { echo "❌ tariff_engine.py in the MCP repo mount is missing the buggy write key"; exit 1; }
+  echo "✅ GitLab MCP serves the buggy tariff_engine.py"
+
+  # --- Needle 3: real CPU throttling is visible in Prometheus ---
+  # cAdvisor is scraped every ~30s, so this can take a couple of minutes.
+  kubectl delete pod metric-check -n ${NAMESPACE} --ignore-not-found >/dev/null 2>&1 || true
+  kubectl run metric-check -n ${NAMESPACE} --image=curlimages/curl:8.8.0 --restart=Never --command -- sleep 600
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod/metric-check -n ${NAMESPACE} --timeout=5s 2>/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+
+  THROTTLED=false
+  for i in $(seq 1 60); do
+    OUT=$(kubectl exec -n ${NAMESPACE} metric-check -- curl -s -G \
+      "http://robusta-kube-prometheus-st-prometheus.default.svc.cluster.local:9090/api/v1/query" \
+      --data-urlencode "query=sum(rate(container_cpu_cfs_throttled_periods_total{namespace=\"${NAMESPACE}\", pod=~\"quote-service.*\"}[2m]))" 2>/dev/null || true)
+    VAL=$(echo "$OUT" | python3 -c "import sys,json; r=json.load(sys.stdin)['data']['result']; print(r[0]['value'][1] if r else 0)" 2>/dev/null || echo 0)
+    if python3 -c "import sys; sys.exit(0 if float('${VAL:-0}') > 0 else 1)" 2>/dev/null; then
+      echo "✅ CPU throttling visible in Prometheus (rate=${VAL} periods/s)"
+      THROTTLED=true
+      break
+    fi
+    sleep 5
+  done
+  kubectl delete pod metric-check -n ${NAMESPACE} --wait=false || true
+  if [ "$THROTTLED" = false ]; then
+    echo "❌ No CPU throttling metrics for quote-service after 300s"
+    exit 1
+  fi
+
+  echo "=== Setup complete ==="
+
+after_test: |
+  kubectl delete namespace app-283 --wait=false --ignore-not-found

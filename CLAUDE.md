@@ -635,6 +635,22 @@ Budget accordingly when looping.
 - `anthropic/<model>` prefix in `model:` — litellm's Anthropic provider hits
   `/api/v1/v1/messages` (doubled path) and 404s; use `openai/anthropic/<model>` instead
 - Assuming Anthropic / OpenAI keys are present — only `OPENROUTER_API_KEY` is available
+- GitHub release downloads (`github.com/<org>/<repo>/releases/download/...`) — the
+  network policy returns 403, which breaks `setup-sandbox-k8s.sh`'s static-jq fetch.
+  Workaround: pre-place `/tmp/jq` as an executable `sh` script that emulates the one
+  invocation the runc wrapper makes (`jq "del(.process.oomScoreAdj)" FILE`) via
+  `sed -E 's/"oomScoreAdj"[[:space:]]*:[[:space:]]*-[0-9]+/"oomScoreAdj":0/g' "$2"` —
+  the setup script skips the download when `/tmp/jq` is already executable
+- CPU limit enforcement — pods' CFS quotas are never applied in the sandbox k3s
+  (`cpu.cfs_quota_us` stays `-1`), so real CPU throttling cannot occur and cAdvisor
+  exposes NO `container_cpu_cfs_*` metrics (usage metrics are fine). Evals that
+  assert on real throttling (e.g. 283) need a stand-in exporter feeding those
+  series to the Prometheus service in the sandbox; on real clusters they work as-is
+- `pip install` inside cluster pods — the sandbox MITMs pypi.org with its internal
+  CA, so pip fails TLS verification. Workaround: create a ConfigMap from
+  `/root/.ccr/ca-bundle.crt`, mount it into the container, and set
+  `PIP_CERT=/path/to/ca.crt` (used for eval 254/283-style init containers that
+  pip-install the `mcp` package)
 
 **Caveats and gotchas (things that DO work but with strings attached):**
 

@@ -1,0 +1,273 @@
+# Infrastructure for eval 283: quote-service with a cache-key bug that
+# causes constant tariff-matrix recomputation -> CPU pegged at its limit
+# -> CFS throttling. Promtail ships the app's JSON logs to the shared
+# Loki. A GitLab-mimicking MCP server serves the same source files the
+# quote-service pod runs (both mount the quote-service-src Secret).
+#
+# Apply with: kubectl apply -f deployment.yaml -n app-283
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+data:
+  promtail-config.yaml: |
+    server:
+      http_listen_port: 9080
+    positions:
+      filename: /tmp/positions.yaml
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    scrape_configs:
+      - job_name: quote-service
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: quote-service
+              namespace: app-283
+              app: quote-service
+              __path__: /var/log/*.log
+        pipeline_stages:
+          - json:
+              expressions:
+                timestamp: timestamp
+                level: level
+                message: message
+                pod: pod
+          - timestamp:
+              source: timestamp
+              format: RFC3339
+          - labels:
+              level:
+              pod:
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quote-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quote-service
+  template:
+    metadata:
+      labels:
+        app: quote-service
+    spec:
+      containers:
+      - name: quote-service
+        image: python:3.9-slim
+        command: ["python", "/app/server.py"]
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: LOG_PATH
+          value: /var/log/quote-service.log
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: app-src
+          mountPath: /app
+        - name: logs
+          mountPath: /var/log
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        # tcpSocket only: an HTTP readiness probe on a CPU-throttled app
+        # would flap and remove the pod from endpoints, easing the very
+        # load the eval depends on. No liveness probe for the same reason.
+        readinessProbe:
+          tcpSocket:
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 5
+      - name: promtail
+        image: grafana/promtail:2.9.0
+        args:
+        - -config.file=/etc/promtail/promtail-config.yaml
+        volumeMounts:
+        - name: promtail-config
+          mountPath: /etc/promtail
+        - name: logs
+          mountPath: /var/log
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+      volumes:
+      - name: app-src
+        secret:
+          secretName: quote-service-src
+          defaultMode: 0444
+      - name: logs
+        emptyDir: {}
+      - name: promtail-config
+        configMap:
+          name: promtail-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quote-service
+spec:
+  selector:
+    app: quote-service
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+---
+# Internal batch consumer: refreshes quotes for a fixed set of routes all
+# day. Traffic is objectively light (12 routes x 5 weights, sequential,
+# with pauses) — a working route cache would serve it in microseconds.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rate-sync-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rate-sync-worker
+  template:
+    metadata:
+      labels:
+        app: rate-sync-worker
+    spec:
+      containers:
+      - name: rate-sync
+        image: curlimages/curl:8.8.0
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          ROUTES="AMS:JFK RTM:OSL HAM:SIN BCN:DXB LIS:GRU CDG:NRT MAD:MEX VIE:ORD ZRH:YYZ DUB:SFO CPH:ICN ATH:CPT"
+          WEIGHTS="0.5 2 5 20 100"
+          echo "rate-sync-worker started"
+          while true; do
+            for route in $ROUTES; do
+              origin=${route%%:*}
+              dest=${route##*:}
+              for w in $WEIGHTS; do
+                curl -s -m 60 "http://quote-service:8080/api/v1/quote?origin=${origin}&dest=${dest}&weight_kg=${w}" > /dev/null || true
+                sleep 0.2
+              done
+            done
+            sleep 5
+          done
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "10m"
+          limits:
+            memory: "32Mi"
+            cpu: "50m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab-mcp
+  template:
+    metadata:
+      labels:
+        app: gitlab-mcp
+    spec:
+      initContainers:
+      - name: install-deps
+        image: python:3.12-slim
+        command:
+        - sh
+        - -c
+        - pip install --target=/app/deps "mcp[cli]>=1.25.0"
+        volumeMounts:
+        - name: python-deps
+          mountPath: /app/deps
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      containers:
+      - name: gitlab-mcp
+        image: python:3.12-slim
+        command:
+        - python
+        - /app/server/gitlab_mcp_server.py
+        env:
+        - name: PYTHONPATH
+          value: /app/deps
+        - name: REPO_ROOT
+          value: /repo
+        - name: MCP_HOST
+          value: "0.0.0.0"
+        - name: MCP_PORT
+          value: "8000"
+        ports:
+        - containerPort: 8000
+          name: http
+        volumeMounts:
+        - name: server-code
+          mountPath: /app/server
+        - name: python-deps
+          mountPath: /app/deps
+        - name: repo
+          mountPath: /repo
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+        readinessProbe:
+          tcpSocket:
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 12
+        livenessProbe:
+          tcpSocket:
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          failureThreshold: 6
+      volumes:
+      - name: server-code
+        secret:
+          secretName: gitlab-mcp-code
+      - name: repo
+        secret:
+          secretName: quote-service-src
+          defaultMode: 0444
+      - name: python-deps
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab-mcp
+spec:
+  selector:
+    app: gitlab-mcp
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http
