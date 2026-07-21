@@ -17,6 +17,7 @@ Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 
 import base64
 import gzip
+import json
 import logging
 import threading
 import time
@@ -38,6 +39,7 @@ from holmes.core.tools import (
     ToolInvokeContext,
     ToolsetTag,
 )
+from holmes.utils.approval_tokens import mint_token, verify_token
 from holmes.version import get_version
 
 if TYPE_CHECKING:
@@ -242,7 +244,16 @@ class ToolCallWorker:
         try:
             try:
                 response = self._execute(row)
-                status = RemoteToolCallStatus.COMPLETED
+
+                # If approval is required, store metadata and poll for decision.
+                if response.get("status") == StructuredToolResultStatus.APPROVAL_REQUIRED.value:
+                    if not self._handle_approval_requirement(row, response):
+                        # Failed to store/await approval (timeout or error) — drop.
+                        return
+                    # Approval decision written; response now contains final result.
+                    status = RemoteToolCallStatus.COMPLETED
+                else:
+                    status = RemoteToolCallStatus.COMPLETED
             except Exception as e:
                 logging.exception(
                     "ToolCallWorker: unexpected failure executing %s", row_id
@@ -327,7 +338,7 @@ class ToolCallWorker:
                 f"tool '{tool_name}' does not support instances on this cluster"
             )
 
-        # 3. Pre-approved mode only — no approval round-trip.
+        # 3. Tool invocation context.
         context = ToolInvokeContext(
             tool_number=None,
             user_approved=False,
@@ -338,26 +349,159 @@ class ToolCallWorker:
             session_approved_prefixes=[],
             request_context={"user_id": row.get("user_id")},
         )
-        approval = tool._get_approval_requirement(tool_params, context)
-        if approval and approval.needs_approval:
-            return _error_response(
-                "command/tool requires approval; approvals are not supported "
-                f"for remote execution ({approval.reason})"
-            )
 
         started = time.monotonic()
         result = tool.invoke(tool_params, context)
         elapsed = time.monotonic() - started
 
+        # 4. Handle approval-required status: will be handled in _execute_safe
+        # via polling and re-invocation. Return early with approval metadata.
         if result.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
-            return _error_response(
-                "command/tool requires approval; approvals are not supported "
-                "for remote execution"
-            )
+            return {
+                "status": StructuredToolResultStatus.APPROVAL_REQUIRED.value,
+                "data": None,
+                "compressed": False,
+                "data_gz_b64": None,
+                "error": result.error,
+                "return_code": result.return_code,
+                "invocation": result.invocation,
+                "elapsed_seconds": round(elapsed, 3),
+                "executor_holmes_version": get_version(),
+                "approval_params": tool_params,
+            }
 
-        # 4. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
+        # 5. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
         result.images = None
         return serialize_tool_response(result, elapsed)
+
+    def _handle_approval_requirement(
+        self, row: Dict[str, Any], approval_response: Dict[str, Any]
+    ) -> bool:
+        """Handle approval requirement: store metadata, poll for caller decision,
+        re-invoke if approved. Returns True if final result is in approval_response
+        (mutated in place), False if approval failed/timed out."""
+        row_id = row.get("id")
+        tool_request = row.get("tool_request") or {}
+        tool_name = tool_request.get("tool_name")
+        approval_params = approval_response.get("approval_params", {})
+
+        # Mint token to bind approval to this (tool_call_id, tool_name, params).
+        approval_token = mint_token(
+            row_id, tool_name, json.dumps(approval_params, sort_keys=True)
+        )
+
+        # Store approval metadata in database.
+        ok = self.dal.store_remote_tool_approval_requirement(
+            tool_call_id=row_id,
+            assignee=self.holmes_id,
+            approval_reason=approval_response.get("error", "Tool requires approval"),
+            approval_tool_params=approval_params,
+            approval_token=approval_token,
+        )
+        if not ok:
+            logging.warning(
+                "ToolCallWorker: failed to store approval requirement for %s (stale/dropped)",
+                row_id,
+            )
+            return False
+
+        # Poll for caller's approval decision (5 minute timeout).
+        approval_approved = self._poll_for_approval_decision(row_id)
+        if approval_approved is None:
+            # Timeout waiting for decision.
+            approval_response["status"] = StructuredToolResultStatus.ERROR.value
+            approval_response["error"] = "Approval timeout: no decision received within 5 minutes"
+            approval_response["approval_params"] = None
+            return True
+
+        # Decision received: re-invoke with user_approved flag.
+        if approval_approved:
+            logging.info(
+                "ToolCallWorker: approval decision received for %s (approved=true); "
+                "re-invoking",
+                row_id,
+            )
+            return self._reinvoke_with_approval(row, approval_response)
+        else:
+            # Denied
+            approval_response["status"] = StructuredToolResultStatus.ERROR.value
+            approval_response["error"] = "Tool execution denied"
+            approval_response["approval_params"] = None
+            return True
+
+    def _poll_for_approval_decision(self, tool_call_id: str, timeout_seconds: int = 300) -> Optional[bool]:
+        """Poll database until approval_approved is not null (5 min timeout).
+        Returns True if approved, False if denied, None if timeout."""
+        start_time = time.monotonic()
+        poll_interval = 1  # seconds
+
+        while time.monotonic() - start_time < timeout_seconds:
+            row = self.dal.get_remote_tool_call(tool_call_id)
+            if row is None:
+                logging.warning("ToolCallWorker: tool call row disappeared: %s", tool_call_id)
+                return None
+
+            approval_approved = row.get("approval_approved")
+            if approval_approved is not None:
+                return bool(approval_approved)
+
+            time.sleep(poll_interval)
+
+        # Timeout
+        logging.warning(
+            "ToolCallWorker: approval decision timeout for %s (after %d seconds)",
+            tool_call_id,
+            timeout_seconds,
+        )
+        return None
+
+    def _reinvoke_with_approval(
+        self, row: Dict[str, Any], approval_response: Dict[str, Any]
+    ) -> bool:
+        """Re-invoke the tool with user_approved=True after approval decision.
+        Mutates approval_response to contain the final result. Returns True."""
+        tool_request = row.get("tool_request") or {}
+        tool_params = dict(tool_request.get("tool_params") or {})
+        tool_name = tool_request.get("tool_name")
+        instance = tool_request.get("instance")
+
+        # Resolve tool and context with user_approved=True.
+        executor = self._get_tool_executor()
+        tool = executor.tools_by_name.get(tool_name)
+        if tool is None:
+            approval_response["status"] = StructuredToolResultStatus.ERROR.value
+            approval_response["error"] = f"Tool '{tool_name}' no longer available"
+            approval_response["approval_params"] = None
+            return True
+
+        context = ToolInvokeContext(
+            tool_number=None,
+            user_approved=True,
+            llm=self._get_llm(),
+            max_token_count=int(tool_request.get("max_token_count")),
+            tool_call_id=str(row.get("id") or ""),
+            tool_name=tool_name,
+            session_approved_prefixes=[],
+            request_context={"user_id": row.get("user_id")},
+        )
+
+        # Re-invoke with user_approved=True.
+        started = time.monotonic()
+        result = tool.invoke(tool_params, context)
+        elapsed = time.monotonic() - started
+
+        # If approval is somehow required again, deny it (shouldn't happen).
+        if result.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
+            approval_response["status"] = StructuredToolResultStatus.ERROR.value
+            approval_response["error"] = "Tool requires approval again after user approval (internal error)"
+            approval_response["approval_params"] = None
+            return True
+
+        # Serialize the final result.
+        result.images = None
+        final_response = serialize_tool_response(result, elapsed)
+        approval_response.update(final_response)
+        return True
 
     # ---- helpers ----
 

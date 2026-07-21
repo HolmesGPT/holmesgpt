@@ -1143,6 +1143,101 @@ class SupabaseDal:
             )
             return False
 
+    def store_remote_tool_approval_requirement(
+        self,
+        tool_call_id: str,
+        assignee: str,
+        approval_reason: str,
+        approval_tool_params: dict,
+        approval_token: str,
+    ) -> bool:
+        """
+        Store approval metadata when a tool requires approval. Sets row status to
+        'pending_approval' so the caller knows to wait. Returns True on success,
+        False if the row was reassigned/stopped (stale worker).
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            res = self.client.rpc(
+                "store_remote_tool_approval_requirement",
+                {
+                    "_id": tool_call_id,
+                    "_account_id": self.account_id,
+                    "_assignee": assignee,
+                    "_approval_reason": approval_reason,
+                    "_approval_tool_params": approval_tool_params,
+                    "_approval_token": approval_token,
+                },
+            ).execute()
+            return bool(res.data)
+        except Exception as e:
+            msg = str(e).lower()
+            if "mismatch" in msg or "not found" in msg:
+                logging.info(
+                    "Remote tool approval requirement rejected (stale/duplicate worker): %s",
+                    e,
+                )
+                return False
+            logging.exception(
+                "Supabase error while storing tool approval requirement (after retries)",
+                exc_info=True,
+            )
+            return False
+
+    def update_remote_tool_approval_decision(
+        self,
+        tool_call_id: str,
+        approved: bool,
+        feedback: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """
+        Caller writes the approval decision (approved/denied + optional feedback).
+        Returns True on success, False if the row doesn't exist or is terminal.
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            res = self.client.rpc(
+                "update_remote_tool_approval_decision",
+                {
+                    "_id": tool_call_id,
+                    "_account_id": self.account_id,
+                    "_approved": approved,
+                    "_feedback": feedback,
+                    "_user_id": user_id,
+                },
+            ).execute()
+            return bool(res.data)
+        except Exception:
+            logging.exception(
+                "Supabase error while updating tool approval decision",
+                exc_info=True,
+            )
+            return False
+
+    def get_remote_tool_call(self, tool_call_id: str) -> Optional[Dict]:
+        """Fetch a RemoteToolCalls row by ID."""
+        if not self.enabled:
+            return None
+
+        try:
+            res = (
+                self.client.table("RemoteToolCalls")
+                .select("*")
+                .eq("id", tool_call_id)
+                .execute()
+            )
+            return res.data[0] if res.data else None
+        except Exception:
+            logging.exception(
+                "Supabase error while fetching remote tool call: %s", tool_call_id
+            )
+            return None
+
     def post_conversation_events(
         self,
         conversation_id: str,
