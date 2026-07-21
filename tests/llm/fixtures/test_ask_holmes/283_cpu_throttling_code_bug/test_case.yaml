@@ -55,7 +55,6 @@ tags:
   - mcp
   - chain-of-causation
   - medium
-  - no-cicd
 
 # First run on a fresh cluster pulls several images, pip-installs the MCP
 # server deps, and then waits for throttling metrics to accumulate
@@ -101,6 +100,10 @@ before_test: |
 
   kubectl create secret generic gitlab-mcp-code \
     --from-file=gitlab_mcp_server.py=./gitlab_mcp_server.py \
+    -n ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+
+  kubectl create secret generic rate-sync-worker-script \
+    --from-file=rate-sync.sh=./rate-sync.sh \
     -n ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
   kubectl apply -f deployment.yaml -n ${NAMESPACE}
@@ -151,7 +154,9 @@ before_test: |
   fi
 
   # --- Needle 2: the bug (write key with '->') is in the code served by the MCP pod ---
-  kubectl exec -n ${NAMESPACE} deployment/gitlab-mcp -c gitlab-mcp -- grep -q -- "->" /repo/tariff_engine.py \
+  # Match the exact buggy write-key expression, not a bare '->' (which would
+  # also match ordinary return-type annotations).
+  kubectl exec -n ${NAMESPACE} deployment/gitlab-mcp -c gitlab-mcp -- grep -qF -- '}->{dest.upper()}' /repo/tariff_engine.py \
     || { echo "❌ tariff_engine.py in the MCP repo mount is missing the buggy write key"; exit 1; }
   echo "✅ GitLab MCP serves the buggy tariff_engine.py"
 
