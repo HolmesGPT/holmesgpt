@@ -45,12 +45,3 @@ No additional auth token or server configuration is required - unlike ArgoCD, Fl
 !!! note
 
     A Kustomization or HelmRelease failing to reconcile is very often caused by its source (GitRepository/HelmRepository/OCIRepository) failing first. HolmesGPT is instructed to check the status of all Flux resources before narrowing in on a specific one, so it can find the actual root cause rather than just the symptom.
-
-## Capabilities
-
---8<-- "snippets/toolset_capabilities_intro.md"
-
-| Tool Name | Description |
-|-----------|-------------|
-| flux_get | Get the reconciliation status of Flux resources (sources, kustomizations, helmreleases, images, alerts, receivers, or all) |
-| flux_tree | Show the tree of Kubernetes resources reconciled by a Flux Kustomization, to see what it manages or find dependency chains |
