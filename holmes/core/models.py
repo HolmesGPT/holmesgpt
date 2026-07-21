@@ -229,7 +229,8 @@ class ChatRequestBaseModel(BaseModel):
         default=None,
         description=(
             "FE-supplied UI flow label, free-form. Examples: 'freeform', "
-            "'followup_logs', 'alert_investigation', 'resource_chat'."
+            "'followup_logs', 'manual_investigation', 'resource_chat'. "
+            "Taxonomy: relay repo, relay/pkg/model/conversation_request_type.py."
         ),
     )
     source_ref: Optional[str] = Field(
