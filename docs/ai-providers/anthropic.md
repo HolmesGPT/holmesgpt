@@ -46,7 +46,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
     modelList:
       claude-sonnet-4-5:
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: claude-sonnet-4-5-20250929
+        model: anthropic/claude-sonnet-4-5-20250929
         temperature: 1
         thinking:
           budget_tokens: 10000
@@ -86,7 +86,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
       modelList:
         claude-sonnet-4-5:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: claude-sonnet-4-5-20250929
+          model: anthropic/claude-sonnet-4-5-20250929
           temperature: 1
           thinking:
             budget_tokens: 10000
