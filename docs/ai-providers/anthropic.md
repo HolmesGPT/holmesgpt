@@ -44,22 +44,22 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
     # Configure at least one model using modelList
     modelList:
-      claude-sonnet-4:
+      claude-sonnet-4-5:
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: claude-sonnet-4-20250514
+        model: claude-sonnet-4-5-20250929
         temperature: 1
         thinking:
           budget_tokens: 10000
           type: enabled
 
-      claude-opus-4:
+      claude-opus-4-5:
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: anthropic/claude-opus-4-1-20250805
+        model: anthropic/claude-opus-4-5-20251101
         temperature: 1
 
     # Optional: Set default model (use modelList key name)
     config:
-      model: "claude-sonnet-4"  # This refers to the key name in modelList above
+      model: "claude-sonnet-4-5"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -84,22 +84,22 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
       # Configure at least one model using modelList
       modelList:
-        claude-sonnet-4:
+        claude-sonnet-4-5:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: claude-sonnet-4-20250514
+          model: claude-sonnet-4-5-20250929
           temperature: 1
           thinking:
             budget_tokens: 10000
             type: enabled
 
-        claude-opus-4:
+        claude-opus-4-5:
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: anthropic/claude-opus-4-1-20250805
+          model: anthropic/claude-opus-4-5-20251101
           temperature: 1
 
       # Optional: Set default model (use modelList key name)
       config:
-        model: "claude-sonnet-4"  # This refers to the key name in modelList above
+        model: "claude-sonnet-4-5"  # This refers to the key name in modelList above
     ```
 
 ## Prompt Caching
