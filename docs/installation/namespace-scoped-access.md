@@ -27,7 +27,7 @@ Create the service account, `Role`, and `RoleBinding` (`holmes-namespace-scoped.
 In the manifest below, replace:
 
 - `monitoring` — the namespace you want Holmes to investigate
-- `holmes-agent-namespace` — the namespace where the Holmes agent is deployed (both places it appears)
+- `<HOLMES_NAMESPACE>` — the namespace where the Holmes agent is deployed (both places it appears)
 
 ```yaml
 apiVersion: v1
@@ -35,7 +35,7 @@ kind: ServiceAccount
 metadata:
   name: holmes
   # Must match the namespace where the Holmes agent is deployed
-  namespace: holmes-agent-namespace
+  namespace: <HOLMES_NAMESPACE>
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -93,7 +93,7 @@ subjects:
   - kind: ServiceAccount
     name: holmes
     # Must match the namespace where the Holmes agent is deployed
-    namespace: holmes-agent-namespace
+    namespace: <HOLMES_NAMESPACE>
 ```
 
 Apply it, then upgrade Holmes with the values above:
@@ -102,7 +102,7 @@ Apply it, then upgrade Holmes with the values above:
 kubectl apply -f holmes-namespace-scoped.yaml
 ```
 
-To grant access to more than one namespace, create an additional `Role` + `RoleBinding` in each namespace, all bound to the same `holmes` service account (still referencing it in its own `holmes-agent-namespace`).
+To grant access to more than one namespace, create an additional `Role` + `RoleBinding` in each namespace, all bound to the same `holmes` service account (still referencing it in its own `<HOLMES_NAMESPACE>`).
 
 ## Verify the Configuration
 
@@ -112,7 +112,7 @@ kubectl get role holmes-namespace-scoped -n monitoring
 kubectl get rolebinding holmes-namespace-scoped -n monitoring
 
 # Check what the service account can and cannot do
-# Format: system:serviceaccount:<holmes-agent-namespace>:<serviceaccount-name>
-kubectl auth can-i list pods -n monitoring --as=system:serviceaccount:holmes-agent-namespace:holmes
-kubectl auth can-i list nodes --as=system:serviceaccount:holmes-agent-namespace:holmes  # expected: no
+# Format: system:serviceaccount:<HOLMES_NAMESPACE>:<serviceaccount-name>
+kubectl auth can-i list pods -n monitoring --as=system:serviceaccount:<HOLMES_NAMESPACE>:holmes
+kubectl auth can-i list nodes --as=system:serviceaccount:<HOLMES_NAMESPACE>:holmes  # expected: no
 ```
