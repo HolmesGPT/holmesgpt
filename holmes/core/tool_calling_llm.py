@@ -984,7 +984,21 @@ class ToolCallingLLM:
                     request_context=request_context,
                 )
 
+            # Check for remote tool approval requirement (identified by "remote_" prefix)
             user_id = (request_context or {}).get("user_id")
+            is_remote_tool = tool_name.startswith("remote_")
+            if is_remote_tool and tool_response.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
+                # For remote tools, approval handling is done on the target side.
+                # This detects when approval is pending and returns the status to the
+                # LLM loop so it can be handled via approval callback or Slack event.
+                # The remote side (_wait_for_result_with_approval_support) is polling
+                # for the approval decision written by the caller's approval mechanism.
+                logging.info(
+                    "Remote tool %s requires approval (call_id=%s), "
+                    "returning APPROVAL_REQUIRED to LLM for user decision",
+                    tool_name,
+                    tool_id,
+                )
             tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
             toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
             tool_call_result = ToolCallResult(

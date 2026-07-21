@@ -534,6 +534,19 @@ class RemoteMCPTool(Tool):
         ]
         merged_text = " ".join(t for t in text_chunks if t)
 
+        # Check if this is a remote tool approval response (JSON with "status": "APPROVAL_REQUIRED")
+        try:
+            response_data = json.loads(merged_text) if merged_text else {}
+            if response_data.get("status") == "APPROVAL_REQUIRED":
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                    error=response_data.get("error"),
+                    params=response_data.get("params", params),
+                    invocation=f"MCPtool {self.name} with params {params}",
+                )
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+
         is_error = tool_result.isError or self._is_content_error(merged_text)
 
         images = None
