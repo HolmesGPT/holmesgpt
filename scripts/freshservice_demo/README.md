@@ -97,35 +97,48 @@ Holmes uses to pivot into the Freshservice data.
 
 ---
 
-## Scenario A — "The Friday-Night Firewall" (VPN outage caused by a change)
+## Scenario A — "The Expired Certificate" (VPN outage; the change is a red herring)
 
-**Root cause:** last night's PAN-OS `11.2.2 → 11.2.3` firmware upgrade on the
-London edge firewall enabled `strict-cipher-enforcement` by default, which
-breaks TLS negotiation for every GlobalConnect SSL-VPN tunnel behind it.
+**Root cause:** the TLS certificate serving the London GlobalConnect VPN
+(`vpn-lon.acme-corp.com`) expired at 23:59 UTC last night. Every tunnel fails
+TLS negotiation at the certificate-validation stage from the first morning
+connection attempts. A PAN-OS firmware upgrade ran on the upstream firewall
+the **same evening** — a deliberate red herring that the evidence exonerates.
 
 **Seeded records:**
 
-- ITAM assets: `edge-fw-lon-01` (Firewall), `lon-vpn-01` (VPN concentrator —
-  the alert's resource; notes point at the upstream firewall),
-  `wifi-ctrl-lon-01` (decoy).
+- ITAM assets: `lon-vpn-01` (VPN concentrator — the alert's resource; notes
+  point at both the upstream firewall and the certificate asset),
+  **`vpn-lon.acme-corp.com TLS certificate`** (type "SSL Certificate",
+  AST-CRT-0001) whose notes carry the validity window ending **yesterday** —
+  this is where Holmes verifies the expiry — plus a note that this hostname
+  is not enrolled in the automated expiry watcher (why nobody was warned),
+  `edge-fw-lon-01` (Firewall), `wifi-ctrl-lon-01` (decoy).
 - Change **CHN-6** *"Upgrade PAN-OS on London edge firewall edge-fw-lon-01 to
-  11.2.3"* — implemented last night 21:00 UTC, pending review, with an
-  implementation note admitting VPN paths were not tested.
+  11.2.3"* — implemented last night 21:00 UTC. Red herring: its
+  implementation note records a **successful GlobalConnect test tunnel at
+  21:45 UTC**, after the upgrade — the outage started later, when the cert
+  expired at 23:59.
 - Decoy change CHN-7 (London Wi-Fi channel rebalance, closed, 3 days ago).
-- Announcement for the maintenance window.
-- 4 user tickets (#32–#35) from London requesters; #32 carries an agent
-  triage note: gateway reachable, TLS handshake fails, sessions 85 → 0
-  at 06:10 UTC.
-- KB: vendor advisory *"PAN-OS 11.2.3 known issue: GlobalConnect SSL-VPN
-  tunnels fail TLS negotiation"* + *"Edge firewall firmware rollback
-  procedure"*.
+- Announcement for the firewall maintenance window.
+- 4 user tickets (#32–#35) from London requesters; #32 carries two triage
+  notes: sessions 85 → 0 at 06:10 UTC, and the client error *"the server
+  certificate is not valid (expired or not yet valid)"*.
+- KB: vendor advisory *"PAN-OS 11.2.0/11.2.1 known issue..."* — explicitly
+  **not applicable to 11.2.3** and pointing certificate-validation failures
+  at the cert instead — plus *"Renewing the GlobalConnect VPN TLS
+  certificate"* and *"Edge firewall firmware rollback procedure"*.
 
 **Expected Holmes analysis:** VPN alert on `lon-vpn-01` → cluster of London
-VPN tickets → asset record points to upstream `edge-fw-lon-01` → last night's
-firmware change on exactly that firewall → vendor advisory confirms 11.2.3
-breaks GlobalConnect → **recommend rollback to 11.2.2 per the runbook** (or
-the interim cipher workaround). Holmes opens a major-incident ticket citing
-CHN-6 as probable cause and referencing tickets #32–#35.
+VPN tickets → the obvious suspect is last night's firewall change CHN-6 →
+but the change note shows VPN worked at 21:45 post-upgrade, and the vendor
+advisory says 11.2.3 is not affected → triage note says the failure is
+certificate validation → the certificate ITAM asset proves
+`vpn-lon.acme-corp.com` expired at 23:59 UTC yesterday → **root cause:
+expired certificate; recommend emergency reissue per the renewal runbook**,
+and flag the process gap (hostname missing from the expiry watcher). Holmes
+opens a major-incident ticket exonerating CHN-6 and citing the certificate
+asset.
 
 ## Scenario B — "Patch Tuesday Strikes Back" (asset-pattern detection)
 

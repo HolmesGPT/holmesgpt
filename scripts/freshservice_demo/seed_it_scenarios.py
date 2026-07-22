@@ -6,12 +6,17 @@ investigate using Freshservice data (tickets, changes, releases, ITAM assets,
 knowledge base, announcements) and ends with Holmes opening a ticket that
 contains the analysis.
 
-Scenario A -- "The Friday-Night Firewall" (root cause: a change)
-    A PAN-OS firmware upgrade on the London edge firewall last night broke
-    every GlobalConnect SSL-VPN tunnel. London users file tickets; a vendor
-    known-issue KB article ties PAN-OS 11.2.3 to the failure; the announcement
-    and the change record pin the timeline. Holmes should identify change
-    CHN-x as the cause and recommend the documented rollback.
+Scenario A -- "The Expired Certificate" (root cause: an expired TLS cert,
+    with a same-night firmware change as the red herring)
+    The GlobalConnect VPN gateway's TLS certificate expired at 23:59 UTC last
+    night, so every tunnel fails TLS negotiation from the first morning
+    connection attempts. Confusingly, a PAN-OS firmware upgrade ran on the
+    upstream London edge firewall the same evening -- but its implementation
+    note records a successful VPN test after the upgrade, and the vendor
+    advisory in the KB only affects older PAN-OS versions. The certificate is
+    an ITAM asset whose validity window proves the expiry. Holmes should
+    exonerate the change, verify the certificate expiry on the asset record,
+    and recommend the certificate renewal runbook.
 
 Scenario B -- "Patch Tuesday Strikes Back" (root cause: a change + asset pattern)
     A Windows cumulative update deployed to deployment ring 2 boot-loops every
@@ -73,6 +78,13 @@ THIS_MORNING = NOW.replace(hour=7, minute=0, second=0, microsecond=0)
 TOMORROW_MORNING = THIS_MORNING + timedelta(days=1)
 SIGNFLOW_EXPIRY = (NOW - timedelta(days=2)).date()
 SIGNFLOW_QUOTE_DATE = (NOW - timedelta(days=21)).date()
+# The VPN gateway certificate expired at the end of yesterday (UTC) -- two
+# hours after the firewall firmware window, which makes the change a
+# convincing red herring until the evidence is read closely.
+CERT_NOT_AFTER = (NOW - timedelta(days=1)).replace(
+    hour=23, minute=59, second=59, microsecond=0
+)
+CERT_NOT_BEFORE = CERT_NOT_AFTER - timedelta(days=365)
 
 
 def iso(dt: datetime) -> str:
@@ -298,7 +310,33 @@ def seed_assets(ctx: Dict[str, Any]) -> None:
             "notes": (
                 "GlobalConnect VPN concentrator for the London office (~90 daily "
                 "users). All VPN traffic passes through the upstream edge firewall "
-                "edge-fw-lon-01. HPE ProLiant DL360 Gen11. Owned by IT Operations."
+                "edge-fw-lon-01. TLS termination for the portal and gateway uses "
+                "the certificate tracked as ITAM asset 'vpn-lon.acme-corp.com TLS "
+                "certificate' (AST-CRT-0001). HPE ProLiant DL360 Gen11. Owned by "
+                "IT Operations."
+            ),
+            "department_id": dept("IT Operations"),
+            "location_id": loc("London Office"),
+        },
+        {
+            # The actual scenario-A root cause: Holmes verifies the expiry here.
+            "name": "vpn-lon.acme-corp.com TLS certificate",
+            "type": "SSL Certificate",
+            "asset_no": "AST-CRT-0001",
+            "impact": "High",
+            "state": "In Use",
+            "notes": (
+                "Public TLS certificate for the London GlobalConnect VPN service. "
+                "CN=vpn-lon.acme-corp.com, SAN: vpn-lon.acme-corp.com, "
+                "portal-lon.acme-corp.com. Issuer: DigiCert TLS RSA SHA256 2020 "
+                "CA1. Serial 0B:4F:91:2A:77:C3:5D:E8:10:6B. "
+                f"Valid from {CERT_NOT_BEFORE.strftime('%Y-%m-%d')} to "
+                f"{CERT_NOT_AFTER.strftime('%Y-%m-%d 23:59 UTC')}. "
+                "Installed on lon-vpn-01 (GlobalConnect portal + gateway). "
+                "Renewal is manual via change request, owner IT Operations. "
+                "NOTE: this certificate is NOT covered by the automated expiry "
+                "watcher (only *.acme-corp.com wildcard certs are enrolled), so "
+                "no 30-day expiry warning is generated for it."
             ),
             "department_id": dept("IT Operations"),
             "location_id": loc("London Office"),
@@ -487,23 +525,38 @@ def seed_knowledge_base() -> None:
 
     articles = [
         # ---- Scenario A ----
+        # Deliberately exonerating: the installed version (11.2.3) is NOT in
+        # the affected range, so reading this rules the firmware change out.
         (
             "Vendor Advisories",
-            "PAN-OS 11.2.3 known issue: GlobalConnect SSL-VPN tunnels fail TLS negotiation",
-            f"""<p><b>Product:</b> Palo Alto Networks PAN-OS 11.2.3 (edge firewalls)<br>
-<b>Vendor reference:</b> PAN-SA-2026-0071, published {day(NOW - timedelta(days=9))}</p>
-<p>PAN-OS 11.2.3 enables <code>strict-cipher-enforcement</code> by default on SSL
-decryption profiles. On firewalls that sit in front of a GlobalConnect VPN
-concentrator this rejects the cipher suite used by GlobalConnect clients
-&le; v6.2, so <b>every SSL-VPN tunnel fails during TLS negotiation</b>. Client-side
-symptom: the gateway is reachable but tunnel establishment times out with a
-TLS handshake error; the concentrator shows active sessions dropping to zero.</p>
-<p><b>Affected:</b> PAN-OS 11.2.3 only. Not affected: 11.2.2 and earlier, 11.2.4+.</p>
-<p><b>Remediation options:</b></p>
+            "PAN-OS 11.2.0/11.2.1 known issue: GlobalConnect SSL-VPN tunnels fail TLS negotiation",
+            f"""<p><b>Product:</b> Palo Alto Networks PAN-OS (edge firewalls)<br>
+<b>Vendor reference:</b> PAN-SA-2026-0071, published {day(NOW - timedelta(days=70))}</p>
+<p>PAN-OS 11.2.0 and 11.2.1 enable <code>strict-cipher-enforcement</code> by
+default on SSL decryption profiles. On firewalls that sit in front of a
+GlobalConnect VPN concentrator this rejects the cipher suite used by
+GlobalConnect clients &le; v6.2, so SSL-VPN tunnels fail during TLS
+negotiation. Client-side symptom: the gateway is reachable but tunnel
+establishment times out with a TLS handshake error.</p>
+<p><b>Affected:</b> PAN-OS 11.2.0 and 11.2.1 only. <b>Fixed in 11.2.2 and all
+later releases (11.2.3+ are not affected).</b></p>
+<p><b>Note:</b> a TLS handshake failure that occurs at the <i>certificate
+validation</i> stage (client reports the server certificate as expired or
+invalid) is NOT this issue — check the certificate served by the VPN
+concentrator and its validity window instead.</p>""",
+        ),
+        (
+            "Runbooks",
+            "Renewing the GlobalConnect VPN TLS certificate",
+            """<p>Applies to the certificates serving the GlobalConnect VPN portals and
+gateways (see the 'SSL Certificate' assets in ITAM for hostnames and validity
+windows).</p>
 <ol>
-<li>Roll back the firewall to PAN-OS 11.2.2 (see runbook: <i>Edge firewall firmware rollback procedure</i>), or</li>
-<li>Upgrade to 11.2.4 which reverts the default, or</li>
-<li>Interim workaround: disable <code>strict-cipher-enforcement</code> on the decryption profile covering the VPN concentrator.</li>
+<li>Verify what the gateway is serving: <code>openssl s_client -connect &lt;host&gt;:443 -servername &lt;host&gt; | openssl x509 -noout -dates -subject</code>.</li>
+<li>For an <b>expired</b> certificate: request an emergency reissue from DigiCert CertCentral (typically issued within the hour), raise an emergency change referencing the outage ticket.</li>
+<li>Install the new certificate on the VPN concentrator (Device &gt; Certificates), bind it to the portal and gateway TLS profiles, and commit.</li>
+<li>Verify tunnel establishment from a test client and confirm the active session count recovers.</li>
+<li>Update the certificate's ITAM asset with the new validity window, and enroll the hostname in the automated expiry watcher so a 30-day warning is generated next time.</li>
 </ol>""",
         ),
         (
@@ -712,8 +765,10 @@ def seed_changes(ctx: Dict[str, Any]) -> None:
                 f"{(YESTERDAY_EVENING + timedelta(minutes=42)).strftime('%Y-%m-%d %H:%M')} UTC. "
                 "Firewall rebooted onto 11.2.3, HA healthy, office LAN connectivity "
                 "verified, compliance scan agent reports the expected version. "
-                "Closing the window. Note: verification covered office egress; "
-                "remote-access VPN paths were not exercised (out of hours).</p>"
+                "Post-upgrade verification included a GlobalConnect test tunnel "
+                f"established successfully at "
+                f"{(YESTERDAY_EVENING + timedelta(minutes=45)).strftime('%H:%M')} UTC "
+                "from the IT test client. Closing the window.</p>"
             )
         ],
     )
@@ -930,6 +985,17 @@ def seed_tickets(ctx: Dict[str, Any]) -> None:
                         "dashboard shows active sessions dropped from ~85 to 0 at "
                         "06:10 UTC. This is a site-wide outage, not a client issue. "
                         "Checking what changed on the London network path.</p>"
+                    ),
+                    "private": True,
+                },
+                {
+                    "body": (
+                        "<p>Follow-up: client logs show the handshake fails at the "
+                        "<b>certificate validation</b> stage — GlobalConnect "
+                        "reports 'the server certificate is not valid (expired or "
+                        "not yet valid)'. Need to identify which certificate the "
+                        "gateway serves and check its validity window against the "
+                        "certificate inventory.</p>"
                     ),
                     "private": True,
                 },
@@ -1189,7 +1255,8 @@ def main() -> None:
     seed_tickets(ctx)
     print(
         "\nDone. Three alert-driven scenarios are ready:\n"
-        " A. London VPN outage  -> culprit change: 'Upgrade PAN-OS on London edge firewall edge-fw-lon-01 to 11.2.3'\n"
+        " A. London VPN outage  -> expired TLS certificate (asset 'vpn-lon.acme-corp.com TLS certificate');\n"
+        "                          the same-night PAN-OS upgrade change is a red herring\n"
         " B. Laptop boot loops  -> culprit change: 'Deploy Windows 11 July cumulative update KB5062660 via Intune - ring 2'\n"
         "                          (and ring 3 release scheduled for tomorrow that must be halted)\n"
         " C. SignFlow suspended -> lapsed contract SF-2025-4471; renewal change stuck awaiting CAB approval\n"
