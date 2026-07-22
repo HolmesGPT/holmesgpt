@@ -197,6 +197,18 @@ class Config(RobustaBaseConfig):
 
     @property
     def llm_model_registry(self) -> LLMModelRegistry:
+        # Lock-free fast path (double-checked locking). _executor_lock is held
+        # for the full duration of toolset builds (create_tool_executor with
+        # reuse_executor=True runs every prerequisite check inside it), which
+        # can take minutes in clusters with slow/blocked egress. /readyz calls
+        # get_models_list() on every kubelet probe; taking the lock here made
+        # the readiness probe time out during builds, and the blocked probe
+        # calls then exhausted the FastAPI threadpool until /healthz (liveness)
+        # timed out too and kubelet kill-looped the pod (ROB-714). Reading the
+        # already-built registry needs no lock; only first construction does.
+        registry = self._llm_model_registry
+        if registry is not None:
+            return registry
         with self._executor_lock:
             if not self._llm_model_registry:
                 self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)

@@ -881,7 +881,13 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
 
 
 @app.get("/healthz")
-def health_check():
+async def health_check():
+    # async so the liveness probe runs on the event loop instead of the
+    # anyio threadpool. Sync endpoints share a bounded threadpool (~40
+    # threads); if it fills up with blocked requests (e.g. /readyz calls
+    # stuck behind a long toolset build - ROB-714), a sync /healthz would
+    # queue behind them, fail the liveness probe, and get the pod killed
+    # even though the process is healthy.
     return {"status": "healthy"}
 
 

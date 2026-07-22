@@ -1,3 +1,4 @@
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -213,6 +214,62 @@ class TestReloadModels:
             config.reload_models()
 
         assert config.model == "from-yaml"
+
+
+class TestModelRegistryLockContention:
+    """The registry read path must not block on _executor_lock (ROB-714).
+
+    _executor_lock is held for the whole toolset build (minutes in clusters
+    with slow egress). /readyz -> get_models_list() runs on every kubelet
+    probe; if it blocks on that lock the readiness probe times out, the
+    blocked probe calls pile up in the FastAPI threadpool, and eventually
+    /healthz (liveness) starves too and the pod is kill-looped.
+    """
+
+    def test_get_models_list_does_not_block_on_executor_lock(self, config):
+        """With the registry already built, reads succeed while the executor
+        lock is held by a (simulated) long toolset build."""
+        config._llm_model_registry = None  # discard the registry built at load time
+        with patch("holmes.config.LLMModelRegistry") as MockRegistry:
+            MockRegistry.return_value = MagicMock(models={"gpt-4": MagicMock()})
+            _ = config.llm_model_registry  # build the registry up front
+
+            result: dict = {}
+
+            def read_models():
+                result["models"] = config.get_models_list()
+
+            with config._executor_lock:
+                reader = threading.Thread(target=read_models, daemon=True)
+                reader.start()
+                reader.join(timeout=3)  # k8s readiness probe timeoutSeconds
+                assert not reader.is_alive(), (
+                    "get_models_list() blocked on _executor_lock; "
+                    "readiness probes would time out during toolset builds"
+                )
+
+        assert result["models"] == ["gpt-4"]
+
+    def test_uninitialized_registry_still_builds_under_lock(self, config):
+        """First construction keeps using the lock (thread-safe lazy init)."""
+        config._llm_model_registry = None  # discard the registry built at load time
+        with patch("holmes.config.LLMModelRegistry") as MockRegistry:
+            MockRegistry.return_value = MagicMock(models={})
+            assert config._llm_model_registry is None
+
+            registries = []
+
+            def build():
+                registries.append(config.llm_model_registry)
+
+            threads = [threading.Thread(target=build) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=5)
+
+            assert MockRegistry.call_count == 1
+            assert all(r is registries[0] for r in registries)
 
 
 class TestAdminEndpoints:
