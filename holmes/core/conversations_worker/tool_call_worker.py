@@ -12,18 +12,6 @@ writes tool_response + terminal status in one atomic UPDATE
 Tool calls run in their own thread pool (TOOL_CALLER_MAX_CONCURRENT) so they
 never compete with user chats for the conversation worker's pool.
 
-Approval workflow (metadata-only — no schema changes):
-When a tool needs user approval, this worker does NOT block or park the row in
-a special state. It writes a normal terminal (COMPLETED) result whose
-tool_response carries status=APPROVAL_REQUIRED plus approval_reason /
-approval_params. The caller (relay's RemoteToolsProvider) detects that embedded
-status and surfaces the approval to the user through the caller Holmes's own
-approval loop. On approval the caller re-invokes and forwards the decision:
-relay sets metadata.remote_tool_approved=true on the new row, and this worker
-runs the tool with user_approved=True — mirroring the local flow, where an
-approved tool is simply re-invoked with user_approved=True. All approval state
-lives in the existing metadata / tool_response jsonb columns.
-
 Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
 
@@ -254,12 +242,6 @@ class ToolCallWorker:
         row_id = row.get("id")
         try:
             try:
-                # _execute always returns a serialized tool_response dict. An
-                # approval requirement is just a normal response whose embedded
-                # status is APPROVAL_REQUIRED (with approval_* fields for the
-                # caller) — it is posted as a COMPLETED row like any other, no
-                # special DB status. The caller inspects the response status and
-                # re-invokes with an approval flag in metadata. See module docs.
                 response = self._execute(row)
                 status = RemoteToolCallStatus.COMPLETED
             except Exception as e:
@@ -347,30 +329,9 @@ class ToolCallWorker:
                 f"tool '{tool_name}' does not support instances on this cluster"
             )
 
-        # 3. Approval is signalled by the caller in the row's metadata jsonb (no
-        # dedicated columns, no pending_approval status — see module docs). The
-        # caller forwards the user's decision from its own approval loop:
-        #   metadata.remote_tool_approved = true  -> run with user_approved=True
-        # This mirrors the local flow, where an approved tool is simply
-        # re-invoked with user_approved=True. Trust model matches local: relay
-        # is the sole row inserter and only sets the flag after the caller's own
-        # (token-verified) approval loop has approved this tool call.
         tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
         user_approved = bool(metadata.get("remote_tool_approved"))
-        # Bash prefixes the caller forwarded from the user's earlier "don't ask
-        # again" approvals — honored so the executor auto-approves them instead
-        # of re-prompting for every command (mirrors the local session flow).
         session_approved_prefixes = tool_request.get("session_approved_prefixes") or []
-        # APPROVAL-TRACE hop 3/3 (target): did the approval flag + session
-        # prefixes reach the executor?
-        logging.info(
-            "APPROVAL-TRACE target tool=%s tool_call_id=%s user_approved=%s session_prefixes=%d metadata_keys=%s",
-            tool_name,
-            tool_call_id,
-            user_approved,
-            len(session_approved_prefixes),
-            sorted((metadata or {}).keys()),
-        )
 
         # 4. Tool invocation context.
         context = ToolInvokeContext(
@@ -391,18 +352,11 @@ class ToolCallWorker:
         # 5. Handle approval-required status.
         if result.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
             if user_approved:
-                # Already approved yet the tool still demands approval —
-                # returning APPROVAL_REQUIRED again would loop forever
-                # (re-invoke -> approval -> re-invoke -> ...). Fail closed.
                 return _error_response(
                     "tool still requires approval after user approval "
                     "(internal error); refusing to re-request to avoid a loop",
                     invocation=result.invocation,
                 )
-            # First execution: surface the approval requirement to the caller.
-            # Posted as a normal COMPLETED row; the caller detects the embedded
-            # APPROVAL_REQUIRED status, prompts the user, and (on approval)
-            # re-invokes with metadata.remote_tool_approved=true.
             return {
                 "status": StructuredToolResultStatus.APPROVAL_REQUIRED.value,
                 "data": None,

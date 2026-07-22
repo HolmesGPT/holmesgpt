@@ -53,14 +53,6 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
 
-# Reserved tool-call arguments used to forward approval state to a remote
-# executor (via relay's platform-mcp). Injected only for remote_* tools; relay
-# pops them before forwarding params to the target tool, so the target never
-# receives them as real parameters. Must stay in sync with relay's constants.
-#  * APPROVED: the user just approved this exact re-invocation.
-#  * SESSION_PREFIXES: bash prefixes the user approved earlier this session
-#    ("don't ask again") — forwarded so the remote executor auto-approves them
-#    instead of re-prompting for every command.
 REMOTE_TOOL_APPROVED_PARAM = "__robusta_user_approved"
 REMOTE_TOOL_SESSION_PREFIXES_PARAM = "__robusta_session_approved_prefixes"
 display_logger = logging.getLogger("holmes.display.mcp_toolset")
@@ -546,13 +538,6 @@ class RemoteMCPTool(Tool):
         user_approved: bool = False,
         session_approved_prefixes: Optional[List[str]] = None,
     ) -> StructuredToolResult:
-        # Forward approval state to the remote executor the same way the local
-        # flow does: an approved tool is re-invoked with user_approved=True, and
-        # session-approved bash prefixes travel in the ToolInvokeContext. The
-        # reserved args are injected only for remote_* tools (so third-party MCP
-        # servers never see robusta args); relay pops them before forwarding the
-        # params to the target tool. Keyed on args, not headers, because relay
-        # passes tool-call arguments straight through without validation.
         is_remote = self.name.startswith("remote_")
         call_params = params
         if user_approved:
@@ -562,16 +547,6 @@ class RemoteMCPTool(Tool):
                 **call_params,
                 REMOTE_TOOL_SESSION_PREFIXES_PARAM: list(session_approved_prefixes),
             }
-
-        # APPROVAL-TRACE hop 1/3 (caller): did we forward the approval decision
-        # and any session-approved prefixes?
-        logger.info(
-            "APPROVAL-TRACE mcp-caller tool=%s user_approved=%s forwarding_approval_arg=%s session_prefixes=%d",
-            self.name,
-            user_approved,
-            user_approved,
-            len(session_approved_prefixes or []),
-        )
 
         async with get_initialized_mcp_session(
             self.toolset, request_context
@@ -585,12 +560,6 @@ class RemoteMCPTool(Tool):
         ]
         merged_text = " ".join(t for t in text_chunks if t)
 
-        # Check if this is a remote tool approval response: a JSON body whose
-        # "status" is the serialized StructuredToolResultStatus.APPROVAL_REQUIRED
-        # value ("approval_required"). Compare against the enum value, not a
-        # hardcoded literal — the executor and relay emit the lowercase .value,
-        # so a "APPROVAL_REQUIRED" literal here silently never matched and the
-        # approval event never surfaced to the LLM loop / UI.
         try:
             response_data = json.loads(merged_text) if merged_text else {}
             if (
