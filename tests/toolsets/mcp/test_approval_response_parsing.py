@@ -205,3 +205,64 @@ async def test_invoke_forwards_user_approved_as_reserved_arg():
             params={"command": "curl x"}, request_context=None, user_approved=False
         )
         assert REMOTE_TOOL_APPROVED_PARAM not in session.call_tool.call_args.args[1]
+
+
+def test_remote_one_liner_names_target_cluster():
+    """The approval description surfaced to the UI must name the target cluster
+    for remote tools (mirrors the Slack prompt), and must hide the routing/
+    reserved params so the user sees just the command + cluster."""
+    from holmes.plugins.toolsets.mcp.toolset_mcp import (
+        REMOTE_TOOL_APPROVED_PARAM,
+        REMOTE_TOOL_SESSION_PREFIXES_PARAM,
+    )
+
+    tool = RemoteMCPTool(
+        name="remote_bash",
+        mcp_tool_name="bash",
+        description="Remote bash",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+    )
+
+    one_liner = tool.get_parameterized_one_liner(
+        {
+            "cli_command": "curl http://svc",
+            "agent_name": "eu-eks-prod-2",
+            "instance": "abc",
+            REMOTE_TOOL_APPROVED_PARAM: True,
+            REMOTE_TOOL_SESSION_PREFIXES_PARAM: ["curl"],
+        }
+    )
+
+    assert one_liner == "curl http://svc on remote cluster `eu-eks-prod-2`"
+
+
+def test_remote_one_liner_without_agent_falls_back():
+    """A remote tool call missing agent_name still gets a generic remote suffix."""
+    tool = RemoteMCPTool(
+        name="remote_bash",
+        mcp_tool_name="bash",
+        description="Remote bash",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+    )
+
+    one_liner = tool.get_parameterized_one_liner({"cli_command": "curl http://svc"})
+    assert one_liner == "curl http://svc on a remote cluster"
+
+
+def test_local_one_liner_has_no_remote_suffix():
+    """Non-remote tools keep their plain one-liner (no cluster suffix)."""
+    mock_toolset = MagicMock(spec=RemoteMCPToolset)
+    mock_toolset.name = "test_toolset"
+    tool = RemoteMCPTool(
+        name="test_tool",
+        mcp_tool_name="test_tool",
+        description="Test tool",
+        parameters={},
+        toolset=mock_toolset,
+    )
+
+    one_liner = tool.get_parameterized_one_liner({"cli_command": "curl http://svc"})
+    assert one_liner == "curl http://svc"
+    assert "remote cluster" not in one_liner

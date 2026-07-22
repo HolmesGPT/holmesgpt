@@ -832,6 +832,33 @@ class RemoteMCPTool(Tool):
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
+        is_remote = self.name.startswith("remote_")
+        agent = None
+        display_params = params or {}
+        if is_remote:
+            agent = display_params.get("agent_name")
+            display_params = {
+                k: v
+                for k, v in display_params.items()
+                if k
+                not in (
+                    "agent_name",
+                    "instance",
+                    REMOTE_TOOL_APPROVED_PARAM,
+                    REMOTE_TOOL_SESSION_PREFIXES_PARAM,
+                )
+            }
+
+        one_liner = self._base_one_liner(display_params)
+
+        if is_remote:
+            suffix = (
+                f" on remote cluster `{agent}`" if agent else " on a remote cluster"
+            )
+            one_liner = f"{one_liner}{suffix}"
+        return one_liner
+
+    def _base_one_liner(self, params: Dict) -> str:
         # AWS MCP cli_command
         if params and params.get("cli_command"):
             return f"{params.get('cli_command')}"
