@@ -254,12 +254,30 @@ def evict_stale_tool_results(
 
         # If this result was already spilled to disk and that file still exists,
         # re-point at it instead of writing its (bounded) preview to disk again.
+        # SECURITY: only trust a "Saved to:" pointer that WE wrote — i.e. a
+        # regular file directly under tool_results_dir whose name matches the
+        # spill filename for this exact tool call. A tool result could otherwise
+        # embed a forged "Saved to: /etc/..." line and get the model to cat an
+        # arbitrary existing file. Anything else falls through to a fresh spill.
         file_path: Optional[str] = None
         existing = _SAVED_TO_RE.search(content)
         if existing:
             candidate = existing.group(1).strip()
-            if candidate and Path(candidate).is_file():
-                file_path = candidate
+            if candidate:
+                candidate_path = Path(candidate).resolve()
+                storage_root = tool_results_dir.resolve()
+                safe_name = re.sub(r"[^\w\-]", "_", tool_name)
+                safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
+                expected_names = {
+                    f"{safe_name}_{safe_id}.txt",
+                    f"{safe_name}_{safe_id}.json",
+                }
+                if (
+                    candidate_path.parent == storage_root
+                    and candidate_path.name in expected_names
+                    and candidate_path.is_file()
+                ):
+                    file_path = str(candidate_path)
 
         if not file_path:
             file_path = save_large_result(

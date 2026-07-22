@@ -1,7 +1,7 @@
 [
   {
     "role": "user",
-    "content": "Investigate the errors in the checkout service in the shop namespace."
+    "content": "Investigate the errors in the checkout service in the app-283 namespace."
   },
   {
     "role": "assistant",
@@ -12,7 +12,7 @@
         "type": "function",
         "function": {
           "name": "kubectl_logs",
-          "arguments": "{\"namespace\":\"shop\",\"resource_type\":\"deployment\",\"resource_name\":\"checkout-api\"}"
+          "arguments": "{\"namespace\":\"app-283\",\"resource_type\":\"deployment\",\"resource_name\":\"checkout-api\"}"
         }
       }
     ]
@@ -32,7 +32,7 @@
         "type": "function",
         "function": {
           "name": "kubectl_get_events",
-          "arguments": "{\"namespace\":\"shop\"}"
+          "arguments": "{\"namespace\":\"app-283\"}"
         }
       }
     ]
@@ -52,7 +52,7 @@
         "type": "function",
         "function": {
           "name": "kubectl_describe",
-          "arguments": "{\"namespace\":\"shop\",\"kind\":\"deployment\",\"name\":\"checkout-api\"}"
+          "arguments": "{\"namespace\":\"app-283\",\"kind\":\"deployment\",\"name\":\"checkout-api\"}"
         }
       }
     ]
@@ -72,7 +72,7 @@
         "type": "function",
         "function": {
           "name": "kubectl_get",
-          "arguments": "{\"namespace\":\"shop\",\"kind\":\"service\"}"
+          "arguments": "{\"namespace\":\"app-283\",\"kind\":\"service\"}"
         }
       }
     ]
@@ -92,7 +92,7 @@
         "type": "function",
         "function": {
           "name": "kubectl_get",
-          "arguments": "{\"namespace\":\"shop\",\"kind\":\"pod\"}"
+          "arguments": "{\"namespace\":\"app-283\",\"kind\":\"pod\"}"
         }
       }
     ]
