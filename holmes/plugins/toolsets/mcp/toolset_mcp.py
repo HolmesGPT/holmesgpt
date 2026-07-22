@@ -52,6 +52,13 @@ from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
+
+# Reserved tool-call argument used to forward a user's approval decision to a
+# remote executor (via relay's platform-mcp). Injected only on an approved
+# re-invocation; relay pops it before forwarding params to the target tool, so
+# the target never receives it as a real parameter. Must stay in sync with
+# relay's REMOTE_TOOL_APPROVED_PARAM.
+REMOTE_TOOL_APPROVED_PARAM = "__robusta_user_approved"
 display_logger = logging.getLogger("holmes.display.mcp_toolset")
 
 
@@ -416,7 +423,11 @@ class RemoteMCPTool(Tool):
 
             lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
             with lock:
-                return asyncio.run(self._invoke_async(params, context.request_context))
+                return asyncio.run(
+                    self._invoke_async(
+                        params, context.request_context, context.user_approved
+                    )
+                )
         except Exception as e:
             error_detail = _extract_root_error_message(e)
             return StructuredToolResult(
@@ -522,12 +533,27 @@ class RemoteMCPTool(Tool):
         return ""
 
     async def _invoke_async(
-        self, params: Dict, request_context: Optional[Dict[str, Any]]
+        self,
+        params: Dict,
+        request_context: Optional[Dict[str, Any]],
+        user_approved: bool = False,
     ) -> StructuredToolResult:
+        # Forward an approval decision to the remote executor the same way the
+        # local flow re-invokes an approved tool with user_approved=True. The
+        # reserved arg is injected only after approval (so generic MCP servers
+        # never see it); relay pops REMOTE_TOOL_APPROVED_PARAM before forwarding
+        # the params to the target tool. Keyed on the arg, not a header, because
+        # relay passes tool-call arguments straight through without validation.
+        call_params = params
+        if user_approved:
+            call_params = {**params, REMOTE_TOOL_APPROVED_PARAM: True}
+
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
-            tool_result = await session.call_tool(self.mcp_tool_name or self.name, params)
+            tool_result = await session.call_tool(
+                self.mcp_tool_name or self.name, call_params
+            )
 
         text_chunks = [
             self._extract_text_from_content_block(c) for c in tool_result.content

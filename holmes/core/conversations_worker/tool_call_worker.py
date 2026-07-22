@@ -14,15 +14,15 @@ never compete with user chats for the conversation worker's pool.
 
 Approval workflow (metadata-only — no schema changes):
 When a tool needs user approval, this worker does NOT block or park the row in
-a special state. It mints an approval token bound to (tool_call_id, tool_name,
-params) and writes a normal terminal (COMPLETED) result whose tool_response
-carries status=APPROVAL_REQUIRED plus approval_reason / approval_params /
-approval_token. The caller (relay's RemoteToolsProvider) detects that embedded
-status, surfaces the approval to the user, and — on approval — re-invokes the
-same tool_call_id with a NEW row whose metadata carries
-remote_tool_approved=true and remote_tool_approval_token=<that token>. This
-worker then verifies the token and runs the tool with user_approved=True. All
-approval state lives in the existing metadata/tool_response jsonb columns.
+a special state. It writes a normal terminal (COMPLETED) result whose
+tool_response carries status=APPROVAL_REQUIRED plus approval_reason /
+approval_params. The caller (relay's RemoteToolsProvider) detects that embedded
+status and surfaces the approval to the user through the caller Holmes's own
+approval loop. On approval the caller re-invokes and forwards the decision:
+relay sets metadata.remote_tool_approved=true on the new row, and this worker
+runs the tool with user_approved=True — mirroring the local flow, where an
+approved tool is simply re-invoked with user_approved=True. All approval state
+lives in the existing metadata / tool_response jsonb columns.
 
 Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
@@ -50,11 +50,6 @@ from holmes.core.tools import (
     StructuredToolResultStatus,
     ToolInvokeContext,
     ToolsetTag,
-)
-from holmes.utils.approval_tokens import (
-    ApprovalTokenError,
-    mint_token,
-    verify_token,
 )
 from holmes.version import get_version
 
@@ -352,32 +347,16 @@ class ToolCallWorker:
                 f"tool '{tool_name}' does not support instances on this cluster"
             )
 
-        # 3. Approval state travels entirely in the row's metadata jsonb (no
-        # dedicated columns, no pending_approval status — see module docs). On
-        # the approved re-invocation the caller sets:
-        #   metadata.remote_tool_approved = true
-        #   metadata.remote_tool_approval_token = <token minted on the 1st call>
-        # The token binds the approval to (tool_call_id, tool_name, params); we
-        # verify it so an approved re-invocation cannot run different params
-        # than the ones the user actually saw and approved.
+        # 3. Approval is signalled by the caller in the row's metadata jsonb (no
+        # dedicated columns, no pending_approval status — see module docs). The
+        # caller forwards the user's decision from its own approval loop:
+        #   metadata.remote_tool_approved = true  -> run with user_approved=True
+        # This mirrors the local flow, where an approved tool is simply
+        # re-invoked with user_approved=True. Trust model matches local: relay
+        # is the sole row inserter and only sets the flag after the caller's own
+        # (token-verified) approval loop has approved this tool call.
         tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
-        params_json = json.dumps(tool_params, sort_keys=True)
         user_approved = bool(metadata.get("remote_tool_approved"))
-        if user_approved:
-            try:
-                verify_token(
-                    metadata.get("remote_tool_approval_token"),
-                    tool_call_id,
-                    tool_name,
-                    params_json,
-                )
-            except ApprovalTokenError as e:
-                logging.warning(
-                    "ToolCallWorker: approval token rejected for %s: %s",
-                    row.get("id"),
-                    e.reason,
-                )
-                return _error_response(str(e))
 
         # 4. Tool invocation context.
         context = ToolInvokeContext(
@@ -407,10 +386,9 @@ class ToolCallWorker:
                     invocation=result.invocation,
                 )
             # First execution: surface the approval requirement to the caller.
-            # This is posted as a normal COMPLETED row; the caller detects the
-            # embedded APPROVAL_REQUIRED status, prompts the user, and (on
-            # approval) re-invokes carrying the approval_token below in metadata.
-            approval_token = mint_token(tool_call_id, tool_name, params_json)
+            # Posted as a normal COMPLETED row; the caller detects the embedded
+            # APPROVAL_REQUIRED status, prompts the user, and (on approval)
+            # re-invokes with metadata.remote_tool_approved=true.
             return {
                 "status": StructuredToolResultStatus.APPROVAL_REQUIRED.value,
                 "data": None,
@@ -422,7 +400,6 @@ class ToolCallWorker:
                 "elapsed_seconds": round(elapsed, 3),
                 "executor_holmes_version": get_version(),
                 "approval_params": tool_params,
-                "approval_token": approval_token,
             }
 
         # 6. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.

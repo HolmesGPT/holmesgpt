@@ -160,3 +160,48 @@ async def test_mcp_tool_handles_malformed_json_gracefully():
     # Should fall back to treating it as normal text response
     assert result.status == StructuredToolResultStatus.SUCCESS
     assert result.data == response_data
+
+
+@pytest.mark.asyncio
+async def test_invoke_forwards_user_approved_as_reserved_arg():
+    """On an approved re-invocation the caller must inject the reserved approval
+    arg into the outgoing MCP call so relay can forward it to the target; a
+    normal (unapproved) call must NOT include it."""
+    from holmes.plugins.toolsets.mcp.toolset_mcp import REMOTE_TOOL_APPROVED_PARAM
+
+    tool = RemoteMCPTool(
+        name="remote_bash",
+        mcp_tool_name="bash",
+        description="Remote bash",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+    )
+
+    ok = {"status": "success", "data": "ok"}
+    block = MagicMock(type="text", text=json.dumps(ok))
+    result_obj = MagicMock(content=[block], isError=False)
+
+    session = AsyncMock()
+    session.call_tool = AsyncMock(return_value=result_obj)
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch(
+        "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
+    ) as get_session:
+        get_session.return_value = session
+
+        # approved -> reserved arg injected
+        await tool._invoke_async(
+            params={"command": "curl x"}, request_context=None, user_approved=True
+        )
+        approved_args = session.call_tool.call_args.args[1]
+        assert approved_args.get(REMOTE_TOOL_APPROVED_PARAM) is True
+        assert approved_args["command"] == "curl x"
+
+        # not approved -> reserved arg absent (generic MCP servers never see it)
+        session.call_tool.reset_mock()
+        await tool._invoke_async(
+            params={"command": "curl x"}, request_context=None, user_approved=False
+        )
+        assert REMOTE_TOOL_APPROVED_PARAM not in session.call_tool.call_args.args[1]

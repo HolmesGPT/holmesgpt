@@ -400,16 +400,14 @@ def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
 
 # ---- remote tool APPROVAL flow (target/executor side, metadata-only) ----
 #
-# Approval state travels entirely in the row's metadata / tool_response jsonb
-# (no pending_approval status, no approval_* columns). These verify:
-#   1. first execution of an approval-gated tool -> APPROVAL_REQUIRED embedded
-#      in the response with a minted token (posted as a normal COMPLETED row)
-#   2. an approved re-invocation (metadata.remote_tool_approved + valid token)
-#      -> tool runs with user_approved=True; incl. a first-call -> retry chain
-#      exercising the REAL minted token end to end
-#   3. an approved re-invocation with a bad/mismatched token -> rejected, the
-#      tool is never invoked
-#   4. approved-but-still-gated -> fail closed (no infinite re-request loop)
+# Approval is signalled entirely by the caller via row metadata (no token, no
+# pending_approval status, no approval_* columns). These verify:
+#   1. first execution (no metadata flag) -> tool asks for approval -> response
+#      carries APPROVAL_REQUIRED + approval_params, posted as a normal COMPLETED
+#      row (no special DB status, no store RPC)
+#   2. approved re-invocation (metadata.remote_tool_approved=true) -> tool runs
+#      with user_approved=True and the real result is returned/posted
+#   3. approved-but-still-gated -> fail closed (no infinite re-request loop)
 
 
 def _approval_worker(behavior):
@@ -437,10 +435,10 @@ def _approval_worker(behavior):
     return ToolCallWorker(dal=MagicMock(), config=config, holmes_id="h-test"), tool
 
 
-def _approval_row(metadata_extra=None):
+def _approval_row(approved=False):
     md = {"source_version": get_version()}
-    if metadata_extra:
-        md.update(metadata_extra)
+    if approved:
+        md["remote_tool_approved"] = True
     return {
         "id": "row-approve-1",
         "account_id": "acct-1",
@@ -467,16 +465,14 @@ def _needs_approval_unless_approved(params, context):
     )
 
 
-def test_execute_first_call_embeds_approval_required_with_token():
-    """First execution (no approval metadata): tool asks for approval ->
-    response carries APPROVAL_REQUIRED, the params, and a minted token; the
-    tool ran with user_approved=False."""
+def test_execute_first_call_surfaces_approval_required():
+    """First execution (no approval flag): tool asks for approval -> response
+    carries APPROVAL_REQUIRED + params; the tool ran with user_approved=False."""
     worker, tool = _approval_worker(_needs_approval_unless_approved)
-    resp = worker._execute(_approval_row())
+    resp = worker._execute(_approval_row(approved=False))
 
     assert resp["status"] == StructuredToolResultStatus.APPROVAL_REQUIRED.value
     assert resp["approval_params"] == {"command": "curl http://svc/healthz"}
-    assert resp["approval_token"]  # minted, non-empty
     assert "not in allow list" in resp["error"]
     assert tool.invoke.call_args.args[1].user_approved is False
 
@@ -487,7 +483,7 @@ def test_execute_safe_first_call_posts_completed_not_special_status():
     worker, _ = _approval_worker(_needs_approval_unless_approved)
     worker.dal.post_remote_tool_call_result.return_value = True
 
-    worker._execute_safe(_approval_row())
+    worker._execute_safe(_approval_row(approved=False))
 
     worker.dal.post_remote_tool_call_result.assert_called_once()
     kwargs = worker.dal.post_remote_tool_call_result.call_args.kwargs
@@ -495,53 +491,36 @@ def test_execute_safe_first_call_posts_completed_not_special_status():
     assert kwargs["tool_response"]["status"] == (
         StructuredToolResultStatus.APPROVAL_REQUIRED.value
     )
-    assert kwargs["tool_response"]["approval_token"]
 
 
-def test_execute_approved_reinvocation_runs_with_real_token():
-    """End-to-end token chain: the token minted on the first call, fed back via
-    metadata on the re-invocation, verifies and the tool runs approved."""
+def test_execute_approved_reinvocation_runs_with_user_approved():
+    """metadata.remote_tool_approved=true -> tool runs with user_approved=True
+    and returns the real result — the approve->run half (executor side)."""
     worker, tool = _approval_worker(_needs_approval_unless_approved)
+    resp = worker._execute(_approval_row(approved=True))
 
-    first = worker._execute(_approval_row())
-    token = first["approval_token"]
-    assert first["status"] == StructuredToolResultStatus.APPROVAL_REQUIRED.value
-
-    resp = worker._execute(
-        _approval_row(
-            metadata_extra={
-                "remote_tool_approved": True,
-                "remote_tool_approval_token": token,
-            }
-        )
-    )
     assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
     assert resp["data"] == "ran the command"
     assert tool.invoke.call_args.args[1].user_approved is True
 
 
-def test_execute_approved_with_bad_token_rejected_without_invoking():
-    """A mismatched/forged approval token must be rejected and the tool never
-    invoked."""
-    worker, tool = _approval_worker(_needs_approval_unless_approved)
-    resp = worker._execute(
-        _approval_row(
-            metadata_extra={
-                "remote_tool_approved": True,
-                "remote_tool_approval_token": "not-a-valid-token",
-            }
-        )
-    )
-    assert resp["status"] == StructuredToolResultStatus.ERROR.value
-    tool.invoke.assert_not_called()
+def test_execute_safe_approved_posts_completed_result():
+    """Full _execute_safe on an approved row: runs the tool and posts a
+    COMPLETED terminal result the caller is waiting for."""
+    worker, _ = _approval_worker(_needs_approval_unless_approved)
+    worker.dal.post_remote_tool_call_result.return_value = True
+
+    worker._execute_safe(_approval_row(approved=True))
+
+    worker.dal.post_remote_tool_call_result.assert_called_once()
+    kwargs = worker.dal.post_remote_tool_call_result.call_args.kwargs
+    assert kwargs["status"] == "completed"
+    assert kwargs["tool_response"]["data"] == "ran the command"
 
 
 def test_execute_approved_but_still_gated_fails_closed():
     """If the tool STILL demands approval after user_approved=True, do NOT
-    re-request (would loop) — return an internal error. Uses a valid token so
-    it reaches invocation."""
-    from holmes.utils.approval_tokens import mint_token
-    import json as _json
+    re-request (would loop) — return an internal error instead."""
 
     def always_gated(params, context):
         return StructuredToolResult(
@@ -549,17 +528,8 @@ def test_execute_approved_but_still_gated_fails_closed():
         )
 
     worker, _ = _approval_worker(always_gated)
-    token = mint_token(
-        "call-xyz", "bash", _json.dumps({"command": "curl http://svc/healthz"}, sort_keys=True)
-    )
-    resp = worker._execute(
-        _approval_row(
-            metadata_extra={
-                "remote_tool_approved": True,
-                "remote_tool_approval_token": token,
-            }
-        )
-    )
+    resp = worker._execute(_approval_row(approved=True))
+
     assert resp["status"] == StructuredToolResultStatus.ERROR.value
     assert "loop" in resp["error"].lower() or "internal" in resp["error"].lower()
     assert "approval_params" not in resp  # not re-surfaced
