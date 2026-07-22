@@ -157,16 +157,15 @@ class MCPOAuthConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def render_client_secret_env_template(self):
-        """Substitute ``{{ env.X }}`` references in ``client_secret`` at load time.
+    def render_env_templates(self):
+        """Substitute ``{{ env.X }}`` references in OAuth fields at load time.
 
-        Keeps the secret out of YAML by reading it from an environment variable
-        (typically injected from a Kubernetes Secret) — same Jinja syntax the
-        headers code path already supports.
+        Keeps secrets and per-env URLs out of YAML by reading them from
+        environment variables (typically injected from a Kubernetes Secret) —
+        same Jinja syntax the headers code path already supports.
         """
-   
-
-        self.client_secret = render_env_template(self.client_secret, "MCPOAuthConfig.client_secret")
+        for field in ("client_secret", "authorization_url", "token_url", "client_id", "registration_endpoint"):
+            setattr(self, field, render_env_template(getattr(self, field), f"MCPOAuthConfig.{field}"))
         return self
 
 

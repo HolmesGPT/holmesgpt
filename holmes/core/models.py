@@ -117,14 +117,14 @@ class PendingToolApproval(BaseModel):
 
 
 class ToolApprovalDecision(BaseModel):
-    """Represents a user's decision on a tool approval."""
+    """Represents a user's or Holmes decision on a tool approval."""
 
     tool_call_id: str
     approved: bool
     save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
-    feedback: Optional[str] = None  # User feedback when denying a tool call
+    feedback: Optional[str] = None  # User or holmes feedback when denying a tool call
     decision: Optional[Dict[str, Any]] = None  # Structured decision data (e.g. OAuth callback)
-    edit_command: Optional[str] = None  # If set, replaces the tool call's "command" argument before execution
+    verified: bool = True # False only when Holmes itself rejected the approval (e.g. JWT token failed)
 
 
 class OAuthCallbackRequest(BaseModel):
@@ -229,7 +229,8 @@ class ChatRequestBaseModel(BaseModel):
         default=None,
         description=(
             "FE-supplied UI flow label, free-form. Examples: 'freeform', "
-            "'followup_logs', 'alert_investigation', 'resource_chat'."
+            "'followup_logs', 'manual_investigation', 'resource_chat'. "
+            "Taxonomy: relay repo, relay/pkg/model/conversation_request_type.py."
         ),
     )
     source_ref: Optional[str] = Field(

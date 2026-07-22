@@ -23,6 +23,8 @@ from holmes.checks.models import (
 )
 from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
+from holmes.core.llm import _is_gemini_route
+from holmes.core.llm_usage import RequestStats
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.usage_recorder import (
     UsageRecorderState,
@@ -75,8 +77,93 @@ def _execute_ai_check(check: Check, ai: ToolCallingLLM) -> LLMResult:
         {"role": "system", "content": system_message},
         {"role": "user", "content": check.query},
     ]
+
+    # Gemini (Google AI Studio and Vertex-AI Gemini) rejects GenerateContent
+    # requests that combine function calling (tools) with a JSON-schema
+    # response_format. Health checks always run with tools enabled, so sending
+    # CHECK_RESPONSE_FORMAT inline fails on those models. Split the work into two
+    # phases for Gemini instead. Other providers (Anthropic, OpenAI, Vertex
+    # Claude, etc.) support both together and take the single-call path.
+    if _is_gemini_route(ai.llm.model):
+        return _execute_ai_check_two_phase(check, ai, messages)
+
     response: LLMResult = ai.call(messages, response_format=CHECK_RESPONSE_FORMAT)
     return response
+
+
+def _execute_ai_check_two_phase(
+    check: Check, ai: ToolCallingLLM, messages: List[Dict[str, str]]
+) -> LLMResult:
+    """Two-phase check execution for Gemini models.
+
+    Gemini forbids combining tools with a structured response_format in one
+    request. Phase 1 runs the normal tool-calling investigation loop with no
+    response_format. Phase 2 makes a single tools-free structured call that
+    coerces the investigation's prose findings into the {rationale, passed}
+    schema. Cost/token stats from both phases are summed into the returned
+    LLMResult so usage accounting stays accurate.
+    """
+    investigation = ai.call(messages)
+
+    coerce_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You convert a health check investigation into a structured "
+                "result. Given the original check question and the investigation "
+                "findings, decide whether the check passes.\n"
+                "A health check PASSES when NO problem is found, and FAILS when "
+                "the problem being checked for is present or cannot be "
+                "evaluated.\n"
+                "In 'rationale', briefly justify your decision. In 'passed', set "
+                "true if healthy/no problem, false otherwise. Your rationale and "
+                "passed value must be consistent."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Check question:\n{check.query}\n\n"
+                f"Investigation findings:\n{investigation.result or ''}"
+            ),
+        },
+    ]
+
+    coerce_response = ai.llm.completion(
+        messages=coerce_messages,
+        tools=None,
+        response_format=CHECK_RESPONSE_FORMAT,
+        stream=False,
+        drop_params=True,
+    )
+
+    try:
+        coerce_choice = coerce_response.choices[0]  # type: ignore[union-attr]
+        coerce_content = coerce_choice.message.content or ""
+    except (AttributeError, IndexError):
+        coerce_choice = None
+        coerce_content = ""
+
+    # The returned result is the phase-2 (coerce) content, so report its finish
+    # reason. Fall back to the investigation's when the coerce response omits it.
+    coerce_finish_reason = getattr(coerce_choice, "finish_reason", None)
+
+    # Sum cost/token stats from both phases (LLMResult is a RequestStats subclass).
+    stats = RequestStats()
+    stats += RequestStats(
+        **{k: getattr(investigation, k) for k in RequestStats.model_fields}
+    )
+    stats += RequestStats.from_response(coerce_response)
+
+    return LLMResult(
+        result=coerce_content,
+        tool_calls=investigation.tool_calls,
+        num_llm_calls=(investigation.num_llm_calls or 0) + 1,
+        messages=investigation.messages,
+        metadata=investigation.metadata,
+        finish_reason=coerce_finish_reason or investigation.finish_reason,
+        **stats.model_dump(),
+    )
 
 
 def _parse_check_response(response: LLMResult) -> CheckResponse:

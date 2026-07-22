@@ -1,12 +1,37 @@
 certificate: "" # base64 encoded
 logLevel: INFO
+# When true, logs are emitted as JSON (one object per line) instead of colored
+# text. Useful for log scrapers like Filebeat. When Holmes is deployed as a
+# subchart of the Robusta umbrella chart, global.enableJsonLogsFormat takes
+# precedence over this value.
+enableJsonLogsFormat: false
+
+# Values shared with/from a parent umbrella chart. Declared so templates can
+# safely reference .Values.global.* when Holmes is installed standalone.
+global: {}
+
+# Serve the Holmes API over HTTPS directly from the pod (in-app TLS, no ingress/proxy).
+# When enabled you must provide your own TLS secret via secretName (e.g. issued by
+# cert-manager or created manually); the chart does not generate a self-signed cert.
+tls:
+  enabled: false
+  # Name of a kubernetes.io/tls (or generic) secret containing tls.crt and tls.key.
+  secretName: ""
+  # Optional: key within secretName holding the password for an encrypted private
+  # key (tls.key). Sourced via secretKeyRef so the password is not stored in the
+  # pod spec in plaintext.
+  keyfilePasswordSecretKey: ""
+  # Optional: key within the same secret holding a CA bundle. When set, mTLS is
+  # enabled and the server requires & verifies client certificates.
+  caCertsSecretKey: ""
 
 additionalEnvVars: []
 additional_env_vars: []
 # Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
-# configMapRef) loaded onto the Holmes pod. Use to share a Secret between the
-# runner and Holmes (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring
-# each key twice.
+# configMapRef) loaded onto the Holmes pod. Prefer `extraEnvVarsSecrets` below
+# when all you need is to mount one or more Secrets by name — this block
+# remains for the configMapRef case and for sharing entries with the runner
+# (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring each key twice.
 additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
@@ -173,6 +198,36 @@ args: []
 
 priorityClassName: ""
 
+# List of Kubernetes Secret names whose keys are auto-mounted as env vars on
+# the Holmes pod via `envFrom`. Use this together with the `envRef:` sugar
+# below to avoid repeating each API key in `additionalEnvVars`. Every listed
+# Secret becomes an `envFrom.secretRef` entry, so keys across secrets share a
+# single env-var namespace — same-name keys shadow each other in list order.
+#
+# Example:
+#   kubectl create secret generic holmes-llm-keys \
+#     --from-literal=OPENAI_API_KEY=sk-... \
+#     --from-literal=ANTHROPIC_API_KEY=sk-ant-... \
+#     -n <namespace>
+#   kubectl create secret generic holmes-aws-keys \
+#     --from-literal=AWS_ACCESS_KEY_ID=... \
+#     --from-literal=AWS_SECRET_ACCESS_KEY=... \
+#     -n <namespace>
+#
+#   extraEnvVarsSecrets:
+#     - holmes-llm-keys
+#     - holmes-aws-keys
+#   modelList:
+#     gpt-4.1:
+#       model: openai/gpt-4.1
+#       api_key: envRef:OPENAI_API_KEY   # rewritten to "{{ env.OPENAI_API_KEY }}"
+extraEnvVarsSecrets: []
+
+# List of models available to Holmes. Any string value prefixed with
+# `envRef:` is rewritten at chart-render time to the runtime env-var
+# templating (`{{ env.<KEY> }}`), so you never repeat the key name in an
+# `additionalEnvVars` block. Set `extraEnvVarsSecrets` above so the
+# underlying Kubernetes Secrets are actually mounted on the pod.
 modelList: {}
 
 # MCP (Model Context Protocol) Add-ons
@@ -187,7 +242,7 @@ mcpAddons:
       name: "aws-api-mcp-sa"
       annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
-    image: "aws-api-mcp-server:2.0.1"
+    image: "aws-api-mcp-server:2.1.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     resources:
@@ -207,7 +262,7 @@ mcpAddons:
     # When multiAccount.profiles is defined, the chart will use EKS token projection
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
-      image: "multi-aws-api-mcp-server:2.0.1"
+      image: "multi-aws-api-mcp-server:2.1.0"
       # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
       profiles: {}
       llm_account_descriptions: ""
@@ -439,7 +494,9 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.4"
+    # github-mcp:2.0.0 = native HTTP mode (github-mcp-server v1.4.0+). PAT auth only.
+    # The github-app path uses auth.githubApp.image and is unchanged.
+    image: "github-mcp:2.0.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -460,7 +517,7 @@ mcpAddons:
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.3"                          # Image with GitHub App token management
+        image: "github-app-mcp:1.0.7"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     config:
@@ -480,6 +537,8 @@ mcpAddons:
       # 'context' exposes the read-only get_me tool, which Holmes uses to validate
       # the GitHub token at startup (a bad PAT marks the toolset disabled instead of
       # appearing connected). Keep 'context' enabled unless you have a reason not to.
+      # Note: when using GitHub App auth, 'context' is automatically stripped — App
+      # installation tokens 403 on GET /user, so get_me is not a valid auth probe.
       # Ignored when `tools` below is set (tools takes precedence as a hard allowlist).
       toolsets: "repos,issues,pull_requests,actions,context"
 
@@ -667,9 +726,9 @@ mcpAddons:
   # Provides safe kubectl command execution with security controls
   # WARNING: This addon can execute write operations. Configure allowedCommands carefully.
   kubernetesRemediation:
-    enabled: false
+    enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.0.0"
+    image: "kubernetes-remediation-mcp:1.1.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -677,19 +736,27 @@ mcpAddons:
       create: true
       name: "k8s-remediation-mcp-sa"
       annotations: {}
-      clusterRole: "cluster-admin"  # Override with a more restrictive role as needed
+      clusterRole: ""        # empty -> chart creates the scoped, least-privilege
+                             # ClusterRole below. Set to bring-your-own ClusterRole name.
 
     config:
-      # Comma-separated list of allowed kubectl subcommands
-      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+      # Hard verb allowlist for the approval-gated run_kubectl_command fallback
+      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
       # Comma-separated list of blocked flags
       dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
+      # Pre-approved read-only commands for run_preapproved_kubectl_command (auto-approved)
+      preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
+      # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
+      diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+      # read_file_from_container path policy (allow roots minus secret/token mounts)
+      fileReadAllowedPaths: "/"
+      fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
+      # Enable the approval-gated fallback (set false for a fully locked-down mode)
+      allowArbitraryKubectlCommands: true
       # Command timeout in seconds
       timeout: "60"
       # Log level
       logLevel: "INFO"
-      # Comma-separated list of allowed images for the run_image tool (leave empty to disable)
-      allowedImages: ""
 
     resources:
       requests:
@@ -700,17 +767,15 @@ mcpAddons:
         cpu: "200m"
 
     networkPolicy:
-      enabled: false
+      enabled: true          # ingress-only; inert where the CNI doesn't enforce
 
-    # Tools that can only be called after a runbook invocation (prevents ad-hoc write operations)
-    # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
-    restrictedTools:
-      - "*"
-    # Tools that require user confirmation before execution
-    # Use ["*"] to require approval for all tools, or specify tool names
+    # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
+    # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
+    # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
     approvalRequiredTools:
-      - "*"
+      - "run_kubectl_command"
 
+    # Optional override of the default LLM instructions
     llmInstructions: ""
 
     nodeSelector: {}

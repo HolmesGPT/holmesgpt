@@ -89,6 +89,41 @@ docker run -d \
   ...
 ```
 
+### HOLMES_APPROVAL_SIGNING_KEY
+**Default:** not set (an ephemeral key is generated per process at startup)
+
+HMAC signing key for tool-approval tokens. Holmes mints a short-lived JWT
+for every tool call that requires user approval and verifies the same JWT
+when the user approves. This prevents a client from forging an approval
+for a tool call Holmes never proposed.
+
+When unset, Holmes generates a 32-byte random key at startup. Approvals
+still work, but **in-flight approvals are invalidated on every restart** —
+users will see "Approval token validation failed" if they approve a
+modal after Holmes restarted. Set this env var to keep approvals working
+across restarts.
+
+**Generating a key:**
+```bash
+openssl rand -base64 32
+```
+
+The env var is used verbatim as the HMAC key — any string works, but use a
+high-entropy value like the snippet above. A short or guessable key
+silently weakens the signature and lets a client forge approval tokens.
+
+**Example (Kubernetes):**
+```yaml
+additionalEnvVars:
+  - name: HOLMES_APPROVAL_SIGNING_KEY
+    valueFrom:
+      secretKeyRef:
+        name: holmes-secrets
+        key: approval-signing-key
+```
+
+Tokens expire after 30 days.
+
 ## SSL/TLS
 
 ### CERTIFICATE
@@ -113,6 +148,41 @@ Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the 
     holmes:
       certificate: "<base64-encoded CA cert>"
     ```
+
+### API Server HTTPS (`HOLMES_SSL_*`)
+
+Serve the HolmesGPT API over **HTTPS directly from the application** (in-app TLS — no reverse proxy or ingress required). When both `HOLMES_SSL_CERTFILE` and `HOLMES_SSL_KEYFILE` are set, the server listens with TLS; otherwise it serves plain HTTP. If only one of the two is set, if a referenced file is missing, or if `HOLMES_SSL_CA_CERTS` / `HOLMES_SSL_KEYFILE_PASSWORD` is set without both server-side files, the server **fails to start** rather than silently falling back to HTTP.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `HOLMES_SSL_CERTFILE` | for HTTPS | Path to the PEM server certificate. Setting this **and** `HOLMES_SSL_KEYFILE` enables HTTPS. |
+| `HOLMES_SSL_KEYFILE` | for HTTPS | Path to the PEM private key for the certificate. |
+| `HOLMES_SSL_KEYFILE_PASSWORD` | optional | Password for an encrypted private key. |
+| `HOLMES_SSL_CA_CERTS` | optional | Path to a CA bundle used to **verify client certificates**. Setting it enables mutual TLS (mTLS) — clients without a CA-signed certificate are rejected. |
+
+=== "Holmes CLI"
+
+    ```bash
+    export HOLMES_SSL_CERTFILE=/path/to/tls.crt
+    export HOLMES_SSL_KEYFILE=/path/to/tls.key
+    # optional:
+    export HOLMES_SSL_KEYFILE_PASSWORD=changeit
+    export HOLMES_SSL_CA_CERTS=/path/to/ca.crt   # enables mTLS
+    ```
+
+=== "Holmes Helm Chart"
+
+    Provide a TLS secret and enable `tls` (see the [Kubernetes installation guide](../installation/kubernetes-installation.md)):
+
+    ```yaml
+    tls:
+      enabled: true
+      secretName: holmes-tls   # secret with tls.crt and tls.key
+      # caCertsSecretKey: ca.crt   # optional: key in the secret, enables mTLS
+    ```
+
+!!! note "Certificate rotation"
+    The server reads the certificate once at startup and does not hot-reload it. After rotating the certificate (or its secret), restart the process/pod for the new certificate to take effect.
 
 ## Tool Result Size Limits
 
@@ -240,6 +310,16 @@ Controls the logging verbosity of HolmesGPT.
 **Example:**
 ```bash
 export LOG_LEVEL="DEBUG"
+```
+
+### ENABLE_JSON_LOGS_FORMAT
+When enabled, HolmesGPT emits logs as JSON (one object per line) instead of the default colored text format. This makes logs easier to index, search, and filter with log scrapers such as Filebeat.
+
+**Default:** `false`
+
+**Example:**
+```bash
+export ENABLE_JSON_LOGS_FORMAT="true"
 ```
 
 ### TRACE_TOKEN_USAGE

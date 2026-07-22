@@ -4,12 +4,14 @@ import gzip
 import json
 import logging
 import os
+import ssl
 import threading
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+import httpx
 import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
@@ -22,6 +24,7 @@ from pydantic import BaseModel
 from supabase import create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     retry_if_not_exception_type,
@@ -48,7 +51,6 @@ from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
-from holmes.utils.krr_utils import calculate_krr_savings
 
 if TYPE_CHECKING:
     # Forward reference only — `usage_recorder` already TYPE_CHECKING-imports
@@ -60,8 +62,6 @@ SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 60))
 
 # Maximum total rows to fetch from KRR scans, regardless of number of clusters
 # This prevents unbounded fetches when querying many clusters
-MAX_KRR_TOTAL_FETCH_ROWS = 2000
-
 ISSUES_TABLE = "Issues"
 GROUPED_ISSUES_TABLE = "GroupedIssues"
 EVIDENCE_TABLE = "Evidence"
@@ -99,11 +99,6 @@ def pre_select_patched(*args, **kwargs):
 supabase_request_builder.pre_select = pre_select_patched
 
 
-class FindingType(str, Enum):
-    ISSUE = "issue"
-    CONFIGURATION_CHANGE = "configuration_change"
-
-
 class RunStatus(str, Enum):
     PENDING = "pending"
     PULLED = "pulled"
@@ -127,6 +122,14 @@ class RobustaToken(BaseModel):
     password: str
 
 
+# Troubleshooting guide for an outbound firewall blocking egress to the Robusta
+# platform (surfaces as a connection reset during sign-in). Linked from the log
+# and exception so users can find the fix.
+FIREWALL_TROUBLESHOOTING_URL = (
+    "https://holmesgpt.dev/reference/troubleshooting/#firewall-blocking-robusta-platform"
+)
+
+
 class SupabaseDnsException(Exception):
     def __init__(self, error: Exception, url: str):
         message = (
@@ -136,6 +139,78 @@ class SupabaseDnsException(Exception):
             f"curl -I {url}\n"
         )
         super().__init__(message)
+
+
+class SupabaseConnectionException(Exception):
+    """Raised when Holmes cannot open a connection to the Robusta platform.
+
+    Almost always an outbound firewall / egress policy blocking traffic to the
+    Robusta platform (not a DNS or TLS certificate problem). The actionable
+    guidance - allowlist '*.robusta.dev' plus the docs link - is logged at
+    WARNING right before this is raised, so the exception message itself stays a
+    thin technical wrapper around the underlying connection error.
+    """
+
+    def __init__(self, error: Exception, url: str):
+        super().__init__(
+            f"Could not connect to the Robusta platform at {url} "
+            f"({error.__class__.__name__}: {error})"
+        )
+
+
+_DISCONNECT_RETRY_ATTEMPTS = 3
+
+
+def _log_remote_protocol_retry(retry_state: RetryCallState) -> None:
+    """Log each RemoteProtocolError retry. ``handle_request`` is decorated, so its
+    request is the second positional arg (``self`` is the first)."""
+    request = retry_state.args[1] if len(retry_state.args) > 1 else None
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    logging.warning(
+        "Supabase request %s %s hit RemoteProtocolError (%s); "
+        "retrying on a fresh connection (attempt %d/%d)",
+        getattr(request, "method", "?"),
+        getattr(request, "url", "?"),
+        exc,
+        retry_state.attempt_number,
+        _DISCONNECT_RETRY_ATTEMPTS,
+    )
+
+
+class SupabaseRetryTransport(httpx.HTTPTransport):
+    """HTTP/1.1 transport that retries transient ``RemoteProtocolError``s.
+
+    Two problems are fixed at this transport, so every Supabase sub-client
+    (postgrest, auth/gotrue, storage, realtime) is hardened uniformly rather
+    than just postgrest table queries:
+
+    1. ``http2=False`` — httpcore's *sync* HTTP/2 connection is not thread-safe,
+       and one ``SupabaseDal`` client is shared across the conversation worker,
+       realtime callbacks and request threads. HTTP/1.1 gives each concurrent
+       request its own pooled, thread-safe connection.
+    2. Retry on ``RemoteProtocolError`` — even on HTTP/1.1, Supabase's edge
+       (Cloudflare / Kong / load balancer) closes idle keep-alive connections
+       server-side. A pooled connection the edge has already closed gets reused
+       and the next request fails with ``RemoteProtocolError: Server
+       disconnected without sending a response`` *before* it reaches Supabase.
+       The request was never processed, so retrying it on a fresh connection is
+       safe (postgrest/auth/storage bodies are buffered bytes, hence replayable).
+
+    This is the hardening Supabase support recommended (mirrors relay#573 /
+    ROB-4012; see ROB-4017).
+    """
+
+    # No backoff (no wait): a reaped keep-alive socket just needs a fresh
+    # connection, not a delay (see the class docstring for why retrying is safe).
+    # The budget is a fixed constant, so the @retry decorator suffices.
+    @retry(
+        retry=retry_if_exception_type(httpx.RemoteProtocolError),
+        stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
+        reraise=True,
+        before_sleep=_log_remote_protocol_retry,
+    )
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return super().handle_request(request)
 
 
 class SupabaseDal:
@@ -150,7 +225,38 @@ class SupabaseDal:
         logging.info(
             f"Initializing Robusta platform connection for account {self.account_id}"
         )
-        options = ClientOptions(postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS)
+        # Build the client on SupabaseRetryTransport (HTTP/1.1 + RemoteProtocolError
+        # retry — see its docstring) and hand it to postgrest so postgrest doesn't
+        # build its own HTTP/2 client.
+        #
+        # Honor the environment's CA bundle (corporate / TLS-proxy CA in
+        # SSL_CERT_FILE / REQUESTS_CA_BUNDLE) the way supabase's default client does;
+        # our own client otherwise falls back to certifi and breaks TLS verification
+        # behind an intercepting proxy. Pass an SSLContext, not the path string
+        # (httpx deprecated `verify=<str>`), honoring a CA file or directory.
+        ca_bundle = os.environ.get("SSL_CERT_FILE") or os.environ.get(
+            "REQUESTS_CA_BUNDLE"
+        )
+        verify: "ssl.SSLContext | bool"
+        if not ca_bundle:
+            verify = True
+        elif os.path.isdir(ca_bundle):
+            verify = ssl.create_default_context(capath=ca_bundle)
+        else:
+            verify = ssl.create_default_context(cafile=ca_bundle)
+        # verify/http2 go on the transport (httpx ignores them on the client once a
+        # custom transport is supplied); timeout/follow_redirects stay on the client
+        # (supabase ignores postgrest_client_timeout once an httpx_client is given).
+        transport = SupabaseRetryTransport(http2=False, verify=verify)
+        httpx_client = httpx.Client(
+            transport=transport,
+            timeout=SUPABASE_TIMEOUT_SECONDS,
+            follow_redirects=True,
+        )
+        options = ClientOptions(
+            postgrest_client_timeout=SUPABASE_TIMEOUT_SECONDS,
+            httpx_client=httpx_client,
+        )
         sentry_sdk.set_tag("db_url", self.url)
         self.client = create_client(self.url, self.api_key, options)  # type: ignore
         self.user_id = self.sign_in()
@@ -291,222 +397,34 @@ class SupabaseDal:
                 ]
             ):
                 raise SupabaseDnsException(e, self.url) from e
+            if isinstance(e, (ConnectionError, TimeoutError)) or any(
+                conn_indicator in error_msg
+                for conn_indicator in [
+                    "connection reset by peer",
+                    "connection reset",
+                    "connection refused",
+                    "connection aborted",
+                    "connection timed out",
+                    "network is unreachable",
+                    "no route to host",
+                    "errno 104",  # ECONNRESET
+                    "errno 111",  # ECONNREFUSED
+                ]
+            ):
+                # The platform resolved but refused/reset the connection - almost
+                # always an outbound firewall. Log the full actionable guidance at
+                # WARNING (not ERROR, so it doesn't raise a Sentry alert) before
+                # raising; the exception below stays a thin technical wrapper.
+                logging.warning(
+                    "Could not connect to the Robusta platform at %s. This is "
+                    "usually an outbound firewall blocking egress to the platform - "
+                    "allowlist outbound HTTPS to '*.robusta.dev'. See %s for "
+                    "troubleshooting steps.",
+                    self.url,
+                    FIREWALL_TROUBLESHOOTING_URL,
+                )
+                raise SupabaseConnectionException(e, self.url) from e
             raise
-
-    def get_resource_recommendation(
-        self,
-        limit: int = 10,
-        sort_by: str = "cpu_total",
-        namespace: Optional[str] = None,
-        name_pattern: Optional[str] = None,
-        kind: Optional[str] = None,
-        container: Optional[str] = None,
-        clusters: Optional[List[str]] = None,
-    ) -> Optional[List[Dict]]:
-        """
-        Fetch top N resource recommendations with optional filters and sorting.
-
-        Args:
-            limit: Maximum number of recommendations to return (default: 10)
-            sort_by: Field to sort by potential savings. Options:
-                - "cpu_total": Total CPU savings (requests + limits)
-                - "memory_total": Total memory savings (requests + limits)
-                - "cpu_requests": CPU requests savings
-                - "memory_requests": Memory requests savings
-                - "cpu_limits": CPU limits savings
-                - "memory_limits": Memory limits savings
-                - "priority": Use the priority field from the scan
-            namespace: Filter by Kubernetes namespace (exact match)
-            name_pattern: Filter by workload name (supports SQL LIKE pattern, e.g., '%app%')
-            kind: Filter by Kubernetes resource kind (e.g., Deployment, StatefulSet, DaemonSet, Job)
-            container: Filter by container name (exact match)
-            clusters: List of cluster names to query. If None, queries current cluster only.
-                      Use ["*"] to query all clusters in the account.
-
-        Returns:
-            List of recommendations sorted by the specified metric
-        """
-        if not self.enabled:
-            return []
-
-        # Determine which clusters to query
-        if clusters is None:
-            target_clusters = [self.cluster]
-        elif clusters == ["*"]:
-            target_clusters = None  # Will query all via single request
-        else:
-            target_clusters = clusters
-
-        # Step 1: Fetch scan metadata for all target clusters in one query
-        meta_query = (
-            self.client.table(SCANS_META_TABLE)
-            .select("cluster_id, scan_id")
-            .eq("account_id", self.account_id)
-            .eq("latest", True)
-        )
-        if target_clusters is not None:
-            meta_query = meta_query.in_("cluster_id", target_clusters)
-
-        scans_meta_response = meta_query.execute()
-
-        if not scans_meta_response.data:
-            logging.warning("No scan metadata found for KRR")
-            return None
-
-        # Build cluster_id -> scan_id mapping
-        cluster_scan_pairs: List[Tuple[str, str]] = [
-            (row["cluster_id"], row["scan_id"]) for row in scans_meta_response.data
-        ]
-
-        if not cluster_scan_pairs:
-            return None
-
-        # Step 2: Fetch results using OR filter for (cluster_id, scan_id) pairs
-        # PostgREST syntax: or=(and(cluster_id.eq.X,scan_id.eq.Y),and(...))
-        or_conditions = ",".join(
-            f"and(cluster_id.eq.{cluster_id},scan_id.eq.{scan_id})"
-            for cluster_id, scan_id in cluster_scan_pairs
-        )
-
-        query = (
-            self.client.table(SCANS_RESULTS_TABLE)
-            .select("*")
-            .eq("account_id", self.account_id)
-            .or_(or_conditions)
-        )
-
-        if namespace:
-            query = query.eq("namespace", namespace)
-        if name_pattern:
-            query = query.like("name", name_pattern)
-        if kind:
-            query = query.eq("kind", kind)
-        if container:
-            query = query.eq("container", container)
-
-        # For priority sorting, we can use DB ordering and limit
-        if sort_by == "priority":
-            query = query.order("priority", desc=True).limit(limit)
-            results_response = query.execute()
-            return results_response.data if results_response.data else None
-
-        # For other sort modes, fetch up to limit per cluster then sort in Python
-        # Cap total fetch to prevent unbounded queries with many clusters
-        total_fetch = min(limit * len(cluster_scan_pairs), MAX_KRR_TOTAL_FETCH_ROWS)
-        query = query.limit(total_fetch)
-        results_response = query.execute()
-
-        if not results_response.data:
-            return None
-
-        all_results = results_response.data
-
-        if len(all_results) <= 1:
-            return all_results
-
-        # Sort by calculated savings (descending)
-        results_with_savings = [
-            (result, calculate_krr_savings(result, sort_by)) for result in all_results
-        ]
-        results_with_savings.sort(key=lambda x: x[1], reverse=True)
-
-        return [result for result, _ in results_with_savings[:limit]]
-
-    def get_issues_metadata(
-        self,
-        start_datetime: str,
-        end_datetime: str,
-        limit: int = 100,
-        workload: Optional[str] = None,
-        ns: Optional[str] = None,
-        clusters: Optional[List[str]] = None,
-        include_external: bool = True,
-        finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
-    ) -> Optional[List[Dict]]:
-        """
-        Fetch issues/changes metadata with multi-cluster support.
-
-        Args:
-            start_datetime: Start time boundary in RFC3339 format
-            end_datetime: End time boundary in RFC3339 format
-            limit: Maximum number of results to return
-            workload: Filter by workload name (exact match)
-            ns: Filter by namespace (exact match)
-            clusters: List of cluster names to query. If None, queries current cluster only.
-                      Use ["*"] to query all clusters in the account.
-            include_external: If True, also include external changes (not associated with
-                             any k8s cluster, e.g., LaunchDarkly changes). Default True.
-            finding_type: Type of finding to fetch (CONFIGURATION_CHANGE or ISSUE)
-
-        Returns:
-            List of issues/changes metadata or None if no data found
-        """
-        if not self.enabled:
-            return []
-
-        try:
-            base_select = (
-                "id",
-                "title",
-                "subject_name",
-                "subject_namespace",
-                "subject_type",
-                "description",
-                "starts_at",
-                "ends_at",
-                "cluster",
-            )
-
-            # Build the list of clusters to query (single query using IN filter)
-            if clusters == ["*"]:
-                # Query all clusters - if include_external, no cluster filter needed
-                # Otherwise exclude "external"
-                query = (
-                    self.client.table(ISSUES_TABLE)
-                    .select(*base_select)
-                    .eq("account_id", self.account_id)
-                    .gte("creation_date", start_datetime)
-                    .lte("creation_date", end_datetime)
-                    .eq("finding_type", finding_type.value)
-                )
-                if not include_external:
-                    query = query.neq("cluster", "external")
-            else:
-                # Build cluster list for IN filter
-                target_clusters = clusters if clusters else [self.cluster]
-                if include_external:
-                    target_clusters = target_clusters + ["external"]
-
-                query = (
-                    self.client.table(ISSUES_TABLE)
-                    .select(*base_select)
-                    .eq("account_id", self.account_id)
-                    .in_("cluster", target_clusters)
-                    .gte("creation_date", start_datetime)
-                    .lte("creation_date", end_datetime)
-                    .eq("finding_type", finding_type.value)
-                )
-
-            # Apply workload/namespace filters (only affect non-external results,
-            # but external rows won't match these anyway as they lack k8s context)
-            if workload:
-                query = query.eq("subject_name", workload)
-            if ns:
-                query = query.eq("subject_namespace", ns)
-
-            # Order by starts_at descending and apply limit in DB
-            query = query.order("starts_at", desc=True).limit(limit)
-
-            res = query.execute()
-
-            if not res.data:
-                return None
-
-            return res.data
-
-        except Exception:
-            logging.exception("Supabase error while retrieving change data")
-            return None
 
     def unzip_evidence_file(self, data):
         try:
@@ -1078,16 +996,20 @@ class SupabaseDal:
         )
         return None
 
-    def claim_conversations(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_conversations(
+        self, holmes_id: str, limit: int
+    ) -> List[Dict]:
         """
-        Atomically claim all pending conversations for this cluster.
-        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
+        Claim up to ``limit`` pending conversations (oldest first), landing them
+        directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
+        nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        # Retry transient infrastructure errors (Supabase proxy DNS/cache
-        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),
@@ -1096,11 +1018,12 @@ class SupabaseDal:
         )
         def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_conversations",
+                "claim_n_pending_conversations",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1118,22 +1041,32 @@ class SupabaseDal:
             )
             return []
 
-    def claim_tool_calls(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_tool_calls(self, holmes_id: str, limit: int) -> List[Dict]:
         """
-        Atomically claim all pending remote tool calls targeting this cluster.
-        Returns claimed RemoteToolCalls rows (status='queued', assignee=holmes_id).
-        Stale pending rows (>5 minutes) are swept to 'timeout' server-side.
+        Claim up to ``limit`` pending remote tool calls (oldest first), landing
+        them directly in 'running' ('queued' is deprecated). ``limit`` <= 0
+        claims nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        try:
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_tool_calls",
+                "claim_n_pending_tool_calls",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1141,8 +1074,14 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim_with_retry()
         except Exception:
-            logging.exception("Supabase error while claiming tool calls", exc_info=True)
+            logging.exception(
+                "Supabase error while claiming tool calls (after retries)",
+                exc_info=True,
+            )
             return []
 
     def post_remote_tool_call_result(

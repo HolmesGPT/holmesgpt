@@ -19,7 +19,6 @@ from holmes.core.oauth_config import (
 )
 from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.tools import Tool
-from holmes.plugins.toolsets.mcp.oauth_token_store import DiskTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +125,7 @@ class OAuthToolConnector:
                     user_id, toolset.name,
                 )
                 self._evict_expired_token(user_id, toolset)
+                self._clear_user_tools(user_id, toolset)
             else:
                 logger.warning(
                     "Failed to load OAuth tools for user %s on toolset %s: %s",
@@ -284,18 +284,32 @@ class OAuthToolConnector:
 
     @staticmethod
     def _evict_expired_token(user_id: str, toolset: Any) -> None:
-        """Remove an expired/revoked token from cache and disk (CLI only).
+        """Remove an expired/revoked token from cache and the backing store.
 
-        Only deletes from DiskTokenStore — DalTokenStore is shared across
-        clusters, so another cluster may have already refreshed the token.
+        Evicts the in-memory cache and deletes the persisted row so the
+        frontend stops showing "Failed" and the user sees a fresh "Login"
+        action. By the time we get here, the background refresh loop has
+        already failed to refresh — the stored token is genuinely dead.
         """
         try:
             mgr = _get_token_manager()
             oauth_config = toolset._mcp_config.oauth
             cache_key = mgr._get_cache_key(oauth_config, {"user_id": user_id})
             mgr._cache.evict(cache_key)
-            if isinstance(mgr._store, DiskTokenStore):
-                provider_name = oauth_config.authorization_url or "unknown"
-                mgr._store.delete_token(provider_name, user_id=user_id)
+            provider_name = oauth_config.authorization_url or "unknown"
+            mgr._store.delete_token(provider_name, user_id=user_id)
         except Exception:
             logger.debug("Failed to evict expired token for user %s", user_id, exc_info=True)
+
+    def _clear_user_tools(self, user_id: str, toolset: Any) -> None:
+        """Drop stale per-user tools for this toolset after a 401.
+
+        Without this, apply_user_tools keeps substituting dead tools for the
+        _connect placeholder, so the LLM keeps calling them and the user
+        never gets back to a recoverable state.
+        """
+        with self._lock:
+            self._user_tools.get(user_id, {}).pop(toolset.name, None)
+            user_map = self._user_tool_to_toolset.get(user_id, {})
+            for tool_name in [n for n, ts in user_map.items() if ts.name == toolset.name]:
+                user_map.pop(tool_name, None)
