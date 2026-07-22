@@ -264,20 +264,28 @@ def evict_stale_tool_results(
         if existing:
             candidate = existing.group(1).strip()
             if candidate:
-                candidate_path = Path(candidate).resolve()
-                storage_root = tool_results_dir.resolve()
-                safe_name = re.sub(r"[^\w\-]", "_", tool_name)
-                safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
-                expected_names = {
-                    f"{safe_name}_{safe_id}.txt",
-                    f"{safe_name}_{safe_id}.json",
-                }
-                if (
-                    candidate_path.parent == storage_root
-                    and candidate_path.name in expected_names
-                    and candidate_path.is_file()
-                ):
-                    file_path = str(candidate_path)
+                # `candidate` is untrusted tool output — a malformed value (e.g.
+                # an embedded NUL byte) can make resolve()/is_file() raise. Swallow
+                # any such error and fall through to a fresh spill rather than
+                # letting it abort the whole eviction pass.
+                try:
+                    candidate_path = Path(candidate).resolve()
+                    safe_name = re.sub(r"[^\w\-]", "_", tool_name)
+                    safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
+                    expected_names = {
+                        f"{safe_name}_{safe_id}.txt",
+                        f"{safe_name}_{safe_id}.json",
+                    }
+                    if (
+                        candidate_path.parent == tool_results_dir.resolve()
+                        and candidate_path.name in expected_names
+                        and candidate_path.is_file()
+                    ):
+                        file_path = str(candidate_path)
+                except (OSError, ValueError, RuntimeError) as e:
+                    logging.debug(
+                        f"Ignoring malformed 'Saved to:' pointer during eviction: {e}"
+                    )
 
         if not file_path:
             file_path = save_large_result(

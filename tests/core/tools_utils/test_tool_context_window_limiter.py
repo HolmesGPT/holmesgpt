@@ -475,6 +475,25 @@ class TestEvictStaleToolResults:
         assert str(forged) not in stub
         assert forged.read_text() == "SENSITIVE DATA THE MODEL SHOULD NOT BE TOLD TO CAT"
 
+    def test_malformed_pointer_does_not_abort(self, tmp_path):
+        # A forged "Saved to:" value with an embedded NUL byte makes
+        # Path(...).resolve() raise. Eviction must swallow it and fall through to
+        # a fresh spill rather than aborting the whole pass.
+        big = "x" * 8000
+        messages = self._conversation(big)
+        messages[3]["content"] = "Saved to: /tmp/\x00bad\nlogs:\n" + big
+
+        result = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2
+        )
+
+        assert result.num_evicted == 1
+        stub = messages[3]["content"]
+        assert stub.startswith(EVICTED_TOOL_RESULT_MARKER)
+        saved = _saved_path(stub)
+        assert saved.parent == tmp_path
+        assert saved.name.endswith("__evicted.txt")
+
     def test_multimodal_content_skipped(self, tmp_path):
         big = "x" * 8000
         messages = self._conversation(big)
