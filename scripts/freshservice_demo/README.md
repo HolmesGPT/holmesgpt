@@ -189,21 +189,82 @@ runbook, contact the vendor account manager, and expedite CHN-9.
 
 ## Triggering Holmes
 
-Configure the Holmes workflow so that alert-created incidents launch an
-investigation with a prompt along the lines of:
+Configure the Robusta workflow so that alert-created incidents launch an
+investigation with this prompt:
 
-> A monitoring alert created this incident. Investigate the root cause using
-> the Freshservice data: correlate with open user tickets, recently
-> implemented changes and releases, the ITAM asset records for the affected
-> resources, announcements, and knowledge-base runbooks/advisories. When you
-> have a conclusion, create a new Freshservice ticket containing: the probable
-> root cause (citing the specific change/asset/contract), the evidence chain,
-> affected users/scope, and a concrete recommended remediation. Do not modify
-> existing records.
+```text
+A Freshservice monitoring alert created this incident. You are the on-call
+investigator: find the root cause using Freshservice data, open an RCA ticket,
+and report back.
 
-The Freshservice toolset needs `enable_write_tools: true` for the final
-create-ticket step (writes are approval-gated by default via
-`require_approval_for_writes`).
+INVESTIGATE
+1. Read this incident's subject, description and fields. The alert's resource,
+   metric and start time identify the affected system - use them as your
+   pivot into the rest of the data.
+2. Gather evidence from Freshservice (read tools):
+   - Open tickets with related symptoms (same resource, location, tags or
+     error text). Read their conversations - agent triage notes often contain
+     key measurements.
+   - Recently implemented changes and in-progress releases. Compare each
+     change's planned window and rollout plan against the alert start time and
+     the affected resource. Read change notes.
+   - ITAM asset records for the affected resource AND for the devices/users on
+     the related tickets. Asset notes contain dependencies (e.g. upstream
+     network devices), model and firmware versions, ownership, and
+     contract/renewal details. Look for patterns across assets (same model,
+     same firmware, same ring, same site).
+   - Knowledge base articles and vendor advisories matching the product and
+     symptoms.
+   - Announcements about recent maintenance windows.
+3. Conclude only from evidence and cite record IDs (ticket #, CHN-, asset
+   names, KB titles). If no change correlates with the alert, do not force
+   one - consider process failures instead: expired contracts or renewal
+   dates on asset records, change requests stuck in approval, warning tickets
+   that went unanswered.
+
+REPORT
+4. Create ONE new Freshservice ticket (freshservice_create_object,
+   object_type "tickets") with:
+   - subject: "[Holmes RCA] <one-line root cause>"
+   - description containing: root cause; the evidence chain with record IDs;
+     scope (affected users, sites, departments); recommended remediation
+     citing the relevant runbook/KB article; and any URGENT follow-up (e.g. a
+     scheduled release that must be halted, an approval that must be
+     expedited, a vendor contact to call).
+   - email "holmes@demo.robustalabs.dev", priority matching the impact.
+5. Update the triggering incident: add a private note
+   (freshservice_create_related_object, sub_resource "notes") that summarizes
+   the root cause in 2-3 sentences and references the RCA ticket ID from
+   step 4 so the two records are linked.
+6. Send a Slack message to the incident channel: alert subject, root cause in
+   one paragraph, the RCA ticket ID, and the single most urgent recommended
+   action. Use plain text suitable for Slack (no HTML).
+
+Do not modify or delete any other existing records.
+```
+
+**Updating the alert:** Alert Management alerts have no public write API, so
+"updating the alert" is done by noting the incident the alert rule created
+(step 5) — that's the record the alert timeline links to in the UI.
+
+**Slack:** step 6 assumes a Slack tool is available to Holmes (Slack
+toolset/MCP or the platform's Slack integration). If the workflow itself has
+a Slack notification action, remove step 6 and let the workflow route the
+summary instead — one or the other, to avoid double posts.
+
+**Toolset config** — writes must be enabled and, for an unattended workflow,
+auto-approved:
+
+```yaml
+toolsets:
+  freshservice:
+    enabled: true
+    config:
+      api_url: "https://<subdomain>.freshservice.com"
+      api_key: "{{ env.FRESHSERVICE_API_KEY }}"
+      enable_write_tools: true
+      require_approval_for_writes: false   # unattended workflow: no human in the loop
+```
 
 ## Resetting between demos
 
