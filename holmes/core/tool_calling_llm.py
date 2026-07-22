@@ -6,7 +6,7 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 # Named logger for user-facing display messages (tool progress, AI messages, etc.)
 # In interactive mode this logger is silenced; the CLI renders from stream events instead.
@@ -850,56 +850,6 @@ class ToolCallingLLM:
             )
         return tool_response
 
-    def _handle_remote_tool_approval(
-        self,
-        tool_name: str,
-        tool_response: StructuredToolResult,
-        tool_call_id: str,
-        user_id: Optional[str] = None,
-        approval_callback: Optional[ApprovalCallback] = None,
-    ) -> Tuple[bool, Optional[str]]:
-        """Handle APPROVAL_REQUIRED response from a remote tool.
-
-        Remote tools may require approval from the calling user. This method
-        detects approval-required responses and prompts the user via callback
-        (CLI) or event (Slack), then writes the decision to the remote side's
-        database so it can resume execution.
-
-        Args:
-            tool_name: Name of the tool (e.g., "remote_bash")
-            tool_response: Tool result with APPROVAL_REQUIRED status
-            tool_call_id: ID of this tool call (used to identify the remote row)
-            user_id: ID of the user who needs to approve
-            approval_callback: Callback for CLI approval prompt
-
-        Returns:
-            (approved: bool, feedback: Optional[str]) — the user's decision
-        """
-        if tool_response.status != StructuredToolResultStatus.APPROVAL_REQUIRED:
-            return False, None
-
-        # Create pending approval for user prompt.
-        pending_approval = PendingToolApproval(
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-            description=tool_response.error or "Tool requires approval",
-            params=tool_response.params or {},
-        )
-
-        # Re-check prefix approval (same as local tools).
-        if self._is_tool_call_already_approved(tool_name, tool_response.params):
-            logging.info(f"Remote tool {tool_name} auto-approved by saved prefix")
-            return True, None
-
-        # Prompt user via callback (CLI) or None (Slack event handler will prompt).
-        if not approval_callback:
-            # No callback: Slack event handler will detect approval event and prompt.
-            # Return False to indicate pending; the event will be yielded by caller.
-            return False, None
-
-        approved, feedback = approval_callback(pending_approval)
-        return approved, feedback
-
     @staticmethod
     def _log_tool_call_result(
         tool_span,
@@ -1033,21 +983,7 @@ class ToolCallingLLM:
                     request_context=request_context,
                 )
 
-            # Check for remote tool approval requirement (identified by "remote_" prefix)
             user_id = (request_context or {}).get("user_id")
-            is_remote_tool = tool_name.startswith("remote_")
-            if is_remote_tool and tool_response.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
-                # For remote tools, approval handling is done on the target side.
-                # This detects when approval is pending and returns the status to the
-                # LLM loop so it can be handled via approval callback or Slack event.
-                # The remote side (_wait_for_result_with_approval_support) is polling
-                # for the approval decision written by the caller's approval mechanism.
-                logging.info(
-                    "Remote tool %s requires approval (call_id=%s), "
-                    "returning APPROVAL_REQUIRED to LLM for user decision",
-                    tool_name,
-                    tool_id,
-                )
             tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
             toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
             tool_call_result = ToolCallResult(
