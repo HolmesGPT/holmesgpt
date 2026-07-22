@@ -357,14 +357,18 @@ class ToolCallWorker:
         # (token-verified) approval loop has approved this tool call.
         tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
         user_approved = bool(metadata.get("remote_tool_approved"))
-        # APPROVAL-TRACE hop 3/3 (target): did the approval flag reach the
-        # executor via metadata? (metadata keys logged so we can see what relay
-        # actually wrote to the row.)
+        # Bash prefixes the caller forwarded from the user's earlier "don't ask
+        # again" approvals — honored so the executor auto-approves them instead
+        # of re-prompting for every command (mirrors the local session flow).
+        session_approved_prefixes = tool_request.get("session_approved_prefixes") or []
+        # APPROVAL-TRACE hop 3/3 (target): did the approval flag + session
+        # prefixes reach the executor?
         logging.info(
-            "APPROVAL-TRACE target tool=%s tool_call_id=%s user_approved=%s metadata_keys=%s",
+            "APPROVAL-TRACE target tool=%s tool_call_id=%s user_approved=%s session_prefixes=%d metadata_keys=%s",
             tool_name,
             tool_call_id,
             user_approved,
+            len(session_approved_prefixes),
             sorted((metadata or {}).keys()),
         )
 
@@ -376,7 +380,7 @@ class ToolCallWorker:
             max_token_count=int(tool_request.get("max_token_count")),
             tool_call_id=tool_call_id,
             tool_name=tool_name,
-            session_approved_prefixes=[],
+            session_approved_prefixes=session_approved_prefixes,
             request_context={"user_id": row.get("user_id")},
         )
 

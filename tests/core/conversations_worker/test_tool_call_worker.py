@@ -518,6 +518,27 @@ def test_execute_safe_approved_posts_completed_result():
     assert kwargs["tool_response"]["data"] == "ran the command"
 
 
+def test_execute_forwards_session_approved_prefixes_to_tool_context():
+    """Prefixes the caller forwarded (tool_request.session_approved_prefixes)
+    must reach the tool's ToolInvokeContext so the executor auto-approves them
+    instead of re-prompting."""
+    seen = {}
+
+    def capture(params, context):
+        seen["prefixes"] = list(context.session_approved_prefixes)
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS, data="ok"
+        )
+
+    worker, _ = _approval_worker(capture)
+    row = _approval_row(approved=False)
+    row["tool_request"]["session_approved_prefixes"] = ["curl", "dig"]
+    resp = worker._execute(row)
+
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert seen["prefixes"] == ["curl", "dig"]
+
+
 def test_execute_approved_but_still_gated_fails_closed():
     """If the tool STILL demands approval after user_approved=True, do NOT
     re-request (would loop) — return an internal error instead."""
