@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool, RemoteMCPToolset
 
 
 @pytest.mark.asyncio
@@ -14,7 +14,7 @@ async def test_mcp_tool_parses_approval_required_response():
     """Verify that MCP tools correctly parse APPROVAL_REQUIRED responses from RemoteToolsProvider."""
 
     # Create a mock toolset
-    mock_toolset = MagicMock()
+    mock_toolset = MagicMock(spec=RemoteMCPToolset)
     mock_toolset.name = "test_toolset"
 
     # Create a tool instance
@@ -26,10 +26,14 @@ async def test_mcp_tool_parses_approval_required_response():
         toolset=mock_toolset,
     )
 
-    # Create a mock MCP session and tool result
+    # Create a mock MCP session and tool result. The status is the serialized
+    # StructuredToolResultStatus.APPROVAL_REQUIRED value — lowercase
+    # "approval_required" — exactly as the executor/relay emit it over the wire.
+    # (Using the uppercase "APPROVAL_REQUIRED" literal here previously enshrined
+    # the parser bug that silently never matched, so the UI never prompted.)
     approval_response = {
         "agent_name": "prod-cluster",
-        "status": "APPROVAL_REQUIRED",
+        "status": StructuredToolResultStatus.APPROVAL_REQUIRED.value,
         "error": "Tool requires user approval",
         "data": None,
     }
@@ -70,7 +74,7 @@ async def test_mcp_tool_parses_approval_required_response():
 async def test_mcp_tool_parses_normal_success_response():
     """Verify that normal SUCCESS responses still work correctly."""
 
-    mock_toolset = MagicMock()
+    mock_toolset = MagicMock(spec=RemoteMCPToolset)
     mock_toolset.name = "test_toolset"
 
     tool = RemoteMCPTool(
@@ -116,7 +120,7 @@ async def test_mcp_tool_parses_normal_success_response():
 async def test_mcp_tool_handles_malformed_json_gracefully():
     """Verify that malformed JSON responses don't crash and fall back to SUCCESS."""
 
-    mock_toolset = MagicMock()
+    mock_toolset = MagicMock(spec=RemoteMCPToolset)
     mock_toolset.name = "test_toolset"
 
     tool = RemoteMCPTool(

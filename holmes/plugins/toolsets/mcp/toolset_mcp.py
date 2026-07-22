@@ -534,10 +534,18 @@ class RemoteMCPTool(Tool):
         ]
         merged_text = " ".join(t for t in text_chunks if t)
 
-        # Check if this is a remote tool approval response (JSON with "status": "APPROVAL_REQUIRED")
+        # Check if this is a remote tool approval response: a JSON body whose
+        # "status" is the serialized StructuredToolResultStatus.APPROVAL_REQUIRED
+        # value ("approval_required"). Compare against the enum value, not a
+        # hardcoded literal — the executor and relay emit the lowercase .value,
+        # so a "APPROVAL_REQUIRED" literal here silently never matched and the
+        # approval event never surfaced to the LLM loop / UI.
         try:
             response_data = json.loads(merged_text) if merged_text else {}
-            if response_data.get("status") == "APPROVAL_REQUIRED":
+            if (
+                response_data.get("status")
+                == StructuredToolResultStatus.APPROVAL_REQUIRED.value
+            ):
                 logger.info(
                     "MCP tool %s requires approval: %s",
                     self.name,

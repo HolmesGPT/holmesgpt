@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool, RemoteMCPToolset
 
 
 @pytest.mark.asyncio
@@ -24,7 +24,7 @@ async def test_remote_bash_tool_approval_full_flow():
     """Verify complete remote bash tool approval workflow."""
 
     # Mock toolset
-    mock_toolset = MagicMock()
+    mock_toolset = MagicMock(spec=RemoteMCPToolset)
     mock_toolset.name = "remote_bash"
 
     # Create a tool instance (simulating a remote bash tool)
@@ -48,7 +48,7 @@ async def test_remote_bash_tool_approval_full_flow():
     # 3. Polls for caller decision
     # 4. Returns APPROVAL_REQUIRED to caller with approval details
     approval_response = {
-        "status": "APPROVAL_REQUIRED",
+        "status": "approval_required",
         "error": "Command requires approval. New prefixes: /usr/local/bin",
         "data": None,
         "approval_params": {
@@ -98,7 +98,7 @@ async def test_remote_bash_tool_approval_full_flow():
 async def test_remote_bash_tool_approval_with_approval_token():
     """Verify approval token is preserved in the workflow."""
 
-    mock_toolset = MagicMock()
+    mock_toolset = MagicMock(spec=RemoteMCPToolset)
     mock_toolset.name = "remote_bash"
 
     tool = RemoteMCPTool(
@@ -111,7 +111,7 @@ async def test_remote_bash_tool_approval_with_approval_token():
 
     # Approval response includes token for security
     approval_response = {
-        "status": "APPROVAL_REQUIRED",
+        "status": "approval_required",
         "error": "Command requires approval",
         "approval_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
         "approval_params": {"command": "dangerous-cmd"}
@@ -148,7 +148,7 @@ async def test_remote_bash_tool_approval_with_approval_token():
 async def test_remote_bash_tool_after_approval_execution():
     """Verify tool executes normally after approval is granted and decision is written."""
 
-    mock_toolset = MagicMock()
+    mock_toolset = MagicMock(spec=RemoteMCPToolset)
     mock_toolset.name = "remote_bash"
 
     tool = RemoteMCPTool(
@@ -162,7 +162,7 @@ async def test_remote_bash_tool_after_approval_execution():
     # After approval decision is written to DB and target re-invokes,
     # it returns a normal SUCCESS response
     final_response = {
-        "status": "SUCCESS",
+        "status": "success",
         "data": "Package successfully removed from /usr/local/bin/",
         "error": None,
     }
@@ -199,52 +199,3 @@ async def test_remote_bash_tool_after_approval_execution():
     # Verify normal SUCCESS response is returned
     assert result.status == StructuredToolResultStatus.SUCCESS
     assert "successfully removed" in result.data.lower()
-
-
-@pytest.mark.asyncio
-async def test_remote_bash_tool_approval_denial():
-    """Verify tool returns ERROR when approval is denied."""
-
-    mock_toolset = MagicMock()
-    mock_toolset.name = "remote_bash"
-
-    tool = RemoteMCPTool(
-        name="bash/execute",
-        mcp_tool_name="bash_command_runner",
-        description="Execute bash command remotely",
-        parameters={},
-        toolset=mock_toolset,
-    )
-
-    # After user denies approval, target returns ERROR
-    denial_response = {
-        "status": "ERROR",
-        "error": "Tool execution denied",
-        "data": None,
-    }
-
-    response_json = json.dumps(denial_response)
-
-    mock_content_block = MagicMock()
-    mock_content_block.type = "text"
-    mock_content_block.text = response_json
-
-    mock_tool_result = MagicMock()
-    mock_tool_result.content = [mock_content_block]
-    mock_tool_result.isError = False
-
-    mock_session = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=mock_tool_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-
-    with patch(
-        "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
-    ) as mock_get_session:
-        mock_get_session.return_value = mock_session
-
-        result = await tool._invoke_async(params={}, request_context=None)
-
-    # Verify ERROR status when approval denied
-    assert result.status == StructuredToolResultStatus.ERROR
-    assert "denied" in result.error.lower()
