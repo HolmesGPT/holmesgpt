@@ -245,13 +245,12 @@ class ToolCallWorker:
             try:
                 response = self._execute(row)
 
-                # If approval is required, store metadata and poll for decision.
+                # If approval is required, store metadata and return immediately.
+                # The caller's RemoteToolsProvider will poll for the approval
+                # decision and handle re-invocation, not the target.
                 if response.get("status") == StructuredToolResultStatus.APPROVAL_REQUIRED.value:
-                    if not self._handle_approval_requirement(row, response):
-                        # Failed to store/await approval (timeout or error) — drop.
-                        return
-                    # Approval decision written; response now contains final result.
-                    status = RemoteToolCallStatus.COMPLETED
+                    self._store_approval_metadata(row, response)
+                    status = RemoteToolCallStatus.PENDING_APPROVAL
                 else:
                     status = RemoteToolCallStatus.COMPLETED
             except Exception as e:
@@ -374,12 +373,17 @@ class ToolCallWorker:
         result.images = None
         return serialize_tool_response(result, elapsed)
 
-    def _handle_approval_requirement(
+    def _store_approval_metadata(
         self, row: Dict[str, Any], approval_response: Dict[str, Any]
-    ) -> bool:
-        """Handle approval requirement: store metadata, poll for caller decision,
-        re-invoke if approved. Returns True if final result is in approval_response
-        (mutated in place), False if approval failed/timed out."""
+    ) -> None:
+        """Store approval requirement metadata for caller to process.
+
+        The caller's RemoteToolsProvider will:
+        1. Poll RemoteToolCalls.approval_approved until decision arrives
+        2. Yield APPROVAL_REQUIRED event to trigger UI prompt
+        3. Wait for user decision to be written to DB
+        4. Resume polling in the RemoteToolsProvider (not here on target)
+        """
         row_id = row.get("id")
         tool_request = row.get("tool_request") or {}
         tool_name = tool_request.get("tool_name")
@@ -390,7 +394,7 @@ class ToolCallWorker:
             row_id, tool_name, json.dumps(approval_params, sort_keys=True)
         )
 
-        # Store approval metadata in database.
+        # Store approval metadata in database (caller will poll for decision).
         ok = self.dal.store_remote_tool_approval_requirement(
             tool_call_id=row_id,
             assignee=self.holmes_id,
@@ -403,105 +407,10 @@ class ToolCallWorker:
                 "ToolCallWorker: failed to store approval requirement for %s (stale/dropped)",
                 row_id,
             )
-            return False
-
-        # Poll for caller's approval decision (5 minute timeout).
-        approval_approved = self._poll_for_approval_decision(row_id)
-        if approval_approved is None:
-            # Timeout waiting for decision.
+            # Mark response as error since we couldn't store metadata
             approval_response["status"] = StructuredToolResultStatus.ERROR.value
-            approval_response["error"] = "Approval timeout: no decision received within 5 minutes"
+            approval_response["error"] = "Failed to store approval requirement"
             approval_response["approval_params"] = None
-            return True
-
-        # Decision received: re-invoke with user_approved flag.
-        if approval_approved:
-            logging.info(
-                "ToolCallWorker: approval decision received for %s (approved=true); "
-                "re-invoking",
-                row_id,
-            )
-            return self._reinvoke_with_approval(row, approval_response)
-        else:
-            # Denied
-            approval_response["status"] = StructuredToolResultStatus.ERROR.value
-            approval_response["error"] = "Tool execution denied"
-            approval_response["approval_params"] = None
-            return True
-
-    def _poll_for_approval_decision(self, tool_call_id: str, timeout_seconds: int = 300) -> Optional[bool]:
-        """Poll database until approval_approved is not null (5 min timeout).
-        Returns True if approved, False if denied, None if timeout."""
-        start_time = time.monotonic()
-        poll_interval = 1  # seconds
-
-        while time.monotonic() - start_time < timeout_seconds:
-            row = self.dal.get_remote_tool_call(tool_call_id)
-            if row is None:
-                logging.warning("ToolCallWorker: tool call row disappeared: %s", tool_call_id)
-                return None
-
-            approval_approved = row.get("approval_approved")
-            if approval_approved is not None:
-                return bool(approval_approved)
-
-            time.sleep(poll_interval)
-
-        # Timeout
-        logging.warning(
-            "ToolCallWorker: approval decision timeout for %s (after %d seconds)",
-            tool_call_id,
-            timeout_seconds,
-        )
-        return None
-
-    def _reinvoke_with_approval(
-        self, row: Dict[str, Any], approval_response: Dict[str, Any]
-    ) -> bool:
-        """Re-invoke the tool with user_approved=True after approval decision.
-        Mutates approval_response to contain the final result. Returns True."""
-        tool_request = row.get("tool_request") or {}
-        tool_params = dict(tool_request.get("tool_params") or {})
-        tool_name = tool_request.get("tool_name")
-        instance = tool_request.get("instance")
-
-        # Resolve tool and context with user_approved=True.
-        executor = self._get_tool_executor()
-        tool = executor.tools_by_name.get(tool_name)
-        if tool is None:
-            approval_response["status"] = StructuredToolResultStatus.ERROR.value
-            approval_response["error"] = f"Tool '{tool_name}' no longer available"
-            approval_response["approval_params"] = None
-            return True
-
-        context = ToolInvokeContext(
-            tool_number=None,
-            user_approved=True,
-            llm=self._get_llm(),
-            max_token_count=int(tool_request.get("max_token_count")),
-            tool_call_id=str(row.get("id") or ""),
-            tool_name=tool_name,
-            session_approved_prefixes=[],
-            request_context={"user_id": row.get("user_id")},
-        )
-
-        # Re-invoke with user_approved=True.
-        started = time.monotonic()
-        result = tool.invoke(tool_params, context)
-        elapsed = time.monotonic() - started
-
-        # If approval is somehow required again, deny it (shouldn't happen).
-        if result.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
-            approval_response["status"] = StructuredToolResultStatus.ERROR.value
-            approval_response["error"] = "Tool requires approval again after user approval (internal error)"
-            approval_response["approval_params"] = None
-            return True
-
-        # Serialize the final result.
-        result.images = None
-        final_response = serialize_tool_response(result, elapsed)
-        approval_response.update(final_response)
-        return True
 
     # ---- helpers ----
 
