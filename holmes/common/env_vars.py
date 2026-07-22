@@ -151,6 +151,25 @@ ENABLE_CONVERSATION_HISTORY_COMPACTION = load_bool(
     "ENABLE_CONVERSATION_HISTORY_COMPACTION", default=True
 )
 
+# Tool-result eviction ("context editing"): deterministically replace tool
+# results older than N turns with a short stub + spill-to-disk pointer, so their
+# raw payload is not re-sent on every agentic iteration. The model can re-read
+# the full result with `cat <path>` if it needs the detail again. This is free
+# (no LLM call) and cache-friendly. See docs/reference/context-management.md.
+ENABLE_TOOL_RESULT_EVICTION = load_bool("ENABLE_TOOL_RESULT_EVICTION", default=True)
+# Keep the tool results from the most recent N assistant turns in full; results
+# older than that become eviction stubs. Short sessions (<= N turns) are never
+# touched, so nothing is evicted until a conversation is genuinely long.
+TOOL_RESULT_EVICTION_MAX_AGE_TURNS = int(
+    os.environ.get("TOOL_RESULT_EVICTION_MAX_AGE_TURNS", 4)
+)
+# Only evict results whose in-context size is at least this many (estimated)
+# tokens. Small results are cheaper to keep than to stub + re-read, and evicting
+# them would churn the prompt cache for little gain.
+TOOL_RESULT_EVICTION_MIN_TOKENS = int(
+    os.environ.get("TOOL_RESULT_EVICTION_MIN_TOKENS", 1000)
+)
+
 DISABLE_PROMETHEUS_TOOLSET = load_bool("DISABLE_PROMETHEUS_TOOLSET", False)
 
 RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION = load_bool(

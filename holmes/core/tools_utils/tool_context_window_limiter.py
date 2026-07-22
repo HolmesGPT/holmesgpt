@@ -1,21 +1,44 @@
 """
-Single tool result size limiter — spills oversized results to disk.
+Tool-result context management — spills oversized results to disk and evicts
+stale results from long conversations.
 
 For an overview of all context management mechanisms, see:
 docs/reference/context-management.md
 """
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Optional
 
-from holmes.common.env_vars import load_bool
+from pydantic import BaseModel
+
+from holmes.common.env_vars import (
+    ENABLE_TOOL_RESULT_EVICTION,
+    TOOL_RESULT_EVICTION_MAX_AGE_TURNS,
+    TOOL_RESULT_EVICTION_MIN_TOKENS,
+    load_bool,
+)
 from holmes.core.llm import LLM
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.core.tools_utils.filesystem_result_storage import save_images, save_large_result
 from holmes.utils import sentry_helper
+
+# Rough chars-per-token estimate, matching spill_oversized_tool_result. Eviction
+# uses a character-length heuristic instead of the tokenizer so it stays cheap
+# and deterministic when run on every agentic iteration.
+_CHARS_PER_TOKEN = 4
+
+# Every eviction stub starts with this marker so eviction is idempotent: a stub
+# is never counted as a fresh tool result and never re-evicted / re-spilled.
+EVICTED_TOOL_RESULT_MARKER = "[Tool result evicted to save context]"
+
+# Matches the "Saved to: <path>" line written by spill_oversized_tool_result, so
+# an already-spilled result can be re-pointed at its existing file instead of
+# writing its (bounded) preview to disk a second time.
+_SAVED_TO_RE = re.compile(r"^Saved to: (.+)$", re.MULTILINE)
 
 
 def get_pct_token_count(percent_of_total_context_window: float, llm: LLM) -> int:
@@ -134,3 +157,138 @@ def spill_oversized_tool_result(
             tool_call_result, messages_token, max_tokens_allowed
         )
     return messages_token
+
+
+class ToolResultEvictionResult(BaseModel):
+    """Outcome of an evict_stale_tool_results() pass."""
+
+    messages: list[dict]
+    num_evicted: int
+    estimated_tokens_freed: int
+
+
+def _build_eviction_stub(tool_name: str, file_path: str, approx_tokens: int) -> str:
+    """The short in-conversation replacement for an evicted tool result.
+
+    Keep this a single `cat` instruction (no pipe/filter examples): an evicted
+    result already fit in the context window when it was first returned, so the
+    model can safely re-read the whole file, and a single command is far more
+    reliable to issue than a multi-stage pipeline.
+    """
+    return (
+        f"{EVICTED_TOOL_RESULT_MARKER} The full `{tool_name}` output "
+        f"(~{approx_tokens} tokens) was read earlier in this investigation and "
+        f"has been moved out of the live conversation to save context.\n"
+        f"Saved to: {file_path}\n"
+        f"If you need its details again, re-read the whole file by running "
+        f"exactly `cat {file_path}` (pre-approved, no user approval needed)."
+    )
+
+
+def evict_stale_tool_results(
+    messages: list[dict],
+    tool_results_dir: Optional[Path],
+    max_age_turns: int = TOOL_RESULT_EVICTION_MAX_AGE_TURNS,
+    min_tokens: int = TOOL_RESULT_EVICTION_MIN_TOKENS,
+    enabled: Optional[bool] = None,
+) -> ToolResultEvictionResult:
+    """Deterministically evict tool results older than ``max_age_turns``.
+
+    Mirrors Anthropic's "context editing" pattern: once a tool result has been
+    read and reasoned over, its raw payload is dead weight that is otherwise
+    re-sent on every agentic iteration. This replaces such results with a short
+    stub plus a spill-to-disk pointer the model can ``cat`` if it needs the
+    detail again. It is deterministic and free (no LLM call).
+
+    A tool result's *age* is the number of assistant turns that came after it.
+    The results from the most recent ``max_age_turns`` assistant turns are kept
+    in full; anything older and larger than ``min_tokens`` is evicted. The
+    messages list is mutated in place (and also returned).
+
+    Requires ``tool_results_dir`` (and filesystem storage to be enabled) so the
+    full result survives on disk for re-reading — without it there is no safe
+    way to evict, so the conversation is left untouched.
+    """
+    should_run = ENABLE_TOOL_RESULT_EVICTION if enabled is None else enabled
+    result = ToolResultEvictionResult(
+        messages=messages, num_evicted=0, estimated_tokens_freed=0
+    )
+    if not should_run or max_age_turns < 0:
+        return result
+    if not tool_results_dir or not load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
+        return result
+
+    # Age of each message = number of assistant messages strictly after it.
+    n = len(messages)
+    assistants_after = [0] * n
+    seen = 0
+    for j in range(n - 1, -1, -1):
+        assistants_after[j] = seen
+        if messages[j].get("role") == "assistant":
+            seen += 1
+
+    min_chars = max(0, min_tokens) * _CHARS_PER_TOKEN
+    num_evicted = 0
+    tokens_freed = 0
+
+    for j, message in enumerate(messages):
+        if message.get("role") != "tool":
+            continue
+        if assistants_after[j] < max_age_turns:
+            continue  # still within the "keep recent turns" window
+
+        content = message.get("content")
+        # Only plain-string tool outputs are evicted. Multimodal (image) results
+        # are rare here and are already handled by spill_oversized_tool_result on
+        # the way in, which turns oversized image results into string pointers.
+        if not isinstance(content, str) or not content:
+            continue
+        if content.startswith(EVICTED_TOOL_RESULT_MARKER):
+            continue  # already evicted — keep it stable for the prompt cache
+        if len(content) < min_chars:
+            continue  # too small to be worth stubbing + re-reading
+
+        tool_name = message.get("name") or "tool"
+        tool_call_id = message.get("tool_call_id") or ""
+        approx_tokens = len(content) // _CHARS_PER_TOKEN
+
+        # If this result was already spilled to disk and that file still exists,
+        # re-point at it instead of writing its (bounded) preview to disk again.
+        file_path: Optional[str] = None
+        existing = _SAVED_TO_RE.search(content)
+        if existing:
+            candidate = existing.group(1).strip()
+            if candidate and Path(candidate).is_file():
+                file_path = candidate
+
+        if not file_path:
+            file_path = save_large_result(
+                tool_results_dir=tool_results_dir,
+                tool_name=tool_name,
+                # Distinct id so we never clobber a same-turn spill file, which
+                # holds the full (not preview-truncated) data.
+                tool_call_id=f"{tool_call_id}__evicted",
+                content=content,
+                is_json=False,
+            )
+        if not file_path:
+            logging.warning(
+                f"Skipping eviction of {tool_name} result: filesystem storage failed"
+            )
+            continue
+
+        stub = _build_eviction_stub(tool_name, file_path, approx_tokens)
+        message["content"] = stub
+        num_evicted += 1
+        tokens_freed += max(0, approx_tokens - len(stub) // _CHARS_PER_TOKEN)
+
+    if num_evicted:
+        logging.info(
+            f"Evicted {num_evicted} stale tool result(s) from conversation "
+            f"history (~{tokens_freed} tokens freed, keeping last "
+            f"{max_age_turns} turns)"
+        )
+
+    result.num_evicted = num_evicted
+    result.estimated_tokens_freed = tokens_freed
+    return result

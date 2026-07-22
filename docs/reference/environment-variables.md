@@ -233,6 +233,37 @@ Absolute maximum tokens for a single tool response, regardless of context window
 export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
 ```
 
+### ENABLE_TOOL_RESULT_EVICTION
+**Default:** `true`
+
+Deterministically evicts stale tool results ("context editing"): once a tool result has been read on an earlier turn, its raw payload is replaced with a short stub and a `cat <path>` pointer so it is not re-sent on every agentic iteration. The full result is kept on disk and can be re-read by the model on demand. This is free (no LLM call) and cache-friendly. Requires a tool-results directory and the bash toolset (so the model can `cat` an evicted result); otherwise it is a no-op. See [Context Management](context-management.md).
+
+**Example:**
+```bash
+export ENABLE_TOOL_RESULT_EVICTION=false
+```
+
+### TOOL_RESULT_EVICTION_MAX_AGE_TURNS
+**Default:** `4`
+
+How many of the most recent assistant turns to keep with their tool results intact. Tool results older than this are eligible for eviction. Short conversations (fewer turns than this) are never affected.
+
+**Example:**
+```bash
+# Keep only the last 2 turns of tool results in full
+export TOOL_RESULT_EVICTION_MAX_AGE_TURNS=2
+```
+
+### TOOL_RESULT_EVICTION_MIN_TOKENS
+**Default:** `1000`
+
+Minimum (estimated) size a tool result must have before it is worth evicting. Smaller results are cheaper to keep than to stub and re-read, so they are left in place.
+
+**Example:**
+```bash
+export TOOL_RESULT_EVICTION_MIN_TOKENS=2000
+```
+
 ## Tool Subprocess Memory Limit
 
 ### TOOL_MEMORY_LIMIT_MB

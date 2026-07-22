@@ -1,0 +1,39 @@
+# Verifies stale tool-result eviction ("context editing") end-to-end.
+#
+# The preloaded conversation_history contains a long, multi-turn investigation
+# whose FIRST tool result (a large checkout-api log dump) carries a unique
+# verification code. Because that result is older than
+# TOOL_RESULT_EVICTION_MAX_AGE_TURNS assistant turns, eviction replaces it in the
+# live conversation with a short stub + a `cat <path>` pointer and spills the
+# full logs to disk. The code appears ONLY in that evicted result, so to answer
+# the follow-up the model must follow the pointer and `cat` the spilled file.
+#
+# Only the bash toolset (extended -> `cat` allowed) is enabled, so re-reading the
+# evicted file on disk is the sole way to recover the code — it cannot be
+# hallucinated or re-queried live.
+user_prompt: |
+  Earlier you already pulled the checkout-api logs. One INFO line about "batch
+  reconciliation" reported a "verification code". What was the exact
+  verification code value? I need the precise string. The live cluster is no
+  longer reachable, so rely only on the logs you already captured earlier in
+  this conversation — do not try to fetch them again.
+
+# The code appears ONLY inside the evicted (spilled-to-disk) log result and
+# bash is the only enabled tool, so reporting the exact code proves the model
+# followed the eviction pointer and re-read the result from disk — it is
+# hallucination-proof on its own.
+expected_output:
+  - "Must report the exact verification code: HOLMES-EVICT-4K7P2Q"
+
+# Surface tool calls in the eval output for debugging (shows the `cat` of the
+# evicted file). Eviction runs with defaults: it is enabled by default and the
+# target log dump is 5 assistant turns old, past the default keep-window of 4.
+include_tool_calls: true
+
+# server mode routes through build_chat_messages so conversation_history is
+# replayed (CLI mode does not support conversation history).
+test_type: server
+
+tags:
+  - context_window
+  - question-answer

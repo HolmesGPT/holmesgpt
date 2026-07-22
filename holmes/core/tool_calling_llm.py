@@ -43,6 +43,7 @@ from holmes.core.tools import (
     ToolInvokeContext,
 )
 from holmes.core.tools_utils.tool_context_window_limiter import (
+    evict_stale_tool_results,
     spill_oversized_tool_result,
 )
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -1111,6 +1112,16 @@ class ToolCallingLLM:
 
             tools = None if i == max_steps else tools
             tool_choice = "auto" if tools else None
+
+            # Deterministically evict stale tool results (context editing) before
+            # the expensive compaction check, so old raw tool payloads are not
+            # re-sent every iteration. Requires disk + bash so the model can
+            # re-`cat` an evicted result. See docs/reference/context-management.md
+            if self.tool_results_dir and self._has_bash_for_file_access():
+                messages = evict_stale_tool_results(
+                    messages=messages,
+                    tool_results_dir=self.tool_results_dir,
+                ).messages
 
             compaction_start_event = check_compaction_needed(self.llm, messages, tools)
             if compaction_start_event:

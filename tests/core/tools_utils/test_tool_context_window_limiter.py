@@ -8,6 +8,8 @@ from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_context_window_limiter import (
+    EVICTED_TOOL_RESULT_MARKER,
+    evict_stale_tool_results,
     spill_oversized_tool_result,
 )
 
@@ -314,3 +316,181 @@ class TestPreventOverlyBigToolResponse:
         assert "Saved to:" in tcr.result.data
         assert "Images saved to disk" not in tcr.result.data
         assert "read_image_file" not in tcr.result.data
+
+
+def _tool_msg(tool_call_id: str, content, name: str = "kubectl_logs") -> dict:
+    return {
+        "role": "tool",
+        "tool_call_id": tool_call_id,
+        "name": name,
+        "content": content,
+    }
+
+
+def _assistant(tool_call_id: str) -> dict:
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": tool_call_id, "type": "function"}],
+    }
+
+
+def _saved_path(content: str) -> Path:
+    """Extract the 'Saved to: <path>' pointer from an eviction/spill stub."""
+    for line in content.splitlines():
+        if line.startswith("Saved to: "):
+            return Path(line[len("Saved to: ") :].strip())
+    raise AssertionError(f"no 'Saved to:' pointer in content: {content!r}")
+
+
+class TestEvictStaleToolResults:
+    def _conversation(self, big: str) -> list[dict]:
+        # 3 assistant turns; oldest tool result (T1) has age 2, T2 age 1, T3 age 0.
+        return [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "why is my pod crashing?"},
+            _assistant("call-1"),
+            _tool_msg("call-1", "T1 " + big),
+            _assistant("call-2"),
+            _tool_msg("call-2", "T2 " + big),
+            _assistant("call-3"),
+            _tool_msg("call-3", "T3 " + big),
+        ]
+
+    def test_evicts_old_keeps_recent(self, tmp_path):
+        big = "x" * 8000  # > default min (1000 tokens ~= 4000 chars)
+        messages = self._conversation(big)
+
+        result = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2
+        )
+
+        assert result.num_evicted == 1
+        assert messages[3]["content"].startswith(EVICTED_TOOL_RESULT_MARKER)  # T1
+        assert messages[5]["content"].startswith("T2 ")  # kept (age 1)
+        assert messages[7]["content"].startswith("T3 ")  # kept (age 0)
+
+    def test_reread_round_trip(self, tmp_path):
+        big = "unique-payload-9x7k " + "y" * 8000
+        messages = self._conversation(big)
+
+        evict_stale_tool_results(messages, tool_results_dir=tmp_path, max_age_turns=2)
+
+        stub = messages[3]["content"]
+        assert "cat " in stub
+        # The full original result must be recoverable from disk by `cat`.
+        saved = _saved_path(stub)
+        assert saved.is_file()
+        assert saved.read_text() == "T1 " + big
+        assert "unique-payload-9x7k" in saved.read_text()
+
+    def test_small_results_not_evicted(self, tmp_path):
+        messages = self._conversation("small")  # well under min_tokens
+
+        result = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2
+        )
+
+        assert result.num_evicted == 0
+        assert messages[3]["content"] == "T1 small"
+
+    def test_min_tokens_threshold(self, tmp_path):
+        big = "x" * 8000
+        messages = self._conversation(big)
+
+        # min_tokens huge -> nothing is big enough to evict
+        result = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2, min_tokens=100000
+        )
+
+        assert result.num_evicted == 0
+        assert messages[3]["content"].startswith("T1 ")
+
+    def test_idempotent_no_double_eviction(self, tmp_path):
+        big = "x" * 8000
+        messages = self._conversation(big)
+
+        first = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2
+        )
+        stub_after_first = messages[3]["content"]
+
+        second = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2
+        )
+
+        assert first.num_evicted == 1
+        assert second.num_evicted == 0  # marker prevents re-eviction
+        assert messages[3]["content"] == stub_after_first
+
+    def test_reuses_existing_spill_file(self, tmp_path):
+        # Simulate a result that was already spilled to disk by spill_oversized_tool_result.
+        spill_file = tmp_path / "kubectl_logs_call-1.txt"
+        spill_file.write_text("FULL ORIGINAL DATA " + "z" * 8000)
+        pointer = (
+            "The tool call result is too large to return: 9000/2048 tokens.\n\n"
+            f"Saved to: {spill_file}\n"
+            f"Use `cat {spill_file}` to read it (pre-approved). "
+            "Preview:\n" + ("z" * 6000)
+        )
+        big = "x" * 8000
+        messages = self._conversation(big)
+        messages[3]["content"] = pointer  # T1 is an existing spill pointer
+
+        evict_stale_tool_results(messages, tool_results_dir=tmp_path, max_age_turns=2)
+
+        stub = messages[3]["content"]
+        assert stub.startswith(EVICTED_TOOL_RESULT_MARKER)
+        # Re-points at the existing file rather than writing a new one.
+        assert _saved_path(stub) == spill_file
+        # The original full data on disk is untouched (not clobbered by the preview).
+        assert spill_file.read_text() == "FULL ORIGINAL DATA " + "z" * 8000
+        assert not (tmp_path / "kubectl_logs_call-1__evicted.txt").exists()
+
+    def test_multimodal_content_skipped(self, tmp_path):
+        big = "x" * 8000
+        messages = self._conversation(big)
+        # Replace the old tool result with multimodal (list) content.
+        messages[3]["content"] = [
+            {"type": "text", "text": "T1 " + big},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ]
+
+        result = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2
+        )
+
+        assert result.num_evicted == 0
+        assert isinstance(messages[3]["content"], list)
+
+    def test_no_dir_is_noop(self):
+        big = "x" * 8000
+        messages = self._conversation(big)
+
+        result = evict_stale_tool_results(
+            messages, tool_results_dir=None, max_age_turns=2
+        )
+
+        assert result.num_evicted == 0
+        assert messages[3]["content"] == "T1 " + big
+
+    def test_disabled_is_noop(self, tmp_path):
+        big = "x" * 8000
+        messages = self._conversation(big)
+
+        result = evict_stale_tool_results(
+            messages, tool_results_dir=tmp_path, max_age_turns=2, enabled=False
+        )
+
+        assert result.num_evicted == 0
+        assert messages[3]["content"] == "T1 " + big
+
+    def test_short_conversation_untouched(self, tmp_path):
+        big = "x" * 8000
+        messages = self._conversation(big)
+
+        # With the default keep-window (4 turns) and only 3 turns present,
+        # nothing is old enough to evict.
+        result = evict_stale_tool_results(messages, tool_results_dir=tmp_path)
+
+        assert result.num_evicted == 0

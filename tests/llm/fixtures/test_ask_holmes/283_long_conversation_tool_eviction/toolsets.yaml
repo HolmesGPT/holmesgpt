@@ -1,0 +1,24 @@
+# This eval is hermetic: the only capability the model needs is `cat` (via the
+# bash toolset, "extended" allowlist) to re-read the evicted tool result spilled
+# to disk. Every other toolset is disabled so (a) the model cannot re-query the
+# logs live — the evicted file is the only source of the verification code — and
+# (b) the eval doesn't depend on external binaries (helm/kubectl) or network.
+toolsets:
+  bash:
+    enabled: true
+    config:
+      builtin_allowlist: extended
+  helm/core:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  internet:
+    enabled: false
+  robusta:
+    enabled: false
+  connectivity_check:
+    enabled: false
+  core_investigation:
+    enabled: false

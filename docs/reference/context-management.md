@@ -1,6 +1,6 @@
 # Context Management
 
-HolmesGPT uses two mechanisms to keep conversations within the LLM's context window.
+HolmesGPT uses three mechanisms to keep conversations within the LLM's context window.
 They run at different points in the pipeline and serve different purposes.
 
 ## 1. Single Tool Result Spill-to-Disk
@@ -22,7 +22,28 @@ They run at different points in the pipeline and serve different purposes.
 
 **Scope:** One tool result at a time. Does not look at the overall conversation size.
 
-## 2. Conversation History Compaction
+## 2. Stale Tool-Result Eviction ("context editing")
+
+**Function:** `evict_stale_tool_results()` in `holmes/core/tools_utils/tool_context_window_limiter.py`
+
+**When:** Before each LLM call in the agentic loop, just ahead of the compaction check.
+
+**What it does:**
+
+- Once a tool result has been read and reasoned over, its raw payload is dead weight that is otherwise re-sent on every agentic iteration. This mirrors Anthropic's "context editing" pattern.
+- Computes each tool result's *age* = the number of assistant turns that came after it.
+- Keeps the tool results from the most recent `TOOL_RESULT_EVICTION_MAX_AGE_TURNS` assistant turns in full. Anything older **and** larger than `TOOL_RESULT_EVICTION_MIN_TOKENS` (estimated) is evicted:
+    - The full result is written to disk (reusing the same spill machinery as mechanism 1), or, if it was already spilled, re-pointed at its existing file.
+    - The in-conversation content is replaced with a short stub + a `cat <path>` pointer, so the model can re-read the full detail on demand.
+- Deterministic and free — **no LLM call**. Once evicted, a stub is left untouched on later iterations, so the prompt cache prefix stays stable.
+
+**Guard:** Controlled by `ENABLE_TOOL_RESULT_EVICTION` (defaults to true). Like mechanism 1, it only runs when a tool-results directory and the bash toolset are available (so the model can actually `cat` an evicted result); otherwise the conversation is left untouched. Short conversations (≤ `TOOL_RESULT_EVICTION_MAX_AGE_TURNS` turns) are never affected.
+
+**Called from:** `tool_calling_llm.py` → `call_stream()`, at the top of each agentic loop iteration.
+
+**Scope:** All tool results in the conversation, based on age. Does not summarize (unlike mechanism 3) — the full data survives on disk and is re-readable.
+
+## 3. Conversation History Compaction
 
 **Function:** `compact_conversation_history()` in `holmes/core/truncation/compaction.py`, orchestrated by `compact_if_necessary()` in `holmes/core/truncation/input_context_window_limiter.py`
 
@@ -47,17 +68,22 @@ They run at different points in the pipeline and serve different purposes.
 Tool executes
     │
     ▼
-┌─────────────────────────────┐
+┌────────────────────────────────┐
 │ 1. spill_oversized_tool_result │  ← caps single tool result
-└─────────────────────────────┘
+└────────────────────────────────┘
     │
     ▼
 Tool result added to conversation
     │
+    ▼   (top of next agentic iteration)
+┌────────────────────────────────┐
+│ 2. evict_stale_tool_results    │  ← stubs old results, spills to disk (no LLM)
+└────────────────────────────────┘
+    │
     ▼
-┌─────────────────────────────┐
-│ 2. compaction (if needed)   │  ← summarizes full conversation via LLM
-└─────────────────────────────┘
+┌────────────────────────────────┐
+│ 3. compaction (if needed)      │  ← summarizes full conversation via LLM
+└────────────────────────────────┘
     │
     ▼
 LLM called with messages
@@ -66,7 +92,8 @@ LLM called with messages
 In practice:
 
 - Mechanism 1 prevents any single tool from blowing up the context.
-- Mechanism 2 prevents the cumulative conversation from growing unbounded.
+- Mechanism 2 stops old raw tool payloads from being re-sent every iteration on long sessions — deterministic, free, and cache-friendly. It runs first so the cheap deterministic pass can shrink the history before the expensive compaction is even considered.
+- Mechanism 3 prevents the cumulative conversation from growing unbounded.
 
 ## Output Token Limit
 
