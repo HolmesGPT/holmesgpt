@@ -1,5 +1,7 @@
+import json
 from unittest.mock import patch
 
+import litellm
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
@@ -98,3 +100,58 @@ class TestCacheControlInjectionPoints:
         assert kwargs["model"] == "gemini/gemini-3.1-pro-preview"
         assert kwargs["messages"] == messages
         assert kwargs["temperature"] == 0.3
+
+
+class TestOpenAICompatibleEndpointPreservesCacheControl:
+    """Regression guard for prompt caching against a Robusta-hosted AI gateway.
+
+    Robusta models are sent with the ``openai/`` provider (see
+    ``get_litellm_corrected_name_for_robusta_ai``) but reach an
+    OpenAI-*compatible* gateway/proxy via ``api_base`` — an endpoint that DOES
+    understand Anthropic ``cache_control`` markers. litellm < 1.90.0
+    unconditionally stripped ``cache_control`` for the ``openai/`` provider, so
+    the markers injected by ``cache_control_injection_points`` were silently
+    removed before the request ever left Holmes and prompt caching never
+    happened. litellm >= 1.90.0 preserves them for non-``openai.com`` hosts
+    (``OpenAIGPTConfig._should_preserve_cache_control_for_endpoint``).
+
+    These tests fail if the litellm pin is ever moved back below 1.90.0.
+    """
+
+    def _transform(self, api_base: str) -> str:
+        config = litellm.OpenAIGPTConfig()
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "hi",
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            }
+        ]
+        transformed = config.transform_request(
+            model="claude-opus-4-8",
+            messages=messages,
+            optional_params={},
+            litellm_params={"custom_llm_provider": "openai", "api_base": api_base},
+            headers={},
+        )
+        return json.dumps(transformed)
+
+    def test_cache_control_survives_for_custom_gateway(self):
+        body = self._transform("https://llm.eu.robusta.dev/v1")
+        assert "cache_control" in body, (
+            "cache_control must survive the openai/ transform when the endpoint "
+            "is an OpenAI-compatible gateway (non-openai.com api_base); requires "
+            "litellm >= 1.90.0."
+        )
+
+    def test_cache_control_stripped_for_real_openai(self):
+        body = self._transform("https://api.openai.com/v1")
+        assert "cache_control" not in body, (
+            "cache_control must still be stripped for real api.openai.com "
+            "(OpenAI rejects the Anthropic-only marker)."
+        )

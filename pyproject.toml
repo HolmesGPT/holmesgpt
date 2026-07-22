@@ -39,7 +39,12 @@ backoff = "^2.2.1"
 # and released (expected in litellm 1.90+).
 # litellm >= 1.84.0 also fixes CRITICAL CVE-2026-49468 (auth bypass via Host header
 # injection) and relaxes the pinned aiohttp to >=3.10,<4.0, letting us take aiohttp 3.14.1.
-litellm = "1.89.0"
+# litellm >= 1.90.0 preserves Anthropic `cache_control` markers for OpenAI-compatible
+# custom endpoints (a LiteLLM proxy / gateway reached via api_base with the `openai/`
+# provider) instead of unconditionally stripping them. Without it, prompt caching is
+# silently dropped when Holmes talks to a Robusta-hosted AI gateway. See
+# OpenAIGPTConfig._should_preserve_cache_control_for_endpoint.
+litellm = "1.91.1"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
