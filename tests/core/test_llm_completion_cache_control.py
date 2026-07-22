@@ -2,10 +2,16 @@ import json
 from unittest.mock import patch
 
 import litellm
+import openai
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 from holmes.core.llm import DefaultLLM
+
+
+class _CaptureAndStop(Exception):
+    """Raised from the mocked OpenAI SDK to halt the call once we've captured
+    the fully-transformed outgoing request body."""
 
 
 def _mock_model_response() -> ModelResponse:
@@ -154,4 +160,60 @@ class TestOpenAICompatibleEndpointPreservesCacheControl:
         assert "cache_control" not in body, (
             "cache_control must still be stripped for real api.openai.com "
             "(OpenAI rejects the Anthropic-only marker)."
+        )
+
+
+class TestRobustaCompletionEmitsCacheControlToProxy:
+    """End-to-end guard for the deployed topology Holmes -> relay -> LiteLLM proxy.
+
+    This covers Holmes's own hop (Holmes -> the OpenAI-compatible endpoint it is
+    pointed at, i.e. the relay/proxy). It drives the *real* ``DefaultLLM.completion``
+    path — cache_control injection hook + ``openai/`` corrected name + provider
+    ``transform_request`` — and captures the fully-transformed request body at the
+    OpenAI SDK boundary (after every litellm transform has run). It asserts the
+    Anthropic ``cache_control`` markers actually leave Holmes toward a custom
+    (non-openai.com) gateway host.
+
+    NOTE: the second hop (relay -> proxy) lives in the `relay` repo and calls
+    ``litellm.completion`` itself (``relay/pkg/llm/llm_registry.py``), so it needs
+    its own equivalent guard there and the same litellm >= 1.90.0 floor.
+    """
+
+    def _capture_outgoing_messages(self, api_base: str):
+        captured: dict = {}
+
+        def fake_create(_self, *args, **kwargs):
+            captured["messages"] = kwargs.get("messages")
+            raise _CaptureAndStop()
+
+        llm = _make_llm("bedrock/anthropic.claude-sonnet-4-5")
+        llm.is_robusta_model = True  # -> corrected name becomes openai/<model>
+        llm.api_base = api_base
+        llm.api_key = "sk-test"
+        llm.args = {"num_retries": 0}
+
+        with patch.object(
+            openai.resources.chat.completions.Completions, "create", fake_create
+        ):
+            with pytest.raises(Exception):
+                llm.completion(
+                    messages=[{"role": "user", "content": "some context " * 20}]
+                )
+        return captured.get("messages")
+
+    def test_cache_control_reaches_openai_compatible_gateway(self):
+        messages = self._capture_outgoing_messages("https://llm.eu.robusta.dev/v1")
+        assert messages is not None, "OpenAI SDK was never called"
+        assert "cache_control" in json.dumps(messages), (
+            "A Robusta model pointed at an OpenAI-compatible gateway must send "
+            "Anthropic cache_control markers through to the endpoint; requires "
+            "litellm >= 1.90.0."
+        )
+
+    def test_cache_control_stripped_when_pointed_at_real_openai(self):
+        messages = self._capture_outgoing_messages("https://api.openai.com/v1")
+        assert messages is not None, "OpenAI SDK was never called"
+        assert "cache_control" not in json.dumps(messages), (
+            "cache_control must still be stripped when the endpoint is real "
+            "api.openai.com."
         )
