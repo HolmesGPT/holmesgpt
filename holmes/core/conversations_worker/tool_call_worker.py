@@ -357,6 +357,16 @@ class ToolCallWorker:
         # (token-verified) approval loop has approved this tool call.
         tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
         user_approved = bool(metadata.get("remote_tool_approved"))
+        # APPROVAL-TRACE hop 3/3 (target): did the approval flag reach the
+        # executor via metadata? (metadata keys logged so we can see what relay
+        # actually wrote to the row.)
+        logging.info(
+            "APPROVAL-TRACE target tool=%s tool_call_id=%s user_approved=%s metadata_keys=%s",
+            tool_name,
+            tool_call_id,
+            user_approved,
+            sorted((metadata or {}).keys()),
+        )
 
         # 4. Tool invocation context.
         context = ToolInvokeContext(

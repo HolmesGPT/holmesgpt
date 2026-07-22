@@ -548,6 +548,14 @@ class RemoteMCPTool(Tool):
         if user_approved:
             call_params = {**params, REMOTE_TOOL_APPROVED_PARAM: True}
 
+        # APPROVAL-TRACE hop 1/3 (caller): did we forward the approval decision?
+        logger.info(
+            "APPROVAL-TRACE mcp-caller tool=%s user_approved=%s forwarding_approval_arg=%s",
+            self.name,
+            user_approved,
+            user_approved,
+        )
+
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
