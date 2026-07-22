@@ -259,19 +259,33 @@ class ToolCallWorker:
                 )
                 response = _error_response(f"executor failure: {e}")
                 status = RemoteToolCallStatus.FAILED
-            ok = self.dal.post_remote_tool_call_result(
-                tool_call_id=row_id,
-                assignee=self.holmes_id,
-                status=status.value,
-                tool_response=response,
-            )
-            if not ok:
-                # Row was reassigned or stopped (relay timed out) — log and drop.
-                logging.warning(
-                    "ToolCallWorker: result for %s rejected (stale assignee or "
-                    "terminal row); dropping",
+
+            # Post result: use different RPC for PENDING_APPROVAL (non-terminal)
+            # vs terminal statuses (COMPLETED, FAILED, etc.)
+            if status == RemoteToolCallStatus.PENDING_APPROVAL:
+                # Approval metadata was already stored by _store_approval_metadata()
+                # Just mark as PENDING_APPROVAL and done.
+                logging.info(
+                    "ToolCallWorker: approval requirement stored for %s; "
+                    "waiting for caller decision",
                     row_id,
                 )
+                # Row status was already updated to PENDING_APPROVAL by the store RPC.
+                # Don't post a final result.
+            else:
+                ok = self.dal.post_remote_tool_call_result(
+                    tool_call_id=row_id,
+                    assignee=self.holmes_id,
+                    status=status.value,
+                    tool_response=response,
+                )
+                if not ok:
+                    # Row was reassigned or stopped (relay timed out) — log and drop.
+                    logging.warning(
+                        "ToolCallWorker: result for %s rejected (stale assignee or "
+                        "terminal row); dropping",
+                        row_id,
+                    )
         finally:
             # A pool slot is now free — drop the in-flight count and wake the
             # claim loop so it re-claims any surplus 'pending' tool calls.
