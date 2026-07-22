@@ -10,12 +10,26 @@ This test suite verifies that bash commands requiring approval:
 import pytest
 from unittest.mock import MagicMock
 
+from holmes.core.llm import LLM
 from holmes.core.tools import StructuredToolResultStatus, ToolInvokeContext
 from holmes.plugins.toolsets.bash.bash_toolset import (
     BashExecutorToolset,
     RunBashCommand,
 )
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
+
+
+def _ctx(**overrides):
+    """Build a valid ToolInvokeContext (llm/max_token_count/tool_call_id/
+    tool_name are required) with sane test defaults; override as needed."""
+    base = dict(
+        llm=MagicMock(spec=LLM),
+        max_token_count=16000,
+        tool_call_id="test-call",
+        tool_name="bash",
+    )
+    base.update(overrides)
+    return ToolInvokeContext(**base)
 
 
 @pytest.fixture
@@ -41,7 +55,7 @@ class TestBashApprovalDetection:
 
     def test_approval_not_required_for_allowed_command(self, bash_tool):
         """Pre-approved commands should not require approval."""
-        context = ToolInvokeContext()
+        context = _ctx()
         result = bash_tool.requires_approval(
             params={
                 "command": "kubectl get pods",
@@ -53,7 +67,7 @@ class TestBashApprovalDetection:
 
     def test_approval_required_for_unapproved_command(self, bash_tool):
         """Commands not in allow list should require approval."""
-        context = ToolInvokeContext()
+        context = _ctx()
         result = bash_tool.requires_approval(
             params={
                 "command": "docker ps",
@@ -76,7 +90,7 @@ class TestBashApprovalDetection:
         )
         tool = toolset.tools[0]
 
-        context = ToolInvokeContext()
+        context = _ctx()
         result = tool.requires_approval(
             params={
                 "command": "rm -rf /",
@@ -93,7 +107,7 @@ class TestBashExecutionWithoutApproval:
 
     def test_unapproved_command_returns_approval_required_status(self, bash_tool):
         """Unapproved commands should return APPROVAL_REQUIRED status."""
-        context = ToolInvokeContext(user_approved=False)
+        context = _ctx(user_approved=False)
         result = bash_tool._invoke(
             params={
                 "command": "docker ps",
@@ -120,7 +134,7 @@ class TestBashExecutionWithoutApproval:
         )
         tool = toolset.tools[0]
 
-        context = ToolInvokeContext(user_approved=False)
+        context = _ctx(user_approved=False)
         result = tool._invoke(
             params={
                 "command": "rm -rf /tmp/something",
@@ -147,7 +161,7 @@ class TestBashExecutionWithApproval:
             mock_execute,
         )
 
-        context = ToolInvokeContext(user_approved=True)
+        context = _ctx(user_approved=True)
         result = bash_tool._invoke(
             params={
                 "command": "docker ps",
@@ -161,7 +175,7 @@ class TestBashExecutionWithApproval:
 
     def test_approved_command_saves_prefix_for_future(self, bash_tool):
         """When approved, new prefixes should be saved to allow list for future use."""
-        context = ToolInvokeContext()
+        context = _ctx()
         approval_req = bash_tool.requires_approval(
             params={
                 "command": "docker ps",
@@ -181,7 +195,7 @@ class TestBashApprovalWithSessionContext:
     def test_session_approved_prefixes_are_trusted(self, bash_tool):
         """Session-approved prefixes should not require approval."""
         # Simulate a session where "docker" was previously approved
-        context = ToolInvokeContext(session_approved_prefixes=["docker"])
+        context = _ctx(session_approved_prefixes=["docker"])
         result = bash_tool.requires_approval(
             params={
                 "command": "docker ps",
@@ -194,7 +208,7 @@ class TestBashApprovalWithSessionContext:
 
     def test_multiple_approved_prefixes_in_session(self, bash_tool):
         """Multiple session-approved prefixes should work together."""
-        context = ToolInvokeContext(
+        context = _ctx(
             session_approved_prefixes=["docker", "kubectl exec"]
         )
         result = bash_tool.requires_approval(
@@ -213,7 +227,7 @@ class TestBashApprovalInCompoundCommands:
 
     def test_compound_command_requires_approval(self, bash_tool):
         """Commands with for/while/if/etc should require approval."""
-        context = ToolInvokeContext()
+        context = _ctx()
         result = bash_tool.requires_approval(
             params={
                 "command": "for pod in $(kubectl get pods -o name); do echo $pod; done",
@@ -227,7 +241,7 @@ class TestBashApprovalInCompoundCommands:
 
     def test_piped_command_with_one_unapproved(self, bash_tool):
         """Piped commands where one segment is unapproved should require approval."""
-        context = ToolInvokeContext()
+        context = _ctx()
         result = bash_tool.requires_approval(
             params={
                 "command": "kubectl get pods | jq '.items[].metadata.name'",
@@ -244,7 +258,7 @@ class TestBashApprovalErrorCases:
 
     def test_missing_command_parameter(self, bash_tool):
         """Missing command parameter should return error."""
-        context = ToolInvokeContext()
+        context = _ctx()
         result = bash_tool._invoke(
             params={"suggested_prefixes": ["kubectl"]},
             context=context,
@@ -254,7 +268,7 @@ class TestBashApprovalErrorCases:
 
     def test_missing_suggested_prefixes(self, bash_tool):
         """Missing suggested_prefixes should return error."""
-        context = ToolInvokeContext()
+        context = _ctx()
         result = bash_tool._invoke(
             params={"command": "kubectl get pods"},
             context=context,
@@ -264,7 +278,7 @@ class TestBashApprovalErrorCases:
 
     def test_fabricated_prefix_not_in_command(self, bash_tool):
         """Suggested prefix not actually in command should be rejected."""
-        context = ToolInvokeContext()
+        context = _ctx()
         result = bash_tool.requires_approval(
             params={
                 "command": "kubectl get pods",
@@ -293,7 +307,7 @@ class TestBashApprovalIntegration:
         )
 
         # Step 1: Detect approval needed
-        context1 = ToolInvokeContext()
+        context1 = _ctx()
         approval_req = bash_tool.requires_approval(
             params={"command": "docker ps", "suggested_prefixes": ["docker"]},
             context=context1,
@@ -302,7 +316,7 @@ class TestBashApprovalIntegration:
 
         # Step 2: Simulate user approval (in real flow, this happens via UI/CLI)
         # Create new context with user_approved=True
-        context2 = ToolInvokeContext(user_approved=True)
+        context2 = _ctx(user_approved=True)
 
         # Step 3: Execute with approval
         result = bash_tool._invoke(
@@ -324,7 +338,7 @@ class TestBashApprovalIntegration:
         )
 
         # First call: docker is new, requires approval
-        context1 = ToolInvokeContext()
+        context1 = _ctx()
         approval_req1 = bash_tool.requires_approval(
             params={"command": "docker ps", "suggested_prefixes": ["docker"]},
             context=context1,
@@ -332,7 +346,7 @@ class TestBashApprovalIntegration:
         assert approval_req1 is not None
 
         # Second call: docker is now in session_approved_prefixes
-        context2 = ToolInvokeContext(session_approved_prefixes=["docker"])
+        context2 = _ctx(session_approved_prefixes=["docker"])
         approval_req2 = bash_tool.requires_approval(
             params={"command": "docker ps", "suggested_prefixes": ["docker"]},
             context=context2,

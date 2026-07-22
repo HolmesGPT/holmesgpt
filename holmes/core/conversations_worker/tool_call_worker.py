@@ -12,6 +12,18 @@ writes tool_response + terminal status in one atomic UPDATE
 Tool calls run in their own thread pool (TOOL_CALLER_MAX_CONCURRENT) so they
 never compete with user chats for the conversation worker's pool.
 
+Approval workflow (metadata-only — no schema changes):
+When a tool needs user approval, this worker does NOT block or park the row in
+a special state. It mints an approval token bound to (tool_call_id, tool_name,
+params) and writes a normal terminal (COMPLETED) result whose tool_response
+carries status=APPROVAL_REQUIRED plus approval_reason / approval_params /
+approval_token. The caller (relay's RemoteToolsProvider) detects that embedded
+status, surfaces the approval to the user, and — on approval — re-invokes the
+same tool_call_id with a NEW row whose metadata carries
+remote_tool_approved=true and remote_tool_approval_token=<that token>. This
+worker then verifies the token and runs the tool with user_approved=True. All
+approval state lives in the existing metadata/tool_response jsonb columns.
+
 Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
 
@@ -39,7 +51,11 @@ from holmes.core.tools import (
     ToolInvokeContext,
     ToolsetTag,
 )
-from holmes.utils.approval_tokens import mint_token, verify_token
+from holmes.utils.approval_tokens import (
+    ApprovalTokenError,
+    mint_token,
+    verify_token,
+)
 from holmes.version import get_version
 
 if TYPE_CHECKING:
@@ -243,16 +259,14 @@ class ToolCallWorker:
         row_id = row.get("id")
         try:
             try:
+                # _execute always returns a serialized tool_response dict. An
+                # approval requirement is just a normal response whose embedded
+                # status is APPROVAL_REQUIRED (with approval_* fields for the
+                # caller) — it is posted as a COMPLETED row like any other, no
+                # special DB status. The caller inspects the response status and
+                # re-invokes with an approval flag in metadata. See module docs.
                 response = self._execute(row)
-
-                # If approval is required, store metadata and return immediately.
-                # The caller's RemoteToolsProvider will poll for the approval
-                # decision and handle re-invocation, not the target.
-                if response.get("status") == StructuredToolResultStatus.APPROVAL_REQUIRED.value:
-                    self._store_approval_metadata(row, response)
-                    status = RemoteToolCallStatus.PENDING_APPROVAL
-                else:
-                    status = RemoteToolCallStatus.COMPLETED
+                status = RemoteToolCallStatus.COMPLETED
             except Exception as e:
                 logging.exception(
                     "ToolCallWorker: unexpected failure executing %s", row_id
@@ -260,32 +274,19 @@ class ToolCallWorker:
                 response = _error_response(f"executor failure: {e}")
                 status = RemoteToolCallStatus.FAILED
 
-            # Post result: use different RPC for PENDING_APPROVAL (non-terminal)
-            # vs terminal statuses (COMPLETED, FAILED, etc.)
-            if status == RemoteToolCallStatus.PENDING_APPROVAL:
-                # Approval metadata was already stored by _store_approval_metadata()
-                # Just mark as PENDING_APPROVAL and done.
-                logging.info(
-                    "ToolCallWorker: approval requirement stored for %s; "
-                    "waiting for caller decision",
+            ok = self.dal.post_remote_tool_call_result(
+                tool_call_id=row_id,
+                assignee=self.holmes_id,
+                status=status.value,
+                tool_response=response,
+            )
+            if not ok:
+                # Row was reassigned or stopped (relay timed out) — log and drop.
+                logging.warning(
+                    "ToolCallWorker: result for %s rejected (stale assignee or "
+                    "terminal row); dropping",
                     row_id,
                 )
-                # Row status was already updated to PENDING_APPROVAL by the store RPC.
-                # Don't post a final result.
-            else:
-                ok = self.dal.post_remote_tool_call_result(
-                    tool_call_id=row_id,
-                    assignee=self.holmes_id,
-                    status=status.value,
-                    tool_response=response,
-                )
-                if not ok:
-                    # Row was reassigned or stopped (relay timed out) — log and drop.
-                    logging.warning(
-                        "ToolCallWorker: result for %s rejected (stale assignee or "
-                        "terminal row); dropping",
-                        row_id,
-                    )
         finally:
             # A pool slot is now free — drop the in-flight count and wake the
             # claim loop so it re-claims any surplus 'pending' tool calls.
@@ -351,13 +352,40 @@ class ToolCallWorker:
                 f"tool '{tool_name}' does not support instances on this cluster"
             )
 
-        # 3. Tool invocation context.
+        # 3. Approval state travels entirely in the row's metadata jsonb (no
+        # dedicated columns, no pending_approval status — see module docs). On
+        # the approved re-invocation the caller sets:
+        #   metadata.remote_tool_approved = true
+        #   metadata.remote_tool_approval_token = <token minted on the 1st call>
+        # The token binds the approval to (tool_call_id, tool_name, params); we
+        # verify it so an approved re-invocation cannot run different params
+        # than the ones the user actually saw and approved.
+        tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
+        params_json = json.dumps(tool_params, sort_keys=True)
+        user_approved = bool(metadata.get("remote_tool_approved"))
+        if user_approved:
+            try:
+                verify_token(
+                    metadata.get("remote_tool_approval_token"),
+                    tool_call_id,
+                    tool_name,
+                    params_json,
+                )
+            except ApprovalTokenError as e:
+                logging.warning(
+                    "ToolCallWorker: approval token rejected for %s: %s",
+                    row.get("id"),
+                    e.reason,
+                )
+                return _error_response(str(e))
+
+        # 4. Tool invocation context.
         context = ToolInvokeContext(
             tool_number=None,
-            user_approved=False,
+            user_approved=user_approved,
             llm=self._get_llm(),
             max_token_count=int(tool_request.get("max_token_count")),
-            tool_call_id=str(tool_request.get("tool_call_id") or row.get("id") or ""),
+            tool_call_id=tool_call_id,
             tool_name=tool_name,
             session_approved_prefixes=[],
             request_context={"user_id": row.get("user_id")},
@@ -367,9 +395,22 @@ class ToolCallWorker:
         result = tool.invoke(tool_params, context)
         elapsed = time.monotonic() - started
 
-        # 4. Handle approval-required status: will be handled in _execute_safe
-        # via polling and re-invocation. Return early with approval metadata.
+        # 5. Handle approval-required status.
         if result.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
+            if user_approved:
+                # Already approved yet the tool still demands approval —
+                # returning APPROVAL_REQUIRED again would loop forever
+                # (re-invoke -> approval -> re-invoke -> ...). Fail closed.
+                return _error_response(
+                    "tool still requires approval after user approval "
+                    "(internal error); refusing to re-request to avoid a loop",
+                    invocation=result.invocation,
+                )
+            # First execution: surface the approval requirement to the caller.
+            # This is posted as a normal COMPLETED row; the caller detects the
+            # embedded APPROVAL_REQUIRED status, prompts the user, and (on
+            # approval) re-invokes carrying the approval_token below in metadata.
+            approval_token = mint_token(tool_call_id, tool_name, params_json)
             return {
                 "status": StructuredToolResultStatus.APPROVAL_REQUIRED.value,
                 "data": None,
@@ -381,50 +422,12 @@ class ToolCallWorker:
                 "elapsed_seconds": round(elapsed, 3),
                 "executor_holmes_version": get_version(),
                 "approval_params": tool_params,
+                "approval_token": approval_token,
             }
 
-        # 5. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
+        # 6. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
         result.images = None
         return serialize_tool_response(result, elapsed)
-
-    def _store_approval_metadata(
-        self, row: Dict[str, Any], approval_response: Dict[str, Any]
-    ) -> None:
-        """Store approval requirement metadata for caller to process.
-
-        The caller's RemoteToolsProvider will:
-        1. Poll RemoteToolCalls.approval_approved until decision arrives
-        2. Yield APPROVAL_REQUIRED event to trigger UI prompt
-        3. Wait for user decision to be written to DB
-        4. Resume polling in the RemoteToolsProvider (not here on target)
-        """
-        row_id = row.get("id")
-        tool_request = row.get("tool_request") or {}
-        tool_name = tool_request.get("tool_name")
-        approval_params = approval_response.get("approval_params", {})
-
-        # Mint token to bind approval to this (tool_call_id, tool_name, params).
-        approval_token = mint_token(
-            row_id, tool_name, json.dumps(approval_params, sort_keys=True)
-        )
-
-        # Store approval metadata in database (caller will poll for decision).
-        ok = self.dal.store_remote_tool_approval_requirement(
-            tool_call_id=row_id,
-            assignee=self.holmes_id,
-            approval_reason=approval_response.get("error", "Tool requires approval"),
-            approval_tool_params=approval_params,
-            approval_token=approval_token,
-        )
-        if not ok:
-            logging.warning(
-                "ToolCallWorker: failed to store approval requirement for %s (stale/dropped)",
-                row_id,
-            )
-            # Mark response as error since we couldn't store metadata
-            approval_response["status"] = StructuredToolResultStatus.ERROR.value
-            approval_response["error"] = "Failed to store approval requirement"
-            approval_response["approval_params"] = None
 
     # ---- helpers ----
 
