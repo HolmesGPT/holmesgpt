@@ -1,0 +1,41 @@
+# HTTP toolset that lets Holmes publish alerts to Freshservice (ITOM alert ingestion).
+# Load with: holmes ask "..." --custom-toolsets=examples/freshservice_alerts_toolset.yaml
+#
+# Requires the FRESHWORK_ALERTS_AUTH environment variable, containing the
+# Freshservice integration auth key (the token only, without the "auth-key " prefix).
+
+toolsets:
+  freshservice/alerts:
+    type: http
+    enabled: true
+    config:
+      endpoints:
+        - hosts:
+            - "https://robusta.alerts.freshservice.com"
+          paths:
+            - "/integrations/1000042453/alerts"
+          methods: ["POST"]
+          auth:
+            type: header
+            name: "Authorization"
+            value: "auth-key {{ env.FRESHWORK_ALERTS_AUTH }}"
+      verify_ssl: true
+      timeout_seconds: 30
+    llm_instructions: |
+      ### Freshservice Alerts
+      Publish an alert to Freshservice by POSTing a JSON body to:
+      https://robusta.alerts.freshservice.com/integrations/1000042453/alerts
+
+      JSON body fields:
+      - title (string, required): short summary of the alert
+      - description (string): detailed description of the issue
+      - source (string): system that generated the alert (e.g. "holmesgpt")
+      - status (string): "trigger" to open an alert, "resolve" to resolve it
+      - severity (string): one of "critical", "error", "warning", "info"
+
+      Example body:
+      {"title": "Pod crash-looping", "source": "holmesgpt", "status": "trigger",
+       "severity": "warning", "description": "Pod payment-api in namespace prod is crash-looping"}
+
+      Only publish an alert when the user explicitly asks you to. A successful
+      publish returns HTTP 2xx; report the returned status to the user.
