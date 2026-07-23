@@ -1,13 +1,11 @@
-"""Integration test for remote bash tool approval workflow.
+"""Parser tests for how the caller's RemoteMCPTool handles the responses a
+remote bash tool produces across the approval flow.
 
-This test verifies the end-to-end flow:
-1. Caller invokes a remote bash tool that requires approval
-2. Target Holmes detects approval requirement and stores metadata
-3. Approval JSON is returned to caller with status: APPROVAL_REQUIRED
-4. Holmes MCP parser detects this and surfaces as APPROVAL_REQUIRED status
-5. Caller surfaces this as an approval event to the LLM
-6. User approves via CLI callback or Slack form
-7. Target re-executes with approval and returns final result
+These exercise the caller-side MCP parser (`RemoteMCPTool._invoke_async`) only:
+given the JSON a remote executor returns (via relay), assert the parser maps it
+to the right `StructuredToolResult`. The target-side behavior (returning
+APPROVAL_REQUIRED, running once approved) is covered by
+`tests/core/conversations_worker/test_tool_call_worker.py`.
 """
 
 import json
@@ -19,183 +17,80 @@ from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool, RemoteMCPToolset
 
 
+def _session_returning(payload: dict) -> AsyncMock:
+    block = MagicMock(type="text", text=json.dumps(payload))
+    result_obj = MagicMock(content=[block], isError=False)
+    session = AsyncMock()
+    session.call_tool = AsyncMock(return_value=result_obj)
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+    return session
+
+
 @pytest.mark.asyncio
-async def test_remote_bash_tool_approval_full_flow():
-    """Verify complete remote bash tool approval workflow."""
+async def test_parses_approval_required_and_surfaces_caller_params():
+    """A remote 'approval_required' response is mapped to APPROVAL_REQUIRED.
 
-    # Mock toolset
-    mock_toolset = MagicMock(spec=RemoteMCPToolset)
-    mock_toolset.name = "remote_bash"
-
-    # Create a tool instance (simulating a remote bash tool)
+    Relay does not forward the executor's approval params back to the caller,
+    so the parser falls back to the caller's own input params — those are what
+    the approval UI/Slack prompt is built from. Assert the exact params, not
+    just non-None.
+    """
     tool = RemoteMCPTool(
-        name="bash/execute",
-        mcp_tool_name="bash_command_runner",
+        name="remote_bash",
+        mcp_tool_name="bash",
         description="Execute bash command remotely",
-        parameters={
-            "command": {"type": "string", "description": "Command to run"},
-            "suggested_prefixes": {
-                "type": "array",
-                "description": "Allowed command prefixes"
-            },
-        },
-        toolset=mock_toolset,
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
     )
 
-    # Simulate the approval workflow that target Holmes performs:
-    # 1. Target detects approval requirement
-    # 2. Stores approval metadata
-    # 3. Polls for caller decision
-    # 4. Returns APPROVAL_REQUIRED to caller with approval details
     approval_response = {
         "status": "approval_required",
         "error": "Command requires approval. New prefixes: /usr/local/bin",
         "data": None,
-        "approval_params": {
-            "command": "rm -rf /usr/local/bin/some-package",
-            "suggested_prefixes": ["/usr/local/bin/"]
-        }
     }
-
-    response_json = json.dumps(approval_response)
-
-    mock_content_block = MagicMock()
-    mock_content_block.type = "text"
-    mock_content_block.text = response_json
-
-    mock_tool_result = MagicMock()
-    mock_tool_result.content = [mock_content_block]
-    mock_tool_result.isError = False
-
-    # Mock the MCP session
-    mock_session = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=mock_tool_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
+    input_params = {
+        "command": "rm -rf /usr/local/bin/some-package",
+        "agent_name": "eu-eks-prod-2",
+    }
 
     with patch(
         "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
-    ) as mock_get_session:
-        mock_get_session.return_value = mock_session
+    ) as get_session:
+        get_session.return_value = _session_returning(approval_response)
+        result = await tool._invoke_async(params=input_params, request_context=None)
 
-        # Invoke the tool
-        result = await tool._invoke_async(
-            params={
-                "command": "rm -rf /usr/local/bin/some-package",
-                "suggested_prefixes": [],  # Will be updated by approval
-            },
-            request_context=None,
-        )
-
-    # Verify that the MCP tool parser detected the APPROVAL_REQUIRED status
     assert result.status == StructuredToolResultStatus.APPROVAL_REQUIRED
     assert "Command requires approval" in result.error
-    # The params should include the suggested_prefixes from the approval response
-    assert result.params is not None
+    assert result.params == input_params
 
 
 @pytest.mark.asyncio
-async def test_remote_bash_tool_approval_with_approval_token():
-    """Verify approval token is preserved in the workflow."""
-
-    mock_toolset = MagicMock(spec=RemoteMCPToolset)
-    mock_toolset.name = "remote_bash"
-
+async def test_parses_success_response_after_approval():
+    """After approval the executor runs the tool; a normal success response
+    is parsed back to SUCCESS with the command output."""
     tool = RemoteMCPTool(
-        name="bash/execute",
-        mcp_tool_name="bash_command_runner",
+        name="remote_bash",
+        mcp_tool_name="bash",
         description="Execute bash command remotely",
         parameters={},
-        toolset=mock_toolset,
+        toolset=MagicMock(spec=RemoteMCPToolset),
     )
 
-    # Approval response includes token for security
-    approval_response = {
-        "status": "approval_required",
-        "error": "Command requires approval",
-        "approval_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-        "approval_params": {"command": "dangerous-cmd"}
-    }
-
-    response_json = json.dumps(approval_response)
-
-    mock_content_block = MagicMock()
-    mock_content_block.type = "text"
-    mock_content_block.text = response_json
-
-    mock_tool_result = MagicMock()
-    mock_tool_result.content = [mock_content_block]
-    mock_tool_result.isError = False
-
-    mock_session = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=mock_tool_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-
-    with patch(
-        "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
-    ) as mock_get_session:
-        mock_get_session.return_value = mock_session
-
-        result = await tool._invoke_async(params={}, request_context=None)
-
-    # Verify the result preserves the approval structure
-    assert result.status == StructuredToolResultStatus.APPROVAL_REQUIRED
-    assert result.error is not None
-
-
-@pytest.mark.asyncio
-async def test_remote_bash_tool_after_approval_execution():
-    """Verify tool executes normally after approval is granted and decision is written."""
-
-    mock_toolset = MagicMock(spec=RemoteMCPToolset)
-    mock_toolset.name = "remote_bash"
-
-    tool = RemoteMCPTool(
-        name="bash/execute",
-        mcp_tool_name="bash_command_runner",
-        description="Execute bash command remotely",
-        parameters={},
-        toolset=mock_toolset,
-    )
-
-    # After approval decision is written to DB and target re-invokes,
-    # it returns a normal SUCCESS response
     final_response = {
         "status": "success",
         "data": "Package successfully removed from /usr/local/bin/",
         "error": None,
     }
 
-    response_json = json.dumps(final_response)
-
-    mock_content_block = MagicMock()
-    mock_content_block.type = "text"
-    mock_content_block.text = response_json
-
-    mock_tool_result = MagicMock()
-    mock_tool_result.content = [mock_content_block]
-    mock_tool_result.isError = False
-
-    mock_session = AsyncMock()
-    mock_session.call_tool = AsyncMock(return_value=mock_tool_result)
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-
     with patch(
         "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
-    ) as mock_get_session:
-        mock_get_session.return_value = mock_session
-
-        # Re-invocation after approval decision is written
+    ) as get_session:
+        get_session.return_value = _session_returning(final_response)
         result = await tool._invoke_async(
-            params={
-                "command": "rm -rf /usr/local/bin/some-package",
-                "suggested_prefixes": ["/usr/local/bin/"],
-            },
+            params={"command": "rm -rf /usr/local/bin/some-package"},
             request_context=None,
         )
 
-    # Verify normal SUCCESS response is returned
     assert result.status == StructuredToolResultStatus.SUCCESS
     assert "successfully removed" in result.data.lower()
