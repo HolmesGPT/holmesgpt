@@ -23,14 +23,11 @@ class ConversationStatus(str, Enum):
 class RemoteToolCallStatus(str, Enum):
     """Status lifecycle of a RemoteToolCalls row.
 
-    The executor (ToolCallWorker) writes:
-    - COMPLETED (a tool_response was produced — including tool-level errors)
-    - FAILED (the executor crashed before producing one)
-    - PENDING_APPROVAL (tool requires approval; caller must decide and write approval_approved)
-
-    Relay/claim RPC writes:
-    - STOPPED (relay timeout)
-    - TIMEOUT (stale-row sweep)
+    The executor (ToolCallWorker) only writes the two terminal results:
+    ``COMPLETED`` (a tool_response was produced — including tool-level errors)
+    and ``FAILED`` (the executor crashed before producing one). ``STOPPED``
+    (relay timeout) and ``TIMEOUT`` (stale-row sweep) are written by relay /
+    the claim RPC.
     """
 
     PENDING = "pending"
@@ -40,7 +37,6 @@ class RemoteToolCallStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
-    PENDING_APPROVAL = "pending_approval"
     STOPPED = "stopped"
     TIMEOUT = "timeout"
 
