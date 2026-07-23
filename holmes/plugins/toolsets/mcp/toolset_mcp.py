@@ -562,26 +562,23 @@ class RemoteMCPTool(Tool):
 
         try:
             response_data = json.loads(merged_text) if merged_text else {}
-            if (
-                response_data.get("status")
-                == StructuredToolResultStatus.APPROVAL_REQUIRED.value
-            ):
-                logger.info(
-                    "MCP tool %s requires approval: %s",
-                    self.name,
-                    response_data.get("error"),
-                )
-                return StructuredToolResult(
-                    status=StructuredToolResultStatus.APPROVAL_REQUIRED,
-                    error=response_data.get("error"),
-                    params=response_data.get("params", params),
-                    invocation=f"MCPtool {self.name} with params {params}",
-                )
-        except (json.JSONDecodeError, ValueError, TypeError) as e:
-            logger.debug(
-                "Failed to parse JSON response as APPROVAL_REQUIRED: %s (error: %s)",
-                merged_text[:200] if merged_text else "empty",
-                e,
+        except (json.JSONDecodeError, ValueError):
+            response_data = {}
+        if (
+            isinstance(response_data, dict)
+            and response_data.get("status")
+            == StructuredToolResultStatus.APPROVAL_REQUIRED.value
+        ):
+            logger.info(
+                "MCP tool %s requires approval: %s",
+                self.name,
+                response_data.get("error"),
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                error=response_data.get("error"),
+                params=response_data.get("params", params),
+                invocation=f"MCPtool {self.name} with params {params}",
             )
 
         is_error = tool_result.isError or self._is_content_error(merged_text)
