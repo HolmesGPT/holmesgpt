@@ -1,0 +1,30 @@
+# Effectiveness eval for Slack channel-history context recovery.
+#
+# Scenario: Holmes is answering inside a Slack thread. The thread is about
+# elevated 5xx errors on checkout-api, but the thread itself never says what
+# caused it. The discriminating facts — release `checkout-api v4.19.2` and
+# deploy id `DPL-7Q2X` — exist ONLY earlier in the channel (the incident alert
+# and the deploy announcement), not in the thread. To answer, Holmes must call
+# read_slack_channel_history_by_id on the channel it was told it is in.
+#
+# The unique deploy id makes this hallucination-proof: it can only be produced
+# by actually reading the channel history via the Slack MCP tool.
+user_prompt:
+  - "This conversation is happening in a Slack thread in the #checkout-incidents
+    channel. Slack channel id: C08INC283X. Slack thread_ts: 1721003600.000000.
+
+    In this thread we've been discussing elevated 5xx errors on the checkout-api
+    service in prod, but the thread itself never says what actually caused it.
+    Which change introduced this incident? Give the exact release/version of
+    checkout-api and its deploy id."
+
+expected_output:
+  - "Identifies that the release checkout-api v4.19.2 introduced the incident"
+  - "Reports the deploy id DPL-7Q2X"
+  - "Reads the channel history (calls the read_slack_channel_history_by_id tool)
+    to recover the context that is missing from the thread"
+
+# The version/deploy-id are only discoverable by reading channel history, and
+# we also assert the channel-history tool was actually called.
+include_tool_calls: true
+tags: []
