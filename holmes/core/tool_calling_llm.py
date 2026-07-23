@@ -123,49 +123,6 @@ def _extract_text_from_content(content: Any) -> str:
     return ""
 
 
-def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
-    """Extract bash session approved prefixes from conversation history.
-
-    Scans tool result messages for bash_session_approved_prefixes stored in
-    tool_call_metadata. These prefixes were approved by the user via the
-    "Yes, and don't ask again" option.
-
-    Args:
-        messages: Conversation history messages
-
-    Returns:
-        List of approved prefixes accumulated from all tool results
-    """
-    prefixes: set[str] = set()
-
-    for msg in messages:
-        if msg.get("role") != "tool":
-            continue
-
-        content = _extract_text_from_content(msg.get("content", ""))
-        if not content:
-            continue
-
-        # Extract tool_call_metadata from the content string
-        # Format: tool_call_metadata={"tool_name": "...", ...}
-        match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
-        if not match:
-            continue
-
-        try:
-            metadata = json.loads(match.group(1))
-            if "bash_session_approved_prefixes" in metadata:
-                prefixes.update(metadata["bash_session_approved_prefixes"])
-        except (json.JSONDecodeError, KeyError):
-            continue
-
-    if prefixes:
-        logging.info(
-            f"Found {len(prefixes)} session-approved bash prefixes from conversation: {list(prefixes)}"
-        )
-    return list(prefixes)
-
-
 # Scope key for the local (caller) cluster in the agent-keyed prefix map.
 _LOCAL_BASH_PREFIX_SCOPE = ""
 
