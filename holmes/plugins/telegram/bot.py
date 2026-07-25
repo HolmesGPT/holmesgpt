@@ -206,5 +206,16 @@ def run() -> None:
         bot_token=token,
         holmes_api_url=os.environ.get("HOLMES_API_URL", "http://localhost:8080"),
         allowed_chat_ids=allowed,
+        poll_timeout_seconds=int(
+            os.environ.get("TELEGRAM_POLL_TIMEOUT_SECONDS", "30")
+        ),
+        request_timeout_seconds=int(
+            os.environ.get("TELEGRAM_REQUEST_TIMEOUT_SECONDS", "120")
+        ),
+        history_messages=int(os.environ.get("TELEGRAM_HISTORY_MESSAGES", "30")),
     )
     HolmesTelegramBot(config).run()
+
+
+if __name__ == "__main__":
+    run()

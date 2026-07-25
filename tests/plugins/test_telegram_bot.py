@@ -1,8 +1,9 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from holmes.plugins.telegram.bot import (
     HolmesTelegramBot,
     TelegramBotConfig,
+    run,
     split_telegram_message,
     trim_conversation_history,
 )
@@ -116,3 +117,26 @@ def test_trimmed_history_preserves_required_system_message():
         {"role": "user", "content": "new"},
         {"role": "assistant", "content": "new answer"},
     ]
+
+
+def test_run_reads_deployment_configuration_from_environment(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret-token")
+    monkeypatch.setenv("HOLMES_API_URL", "http://holmes:80")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_IDS", "42,-1007")
+    monkeypatch.setenv("TELEGRAM_POLL_TIMEOUT_SECONDS", "20")
+    monkeypatch.setenv("TELEGRAM_REQUEST_TIMEOUT_SECONDS", "180")
+    monkeypatch.setenv("TELEGRAM_HISTORY_MESSAGES", "40")
+
+    with patch("holmes.plugins.telegram.bot.HolmesTelegramBot") as bot_class:
+        run()
+
+    config = bot_class.call_args.args[0]
+    assert config == TelegramBotConfig(
+        bot_token="secret-token",
+        holmes_api_url="http://holmes:80",
+        allowed_chat_ids={42, -1007},
+        poll_timeout_seconds=20,
+        request_timeout_seconds=180,
+        history_messages=40,
+    )
+    bot_class.return_value.run.assert_called_once_with()
