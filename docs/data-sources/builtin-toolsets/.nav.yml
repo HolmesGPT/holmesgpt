@@ -1,6 +1,8 @@
 nav:
   - index.md
   - AKS Node Health: aks-node-health.md
+  - Apache Airflow: airflow.md
+  - Apache Flink: flink.md
   - ArgoCD: argocd.md
   - AWS (MCP): aws.md
   - Azure (MCP): azure-mcp.md
@@ -24,6 +26,7 @@ nav:
   - Grafana Dashboards: grafanadashboards.md
   - Loki: grafanaloki.md
   - Tempo: grafanatempo.md
+  - Trino: trino.md
   - Helm: helm.md
   - Inspektor Gadget: inspektor-gadget.md
   - Internet: internet.md

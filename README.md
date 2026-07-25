@@ -47,6 +47,8 @@ HolmesGPT integrates with popular observability and cloud platforms. The followi
 | [<img src="images/integration_logos/aws_logo.png" alt="AWS" width="20" style="vertical-align: middle;"> **AWS**](https://holmesgpt.dev/data-sources/builtin-toolsets/aws/) | RDS events, instances, slow query logs, and more (MCP) |
 | [<img src="images/integration_logos/azure.png" alt="Azure" width="20" style="vertical-align: middle;"> **Azure**](https://holmesgpt.dev/data-sources/builtin-toolsets/azure-mcp/) | Azure resources and diagnostics (MCP) |
 | [<img src="images/integration_logos/azure.png" alt="Azure SQL" width="20" style="vertical-align: middle;"> **Azure SQL**](https://holmesgpt.dev/data-sources/builtin-toolsets/azure-sql/) | Database health, performance, connections, and slow queries |
+| [**Apache Airflow**](https://holmesgpt.dev/data-sources/builtin-toolsets/airflow/) | DAG runs, task instances, and bounded task logs |
+| [**Apache Flink**](https://holmesgpt.dev/data-sources/builtin-toolsets/flink/) | Job status, exceptions, and checkpoint diagnostics |
 | [<img src="images/integration_logos/confluence_logo.png" alt="Confluence" width="20" style="vertical-align: middle;"> **Confluence**](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence/) | Private runbooks and documentation |
 | [<img src="images/integration_logos/confluence_logo.png" alt="Confluence MCP" width="20" style="vertical-align: middle;"> **Confluence (MCP)**](https://holmesgpt.dev/data-sources/builtin-toolsets/confluence-mcp/) | Private runbooks and documentation (MCP) |
 | [<img src="images/integration_logos/coralogix-icon.png" alt="Coralogix" width="20" style="vertical-align: middle;"> **Coralogix**](https://holmesgpt.dev/data-sources/builtin-toolsets/coralogix-logs/) | Retrieve logs for any resource |
@@ -80,6 +82,7 @@ HolmesGPT integrates with popular observability and cloud platforms. The followi
 | **Splunk** | Log search and analysis (MCP) |
 | [<img src="images/integration_logos/postgres-icon.png" alt="SQL Databases" width="20" style="vertical-align: middle;"> **SQL Databases**](https://holmesgpt.dev/data-sources/builtin-toolsets/database-postgresql/) | PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, SQLite |
 | [<img src="images/integration_logos/tempo_logo.png" alt="Tempo" width="20" style="vertical-align: middle;"> **Tempo**](https://holmesgpt.dev/data-sources/builtin-toolsets/grafanatempo/) | Fetch trace info, debug issues like high latency in application |
+| [**Trino**](https://holmesgpt.dev/data-sources/builtin-toolsets/trino/) | Bounded read-only SQL and coordinator diagnostics |
 | [<img src="images/integration_logos/victorialogs-icon.png" alt="VictoriaLogs" width="20" style="vertical-align: middle;"> **VictoriaLogs**](https://holmesgpt.dev/data-sources/builtin-toolsets/victorialogs/) | Query logs from VictoriaLogs using LogsQL |
 | **VictoriaMetrics** | Query metrics from a Prometheus-compatible TSDB (`vmsingle` / `vmcluster`) |
 | [<img src="images/integration_logos/zabbix-icon.png" alt="Zabbix" width="20" style="vertical-align: middle;"> **Zabbix**](https://holmesgpt.dev/data-sources/builtin-toolsets/zabbix/) | Monitor hosts, problems, events, triggers, and historical metrics |
@@ -94,6 +97,7 @@ HolmesGPT can fetch alerts/tickets to investigate from external systems, then wr
 |-------------------------|-----------|-------|
 | Slack                   | ✅        | [Demo.](https://www.loom.com/share/afcd81444b1a4adfaa0bbe01c37a4847) Available via [Robusta](https://home.robusta.dev/) |
 | Microsoft Teams         | ✅        | Available via [Robusta](https://home.robusta.dev/) |
+| Telegram                | ✅        | Built-in long-polling adapter for the HolmesGPT HTTP server |
 | Prometheus/AlertManager | ✅        | Robusta or HolmesGPT CLI |
 | PagerDuty               | ✅        | HolmesGPT CLI only |
 | OpsGenie                | ✅        | HolmesGPT CLI only |

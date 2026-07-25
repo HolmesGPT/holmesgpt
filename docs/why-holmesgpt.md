@@ -60,9 +60,9 @@ HolmesGPT ships with read-only integrations for every major observability vendor
 - **Traces**: Tempo, Datadog, NewRelic
 - **Dashboards**: Grafana
 - **Infrastructure**: Kubernetes, Docker, Helm, ArgoCD, Crossplane, OpenShift, Cilium, KubeVela
-- **CI/CD**: Jenkins
+- **CI/CD & orchestration**: Jenkins, Apache Airflow, Apache Flink
 - **Cloud**: AWS RDS, Azure SQL, Azure AKS, GCP
-- **Databases**: PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, MongoDB Atlas
+- **Databases**: PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, MongoDB Atlas, Trino
 - **ITSM**: ServiceNow
 - **Messaging**: Kafka, RabbitMQ
 - **Knowledge**: Confluence, Notion, Slab, Internet/web search
