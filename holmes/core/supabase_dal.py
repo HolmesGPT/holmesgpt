@@ -9,6 +9,8 @@ import threading
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+from urllib.request import getproxies, proxy_bypass
 from uuid import uuid4
 
 import httpx
@@ -247,7 +249,13 @@ class SupabaseDal:
         # verify/http2 go on the transport (httpx ignores them on the client once a
         # custom transport is supplied); timeout/follow_redirects stay on the client
         # (supabase ignores postgrest_client_timeout once an httpx_client is given).
-        transport = SupabaseRetryTransport(http2=False, verify=verify)
+        # httpx skips env proxies when given a custom transport; resolve it here
+        # so proxied clusters still reach Supabase.
+        parsed = urlparse(self.url)
+        proxy = None
+        if parsed.hostname and not proxy_bypass(parsed.hostname):
+            proxy = getproxies().get(parsed.scheme)
+        transport = SupabaseRetryTransport(http2=False, verify=verify, proxy=proxy)
         httpx_client = httpx.Client(
             transport=transport,
             timeout=SUPABASE_TIMEOUT_SECONDS,

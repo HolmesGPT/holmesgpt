@@ -157,3 +157,35 @@ def test_dal_always_disables_http2_regardless_of_ca(monkeypatch, ca_env):
     # http2 must stay disabled no matter the CA configuration.
     _, cap = _build_dal(monkeypatch, ca_env=ca_env)
     assert cap["transport_kwargs"]["http2"] is False
+
+
+_PROXY_ENV = ("https_proxy", "http_proxy", "all_proxy", "no_proxy")
+
+
+def _clear_proxy_env(monkeypatch):
+    for name in _PROXY_ENV:
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.upper(), raising=False)
+
+
+def test_dal_routes_supabase_through_https_proxy_from_env(monkeypatch):
+    # Regression (ROB-4017): a custom transport makes httpx ignore env proxies, so
+    # we must resolve and pass the proxy ourselves or proxied clusters break.
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setenv("https_proxy", "http://proxy.corp:8080")
+    _, cap = _build_dal(monkeypatch)
+    assert cap["transport_kwargs"]["proxy"] == "http://proxy.corp:8080"
+
+
+def test_dal_skips_proxy_when_supabase_host_in_no_proxy(monkeypatch):
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setenv("https_proxy", "http://proxy.corp:8080")
+    monkeypatch.setenv("no_proxy", "example.supabase.co")
+    _, cap = _build_dal(monkeypatch)
+    assert cap["transport_kwargs"]["proxy"] is None
+
+
+def test_dal_no_proxy_when_env_unset(monkeypatch):
+    _clear_proxy_env(monkeypatch)
+    _, cap = _build_dal(monkeypatch)
+    assert cap["transport_kwargs"]["proxy"] is None
