@@ -1,0 +1,14 @@
+[
+  {
+    "role": "user",
+    "content": "<@holmes> checkout-api has been throwing a lot of 5xx in prod for the last ~15 minutes. Can you figure out what's going on?"
+  },
+  {
+    "role": "assistant",
+    "content": "On it — starting to look into the checkout-api 5xx errors now."
+  },
+  {
+    "role": "user",
+    "content": "the on-call thinks something got deployed right before it started, but nobody put the details in this thread."
+  }
+]

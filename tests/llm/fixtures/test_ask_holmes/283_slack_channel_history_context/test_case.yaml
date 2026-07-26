@@ -1,29 +1,32 @@
 # Effectiveness eval for Slack channel-history context recovery.
 #
-# Scenario: Holmes is answering inside a Slack thread. The Slack system-prompt
-# additions (see frontend.yaml, which mirrors relay's
-# build_slack_system_prompt_additions) tell Holmes it is in Slack, give it the
-# channel id / thread_ts, and instruct it to read the rest of the thread and
-# the surrounding channel when the thread lacks context.
+# Models the real Robusta Slack flow:
+#   - The incident channel opens with an ALERT (the channel's first message),
+#     followed by a deploy announcement — both served by the channel-history
+#     tool (slack_mcp_stub.py), NOT present in the thread.
+#   - The THREAD the user is chatting in is passed as conversation_history
+#     (exactly how relay builds it from conversations.replies). It does not
+#     contain what actually caused the incident.
+#   - Holmes must call read_slack_channel_history_by_id to read the channel and
+#     recover the cause.
 #
-# The thread is about elevated 5xx errors on checkout-api, but never says what
-# caused it. The discriminating facts — release `checkout-api v4.19.2` and
-# deploy id `DPL-7Q2X` — exist ONLY earlier in the channel (the incident alert
-# and the deploy announcement), not in the thread. To answer, Holmes must call
-# read_slack_channel_history_by_id on the channel it was told it is in.
-#
-# The unique deploy id makes this hallucination-proof: it can only be produced
-# by actually reading the channel history via the Slack MCP tool.
+# The discriminating facts — release `checkout-api v4.19.2` and deploy id
+# `DPL-7Q2X` — live ONLY in the channel history, so the eval cannot be passed
+# by hallucinating from the thread alone.
 
-# The channel id / thread_ts are supplied via the system prompt (frontend.yaml),
-# exactly as relay does in production — not in the user's message.
+# Run in server mode so conversation_history (the thread) is threaded in the
+# same way the Robusta HolmesAPI chat flow does. CLI mode does not support
+# conversation history.
+test_type: server
+
+# The Slack channel id / thread_ts and the missing-context guidance are supplied
+# via the system prompt (frontend.yaml), mirroring relay's
+# build_slack_system_prompt_additions. The thread itself is conversation_history.json.
 frontend_tools: frontend.yaml
 
 user_prompt:
-  - "We're still seeing elevated 5xx errors on the checkout-api service in prod,
-    but this thread never says what actually caused it. Which change introduced
-    this incident? Give the exact release/version of checkout-api and its deploy
-    id."
+  - "Can you confirm which change introduced this incident, and give me the
+    exact checkout-api release/version and its deploy id?"
 
 expected_output:
   - "Identifies that the release checkout-api v4.19.2 introduced the incident"
