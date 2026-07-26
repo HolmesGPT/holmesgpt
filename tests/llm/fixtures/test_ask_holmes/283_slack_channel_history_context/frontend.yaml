@@ -7,6 +7,7 @@
 additional_system_prompt: |
   This interaction is happening in Slack. Use Slack-compatible markdown formatting so the content renders correctly.
 
+
   If the thread you are replying in does not contain enough context to answer confidently — what the issue is, what changed, or what was already discussed — do not guess. Look up the rest of the conversation first: use the available Slack tools to read the rest of this thread and the surrounding channel history — the messages just before this thread (read the channel with latest_ts set to this thread's thread_ts) and earlier messages in the channel — before answering.
 
   This Holmes call was invoked from Slack channel: checkout-incidents, Slack channel id: C08INC283X, Slack thread_ts: 1721003600.000000.

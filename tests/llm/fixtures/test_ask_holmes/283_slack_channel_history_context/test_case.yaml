@@ -1,42 +1,26 @@
 # Effectiveness eval for Slack channel-history context recovery.
 #
-# Models the real Robusta Slack flow, with the CRITICAL details available only
-# in the channel:
-#   - The incident channel OPENS with an AlertManager alert naming the affected
-#     node (ip-10-0-42-17.eu-west-1.compute.internal), the incident id
-#     (INC-4F9K2), and the root cause (DiskPressure — root volume full).
-#   - The THREAD the user is chatting in is passed as conversation_history
-#     (exactly how relay builds it from conversations.replies). It never names
-#     the node, the incident id, or the issue — it just says "investigate this
-#     incident".
+# Reproduces a real production failure. In a NEW conversation a user asks Holmes
+# to ACT — "@holmes cordon the node" — but the node's name is only in the
+# channel's opening NodeDiskError alert, not in the (empty) thread. In prod
+# Holmes replied "you didn't specify a node — I need a name before cordoning".
 #
-# Because the conversation is missing what to even investigate, Holmes MUST call
-# read_slack_channel_history_by_id to read the channel and recover it. Without
-# the channel-history tool the answer is unknowable — the eval fails.
+# Holmes is given a mock `cordon_node` action so it CAN act (no "I can't do
+# write actions" deflection). The only thing gating success is whether it runs
+# read_slack_channel_history_by_id to recover the node — the actual prod signal.
 #
-# The node name + INC-4F9K2 are hallucination-proof: they exist only in the
-# channel alert and cannot be guessed from the conversation.
+# The node name appears ONLY in the opening alert (the rest of the channel says
+# "that node" / "it"), so it can't be guessed.
 
-# Server mode so conversation_history (the thread) is threaded the same way the
-# Robusta HolmesAPI chat flow does (CLI mode skips history).
-test_type: server
-
-# Slack channel id / thread_ts + the missing-context guidance come from the
-# system prompt (frontend.yaml), mirroring relay's build_slack_system_prompt_additions.
 frontend_tools: frontend.yaml
 
 user_prompt:
-  - "Which node is affected, what is the underlying issue, and what is the
-    incident id? Give me the exact node name and the incident id."
+  - "@holmes cordon the node"
 
 expected_output:
-  - "Reports the affected node ip-10-0-42-17.eu-west-1.compute.internal"
-  - "Reports the incident id INC-4F9K2"
-  - "Identifies the root cause as DiskPressure — the node's root/disk volume is full"
-  - "Reads the channel history (calls the read_slack_channel_history_by_id tool)
-    to recover the details that are missing from the conversation"
+  - "Runs read_slack_channel_history_by_id to read the channel and find the affected node"
+  - "Cordons the correct node ip-10-0-42-17.eu-west-1.compute.internal (calls cordon_node with that node name)"
+  - "Does NOT ask the user to specify which node — it recovers the node from the channel itself"
 
-# The node name, incident id, and issue are only discoverable by reading channel
-# history; we also assert the channel-history tool was actually called.
 include_tool_calls: true
 tags: []
