@@ -2,22 +2,26 @@
 
 Stand-in for the `robusta-platform-mcp` server. Reproduces a real production
 failure: in a NEW conversation a user asks Holmes to ACT ("@holmes cordon the
-node"), but the node's name is only in the channel's opening NodeDiskError
-alert — not in the (empty) thread. If Holmes runs the channel-history tool it
-recovers the node and can cordon it; in prod it instead replied "you didn't
-specify a node".
+node"), but the affected node is named only in the channel's OPENING
+NodeDiskError alert — and the channel has ~45 messages of incident chatter on
+top of it, so a naive "read the latest messages" call does NOT return the alert.
+Holmes has to read back to the START of the channel to recover the node. In prod
+it instead replied "you didn't specify a node".
 
 Tools exposed:
   - read_slack_channel_history_by_id / read_slack_channel_thread_by_id
-      mirror the real relay Slack read tools.
+      mirror the real relay Slack read tools (newest-first, latest_ts + cursor
+      paging, limit default 10 / max 999).
   - cordon_node
-      a mock action so Holmes CAN act once it knows the node. This removes the
-      "I can't perform write actions" deflection and isolates the real signal:
-      did Holmes read the channel to recover the node, or bounce the request
-      back to the user?
+      a mock action so Holmes CAN act once it knows the node — removes the "I
+      can't perform write actions" deflection and isolates the real signal: did
+      Holmes read the channel (back to the alert) to recover the node, or bounce
+      the request back to the user?
 
-The node `ip-10-0-42-17.eu-west-1.compute.internal` appears ONLY in the opening
-alert; the rest of the channel says "that node" / "it".
+The node `ip-10-0-42-17.eu-west-1.compute.internal` and incident id `INC-4F9K2`
+appear ONLY in the opening alert (message 1 of ~47). Every other message refers
+to it as "the node" / "it" / "the box", so the name cannot be guessed and is not
+in the recent (default newest-10) window.
 """
 
 import json
@@ -27,39 +31,100 @@ from mcp.server.fastmcp import FastMCP
 
 CHANNEL_ID = "C08INC283X"
 THREAD_TS = "1721003600.000000"
+NODE = "ip-10-0-42-17.eu-west-1.compute.internal"
 
-# Channel, oldest first. The OPENING message is the NodeDiskError alert — the
-# only place the affected node is named. Everything after refers to it as "that
-# node" / "it".
-_CHANNEL_MESSAGES = [
-    {
-        "type": "message",
-        "ts": "1721000000.000000",  # channel's FIRST message: the alert
-        "user": "U0ALERTMANAGER",
-        "text": (
-            ":rotating_light: *NodeDiskError*: node "
-            "`ip-10-0-42-17.eu-west-1.compute.internal` — root filesystem is "
-            "100% full, kubelet is reporting DiskPressure and has started "
-            "evicting pods. Incident id: INC-4F9K2."
-        ),
-        "reply_count": 0,
-    },
-    {"type": "message", "ts": "1721000600.000000", "user": "U0ALICE",
-     "text": "yeah that node has been flapping NotReady for a while", "reply_count": 0},
-    {"type": "message", "ts": "1721001200.000000", "user": "U0BOB",
-     "text": "pods scheduled onto it are stuck ContainerCreating", "reply_count": 0},
-    {"type": "message", "ts": "1721001800.000000", "user": "U0ALICE",
-     "text": "someone should cordon it before more workloads land there", "reply_count": 0},
-    {
-        "type": "message",
-        "ts": THREAD_TS,
-        "user": "U0CAROL",
-        "text": "<@holmes> cordon the node",
-        "reply_count": 0,
-        "thread_ts": THREAD_TS,
-    },
+# ~45 realistic incident-response messages. None name the node or incident id —
+# they refer to "the node" / "it" / "the box" — so those facts live only in the
+# opening alert.
+_CHATTER = [
+    ("U0ALICE", "ack — on it"),
+    ("U0BOB", "seeing pods stuck ContainerCreating on it"),
+    ("U0DAVE", "disk usage on the box is pegged"),
+    ("U0ALICE", "looks like the image cache blew up again"),
+    ("U0ERIN", "kubelet's been logging DiskPressure evictions"),
+    ("U0BOB", "grafana shows root fs at 100% since ~12:30"),
+    ("U0DAVE", "anyone know what filled it?"),
+    ("U0ALICE", "probably stale containerd layers"),
+    ("U0FRANK", "same thing happened last month"),
+    ("U0ERIN", "should we drain it?"),
+    ("U0BOB", "let's cordon first so nothing new lands there"),
+    ("U0DAVE", "+1 cordon then investigate"),
+    ("U0ALICE", "who has kubectl access to that cluster?"),
+    ("U0FRANK", "I do, standing by"),
+    ("U0ERIN", "anyone have the runbook link?"),
+    ("U0BOB", "https://runbooks.internal/nodedisk"),
+    ("U0DAVE", "runbook says clear the containerd cache"),
+    ("U0ALICE", "careful not to remove running images"),
+    ("U0FRANK", "crictl rmi --prune should be safe"),
+    ("U0ERIN", "how many pods are affected?"),
+    ("U0BOB", "~6 pending, 2 evicted"),
+    ("U0DAVE", "any customer impact?"),
+    ("U0ALICE", "checkout latency up a little, not paged"),
+    ("U0FRANK", "ok will cordon shortly"),
+    ("U0ERIN", "wait for confirmation before draining"),
+    ("U0BOB", "agreed, cordon != drain"),
+    ("U0DAVE", "it's been flapping NotReady too"),
+    ("U0ALICE", "yeah saw that in the events"),
+    ("U0FRANK", "the disk-pressure taint is set"),
+    ("U0ERIN", "that's why the scheduler keeps failing"),
+    ("U0BOB", "makes sense"),
+    ("U0DAVE", "let's get holmes to help confirm"),
+    ("U0ALICE", "good idea"),
+    ("U0FRANK", "@oncall can someone loop in holmes"),
+    ("U0ERIN", "doing it now"),
+    ("U0BOB", "also file an incident ticket"),
+    ("U0DAVE", "already did, linked above"),
+    ("U0ALICE", "thanks"),
+    ("U0FRANK", "standing by to cordon"),
+    ("U0ERIN", "waiting on the go-ahead"),
+    ("U0BOB", "let's have holmes confirm the target first"),
+    ("U0DAVE", "sounds good"),
+    ("U0ALICE", "ok"),
+    ("U0FRANK", "ready when you are"),
+    ("U0ERIN", "👍"),
 ]
 
+
+def _build_channel() -> list:
+    base = 1721000000
+    msgs = [
+        {
+            "type": "message",
+            "ts": f"{base}.000000",  # OLDEST: the alert — the only source of the node name
+            "user": "U0ALERTMANAGER",
+            "text": (
+                ":rotating_light: *NodeDiskError*: node "
+                f"`{NODE}` — root filesystem is 100% full, kubelet is reporting "
+                "DiskPressure and has started evicting pods. Incident id: INC-4F9K2."
+            ),
+            "reply_count": 0,
+        }
+    ]
+    for i, (user, text) in enumerate(_CHATTER, start=1):
+        msgs.append(
+            {
+                "type": "message",
+                "ts": f"{base + i * 30}.000000",
+                "user": user,
+                "text": text,
+                "reply_count": 0,
+            }
+        )
+    # NEWEST: the cordon request (the new conversation / thread parent)
+    msgs.append(
+        {
+            "type": "message",
+            "ts": THREAD_TS,
+            "user": "U0CAROL",
+            "text": "<@holmes> cordon the node",
+            "reply_count": 0,
+            "thread_ts": THREAD_TS,
+        }
+    )
+    return msgs
+
+
+_CHANNEL_MESSAGES = _build_channel()
 _THREAD_REPLIES = []
 
 mcp = FastMCP("robusta-platform-mcp-stub")
@@ -100,6 +165,7 @@ def read_slack_channel_history_by_id(
 ) -> str:
     if channel_id != CHANNEL_ID:
         return json.dumps({"ok": False, "error": "channel_not_found"})
+    limit = min(int(limit), 999)
     msgs = sorted(_CHANNEL_MESSAGES, key=lambda m: float(m["ts"]), reverse=True)
     if latest_ts:
         latest = float(latest_ts)
