@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
 
-from holmes.common.env_vars import COMPACTION_MAX_OUTPUT_TOKENS
 from holmes.core.llm import DefaultLLM
 from holmes.core.truncation.compaction import (
     _count_image_tokens_in_messages,
@@ -325,21 +324,15 @@ class _Usage:
 class RecordingFakeLLM:
     """Fake LLM that records completion calls and replays canned responses."""
 
-    def __init__(self, responses, maximum_output_token=4096):
+    def __init__(self, responses):
         """Store canned responses to replay, newest first."""
         self.responses = list(responses)
         self.calls: list[dict] = []
-        self.maximum_output_token = maximum_output_token
 
     def completion(self, messages, tools=None, tool_choice=None, **kwargs):
         """Record the call and replay the next canned response (or raise it)."""
         self.calls.append(
-            {
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": tool_choice,
-                "max_tokens": kwargs.get("max_tokens"),
-            }
+            {"messages": messages, "tools": tools, "tool_choice": tool_choice}
         )
         result = self.responses.pop(0)
         if isinstance(result, Exception):
@@ -355,8 +348,8 @@ class RecordingFakeLLM:
         return 100000
 
     def get_maximum_output_token(self):
-        """Return the configured maximum output token count."""
-        return self.maximum_output_token
+        """Return a fixed maximum output token count."""
+        return 4096
 
 
 def _make_response(content=None, tool_calls=None, **message_kwargs):
@@ -502,46 +495,6 @@ def test_compaction_primary_success_reports_no_fallback():
     )
     assert result.fallback_used is False
     assert result.fallback_reason is None
-
-
-def test_compaction_caps_max_tokens_to_compaction_budget():
-    """A large agentic output budget is capped for summarization calls.
-
-    The summarization input is near the context window by definition, so
-    sending the full agentic budget (e.g. 64k) can make input + max_tokens
-    exceed the window and get the primary request rejected by providers that
-    validate the sum (Anthropic/Bedrock) — forfeiting prompt-cache reuse.
-    """
-    llm = RecordingFakeLLM(
-        [
-            RuntimeError("boom"),
-            _make_response(content="FALLBACK SUMMARY"),
-        ],
-        maximum_output_token=64000,
-    )
-    compact_conversation_history(
-        original_conversation_history=_history_with_tool_calls(),
-        llm=llm,  # type: ignore
-        tools=_TOOLS,
-    )
-    # Both the primary and the fallback call are capped
-    assert [c["max_tokens"] for c in llm.calls] == [
-        COMPACTION_MAX_OUTPUT_TOKENS,
-        COMPACTION_MAX_OUTPUT_TOKENS,
-    ]
-
-
-def test_compaction_max_tokens_keeps_smaller_model_budget():
-    """A model budget below the compaction cap is passed through unchanged."""
-    llm = RecordingFakeLLM(
-        [_make_response(content="THE SUMMARY")], maximum_output_token=4096
-    )
-    compact_conversation_history(
-        original_conversation_history=_history_with_tool_calls(),
-        llm=llm,  # type: ignore
-        tools=_TOOLS,
-    )
-    assert llm.calls[0]["max_tokens"] == 4096
 
 
 def test_compaction_summary_never_stores_thinking_blocks():

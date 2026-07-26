@@ -149,27 +149,3 @@ class TestCompletionMaxTokensHandling:
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["max_tokens"] == llm.get_maximum_output_token()
         assert kwargs["max_tokens"] <= 16384
-
-    def test_per_call_max_tokens_overrides_default(self, mock_completion):
-        """A caller-supplied max_tokens (e.g. compaction's summarization budget)
-        wins over the injected default for that call only."""
-        llm = _make_llm({})
-        llm.completion(messages=[{"role": "user", "content": "hi"}], max_tokens=16000)
-        kwargs = mock_completion.call_args.kwargs
-        assert kwargs["max_tokens"] == 16000
-
-    def test_per_call_max_tokens_overrides_user_args_without_mutating_them(
-        self, mock_completion
-    ):
-        """The per-call value beats model args (including max_completion_tokens)
-        for that call, and self.args is untouched for subsequent calls."""
-        llm = _make_llm({"max_completion_tokens": 8000})
-        llm.completion(messages=[{"role": "user", "content": "hi"}], max_tokens=16000)
-        kwargs = mock_completion.call_args.kwargs
-        assert kwargs["max_tokens"] == 16000
-        assert "max_completion_tokens" not in kwargs
-
-        llm.completion(messages=[{"role": "user", "content": "hi"}])
-        kwargs = mock_completion.call_args.kwargs
-        assert kwargs["max_completion_tokens"] == 8000
-        assert "max_tokens" not in kwargs

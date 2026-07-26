@@ -40,7 +40,6 @@ class MyCustomLLM(LLM):
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
-        max_tokens: Optional[int] = None,
     ) -> ModelResponse:
         """Return a canned response demonstrating the LLM interface."""
         return ModelResponse(
