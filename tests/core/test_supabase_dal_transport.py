@@ -185,7 +185,18 @@ def test_dal_skips_proxy_when_supabase_host_in_no_proxy(monkeypatch):
     assert cap["transport_kwargs"]["proxy"] is None
 
 
+def test_dal_skips_proxy_when_no_proxy_entry_has_port(monkeypatch):
+    # no_proxy entries may include a port; the default HTTPS port must match.
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setenv("https_proxy", "http://proxy.corp:8080")
+    monkeypatch.setenv("no_proxy", "example.supabase.co:443")
+    _, cap = _build_dal(monkeypatch)
+    assert cap["transport_kwargs"]["proxy"] is None
+
+
 def test_dal_no_proxy_when_env_unset(monkeypatch):
     _clear_proxy_env(monkeypatch)
+    # Ignore any OS-level proxy config so the assertion is host-independent.
+    monkeypatch.setattr("holmes.core.supabase_dal.getproxies", lambda: {})
     _, cap = _build_dal(monkeypatch)
     assert cap["transport_kwargs"]["proxy"] is None

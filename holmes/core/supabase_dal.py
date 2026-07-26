@@ -253,8 +253,10 @@ class SupabaseDal:
         # so proxied clusters still reach Supabase.
         parsed = urlparse(self.url)
         proxy = None
-        if parsed.hostname and not proxy_bypass(parsed.hostname):
-            proxy = getproxies().get(parsed.scheme)
+        if parsed.hostname:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            if not proxy_bypass(f"{parsed.hostname}:{port}"):
+                proxy = getproxies().get(parsed.scheme)
         transport = SupabaseRetryTransport(http2=False, verify=verify, proxy=proxy)
         httpx_client = httpx.Client(
             transport=transport,
