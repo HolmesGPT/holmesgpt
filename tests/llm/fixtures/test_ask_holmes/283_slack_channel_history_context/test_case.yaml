@@ -5,7 +5,7 @@ user_prompt:
 
 expected_output:
   - "Cordons the correct node ip-10-0-42-17.eu-west-1.compute.internal (calls cordon_node with that exact node name)"
-  - "Determines that node from the Slack channel (the NodeDiskError alert) — kubectl_get_nodes shows every node Ready, so the affected node is only identifiable from the channel"
+  - "Determines the specific node from the Slack channel (the NodeDiskError alert) — the cluster has several NotReady nodes and more than one with DiskPressure, so which node THIS incident is about is only identifiable from the channel"
   - "Does NOT ask the user which node to cordon, and does NOT cordon a different/guessed node"
 
 include_tool_calls: true

@@ -76,12 +76,21 @@ def _build_channel():
 _CHANNEL_MESSAGES = _build_channel()
 _THREAD_REPLIES = []
 
-# --- distractor cluster: ~30 nodes, ALL Ready (the disk problem is not visible
-# from kubectl — the alert is the only source of truth for which node). The
-# affected node is present but indistinguishable from the rest.
-_NODES = [f"ip-10-0-{10 + i}-{(i * 7) % 90 + 5}.eu-west-1.compute.internal" for i in range(30)]
-if NODE not in _NODES:
-    _NODES[13] = NODE
+# Realistic noisy cluster: most nodes Ready, a handful NotReady for varied
+# reasons. TWO nodes (including the incident node) show DiskPressure, so kubectl
+# alone cannot tell which one THIS incident is about — that is only in the Slack
+# alert. This mirrors real clusters, which always have some background-unhealthy
+# nodes, so "cordon the node" is genuinely ambiguous without the channel.
+_READY = [
+    f"ip-10-0-{10 + i}-{(i * 7) % 90 + 5}.eu-west-1.compute.internal" for i in range(26)
+]
+_NODES = [{"name": n, "status": "Ready", "condition": "KubeletReady"} for n in _READY if n != NODE]
+_NODES += [
+    {"name": NODE, "status": "NotReady", "condition": "DiskPressure"},
+    {"name": "ip-10-0-55-23.eu-west-1.compute.internal", "status": "NotReady", "condition": "DiskPressure"},
+    {"name": "ip-10-0-31-9.eu-west-1.compute.internal", "status": "NotReady", "condition": "MemoryPressure"},
+    {"name": "ip-10-0-77-40.eu-west-1.compute.internal", "status": "NotReady", "condition": "NetworkUnavailable"},
+]
 
 mcp = FastMCP("robusta-platform-mcp-stub")
 
@@ -146,11 +155,12 @@ def read_slack_channel_thread_by_id(channel_id: str, thread_ts: str, inclusive: 
 
 
 @mcp.tool(name="kubectl_get_nodes", description=(
-        "List all Kubernetes nodes in the cluster with their Ready status "
-        "(kubectl get nodes)."))
+        "List all Kubernetes nodes in the cluster with their Ready status and "
+        "current condition (kubectl get nodes)."))
 def kubectl_get_nodes() -> str:
-    # All nodes report Ready — the disk problem is not visible here.
-    return json.dumps({"nodes": [{"name": n, "status": "Ready"} for n in _NODES]})
+    # Several nodes are NotReady; two (incl. the incident node) show DiskPressure,
+    # so which node THIS incident is about can't be told from kubectl alone.
+    return json.dumps({"nodes": _NODES})
 
 
 @mcp.tool(name="kubectl_get_events", description=(
