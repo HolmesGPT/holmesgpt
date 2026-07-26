@@ -2,8 +2,8 @@
 
 This is a stand-in for the `robusta-platform-mcp` server that relay exposes to
 Holmes. It serves a fixed incident-channel timeline so the eval can verify that,
-when a thread is missing context, Holmes calls `read_slack_channel_history_by_id`
-to recover it from the surrounding channel.
+when the conversation (thread) is missing the critical details, Holmes calls
+`read_slack_channel_history_by_id` to recover them from the surrounding channel.
 
 The two tools mirror the real relay tools in
 `relay/relay/pkg/apps/mcp/tools/slack.py` — same names, same key parameters
@@ -11,9 +11,11 @@ The two tools mirror the real relay tools in
 "missing context" guidance in the descriptions, and the same "return Slack's
 response unmodified" shape (conversations.history / conversations.replies).
 
-The discriminating facts (release `checkout-api v4.19.2` and deploy id
-`DPL-7Q2X`) live ONLY in the channel history, never in the thread, so the eval
-cannot be passed by hallucinating from the thread alone.
+The critical facts — the affected node `ip-10-0-42-17.eu-west-1.compute.internal`,
+the incident id `INC-4F9K2`, and the DiskPressure / full-root-volume root cause —
+live ONLY in the channel's opening alert. The conversation (thread) never names
+the node, the incident id, or the issue, so the eval cannot be answered from the
+conversation alone: Holmes must read the channel to even know what to investigate.
 
 Run from the holmesgpt repo root (the eval launches it as a stdio subprocess):
     python tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/slack_mcp_stub.py
@@ -27,51 +29,45 @@ from mcp.server.fastmcp import FastMCP
 CHANNEL_ID = "C08INC283X"
 THREAD_TS = "1721003600.000000"
 
-# The incident channel, oldest first. The channel opens with the incident
-# alert; the deploy that introduced the incident is announced right after.
-# The thread the user is asking in (THREAD_TS, the last message) contains none
-# of these facts, so they can only be recovered by reading the channel.
+# The incident channel, oldest first. The channel OPENS with the AlertManager
+# alert that carries the only copy of the critical details (node name, incident
+# id, root cause). The thread the user is chatting in (THREAD_TS, the last
+# message) names none of them — they can only be recovered by reading the channel.
 _CHANNEL_MESSAGES = [
     {
         "type": "message",
         "ts": "1721000000.000000",  # channel's FIRST message: the incident alert
-        "user": "U0PAGERDUTY",
+        "user": "U0ALERTMANAGER",
         "text": (
-            ":fire: *PagerDuty* :fire: Incident opened: *checkout-api* is "
-            "returning elevated 5xx errors in prod. First seen 12:47 UTC. "
-            "Owning team: payments."
+            ":rotating_light: *AlertManager* — *KubeNodeNotReady*: node "
+            "`ip-10-0-42-17.eu-west-1.compute.internal` has been NotReady for "
+            "12m. Incident id: INC-4F9K2. kubelet is reporting *DiskPressure* — "
+            "the node's root volume is 98% full."
         ),
         "reply_count": 0,
     },
     {
         "type": "message",
-        "ts": "1721000600.000000",  # the key fact: which release + deploy id
-        "user": "U0DEPLOYBOT",
+        "ts": "1721000600.000000",
+        "user": "U0ALICE",
         "text": (
-            "Deploy pipeline: *checkout-api v4.19.2* rolled out to prod at "
-            "12:45 UTC (deploy-id DPL-7Q2X). Author: r.mehta."
+            "confirmed — /var/lib/containerd on that node filled up with stale "
+            "image layers, kubelet started evicting pods"
         ),
         "reply_count": 0,
     },
     {
         "type": "message",
         "ts": "1721001800.000000",
-        "user": "U0ALICE",
-        "text": "who pushed to checkout-api right before this started?",
-        "reply_count": 0,
-    },
-    {
-        "type": "message",
-        "ts": "1721002400.000000",
         "user": "U0BOB",
-        "text": "error rate on /checkout jumped to ~40% right after 12:45",
+        "text": "new pods scheduled there are stuck ContainerCreating",
         "reply_count": 0,
     },
     {
         "type": "message",
         "ts": "1721003000.000000",
         "user": "U0ALICE",
-        "text": "starting a rollback of checkout-api now",
+        "text": "cordoning it now while we free up disk",
         "reply_count": 0,
     },
     {
@@ -79,8 +75,8 @@ _CHANNEL_MESSAGES = [
         "ts": THREAD_TS,  # the parent message of the thread the user is in
         "user": "U0BOB",
         "text": (
-            "<@holmes> can you confirm the root cause and which change "
-            "introduced this?"
+            "<@holmes> can you investigate this incident and tell us what's "
+            "actually wrong and the root cause?"
         ),
         "reply_count": 2,
         "reply_users_count": 2,
@@ -88,21 +84,21 @@ _CHANNEL_MESSAGES = [
     },
 ]
 
-# Replies inside the THREAD_TS thread. Note: still no mention of the release
-# version or deploy id — that context only exists earlier in the channel.
+# Replies inside the THREAD_TS thread. Note: still no node name, incident id, or
+# issue — that context only exists earlier in the channel (the opening alert).
 _THREAD_REPLIES = [
     {
         "type": "message",
         "ts": "1721003605.000000",
         "user": "U0HOLMES",
-        "text": "Acknowledged — investigating the checkout-api 5xx errors.",
+        "text": "On it — investigating the incident now.",
         "thread_ts": THREAD_TS,
     },
     {
         "type": "message",
         "ts": "1721003700.000000",
         "user": "U0BOB",
-        "text": "thanks — we just need the exact change that caused it.",
+        "text": "we need the specific node and what's wrong with it.",
         "thread_ts": THREAD_TS,
     },
 ]
