@@ -1,7 +1,12 @@
 # Effectiveness eval for Slack channel-history context recovery.
 #
-# Scenario: Holmes is answering inside a Slack thread. The thread is about
-# elevated 5xx errors on checkout-api, but the thread itself never says what
+# Scenario: Holmes is answering inside a Slack thread. The Slack system-prompt
+# additions (see frontend.yaml, which mirrors relay's
+# build_slack_system_prompt_additions) tell Holmes it is in Slack, give it the
+# channel id / thread_ts, and instruct it to read the rest of the thread and
+# the surrounding channel when the thread lacks context.
+#
+# The thread is about elevated 5xx errors on checkout-api, but never says what
 # caused it. The discriminating facts — release `checkout-api v4.19.2` and
 # deploy id `DPL-7Q2X` — exist ONLY earlier in the channel (the incident alert
 # and the deploy announcement), not in the thread. To answer, Holmes must call
@@ -9,14 +14,16 @@
 #
 # The unique deploy id makes this hallucination-proof: it can only be produced
 # by actually reading the channel history via the Slack MCP tool.
-user_prompt:
-  - "This conversation is happening in a Slack thread in the #checkout-incidents
-    channel. Slack channel id: C08INC283X. Slack thread_ts: 1721003600.000000.
 
-    In this thread we've been discussing elevated 5xx errors on the checkout-api
-    service in prod, but the thread itself never says what actually caused it.
-    Which change introduced this incident? Give the exact release/version of
-    checkout-api and its deploy id."
+# The channel id / thread_ts are supplied via the system prompt (frontend.yaml),
+# exactly as relay does in production — not in the user's message.
+frontend_tools: frontend.yaml
+
+user_prompt:
+  - "We're still seeing elevated 5xx errors on the checkout-api service in prod,
+    but this thread never says what actually caused it. Which change introduced
+    this incident? Give the exact release/version of checkout-api and its deploy
+    id."
 
 expected_output:
   - "Identifies that the release checkout-api v4.19.2 introduced the incident"
