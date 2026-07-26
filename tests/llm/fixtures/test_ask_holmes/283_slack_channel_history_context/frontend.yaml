@@ -1,16 +1,8 @@
-# Mirrors the Slack system-prompt additions relay injects for an in-thread
-# Holmes chat (relay: build_slack_system_prompt_additions). This is what makes
-# the scenario realistic: Holmes is told it is in Slack, is given the channel
-# id / thread_ts, and is instructed to read the rest of the thread + channel
-# when the thread lacks context. Kept in sync with relay/pkg/holmes/slack/
-# slack_helpers.py.
 additional_system_prompt: |
   This interaction is happening in Slack. Use Slack-compatible markdown formatting so the content renders correctly.
 
-
   If the thread you are replying in does not contain enough context to answer confidently — what the issue is, what changed, or what was already discussed — do not guess. Look up the rest of the conversation first: use the available Slack tools to read the rest of this thread and the surrounding channel history — the messages just before this thread (read the channel with latest_ts set to this thread's thread_ts) and earlier messages in the channel — before answering.
 
-  This Holmes call was invoked from Slack channel: checkout-incidents, Slack channel id: C08INC283X, Slack thread_ts: 1721003600.000000.
+  This Holmes call was invoked from Slack channel: prod-incidents, Slack channel id: C08INC283X, Slack thread_ts: 1721003600.000000.
 
-# No client-side tools for this eval (opt out of the default SuggestSkills tool).
 frontend_tools: []

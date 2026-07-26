@@ -1,26 +1,12 @@
-# Effectiveness eval for Slack channel-history context recovery.
-#
-# Reproduces a real production failure. In a NEW conversation a user asks Holmes
-# to ACT — "@holmes cordon the node" — but the node's name is only in the
-# channel's opening NodeDiskError alert, not in the (empty) thread. In prod
-# Holmes replied "you didn't specify a node — I need a name before cordoning".
-#
-# Holmes is given a mock `cordon_node` action so it CAN act (no "I can't do
-# write actions" deflection). The only thing gating success is whether it runs
-# read_slack_channel_history_by_id to recover the node — the actual prod signal.
-#
-# The node name appears ONLY in the opening alert (the rest of the channel says
-# "that node" / "it"), so it can't be guessed.
-
 frontend_tools: frontend.yaml
 
 user_prompt:
   - "@holmes cordon the node"
 
 expected_output:
-  - "Runs read_slack_channel_history_by_id to read the channel and find the affected node"
-  - "Cordons the correct node ip-10-0-42-17.eu-west-1.compute.internal (calls cordon_node with that node name)"
-  - "Does NOT ask the user to specify which node — it recovers the node from the channel itself"
+  - "Cordons the correct node ip-10-0-42-17.eu-west-1.compute.internal (calls cordon_node with that exact node name)"
+  - "Determines that node from the Slack channel (the NodeDiskError alert) — kubectl_get_nodes shows every node Ready, so the affected node is only identifiable from the channel"
+  - "Does NOT ask the user which node to cordon, and does NOT cordon a different/guessed node"
 
 include_tool_calls: true
 tags: []

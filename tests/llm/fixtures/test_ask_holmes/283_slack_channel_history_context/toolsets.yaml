@@ -1,7 +1,3 @@
-# Isolate the Slack platform-mcp tools so the eval measures whether Holmes
-# recovers missing thread context from CHANNEL history. All built-in toolsets
-# are disabled; the only tools available are the two Slack read tools served by
-# the local stdio stub (a stand-in for relay's robusta-platform-mcp server).
 toolsets:
   kubernetes/core: { enabled: false }
   kubernetes/logs: { enabled: false }
@@ -15,12 +11,8 @@ toolsets:
 
 mcp_servers:
   robusta_platform:
-    description: "Stub of relay's robusta-platform-mcp Slack read tools"
     enabled: true
     config:
       mode: stdio
       command: python
-      # Path is resolved from the holmesgpt repo root, which is the cwd when
-      # evals run (`poetry run pytest ...` / `make test-llm-ask-holmes`).
-      args:
-        - "tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/slack_mcp_stub.py"
+      args: ["tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/slack_mcp_stub.py"]
