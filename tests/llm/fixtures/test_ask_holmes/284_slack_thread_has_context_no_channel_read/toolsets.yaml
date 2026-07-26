@@ -1,0 +1,18 @@
+toolsets:
+  kubernetes/core: { enabled: false }
+  kubernetes/logs: { enabled: false }
+  helm/core: { enabled: false }
+  core_investigation: { enabled: false }
+  internet: { enabled: false }
+  skills: { enabled: false }
+  robusta: { enabled: false }
+  connectivity_check: { enabled: false }
+  bash: { enabled: false }
+
+mcp_servers:
+  robusta_platform:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args: ["tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/slack_mcp_stub.py"]

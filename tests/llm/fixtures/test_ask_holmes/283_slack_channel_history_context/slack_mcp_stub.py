@@ -1,95 +1,60 @@
+"""Shared stub MCP server for the Slack channel-history evals (283 positive,
+284 negative). Both fixtures load THIS file, so the tool descriptions — which
+mirror the relay production prompt — cannot diverge between the two evals.
+
+The read_slack_channel_history_by_id description below is the EXACT one-line
+guidance added to relay (relay/pkg/apps/mcp/tools/slack.py). Keep them in sync.
+"""
+
 import json
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 CHANNEL_ID = "C08INC283X"
-THREAD_TS = "1721003600.000000"
+THREAD_TS = "1721000180.000000"
 NODE = "ip-10-0-42-17.eu-west-1.compute.internal"
 
-# ~45 realistic incident-response messages. None name the node or incident id.
-_CHATTER = [
-    ("U0ALICE", "ack — on it"),
-    ("U0BOB", "seeing pods stuck ContainerCreating on it"),
-    ("U0DAVE", "disk usage on the box is pegged"),
-    ("U0ALICE", "looks like the image cache blew up again"),
-    ("U0ERIN", "kubelet's been logging DiskPressure evictions"),
-    ("U0BOB", "grafana shows root fs at 100% since ~12:30"),
-    ("U0DAVE", "anyone know what filled it?"),
-    ("U0ALICE", "probably stale containerd layers"),
-    ("U0FRANK", "same thing happened last month"),
-    ("U0ERIN", "should we drain it?"),
-    ("U0BOB", "let's cordon first so nothing new lands there"),
-    ("U0DAVE", "+1 cordon then investigate"),
-    ("U0ALICE", "who has kubectl access to that cluster?"),
-    ("U0FRANK", "I do, standing by"),
-    ("U0ERIN", "anyone have the runbook link?"),
-    ("U0BOB", "https://runbooks.internal/nodedisk"),
-    ("U0DAVE", "runbook says clear the containerd cache"),
-    ("U0ALICE", "careful not to remove running images"),
-    ("U0FRANK", "crictl rmi --prune should be safe"),
-    ("U0ERIN", "how many pods are affected?"),
-    ("U0BOB", "~6 pending, 2 evicted"),
-    ("U0DAVE", "any customer impact?"),
-    ("U0ALICE", "checkout latency up a little, not paged"),
-    ("U0FRANK", "ok will cordon shortly"),
-    ("U0ERIN", "wait for confirmation before draining"),
-    ("U0BOB", "agreed, cordon != drain"),
-    ("U0DAVE", "it's been flapping NotReady too"),
-    ("U0ALICE", "yeah saw that in the events"),
-    ("U0FRANK", "the disk-pressure taint is set"),
-    ("U0ERIN", "that's why the scheduler keeps failing"),
-    ("U0BOB", "makes sense"),
-    ("U0DAVE", "let's get holmes to help confirm"),
-    ("U0ALICE", "good idea"),
-    ("U0FRANK", "@oncall can someone loop in holmes"),
-    ("U0ERIN", "doing it now"),
-    ("U0BOB", "also file an incident ticket"),
-    ("U0DAVE", "already did, linked above"),
-    ("U0ALICE", "thanks"),
-    ("U0FRANK", "standing by to cordon"),
-    ("U0ERIN", "waiting on the go-ahead"),
-    ("U0BOB", "let's have holmes confirm the target first"),
-    ("U0DAVE", "sounds good"),
-    ("U0ALICE", "ok"),
-    ("U0FRANK", "ready when you are"),
-    ("U0ERIN", "\U0001f44d"),
+# Short incident channel: the originating alert is the oldest message, followed
+# by a handful of messages, then the thread the user is talking to Holmes in.
+# Short on purpose so a single read_slack_channel_history_by_id call returns the
+# whole channel (including the alert) — the eval measures WHETHER Holmes reads
+# the channel, not how deep it pages.
+_CHANNEL = [
+    ("U0ALERTMANAGER", ":rotating_light: *NodeDiskError*: node `" + NODE + "` — "
+     "root filesystem is 100% full, kubelet is reporting DiskPressure and has "
+     "started evicting pods."),
+    ("U0ALICE", "ack — taking a look"),
+    ("U0BOB", "pods are stuck ContainerCreating on it"),
+    ("U0ALICE", "let's cordon it first so nothing new lands there"),
+    ("U0BOB", "agreed, get holmes to confirm the target"),
+    ("U0CAROL", "<@holmes> cordon the node"),  # thread parent (THREAD_TS)
 ]
 
 
 def _build_channel():
     base = 1721000000
-    msgs = [{
-        "type": "message", "ts": f"{base}.000000", "user": "U0ALERTMANAGER",
-        "text": (":rotating_light: *NodeDiskError*: node "
-                 f"`{NODE}` — root filesystem is 100% full, kubelet is reporting "
-                 "DiskPressure and has started evicting pods. Incident id: INC-4F9K2."),
-        "reply_count": 0,
-    }]
-    for i, (u, t) in enumerate(_CHATTER, start=1):
-        msgs.append({"type": "message", "ts": f"{base + i * 30}.000000", "user": u, "text": t, "reply_count": 0})
-    msgs.append({"type": "message", "ts": THREAD_TS, "user": "U0CAROL",
-                 "text": "<@holmes> cordon the node", "reply_count": 0, "thread_ts": THREAD_TS})
+    msgs = []
+    for i, (u, t) in enumerate(_CHANNEL):
+        ts = THREAD_TS if i == len(_CHANNEL) - 1 else f"{base + i * 30}.000000"
+        m = {"type": "message", "ts": ts, "user": u, "text": t, "reply_count": 0}
+        if i == len(_CHANNEL) - 1:
+            m["thread_ts"] = THREAD_TS
+        msgs.append(m)
     return msgs
 
 
 _CHANNEL_MESSAGES = _build_channel()
-_THREAD_REPLIES = []
 
-# Realistic noisy cluster: most nodes Ready, a handful NotReady for varied
-# reasons. TWO nodes (including the incident node) show DiskPressure, so kubectl
-# alone cannot tell which one THIS incident is about — that is only in the Slack
-# alert. This mirrors real clusters, which always have some background-unhealthy
-# nodes, so "cordon the node" is genuinely ambiguous without the channel.
-_READY = [
-    f"ip-10-0-{10 + i}-{(i * 7) % 90 + 5}.eu-west-1.compute.internal" for i in range(26)
-]
+# Noisy but realistic cluster: several NotReady nodes, and TWO with DiskPressure
+# (including the incident node). So kubectl alone cannot say which node THIS
+# incident is about — that fact lives only in the Slack alert.
+_READY = [f"ip-10-0-{10 + i}-{(i * 7) % 90 + 5}.eu-west-1.compute.internal" for i in range(20)]
 _NODES = [{"name": n, "status": "Ready", "condition": "KubeletReady"} for n in _READY if n != NODE]
 _NODES += [
     {"name": NODE, "status": "NotReady", "condition": "DiskPressure"},
     {"name": "ip-10-0-55-23.eu-west-1.compute.internal", "status": "NotReady", "condition": "DiskPressure"},
     {"name": "ip-10-0-31-9.eu-west-1.compute.internal", "status": "NotReady", "condition": "MemoryPressure"},
-    {"name": "ip-10-0-77-40.eu-west-1.compute.internal", "status": "NotReady", "condition": "NetworkUnavailable"},
 ]
 
 mcp = FastMCP("robusta-platform-mcp-stub")
@@ -108,15 +73,10 @@ def _parse_cursor(cursor: Optional[str]) -> int:
         "Read a page of messages from a Slack channel, newest first, going "
         "backwards in time from latest_ts (or from now if omitted). Wraps the "
         "Slack conversations.history API; each message includes reply_count so "
-        "you can tell whether it has a thread.\n\n"
-        "Recovering missing context when answering inside a thread: a thread "
-        "often does not contain everything you need — what the incident is, "
-        "what changed, or what was already discussed in the channel. When the "
-        "thread alone is not enough, read the surrounding channel with this "
-        "tool: (1) messages just before the thread — set latest_ts to the "
-        "thread's parent ts (thread_ts); (2) the start of the channel — page "
-        "back with cursor toward the oldest messages to read how the incident "
-        "began."
+        "you can tell whether it has a thread. If you are answering in a thread "
+        "that does not already name what you need (for example, which resource "
+        "an alert refers to), read this channel first — before running other "
+        "tools or asking the user — to recover it from the earlier messages."
     ),
 )
 def read_slack_channel_history_by_id(channel_id: str, latest_ts: Optional[str] = None,
@@ -139,9 +99,7 @@ def read_slack_channel_history_by_id(channel_id: str, latest_ts: Optional[str] =
 
 @mcp.tool(name="read_slack_channel_thread_by_id", description=(
         "Read the replies in a Slack thread (Slack conversations.replies). "
-        "thread_ts is the ts of the thread's parent message. If the thread "
-        "does not contain enough context to answer, read the surrounding "
-        "channel with read_slack_channel_history_by_id on the same channel_id."
+        "thread_ts is the ts of the thread's parent message."
     ),
 )
 def read_slack_channel_thread_by_id(channel_id: str, thread_ts: str, inclusive: bool = True,
@@ -151,26 +109,14 @@ def read_slack_channel_thread_by_id(channel_id: str, thread_ts: str, inclusive: 
     parent = next((m for m in _CHANNEL_MESSAGES if m["ts"] == thread_ts), None)
     if parent is None:
         return json.dumps({"ok": False, "error": "thread_not_found"})
-    return json.dumps({"ok": True, "messages": [parent] + _THREAD_REPLIES, "has_more": False})
+    return json.dumps({"ok": True, "messages": [parent], "has_more": False})
 
 
 @mcp.tool(name="kubectl_get_nodes", description=(
         "List all Kubernetes nodes in the cluster with their Ready status and "
         "current condition (kubectl get nodes)."))
 def kubectl_get_nodes() -> str:
-    # Several nodes are NotReady; two (incl. the incident node) show DiskPressure,
-    # so which node THIS incident is about can't be told from kubectl alone.
     return json.dumps({"nodes": _NODES})
-
-
-@mcp.tool(name="kubectl_get_events", description=(
-        "List recent Kubernetes events in a namespace (kubectl get events)."))
-def kubectl_get_events(namespace: str = "default") -> str:
-    return json.dumps({"events": [
-        {"type": "Warning", "reason": "FailedScheduling", "message": "0/30 nodes are available: 1 node(s) had untolerated taint."},
-        {"type": "Normal", "reason": "Pulling", "message": "Pulling image \"checkout:1.4.2\""},
-        {"type": "Warning", "reason": "BackOff", "message": "Back-off restarting failed container"},
-    ]})
 
 
 @mcp.tool(name="cordon_node", description=(
