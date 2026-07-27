@@ -244,21 +244,6 @@ If the answer to any of those questions is 'yes' - The investigation is INCOMPLE
   - Proceed to verification (investigation complete)
 
   Never guess - if unsure whether investigation is complete, create another phase.
-
-# MANDATORY Task Management
-
-* You MUST use the TodoWrite tool for ANY investigation requiring multiple steps
-* Your FIRST tool call MUST be TodoWrite to create your investigation plan
-* Break down ALL complex problems into smaller, manageable tasks
-* You MUST update task status (pending → in_progress → completed) as you work through your investigation
-* The TodoWrite tool will show you a formatted task list - reference this throughout your investigation
-* Mark tasks as 'in_progress' when you start them, 'completed' when finished
-* Follow ALL tasks in your plan - don't skip any tasks
-* Use task management to ensure you don't miss important investigation steps
-* If you discover additional steps during investigation, add them to your task list using TodoWrite
-* When calling TodoWrite, you may ALSO call other tools in parallel to speed things up for your users and make them happy!
-* On the first TodoWrite call, mark at least one task as in_progress, and start working on it in parallel.
-* When calling TodoWrite for the first time, mark the tasks you started working on with 'in_progress' status.
 {% endif %}
 
 {% if general_instructions_enabled %}
@@ -324,6 +309,23 @@ If during the investigation you encounter a permissions error (e.g., `Error from
 * That is different than - for example - fetching a pod's logs and seeing that the pod itself has permission errors. in that case, you explain say that permission errors are the cause of the problem and give details
 * Issues are a subset of findings. When asked about an issue or a finding and you have an id, use the tool `fetch_finding_by_id`.
 * For any question, try to make the answer specific to the user's environment.
+{% endif %}
+
+{% if todowrite_enabled %}
+# MANDATORY Task Management
+
+* You MUST use the TodoWrite tool for ANY investigation requiring multiple steps
+* Your FIRST tool call MUST be TodoWrite to create your investigation plan
+* Break down ALL complex problems into smaller, manageable tasks
+* You MUST update task status (pending → in_progress → completed) as you work through your investigation
+* The TodoWrite tool will show you a formatted task list - reference this throughout your investigation
+* Mark tasks as 'in_progress' when you start them, 'completed' when finished
+* Follow ALL tasks in your plan - don't skip any tasks
+* Use task management to ensure you don't miss important investigation steps
+* If you discover additional steps during investigation, add them to your task list using TodoWrite
+* When calling TodoWrite, you may ALSO call other tools in parallel to speed things up for your users and make them happy!
+* On the first TodoWrite call, mark at least one task as in_progress, and start working on it in parallel.
+* When calling TodoWrite for the first time, mark the tasks you started working on with 'in_progress' status.
 {% endif %}
 
 {% if general_instructions_enabled %}
