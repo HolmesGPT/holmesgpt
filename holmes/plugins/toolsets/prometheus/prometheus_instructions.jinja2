@@ -39,8 +39,6 @@ You are using Coralogix Prometheus.
 * Use Prometheus to query metrics from the alert promql
 * Use prometheus to execute promql queries with the tools `execute_prometheus_instant_query` and `execute_prometheus_range_query`
 * To create queries, use 'start_timestamp' and 'end_timestamp' as graphs start and end times
-* ALWAYS embed the execution results into your answer
-* You only need to embed the partial result in your response. Include the "tool_name" and "tool_call_id". For example: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "92jf2hf"} >>
 * Use these tools to generate charts that users can see. Here are standard metrics but you can use different ones:
 ** For memory consumption: `container_memory_working_set_bytes`
 ** For CPU usage: `container_cpu_usage_seconds_total`
@@ -50,10 +48,21 @@ You are using Coralogix Prometheus.
 ** Prefer individual averages like `rate(<metric>_sum) / rate(<metric>_count)`
 ** Avoid global averages like `sum(rate(<metric>_sum)) / sum(rate(<metric>_count))` because it hides data and is not generally informative
 * Timestamps MUST be in string date format. For example: '2025-03-15 10:10:08.610862+00:00'
-* Post processing will parse your response, re-run the query from the tool output and create a chart visible to the user
 * When unsure about available metrics, use `get_metric_names` with appropriate filters (combine multiple patterns with | for efficiency). Then use `get_metric_metadata` if you need descriptions/types
 * Check that any node, service, pod, container, app, namespace, etc. mentioned in the query exist in the kubernetes cluster before making a query. Use any appropriate kubectl tool(s) for this
-* The toolcall will return no data to you. That is expected. You MUST however ensure that the query is successful.
+
+## Showing Graphs to the User (IMPORTANT)
+* Think about whether the user would benefit from seeing a time-series graph. For most questions about resource usage (CPU, memory, network, disk), trends, comparisons between pods/nodes, or alert investigations, a graph provides much more insight than raw numbers alone. When a graph would help, prefer `execute_prometheus_range_query` over `execute_prometheus_instant_query`.
+* After executing a range query, it is strongly recommended to embed the graph in your response. Post-processing will parse your response, re-run the query, and create a chart visible to the user.
+* To embed, include the "tool_name" and "tool_call_id" in your response. For example: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "92jf2hf"} >>
+* The tool call itself may return no data to you. That is expected. You MUST however ensure that the query is successful.
+* ALWAYS embed the execution results into your answer
+* When embedding multiple graphs, always add line spacing between them. For example:
+
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "lBaA"}>>
+
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "IKtq"}>>
+
 
 ## Handling High-Cardinality Metrics
 * CRITICAL: When querying metrics that may return many time series (>10), ALWAYS use aggregation to limit results
@@ -75,16 +84,6 @@ You are using Coralogix Prometheus.
   - Example: `count(count by (pod) (container_cpu_usage_seconds_total{namespace="example"}))`
   - If count > 10, use topk() in your range query
 * When doing queries, always extend the time range, to 15 min before and after the alert start time
-* ALWAYS embed the execution results into your answer
-* ALWAYS embed a Prometheus graph in the response. The graph should visualize data related to the incident.
-* Embed at most 2 graphs
-* When embedding multiple graphs, always add line spacing between them
-    For example:
-
-    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "lBaA"}>>
-
-    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "IKtq"}>>
-
 {%- if config and config.additional_labels and config.additional_labels.keys()|list|length > 0 %}
 * ALWAYS add the following additional labels to ALL PromQL queries:
 {%- for key, value in config.additional_labels.items() %}

@@ -862,6 +862,7 @@ class MetricsBasedResponse(BaseModel):
     step: Optional[float] = None
     output_type: Optional[str] = None
     data_summary: Optional[dict[str, Any]] = None
+    note: Optional[str] = None
 
 
 def create_structured_tool_result(
@@ -1697,6 +1698,12 @@ class ExecuteInstantQuery(BasePrometheusTool):
                     else:
                         response_data.data = result_data
 
+                if not response_data.error_message:
+                    response_data.note = (
+                        "Consider also running a range query (execute_prometheus_range_query) "
+                        "and embedding the graph so the user can visualize this data over time."
+                    )
+
                 structured_tool_result = create_structured_tool_result(
                     params=params, response=response_data
                 )
@@ -1953,6 +1960,13 @@ class ExecuteRangeQuery(BasePrometheusTool):
                         )
                     else:
                         response_data.data = result_data
+
+                if not response_data.error_message:
+                    response_data.note = (
+                        "Embed this graph in your response so the user can see it: "
+                        f'<< {{"type": "promql", "tool_name": "execute_prometheus_range_query", '
+                        f'"tool_call_id": "{context.tool_call_id}"}} >>'
+                    )
 
                 structured_tool_result = create_structured_tool_result(
                     params=params, response=response_data
