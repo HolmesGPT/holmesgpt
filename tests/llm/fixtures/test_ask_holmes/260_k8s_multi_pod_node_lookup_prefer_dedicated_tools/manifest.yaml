@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-260-alpha
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-260-beta
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-260-gamma
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: telemetry-relay-w7q3
+  namespace: app-260-alpha
+  labels:
+    app: telemetry-relay
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: invoice-emitter-w7q3
+  namespace: app-260-alpha
+  labels:
+    app: invoice-emitter
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ledger-syncer-w7q3
+  namespace: app-260-beta
+  labels:
+    app: ledger-syncer
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cache-warmer-w7q3
+  namespace: app-260-beta
+  labels:
+    app: cache-warmer
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: notification-fanout-w7q3
+  namespace: app-260-gamma
+  labels:
+    app: notification-fanout
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]

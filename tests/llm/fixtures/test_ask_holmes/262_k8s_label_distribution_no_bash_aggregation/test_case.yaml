@@ -1,0 +1,43 @@
+user_prompt: >
+  Across the four namespaces app-262-frontend, app-262-backend, app-262-data, and app-262-control, what are all the distinct tier label values in use on pods, and how many pods carry each value? Give me a table of (tier, count).
+
+# Both criteria matter:
+# 1. Holmes must arrive at the correct answer.
+# 2. Holmes must do this using dedicated Kubernetes tools (or simple per-
+#    namespace kubectl calls), NOT bash pipelines with awk/sort/uniq/wc.
+#    The pipeline pattern is the exact anti-pattern this test rejects.
+include_tool_calls: true
+expected_output:
+  - "Must report all six distinct tier values: worker, edge, messaging, gateway, batch, observability"
+  - "Must report counts: worker=10, edge=1, messaging=1, gateway=1, batch=1, observability=1"
+  - "Must answer using one or more of the dedicated Kubernetes tools (kubernetes_jq_query, kubernetes_tabular_query, kubernetes_count), OR by issuing direct 'kubectl get' calls through the bash tool — one call per namespace or one call with -A is acceptable."
+  - "Must NOT use the bash tool with shell pipelines that aggregate or group results (for example: piping kubectl output through awk, sort, uniq -c, wc -l, cut, or grep -c to compute grouped counts or unique values). The grouping must be done by a dedicated Kubernetes tool or by reading the kubectl output directly, not by composing a shell pipeline."
+  - "Must NOT use shell loops (for/while/do/done) to iterate over namespaces or pods."
+
+tags:
+  - kubernetes
+  - kubernetes-no-bash-approval
+  - hard
+
+before_test: |
+  set -e
+  kubectl apply -f manifest.yaml
+
+  READY=false
+  for i in $(seq 1 60); do
+    TOTAL=$(kubectl get pods -A -o json | jq '
+      [.items[] | select(.metadata.namespace | startswith("app-262-"))] | length')
+    if [ "$TOTAL" -eq 15 ]; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "ERROR: expected 15 pods across app-262-*, got $TOTAL"
+    kubectl get pods -A | grep app-262- || true
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-262-frontend app-262-backend app-262-data app-262-control --ignore-not-found

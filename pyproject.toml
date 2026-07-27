@@ -172,6 +172,7 @@ markers = [
     "numerical: Tests involving numerical calculations or data",
     "counting: Ask holmes to count kubernetes/cloud resources",
     "kubernetes: Tests for Kubernetes-specific troubleshooting scenarios",
+    "kubernetes-no-bash-approval: Tests that Holmes uses dedicated Kubernetes tools instead of bash pipelines or shell loops that would trigger user approval prompts",
     "easy: Tests that are supposed to pass - if these fail, it indicates a regression. Only add evals here if they pass at least 20/20 runs.",
     "medium: Tests that we want to focus on in the near future and get holmes to pass them",
     "hard: Tests that are hard and holmes does not pass today and might not pass in the near future",
