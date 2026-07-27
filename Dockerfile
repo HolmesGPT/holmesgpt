@@ -49,8 +49,10 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # built with Go 1.26.5 and so is clear of the stdlib CVEs, but every 1.36.x
 # release still vendors golang.org/x/net v0.49.0, which carries CVE-2026-33814/
 # 25681/27136/39821 (High) with no upstream release that fixes them -- our build
-# replaces x/net with v0.55.0. Go back to the dl.k8s.io download (with upstream
-# SHA-256 verification) as soon as a kubectl release ships x/net >= 0.55.0.
+# replaces x/net with v0.57.0 (latest at build time). Go back to the dl.k8s.io
+# download (with upstream SHA-256 verification) as soon as a kubectl release
+# ships x/net >= 0.56.0 — the version that fixes every advisory the current
+# replace clears, including CVE-2026-46600 (fixed in 0.56.0).
 ARG TARGETARCH
 COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz /tmp/kubectl.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz.sha256 /tmp/kubectl.gz.sha256

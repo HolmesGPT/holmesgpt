@@ -56,7 +56,8 @@
 #   which carries four High advisories (see the x/net note above) with no
 #   upstream release that fixes them. Drop this build and go back to the
 #   dl.k8s.io binary in the Dockerfile as soon as a kubectl release ships
-#   x/net >= 0.55.0 — check a candidate with:
+#   x/net >= 0.56.0 (fixes every advisory the current replace clears,
+#   including CVE-2026-46600) — check a candidate with:
 #     go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
 #
 # Known-unfixable finding left in the image (no upstream fix exists):
