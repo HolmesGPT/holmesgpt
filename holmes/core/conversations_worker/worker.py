@@ -60,6 +60,13 @@ ChatFunction = Callable[
     [ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]
 ]
 
+# How often the claim loop emits its INFO "alive" heartbeat and how often
+# the "0 free slots" warning may repeat. Both exist so a wedged worker is
+# diagnosable from default-level logs (ROB-759): the claim loop previously
+# skipped claiming with zero output when all executor slots were occupied
+# by in-flight conversations, which looked identical to a dead loop.
+_CLAIM_LOOP_LOG_INTERVAL_SECONDS = 60.0
+
 
 
 class ConversationWorker:
@@ -96,9 +103,17 @@ class ConversationWorker:
 
         # In-flight (running) tasks, keyed by (conversation_id, request_sequence)
         # — see ConversationTask.active_key — so overlapping turns of one
-        # conversation are counted separately for capacity.
-        self._active_conversation_ids: set = set()
+        # conversation are counted separately for capacity. The value is the
+        # monotonic start time, so the claim loop can report how long each
+        # in-flight task has been holding a slot (ROB-759).
+        self._active_conversation_ids: Dict[Any, float] = {}
         self._active_lock = threading.Lock()
+
+        # Rate limiters for the claim loop's alive heartbeat and the
+        # zero-free-slots warning (both at most once per
+        # _CLAIM_LOOP_LOG_INTERVAL_SECONDS).
+        self._last_alive_log: float = 0.0
+        self._last_no_slots_log: float = 0.0
 
         # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
@@ -388,6 +403,26 @@ class ConversationWorker:
             if not self._running:
                 break
             self._notify_event.clear()
+            now = time.monotonic()
+            with self._active_lock:
+                active = len(self._active_conversation_ids)
+            # Per-tick trace (ROB-759): proves the loop is alive and shows
+            # whether a quiet worker is idle or out of capacity.
+            logging.debug(
+                "Claim loop tick (triggered=%s, realtime=%s, active=%d/%d)",
+                triggered,
+                self._realtime_connected(),
+                active,
+                CONVERSATION_WORKER_MAX_CONCURRENT,
+            )
+            if now - self._last_alive_log >= _CLAIM_LOOP_LOG_INTERVAL_SECONDS:
+                self._last_alive_log = now
+                logging.info(
+                    "Conversation claim loop alive (realtime=%s, active=%d/%d)",
+                    self._realtime_connected(),
+                    active,
+                    CONVERSATION_WORKER_MAX_CONCURRENT,
+                )
             try:
                 self._try_claim_and_dispatch()
             except Exception:
@@ -426,6 +461,27 @@ class ConversationWorker:
         # wakes this loop to re-claim as slots free.
         free = self._free_claim_slots()
         if free <= 0:
+            # All slots occupied: pending rows stay unclaimed until a slot
+            # frees, and previously this returned with zero log output —
+            # indistinguishable from a dead claim loop (ROB-759). Surface
+            # which tasks hold the slots and for how long.
+            now = time.monotonic()
+            if now - self._last_no_slots_log >= _CLAIM_LOOP_LOG_INTERVAL_SECONDS:
+                self._last_no_slots_log = now
+                with self._active_lock:
+                    ages = sorted(
+                        (round(now - started, 1), key)
+                        for key, started in self._active_conversation_ids.items()
+                    )
+                logging.warning(
+                    "Conversation claim skipped: 0 free slots — %d in-flight "
+                    "conversation(s) occupy all %d slots; pending conversations "
+                    "will not be claimed until one finishes. "
+                    "In-flight (age_seconds, (conversation_id, request_sequence)): %s",
+                    len(ages),
+                    CONVERSATION_WORKER_MAX_CONCURRENT,
+                    ages,
+                )
             return
         claimed = self.dal.claim_n_pending_conversations(self.holmes_id, free)
         if claimed:
@@ -474,14 +530,14 @@ class ConversationWorker:
             if not self._running or self._executor is None:
                 return
             with self._active_lock:
-                self._active_conversation_ids.add(task.active_key)
+                self._active_conversation_ids[task.active_key] = time.monotonic()
             try:
                 self._executor.submit(self._process_conversation_safe, task)
             except RuntimeError:
                 # Pool shut down (stop() raced); row stays 'running' and is
                 # recovered by the stale-conversation timeout sweep.
                 with self._active_lock:
-                    self._active_conversation_ids.discard(task.active_key)
+                    self._active_conversation_ids.pop(task.active_key, None)
                 logging.warning(
                     "Executor shut down; dropping claimed conversation %s",
                     task.conversation_id,
@@ -604,7 +660,7 @@ class ConversationWorker:
             )
         finally:
             with self._active_lock:
-                self._active_conversation_ids.discard(task.active_key)
+                self._active_conversation_ids.pop(task.active_key, None)
             # A slot freed up — wake the claim loop to re-claim pending rows.
             self._notify_event.set()
 

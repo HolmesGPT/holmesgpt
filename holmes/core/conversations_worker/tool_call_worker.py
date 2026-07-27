@@ -137,6 +137,10 @@ class ToolCallWorker:
         # rows stay 'pending' for the next poll or another Holmes instance.
         self._active_lock = threading.Lock()
         self._active_count = 0
+        # Rate limiter for the zero-free-slots warning (ROB-759): claiming
+        # used to be skipped silently at full capacity, which looks identical
+        # to a dead claim loop in the logs.
+        self._last_no_slots_log = 0.0
 
     # ---- lifecycle ----
 
@@ -204,6 +208,16 @@ class ToolCallWorker:
         with self._active_lock:
             free = TOOL_CALLER_MAX_CONCURRENT - self._active_count
         if free <= 0:
+            now = time.monotonic()
+            if now - self._last_no_slots_log >= 60.0:
+                self._last_no_slots_log = now
+                logging.warning(
+                    "ToolCallWorker claim skipped: 0 free slots — %d in-flight "
+                    "tool call(s) occupy all %d slots; pending tool calls will "
+                    "not be claimed until one finishes.",
+                    TOOL_CALLER_MAX_CONCURRENT,
+                    TOOL_CALLER_MAX_CONCURRENT,
+                )
             return
         # Check pool/running BEFORE claiming so we never claim rows we won't
         # submit; once claimed we dispatch every row (no mid-loop _running

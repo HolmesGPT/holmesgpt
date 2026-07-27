@@ -1,5 +1,7 @@
 """Unit tests for worker lifecycle / claim-loop / error handling."""
 import threading
+import logging
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,8 +24,10 @@ def _bare_worker():
     w._running = True
     w._claim_thread = None
     w._notify_event = threading.Event()
+    w._last_alive_log = 0.0
+    w._last_no_slots_log = 0.0
     w._executor = MagicMock()
-    w._active_conversation_ids = set()
+    w._active_conversation_ids = {}
     w._active_lock = threading.Lock()
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
@@ -125,7 +129,7 @@ def test_try_claim_and_dispatch_passes_remaining_capacity_as_limit(monkeypatch):
     )
     # Two conversations already running -> only 3 free slots remain
     # (free = MAX_CONCURRENT - active; there is no longer a local queue).
-    w._active_conversation_ids = {"existing1", "existing2"}
+    w._active_conversation_ids = {"existing1": 0.0, "existing2": 0.0}
     w.dal.claim_n_pending_conversations.return_value = []
     w._try_claim_and_dispatch()
     w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 3)
@@ -140,11 +144,41 @@ def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
         1,
     )
     # Already have one active conversation -> zero free slots.
-    w._active_conversation_ids = {"existing"}
+    w._active_conversation_ids = {"existing": 0.0}
     w._try_claim_and_dispatch()
     # No claim RPC is issued at all when there is no free capacity.
     w.dal.claim_n_pending_conversations.assert_not_called()
     w._executor.submit.assert_not_called()
+
+
+def test_at_capacity_skip_logs_visible_warning(monkeypatch, caplog):
+    """ROB-759: skipping the claim at zero free slots must NOT be silent —
+    a wedged-slots worker previously looked identical to a dead claim loop.
+    The warning lists each in-flight task's age and is rate-limited."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    w._active_conversation_ids = {("conv-stuck", 1): time.monotonic() - 42.0}
+
+    with caplog.at_level(logging.WARNING):
+        w._try_claim_and_dispatch()
+    warnings = [
+        r for r in caplog.records if "Conversation claim skipped" in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    msg = warnings[0].getMessage()
+    assert "0 free slots" in msg
+    assert "conv-stuck" in msg
+
+    # Rate-limited: an immediate second skip does not warn again.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        w._try_claim_and_dispatch()
+    assert not [
+        r for r in caplog.records if "Conversation claim skipped" in r.getMessage()
+    ]
 
 
 def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
@@ -208,7 +242,7 @@ def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
         assert len(w._active_conversation_ids) <= 5, "never exceed MAX_CONCURRENT"
 
         for key in list(w._active_conversation_ids):
-            w._active_conversation_ids.discard(key)
+            w._active_conversation_ids.pop(key, None)
 
     # The whole pool is freed each iteration, so every claim requests the full
     # 5 free slots; the final batch simply returns fewer rows (the remaining 2).
@@ -280,7 +314,7 @@ def test_two_workers_claim_disjoint_sets(monkeypatch):
         for w in (w1, w2):
             w._try_claim_and_dispatch()
             for key in list(w._active_conversation_ids):
-                w._active_conversation_ids.discard(key)
+                w._active_conversation_ids.pop(key, None)
 
     assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
     assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
