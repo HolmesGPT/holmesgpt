@@ -23,7 +23,11 @@ import pytest
 from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import PendingToolApproval, ToolApprovalDecision, ToolCallResult
 from holmes.core.llm_usage import RequestStats
-from holmes.core.tool_calling_llm import LLMInterruptedError, ToolCallingLLM
+from holmes.core.tool_calling_llm import (
+    LLMInterruptedError,
+    ToolCallingLLM,
+    coalesce_llm_content,
+)
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.truncation.input_context_window_limiter import (
@@ -654,6 +658,78 @@ class TestNoToolsPath:
         tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
         assert len(start_tools) == 0
         assert len(tool_results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 5b: Empty (None) final content from the LLM (#1676)
+# ---------------------------------------------------------------------------
+
+
+class TestCoalesceLLMContent:
+    """Direct unit tests for the coalesce_llm_content helper, which is
+    invoked from every call site that builds an LLMResult from streamed
+    terminal_data['content'] (ToolCallingLLM.call and the interactive
+    loop). Locks in the contract: None becomes "", a string passes
+    through unchanged, and a warning is logged on the None branch."""
+
+    def test_none_becomes_empty_string_and_warns(self, caplog):
+        with caplog.at_level("WARNING"):
+            assert coalesce_llm_content(None) == ""
+        assert any("content=None" in rec.message for rec in caplog.records)
+
+    def test_string_passes_through_without_warning(self, caplog):
+        with caplog.at_level("WARNING"):
+            assert coalesce_llm_content("hello") == "hello"
+            assert coalesce_llm_content("") == ""
+        assert not any("content=None" in rec.message for rec in caplog.records)
+
+
+class TestEmptyLLMContent:
+    """LLM finishes with content=None and no tool calls. Some providers
+    occasionally emit a final assistant message with stop_reason=end_turn
+    and no text (see #1676). call() must not crash and must return an
+    LLMResult with result == "" so downstream consumers — CLI display in
+    holmes/main.py (`result.result.replace(...)`), source-plugin
+    write_back_result (`markdown_to_plain_text(result_data.result)`),
+    ChatResponse.analysis (Pydantic str field) — keep working."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_no_crash_on_none_content_no_tools(
+        self, _mock_limit, make_ai, mock_llm, caplog
+    ):
+        resp = _make_llm_response(content=None, tool_calls=None)
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        with caplog.at_level("WARNING"):
+            result = ai.call([{"role": "user", "content": "anything"}])
+
+        assert result.result == ""
+        # Smoke-test the exact downstream call site that used to crash.
+        result.result.replace("\n", "\n\n")
+        assert any("content=None" in rec.message for rec in caplog.records)
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_no_crash_after_tool_execution(
+        self, _mock_limit, make_ai, mock_llm, caplog
+    ):
+        """A tool ran successfully, then the model's final summary turn
+        returned content=None — must not crash and must preserve the
+        executed tool call."""
+        tc = _make_mock_tool_call()
+        resp_with_tool = _make_llm_response(content="Let me check", tool_calls=[tc])
+        resp_empty = _make_llm_response(content=None, tool_calls=None)
+        mock_llm.completion.side_effect = [resp_with_tool, resp_empty]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        with caplog.at_level("WARNING"):
+            result = ai.call([{"role": "user", "content": "What pods are running?"}])
+
+        assert result.result == ""
+        assert len(result.tool_calls) == 1  # tool execution is preserved
+        assert any("content=None" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------

@@ -67,6 +67,7 @@ from holmes.core.tool_calling_llm import (
     LLMResult,
     ToolCallingLLM,
     ToolCallResult,
+    coalesce_llm_content,
     extract_bash_session_prefixes,
 )
 from holmes.core.llm_usage import RequestStats
@@ -2786,7 +2787,7 @@ def run_interactive_loop(
                 for tc in all_tool_calls_this_turn:
                     deduped[tc.get("tool_call_id", id(tc))] = tc
                 response = LLMResult(
-                    result=terminal_data["content"],
+                    result=coalesce_llm_content(terminal_data["content"]),
                     tool_calls=list(deduped.values()),
                     num_llm_calls=total_num_llm_calls,
                     messages=terminal_data["messages"],
