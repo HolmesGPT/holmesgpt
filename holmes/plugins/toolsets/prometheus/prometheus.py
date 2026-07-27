@@ -17,7 +17,7 @@ from prometrix.models.prometheus_config import (
 from prometrix.models.prometheus_config import PrometheusConfig as BasePrometheusConfig
 from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
-from requests.exceptions import SSLError  # type: ignore
+from requests.exceptions import ReadTimeout, SSLError  # type: ignore
 
 from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS, MAX_GRAPH_POINTS_HARD_LIMIT
 from holmes.common.openshift import load_openshift_token
@@ -52,7 +52,7 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
 PROMETHEUS_METADATA_API_LIMIT = 100  # Default limit for Prometheus metadata APIs (series, labels, metadata) to prevent overwhelming responses
 # Default timeout values for PromQL queries
-DEFAULT_QUERY_TIMEOUT_SECONDS = 20
+DEFAULT_QUERY_TIMEOUT_SECONDS = 30
 MAX_QUERY_TIMEOUT_SECONDS = 180
 # Default timeout for metadata API calls (discovery endpoints)
 DEFAULT_METADATA_TIMEOUT_SECONDS = 20
@@ -1725,6 +1725,20 @@ class ExecuteInstantQuery(BasePrometheusTool):
                 params=params,
             )
 
+        except ReadTimeout:
+            max_timeout = self.toolset.config.query_timeout_seconds_hard_max
+            logging.warning(
+                f"Prometheus instant query timed out after {timeout}s"
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Query timed out after {timeout} seconds. "
+                    f"On large backends (Thanos, Cortex), timeouts usually mean the query is scanning too many series. "
+                    f"The timeout parameter can be increased up to {max_timeout} seconds."
+                ),
+                params=params,
+            )
         except SSLError as e:
             logging.warning("SSL error while executing Prometheus query", exc_info=True)
             return StructuredToolResult(
@@ -1981,6 +1995,20 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 params=params,
             )
 
+        except ReadTimeout:
+            max_timeout = self.toolset.config.query_timeout_seconds_hard_max
+            logging.warning(
+                f"Prometheus range query timed out after {timeout}s"
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Query timed out after {timeout} seconds. "
+                    f"On large backends (Thanos, Cortex), timeouts usually mean the query is scanning too many series. "
+                    f"The timeout parameter can be increased up to {max_timeout} seconds."
+                ),
+                params=params,
+            )
         except SSLError as e:
             logging.warning(
                 "SSL error while executing Prometheus range query", exc_info=True
@@ -2085,6 +2113,8 @@ class PrometheusToolset(Toolset):
                 "config": self.config,
                 "default_max_points": int(MAX_GRAPH_POINTS),
                 "hard_max_points": int(MAX_GRAPH_POINTS_HARD_LIMIT),
+                "default_query_timeout": self.config.query_timeout_seconds_default if self.config else DEFAULT_QUERY_TIMEOUT_SECONDS,
+                "max_query_timeout": self.config.query_timeout_seconds_hard_max if self.config else MAX_QUERY_TIMEOUT_SECONDS,
             },
         )
 

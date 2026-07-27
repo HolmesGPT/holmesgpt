@@ -19,6 +19,10 @@ You are using Coralogix Prometheus.
 * Use `get_label_values` to discover pods, namespaces, jobs: e.g., get_label_values(label="pod")
 * Only use `get_series` when you need full label sets (slower than other methods)
 
+## Query Timeouts
+* The `timeout` parameter on query tools can be set up to {{ max_query_timeout }} seconds (default: {{ default_query_timeout }})
+* Timeouts on large backends (Thanos, Cortex, VictoriaMetrics) are usually caused by queries scanning too many time series — adding label filters or using `topk()` is often more effective than increasing the timeout
+
 ## Retrying queries that return too much data
 * When a Prometheus query returns too much data (e.g., truncation error), you MUST retry with a more specific query or less data points or topk/bottomk
 * NEVER EVER EVER answer a question based on Prometheus data that was truncated as you might be missing important information and give the totally wrong answer
