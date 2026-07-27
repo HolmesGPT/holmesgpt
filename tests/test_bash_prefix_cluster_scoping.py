@@ -7,9 +7,12 @@ and extract_bash_session_prefixes_by_agent.
 """
 
 import json
+from unittest.mock import MagicMock, patch
 
+from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tool_calling_llm import (
     _LOCAL_BASH_PREFIX_SCOPE,
+    ToolCallingLLM,
     _bash_prefix_scope,
     extract_bash_session_prefixes_by_agent,
 )
@@ -25,10 +28,13 @@ def _tool_msg(prefixes, agent=None):
 
 
 def test_scope_key_remote_uses_agent_local_uses_sentinel():
-    assert _bash_prefix_scope("remote_bash", {"agent_name": "cluster-a"}) == "cluster-a"
-    assert _bash_prefix_scope("bash", {}) == _LOCAL_BASH_PREFIX_SCOPE
+    # Scope is driven by the tool's is_remote flag, never by the tool name.
+    assert _bash_prefix_scope(True, {"agent_name": "cluster-a"}) == "cluster-a"
+    assert _bash_prefix_scope(False, {}) == _LOCAL_BASH_PREFIX_SCOPE
     # remote tool without an agent falls back to the local sentinel (never leaks)
-    assert _bash_prefix_scope("remote_bash", {}) == _LOCAL_BASH_PREFIX_SCOPE
+    assert _bash_prefix_scope(True, {}) == _LOCAL_BASH_PREFIX_SCOPE
+    # a tool carrying agent_name but NOT flagged remote stays local-scoped
+    assert _bash_prefix_scope(False, {"agent_name": "cluster-a"}) == _LOCAL_BASH_PREFIX_SCOPE
 
 
 def test_prefixes_are_bucketed_per_agent():
@@ -51,11 +57,11 @@ def test_approval_on_a_does_not_apply_to_b_or_local():
     by_agent = extract_bash_session_prefixes_by_agent(messages)
 
     # A remembers curl:
-    a_scope = _bash_prefix_scope("remote_bash", {"agent_name": "cluster-a"})
+    a_scope = _bash_prefix_scope(True, {"agent_name": "cluster-a"})
     assert "curl" in by_agent.get(a_scope, [])
 
     # B does not:
-    b_scope = _bash_prefix_scope("remote_bash", {"agent_name": "cluster-b"})
+    b_scope = _bash_prefix_scope(True, {"agent_name": "cluster-b"})
     assert "curl" not in by_agent.get(b_scope, [])
 
     # local does not:
@@ -70,3 +76,72 @@ def test_legacy_metadata_without_agent_scopes_local_only():
 
     assert by_agent.get(_LOCAL_BASH_PREFIX_SCOPE) == ["curl"]
     assert by_agent.get("cluster-a", []) == []
+
+
+def _make_tool_call(name: str, params: dict):
+    tc = MagicMock()
+    tc.id = "call_1"
+    tc.function = MagicMock()
+    tc.function.name = name
+    tc.function.arguments = json.dumps(params)
+    return tc
+
+
+def _invoke_and_capture_prefixes(*, is_remote: bool, params: dict, by_agent: dict):
+    """Drive the real _invoke_llm_tool_call call site and return the
+    session_approved_prefixes it forwarded to the tool invocation. The tool's
+    is_remote flag (not its name) must decide which agent bucket is selected."""
+    tool = MagicMock()
+    tool.is_remote = is_remote
+    tool.get_parameterized_one_liner.return_value = "one-liner"
+
+    tool_executor = MagicMock()
+    tool_executor.get_tool_by_name.return_value = tool
+    tool_executor.get_toolset_name.return_value = None
+
+    ai = ToolCallingLLM(
+        tool_executor=tool_executor,
+        max_steps=10,
+        llm=MagicMock(),
+        tool_results_dir=None,
+    )
+
+    invoke_mock = MagicMock(
+        return_value=StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS, data="ok"
+        )
+    )
+
+    with patch.object(ai, "_directly_invoke_tool_call", invoke_mock), patch(
+        "holmes.core.tool_calling_llm.spill_oversized_tool_result", return_value=0
+    ):
+        ai._invoke_llm_tool_call(
+            tool_to_call=_make_tool_call("remote_bash", params),
+            previous_tool_calls=[],
+            user_approved=False,
+            session_approved_prefixes_by_agent=by_agent,
+            request_context={},
+        )
+
+    return invoke_mock.call_args.kwargs["session_approved_prefixes"]
+
+
+def test_call_site_scopes_prefixes_by_tool_is_remote_flag():
+    """End-to-end at the invoke call site: a remote tool picks its agent's
+    bucket; a non-remote tool (same name, same params) picks the local bucket.
+    Proves the wiring reads the tool's is_remote field, never the tool name."""
+    by_agent = {"cluster-a": ["curl"], _LOCAL_BASH_PREFIX_SCOPE: ["ls"]}
+
+    remote_prefixes = _invoke_and_capture_prefixes(
+        is_remote=True,
+        params={"command": "curl http://svc", "agent_name": "cluster-a"},
+        by_agent=by_agent,
+    )
+    assert remote_prefixes == ["curl"]
+
+    local_prefixes = _invoke_and_capture_prefixes(
+        is_remote=False,
+        params={"command": "curl http://svc", "agent_name": "cluster-a"},
+        by_agent=by_agent,
+    )
+    assert local_prefixes == ["ls"]

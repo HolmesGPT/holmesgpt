@@ -175,6 +175,7 @@ async def test_invoke_forwards_user_approved_as_reserved_arg():
         description="Remote bash",
         parameters={},
         toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=True,
     )
 
     ok = {"status": "success", "data": "ok"}
@@ -222,6 +223,7 @@ def test_remote_one_liner_names_target_cluster():
         description="Remote bash",
         parameters={},
         toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=True,
     )
 
     one_liner = tool.get_parameterized_one_liner(
@@ -245,6 +247,7 @@ def test_remote_one_liner_without_agent_falls_back():
         description="Remote bash",
         parameters={},
         toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=True,
     )
 
     one_liner = tool.get_parameterized_one_liner({"cli_command": "curl http://svc"})
@@ -266,3 +269,100 @@ def test_local_one_liner_has_no_remote_suffix():
     one_liner = tool.get_parameterized_one_liner({"cli_command": "curl http://svc"})
     assert one_liner == "curl http://svc"
     assert "remote cluster" not in one_liner
+
+
+def test_is_remote_field_governs_one_liner_not_name():
+    """Remoteness is driven by the explicit `is_remote` field, never by sniffing
+    the tool name. A tool whose name starts with 'remote_' but is not flagged
+    remote gets no cluster suffix, and a tool flagged remote gets one regardless
+    of its name."""
+    named_remote_but_not = RemoteMCPTool(
+        name="remote_bash",
+        mcp_tool_name="bash",
+        description="Remote bash",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=False,
+    )
+    assert (
+        named_remote_but_not.get_parameterized_one_liner(
+            {"cli_command": "curl http://svc", "agent_name": "eu-eks-prod-2"}
+        )
+        == "curl http://svc"
+    )
+
+    flagged_remote = RemoteMCPTool(
+        name="plain_tool",
+        mcp_tool_name="bash",
+        description="Remote bash",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=True,
+    )
+    assert (
+        flagged_remote.get_parameterized_one_liner(
+            {"cli_command": "curl http://svc", "agent_name": "eu-eks-prod-2"}
+        )
+        == "curl http://svc on remote cluster `eu-eks-prod-2`"
+    )
+
+
+@pytest.mark.asyncio
+async def test_is_remote_field_gates_session_prefix_injection():
+    """`__robusta_session_approved_prefixes` is injected into the remote call only
+    when the tool is flagged remote — the field, not the name, decides."""
+    from holmes.plugins.toolsets.mcp.toolset_mcp import (
+        REMOTE_TOOL_SESSION_PREFIXES_PARAM,
+    )
+
+    def _capturing_session():
+        block = MagicMock(type="text", text="ok")
+        result_obj = MagicMock(content=[block], isError=False)
+        session = AsyncMock()
+        session.call_tool = AsyncMock(return_value=result_obj)
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=None)
+        return session
+
+    remote_tool = RemoteMCPTool(
+        name="remote_bash",
+        mcp_tool_name="bash",
+        description="Remote bash",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=True,
+    )
+    local_tool = RemoteMCPTool(
+        name="remote_bash",
+        mcp_tool_name="bash",
+        description="Remote bash",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=False,
+    )
+
+    remote_session = _capturing_session()
+    with patch(
+        "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
+    ) as get_session:
+        get_session.return_value = remote_session
+        await remote_tool._invoke_async(
+            params={"command": "curl http://svc"},
+            request_context=None,
+            session_approved_prefixes=["curl"],
+        )
+    remote_call_params = remote_session.call_tool.call_args.args[1]
+    assert remote_call_params.get(REMOTE_TOOL_SESSION_PREFIXES_PARAM) == ["curl"]
+
+    local_session = _capturing_session()
+    with patch(
+        "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
+    ) as get_session:
+        get_session.return_value = local_session
+        await local_tool._invoke_async(
+            params={"command": "curl http://svc"},
+            request_context=None,
+            session_approved_prefixes=["curl"],
+        )
+    local_call_params = local_session.call_tool.call_args.args[1]
+    assert REMOTE_TOOL_SESSION_PREFIXES_PARAM not in local_call_params

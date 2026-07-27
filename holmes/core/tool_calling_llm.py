@@ -127,8 +127,12 @@ def _extract_text_from_content(content: Any) -> str:
 _LOCAL_BASH_PREFIX_SCOPE = ""
 
 
-def _bash_prefix_scope(tool_name: str, tool_params: Dict[str, Any]) -> str:
-    if tool_name and tool_name.startswith("remote_"):
+def _bash_prefix_scope(is_remote: bool, tool_params: Dict[str, Any]) -> str:
+    """Scope key into the agent-keyed session-prefix map. Remote (cross-cluster)
+    tools are scoped by their target agent/cluster so an approval on one cluster
+    never leaks to another; local tools use the caller scope. Remoteness is the
+    tool's own `is_remote` flag — never inferred from the tool name."""
+    if is_remote:
         return str(tool_params.get("agent_name") or _LOCAL_BASH_PREFIX_SCOPE)
     return _LOCAL_BASH_PREFIX_SCOPE
 
@@ -388,8 +392,12 @@ class ToolCallingLLM:
                     decided_params = json.loads(tool_call.function.arguments or "{}")
                 except (json.JSONDecodeError, TypeError):
                     decided_params = {}
+                decided_tool = self.tool_executor.get_tool_by_name(
+                    tool_call.function.name,
+                    user_id=(request_context or {}).get("user_id"),
+                )
                 approved_agent = _bash_prefix_scope(
-                    tool_call.function.name, decided_params
+                    bool(getattr(decided_tool, "is_remote", False)), decided_params
                 )
                 logging.info(
                     "Saving bash session prefixes for future commands on scope '%s': %s",
@@ -916,6 +924,9 @@ class ToolCallingLLM:
                     f"Failed to parse arguments for tool: {tool_name}. args: {tool_arguments}"
                 )
 
+            user_id = (request_context or {}).get("user_id")
+            tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
+
             tool_response = None
             if not user_approved:
                 tool_response = prevent_overly_repeated_tool_call(
@@ -924,7 +935,9 @@ class ToolCallingLLM:
                     tool_calls=previous_tool_calls,
                 )
 
-            scope = _bash_prefix_scope(tool_name, tool_params)
+            scope = _bash_prefix_scope(
+                bool(getattr(tool, "is_remote", False)), tool_params
+            )
             session_approved_prefixes = (session_approved_prefixes_by_agent or {}).get(
                 scope, []
             )
@@ -940,8 +953,6 @@ class ToolCallingLLM:
                     request_context=request_context,
                 )
 
-            user_id = (request_context or {}).get("user_id")
-            tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
             toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
             tool_call_result = ToolCallResult(
                 tool_call_id=tool_id,

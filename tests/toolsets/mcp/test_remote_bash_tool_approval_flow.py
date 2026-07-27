@@ -42,6 +42,7 @@ async def test_parses_approval_required_and_surfaces_caller_params():
         description="Execute bash command remotely",
         parameters={},
         toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=True,
     )
 
     approval_response = {
@@ -75,6 +76,7 @@ async def test_parses_success_response_after_approval():
         description="Execute bash command remotely",
         parameters={},
         toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=True,
     )
 
     final_response = {
