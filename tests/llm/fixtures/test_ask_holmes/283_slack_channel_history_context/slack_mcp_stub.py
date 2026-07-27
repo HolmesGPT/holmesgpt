@@ -46,17 +46,6 @@ def _build_channel():
 
 _CHANNEL_MESSAGES = _build_channel()
 
-# Noisy but realistic cluster: several NotReady nodes, and TWO with DiskPressure
-# (including the incident node). So kubectl alone cannot say which node THIS
-# incident is about — that fact lives only in the Slack alert.
-_READY = [f"ip-10-0-{10 + i}-{(i * 7) % 90 + 5}.eu-west-1.compute.internal" for i in range(20)]
-_NODES = [{"name": n, "status": "Ready", "condition": "KubeletReady"} for n in _READY if n != NODE]
-_NODES += [
-    {"name": NODE, "status": "NotReady", "condition": "DiskPressure"},
-    {"name": "ip-10-0-55-23.eu-west-1.compute.internal", "status": "NotReady", "condition": "DiskPressure"},
-    {"name": "ip-10-0-31-9.eu-west-1.compute.internal", "status": "NotReady", "condition": "MemoryPressure"},
-]
-
 mcp = FastMCP("robusta-platform-mcp-stub")
 
 
@@ -110,23 +99,6 @@ def read_slack_channel_thread_by_id(channel_id: str, thread_ts: str, inclusive: 
     if parent is None:
         return json.dumps({"ok": False, "error": "thread_not_found"})
     return json.dumps({"ok": True, "messages": [parent], "has_more": False})
-
-
-@mcp.tool(name="kubectl_get_nodes", description=(
-        "List all Kubernetes nodes in the cluster with their Ready status and "
-        "current condition (kubectl get nodes)."))
-def kubectl_get_nodes() -> str:
-    return json.dumps({"nodes": _NODES})
-
-
-@mcp.tool(name="cordon_node", description=(
-        "Cordon a Kubernetes node so the scheduler places no new pods on it "
-        "(kubectl cordon). Requires the exact node name."))
-def cordon_node(node_name: str) -> str:
-    node_name = (node_name or "").strip()
-    if not node_name:
-        return json.dumps({"ok": False, "error": "node_name is required"})
-    return json.dumps({"ok": True, "cordoned": node_name})
 
 
 if __name__ == "__main__":

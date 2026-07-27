@@ -10,9 +10,17 @@ toolsets:
   bash: { enabled: false }
 
 mcp_servers:
+  # Shared with 283 — same Slack stub (same relay tool prompt) and same mock
+  # cluster tools, so the two evals cannot diverge on the tool descriptions.
   robusta_platform:
     enabled: true
     config:
       mode: stdio
       command: python
       args: ["tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/slack_mcp_stub.py"]
+  cluster_tools:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args: ["tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/cluster_tools_mock.py"]

@@ -10,9 +10,17 @@ toolsets:
   bash: { enabled: false }
 
 mcp_servers:
+  # Real platform-mcp tools only: the two Slack read tools.
   robusta_platform:
     enabled: true
     config:
       mode: stdio
       command: python
       args: ["tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/slack_mcp_stub.py"]
+  # Separate mock server for the cluster-action distractor tools (NOT platform-mcp).
+  cluster_tools:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args: ["tests/llm/fixtures/test_ask_holmes/283_slack_channel_history_context/cluster_tools_mock.py"]
