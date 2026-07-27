@@ -4,6 +4,8 @@ Use the `bash` tool to execute shell commands. You must provide:
 1. `command`: The bash command to execute
 2. `suggested_prefixes`: Array of prefixes, one per command segment
 
+The filesystem is ephemeral and not shared between tools. Filesystem-writing commands (`mkdir`, `touch`, `tee`, `cp`, `mv`, ...) and output redirection to a file (`>`, `>>`) are rejected unless explicitly allow-listed — redirecting to `/dev/null` is fine. Do not try to persist data to files or pass it between tools via files; keep intermediate data in your context.
+
 ## Supported Command Types
 
 **Auto-approved** (if prefix is in the allow list):

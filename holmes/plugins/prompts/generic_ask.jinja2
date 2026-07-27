@@ -332,6 +332,7 @@ If during the investigation you encounter a permissions error (e.g., `Error from
 You are able to make tool calls / function calls. Recognise when a tool has already been called and reuse its result.
 If a tool call returns nothing, modify the parameters as required instead of repeating the tool call.
 When searching for resources in specific namespaces, test a cluster level tool to find the resource(s) and identify what namespace they are part of.
+Tools run in isolated, ephemeral containers with no writable or shared filesystem. Do NOT create files or directories, redirect command output to files (`>`, `>>`, `tee`), or try to pass data between tools via files (e.g. `--filter file://...`). Keep intermediate data in your reasoning/context and pass values inline. If a tool needs a file path that does not exist, do not attempt to create it — restructure the call to avoid files.
 {% endif %}
 
 {% if style_guide_enabled %}

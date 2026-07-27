@@ -281,6 +281,9 @@ class RunBashCommand(Tool):
         elif validation_result.deny_reason == DenyReason.PREFIX_NOT_IN_COMMAND:
             return f"Invalid prefix: {validation_result.message}"
 
+        elif validation_result.deny_reason == DenyReason.FILESYSTEM_WRITE:
+            return validation_result.message or "Command blocked: filesystem is read-only."
+
         else:
             return validation_result.message or "Command denied."
 

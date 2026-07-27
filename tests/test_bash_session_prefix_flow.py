@@ -581,9 +581,9 @@ class TestCrossConversationIsolation:
         """Test that prefixes approved in one conversation don't affect new conversations.
 
         Scenario:
-        1. Conversation A: User approves 'rm' command → prefix saved in session
+        1. Conversation A: User approves 'kubectl delete' command → prefix saved in session
         2. Conversation B: New conversation with same toolset config
-        3. Conversation B should NOT have 'rm' approved (no prefix in its history)
+        3. Conversation B should NOT have 'kubectl delete' approved (no prefix in its history)
         """
         from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
         from holmes.plugins.toolsets.bash.validation import (
@@ -603,42 +603,48 @@ class TestCrossConversationIsolation:
         # Get effective lists for conversation A
         allow_list_a, deny_list_a = get_effective_lists(shared_config)
 
-        # 'rm' command should require approval (not in allow list)
-        result_a1 = validate_command("rm /tmp/test", ["rm"], allow_list_a, deny_list_a)
+        # 'kubectl delete' command should require approval (not in allow list)
+        result_a1 = validate_command(
+            "kubectl delete pod my-pod", ["kubectl delete"], allow_list_a, deny_list_a
+        )
         assert (
             result_a1.status == ValidationStatus.APPROVAL_REQUIRED
-        ), "rm should require approval in conversation A"
+        ), "kubectl delete should require approval in conversation A"
 
         # User approves - simulate by adding to LOCAL allow list (not shared config)
         # This mimics what session_approved_prefixes does
-        allow_list_a.append("rm")
+        allow_list_a.append("kubectl delete")
 
-        # Now 'rm' works in conversation A
-        result_a2 = validate_command("rm /tmp/test", ["rm"], allow_list_a, deny_list_a)
+        # Now 'kubectl delete' works in conversation A
+        result_a2 = validate_command(
+            "kubectl delete pod my-pod", ["kubectl delete"], allow_list_a, deny_list_a
+        )
         assert (
             result_a2.status == ValidationStatus.ALLOWED
-        ), "rm should be allowed after session approval in conversation A"
+        ), "kubectl delete should be allowed after session approval in conversation A"
 
         # ===== CONVERSATION B (NEW) =====
         # Get FRESH effective lists for conversation B (separate conversation)
         allow_list_b, deny_list_b = get_effective_lists(shared_config)
 
-        # Key assertion: 'rm' should NOT be in conversation B's allow list
+        # Key assertion: 'kubectl delete' should NOT be in conversation B's allow list
         # (the shared config should not have been mutated)
-        assert "rm" not in allow_list_b, (
-            f"rm should NOT be in new conversation's allow list. "
+        assert "kubectl delete" not in allow_list_b, (
+            f"kubectl delete should NOT be in new conversation's allow list. "
             f"Cross-conversation leak detected! allow_list_b={allow_list_b}"
         )
 
-        # 'rm' should require approval again in conversation B
-        result_b = validate_command("rm /tmp/test", ["rm"], allow_list_b, deny_list_b)
+        # 'kubectl delete' should require approval again in conversation B
+        result_b = validate_command(
+            "kubectl delete pod my-pod", ["kubectl delete"], allow_list_b, deny_list_b
+        )
         assert result_b.status == ValidationStatus.APPROVAL_REQUIRED, (
-            "rm should require approval in conversation B (new conversation). "
+            "kubectl delete should require approval in conversation B (new conversation). "
             "Cross-conversation leak detected if this fails!"
         )
 
         # Verify shared config was never modified
-        assert "rm" not in shared_config.allow, (
+        assert "kubectl delete" not in shared_config.allow, (
             f"Shared config should not have been mutated. "
             f"shared_config.allow={shared_config.allow}"
         )
