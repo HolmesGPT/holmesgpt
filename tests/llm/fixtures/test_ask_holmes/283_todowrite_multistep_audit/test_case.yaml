@@ -42,10 +42,11 @@ before_test: |
       --from-literal=tier="standard" \
       -n "app-283-$NS" --dry-run=client -o yaml | kubectl apply -f -
   done
-  # Verify the codes are actually discoverable - fail setup early otherwise
+  # Verify the exact codes are discoverable - fail setup early otherwise
   for NS in billing search media ledger; do
-    if ! kubectl get configmap service-manifest -n "app-283-$NS" -o jsonpath='{.data.audit_code}' | grep -q "TDW283"; then
-      echo "❌ audit_code missing in app-283-$NS"
+    ACTUAL=$(kubectl get configmap service-manifest -n "app-283-$NS" -o jsonpath='{.data.audit_code}')
+    if [ "$ACTUAL" != "${CODES[$NS]}" ]; then
+      echo "❌ audit_code mismatch in app-283-$NS: expected ${CODES[$NS]}, got '$ACTUAL'"
       exit 1
     fi
   done
