@@ -50,20 +50,19 @@
 #   grpc >= 1.82.1, spdystream >= 0.5.1, containerd >= 1.7.33, oras-go >= 2.6.2,
 #   and helm >= 3.20.2.
 #
-# kubectl: rebuilt from kubernetes/kubernetes v1.36.3 with the x/net and
-#   x/crypto replaces above. The official dl.k8s.io v1.36.3 binary is already
-#   built with Go 1.26.5, but every 1.36.x release still vendors x/net v0.49.0,
-#   which carries four High advisories (see the x/net note above) with no
-#   upstream release that fixes them. Drop this build and go back to the
-#   dl.k8s.io binary in the Dockerfile as soon as a kubectl release ships
-#   x/net >= 0.56.0 (fixes every advisory the current replace clears,
-#   including CVE-2026-46600) — check a candidate with:
-#     go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
+# kubectl is NOT built here — the official dl.k8s.io binary (pinned via
+#   KUBECTL_VERSION in the Dockerfile) is used instead. It is built with a
+#   fixed Go toolchain but still vendors x/net v0.49.0; the resulting x/net
+#   findings on the kubectl binary are accepted (see the Dockerfile comment).
+#   A from-source kubectl rebuild with an x/net replace existed briefly and
+#   was reverted in favor of the official binary — see git history if it ever
+#   needs to come back.
 #
-# Known-unfixable finding left in the image (no upstream fix exists):
+# Known findings left in the image (no upstream fix exists):
 #   GO-2026-5932  (x/crypto/openpgp) — the package is unmaintained by design.
 #   Not reachable from any code path holmes uses; x/crypto has no release that
 #   clears it because upstream will not fix openpgp.
+#   kubectl x/net findings — see the kubectl note above.
 #
 # Prerequisites: Go 1.21+ installed locally (GOTOOLCHAIN auto-downloads the
 #   pinned build toolchain below)
@@ -136,7 +135,6 @@ GO_BILLY_PATCHED_VERSION=v5.9.0
 HELM_VERSION=v3.21.0
 GRPC_PATCHED_VERSION=v1.82.1
 KUBE_LINEAGE_VERSION=v2.2.5
-KUBECTL_VERSION=v1.36.3
 SPDYSTREAM_PATCHED_VERSION=v0.5.1
 CONTAINERD_PATCHED_VERSION=v1.7.33
 HELM_IN_LINEAGE_PATCHED_VERSION=v3.20.2
@@ -242,45 +240,9 @@ echo "==> Building kube-lineage for linux/arm64..."
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
   -o "$OUTDIR/arm64/kube-lineage" ./cmd/kube-lineage
 
-echo "==> Cloning Kubernetes $KUBECTL_VERSION..."
-git clone --depth 1 --branch "$KUBECTL_VERSION" https://github.com/kubernetes/kubernetes.git "$TMPDIR/kubernetes"
-
-cd "$TMPDIR/kubernetes"
-# kubernetes/kubernetes ships a go.work covering the staging modules; -mod=mod
-# is rejected in workspace mode, and the workspace would also shadow our
-# replaces. GOWORK=off falls back to the root go.mod, whose own replace
-# directives already point k8s.io/* at ./staging/src/k8s.io/*.
-export GOWORK=off
-apply_x_replaces
-GOFLAGS=-mod=mod assert_x_replaces
-
-# Mirror what k/k's hack/lib/version.sh stamps, so `kubectl version --client`
-# reports the real release instead of an empty version.
-KUBECTL_COMMIT="$(git rev-parse HEAD)"
-KUBECTL_BUILD_DATE="$(git show -s --format=%cI HEAD)"
-KUBECTL_LDFLAGS=""
-for pkg in k8s.io/client-go/pkg/version k8s.io/component-base/version; do
-  KUBECTL_LDFLAGS="$KUBECTL_LDFLAGS -X $pkg.gitVersion=$KUBECTL_VERSION"
-  KUBECTL_LDFLAGS="$KUBECTL_LDFLAGS -X $pkg.gitCommit=$KUBECTL_COMMIT"
-  KUBECTL_LDFLAGS="$KUBECTL_LDFLAGS -X $pkg.gitTreeState=clean"
-  KUBECTL_LDFLAGS="$KUBECTL_LDFLAGS -X $pkg.buildDate=$KUBECTL_BUILD_DATE"
-done
-
-echo "==> Building kubectl for linux/amd64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \
-  -ldflags "$KUBECTL_LDFLAGS" \
-  -o "$OUTDIR/amd64/kubectl" ./cmd/kubectl
-
-echo "==> Building kubectl for linux/arm64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
-  -ldflags "$KUBECTL_LDFLAGS" \
-  -o "$OUTDIR/arm64/kubectl" ./cmd/kubectl
-
-unset GOWORK
-
 echo "==> Compressing binaries..."
 for arch in amd64 arm64; do
-  for f in argocd helm kube-lineage kubectl; do
+  for f in argocd helm kube-lineage; do
     gzip -f "$OUTDIR/$arch/$f"
   done
 done
@@ -293,7 +255,7 @@ else
   SHA256_CMD="shasum -a 256"
 fi
 for arch in amd64 arm64; do
-  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz kubectl.gz; do
+  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz; do
     $SHA256_CMD "$f" > "$f.sha256"
   done)
 done

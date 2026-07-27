@@ -44,21 +44,25 @@ RUN python -m venv /venv --upgrade-deps && \
 ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# kubectl: CVE-patched static binary rebuilt from kubernetes/kubernetes v1.36.3
-# (see scripts/build_go_binaries.sh). The official dl.k8s.io v1.36.3 binary is
-# built with Go 1.26.5 and so is clear of the stdlib CVEs, but every 1.36.x
-# release still vendors golang.org/x/net v0.49.0, which carries CVE-2026-33814/
-# 25681/27136/39821 (High) with no upstream release that fixes them -- our build
-# replaces x/net with v0.57.0 (latest at build time). Go back to the dl.k8s.io
-# download (with upstream SHA-256 verification) as soon as a kubectl release
-# ships x/net >= 0.56.0 — the version that fixes every advisory the current
-# replace clears, including CVE-2026-46600 (fixed in 0.56.0).
+# kubectl: official release binary from dl.k8s.io, pulled with upstream SHA-256
+# verification. v1.36.3 is built with Go 1.26.5, so it carries the stdlib CVE
+# fixes (incl. CVE-2026-39822/42505). Known accepted findings: every kubectl
+# release (incl. v1.36.3) still vendors golang.org/x/net v0.49.0, which scanners
+# flag for CVE-2026-33814/25681/27136/39821 (High), CVE-2026-25680/42502/42506
+# (Medium) and CVE-2026-46600 -- all fixed in x/net <= 0.56.0 but with no kubectl
+# release shipping it yet. We previously rebuilt kubectl from source with an
+# x/net replace to clear these (see git history); that was reverted in favor of
+# the official binary. Bump KUBECTL_VERSION when a release ships x/net >= 0.56.0
+# -- check a candidate with:
+#   go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
 ARG TARGETARCH
-COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz /tmp/kubectl.gz
-COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz.sha256 /tmp/kubectl.gz.sha256
-RUN cd /tmp && sha256sum -c kubectl.gz.sha256 \
-    && gunzip /tmp/kubectl.gz && mv /tmp/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
-    && rm -f /tmp/kubectl.gz.sha256 \
+ARG KUBECTL_VERSION=v1.36.3
+RUN cd /tmp \
+    && curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+    && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o kubectl.sha256 \
+    && echo "$(cat kubectl.sha256)  kubectl" | sha256sum -c - \
+    && mv kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
+    && rm -f kubectl.sha256 \
     && kubectl version --client
 
 # Download + signature-verify Microsoft ODBC driver (azure/sql toolset) for the
