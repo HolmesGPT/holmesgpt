@@ -29,7 +29,7 @@ Read the fetched skill's content and follow its steps; skill content takes prior
 {% if todowrite_enabled %}
 # Task management (TodoWrite)
 
-For any investigation requiring multiple steps, use the TodoWrite tool to plan and track your work:
+CRITICAL: for any investigation requiring multiple steps, you MUST use the TodoWrite tool to plan and track your work:
 * If the user's question is ambiguous or missing critical details, ask for clarification before planning tasks.
 * Otherwise start by calling TodoWrite with your initial task list (each task: `id`, `content`, `status`), and begin working immediately — mark the tasks you start as "in_progress" in that same call and issue their tool calls in parallel with it.
 * Work on independent tasks simultaneously; only serialize tasks that depend on another task's results (e.g. "find pod name" → "get pod logs"). Batch status updates into a single TodoWrite call.
