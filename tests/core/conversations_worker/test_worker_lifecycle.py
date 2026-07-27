@@ -24,8 +24,9 @@ def _bare_worker():
     w._running = True
     w._claim_thread = None
     w._notify_event = threading.Event()
-    w._last_alive_log = 0.0
-    w._last_no_slots_log = 0.0
+    w._saturated_since = None
+    w._saturation_logged = False
+    w._last_stuck_warn = 0.0
     w._executor = MagicMock()
     w._active_conversation_ids = {}
     w._active_lock = threading.Lock()
@@ -151,34 +152,118 @@ def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
     w._executor.submit.assert_not_called()
 
 
-def test_at_capacity_skip_logs_visible_warning(monkeypatch, caplog):
-    """ROB-759: skipping the claim at zero free slots must NOT be silent —
-    a wedged-slots worker previously looked identical to a dead claim loop.
-    The warning lists each in-flight task's age and is rate-limited."""
+def test_saturation_logs_only_after_continuous_window(monkeypatch, caplog):
+    """ROB-759: full capacity is a normal state under load, so the saturation
+    INFO fires only after _SATURATION_LOG_AFTER_SECONDS of CONTINUOUS
+    saturation — a brief free-slot observation (backlog churn) resets the
+    clock, so a healthy busy worker never logs (no enter/exit flicker)."""
     w = _bare_worker()
     monkeypatch.setattr(
         "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
         1,
     )
-    w._active_conversation_ids = {("conv-stuck", 1): time.monotonic() - 42.0}
+    w._active_conversation_ids = {("conv-busy", 1): time.monotonic()}
 
-    with caplog.at_level(logging.WARNING):
+    def saturation_lines():
+        return [
+            r
+            for r in caplog.records
+            if "claim capacity saturated" in r.getMessage()
+        ]
+
+    with caplog.at_level(logging.INFO):
+        # First saturated observation starts the clock — no log yet.
         w._try_claim_and_dispatch()
-    warnings = [
-        r for r in caplog.records if "Conversation claim skipped" in r.getMessage()
-    ]
-    assert len(warnings) == 1
-    msg = warnings[0].getMessage()
-    assert "0 free slots" in msg
-    assert "conv-stuck" in msg
+        assert not saturation_lines()
 
-    # Rate-limited: an immediate second skip does not warn again.
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
+        # Still within the window — no log.
+        w._try_claim_and_dispatch()
+        assert not saturation_lines()
+
+        # Backfill the clock past the window → the single INFO fires.
+        w._saturated_since = time.monotonic() - 61.0
+        w._try_claim_and_dispatch()
+        assert len(saturation_lines()) == 1
+        assert "conv-busy" in saturation_lines()[0].getMessage()
+
+        # Saturation persists → still only the one line.
+        w._try_claim_and_dispatch()
+        assert len(saturation_lines()) == 1
+
+        # A slot frees → exit line with duration, and the clock resets.
+        w._active_conversation_ids = {}
+        w.dal.claim_n_pending_conversations.return_value = []
+        w._try_claim_and_dispatch()
+        exits = [
+            r
+            for r in caplog.records
+            if "capacity available again" in r.getMessage()
+        ]
+        assert len(exits) == 1
+        assert w._saturated_since is None and w._saturation_logged is False
+
+
+def test_brief_free_slot_resets_saturation_clock(monkeypatch, caplog):
+    """Churn scenario: saturated → one slot frees momentarily → saturated
+    again. The free observation must reset the clock so no line is logged."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    w.dal.claim_n_pending_conversations.return_value = []
+
+    with caplog.at_level(logging.INFO):
+        # Saturated, clock nearly expired.
+        w._active_conversation_ids = {("conv-a", 1): time.monotonic()}
+        w._try_claim_and_dispatch()
+        w._saturated_since = time.monotonic() - 59.0
+
+        # Brief dip to a free slot (conversation completed) → clock resets.
+        w._active_conversation_ids = {}
+        w._try_claim_and_dispatch()
+        assert w._saturated_since is None
+
+        # Saturated again: window starts over, so no log even though the
+        # combined saturated time exceeds the threshold.
+        w._active_conversation_ids = {("conv-b", 1): time.monotonic()}
         w._try_claim_and_dispatch()
     assert not [
-        r for r in caplog.records if "Conversation claim skipped" in r.getMessage()
+        r for r in caplog.records if "claim capacity" in r.getMessage()
     ]
+
+
+def test_stuck_slot_emits_warning(monkeypatch, caplog):
+    """A slot held longer than CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
+    while claiming is blocked is an anomaly → WARNING (rate-limited)."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS",
+        100.0,
+    )
+    w._active_conversation_ids = {("conv-stuck", 1): time.monotonic() - 150.0}
+    w._saturated_since = time.monotonic() - 10.0  # saturation ongoing
+
+    def stuck_warnings():
+        return [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "slot(s) stuck" in r.getMessage()
+        ]
+
+    with caplog.at_level(logging.INFO):
+        w._try_claim_and_dispatch()
+        assert len(stuck_warnings()) == 1
+        assert "conv-stuck" in stuck_warnings()[0].getMessage()
+
+        # Rate-limited: an immediate second check does not warn again.
+        w._try_claim_and_dispatch()
+        assert len(stuck_warnings()) == 1
 
 
 def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):

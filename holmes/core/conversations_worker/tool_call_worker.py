@@ -112,6 +112,12 @@ def serialize_tool_response(
     return payload
 
 
+# Saturation must persist continuously this long before the INFO line fires
+# (mirrors worker.py's _SATURATION_LOG_AFTER_SECONDS; kept local to avoid a
+# circular import — worker.py imports this module).
+_SATURATION_LOG_AFTER_SECONDS = 60.0
+
+
 class ToolCallWorker:
     """Claims and executes remote tool calls for this cluster.
 
@@ -137,10 +143,14 @@ class ToolCallWorker:
         # rows stay 'pending' for the next poll or another Holmes instance.
         self._active_lock = threading.Lock()
         self._active_count = 0
-        # Rate limiter for the zero-free-slots warning (ROB-759): claiming
-        # used to be skipped silently at full capacity, which looks identical
-        # to a dead claim loop in the logs.
-        self._last_no_slots_log = 0.0
+        # Saturation-transition logging (ROB-759): claiming used to be
+        # skipped silently at full capacity, which looks identical to a dead
+        # claim loop. Same debounced enter/exit scheme as ConversationWorker
+        # (see _note_saturation there): the INFO fires only after 60s of
+        # CONTINUOUS saturation, so backlog churn (free→refill per completed
+        # call) never flickers.
+        self._saturated_since: Optional[float] = None
+        self._saturation_logged = False
 
     # ---- lifecycle ----
 
@@ -209,16 +219,30 @@ class ToolCallWorker:
             free = TOOL_CALLER_MAX_CONCURRENT - self._active_count
         if free <= 0:
             now = time.monotonic()
-            if now - self._last_no_slots_log >= 60.0:
-                self._last_no_slots_log = now
-                logging.warning(
-                    "ToolCallWorker claim skipped: 0 free slots — %d in-flight "
-                    "tool call(s) occupy all %d slots; pending tool calls will "
-                    "not be claimed until one finishes.",
-                    TOOL_CALLER_MAX_CONCURRENT,
+            if self._saturated_since is None:
+                self._saturated_since = now
+            elif (
+                not self._saturation_logged
+                and now - self._saturated_since >= _SATURATION_LOG_AFTER_SECONDS
+            ):
+                self._saturation_logged = True
+                logging.info(
+                    "ToolCallWorker claim capacity saturated for %.0fs: all %d "
+                    "slots in use; pending tool calls will not be claimed "
+                    "until one finishes.",
+                    now - self._saturated_since,
                     TOOL_CALLER_MAX_CONCURRENT,
                 )
             return
+        if self._saturation_logged:
+            logging.info(
+                "ToolCallWorker claim capacity available again (free=%d) "
+                "after %.0fs saturated",
+                free,
+                time.monotonic() - (self._saturated_since or 0.0),
+            )
+        self._saturated_since = None
+        self._saturation_logged = False
         # Check pool/running BEFORE claiming so we never claim rows we won't
         # submit; once claimed we dispatch every row (no mid-loop _running
         # check) so a racing stop() can't strand claimed rows until timeout.
