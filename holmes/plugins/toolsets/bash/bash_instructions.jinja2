@@ -4,18 +4,84 @@ Use the `bash` tool to execute shell commands. You must provide:
 1. `command`: The bash command to execute
 2. `suggested_prefixes`: Array of prefixes, one per command segment
 
+## Tool Selection — Prefer Dedicated Tools
+
+For Kubernetes questions, dedicated tools (`kubernetes_jq_query`,
+`kubernetes_tabular_query`, `kubernetes_count`) exist precisely so that
+aggregation, filtering, grouping, and counting can be done in one
+structured call. Reach for them before reaching for bash. Here's why
+this matters in practice — these are the real costs of choosing bash
+when a dedicated tool fits:
+
+- **Approval prompts interrupt the user.** Compound bash constructs —
+  `for`/`while`/`until` loops, `if`/`case` blocks, command substitution
+  `$(...)`, process substitution `<(...)` — require explicit user
+  approval before they run. Dedicated tools are auto-approved
+  unconditionally; simple `kubectl get` calls are auto-approved when
+  their prefix is on the configured bash allowlist (which `kubectl get`
+  is on by default). Every compound bash call mid-investigation is a
+  UX interruption that breaks the user's flow.
+- **The bash allowlist gates every pipeline segment.** A piped command
+  is auto-approved only if *every* segment (`kubectl get`, `awk`,
+  `sort`, `uniq`, `wc`, `grep`, `cut`, `head`, ...) matches a prefix in
+  the configured allowlist. If one segment isn't allowed, the whole
+  pipeline blocks waiting for approval — or fails outright in
+  deployments that auto-deny. Dedicated tools sidestep the allowlist
+  entirely.
+- **Text parsing is fragile and fails silently.** `wc -l` counts the
+  header line. `awk '{print $1}'` breaks when columns shift under
+  `-o wide` or with multi-container pods. An empty `awk` match yields
+  empty `uniq -c` output that looks like "0 results" rather than "bad
+  pipeline". Dedicated tools work on structured JSON via jq, so a
+  wrong query returns an actionable error you can self-correct on,
+  not a plausible-looking false answer.
+- **Server-side filtering keeps token budgets small.**
+  `kubernetes_jq_query` projects only the fields you asked for, on the
+  API server. `kubectl get -A | ...` first pulls every resource's full
+  status into the conversation. On real clusters with hundreds of pods
+  the bash path can blow through context budgets that the dedicated
+  tool path barely touches — and you pay for those tokens on every
+  subsequent turn until compaction.
+- **Structured calls produce readable traces.** A
+  `kubernetes_count(kind=..., jq=...)` line is reviewable in the
+  investigation history (and survives compaction summarization with
+  its intent intact). A 200-character shell pipeline is opaque to
+  reviewers and gets harder to interpret as it's summarized.
+
+**Common anti-patterns to avoid:**
+
+- Counting/grouping with `kubectl get ... | awk '{print $1}' | sort | uniq -c`
+  → use `kubernetes_count` with a jq grouping expression, or
+  `kubernetes_tabular_query`.
+- Counting rows with `kubectl get ... | wc -l` → use `kubernetes_count`.
+- Selecting distinct values with `kubectl get ... | awk | sort -u` → use
+  `kubernetes_jq_query` with a `unique` step.
+- Iterating per pod/namespace with `for X in ...; do kubectl ... done` →
+  use a single `kubernetes_jq_query` / `kubernetes_tabular_query` call that
+  filters server-side, or batch into one `kubectl get` with `-A` or
+  multiple targets.
+
+Bash is the right choice for one-off `kubectl get <resource>` calls when no
+dedicated tool fits, when you need a specific kubectl flag (`-o yaml`,
+`-o wide`, `--show-labels`) for a single resource, or when you're invoking
+non-kubectl tools. It is the *wrong* choice for grouping, counting, joining,
+or set operations over Kubernetes resources.
+
 ## Supported Command Types
 
 **Auto-approved** (if prefix is in the allow list):
 - Single commands: `kubectl get pods -n default`
-- Pipes (`|`): `kubectl get pods | grep Running | head -5`
+- Pipes (`|`): `cat /var/log/app.log | grep ERROR | head -20`
+  (Avoid piping `kubectl` output through `awk`/`sort`/`uniq -c`/`wc` for
+  aggregation — use a dedicated Kubernetes tool instead. See "Tool
+  Selection" above.)
 - AND operator (`&&`): `kubectl get pods && kubectl get services`
 - OR operator (`||`): `kubectl get pods || echo 'no pods found'`
 - Semicolon (`;`): `kubectl get pods; kubectl get services`
 - Background (`&`): `sleep 5 & echo done`
 - Environment variables: `echo $HOME`, `ls ${HOME}/projects`
 
-**Requires user approval** - Scripts and complex constructs:
+**Requires user approval** — scripts and complex constructs:
 - `for` loops: `for i in 1 2 3; do echo $i; done`
 - `while` loops: `while read line; do echo "$line"; done < file`
 - `until` loops: `until false; do echo running; done`
@@ -24,7 +90,12 @@ Use the `bash` tool to execute shell commands. You must provide:
 - Command substitution: `echo $(whoami)` or `` echo `whoami` ``
 - Process substitution: `diff <(cat file1) <(cat file2)`
 
-When you need loops, conditionals, or subshells to accomplish a task, go ahead and use them. The user will be prompted to approve before execution.
+Approval prompts interrupt the user, so minimize them. Before using a
+loop or conditional, ask yourself: can a dedicated tool (e.g.
+`kubernetes_jq_query` with a filter expression) or a single batched
+`kubectl get` (e.g. `-A` or listing multiple targets) get the same data?
+If yes, prefer that. Use loops and conditionals only when no dedicated
+tool fits and the task genuinely requires shell control flow.
 
 ## Command Structure
 
