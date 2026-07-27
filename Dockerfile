@@ -32,14 +32,23 @@ RUN python -m venv /venv --upgrade-deps && \
 ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# kubectl: CVE-rebuilt from source with Go 1.26.4 (see scripts/build_go_binaries.sh);
-# published releases use a Go toolchain with stdlib CVEs. Revert to dl.k8s.io when built with Go >= 1.26.3.
+# kubectl: official release binary from dl.k8s.io, pulled with upstream SHA-256
+# verification. v1.36.3 is built with Go 1.26.5 (>= 1.26.3), so it already
+# carries the stdlib CVE fixes (CVE-2026-42499/33814/39836/33811/39820/39823/
+# 39825/39826/42504) that previously forced a from-source rebuild.
+# argocd/helm/kube-lineage are still rebuilt (see scripts/build_go_binaries.sh)
+# because no upstream release fixes their CVEs yet. Bump KUBECTL_VERSION as newer
+# releases ship (the 1.34/1.35 lines are still on a vulnerable Go toolchain --
+# check a candidate with `go version <(curl -sL
+# https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)` before bumping).
 ARG TARGETARCH
-COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz /tmp/kubectl.gz
-COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz.sha256 /tmp/kubectl.gz.sha256
-RUN cd /tmp && sha256sum -c kubectl.gz.sha256 \
-    && gunzip /tmp/kubectl.gz && mv /tmp/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
-    && rm -f /tmp/kubectl.gz.sha256 \
+ARG KUBECTL_VERSION=v1.36.3
+RUN cd /tmp \
+    && curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+    && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o kubectl.sha256 \
+    && echo "$(cat kubectl.sha256)  kubectl" | sha256sum -c - \
+    && mv kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
+    && rm -f kubectl.sha256 \
     && kubectl version --client
 
 # Download + signature-verify Microsoft ODBC driver (azure/sql toolset) for the

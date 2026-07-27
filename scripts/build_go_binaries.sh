@@ -32,12 +32,12 @@
 #   and golang.org/x/net replaced to v0.56.0 (CVE-2026-39821 CRITICAL,
 #   CVE-2026-33814). See X_CRYPTO_PATCHED_VERSION / X_NET_PATCHED_VERSION below.
 #
-# kubectl: rebuilt from the upstream tag for the fixed Go toolchain (every
-#   published kubectl release v1.34.8 / v1.35.5 / v1.36.1 is compiled with a
-#   Go vulnerable to stdlib CVE-2026-42499/33814/39836/33811/39820/39823/39825/
-#   39826/42504) and for an x/net replace (it vendors x/net 0.38.0). Revert to
-#   the dl.k8s.io binary when a release is built with Go >= 1.26.3 and ships
-#   x/net >= 0.55.0 (check: go version <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)).
+# kubectl is NOT built here — the official dl.k8s.io binary (kubectl v1.36.3,
+#   pinned in the Dockerfile) is built with Go 1.26.5 (>= 1.26.3), so it carries
+#   the stdlib CVE fixes without a from-source rebuild. Earlier releases were
+#   not: check a candidate with `go version <(curl -sL
+#   https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)` before bumping the
+#   Dockerfile pin, since the 1.34/1.35 lines are still on a vulnerable Go.
 #
 # Prerequisites: Go 1.21+ installed locally (GOTOOLCHAIN auto-downloads the
 #   pinned build toolchain below)
@@ -85,7 +85,6 @@ SPDYSTREAM_PATCHED_VERSION=v0.5.1
 CONTAINERD_PATCHED_VERSION=v1.7.33
 HELM_IN_LINEAGE_PATCHED_VERSION=v3.20.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
-KUBECTL_VERSION=v1.34.8
 # golang.org/x/crypto < 0.52.0 has the SSH CVEs CVE-2026-39829/39830/39831/39832/
 #   39833/39834/42508/46595/46597 (some CRITICAL); fixed in 0.52.0, we pin latest.
 # golang.org/x/net < 0.55.0 has CVE-2026-39821 (CRITICAL) and CVE-2026-33814;
@@ -185,39 +184,6 @@ echo "==> Building kube-lineage for linux/arm64..."
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
   -o "$OUTDIR/arm64/kube-lineage" ./cmd/kube-lineage
 
-echo "==> Cloning kubernetes $KUBECTL_VERSION (kubectl)..."
-git clone --depth 1 --branch "$KUBECTL_VERSION" https://github.com/kubernetes/kubernetes.git "$TMPDIR/kubernetes"
-cd "$TMPDIR/kubernetes"
-
-KUBECTL_MAJOR="$(echo "${KUBECTL_VERSION#v}" | cut -d. -f1)"
-KUBECTL_MINOR="$(echo "${KUBECTL_VERSION#v}" | cut -d. -f2)"
-KUBECTL_LDFLAGS="-w -s \
-  -X k8s.io/component-base/version.gitVersion=$KUBECTL_VERSION \
-  -X k8s.io/component-base/version.gitMajor=$KUBECTL_MAJOR \
-  -X k8s.io/component-base/version.gitMinor=$KUBECTL_MINOR \
-  -X k8s.io/component-base/version.gitTreeState=clean"
-
-# The kubernetes repo uses a Go workspace (go.work), under which `go build`
-# is readonly and replaces in go.mod are ignored. Disable the workspace
-# (GOWORK=off) so the build resolves from go.mod — which already carries the
-# 31 `=> ./staging/...` replaces needed to build kubectl standalone — and use
-# -mod=mod so we can pin x/net to the CVE-fixed version (kubectl vendors 0.38.0,
-# vulnerable to CVE-2026-39821/33814). No x/crypto replace: kubectl doesn't link it.
-export GOWORK=off
-go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
-
-echo "==> Building kubectl for linux/amd64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \
-  -ldflags "$KUBECTL_LDFLAGS" \
-  -o "$OUTDIR/amd64/kubectl" ./cmd/kubectl
-
-echo "==> Building kubectl for linux/arm64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
-  -ldflags "$KUBECTL_LDFLAGS" \
-  -o "$OUTDIR/arm64/kubectl" ./cmd/kubectl
-unset GOWORK
-
 echo "==> Compressing binaries..."
 gzip -f "$OUTDIR/amd64/argocd"
 gzip -f "$OUTDIR/arm64/argocd"
@@ -225,8 +191,6 @@ gzip -f "$OUTDIR/amd64/helm"
 gzip -f "$OUTDIR/arm64/helm"
 gzip -f "$OUTDIR/amd64/kube-lineage"
 gzip -f "$OUTDIR/arm64/kube-lineage"
-gzip -f "$OUTDIR/amd64/kubectl"
-gzip -f "$OUTDIR/arm64/kubectl"
 
 echo "==> Generating SHA-256 checksums..."
 if command -v sha256sum >/dev/null 2>&1; then
@@ -236,7 +200,7 @@ else
   SHA256_CMD="shasum -a 256"
 fi
 for arch in amd64 arm64; do
-  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz kubectl.gz; do
+  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz; do
     $SHA256_CMD "$f" > "$f.sha256"
   done)
 done
