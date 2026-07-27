@@ -2,7 +2,12 @@ import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
-from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
+from holmes.utils.memory_limit import (
+    append_output_truncated_hint,
+    check_oom_and_append_hint,
+    get_ulimit_prefix,
+    read_process_output_capped,
+)
 
 
 @dataclass
@@ -35,24 +40,27 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
         text=True,
     )
 
-    try:
-        stdout, _ = process.communicate(timeout=timeout)
-        stdout = stdout.strip() if stdout else ""
-        stdout = check_oom_and_append_hint(stdout, process.returncode)
+    stdout, timed_out, truncated = read_process_output_capped(
+        process, timeout=timeout
+    )
+    stdout = stdout.strip() if stdout else ""
 
-        return BashResult(
-            stdout=stdout,
-            return_code=process.returncode,
-            timed_out=False,
-        )
-    except subprocess.TimeoutExpired:
-        process.kill()
-        # Collect any partial output that was generated before timeout
-        stdout, _ = process.communicate()
-        stdout = stdout.strip() if stdout else ""
-
+    if timed_out:
         return BashResult(
             stdout=stdout,
             return_code=None,
             timed_out=True,
         )
+
+    if truncated:
+        # The command succeeded but produced more output than we will buffer.
+        # Keep the (capped) prefix and flag it so the LLM narrows its query.
+        stdout = append_output_truncated_hint(stdout)
+    else:
+        stdout = check_oom_and_append_hint(stdout, process.returncode)
+
+    return BashResult(
+        stdout=stdout,
+        return_code=process.returncode,
+        timed_out=False,
+    )

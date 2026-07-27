@@ -1,11 +1,16 @@
+import subprocess
+import sys
+
 import pytest
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 from holmes.utils.memory_limit import (
     OOM_OUTPUT_MAX_LINES,
     _truncate_oom_output,
+    append_output_truncated_hint,
     check_oom_and_append_hint,
     get_ulimit_prefix,
+    read_process_output_capped,
 )
 
 
@@ -160,3 +165,85 @@ class TestTruncateOomOutput:
         assert result_lines[OOM_OUTPUT_MAX_LINES - 1] == f"line {OOM_OUTPUT_MAX_LINES - 1}"
         omitted = total_lines - OOM_OUTPUT_MAX_LINES
         assert f"[... {omitted} lines of stack trace omitted ...]" in result_lines[-1]
+
+
+class TestAppendOutputTruncatedHint:
+    """Tests for append_output_truncated_hint function."""
+
+    def test_hint_prepended_before_output(self):
+        result = append_output_truncated_hint("some large output")
+        assert result.startswith("[OUTPUT TRUNCATED]")
+        assert "some large output" in result
+        assert result.index("[OUTPUT TRUNCATED]") < result.index("some large output")
+
+    def test_hint_mentions_env_var_and_not_an_error(self):
+        result = append_output_truncated_hint("data")
+        assert "TOOL_MAX_OUTPUT_LENGTH" in result
+        assert "NOT an error" in result
+
+    def test_empty_output_returns_hint_only(self):
+        result = append_output_truncated_hint("")
+        assert result.startswith("[OUTPUT TRUNCATED]")
+
+
+def _popen(script: str) -> subprocess.Popen:
+    return subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+class TestReadProcessOutputCapped:
+    """Tests for read_process_output_capped function."""
+
+    def test_small_output_not_truncated(self):
+        process = _popen("print('hello world')")
+        output, timed_out, truncated = read_process_output_capped(process)
+        assert output.strip() == "hello world"
+        assert timed_out is False
+        assert truncated is False
+        assert process.returncode == 0
+
+    def test_output_capped_at_max_chars(self):
+        # Emit far more than the cap; ensure we keep exactly the cap and flag it.
+        process = _popen("import sys; sys.stdout.write('a' * 1000000)")
+        output, timed_out, truncated = read_process_output_capped(
+            process, max_output_chars=1000
+        )
+        assert truncated is True
+        assert timed_out is False
+        assert len(output) == 1000
+        assert set(output) == {"a"}
+
+    def test_cap_disabled_with_zero(self):
+        process = _popen("import sys; sys.stdout.write('a' * 50000)")
+        output, timed_out, truncated = read_process_output_capped(
+            process, max_output_chars=0
+        )
+        assert truncated is False
+        assert len(output) == 50000
+
+    def test_timeout_kills_process(self):
+        process = _popen("import time; time.sleep(30); print('done')")
+        output, timed_out, truncated = read_process_output_capped(
+            process, timeout=1
+        )
+        assert timed_out is True
+        assert "done" not in output
+        # Process must have been killed (reaped), not left running.
+        assert process.returncode is not None
+
+    def test_truncation_kills_process_and_reaps(self):
+        # A process that would keep writing forever must be killed once capped.
+        process = _popen(
+            "import sys\nwhile True:\n    sys.stdout.write('x' * 4096)"
+        )
+        output, timed_out, truncated = read_process_output_capped(
+            process, max_output_chars=8192
+        )
+        assert truncated is True
+        assert len(output) == 8192
+        assert process.returncode is not None

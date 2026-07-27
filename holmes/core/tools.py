@@ -49,7 +49,12 @@ from holmes.core.transformers import (
 )
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
-from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
+from holmes.utils.memory_limit import (
+    append_output_truncated_hint,
+    check_oom_and_append_hint,
+    get_ulimit_prefix,
+    read_process_output_capped,
+)
 from holmes.utils.pydantic_utils import build_config_example
 
 if TYPE_CHECKING:
@@ -658,20 +663,27 @@ class YAMLTool(Tool, BaseModel):
             logger.debug(f"Running `{cmd}`")
             protected_cmd = get_ulimit_prefix() + cmd
 
-            result = subprocess.run(
+            # Stream stdout through a capped reader so the parent process never
+            # buffers an unbounded amount of subprocess output into memory (the
+            # `ulimit -v` prefix only bounds the child process, not Holmes).
+            process = subprocess.Popen(
                 protected_cmd,
                 shell=True,
                 executable="/bin/bash",
                 text=True,
-                check=False,  # do not throw error, we just return the error code
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
             )
+            raw_output, _, truncated = read_process_output_capped(process)
+            return_code = process.returncode
 
-            output = result.stdout.strip()
-            output = check_oom_and_append_hint(output, result.returncode)
-            return output, result.returncode
+            output = raw_output.strip()
+            if truncated:
+                output = append_output_truncated_hint(output)
+            else:
+                output = check_oom_and_append_hint(output, return_code)
+            return output, return_code
         except Exception as e:
             logger.error(
                 f"An unexpected error occurred while running '{cmd}': {e}",

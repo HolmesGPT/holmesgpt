@@ -3,8 +3,11 @@ Memory limit utilities for tool subprocess execution.
 """
 
 import logging
+import subprocess
+import threading
+from typing import Optional, Tuple
 
-from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
+from holmes.common.env_vars import TOOL_MAX_OUTPUT_LENGTH, TOOL_MEMORY_LIMIT_MB
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +15,9 @@ logger = logging.getLogger(__name__)
 # The first few lines contain the error message; the rest is typically
 # goroutine stack dumps (Go) or core-dump noise that wastes tokens.
 OOM_OUTPUT_MAX_LINES = 10
+
+# Chunk size (in characters) used when draining a subprocess' stdout.
+_READ_CHUNK_SIZE = 65536
 
 
 def get_ulimit_prefix() -> str:
@@ -96,3 +102,103 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
         return hint
 
     return output
+
+
+def append_output_truncated_hint(output: str) -> str:
+    """Prepend a hint explaining that the command output was truncated.
+
+    Unlike an OOM (where the command crashed and produced little useful data),
+    a length-based truncation means the command succeeded but produced more
+    output than Holmes will hold in memory. The kept prefix is still useful, so
+    we prepend the hint and keep the (already capped) output.
+    """
+    hint = (
+        f"[OUTPUT TRUNCATED] The command produced more than the maximum "
+        f"{TOOL_MAX_OUTPUT_LENGTH} characters Holmes will read into memory, so the "
+        f"output below was cut off. This is a safety limit to avoid exhausting the "
+        f"Holmes container's memory — it is NOT an error or bug.\n"
+        f"\n"
+        f"Note to agent: The result is incomplete. Retry with a narrower query so the "
+        f"full output fits — for example filter by namespace, label selector, or a "
+        f"specific resource name; avoid broad `-o yaml`/`-o json` dumps across many "
+        f"objects (prefer `-o custom-columns`, `-o jsonpath`, or `kubectl get` without "
+        f"`-o yaml`). If you genuinely need the full output, the user can raise the "
+        f"TOOL_MAX_OUTPUT_LENGTH environment variable."
+    )
+    if output:
+        return hint + "\n\n" + output
+    return hint
+
+
+def read_process_output_capped(
+    process: "subprocess.Popen",
+    timeout: Optional[float] = None,
+    max_output_chars: Optional[int] = None,
+) -> Tuple[str, bool, bool]:
+    """Read a subprocess' stdout while bounding both time and memory.
+
+    The `ulimit -v` prefix bounds the *child* process, but the parent still has
+    to hold whatever the child writes to stdout. This drains ``process.stdout``
+    in chunks and stops once ``max_output_chars`` characters have been collected,
+    discarding the rest so the parent never buffers an unbounded amount of data.
+
+    The process must be created with ``stdout=subprocess.PIPE`` and
+    ``stderr=subprocess.STDOUT`` in text mode.
+
+    Args:
+        process: The already-started subprocess.
+        timeout: Max seconds to wait for the process to finish. ``None`` waits
+            indefinitely.
+        max_output_chars: Max characters to keep. ``None`` uses
+            ``TOOL_MAX_OUTPUT_LENGTH``; ``0`` disables the cap.
+
+    Returns:
+        (output, timed_out, truncated)
+    """
+    if max_output_chars is None:
+        max_output_chars = TOOL_MAX_OUTPUT_LENGTH
+
+    reader_state: dict = {"output": "", "truncated": False}
+
+    def _reader() -> None:
+        assert process.stdout is not None
+        chunks = []
+        total = 0
+        truncated = False
+        while True:
+            chunk = process.stdout.read(_READ_CHUNK_SIZE)
+            if not chunk:
+                break
+            if max_output_chars and total + len(chunk) >= max_output_chars:
+                chunks.append(chunk[: max_output_chars - total])
+                truncated = True
+                # Stop reading. The child may block writing to the now-full pipe;
+                # the caller kills it below to unblock and reap it.
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        reader_state["output"] = "".join(chunks)
+        reader_state["truncated"] = truncated
+
+    reader = threading.Thread(target=_reader, daemon=True)
+    reader.start()
+    reader.join(timeout)
+
+    timed_out = reader.is_alive()
+    truncated = reader_state["truncated"]
+
+    if timed_out or truncated:
+        # On timeout the reader is still blocked on read(); on truncation the
+        # child may be blocked writing to a full pipe. Killing closes the pipe,
+        # which unblocks and lets the reader thread finish.
+        process.kill()
+
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        logger.warning("Subprocess did not exit within 5s after kill()")
+
+    # Give the reader thread a moment to drain any final bytes and set output.
+    reader.join(1)
+
+    return reader_state["output"], timed_out, reader_state["truncated"]
