@@ -5,17 +5,21 @@
 # CVE-2026-39822 (High) and CVE-2026-42505 (Medium), both fixed in Go 1.26.5,
 # on top of the earlier CVE-2026-42499/33814/39836/33811/39820 fixes (Go 1.26.3).
 #
-# Four x/* replaces are applied to every binary that pulls them in, because the
+# Two x/* replaces are applied to every binary that pulls them in, because the
 # same advisories hit all of them:
-#   golang.org/x/net    -> v0.55.0  CVE-2026-33814 (fixed 0.53.0) plus
+#   golang.org/x/net    -> v0.57.0  CVE-2026-33814 (fixed 0.53.0) plus
 #                                   CVE-2026-25681/27136/39821 (High) and
 #                                   CVE-2026-25680/42502/42506 (Medium, >60d),
-#                                   all fixed in 0.55.0.
-#   golang.org/x/crypto -> v0.52.0  CVE-2026-39828/39829/39830/39831/39832/39835/
+#                                   all fixed in 0.55.0; 0.56.0 adds the
+#                                   CVE-2026-46600 fix.
+#   golang.org/x/crypto -> v0.54.0  CVE-2026-39828/39829/39830/39831/39832/39835/
 #                                   42508/46595/46597 (High) and CVE-2026-39827/
-#                                   39833/39834/46598 (Medium, >60d).
-# Bumping x/net to 0.55.0 also drags x/sys to 0.45.0 and x/text to 0.37.0 through
-# MVS, which clears CVE-2026-39824 (x/sys).
+#                                   39833/39834/46598 (Medium, >60d), all fixed
+#                                   in 0.52.0. Pinned to 0.54.0 rather than
+#                                   0.52.0 so the replace does not drag x/crypto
+#                                   back below what x/net v0.57.0 requires.
+# Bumping x/net to 0.57.0 also drags x/sys to 0.47.0 and x/text to 0.40.0 through
+# MVS, which clears CVE-2026-39824 (x/sys) and CVE-2026-56852 (x/text).
 #
 # ArgoCD: rebuilt from v3.3.11 source with go-git replaced to v5.19.1 and
 #   go-billy replaced to v5.9.0. ArgoCD pins go-git v5.14.0 upstream
@@ -25,39 +29,40 @@
 #   CVE-2026-45022 (fixed 5.19.0), CVE-2026-45570/45571 (fixed 5.19.1);
 #   go-billy v5.6.2 is vulnerable to CVE-2026-44973 (fixed 5.9.0).
 #   v3.3.11 already ships otel/sdk 1.43.0 so the old otel replace was dropped.
-#   Also replaced: grpc -> v1.82.1 (GHSA-hrxh-6v49-42gf), oras-go -> v2.6.1
-#   (CVE-2026-50151), mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d).
+#   Also replaced: grpc -> v1.82.1 (GHSA-hrxh-6v49-42gf), oras-go -> v2.6.2
+#   (CVE-2026-50151/50163), mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d).
 #   Revert to plain upstream binary when ArgoCD ships go-git >= 5.19.1 and
 #   go-billy >= 5.9.0 (blocked on go-git/go-git#1551 upstream).
 #
 # Helm: built from v3.21.0 with containerd replaced to v1.7.33 (CVE-2026-53488
 #   High + CVE-2026-47262; v3.21.0 ships v1.7.30), grpc replaced to v1.82.1
-#   (GHSA-hrxh-6v49-42gf; v3.21.0 ships v1.80.0) and oras-go replaced to v2.6.1
-#   (CVE-2026-50151).
+#   (GHSA-hrxh-6v49-42gf; v3.21.0 ships v1.80.0) and oras-go replaced to v2.6.2
+#   (CVE-2026-50151/50163).
 #   Revert to upstream binary when Helm releases a version built with
-#   Go >= 1.26.5, containerd >= 1.7.33, grpc >= 1.82.1 and oras-go >= 2.6.1.
+#   Go >= 1.26.5, containerd >= 1.7.33, grpc >= 1.82.1 and oras-go >= 2.6.2.
 #
 # kube-lineage: built with grpc replaced to v1.82.1 (GHSA-hrxh-6v49-42gf),
 #   spdystream replaced to v0.5.1 (CVE-2026-35469), containerd replaced
-#   to v1.7.33 (CVE-2026-53488), oras-go replaced to v2.6.1 (CVE-2026-50151),
-#   and helm replaced to v3.20.2 (CVE-2026-35206).
+#   to v1.7.33 (CVE-2026-53488), oras-go replaced to v2.6.2
+#   (CVE-2026-50151/50163), and helm replaced to v3.20.2 (CVE-2026-35206).
 #   robusta-dev/kube-lineage v2.2.5 ships with Go 1.24.13 + grpc 1.64.1 + spdystream 0.5.0.
 #   Revert when kube-lineage releases a version built with Go >= 1.26.5,
-#   grpc >= 1.82.1, spdystream >= 0.5.1, containerd >= 1.7.33, oras-go >= 2.6.1,
+#   grpc >= 1.82.1, spdystream >= 0.5.1, containerd >= 1.7.33, oras-go >= 2.6.2,
 #   and helm >= 3.20.2.
 #
-# kubectl: rebuilt from kubernetes/kubernetes v1.36.3 with x/net replaced to
-#   v0.55.0. The official dl.k8s.io v1.36.3 binary is already built with Go
-#   1.26.5, but every 1.36.x release still vendors x/net v0.49.0, which carries
-#   four High advisories (see the x/net note above) with no upstream release
-#   that fixes them. Drop this build and go back to the dl.k8s.io binary in the
-#   Dockerfile as soon as a kubectl release ships x/net >= 0.55.0 — check a
-#   candidate with:
+# kubectl: rebuilt from kubernetes/kubernetes v1.36.3 with the x/net and
+#   x/crypto replaces above. The official dl.k8s.io v1.36.3 binary is already
+#   built with Go 1.26.5, but every 1.36.x release still vendors x/net v0.49.0,
+#   which carries four High advisories (see the x/net note above) with no
+#   upstream release that fixes them. Drop this build and go back to the
+#   dl.k8s.io binary in the Dockerfile as soon as a kubectl release ships
+#   x/net >= 0.55.0 — check a candidate with:
 #     go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
 #
-# Known-unfixable findings left in the image (no upstream fix exists):
-#   CVE-2026-50163  (High, oras-go)      — no fixed version published yet.
-#   GO-2026-5932    (x/crypto/openpgp)   — package is unmaintained by design.
+# Known-unfixable finding left in the image (no upstream fix exists):
+#   GO-2026-5932  (x/crypto/openpgp) — the package is unmaintained by design.
+#   Not reachable from any code path holmes uses; x/crypto has no release that
+#   clears it because upstream will not fix openpgp.
 #
 # Prerequisites: Go 1.21+ installed locally (GOTOOLCHAIN auto-downloads the
 #   pinned build toolchain below)
@@ -135,9 +140,9 @@ SPDYSTREAM_PATCHED_VERSION=v0.5.1
 CONTAINERD_PATCHED_VERSION=v1.7.33
 HELM_IN_LINEAGE_PATCHED_VERSION=v3.20.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
-X_NET_PATCHED_VERSION=v0.55.0
-X_CRYPTO_PATCHED_VERSION=v0.52.0
-ORAS_GO_PATCHED_VERSION=v2.6.1
+X_NET_PATCHED_VERSION=v0.57.0
+X_CRYPTO_PATCHED_VERSION=v0.54.0
+ORAS_GO_PATCHED_VERSION=v2.6.2
 MONGO_DRIVER_PATCHED_VERSION=v1.17.7
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -187,7 +192,7 @@ echo "==> Cloning Helm $HELM_VERSION..."
 git clone --depth 1 --branch "$HELM_VERSION" https://github.com/helm/helm.git "$TMPDIR/helm"
 
 cd "$TMPDIR/helm"
-echo "==> Pinning containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-53488/47262), grpc to $GRPC_PATCHED_VERSION (GHSA-hrxh-6v49-42gf), and oras-go to $ORAS_GO_PATCHED_VERSION (CVE-2026-50151)..."
+echo "==> Pinning containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-53488/47262), grpc to $GRPC_PATCHED_VERSION (GHSA-hrxh-6v49-42gf), and oras-go to $ORAS_GO_PATCHED_VERSION (CVE-2026-50151/50163)..."
 go mod edit -replace="github.com/containerd/containerd=github.com/containerd/containerd@$CONTAINERD_PATCHED_VERSION"
 go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
 go mod edit -replace="oras.land/oras-go/v2=oras.land/oras-go/v2@$ORAS_GO_PATCHED_VERSION"
@@ -212,7 +217,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
 echo "==> Cloning kube-lineage $KUBE_LINEAGE_VERSION..."
 git clone --depth 1 --branch "$KUBE_LINEAGE_VERSION" https://github.com/robusta-dev/kube-lineage.git "$TMPDIR/kube-lineage"
 
-echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (GHSA-hrxh-6v49-42gf), spdystream to $SPDYSTREAM_PATCHED_VERSION (CVE-2026-35469), containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-53488/47262), and oras-go to $ORAS_GO_PATCHED_VERSION (CVE-2026-50151)..."
+echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (GHSA-hrxh-6v49-42gf), spdystream to $SPDYSTREAM_PATCHED_VERSION (CVE-2026-35469), containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-53488/47262), and oras-go to $ORAS_GO_PATCHED_VERSION (CVE-2026-50151/50163)..."
 cd "$TMPDIR/kube-lineage"
 go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
 go mod edit -replace="github.com/moby/spdystream=github.com/moby/spdystream@$SPDYSTREAM_PATCHED_VERSION"
