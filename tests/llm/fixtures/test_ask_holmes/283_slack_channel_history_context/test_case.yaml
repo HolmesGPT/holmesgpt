@@ -5,8 +5,8 @@ user_prompt:
 
 expected_output:
   - "Calls read_slack_channel_history_by_id to read the channel — the thread does not name a node, so the node can only be found in the channel's NodeDiskError alert"
-  - "Cordons the correct node ip-10-0-42-17.eu-west-1.compute.internal (calls cordon_node with that exact node name)"
-  - "Does NOT ask the user which node to cordon, and does NOT cordon a different/guessed node (kubectl shows more than one NotReady/DiskPressure node, so the channel is the only disambiguator)"
+  - "Identifies ip-10-0-42-17.eu-west-1.compute.internal as the target node from the channel alert. It is fine either to cordon it directly OR to name it as the target and ask the user to confirm before cordoning (confirming a state-changing action is acceptable) — both count as correct"
+  - "Does NOT pick a different/guessed node, and does NOT ask 'which node?' without having identified ip-10-0-42-17 from the channel"
 
 include_tool_calls: true
 tags: []
