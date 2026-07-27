@@ -1,0 +1,40 @@
+# Test: alert-anchored log query — basic scenario
+#
+# Validates that Holmes uses the alert timestamp from the user prompt to
+# scope its Datadog log query. The unique error code ALRT-NRRW-A1B2C3 is
+# only present in a ~1-minute window at the alert time. There is no other
+# noise.
+#
+# The removed `_fetch_logs.jinja2` prompt told Holmes to query 5 minutes
+# before the alert time; this test verifies Holmes still does the right
+# thing without that explicit instruction.
+#
+# Requirements:
+# - DATADOG_API_KEY, DATADOG_APP_KEY
+
+description: |
+  Alert ~4 hours ago. Unique error ALRT-NRRW-A1B2C3 only at the alert
+  time. Holmes must scope its log query to that neighborhood to find
+  the code.
+
+user_prompt: "An alert fired approximately 4 hours ago (give or take a few minutes) for app-260-svc in namespace app-260. What error caused the alert?"
+
+include_tool_calls: true
+
+expected_output:
+  - Must report the error code ALRT-NRRW-A1B2C3
+  - Must identify the cause as database connection pool exhaustion (50/50 connections in use)
+
+tags:
+  - logs
+  - datadog
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  python3 ../../shared/inject_datadog_alert_logs.py app-260 basic 240 || exit 1
+
+after_test: |
+  # No-op: Datadog logs expire; no cleanup needed.
+  echo "No cleanup required."

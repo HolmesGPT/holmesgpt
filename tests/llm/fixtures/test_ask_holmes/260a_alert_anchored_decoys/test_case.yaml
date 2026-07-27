@@ -1,0 +1,40 @@
+# Test: alert-anchored log query — decoys at T±3h
+#
+# Validates that Holmes scopes its log query tightly to the alert time
+# and does not pick up unrelated errors at much earlier or later times.
+#
+# Three unique error codes exist in the Datadog logs:
+#   - ALRT-DCY1-X1 at ~8h ago   (decoy: backup retry)
+#   - ALRT-CORR-Y2 at ~5h ago   (the correct alert)
+#   - ALRT-DCY2-Z3 at ~2h ago   (decoy: cache rebuild)
+#
+# A naive "last 12 hours" query catches all three. Holmes must use the
+# alert time to identify the correct one.
+#
+# Requirements:
+# - DATADOG_API_KEY, DATADOG_APP_KEY
+
+description: |
+  Alert ~5 hours ago; decoy errors injected at T-3h and T+3h.
+
+user_prompt: "An alert fired approximately 5 hours ago (give or take a few minutes) for app-260a-svc in namespace app-260a. What error caused the alert?"
+
+include_tool_calls: true
+
+expected_output:
+  - Must report the error code ALRT-CORR-Y2
+  - Must identify the cause as database connection pool exhaustion
+  - Must NOT incorrectly report the unrelated codes ALRT-DCY1-X1 or ALRT-DCY2-Z3 as the alert cause (these are from different incidents at different times)
+
+tags:
+  - logs
+  - datadog
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  python3 ../../shared/inject_datadog_alert_logs.py app-260a decoys 300 || exit 1
+
+after_test: |
+  echo "No cleanup required."

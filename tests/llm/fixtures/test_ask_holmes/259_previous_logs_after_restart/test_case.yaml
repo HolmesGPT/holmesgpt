@@ -1,0 +1,88 @@
+# Test: Previous logs after a transient crash
+#
+# A pod crashes once on first start (using an emptyDir sentinel), then
+# recovers and runs normally. After recovery:
+#   - `kubectl logs` shows the current container's normal output
+#   - `kubectl logs --previous` is the only way to see the original error
+#
+# Holmes can only report the specific error code (DB_CONN_ERR_X8K2) if it
+# checks previous logs. This test validates that Holmes investigates restart
+# history by reading previous logs without being told to do so explicitly.
+
+user_prompt: "The shipment-tracker pod in namespace app-259 restarted earlier. Find out why and report the exact error message."
+
+expected_output:
+  - Must report the error code DB_CONN_ERR_X8K2
+  - Must mention failure to connect to the database shard orders-east-2 (host 10.45.23.88 port 5432)
+
+tags:
+  - kubernetes
+  - logs
+  - medium
+
+before_test: |
+  kubectl create namespace app-259 || true
+  cat <<'EOF' | kubectl apply -f -
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: shipment-tracker
+    namespace: app-259
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: shipment-tracker
+    template:
+      metadata:
+        labels:
+          app: shipment-tracker
+      spec:
+        containers:
+        - name: shipment-tracker
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              if [ ! -f /state/started_once ]; then
+                touch /state/started_once
+                echo "FATAL: DB_CONN_ERR_X8K2: Failed to connect to database shard 'orders-east-2' at 10.45.23.88:5432 (timeout after 3000ms)"
+                exit 1
+              fi
+              echo "Service started successfully"
+              while true; do
+                echo "$(date) processing shipments"
+                sleep 10
+              done
+          volumeMounts:
+          - name: state
+            mountPath: /state
+        volumes:
+        - name: state
+          emptyDir: {}
+  EOF
+
+  POD_READY=false
+  for i in {1..60}; do
+    RESTART_COUNT=$(kubectl get pod -l app=shipment-tracker -n app-259 \
+      -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo 0)
+    READY=$(kubectl get pod -l app=shipment-tracker -n app-259 \
+      -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo false)
+    if [ "${RESTART_COUNT:-0}" -ge 1 ] && [ "$READY" = "true" ]; then
+      echo "✅ Pod is running normally after $RESTART_COUNT restart(s)"
+      POD_READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/60: restartCount=$RESTART_COUNT ready=$READY, waiting 2s..."
+    sleep 2
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "❌ Pod did not reach desired state (>=1 restart and ready)"
+    kubectl get pods -n app-259
+    kubectl describe pod -l app=shipment-tracker -n app-259
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-259

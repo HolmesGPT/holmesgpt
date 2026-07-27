@@ -1,0 +1,41 @@
+# Test: alert-anchored log query — "use recent defaults" trap
+#
+# Validates that Holmes does not fall back to "the most recent logs"
+# when the user mentions an alert from several hours ago. The alert is
+# ~9 hours ago; a DIFFERENT, unrelated error (ALRT-NEWR-CCCC: rate
+# limiter on an external API) was injected in the last 20 minutes.
+#
+# If Holmes defaults to "last 1 hour" / "last 30 minutes" — which is a
+# common default for log fetch tools — it will find the recent decoy
+# and miss the real alert. The correct behaviour is to honor the user-
+# provided time anchor.
+#
+# Requirements:
+# - DATADOG_API_KEY, DATADOG_APP_KEY
+
+description: |
+  Alert ~9 hours ago. The correct error code ALRT-OLDR-T1U2V3 is at the
+  alert time. A different recent error ALRT-NEWR-CCCC exists in the
+  last hour and must not be confused with the alert.
+
+user_prompt: "An alert fired approximately 9 hours ago (give or take a few minutes) for app-260d-svc in namespace app-260d. What error caused the alert?"
+
+include_tool_calls: true
+
+expected_output:
+  - Must report the error code ALRT-OLDR-T1U2V3
+  - Must identify the cause as a TLS handshake failure due to an expired certificate on an upstream service
+  - Must NOT incorrectly report the recent code ALRT-NEWR-CCCC as the alert cause (that was a rate-limit incident on a geocoding API in the last hour, unrelated to the alert from 9 hours ago)
+
+tags:
+  - logs
+  - datadog
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  python3 ../../shared/inject_datadog_alert_logs.py app-260d recent_decoy 540 || exit 1
+
+after_test: |
+  echo "No cleanup required."

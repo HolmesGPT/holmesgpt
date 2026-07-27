@@ -1,0 +1,37 @@
+# Test: alert-anchored log query — needle in spam haystack
+#
+# Validates that Holmes can find a narrow ERROR window among 100+ INFO/DEBUG
+# spam logs by scoping its query to the alert time. The relevant ERROR code
+# ALRT-SPAM-N4M5P6 appears in a ~1-minute window at the alert time.
+#
+# A query that pulls "the last 8 hours" without level/time filtering will
+# drown in spam and may miss the error entirely depending on the page size.
+#
+# Requirements:
+# - DATADOG_API_KEY, DATADOG_APP_KEY
+
+description: |
+  Alert ~6 hours ago surrounded by ~100 spammy INFO/DEBUG logs across
+  an 8h window. The relevant ERROR cluster is a 1-min window at the
+  alert time.
+
+user_prompt: "An alert fired approximately 6 hours ago (give or take a few minutes) for app-260b-svc in namespace app-260b. The service has been generating a lot of routine log traffic — what specific error triggered the alert?"
+
+include_tool_calls: true
+
+expected_output:
+  - Must report the error code ALRT-SPAM-N4M5P6
+  - Must identify the cause as the upstream authentication service returning 503 / circuit breaker opening
+
+tags:
+  - logs
+  - datadog
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  python3 ../../shared/inject_datadog_alert_logs.py app-260b spam 360 || exit 1
+
+after_test: |
+  echo "No cleanup required."

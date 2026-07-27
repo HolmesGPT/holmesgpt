@@ -1,0 +1,40 @@
+# Test: alert-anchored log query — "too far back" trap
+#
+# Validates that Holmes does not include an older, unrelated error in
+# its analysis just because it shows up when querying a wide time window.
+# The alert is ~3 hours ago; an unrelated DIFFERENT error
+# (ALRT-OLDB-AAAA: disk usage warning) was injected 7 hours before that
+# (~10 hours ago, well within Datadog's 18h indexing window).
+#
+# If Holmes queries "the last 12 hours" or similar, it will find the
+# older error. The correct behaviour is to scope to the alert time.
+#
+# Requirements:
+# - DATADOG_API_KEY, DATADOG_APP_KEY
+
+description: |
+  Alert ~3 hours ago. The correct error code ALRT-RCNT-Q7R8S9 is at the
+  alert time. A different historical error ALRT-OLDB-AAAA from ~7 hours
+  earlier exists and must not be confused with the current alert.
+
+user_prompt: "An alert fired approximately 3 hours ago (give or take a few minutes) for app-260c-svc in namespace app-260c. What error caused the alert?"
+
+include_tool_calls: true
+
+expected_output:
+  - Must report the error code ALRT-RCNT-Q7R8S9
+  - Must identify the cause as an OutOfMemoryError / memory pressure in the payment processor
+  - Must NOT incorrectly attribute the alert to ALRT-OLDB-AAAA (that was an unrelated disk-usage incident from much earlier in the day, already resolved)
+
+tags:
+  - logs
+  - datadog
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  python3 ../../shared/inject_datadog_alert_logs.py app-260c old_decoy 180 || exit 1
+
+after_test: |
+  echo "No cleanup required."
