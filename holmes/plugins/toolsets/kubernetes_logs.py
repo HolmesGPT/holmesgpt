@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,6 +63,10 @@ class KubernetesLogsToolset(Toolset):
         )
         # Now that parent is initialized and self.name exists, create the tool
         self.tools = [PodLoggingTool(self)]
+        self._load_llm_instructions_from_file(
+            file_dir=os.path.dirname(__file__),
+            filename="kubernetes_logs_instructions.jinja2",
+        )
         enabled, disabled_reason = self.health_check()
         prerequisite.enabled = enabled
         prerequisite.disabled_reason = disabled_reason
