@@ -73,7 +73,7 @@ Use this tool proactively in these scenarios:
 3. User explicitly requests todo list - When the user directly asks you to use the todo list
 4. User provides multiple tasks - When users provide a list of things to be done (numbered or comma-separated)
 5. After receiving new instructions - Immediately capture user requirements as todos
-6. When you start working on a task - Mark it as in_progress BEFORE beginning work. Ideally you should only have one todo as in_progress at a time
+6. When you start working on a task - Mark it as in_progress BEFORE beginning work. You may have multiple tasks in_progress at once when they are independent of one another; keep dependent tasks sequential
 7. After completing a task - Mark it as completed and add any new follow-up tasks discovered during implementation
 
 ## When NOT to Use This Tool
@@ -211,7 +211,7 @@ The assistant did not use the todo list because this is a single command executi
 
 1. **Task States**: Use these states to track progress:
    - pending: Task not yet started
-   - in_progress: Currently working on (limit to ONE task at a time)
+   - in_progress: Currently working on (multiple independent tasks may be in_progress at once; keep dependent tasks sequential)
    - completed: Task finished successfully
 
 2. **Task Management**:
@@ -241,8 +241,7 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
   // The updated todo list
   todos: {
     content: string;
-    status: "pending" | "in_progress" | "completed";
-    priority: "high" | "medium" | "low";
+    status: "pending" | "in_progress" | "completed" | "failed";
     id: string;
   }[];
 }
