@@ -359,6 +359,18 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+
+# Extract inbound W3C traceparent/baggage so /api/chat investigation spans
+# become children of the caller's distributed trace when OTel is enabled
+# (see #2268). No-op if the optional otel FastAPI instrumentation package
+# is not installed.
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app)
+except ImportError:
+    pass
+
 _SERVER_START_TIME = time.time()
 
 HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()

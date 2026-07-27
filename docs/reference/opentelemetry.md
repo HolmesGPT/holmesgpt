@@ -85,6 +85,10 @@ holmesgpt.investigation (root span)
 
 When HolmesGPT calls MCP tools over HTTP, trace context is automatically propagated via W3C `traceparent` headers (using httpx auto-instrumentation). MCP servers that support OpenTelemetry will create child spans linked to the same trace.
 
+### Inbound Trace Context
+
+When callers invoke HolmesGPT's HTTP API (for example `/api/chat`) with W3C `traceparent` / `baggage` headers, FastAPI OpenTelemetry instrumentation extracts that context so the `holmesgpt.investigation` span becomes a **child** of the caller's span instead of starting a new root trace. This lets traces chain across services such as `client → bridge → holmesgpt`.
+
 ## Metrics
 
 HolmesGPT exports the following OTel metrics via OTLP. All metrics use **underscore-delimited attribute keys** for maximum compatibility across backends.
