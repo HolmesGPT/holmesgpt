@@ -36,3 +36,22 @@ def test_kubernetes_python_toolset():
     )
     print(f"** PROMPT:\n{prompt}")
     assert "Use the tool `fetch_pod_logs` to access an application's logs" in prompt
+
+
+def test_log_transparency_mandate_present():
+    """The prompt must keep mandating disclosure of the log window fetched.
+
+    Guards the transparency requirement (tell the user the time period of
+    logs examined) against being dropped in prompt-size reductions. The
+    assertion is deliberately wording-agnostic so rephrasings pass, but
+    removing the mandate fails. Behavioral counterpart: eval
+    284_log_fetch_transparency.
+    """
+    toolset = KubernetesLogsToolset()
+    toolset.enabled = True
+    toolset.status = ToolsetStatusEnum.ENABLED
+    prompt = load_and_render_prompt(
+        "builtin://_fetch_logs.jinja2", {"toolsets": [toolset]}
+    )
+    assert "time period" in prompt.lower()
+    assert "always" in prompt.lower()

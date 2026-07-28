@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-# Ensure TMPDIR is set to avoid creating kubeconfig in wrong location
-if [ -z "$TMPDIR" ]; then
-    echo "Error: TMPDIR is not set"
-    exit 1
-fi
+# Fixed path shared with test_case.yaml's KUBECONFIG test_env_var. Must NOT
+# depend on $TMPDIR: the eval harness expands test_env_vars with
+# os.path.expandvars, so an unset TMPDIR leaves a literal "$TMPDIR/..." path
+# and the whole eval fails at setup (this is why this eval was red in CI).
+TEMP_DIR="/tmp/holmes-test-28-permissions"
 
 # Create the test namespace
 kubectl create namespace 28-test --dry-run=client -o yaml | kubectl apply -f -
@@ -75,8 +75,7 @@ CLUSTER_NAME=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
 CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 CLUSTER_CA=$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
 
-# Create predictable temporary directory for kubeconfig (cross-platform)
-TEMP_DIR="$TMPDIR/holmes-test-28-permissions"
+# Create predictable temporary directory for kubeconfig
 mkdir -p "$TEMP_DIR"
 KUBECONFIG_PATH="$TEMP_DIR/restricted-kubeconfig"
 
