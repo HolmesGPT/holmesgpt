@@ -44,7 +44,9 @@ litellm = "1.89.0"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
-mcp = "v1.25.0"
+# mcp >= 1.27.2 fixes CVE-2026-52869 and CVE-2026-52870 (both High); >= 1.28.1
+# additionally fixes CVE-2026-59950 (High).
+mcp = "1.28.1"
 prompt-toolkit = "^3.0.51"
 pygments = "^2.18.0"
 azure-identity = "^1.23.0"
@@ -85,6 +87,9 @@ pydantic-settings = ">=2.14.2"
 python-multipart = ">=0.0.31"
 # aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x hardening fixes.
 aiohttp = ">=3.14.1"
+# pyasn1 >= 0.6.4 fixes CVE-2026-59885 and CVE-2026-59886 (both High).
+# Pulled in transitively via pyasn1-modules -> google-auth.
+pyasn1 = ">=0.6.4"
 urllib3 = "^2.6.3"
 sqlalchemy = "^2.0.46"
 pg8000 = "^1.31.5"
