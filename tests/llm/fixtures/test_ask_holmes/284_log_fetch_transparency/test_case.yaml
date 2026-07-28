@@ -1,25 +1,32 @@
 # Behavioral guard for the log-fetch transparency mandate in the system
 # prompt (_fetch_logs / _default_log_prompt): when Holmes fetches logs it
-# must tell the user what window of logs it looked at, without being asked.
-# No other eval asserts this disclosure — the datadog/kubernetes log evals
-# only check that the right log content is found.
+# must tell the user what scope of logs it looked at (time window or amount),
+# without being asked. No other eval asserts this disclosure — the
+# datadog/kubernetes log evals only check that the right log content is found.
 #
 # The user prompt deliberately does NOT mention time windows or ask "what
 # logs did you look at" — the disclosure must come from the prompt mandate,
 # not from the question. The error reference code is unique and only
 # discoverable by actually fetching the pod's logs, ruling out hallucinated
 # answers.
+#
+# Tagged `medium`, not `regression`: measured compliance with the mandate is
+# ~2/3 on BOTH gpt-4.1 and opus-4.6 (3-iteration runs, master prompt wording)
+# — the failing iterations report the error perfectly but never say what log
+# scope was examined. This eval measures/tracks that gap; promote it to
+# regression once the prompt reliably elicits the disclosure.
 
-user_prompt: "Are there any problems with the order-sync deployment in namespace app-284?"
+user_prompt: "Are there any problems with the order-sync deployment in namespace app-284? Include the details of any errors you find."
 
 expected_output:
-  - Must report the failed push of batch 17 to the billing service (upstream 503) with reference code ORD284-7Q9K3M
-  - Must state what time period or time window of logs was examined (for example "logs from the last hour", "logs since <timestamp>", or an explicit time range) — a disclosure of the log window fetched, not merely a mention that logs were checked
+  - Must report the failed push to the billing service (upstream 503) including the reference code ORD284-7Q9K3M
+  - Must disclose the scope of logs examined, in either form the transparency mandate allows — the time period/window covered (e.g. "logs from the last hour", an explicit time range) or the amount fetched (e.g. "last 42 lines", "showing N of M lines"). A bare mention that logs were checked, with no window or amount, does not count.
 
 tags:
   - kubernetes
   - logs
   - transparency
+  - medium
 
 before_test: |
   set -e
