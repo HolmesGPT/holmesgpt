@@ -17,6 +17,7 @@ Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 
 import base64
 import gzip
+import json
 import logging
 import threading
 import time
@@ -287,6 +288,7 @@ class ToolCallWorker:
                 )
                 response = _error_response(f"executor failure: {e}")
                 status = RemoteToolCallStatus.FAILED
+
             ok = self.dal.post_remote_tool_call_result(
                 tool_call_id=row_id,
                 assignee=self.holmes_id,
@@ -365,35 +367,48 @@ class ToolCallWorker:
                 f"tool '{tool_name}' does not support instances on this cluster"
             )
 
-        # 3. Pre-approved mode only — no approval round-trip.
+        tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
+        user_approved = bool(metadata.get("remote_tool_approved"))
+        session_approved_prefixes = tool_request.get("session_approved_prefixes") or []
+
+        # 4. Tool invocation context.
         context = ToolInvokeContext(
             tool_number=None,
-            user_approved=False,
+            user_approved=user_approved,
             llm=self._get_llm(),
             max_token_count=int(tool_request.get("max_token_count")),
-            tool_call_id=str(tool_request.get("tool_call_id") or row.get("id") or ""),
+            tool_call_id=tool_call_id,
             tool_name=tool_name,
-            session_approved_prefixes=[],
+            session_approved_prefixes=session_approved_prefixes,
             request_context={"user_id": row.get("user_id")},
         )
-        approval = tool._get_approval_requirement(tool_params, context)
-        if approval and approval.needs_approval:
-            return _error_response(
-                "command/tool requires approval; approvals are not supported "
-                f"for remote execution ({approval.reason})"
-            )
 
         started = time.monotonic()
         result = tool.invoke(tool_params, context)
         elapsed = time.monotonic() - started
 
+        # 5. Handle approval-required status.
         if result.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
-            return _error_response(
-                "command/tool requires approval; approvals are not supported "
-                "for remote execution"
-            )
+            if user_approved:
+                return _error_response(
+                    "tool still requires approval after user approval "
+                    "(internal error); refusing to re-request to avoid a loop",
+                    invocation=result.invocation,
+                )
+            return {
+                "status": StructuredToolResultStatus.APPROVAL_REQUIRED.value,
+                "data": None,
+                "compressed": False,
+                "data_gz_b64": None,
+                "error": result.error,
+                "return_code": result.return_code,
+                "invocation": result.invocation,
+                "elapsed_seconds": round(elapsed, 3),
+                "executor_holmes_version": get_version(),
+                "approval_params": tool_params,
+            }
 
-        # 4. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
+        # 6. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
         result.images = None
         return serialize_tool_response(result, elapsed)
 
