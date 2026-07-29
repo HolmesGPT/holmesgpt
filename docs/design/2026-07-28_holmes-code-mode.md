@@ -271,7 +271,7 @@ compaction all apply unchanged.
 
 Generated per request from the `ToolExecutor`'s eligible tools:
 
-```
+```text
 holmes/
   kubernetes.py     get_pods(namespace: str, ...) -> dict
   prometheus.py     query(promql: str, ...) -> dict
@@ -321,7 +321,7 @@ events with one new field:
 
 ### Data flow
 
-```
+```text
 LLM step k                Holmes                          UI (via relay pipe)
   │                         │                               │
   ├─ tool_call ───────────▶ run_python_code(code)           │
