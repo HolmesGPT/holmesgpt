@@ -807,6 +807,7 @@ class ToolCallingLLM:
                 tool_call_id=tool_call_id,
                 session_approved_prefixes=session_approved_prefixes or [],
                 request_context=request_context,
+                tool_executor=self.tool_executor,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 

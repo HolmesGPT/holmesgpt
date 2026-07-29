@@ -64,6 +64,35 @@ _TOOL_DESCRIPTION = (
 )
 
 
+# Only these parent env vars are forwarded to the untrusted subprocess.
+_ENV_PASSTHROUGH = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ")
+_FALLBACK_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+def _build_subprocess_env(socket_path: str, user_file: str, tools_file: str) -> dict:
+    """Build a minimal environment for the untrusted subprocess.
+
+    Deliberately does NOT inherit the parent's ``os.environ``: credentials
+    exposed to Holmes as environment variables (LLM/provider keys, DB
+    passwords, other toolsets' secrets) must never be readable by the
+    LLM-authored script. Only PATH/locale and the bridge handoff vars are
+    passed through.
+    """
+    env = {
+        "HOLMES_CODE_SOCKET": socket_path,
+        "HOLMES_CODE_USER_FILE": user_file,
+        "HOLMES_CODE_TOOLS": tools_file,
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUNBUFFERED": "1",
+    }
+    for key in _ENV_PASSTHROUGH:
+        val = os.environ.get(key)
+        if val is not None:
+            env[key] = val
+    env.setdefault("PATH", _FALLBACK_PATH)
+    return env
+
+
 def _summarize_subcalls(records: List[SubToolCall]) -> str:
     if not records:
         return ""
@@ -114,8 +143,7 @@ class RunPythonCode(Tool):
             timeout = config.default_timeout_seconds
         return max(1, min(timeout, config.max_timeout_seconds))
 
-    def _make_dispatch(self, context: ToolInvokeContext, allowed: set):
-        executor = self.toolset._tool_executor
+    def _make_dispatch(self, context: ToolInvokeContext, executor, allowed: set):
         counter = itertools.count()
 
         def dispatch(tool_name: str, tool_params: dict) -> dict:
@@ -176,7 +204,10 @@ class RunPythonCode(Tool):
                 params=params,
             )
 
-        executor = self.toolset._tool_executor
+        # Prefer the request-scoped executor from the invoke context (set by the
+        # agentic loop) over the toolset's wired reference, so concurrent
+        # requests never share/overwrite each other's executor.
+        executor = getattr(context, "tool_executor", None) or self.toolset._tool_executor
         if executor is None:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -204,17 +235,12 @@ class RunPythonCode(Tool):
             with open(tools_file, "w") as fh:
                 json.dump(tools_spec, fh)
 
-            env = {
-                **os.environ,
-                "HOLMES_CODE_SOCKET": socket_path,
-                "HOLMES_CODE_USER_FILE": user_file,
-                "HOLMES_CODE_TOOLS": tools_file,
-            }
+            env = _build_subprocess_env(socket_path, user_file, tools_file)
             cmd = get_ulimit_prefix() + f"python3 {shlex.quote(_RUNNER_PATH)}"
 
             timed_out = False
             with ToolCallBridge(
-                dispatch=self._make_dispatch(context, allowed),
+                dispatch=self._make_dispatch(context, executor, allowed),
                 socket_path=socket_path,
             ) as bridge, open(stdout_path, "wb") as out:
                 process = subprocess.Popen(
@@ -300,7 +326,7 @@ class RunPythonCode(Tool):
         )
 
     def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
-        code = params.get("code", "")
+        code = params.get("code") or ""  # tolerate {"code": null}
         first_line = code.strip().splitlines()[0] if code.strip() else ""
         return first_line[:200] + ("…" if len(first_line) > 200 else "")
 

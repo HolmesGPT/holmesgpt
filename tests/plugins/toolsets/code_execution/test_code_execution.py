@@ -305,6 +305,24 @@ def test_timeout_is_clamped_to_max(wired_toolset):
     assert tool._resolve_timeout({"timeout": "not-an-int"}) == 60
 
 
+def test_subprocess_env_excludes_parent_secrets(wired_toolset, monkeypatch):
+    """The untrusted script must NOT see the parent's env (credential leak)."""
+    monkeypatch.setenv("SUPER_SECRET_API_KEY", "leak-me-if-you-can")
+    code = "import os; print('SUPER_SECRET_API_KEY' in os.environ)"
+    result = _run(wired_toolset, code)
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "False" in result.data
+    assert "leak-me-if-you-can" not in (result.data or "")
+
+
+def test_null_code_one_liner_does_not_crash(wired_toolset):
+    """get_parameterized_one_liner runs outside the invoke try/except, so it
+    must tolerate {"code": null} without raising."""
+    tool = wired_toolset.tools[0]
+    assert tool.get_parameterized_one_liner({"code": None}) == ""
+    assert tool.get_parameterized_one_liner({}) == ""
+
+
 def test_records_track_subcalls(wired_toolset):
     """The bridge records each sub-call (basis for later live SSE streaming)."""
     code = "holmes.echo_tool(text='hi'); holmes.always_errors()"
