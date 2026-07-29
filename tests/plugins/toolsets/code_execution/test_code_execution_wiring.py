@@ -3,7 +3,7 @@ sibling tools. This is the integration seam between the agentic loop and the
 code_execution toolset."""
 
 from holmes.core.tool_calling_llm import ToolCallingLLM
-from holmes.core.tools import ToolsetStatusEnum, ToolsetTag, Toolset
+from holmes.core.tools import ToolInvokeContext, ToolsetStatusEnum, ToolsetTag, Toolset
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.plugins.toolsets.code_execution.code_execution_toolset import (
     CodeExecutionToolset,
@@ -66,3 +66,17 @@ def test_wiring_hook_is_generic_and_ignores_plain_toolsets():
         llm=MockLLM(),
         tool_results_dir=None,
     )
+
+
+def test_tool_executor_excluded_from_context_model_dump():
+    """The request-scoped executor must not leak into serialized context."""
+    executor = ToolExecutor(toolsets=[])
+    ctx = ToolInvokeContext(
+        llm=MockLLM(),
+        max_token_count=1000,
+        tool_call_id="x",
+        tool_name="t",
+        tool_executor=executor,
+    )
+    assert ctx.tool_executor is executor  # available at runtime
+    assert "tool_executor" not in ctx.model_dump()  # but never serialized
