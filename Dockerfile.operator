@@ -12,13 +12,14 @@ ARG WHEEL_MIN_VERSION=0.46.2
 ARG SETUPTOOLS_MIN_VERSION=80.0.0
 
 COPY pyproject.toml poetry.lock* ./
+COPY holmes/ ./holmes/
 # Upgrade build tooling first so poetry and the package installs it runs use the
 # CVE-patched pip/setuptools/wheel.
 RUN pip install --no-cache-dir -U \
         "pip>=${PIP_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "wheel>=${WHEEL_MIN_VERSION}" && \
     pip install --no-cache-dir poetry && \
     poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi --no-root
+    poetry install --no-interaction --no-ansi
 
 COPY holmes_operator/ ./holmes_operator/
 
