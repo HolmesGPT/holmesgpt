@@ -1,5 +1,7 @@
 """Unit tests for worker lifecycle / claim-loop / error handling."""
 import threading
+import logging
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,8 +24,11 @@ def _bare_worker():
     w._running = True
     w._claim_thread = None
     w._notify_event = threading.Event()
+    w._saturated_since = None
+    w._saturation_logged = False
+    w._last_stuck_warn = None
     w._executor = MagicMock()
-    w._active_conversation_ids = set()
+    w._active_conversation_ids = {}
     w._active_lock = threading.Lock()
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
@@ -125,7 +130,7 @@ def test_try_claim_and_dispatch_passes_remaining_capacity_as_limit(monkeypatch):
     )
     # Two conversations already running -> only 3 free slots remain
     # (free = MAX_CONCURRENT - active; there is no longer a local queue).
-    w._active_conversation_ids = {"existing1", "existing2"}
+    w._active_conversation_ids = {"existing1": 0.0, "existing2": 0.0}
     w.dal.claim_n_pending_conversations.return_value = []
     w._try_claim_and_dispatch()
     w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 3)
@@ -140,11 +145,125 @@ def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
         1,
     )
     # Already have one active conversation -> zero free slots.
-    w._active_conversation_ids = {"existing"}
+    w._active_conversation_ids = {"existing": 0.0}
     w._try_claim_and_dispatch()
     # No claim RPC is issued at all when there is no free capacity.
     w.dal.claim_n_pending_conversations.assert_not_called()
     w._executor.submit.assert_not_called()
+
+
+def test_saturation_logs_only_after_continuous_window(monkeypatch, caplog):
+    """ROB-759: full capacity is a normal state under load, so the saturation
+    INFO fires only after _SATURATION_LOG_AFTER_SECONDS of CONTINUOUS
+    saturation — a brief free-slot observation (backlog churn) resets the
+    clock, so a healthy busy worker never logs (no enter/exit flicker)."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    w._active_conversation_ids = {("conv-busy", 1): time.monotonic()}
+
+    def saturation_lines():
+        return [
+            r
+            for r in caplog.records
+            if "claim capacity saturated" in r.getMessage()
+        ]
+
+    with caplog.at_level(logging.INFO):
+        # First saturated observation starts the clock — no log yet.
+        w._try_claim_and_dispatch()
+        assert not saturation_lines()
+
+        # Still within the window — no log.
+        w._try_claim_and_dispatch()
+        assert not saturation_lines()
+
+        # Backfill the clock past the window → the single INFO fires.
+        w._saturated_since = time.monotonic() - 61.0
+        w._try_claim_and_dispatch()
+        assert len(saturation_lines()) == 1
+        assert "conv-busy" in saturation_lines()[0].getMessage()
+
+        # Saturation persists → still only the one line.
+        w._try_claim_and_dispatch()
+        assert len(saturation_lines()) == 1
+
+        # A slot frees → exit line with duration, and the clock resets.
+        w._active_conversation_ids = {}
+        w.dal.claim_n_pending_conversations.return_value = []
+        w._try_claim_and_dispatch()
+        exits = [
+            r
+            for r in caplog.records
+            if "capacity available again" in r.getMessage()
+        ]
+        assert len(exits) == 1
+        assert w._saturated_since is None and w._saturation_logged is False
+
+
+def test_brief_free_slot_resets_saturation_clock(monkeypatch, caplog):
+    """Churn scenario: saturated → one slot frees momentarily → saturated
+    again. The free observation must reset the clock so no line is logged."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    w.dal.claim_n_pending_conversations.return_value = []
+
+    with caplog.at_level(logging.INFO):
+        # Saturated, clock nearly expired.
+        w._active_conversation_ids = {("conv-a", 1): time.monotonic()}
+        w._try_claim_and_dispatch()
+        w._saturated_since = time.monotonic() - 59.0
+
+        # Brief dip to a free slot (conversation completed) → clock resets.
+        w._active_conversation_ids = {}
+        w._try_claim_and_dispatch()
+        assert w._saturated_since is None
+
+        # Saturated again: window starts over, so no log even though the
+        # combined saturated time exceeds the threshold.
+        w._active_conversation_ids = {("conv-b", 1): time.monotonic()}
+        w._try_claim_and_dispatch()
+    assert not [
+        r for r in caplog.records if "claim capacity" in r.getMessage()
+    ]
+
+
+def test_stuck_slot_emits_warning(monkeypatch, caplog):
+    """A slot held longer than CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
+    while claiming is blocked is an anomaly → WARNING (rate-limited)."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS",
+        100.0,
+    )
+    w._active_conversation_ids = {("conv-stuck", 1): time.monotonic() - 150.0}
+    w._saturated_since = time.monotonic() - 10.0  # saturation ongoing
+
+    def stuck_warnings():
+        return [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "slot(s) stuck" in r.getMessage()
+        ]
+
+    with caplog.at_level(logging.INFO):
+        w._try_claim_and_dispatch()
+        assert len(stuck_warnings()) == 1
+        assert "conv-stuck" in stuck_warnings()[0].getMessage()
+
+        # Rate-limited: an immediate second check does not warn again.
+        w._try_claim_and_dispatch()
+        assert len(stuck_warnings()) == 1
 
 
 def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
@@ -208,7 +327,7 @@ def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
         assert len(w._active_conversation_ids) <= 5, "never exceed MAX_CONCURRENT"
 
         for key in list(w._active_conversation_ids):
-            w._active_conversation_ids.discard(key)
+            w._active_conversation_ids.pop(key, None)
 
     # The whole pool is freed each iteration, so every claim requests the full
     # 5 free slots; the final batch simply returns fewer rows (the remaining 2).
@@ -280,7 +399,7 @@ def test_two_workers_claim_disjoint_sets(monkeypatch):
         for w in (w1, w2):
             w._try_claim_and_dispatch()
             for key in list(w._active_conversation_ids):
-                w._active_conversation_ids.discard(key)
+                w._active_conversation_ids.pop(key, None)
 
     assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
     assert "w1" in dispatched.values() and "w2" in dispatched.values(), (

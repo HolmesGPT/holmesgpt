@@ -231,6 +231,11 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     allow_toolset_failures: Optional[bool] = (
         False  # Allow toolsets to fail prerequisite checks (default False)
     )
+    # Tool names that must NOT appear in the (live) run's tool calls. Asserts on
+    # Holmes's actual behavior, deterministically (no LLM grading), e.g. a
+    # negative eval proving that when the answer is already in the request,
+    # Holmes does not make an unnecessary lookup. None/empty disables the check.
+    forbidden_tools: Optional[List[str]] = None
 
     # Internal fields for variant handling
     variant_index: Optional[int] = None  # Which variant this instance represents
