@@ -97,38 +97,8 @@ _default_memory_limit = (
 TOOL_MEMORY_LIMIT_MB = int(
     os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
 )
-
-# Virtual-memory headroom (MB) added on top of TOOL_MEMORY_LIMIT_MB when setting
-# the subprocess `ulimit -v` backstop.
-#
-# TOOL_MEMORY_LIMIT_MB is a *resident* (RSS) budget, enforced precisely by
-# polling the subprocess tree (see read_process_output_capped). `ulimit -v`,
-# however, caps *virtual* address space (RLIMIT_AS), which is a poor proxy for
-# real memory for Go tools: kubectl reserves ~2 GB of virtual address space to
-# emit ~8 MB of YAML while its resident usage is only ~600 MB. Capping virtual
-# memory at the resident budget therefore kills kubectl before it produces any
-# output. We keep `ulimit -v` only as a cheap, kernel-enforced backstop against
-# instantaneous virtual explosions (which the RSS poll could miss between
-# samples), set generously above the resident budget so it does not spuriously
-# trip legitimate Go tools. Set to 0 to disable the `ulimit -v` backstop
-# entirely (relying solely on RSS polling).
 TOOL_VIRTUAL_MEMORY_HEADROOM_MB = int(
     os.environ.get("TOOL_VIRTUAL_MEMORY_HEADROOM_MB", 2048)
-)
-
-# Maximum number of characters to read from a single tool subprocess' stdout.
-# The `ulimit -v` prefix (see TOOL_MEMORY_LIMIT_MB) only bounds the *child*
-# process (e.g. kubectl). Without this cap the Holmes *parent* process would
-# buffer the entire subprocess output into memory before it is ever truncated
-# for the context window — so a large `kubectl ... -o yaml/json` output that
-# stays just under the child's ulimit can still exhaust the Holmes container's
-# memory limit. Reading is stopped once this many characters have been
-# collected and the rest of the output is discarded with a hint.
-# Default 20 MB: far below any reasonable container memory limit, yet far above
-# the per-tool context-window truncation threshold (~25k tokens ≈ 100 KB), so
-# no data that would have survived truncation is lost. Set to 0 to disable.
-TOOL_MAX_OUTPUT_LENGTH = int(
-    os.environ.get("TOOL_MAX_OUTPUT_LENGTH", 20 * 1024 * 1024)
 )
 
 STREAM_CHUNKS_PER_PARSE = int(

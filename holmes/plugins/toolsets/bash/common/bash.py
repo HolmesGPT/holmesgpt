@@ -3,10 +3,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from holmes.utils.memory_limit import (
-    append_output_truncated_hint,
     check_oom_and_append_hint,
     get_ulimit_prefix,
-    read_process_output_capped,
+    start_memory_guard,
 )
 
 
@@ -38,36 +37,28 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        # New session/process group so the whole tree (kubectl, not just the
-        # /bin/bash wrapper) can be killed on timeout / memory breach.
         start_new_session=True,
     )
+    start_memory_guard(process)
 
-    stdout, timed_out, truncated, mem_killed = read_process_output_capped(
-        process, timeout=timeout
-    )
-    stdout = stdout.strip() if stdout else ""
+    try:
+        stdout, _ = process.communicate(timeout=timeout)
+        stdout = stdout.strip() if stdout else ""
+        stdout = check_oom_and_append_hint(stdout, process.returncode)
 
-    if timed_out:
+        return BashResult(
+            stdout=stdout,
+            return_code=process.returncode,
+            timed_out=False,
+        )
+    except subprocess.TimeoutExpired:
+        process.kill()
+        # Collect any partial output that was generated before timeout
+        stdout, _ = process.communicate()
+        stdout = stdout.strip() if stdout else ""
+
         return BashResult(
             stdout=stdout,
             return_code=None,
             timed_out=True,
         )
-
-    if truncated:
-        # The command succeeded but produced more output than we will buffer.
-        # Keep the (capped) prefix and flag it so the LLM narrows its query.
-        stdout = append_output_truncated_hint(stdout)
-    elif mem_killed:
-        # We killed the tree for exceeding the resident-memory budget. Surface
-        # the OOM hint explicitly rather than relying on the exit code.
-        stdout = check_oom_and_append_hint(stdout, 137)
-    else:
-        stdout = check_oom_and_append_hint(stdout, process.returncode)
-
-    return BashResult(
-        stdout=stdout,
-        return_code=process.returncode,
-        timed_out=False,
-    )

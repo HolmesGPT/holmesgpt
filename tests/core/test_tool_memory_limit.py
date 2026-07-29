@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -7,31 +8,25 @@ from holmes.common.env_vars import (
     TOOL_MEMORY_LIMIT_MB,
     TOOL_VIRTUAL_MEMORY_HEADROOM_MB,
 )
-from holmes.utils import memory_limit as ml
 from holmes.utils.memory_limit import (
     OOM_OUTPUT_MAX_LINES,
-    _sample_tree_rss_mb,
+    _kill_process_group,
+    _tree_rss_mb,
     _truncate_oom_output,
-    append_output_truncated_hint,
     check_oom_and_append_hint,
     get_ulimit_prefix,
-    read_process_output_capped,
+    start_memory_guard,
 )
 
 
 class TestGetUlimitPrefix:
     """Tests for get_ulimit_prefix function."""
 
-    def test_includes_virtual_headroom(self):
-        """The ulimit -v backstop = resident budget + virtual headroom."""
+    def test_returns_ulimit_command_with_headroom(self):
+        """Test ulimit prefix caps virtual memory at the budget plus headroom."""
         result = get_ulimit_prefix()
         expected_kb = 1024 * (TOOL_MEMORY_LIMIT_MB + TOOL_VIRTUAL_MEMORY_HEADROOM_MB)
         assert result == f"ulimit -v {expected_kb} 2>/dev/null || true; "
-
-    def test_disabled_when_headroom_non_positive(self, monkeypatch):
-        """Headroom <= 0 disables the ulimit -v backstop (RSS poll is sole enforcer)."""
-        monkeypatch.setattr(ml, "TOOL_VIRTUAL_MEMORY_HEADROOM_MB", 0)
-        assert get_ulimit_prefix() == ""
 
 
 class TestCheckOomAndAppendHint:
@@ -177,31 +172,8 @@ class TestTruncateOomOutput:
         assert f"[... {omitted} lines of stack trace omitted ...]" in result_lines[-1]
 
 
-class TestAppendOutputTruncatedHint:
-    """Tests for append_output_truncated_hint function."""
-
-    def test_hint_prepended_before_output(self):
-        result = append_output_truncated_hint("some large output")
-        assert result.startswith("[OUTPUT TRUNCATED]")
-        assert "some large output" in result
-        assert result.index("[OUTPUT TRUNCATED]") < result.index("some large output")
-
-    def test_hint_mentions_env_var_and_not_an_error(self):
-        result = append_output_truncated_hint("data")
-        assert "TOOL_MAX_OUTPUT_LENGTH" in result
-        assert "NOT an error" in result
-
-    def test_empty_output_returns_hint_only(self):
-        result = append_output_truncated_hint("")
-        assert result.startswith("[OUTPUT TRUNCATED]")
-
-
 def _popen(script: str, shell: bool = False) -> subprocess.Popen:
-    """Launch a helper process in its own session so the whole tree is killable."""
-    if shell:
-        args: object = script
-    else:
-        args = [sys.executable, "-c", script]
+    args = script if shell else [sys.executable, "-c", script]
     return subprocess.Popen(
         args,
         shell=shell,
@@ -214,122 +186,34 @@ def _popen(script: str, shell: bool = False) -> subprocess.Popen:
     )
 
 
-class TestReadProcessOutputCapped:
-    """Tests for read_process_output_capped function."""
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="requires /proc")
+class TestMemoryGuard:
+    """Tests for the /proc-based memory guard helpers."""
 
-    def test_small_output_not_truncated(self):
-        process = _popen("print('hello world')")
-        output, timed_out, truncated, mem_killed = read_process_output_capped(
-            process, max_rss_mb=0
-        )
-        assert output.strip() == "hello world"
-        assert timed_out is False
-        assert truncated is False
-        assert mem_killed is False
-        assert process.returncode == 0
-
-    def test_output_capped_at_max_chars(self):
-        # Emit far more than the cap; ensure we keep exactly the cap and flag it.
-        process = _popen("import sys; sys.stdout.write('a' * 1000000)")
-        output, timed_out, truncated, mem_killed = read_process_output_capped(
-            process, max_output_chars=1000, max_rss_mb=0
-        )
-        assert truncated is True
-        assert timed_out is False
-        assert len(output) == 1000
-        assert set(output) == {"a"}
-
-    def test_cap_disabled_with_zero(self):
-        process = _popen("import sys; sys.stdout.write('a' * 50000)")
-        output, timed_out, truncated, mem_killed = read_process_output_capped(
-            process, max_output_chars=0, max_rss_mb=0
-        )
-        assert truncated is False
-        assert len(output) == 50000
-
-    def test_timeout_kills_process(self):
-        process = _popen("import time; time.sleep(30); print('done')")
-        output, timed_out, truncated, mem_killed = read_process_output_capped(
-            process, timeout=1, max_rss_mb=0
-        )
-        assert timed_out is True
-        assert "done" not in output
-        # Process must have been killed (reaped), not left running.
-        assert process.returncode is not None
-
-    def test_truncation_kills_process_and_reaps(self):
-        # A process that would keep writing forever must be killed once capped.
-        process = _popen(
-            "import sys\nwhile True:\n    sys.stdout.write('x' * 4096)"
-        )
-        output, timed_out, truncated, mem_killed = read_process_output_capped(
-            process, max_output_chars=8192, max_rss_mb=0
-        )
-        assert truncated is True
-        assert len(output) == 8192
-        assert process.returncode is not None
-
-    @pytest.mark.skipif(
-        not sys.platform.startswith("linux"),
-        reason="RSS polling requires /proc (Linux only)",
-    )
-    def test_rss_budget_kills_runaway(self):
-        # Allocate ~200MB of resident memory and hold it; a 50MB budget must
-        # kill the process before it finishes.
-        process = _popen(
-            "import sys, time\n"
-            "buf = bytearray(200 * 1024 * 1024)\n"
-            "for i in range(0, len(buf), 4096): buf[i] = 1\n"  # fault pages -> resident
-            "sys.stdout.write('done'); sys.stdout.flush()\n"
-            "time.sleep(30)\n"
-        )
-        output, timed_out, truncated, mem_killed = read_process_output_capped(
-            process, timeout=20, max_rss_mb=50
-        )
-        assert mem_killed is True
-        assert timed_out is False
-        assert process.returncode is not None
-
-    @pytest.mark.skipif(
-        not sys.platform.startswith("linux"),
-        reason="RSS polling requires /proc (Linux only)",
-    )
-    def test_rss_budget_allows_within_budget(self):
-        process = _popen("print('small output')")
-        output, timed_out, truncated, mem_killed = read_process_output_capped(
-            process, max_rss_mb=500
-        )
-        assert mem_killed is False
-        assert output.strip() == "small output"
-
-    @pytest.mark.skipif(
-        not sys.platform.startswith("linux"),
-        reason="process-group kill + /proc are Linux only",
-    )
-    def test_kills_grandchild_process(self, tmp_path):
-        # A bash parent that spawns a long-lived grandchild which writes its PID
-        # to a file. On timeout the whole group must die (not just bash), so the
-        # grandchild must be gone afterwards.
+    def test_tree_rss_positive_for_self(self):
         import os
-        import time
 
-        pidfile = tmp_path / "grandchild.pid"
-        # bash -> python grandchild that records its pid then sleeps forever
+        assert _tree_rss_mb(os.getpid()) > 0
+
+    def test_tree_rss_missing_pid_is_zero(self):
+        assert _tree_rss_mb(2**22) == 0
+
+    def test_kill_process_group_kills_grandchild(self, tmp_path):
+        import os
+
+        pidfile = tmp_path / "gc.pid"
         script = (
             f"{sys.executable} -c "
-            f"'import os,time; open(\"{pidfile}\",\"w\").write(str(os.getpid())); "
-            f"time.sleep(120)' & wait"
+            f"'import os,time; open(\"{pidfile}\",\"w\").write(str(os.getpid())); time.sleep(120)' & wait"
         )
         process = _popen(script, shell=True)
-        read_process_output_capped(process, timeout=2, max_rss_mb=0)
-
-        # Wait for the pidfile then confirm the grandchild is dead.
         for _ in range(50):
             if pidfile.exists():
                 break
             time.sleep(0.05)
-        assert pidfile.exists(), "grandchild never started"
         gc_pid = int(pidfile.read_text().strip())
+        _kill_process_group(process)
+        process.wait(timeout=5)
 
         alive = True
         for _ in range(40):
@@ -339,26 +223,22 @@ class TestReadProcessOutputCapped:
                 alive = False
                 break
             time.sleep(0.05)
-        assert alive is False, f"grandchild {gc_pid} survived process-group kill"
+        assert alive is False
 
+    def test_guard_kills_runaway_over_budget(self):
+        process = _popen(
+            "import time\n"
+            "buf = bytearray(200 * 1024 * 1024)\n"
+            "for i in range(0, len(buf), 4096): buf[i] = 1\n"
+            "time.sleep(30)\n"
+        )
+        start_memory_guard(process, limit_mb=50)
+        process.wait(timeout=20)
+        assert process.returncode is not None  # killed, not still running
 
-class TestSampleTreeRssMb:
-    """Tests for _sample_tree_rss_mb."""
-
-    @pytest.mark.skipif(
-        not sys.platform.startswith("linux"), reason="requires /proc"
-    )
-    def test_returns_positive_for_current_process(self):
-        import os
-
-        rss = _sample_tree_rss_mb(os.getpid())
-        assert rss is not None
-        assert rss > 0
-
-    @pytest.mark.skipif(
-        not sys.platform.startswith("linux"), reason="requires /proc"
-    )
-    def test_missing_pid_does_not_raise(self):
-        # A pid that does not exist yields 0 (no matching /proc entry), not an error.
-        rss = _sample_tree_rss_mb(2**22)
-        assert rss == 0
+    def test_guard_allows_within_budget(self):
+        process = _popen("print('ok')")
+        start_memory_guard(process, limit_mb=500)
+        out, _ = process.communicate(timeout=10)
+        assert out.strip() == "ok"
+        assert process.returncode == 0
