@@ -138,6 +138,41 @@ def _kill_process_group(process: subprocess.Popen) -> None:
             pass
 
 
+TOOL_OUTPUT_BUFFER_LIMIT_CHARS = 50 * 1024 * 1024
+
+
+# Drop-in replacement for process.communicate() that never buffers more than the limit in parent memory; kills the process group when output exceeds it, and raises TimeoutExpired (with partial output) on timeout just like communicate().
+def communicate_capped(process: subprocess.Popen, timeout: Optional[float]) -> str:
+    chunks: list = []
+    state = {"total": 0}
+
+    def _read() -> None:
+        while True:
+            chunk = process.stdout.read(65536)  # type: ignore[union-attr]
+            if not chunk:
+                return
+            chunks.append(chunk)
+            state["total"] += len(chunk)
+            if state["total"] > TOOL_OUTPUT_BUFFER_LIMIT_CHARS:
+                _kill_process_group(process)
+                return
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+    reader.join(timeout)
+    timed_out = reader.is_alive()
+    if timed_out:
+        _kill_process_group(process)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        logger.warning("Tool subprocess did not exit within 5s after kill()")
+    reader.join(5)
+    if timed_out:
+        raise subprocess.TimeoutExpired(process.args, timeout or 0, output="".join(chunks))
+    return "".join(chunks)
+
+
 def start_memory_guard(process: subprocess.Popen) -> None:
     if _container_memory_usage_pct() is None:
         return

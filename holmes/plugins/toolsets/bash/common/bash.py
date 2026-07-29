@@ -4,6 +4,7 @@ from typing import Optional
 
 from holmes.utils.memory_limit import (
     check_oom_and_append_hint,
+    communicate_capped,
     get_ulimit_prefix,
     start_memory_guard,
 )
@@ -42,7 +43,7 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
     start_memory_guard(process)
 
     try:
-        stdout, _ = process.communicate(timeout=timeout)
+        stdout = communicate_capped(process, timeout=timeout)
         stdout = stdout.strip() if stdout else ""
         stdout = check_oom_and_append_hint(stdout, process.returncode)
 
@@ -51,10 +52,10 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
             return_code=process.returncode,
             timed_out=False,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         process.kill()
         # Collect any partial output that was generated before timeout
-        stdout, _ = process.communicate()
+        stdout = e.output if e.output else ""
         stdout = stdout.strip() if stdout else ""
 
         return BashResult(

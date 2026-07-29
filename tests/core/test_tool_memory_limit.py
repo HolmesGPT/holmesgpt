@@ -273,3 +273,29 @@ class TestKillProcessGroup:
         process = _popen_in_own_group("true")
         process.wait(timeout=5)
         _kill_process_group(process)
+
+
+class TestCommunicateCapped:
+    """Tests for communicate_capped function."""
+
+    def test_small_output_returned_fully(self):
+        process = _popen_in_own_group("echo hello")
+        stdout = memory_limit.communicate_capped(process, timeout=10)
+        assert stdout.strip() == "hello"
+        assert process.returncode == 0
+
+    def test_oversized_output_kills_process_and_caps_buffer(self, monkeypatch):
+        monkeypatch.setattr(memory_limit, "TOOL_OUTPUT_BUFFER_LIMIT_CHARS", 200_000)
+        process = _popen_in_own_group(
+            f"{sys.executable} -c 'import sys\nwhile True: sys.stdout.write(\"x\"*65536)'"
+        )
+        stdout = memory_limit.communicate_capped(process, timeout=30)
+        assert len(stdout) <= 200_000 + 65536
+        assert process.returncode is not None
+
+    def test_timeout_raises_with_partial_output(self):
+        process = _popen_in_own_group("echo partial; sleep 30")
+        with pytest.raises(subprocess.TimeoutExpired) as exc_info:
+            memory_limit.communicate_capped(process, timeout=1)
+        assert "partial" in (exc_info.value.output or "")
+        assert process.returncode is not None
