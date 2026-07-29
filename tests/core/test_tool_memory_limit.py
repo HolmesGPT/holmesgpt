@@ -3,9 +3,14 @@ import sys
 
 import pytest
 
-from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
+from holmes.common.env_vars import (
+    TOOL_MEMORY_LIMIT_MB,
+    TOOL_VIRTUAL_MEMORY_HEADROOM_MB,
+)
+from holmes.utils import memory_limit as ml
 from holmes.utils.memory_limit import (
     OOM_OUTPUT_MAX_LINES,
+    _sample_tree_rss_mb,
     _truncate_oom_output,
     append_output_truncated_hint,
     check_oom_and_append_hint,
@@ -17,11 +22,16 @@ from holmes.utils.memory_limit import (
 class TestGetUlimitPrefix:
     """Tests for get_ulimit_prefix function."""
 
-    def test_returns_ulimit_command_with_default(self):
-        """Test ulimit prefix format with default value."""
+    def test_includes_virtual_headroom(self):
+        """The ulimit -v backstop = resident budget + virtual headroom."""
         result = get_ulimit_prefix()
-        expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
+        expected_kb = 1024 * (TOOL_MEMORY_LIMIT_MB + TOOL_VIRTUAL_MEMORY_HEADROOM_MB)
         assert result == f"ulimit -v {expected_kb} 2>/dev/null || true; "
+
+    def test_disabled_when_headroom_non_positive(self, monkeypatch):
+        """Headroom <= 0 disables the ulimit -v backstop (RSS poll is sole enforcer)."""
+        monkeypatch.setattr(ml, "TOOL_VIRTUAL_MEMORY_HEADROOM_MB", 0)
+        assert get_ulimit_prefix() == ""
 
 
 class TestCheckOomAndAppendHint:
@@ -186,13 +196,21 @@ class TestAppendOutputTruncatedHint:
         assert result.startswith("[OUTPUT TRUNCATED]")
 
 
-def _popen(script: str) -> subprocess.Popen:
+def _popen(script: str, shell: bool = False) -> subprocess.Popen:
+    """Launch a helper process in its own session so the whole tree is killable."""
+    if shell:
+        args: object = script
+    else:
+        args = [sys.executable, "-c", script]
     return subprocess.Popen(
-        [sys.executable, "-c", script],
+        args,
+        shell=shell,
+        executable="/bin/bash" if shell else None,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        start_new_session=True,
     )
 
 
@@ -201,17 +219,20 @@ class TestReadProcessOutputCapped:
 
     def test_small_output_not_truncated(self):
         process = _popen("print('hello world')")
-        output, timed_out, truncated = read_process_output_capped(process)
+        output, timed_out, truncated, mem_killed = read_process_output_capped(
+            process, max_rss_mb=0
+        )
         assert output.strip() == "hello world"
         assert timed_out is False
         assert truncated is False
+        assert mem_killed is False
         assert process.returncode == 0
 
     def test_output_capped_at_max_chars(self):
         # Emit far more than the cap; ensure we keep exactly the cap and flag it.
         process = _popen("import sys; sys.stdout.write('a' * 1000000)")
-        output, timed_out, truncated = read_process_output_capped(
-            process, max_output_chars=1000
+        output, timed_out, truncated, mem_killed = read_process_output_capped(
+            process, max_output_chars=1000, max_rss_mb=0
         )
         assert truncated is True
         assert timed_out is False
@@ -220,16 +241,16 @@ class TestReadProcessOutputCapped:
 
     def test_cap_disabled_with_zero(self):
         process = _popen("import sys; sys.stdout.write('a' * 50000)")
-        output, timed_out, truncated = read_process_output_capped(
-            process, max_output_chars=0
+        output, timed_out, truncated, mem_killed = read_process_output_capped(
+            process, max_output_chars=0, max_rss_mb=0
         )
         assert truncated is False
         assert len(output) == 50000
 
     def test_timeout_kills_process(self):
         process = _popen("import time; time.sleep(30); print('done')")
-        output, timed_out, truncated = read_process_output_capped(
-            process, timeout=1
+        output, timed_out, truncated, mem_killed = read_process_output_capped(
+            process, timeout=1, max_rss_mb=0
         )
         assert timed_out is True
         assert "done" not in output
@@ -241,9 +262,103 @@ class TestReadProcessOutputCapped:
         process = _popen(
             "import sys\nwhile True:\n    sys.stdout.write('x' * 4096)"
         )
-        output, timed_out, truncated = read_process_output_capped(
-            process, max_output_chars=8192
+        output, timed_out, truncated, mem_killed = read_process_output_capped(
+            process, max_output_chars=8192, max_rss_mb=0
         )
         assert truncated is True
         assert len(output) == 8192
         assert process.returncode is not None
+
+    @pytest.mark.skipif(
+        not sys.platform.startswith("linux"),
+        reason="RSS polling requires /proc (Linux only)",
+    )
+    def test_rss_budget_kills_runaway(self):
+        # Allocate ~200MB of resident memory and hold it; a 50MB budget must
+        # kill the process before it finishes.
+        process = _popen(
+            "import sys, time\n"
+            "buf = bytearray(200 * 1024 * 1024)\n"
+            "for i in range(0, len(buf), 4096): buf[i] = 1\n"  # fault pages -> resident
+            "sys.stdout.write('done'); sys.stdout.flush()\n"
+            "time.sleep(30)\n"
+        )
+        output, timed_out, truncated, mem_killed = read_process_output_capped(
+            process, timeout=20, max_rss_mb=50
+        )
+        assert mem_killed is True
+        assert timed_out is False
+        assert process.returncode is not None
+
+    @pytest.mark.skipif(
+        not sys.platform.startswith("linux"),
+        reason="RSS polling requires /proc (Linux only)",
+    )
+    def test_rss_budget_allows_within_budget(self):
+        process = _popen("print('small output')")
+        output, timed_out, truncated, mem_killed = read_process_output_capped(
+            process, max_rss_mb=500
+        )
+        assert mem_killed is False
+        assert output.strip() == "small output"
+
+    @pytest.mark.skipif(
+        not sys.platform.startswith("linux"),
+        reason="process-group kill + /proc are Linux only",
+    )
+    def test_kills_grandchild_process(self, tmp_path):
+        # A bash parent that spawns a long-lived grandchild which writes its PID
+        # to a file. On timeout the whole group must die (not just bash), so the
+        # grandchild must be gone afterwards.
+        import os
+        import time
+
+        pidfile = tmp_path / "grandchild.pid"
+        # bash -> python grandchild that records its pid then sleeps forever
+        script = (
+            f"{sys.executable} -c "
+            f"'import os,time; open(\"{pidfile}\",\"w\").write(str(os.getpid())); "
+            f"time.sleep(120)' & wait"
+        )
+        process = _popen(script, shell=True)
+        read_process_output_capped(process, timeout=2, max_rss_mb=0)
+
+        # Wait for the pidfile then confirm the grandchild is dead.
+        for _ in range(50):
+            if pidfile.exists():
+                break
+            time.sleep(0.05)
+        assert pidfile.exists(), "grandchild never started"
+        gc_pid = int(pidfile.read_text().strip())
+
+        alive = True
+        for _ in range(40):
+            try:
+                os.kill(gc_pid, 0)
+            except ProcessLookupError:
+                alive = False
+                break
+            time.sleep(0.05)
+        assert alive is False, f"grandchild {gc_pid} survived process-group kill"
+
+
+class TestSampleTreeRssMb:
+    """Tests for _sample_tree_rss_mb."""
+
+    @pytest.mark.skipif(
+        not sys.platform.startswith("linux"), reason="requires /proc"
+    )
+    def test_returns_positive_for_current_process(self):
+        import os
+
+        rss = _sample_tree_rss_mb(os.getpid())
+        assert rss is not None
+        assert rss > 0
+
+    @pytest.mark.skipif(
+        not sys.platform.startswith("linux"), reason="requires /proc"
+    )
+    def test_missing_pid_does_not_raise(self):
+        # A pid that does not exist yields 0 (no matching /proc entry), not an error.
+        rss = _sample_tree_rss_mb(2**22)
+        assert rss == 0

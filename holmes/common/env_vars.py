@@ -98,6 +98,24 @@ TOOL_MEMORY_LIMIT_MB = int(
     os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
 )
 
+# Virtual-memory headroom (MB) added on top of TOOL_MEMORY_LIMIT_MB when setting
+# the subprocess `ulimit -v` backstop.
+#
+# TOOL_MEMORY_LIMIT_MB is a *resident* (RSS) budget, enforced precisely by
+# polling the subprocess tree (see read_process_output_capped). `ulimit -v`,
+# however, caps *virtual* address space (RLIMIT_AS), which is a poor proxy for
+# real memory for Go tools: kubectl reserves ~2 GB of virtual address space to
+# emit ~8 MB of YAML while its resident usage is only ~600 MB. Capping virtual
+# memory at the resident budget therefore kills kubectl before it produces any
+# output. We keep `ulimit -v` only as a cheap, kernel-enforced backstop against
+# instantaneous virtual explosions (which the RSS poll could miss between
+# samples), set generously above the resident budget so it does not spuriously
+# trip legitimate Go tools. Set to 0 to disable the `ulimit -v` backstop
+# entirely (relying solely on RSS polling).
+TOOL_VIRTUAL_MEMORY_HEADROOM_MB = int(
+    os.environ.get("TOOL_VIRTUAL_MEMORY_HEADROOM_MB", 2048)
+)
+
 # Maximum number of characters to read from a single tool subprocess' stdout.
 # The `ulimit -v` prefix (see TOOL_MEMORY_LIMIT_MB) only bounds the *child*
 # process (e.g. kubectl). Without this cap the Holmes *parent* process would

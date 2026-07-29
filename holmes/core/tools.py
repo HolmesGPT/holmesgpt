@@ -664,8 +664,11 @@ class YAMLTool(Tool, BaseModel):
             protected_cmd = get_ulimit_prefix() + cmd
 
             # Stream stdout through a capped reader so the parent process never
-            # buffers an unbounded amount of subprocess output into memory (the
-            # `ulimit -v` prefix only bounds the child process, not Holmes).
+            # buffers an unbounded amount of subprocess output into memory, and
+            # poll the subprocess tree's resident memory so a runaway tool kills
+            # only its own subtree rather than OOMing the Holmes container.
+            # start_new_session=True lets us kill the whole tree (kubectl, not
+            # just the /bin/bash wrapper) via its process group.
             process = subprocess.Popen(
                 protected_cmd,
                 shell=True,
@@ -674,13 +677,18 @@ class YAMLTool(Tool, BaseModel):
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
-            raw_output, _, truncated = read_process_output_capped(process)
+            raw_output, _, truncated, mem_killed = read_process_output_capped(
+                process
+            )
             return_code = process.returncode
 
             output = raw_output.strip()
             if truncated:
                 output = append_output_truncated_hint(output)
+            elif mem_killed:
+                output = check_oom_and_append_hint(output, 137)
             else:
                 output = check_oom_and_append_hint(output, return_code)
             return output, return_code
