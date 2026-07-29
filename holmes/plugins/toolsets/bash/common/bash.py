@@ -53,8 +53,7 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
     except subprocess.TimeoutExpired as e:
         process.kill()
         # Collect any partial output that was generated before timeout
-        stdout = e.output if e.output else ""
-        stdout = stdout.strip() if stdout else ""
+        stdout = e.output.strip() if e.output else ""
 
         return BashResult(
             stdout=stdout,

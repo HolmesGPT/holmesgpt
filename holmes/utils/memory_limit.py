@@ -7,7 +7,7 @@ import os
 import signal
 import subprocess
 import threading
-from typing import Optional
+from typing import List, Optional
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # The first few lines contain the error message; the rest is typically
 # goroutine stack dumps (Go) or core-dump noise that wastes tokens.
 OOM_OUTPUT_MAX_LINES = 10
+
+TOOL_OUTPUT_BUFFER_LIMIT_CHARS = 50 * 1024 * 1024
+READ_CHUNK_SIZE_CHARS = 64 * 1024
 
 
 def get_ulimit_prefix() -> str:
@@ -116,27 +119,25 @@ def _kill_process_group(process: subprocess.Popen) -> None:
             pass
 
 
-TOOL_OUTPUT_BUFFER_LIMIT_CHARS = 50 * 1024 * 1024
-READ_CHUNK_SIZE_CHARS = 64 * 1024
+def _read_stdout_capped(process: subprocess.Popen, chunks: List[str]) -> None:
+    total = 0
+    while True:
+        chunk = process.stdout.read(READ_CHUNK_SIZE_CHARS)  # type: ignore[union-attr]
+        if not chunk:
+            return
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > TOOL_OUTPUT_BUFFER_LIMIT_CHARS:
+            _kill_process_group(process)
+            return
 
 
-# Drop-in replacement for process.communicate() that never buffers more than the limit in parent memory; kills the process group when output exceeds it, and raises TimeoutExpired (with partial output) on timeout just like communicate().
+# Like process.communicate(), but kills the subprocess once its output exceeds TOOL_OUTPUT_BUFFER_LIMIT_CHARS.
 def communicate_capped(process: subprocess.Popen, timeout: Optional[float]) -> str:
-    chunks: list = []
-    state = {"total": 0}
-
-    def _read() -> None:
-        while True:
-            chunk = process.stdout.read(READ_CHUNK_SIZE_CHARS)  # type: ignore[union-attr]
-            if not chunk:
-                return
-            chunks.append(chunk)
-            state["total"] += len(chunk)
-            if state["total"] > TOOL_OUTPUT_BUFFER_LIMIT_CHARS:
-                _kill_process_group(process)
-                return
-
-    reader = threading.Thread(target=_read, daemon=True)
+    chunks: List[str] = []
+    reader = threading.Thread(
+        target=_read_stdout_capped, args=(process, chunks), daemon=True
+    )
     reader.start()
     reader.join(timeout)
     timed_out = reader.is_alive()
@@ -147,6 +148,7 @@ def communicate_capped(process: subprocess.Popen, timeout: Optional[float]) -> s
     except subprocess.TimeoutExpired:
         logger.warning("Tool subprocess did not exit within 5s after kill()")
     reader.join(5)
+    output = "".join(chunks)
     if timed_out:
-        raise subprocess.TimeoutExpired(process.args, timeout or 0, output="".join(chunks))
-    return "".join(chunks)
+        raise subprocess.TimeoutExpired(process.args, timeout or 0, output=output)
+    return output
