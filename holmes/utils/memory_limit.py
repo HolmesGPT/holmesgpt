@@ -30,6 +30,12 @@ def get_ulimit_prefix() -> str:
     The '|| true' ensures we continue even if ulimit is not supported.
     """
     memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
+    # oom_score_adj=1000 marks the tool subprocess (and every child it spawns,
+    # which inherit the value) as the kernel OOM killer's preferred victim, so
+    # when the pod runs out of memory the kernel kills the tool subprocess tree
+    # instead of the Holmes process itself. Raising one's own oom_score_adj
+    # needs no privileges, and on systems without /proc (e.g. macOS) the
+    # redirect+`|| true` make it a silent no-op.
     return (
         "echo 1000 > /proc/self/oom_score_adj 2>/dev/null || true; "
         f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
@@ -120,9 +126,14 @@ def _kill_process_group(process: subprocess.Popen) -> None:
 
 
 def _read_stdout_capped(process: subprocess.Popen, chunks: List[str]) -> None:
+    if process.stdout is None:
+        return
     total = 0
     while True:
-        chunk = process.stdout.read(READ_CHUNK_SIZE_CHARS)  # type: ignore[union-attr]
+        try:
+            chunk = process.stdout.read(READ_CHUNK_SIZE_CHARS)
+        except (OSError, ValueError):
+            return
         if not chunk:
             return
         chunks.append(chunk)
