@@ -117,6 +117,7 @@ def _kill_process_group(process: subprocess.Popen) -> None:
 
 
 TOOL_OUTPUT_BUFFER_LIMIT_CHARS = 50 * 1024 * 1024
+READ_CHUNK_SIZE_CHARS = 64 * 1024
 
 
 # Drop-in replacement for process.communicate() that never buffers more than the limit in parent memory; kills the process group when output exceeds it, and raises TimeoutExpired (with partial output) on timeout just like communicate().
@@ -126,7 +127,7 @@ def communicate_capped(process: subprocess.Popen, timeout: Optional[float]) -> s
 
     def _read() -> None:
         while True:
-            chunk = process.stdout.read(65536)  # type: ignore[union-attr]
+            chunk = process.stdout.read(READ_CHUNK_SIZE_CHARS)  # type: ignore[union-attr]
             if not chunk:
                 return
             chunks.append(chunk)

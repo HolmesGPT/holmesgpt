@@ -251,7 +251,7 @@ class TestCommunicateCapped:
             f"{sys.executable} -c 'import sys\nwhile True: sys.stdout.write(\"x\"*65536)'"
         )
         stdout = memory_limit.communicate_capped(process, timeout=30)
-        assert len(stdout) <= 200_000 + 65536
+        assert len(stdout) <= 200_000 + memory_limit.READ_CHUNK_SIZE_CHARS
         assert process.returncode is not None
 
     def test_timeout_raises_with_partial_output(self):
