@@ -6,7 +6,6 @@ from holmes.utils.memory_limit import (
     check_oom_and_append_hint,
     communicate_capped,
     get_ulimit_prefix,
-    start_memory_guard,
 )
 
 
@@ -40,7 +39,6 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
         text=True,
         start_new_session=True,
     )
-    start_memory_guard(process)
 
     try:
         stdout = communicate_capped(process, timeout=timeout)

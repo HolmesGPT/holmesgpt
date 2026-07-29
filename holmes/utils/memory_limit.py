@@ -7,7 +7,6 @@ import os
 import signal
 import subprocess
 import threading
-import time
 from typing import Optional
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
@@ -28,7 +27,10 @@ def get_ulimit_prefix() -> str:
     The '|| true' ensures we continue even if ulimit is not supported.
     """
     memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
-    return f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
+    return (
+        "echo 1000 > /proc/self/oom_score_adj 2>/dev/null || true; "
+        f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
+    )
 
 
 def _truncate_oom_output(output: str) -> str:
@@ -104,30 +106,6 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
     return output
 
 
-CONTAINER_MEMORY_KILL_PCT = 0.9
-
-_CGROUP_MEMORY_FILES = (
-    ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
-    (
-        "/sys/fs/cgroup/memory/memory.usage_in_bytes",
-        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
-    ),
-)
-
-
-# Fraction of the container's cgroup memory limit currently in use, or None when unlimited/unavailable (e.g. CLI, macOS).
-def _container_memory_usage_pct() -> Optional[float]:
-    for usage_path, limit_path in _CGROUP_MEMORY_FILES:
-        try:
-            with open(usage_path) as usage_file, open(limit_path) as limit_file:
-                usage, limit = int(usage_file.read()), int(limit_file.read())
-        except (OSError, ValueError):
-            continue
-        if 0 < limit < 1 << 62:
-            return usage / limit
-    return None
-
-
 def _kill_process_group(process: subprocess.Popen) -> None:
     try:
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
@@ -171,20 +149,3 @@ def communicate_capped(process: subprocess.Popen, timeout: Optional[float]) -> s
     if timed_out:
         raise subprocess.TimeoutExpired(process.args, timeout or 0, output="".join(chunks))
     return "".join(chunks)
-
-
-def start_memory_guard(process: subprocess.Popen) -> None:
-    if _container_memory_usage_pct() is None:
-        return
-
-    def _watch() -> None:
-        while process.poll() is None:
-            if (_container_memory_usage_pct() or 0) > CONTAINER_MEMORY_KILL_PCT:
-                logger.warning(
-                    f"Container memory usage above {CONTAINER_MEMORY_KILL_PCT:.0%}, killing tool subprocess {process.pid}"
-                )
-                _kill_process_group(process)
-                return
-            time.sleep(0.05)
-
-    threading.Thread(target=_watch, daemon=True).start()
