@@ -124,10 +124,13 @@ class ConversationWorker:
         # when a claim attempt found free capacity); _saturation_logged marks
         # that the one INFO line for this stretch was emitted (its matching
         # exit line logs the total duration); _last_stuck_warn rate-limits
-        # the stuck-slot WARNING.
+        # the stuck-slot WARNING. None means "never warned" — do NOT use 0.0
+        # as the sentinel: time.monotonic() is seconds since boot on Linux,
+        # so on a freshly booted host `now - 0.0` can be below the rate-limit
+        # window and the FIRST warning would be silently suppressed.
         self._saturated_since: Optional[float] = None
         self._saturation_logged: bool = False
-        self._last_stuck_warn: float = 0.0
+        self._last_stuck_warn: Optional[float] = None
 
         # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
@@ -417,17 +420,20 @@ class ConversationWorker:
             if not self._running:
                 break
             self._notify_event.clear()
-            with self._active_lock:
-                active = len(self._active_conversation_ids)
             # Per-tick trace (ROB-759): proves the loop is alive and shows
-            # whether a quiet worker is idle or out of capacity.
-            logging.debug(
-                "Claim loop tick (triggered=%s, realtime=%s, active=%d/%d)",
-                triggered,
-                self._realtime_connected(),
-                active,
-                CONVERSATION_WORKER_MAX_CONCURRENT,
-            )
+            # whether a quiet worker is idle or out of capacity. Guarded so
+            # the lock acquisition and realtime check run only when DEBUG
+            # logging is actually enabled — this fires every poll tick.
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                with self._active_lock:
+                    active = len(self._active_conversation_ids)
+                logging.debug(
+                    "Claim loop tick (triggered=%s, realtime=%s, active=%d/%d)",
+                    triggered,
+                    self._realtime_connected(),
+                    active,
+                    CONVERSATION_WORKER_MAX_CONCURRENT,
+                )
             try:
                 self._try_claim_and_dispatch()
             except Exception:
@@ -495,7 +501,10 @@ class ConversationWorker:
                 CONVERSATION_WORKER_MAX_CONCURRENT,
                 ages,
             )
-        if now - self._last_stuck_warn >= _STUCK_WARN_RATE_LIMIT_SECONDS:
+        if (
+            self._last_stuck_warn is None
+            or now - self._last_stuck_warn >= _STUCK_WARN_RATE_LIMIT_SECONDS
+        ):
             with self._active_lock:
                 stuck = sorted(
                     (round(now - started, 1), key)
