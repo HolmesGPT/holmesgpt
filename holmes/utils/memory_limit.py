@@ -4,11 +4,9 @@ Memory limit utilities for tool subprocess execution.
 
 import logging
 import os
-import selectors
 import signal
 import subprocess
-import time
-from typing import List, Optional
+import typing
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
@@ -19,9 +17,7 @@ logger = logging.getLogger(__name__)
 # goroutine stack dumps (Go) or core-dump noise that wastes tokens.
 OOM_OUTPUT_MAX_LINES = 10
 
-TOOL_OUTPUT_BUFFER_LIMIT_CHARS = 50 * 1024 * 1024
-READ_CHUNK_SIZE_CHARS = 64 * 1024
-POST_KILL_DRAIN_SECONDS = 5
+TOOL_OUTPUT_LIMIT_CHARS = 50 * 1024 * 1024
 
 
 def get_ulimit_prefix() -> str:
@@ -38,9 +34,13 @@ def get_ulimit_prefix() -> str:
     # instead of the Holmes process itself. Raising one's own oom_score_adj
     # needs no privileges, and on systems without /proc (e.g. macOS) the
     # redirect+`|| true` make it a silent no-op.
+    # `ulimit -f` (in 1024-byte blocks) caps how much output the tool can write
+    # to its stdout file: the kernel kills any writer that exceeds it (SIGXFSZ).
+    output_limit_blocks = TOOL_OUTPUT_LIMIT_CHARS // 1024
     return (
         "echo 1000 > /proc/self/oom_score_adj 2>/dev/null || true; "
         f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
+        f"ulimit -f {output_limit_blocks} 2>/dev/null || true; "
     )
 
 
@@ -92,8 +92,11 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
         or "Cannot allocate memory" in output
         or "bad_alloc" in output
         or "out of memory" in output
+        or "File size limit exceeded" in output
     )
-    is_oom = return_code in (137, -9) or (return_code != 0 and has_oom_strings)
+    is_oom = return_code in (137, -9, 153, -25) or (
+        return_code != 0 and has_oom_strings
+    )
 
     if is_oom:
         hint = (
@@ -127,47 +130,7 @@ def _kill_process_group(process: subprocess.Popen) -> None:
             pass
 
 
-# Like process.communicate(), but kills the subprocess once its output exceeds TOOL_OUTPUT_BUFFER_LIMIT_CHARS.
-def communicate_capped(process: subprocess.Popen, timeout: Optional[float]) -> str:
-    if process.stdout is None:
-        process.wait(timeout=timeout)
-        return ""
-    fd = process.stdout.fileno()
-    deadline = None if timeout is None else time.monotonic() + timeout
-    chunks: List[bytes] = []
-    total = 0
-    timed_out = False
-    with selectors.DefaultSelector() as selector:
-        selector.register(fd, selectors.EVENT_READ)
-        while True:
-            now = time.monotonic()
-            if deadline is not None and now >= deadline:
-                if timed_out:
-                    break
-                timed_out = True
-                _kill_process_group(process)
-                # Collect the residue the killed process left in the pipe, briefly
-                deadline = now + POST_KILL_DRAIN_SECONDS
-                continue
-            wait_time = None if deadline is None else deadline - now
-            if not selector.select(wait_time):
-                continue
-            try:
-                chunk = os.read(fd, READ_CHUNK_SIZE_CHARS)
-            except OSError:
-                break
-            if not chunk:
-                break
-            chunks.append(chunk)
-            total += len(chunk)
-            if total > TOOL_OUTPUT_BUFFER_LIMIT_CHARS:
-                _kill_process_group(process)
-                break
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        logger.warning("Tool subprocess did not exit within 5s after kill()")
-    output = b"".join(chunks).decode("utf-8", errors="replace")
-    if timed_out:
-        raise subprocess.TimeoutExpired(process.args, timeout or 0, output=output)
-    return output
+# Read back at most TOOL_OUTPUT_LIMIT_CHARS of the subprocess output collected in a file.
+def read_capped_output(output_file: typing.IO[str]) -> str:
+    output_file.seek(0)
+    return output_file.read(TOOL_OUTPUT_LIMIT_CHARS)

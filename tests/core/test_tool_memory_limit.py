@@ -22,9 +22,11 @@ class TestGetUlimitPrefix:
         """Test ulimit prefix format with default value."""
         result = get_ulimit_prefix()
         expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
+        expected_blocks = memory_limit.TOOL_OUTPUT_LIMIT_CHARS // 1024
         assert result == (
             "echo 1000 > /proc/self/oom_score_adj 2>/dev/null || true; "
             f"ulimit -v {expected_kb} 2>/dev/null || true; "
+            f"ulimit -f {expected_blocks} 2>/dev/null || true; "
         )
 
     @pytest.mark.skipif(
@@ -236,27 +238,25 @@ class TestKillProcessGroup:
         )
 
 
-class TestCommunicateCapped:
-    """Tests for communicate_capped function."""
+class TestOutputCap:
+    """Tests for the ulimit -f output cap through execute_bash_command."""
 
-    def test_small_output_returned_fully(self):
-        process = _popen_in_own_group("echo hello")
-        stdout = memory_limit.communicate_capped(process, timeout=10)
-        assert stdout.strip() == "hello"
-        assert process.returncode == 0
+    def test_oversized_output_kills_command_and_caps_output(self, monkeypatch):
+        from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
 
-    def test_oversized_output_kills_process_and_caps_buffer(self, monkeypatch):
-        monkeypatch.setattr(memory_limit, "TOOL_OUTPUT_BUFFER_LIMIT_CHARS", 200_000)
-        process = _popen_in_own_group(
-            f"{sys.executable} -c 'import sys\nwhile True: sys.stdout.write(\"x\"*65536)'"
-        )
-        stdout = memory_limit.communicate_capped(process, timeout=30)
-        assert len(stdout) <= 200_000 + memory_limit.READ_CHUNK_SIZE_CHARS
-        assert process.returncode is not None
+        monkeypatch.setattr(memory_limit, "TOOL_OUTPUT_LIMIT_CHARS", 100 * 1024)
+        result = execute_bash_command("yes xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", timeout=30)
+        assert result.timed_out is False
+        assert result.return_code not in (0, None)
+        # The [OOM] hint path truncates the raw output down to a few lines
+        assert len(result.stdout) < 10_000
+        assert "[OOM]" in result.stdout
 
-    def test_timeout_raises_with_partial_output(self):
-        process = _popen_in_own_group("echo partial; sleep 30")
-        with pytest.raises(subprocess.TimeoutExpired) as exc_info:
-            memory_limit.communicate_capped(process, timeout=1)
-        assert "partial" in (exc_info.value.output or "")
-        assert process.returncode is not None
+    def test_output_at_cap_boundary_not_flagged(self, monkeypatch):
+        from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
+
+        monkeypatch.setattr(memory_limit, "TOOL_OUTPUT_LIMIT_CHARS", 100 * 1024)
+        result = execute_bash_command("printf 'a%.0s' {1..1000}", timeout=30)
+        assert result.return_code == 0
+        assert result.stdout == "a" * 1000
+        assert "[OOM]" not in result.stdout
