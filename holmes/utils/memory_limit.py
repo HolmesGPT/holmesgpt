@@ -8,12 +8,9 @@ import signal
 import subprocess
 import threading
 import time
-from collections import defaultdict
+from typing import Optional
 
-from holmes.common.env_vars import (
-    TOOL_MEMORY_LIMIT_MB,
-    TOOL_VIRTUAL_MEMORY_HEADROOM_MB,
-)
+from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +27,7 @@ def get_ulimit_prefix() -> str:
     Returns a shell command prefix that sets virtual memory limit.
     The '|| true' ensures we continue even if ulimit is not supported.
     """
-    memory_limit_kb = (TOOL_MEMORY_LIMIT_MB + TOOL_VIRTUAL_MEMORY_HEADROOM_MB) * 1024
+    memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
     return f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
 
 
@@ -107,35 +104,31 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
     return output
 
 
-# Sum the resident memory (MB) of a process and all its descendants via /proc.
-def _tree_rss_mb(pid: int) -> float:
-    children: dict = defaultdict(list)
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        try:
-            with open(f"/proc/{entry}/stat", "rb") as f:
-                fields = f.read().rsplit(b")", 1)[1].split()
-            children[int(fields[1])].append(int(entry))
-        except (OSError, ValueError, IndexError):
-            continue
-    total_kb, stack = 0, [pid]
-    while stack:
-        current = stack.pop()
-        stack.extend(children.get(current, ()))
-        try:
-            with open(f"/proc/{current}/status", "rb") as f:
-                for line in f:
-                    if line.startswith(b"VmRSS:"):
-                        total_kb += int(line.split()[1])
-                        break
-        except (OSError, ValueError, IndexError):
-            continue
-    return total_kb / 1024
+CONTAINER_MEMORY_KILL_PCT = 0.9
+
+_CGROUP_MEMORY_FILES = (
+    ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
+    (
+        "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    ),
+)
 
 
-# Kill the process's whole group, falling back to killing just the direct child.
-def _kill_process_group(process: "subprocess.Popen") -> None:
+# Fraction of the container's cgroup memory limit currently in use, or None when unlimited/unavailable (e.g. CLI, macOS).
+def _container_memory_usage_pct() -> Optional[float]:
+    for usage_path, limit_path in _CGROUP_MEMORY_FILES:
+        try:
+            with open(usage_path) as usage_file, open(limit_path) as limit_file:
+                usage, limit = int(usage_file.read()), int(limit_file.read())
+        except (OSError, ValueError):
+            continue
+        if 0 < limit < 1 << 62:
+            return usage / limit
+    return None
+
+
+def _kill_process_group(process: subprocess.Popen) -> None:
     try:
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except (OSError, AttributeError):
@@ -145,16 +138,16 @@ def _kill_process_group(process: "subprocess.Popen") -> None:
             pass
 
 
-# Start a daemon thread that kills the process tree if its resident memory exceeds the limit.
-def start_memory_guard(
-    process: "subprocess.Popen", limit_mb: int = TOOL_MEMORY_LIMIT_MB
-) -> None:
-    if limit_mb <= 0 or not os.path.isdir("/proc"):
+def start_memory_guard(process: subprocess.Popen) -> None:
+    if _container_memory_usage_pct() is None:
         return
 
     def _watch() -> None:
         while process.poll() is None:
-            if _tree_rss_mb(process.pid) > limit_mb:
+            if (_container_memory_usage_pct() or 0) > CONTAINER_MEMORY_KILL_PCT:
+                logger.warning(
+                    f"Container memory usage above {CONTAINER_MEMORY_KILL_PCT:.0%}, killing tool subprocess {process.pid}"
+                )
                 _kill_process_group(process)
                 return
             time.sleep(0.05)

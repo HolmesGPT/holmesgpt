@@ -4,14 +4,12 @@ import time
 
 import pytest
 
-from holmes.common.env_vars import (
-    TOOL_MEMORY_LIMIT_MB,
-    TOOL_VIRTUAL_MEMORY_HEADROOM_MB,
-)
+import holmes.utils.memory_limit as memory_limit
+from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 from holmes.utils.memory_limit import (
     OOM_OUTPUT_MAX_LINES,
+    _container_memory_usage_pct,
     _kill_process_group,
-    _tree_rss_mb,
     _truncate_oom_output,
     check_oom_and_append_hint,
     get_ulimit_prefix,
@@ -22,10 +20,10 @@ from holmes.utils.memory_limit import (
 class TestGetUlimitPrefix:
     """Tests for get_ulimit_prefix function."""
 
-    def test_returns_ulimit_command_with_headroom(self):
-        """Test ulimit prefix caps virtual memory at the budget plus headroom."""
+    def test_returns_ulimit_command_with_default(self):
+        """Test ulimit prefix format with default value."""
         result = get_ulimit_prefix()
-        expected_kb = 1024 * (TOOL_MEMORY_LIMIT_MB + TOOL_VIRTUAL_MEMORY_HEADROOM_MB)
+        expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
         assert result == f"ulimit -v {expected_kb} 2>/dev/null || true; "
 
 
@@ -172,12 +170,42 @@ class TestTruncateOomOutput:
         assert f"[... {omitted} lines of stack trace omitted ...]" in result_lines[-1]
 
 
-def _popen(script: str, shell: bool = False) -> subprocess.Popen:
-    args = script if shell else [sys.executable, "-c", script]
+def _write_cgroup_files(tmp_path, usage: str, limit: str):
+    usage_file, limit_file = tmp_path / "usage", tmp_path / "limit"
+    usage_file.write_text(usage)
+    limit_file.write_text(limit)
+    return ((str(usage_file), str(limit_file)),)
+
+
+class TestContainerMemoryUsagePct:
+    """Tests for _container_memory_usage_pct function."""
+
+    def test_reads_usage_fraction(self, tmp_path, monkeypatch):
+        files = _write_cgroup_files(tmp_path, "900", "1000")
+        monkeypatch.setattr(memory_limit, "_CGROUP_MEMORY_FILES", files)
+        assert _container_memory_usage_pct() == 0.9
+
+    def test_unlimited_cgroup_v2_returns_none(self, tmp_path, monkeypatch):
+        files = _write_cgroup_files(tmp_path, "900", "max")
+        monkeypatch.setattr(memory_limit, "_CGROUP_MEMORY_FILES", files)
+        assert _container_memory_usage_pct() is None
+
+    def test_unlimited_cgroup_v1_sentinel_returns_none(self, tmp_path, monkeypatch):
+        files = _write_cgroup_files(tmp_path, "900", "9223372036854771712")
+        monkeypatch.setattr(memory_limit, "_CGROUP_MEMORY_FILES", files)
+        assert _container_memory_usage_pct() is None
+
+    def test_missing_files_returns_none(self, tmp_path, monkeypatch):
+        files = ((str(tmp_path / "nope1"), str(tmp_path / "nope2")),)
+        monkeypatch.setattr(memory_limit, "_CGROUP_MEMORY_FILES", files)
+        assert _container_memory_usage_pct() is None
+
+
+def _popen_in_own_group(script: str) -> subprocess.Popen:
     return subprocess.Popen(
-        args,
-        shell=shell,
-        executable="/bin/bash" if shell else None,
+        script,
+        shell=True,
+        executable="/bin/bash",
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -186,59 +214,62 @@ def _popen(script: str, shell: bool = False) -> subprocess.Popen:
     )
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="requires /proc")
-class TestMemoryGuard:
-    """Tests for the /proc-based memory guard helpers."""
+def _wait_for_pid_death(pid: int, timeout: float = 3.0) -> bool:
+    import os
 
-    def test_tree_rss_positive_for_self(self):
-        import os
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
 
-        assert _tree_rss_mb(os.getpid()) > 0
 
-    def test_tree_rss_missing_pid_is_zero(self):
-        assert _tree_rss_mb(2**22) == 0
+class TestStartMemoryGuard:
+    """Tests for start_memory_guard function."""
 
-    def test_kill_process_group_kills_grandchild(self, tmp_path):
-        import os
-
-        pidfile = tmp_path / "gc.pid"
-        script = (
-            f"{sys.executable} -c "
-            f"'import os,time; open(\"{pidfile}\",\"w\").write(str(os.getpid())); time.sleep(120)' & wait"
+    def test_kills_process_group_when_container_near_limit(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(memory_limit, "_container_memory_usage_pct", lambda: 0.95)
+        pidfile = tmp_path / "grandchild.pid"
+        process = _popen_in_own_group(
+            f"{sys.executable} -c 'import os,time; open(\"{pidfile}\",\"w\").write(str(os.getpid())); time.sleep(120)' & wait"
         )
-        process = _popen(script, shell=True)
-        for _ in range(50):
+        for _ in range(60):
             if pidfile.exists():
                 break
             time.sleep(0.05)
-        gc_pid = int(pidfile.read_text().strip())
-        _kill_process_group(process)
+        assert pidfile.exists(), "grandchild never started"
+        start_memory_guard(process)
         process.wait(timeout=5)
-
-        alive = True
-        for _ in range(40):
-            try:
-                os.kill(gc_pid, 0)
-            except ProcessLookupError:
-                alive = False
-                break
-            time.sleep(0.05)
-        assert alive is False
-
-    def test_guard_kills_runaway_over_budget(self):
-        process = _popen(
-            "import time\n"
-            "buf = bytearray(200 * 1024 * 1024)\n"
-            "for i in range(0, len(buf), 4096): buf[i] = 1\n"
-            "time.sleep(30)\n"
+        assert _wait_for_pid_death(int(pidfile.read_text())), (
+            "grandchild survived process-group kill"
         )
-        start_memory_guard(process, limit_mb=50)
-        process.wait(timeout=20)
-        assert process.returncode is not None  # killed, not still running
 
-    def test_guard_allows_within_budget(self):
-        process = _popen("print('ok')")
-        start_memory_guard(process, limit_mb=500)
-        out, _ = process.communicate(timeout=10)
-        assert out.strip() == "ok"
+    def test_no_kill_when_container_below_threshold(self, monkeypatch):
+        monkeypatch.setattr(memory_limit, "_container_memory_usage_pct", lambda: 0.5)
+        process = _popen_in_own_group("echo ok")
+        start_memory_guard(process)
+        stdout, _ = process.communicate(timeout=10)
+        assert stdout.strip() == "ok"
         assert process.returncode == 0
+
+    def test_noop_outside_container(self, monkeypatch):
+        monkeypatch.setattr(memory_limit, "_container_memory_usage_pct", lambda: None)
+        process = _popen_in_own_group("echo ok")
+        start_memory_guard(process)
+        stdout, _ = process.communicate(timeout=10)
+        assert stdout.strip() == "ok"
+        assert process.returncode == 0
+
+
+class TestKillProcessGroup:
+    """Tests for _kill_process_group function."""
+
+    def test_kill_already_exited_process_does_not_raise(self):
+        process = _popen_in_own_group("true")
+        process.wait(timeout=5)
+        _kill_process_group(process)

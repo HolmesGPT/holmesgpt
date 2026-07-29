@@ -97,9 +97,6 @@ _default_memory_limit = (
 TOOL_MEMORY_LIMIT_MB = int(
     os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
 )
-TOOL_VIRTUAL_MEMORY_HEADROOM_MB = int(
-    os.environ.get("TOOL_VIRTUAL_MEMORY_HEADROOM_MB", 2048)
-)
 
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)
