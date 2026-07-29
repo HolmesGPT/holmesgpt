@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build CVE-patched Go binaries for the holmes Docker image.
 #
-# All binaries are built with Go 1.26.4 to fix stdlib
+# All binaries built by this script are built with Go 1.26.4 to fix stdlib
 # CVE-2026-42499/33814/39836/33811/39820 (fixed in Go 1.26.3).
 #
 # ArgoCD: rebuilt from v3.3.11 source with go-git replaced to v5.19.1 and
@@ -17,25 +17,21 @@
 #
 # Helm: built from v3.21.0, which already ships grpc v1.80.0 (the old grpc
 #   replace for CVE-2026-33186 was dropped), with containerd replaced to
-#   v1.7.33 (CVE-2026-46680 + CVE-2026-53488; v3.21.0 ships v1.7.30).
+#   v1.7.32 (CVE-2026-46680; v3.21.0 ships v1.7.30).
 #   Revert to upstream binary when Helm releases a version built with
-#   Go >= 1.26.3 and containerd >= 1.7.33.
+#   Go >= 1.26.3 and containerd >= 1.7.32.
 #
 # kube-lineage: built with grpc replaced to v1.79.3 (CVE-2026-33186),
 #   spdystream replaced to v0.5.1 (CVE-2026-35469), containerd replaced
-#   to v1.7.33 (CVE-2026-46680 + CVE-2026-53488), and helm replaced to v3.20.2 (CVE-2026-35206).
+#   to v1.7.32 (CVE-2026-46680), and helm replaced to v3.20.2 (CVE-2026-35206).
 #   robusta-dev/kube-lineage v2.2.5 ships with Go 1.24.13 + grpc 1.64.1 + spdystream 0.5.0.
 #   Revert when kube-lineage releases a version built with Go >= 1.26.3,
-#   grpc >= 1.79.3, spdystream >= 0.5.1, containerd >= 1.7.33, and helm >= 3.20.2.
+#   grpc >= 1.79.3, spdystream >= 0.5.1, containerd >= 1.7.32, and helm >= 3.20.2.
 #
-# All binaries: golang.org/x/crypto replaced to v0.53.0 (SSH CVEs, some CRITICAL)
-#   and golang.org/x/net replaced to v0.56.0 (CVE-2026-39821 CRITICAL,
-#   CVE-2026-33814). See X_CRYPTO_PATCHED_VERSION / X_NET_PATCHED_VERSION below.
-#
-# kubectl is NOT built here — the official dl.k8s.io binary (kubectl v1.36.3,
-#   pinned in the Dockerfile) is built with Go 1.26.5 (>= 1.26.3), so it carries
-#   the stdlib CVE fixes without a from-source rebuild. Earlier releases were
-#   not: check a candidate with `go version <(curl -sL
+# kubectl is NOT built here — the official dl.k8s.io binary (kubectl v1.36.2,
+#   pinned in the Dockerfile) is already built with Go 1.26.4, so it carries the
+#   stdlib CVE fixes without a from-source rebuild. Earlier releases were not:
+#   check a candidate with `go version <(curl -sL
 #   https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)` before bumping the
 #   Dockerfile pin, since the 1.34/1.35 lines are still on a vulnerable Go.
 #
@@ -51,12 +47,26 @@ set -euo pipefail
 export GOTOOLCHAIN=go1.26.4
 
 MIN_GO_VERSION="1.26.3"
-CURRENT_GO_VERSION="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
-if [ -z "$CURRENT_GO_VERSION" ]; then
-  echo "Go is not installed or not on PATH. Go 1.21+ is required (GOTOOLCHAIN downloads ${GOTOOLCHAIN#go})." >&2
+# Minimum *local* Go that can bootstrap the GOTOOLCHAIN auto-download above
+# (the GOTOOLCHAIN mechanism landed in Go 1.21). Intentionally lower than
+# MIN_GO_VERSION: the pinned build toolchain is fetched automatically, so the
+# locally installed go only needs to be new enough to honor GOTOOLCHAIN.
+MIN_BOOTSTRAP_GO_VERSION="1.21"
+# Check for the go binary first: under `set -e` the command substitution below
+# would otherwise abort the script before the empty-string check could run.
+if ! command -v go >/dev/null 2>&1; then
+  echo "Go is not installed or not on PATH. Go ${MIN_BOOTSTRAP_GO_VERSION}+ is required (GOTOOLCHAIN downloads ${GOTOOLCHAIN#go})." >&2
   exit 1
 fi
-if ! printf '%s\n%s\n' "$MIN_GO_VERSION" "$CURRENT_GO_VERSION" | sort -V -C; then
+CURRENT_GO_VERSION="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
+if [ -z "$CURRENT_GO_VERSION" ]; then
+  echo "Unable to determine Go version from 'go env GOVERSION'." >&2
+  exit 1
+fi
+# Portable version comparison (avoids GNU-only `sort -V`): sort min+current
+# numerically by dotted component; if the smallest isn't MIN_GO_VERSION, current
+# is older. Works on both GNU and BSD/macOS sort.
+if [ "$(printf '%s\n%s\n' "$MIN_GO_VERSION" "$CURRENT_GO_VERSION" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" != "$MIN_GO_VERSION" ]; then
   echo "Go ${MIN_GO_VERSION}+ is required (found ${CURRENT_GO_VERSION}). GOTOOLCHAIN switch failed?" >&2
   exit 1
 fi
@@ -82,15 +92,9 @@ HELM_VERSION=v3.21.0
 GRPC_PATCHED_VERSION=v1.79.3
 KUBE_LINEAGE_VERSION=v2.2.5
 SPDYSTREAM_PATCHED_VERSION=v0.5.1
-CONTAINERD_PATCHED_VERSION=v1.7.33
+CONTAINERD_PATCHED_VERSION=v1.7.32
 HELM_IN_LINEAGE_PATCHED_VERSION=v3.20.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
-# golang.org/x/crypto < 0.52.0 has the SSH CVEs CVE-2026-39829/39830/39831/39832/
-#   39833/39834/42508/46595/46597 (some CRITICAL); fixed in 0.52.0, we pin latest.
-# golang.org/x/net < 0.55.0 has CVE-2026-39821 (CRITICAL) and CVE-2026-33814;
-#   fixed in 0.55.0, we pin latest. Applied as replaces to every binary below.
-X_CRYPTO_PATCHED_VERSION=v0.53.0
-X_NET_PATCHED_VERSION=v0.56.0
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 OUTDIR="$REPO_ROOT/bin/go-cve-rebuild"
@@ -110,14 +114,9 @@ go mod edit -replace="github.com/go-git/go-git/v5=github.com/go-git/go-git/v5@$G
 go mod edit -replace="github.com/go-git/go-billy/v5=github.com/go-git/go-billy/v5@$GO_BILLY_PATCHED_VERSION"
 # slack-go v0.16.0 has GHSA-gxhx-2686-5h9g (Medium); fixed in v0.23.1
 go mod edit -replace="github.com/slack-go/slack=github.com/slack-go/slack@$SLACK_GO_PATCHED_VERSION"
-# x/crypto (SSH CVEs) and x/net (CVE-2026-39821/33814)
-go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
-go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-git/v5" "$GO_GIT_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-billy/v5" "$GO_BILLY_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/slack-go/slack" "$SLACK_GO_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "golang.org/x/crypto" "$X_CRYPTO_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
 
 ARGOCD_LDFLAGS="-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V"
 
@@ -136,14 +135,10 @@ git clone --depth 1 --branch "$HELM_VERSION" https://github.com/helm/helm.git "$
 
 cd "$TMPDIR/helm"
 # Helm v3.21.0 already ships grpc v1.80.0 (>= the CVE-2026-33186 fix in
-# v1.79.3); containerd, x/crypto and x/net still need replaces.
-echo "==> Pinning containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680/53488), x/crypto and x/net..."
+# v1.79.3); only containerd still needs a replace.
+echo "==> Pinning containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680)..."
 go mod edit -replace="github.com/containerd/containerd=github.com/containerd/containerd@$CONTAINERD_PATCHED_VERSION"
-go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
-go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/containerd/containerd" "$CONTAINERD_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "golang.org/x/crypto" "$X_CRYPTO_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
 
 HELM_LDFLAGS="-w -s -X helm.sh/helm/v3/internal/version.version=$HELM_VERSION"
 
@@ -160,21 +155,17 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
 echo "==> Cloning kube-lineage $KUBE_LINEAGE_VERSION..."
 git clone --depth 1 --branch "$KUBE_LINEAGE_VERSION" https://github.com/robusta-dev/kube-lineage.git "$TMPDIR/kube-lineage"
 
-echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (CVE-2026-33186), spdystream to $SPDYSTREAM_PATCHED_VERSION (CVE-2026-35469), containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680/53488), x/crypto and x/net..."
+echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (CVE-2026-33186), spdystream to $SPDYSTREAM_PATCHED_VERSION (CVE-2026-35469), and containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-46680)..."
 cd "$TMPDIR/kube-lineage"
 go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
 go mod edit -replace="github.com/moby/spdystream=github.com/moby/spdystream@$SPDYSTREAM_PATCHED_VERSION"
 go mod edit -replace="github.com/containerd/containerd=github.com/containerd/containerd@$CONTAINERD_PATCHED_VERSION"
 # embedded helm v3.19.0 has CVE-2026-35206 (Medium); fixed in v3.20.2
 go mod edit -replace="helm.sh/helm/v3=helm.sh/helm/v3@$HELM_IN_LINEAGE_PATCHED_VERSION"
-go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
-go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/moby/spdystream" "$SPDYSTREAM_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/containerd/containerd" "$CONTAINERD_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "helm.sh/helm/v3" "$HELM_IN_LINEAGE_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "golang.org/x/crypto" "$X_CRYPTO_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
 
 echo "==> Building kube-lineage for linux/amd64..."
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \

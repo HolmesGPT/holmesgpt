@@ -300,6 +300,8 @@ class Config(RobustaBaseConfig):
         if skill_paths:
             kwargs["custom_skill_paths"] = skill_paths
         kwargs["cluster_name"] = Config.__get_cluster_name()
+        if kwargs["cluster_name"] and not os.environ.get("CLUSTER_NAME"):
+            os.environ["CLUSTER_NAME"] = kwargs["cluster_name"]
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
         if "model" in kwargs:

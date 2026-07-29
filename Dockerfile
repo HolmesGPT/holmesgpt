@@ -1,6 +1,15 @@
 # Alpine-based image (switched from Debian bookworm to drop unfixable perl
 # CVEs; Alpine git has no perl dependency).
 
+# Build-tooling version floors, shared across both build stages (re-declared
+# with a bare `ARG` inside each stage that uses them). CVE fixes:
+#   wheel >= 0.46.2     CVE-2026-24049
+#   pip >= 26.1         CVE-2026-3219/6357, CVE-2025-8869
+#   setuptools >= 80.0  CVE-2026-1703 (final-stage system Python only)
+ARG PIP_MIN_VERSION=26.1
+ARG WHEEL_MIN_VERSION=0.46.2
+ARG SETUPTOOLS_MIN_VERSION=80.0.0
+
 # Build stage
 FROM python:3.11-alpine AS builder
 ENV PATH="/root/.local/bin/:$PATH"
@@ -24,25 +33,27 @@ RUN apk add --no-cache \
 
 WORKDIR /
 
-# Create venv; upgrade wheel (CVE-2026-24049) and pip (CVE-2026-3219/6357, CVE-2025-8869).
+# Create venv; upgrade wheel + pip (CVE floors pinned via the ARGs at the top).
+# The venv is selected via VIRTUAL_ENV/PATH below (sourcing activate in a RUN has
+# no effect — the shell exits when the layer finishes).
+ARG PIP_MIN_VERSION
+ARG WHEEL_MIN_VERSION
 RUN python -m venv /venv --upgrade-deps && \
-    /venv/bin/pip install --upgrade 'wheel>=0.46.2' 'pip>=26.1' && \
-    . /venv/bin/activate
+    /venv/bin/pip install --upgrade "wheel>=${WHEEL_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}"
 
 ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # kubectl: official release binary from dl.k8s.io, pulled with upstream SHA-256
-# verification. v1.36.3 is built with Go 1.26.5 (>= 1.26.3), so it already
-# carries the stdlib CVE fixes (CVE-2026-42499/33814/39836/33811/39820/39823/
-# 39825/39826/42504) that previously forced a from-source rebuild.
+# verification. v1.36.2 is the first kubectl built with Go >= 1.26.3 (go1.26.4),
+# so it already carries the stdlib CVE fixes (CVE-2026-42499/33814/39836/33811/
+# 39820/39823/39825/39826/42504) that previously forced a from-source rebuild --
+# it is now built with the exact toolchain our other bundled binaries use.
 # argocd/helm/kube-lineage are still rebuilt (see scripts/build_go_binaries.sh)
 # because no upstream release fixes their CVEs yet. Bump KUBECTL_VERSION as newer
-# releases ship (the 1.34/1.35 lines are still on a vulnerable Go toolchain --
-# check a candidate with `go version <(curl -sL
-# https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)` before bumping).
+# releases ship (the 1.34/1.35 lines are still on a vulnerable Go toolchain).
 ARG TARGETARCH
-ARG KUBECTL_VERSION=v1.36.3
+ARG KUBECTL_VERSION=v1.36.2
 RUN cd /tmp \
     && curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o kubectl.sha256 \
@@ -97,13 +108,6 @@ RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
     fi \
     && poetry install --no-interaction --no-ansi --no-root --with otel
 
-# poetry itself is installed into /venv (virtualenvs.create=false) and the whole
-# venv is copied to the final stage, so poetry's dep CacheControl drags in
-# msgpack 1.1.2 (GHSA-6v7p-g79w-8964, use-after-free, HIGH). It's not in
-# poetry.lock since it's a build-tool dep, so upgrade it directly.
-# Revert when poetry's CacheControl ships msgpack >= 1.2.1.
-RUN pip install --upgrade --no-cache-dir 'msgpack>=1.2.1'
-
 
 # Final stage
 FROM python:3.11-alpine
@@ -120,15 +124,19 @@ COPY --from=builder /venv /venv
 # compiled wheels; krb5-libs/unixodbc: msodbcsql18 (azure/sql). apk upgrade
 # pulls Alpine security fixes for base-image packages.
 #
-# bash + GNU coreutils/findutils/grep/gawk/sed/gzip: the bash toolset allowlist
-# (default_lists.py) lets the LLM run grep/find/sort/date/head/stat/sed/zgrep/etc.
+# bash + GNU coreutils/findutils/grep/gzip: the bash toolset allowlist
+# (default_lists.py) lets the LLM run grep/find/sort/date/head/stat/zgrep/etc.
 # with prefix-only validation (any flags pass). Alpine's busybox applets reject
 # the GNU flags LLMs reflexively emit (grep -P, date -d "1 hour ago",
-# find -printf, head -n -5, sed -i). These packages replace the busybox applets,
-# restoring the GNU behavior the previous Debian image provided.
+# find -printf, head -n -5). These packages replace the busybox applets,
+# restoring the GNU behavior the previous Debian image provided. gawk/sed are
+# not in the default allowlist but are installed in GNU form so they behave
+# correctly when a user adds them via the bash toolset's `allow` config.
 # bind-tools (dig/nslookup) + tcpdump: network/DNS troubleshooting, including the
 # dig-based API-server reachability check in the kubernetes toolset.
 RUN apk upgrade --no-cache && apk add --no-cache \
+    curl \
+    jq \
     git \
     bash \
     coreutils \
@@ -146,9 +154,7 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
-    librdkafka \
-    curl \
-    jq
+    librdkafka
 
 # Microsoft ODBC for Azure SQL. The apk was signature-verified in the builder
 # stage; --allow-untrusted since it's not in an Alpine repo.
@@ -179,9 +185,13 @@ ARG AWS_REGION
 # Patching CVE-2024-32002
 RUN git config --global core.symlinks false
 
-# Upgrade base-image system Python's wheel/setuptools/pip (CVE-2026-24049,
-# CVE-2026-3219/6357, CVE-2025-8869, CVE-2026-1703).
-RUN /usr/local/bin/pip install --upgrade --no-cache-dir 'wheel>=0.46.2' 'setuptools>=80.0.0' 'pip>=26.1'
+# Upgrade base-image system Python's wheel/setuptools/pip (CVE floors pinned via
+# the ARGs at the top of this file).
+ARG PIP_MIN_VERSION
+ARG WHEEL_MIN_VERSION
+ARG SETUPTOOLS_MIN_VERSION
+RUN /usr/local/bin/pip install --upgrade --no-cache-dir \
+    "wheel>=${WHEEL_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}"
 
 COPY ./experimental/ag-ui/server-agui.py /app/experimental/ag-ui/server-agui.py
 COPY ./holmes /app/holmes

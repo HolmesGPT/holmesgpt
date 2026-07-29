@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import pytest
+from litellm.types.utils import Choices, Message, ModelResponse
 
 from holmes.core.llm import DefaultLLM
 from holmes.core.truncation.compaction import (
@@ -30,6 +31,7 @@ _requires_azure = pytest.mark.skipif(
 
 @_requires_azure
 def test_conversation_history_compaction_system_prompt_untouched():
+    """Live compaction keeps the system prompt as the first message."""
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
         conversation_history = json.load(file)
@@ -44,22 +46,21 @@ def test_conversation_history_compaction_system_prompt_untouched():
         compacted_history = compaction_result.messages_after_compaction
         assert compacted_history
         assert (
-            len(compacted_history) == 4
-        )  # [0]=system prompt, [1]=last user prompt, [2]=compacted content, [3]=message to continue
+            len(compacted_history) == 3
+        )  # [0]=system prompt, [1]=summary (user), [2]=last user prompt
 
         assert compacted_history[0]["role"] == "system"
         assert compacted_history[0]["content"] == system_prompt["content"]
 
         assert compacted_history[1]["role"] == "user"
+        assert "compacted" in compacted_history[1]["content"].lower()
 
-        assert compacted_history[2]["role"] == "assistant"
-
-        assert compacted_history[3]["role"] == "system"
-        assert "compacted" in compacted_history[3]["content"].lower()
+        assert compacted_history[2]["role"] == "user"
 
 
 @_requires_azure
 def test_conversation_history_compaction():
+    """Live compaction produces a [user summary, last user prompt] history."""
     llm = DefaultLLM(model=os.environ.get("model", "azure/gpt-4o"))
     with open(CONVERSATION_HISTORY_FILE_PATH) as file:
         conversation_history = json.load(file)
@@ -70,15 +71,13 @@ def test_conversation_history_compaction():
         compacted_history = compaction_result.messages_after_compaction
         assert compacted_history
         assert (
-            len(compacted_history) == 3
-        )  # [0]=last user prompt, [1]=compacted content, [2]=message to continue
+            len(compacted_history) == 2
+        )  # [0]=summary (user), [1]=last user prompt
 
         assert compacted_history[0]["role"] == "user"
+        assert "compacted" in compacted_history[0]["content"].lower()
 
-        assert compacted_history[1]["role"] == "assistant"
-
-        assert compacted_history[2]["role"] == "system"
-        assert "compacted" in compacted_history[2]["content"].lower()
+        assert compacted_history[1]["role"] == "user"
 
         original_tokens = llm.count_tokens(conversation_history)
         compacted_tokens = llm.count_tokens(compacted_history)
@@ -86,7 +85,7 @@ def test_conversation_history_compaction():
         print(
             f"original_tokens={original_tokens.total_tokens} compacted_tokens={compacted_tokens.total_tokens}"
         )
-        print(compacted_history[1]["content"])
+        print(compacted_history[0]["content"])
         assert compacted_tokens.total_tokens < expected_max_compacted_token_count
 
 
@@ -189,6 +188,7 @@ def test_count_image_tokens_no_images():
 
     class FakeLLM:
         def count_tokens(self, messages):
+            """Return a fixed token usage for any input."""
             class Usage:
                 total_tokens = 0
             return Usage()
@@ -210,6 +210,7 @@ def test_count_image_tokens_with_images():
 
     class FakeLLM:
         def count_tokens(self, messages):
+            """Return a fixed token usage for any input."""
             # Should receive a synthetic message with only image blocks
             class Usage:
                 total_tokens = 1600
@@ -310,3 +311,224 @@ def test_flatten_tool_messages_passes_through_plain_messages():
     ]
     result = _flatten_tool_messages_for_compaction(messages)
     assert result == messages
+
+
+# --- Unit tests for the summarization call shape and fallback (no network) ---
+
+
+class _Usage:
+    """Minimal token-usage stub for the fake LLM."""
+    total_tokens = 100
+
+
+class RecordingFakeLLM:
+    """Fake LLM that records completion calls and replays canned responses."""
+
+    def __init__(self, responses):
+        """Store canned responses to replay, newest first."""
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    def completion(self, messages, tools=None, tool_choice=None, **kwargs):
+        """Record the call and replay the next canned response (or raise it)."""
+        self.calls.append(
+            {"messages": messages, "tools": tools, "tool_choice": tool_choice}
+        )
+        result = self.responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def count_tokens(self, messages, tools=None):
+        """Return a fixed token usage for any input."""
+        return _Usage()
+
+    def get_context_window_size(self):
+        """Return a fixed context window size."""
+        return 100000
+
+    def get_maximum_output_token(self):
+        """Return a fixed maximum output token count."""
+        return 4096
+
+
+def _make_response(content=None, tool_calls=None, **message_kwargs):
+    """Build a minimal litellm ModelResponse wrapping one assistant message."""
+    message = Message(
+        content=content, role="assistant", tool_calls=tool_calls, **message_kwargs
+    )
+    return ModelResponse(choices=[Choices(message=message)])
+
+
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "kubectl_get",
+            "description": "run kubectl get",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+]
+
+
+def _history_with_tool_calls():
+    """A small agentic history containing a tool call and its result."""
+    return [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "why is my pod crashing?"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "kubectl_get", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "name": "kubectl_get", "content": "CrashLoopBackOff"},
+    ]
+
+
+def test_compaction_primary_call_keeps_native_history_and_attaches_tools():
+    """The primary summarization call keeps native history and attaches tools."""
+    llm = RecordingFakeLLM([_make_response(content="THE SUMMARY")])
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(),
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+
+    assert len(llm.calls) == 1
+    call = llm.calls[0]
+    # Tools attached so Converse-translating gateways get toolConfig (ROB-424)
+    assert call["tools"] == _TOOLS
+    assert call["tool_choice"] == "auto"
+    # Native history preserved: system kept, tool message not flattened
+    roles = [m["role"] for m in call["messages"]]
+    assert roles[0] == "system"
+    assert "tool" in roles
+    # Instructions appended as the final user message
+    assert call["messages"][-1]["role"] == "user"
+
+    assert result.summary == "THE SUMMARY"
+
+
+def test_compaction_output_shape_user_summary_no_trailing_system():
+    """The compacted history is [system, user summary, last user prompt]."""
+    llm = RecordingFakeLLM([_make_response(content="THE SUMMARY")])
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(),
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    compacted = result.messages_after_compaction
+
+    # [system, user summary, last user prompt] — no assistant message, and no
+    # system message anywhere but index 0 (ROB-425 / ROB-665)
+    assert [m["role"] for m in compacted] == ["system", "user", "user"]
+    assert compacted[0]["content"] == "sys prompt"
+    assert "THE SUMMARY" in compacted[1]["content"]
+    assert "compacted" in compacted[1]["content"].lower()
+    assert compacted[2]["content"] == "why is my pod crashing?"
+
+
+def test_compaction_falls_back_when_model_calls_a_tool():
+    """A tool-call response triggers the flattened, tool-less retry."""
+    tool_call_response = _make_response(
+        tool_calls=[
+            {
+                "id": "c9",
+                "type": "function",
+                "function": {"name": "kubectl_get", "arguments": "{}"},
+            }
+        ]
+    )
+    llm = RecordingFakeLLM([tool_call_response, _make_response(content="FALLBACK SUMMARY")])
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(),
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+
+    assert len(llm.calls) == 2
+    fallback_call = llm.calls[1]
+    # Fallback sends no tools and a flattened, system-less history
+    assert fallback_call["tools"] is None
+    roles = [m["role"] for m in fallback_call["messages"]]
+    assert "system" not in roles
+    assert "tool" not in roles
+    assert not any(m.get("tool_calls") for m in fallback_call["messages"])
+
+    assert result.summary == "FALLBACK SUMMARY"
+    assert result.fallback_used is True
+    assert result.fallback_reason is not None
+    assert "tool call" in result.fallback_reason
+
+
+def test_compaction_falls_back_when_primary_request_fails():
+    """A failing primary request triggers the flattened, tool-less retry."""
+    llm = RecordingFakeLLM(
+        [RuntimeError("400 toolConfig must be defined"), _make_response(content="FALLBACK SUMMARY")]
+    )
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(),
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    assert len(llm.calls) == 2
+    assert result.summary == "FALLBACK SUMMARY"
+    assert result.fallback_used is True
+    assert result.fallback_reason is not None
+    assert "400 toolConfig must be defined" in result.fallback_reason
+
+
+def test_compaction_primary_success_reports_no_fallback():
+    """A successful primary summarization reports fallback_used=False."""
+    llm = RecordingFakeLLM([_make_response(content="THE SUMMARY")])
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(),
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    assert result.fallback_used is False
+    assert result.fallback_reason is None
+
+
+def test_compaction_summary_never_stores_thinking_blocks():
+    """Thinking blocks from the summarization response never enter history."""
+    response = _make_response(
+        content="THE SUMMARY",
+        reasoning_content="thinking about it...",
+        thinking_blocks=[
+            {"type": "thinking", "thinking": "thinking about it...", "signature": "SIG=="}
+        ],
+    )
+    llm = RecordingFakeLLM([response])
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(),
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    summary_message = result.messages_after_compaction[1]
+    assert summary_message["role"] == "user"
+    assert isinstance(summary_message["content"], str)
+    assert "thinking_blocks" not in summary_message
+    assert "reasoning_content" not in summary_message
+    assert "SIG==" not in json.dumps(result.messages_after_compaction)
+
+
+def test_compaction_returns_original_history_when_both_attempts_unusable():
+    """When both attempts yield no text the original history is returned."""
+    llm = RecordingFakeLLM([_make_response(content=""), _make_response(content="")])
+    history = _history_with_tool_calls()
+    result = compact_conversation_history(
+        original_conversation_history=history,
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    assert len(llm.calls) == 2
+    assert result.summary is None
+    assert result.messages_after_compaction == history
