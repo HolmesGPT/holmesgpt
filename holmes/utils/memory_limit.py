@@ -4,9 +4,10 @@ Memory limit utilities for tool subprocess execution.
 
 import logging
 import os
+import selectors
 import signal
 import subprocess
-import threading
+import time
 from typing import List, Optional
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
@@ -20,6 +21,7 @@ OOM_OUTPUT_MAX_LINES = 10
 
 TOOL_OUTPUT_BUFFER_LIMIT_CHARS = 50 * 1024 * 1024
 READ_CHUNK_SIZE_CHARS = 64 * 1024
+POST_KILL_DRAIN_SECONDS = 5
 
 
 def get_ulimit_prefix() -> str:
@@ -125,41 +127,47 @@ def _kill_process_group(process: subprocess.Popen) -> None:
             pass
 
 
-def _read_stdout_capped(process: subprocess.Popen, chunks: List[str]) -> None:
-    if process.stdout is None:
-        return
-    total = 0
-    while True:
-        try:
-            chunk = process.stdout.read(READ_CHUNK_SIZE_CHARS)
-        except (OSError, ValueError):
-            return
-        if not chunk:
-            return
-        chunks.append(chunk)
-        total += len(chunk)
-        if total > TOOL_OUTPUT_BUFFER_LIMIT_CHARS:
-            _kill_process_group(process)
-            return
-
-
 # Like process.communicate(), but kills the subprocess once its output exceeds TOOL_OUTPUT_BUFFER_LIMIT_CHARS.
 def communicate_capped(process: subprocess.Popen, timeout: Optional[float]) -> str:
-    chunks: List[str] = []
-    reader = threading.Thread(
-        target=_read_stdout_capped, args=(process, chunks), daemon=True
-    )
-    reader.start()
-    reader.join(timeout)
-    timed_out = reader.is_alive()
-    if timed_out:
-        _kill_process_group(process)
+    if process.stdout is None:
+        process.wait(timeout=timeout)
+        return ""
+    fd = process.stdout.fileno()
+    deadline = None if timeout is None else time.monotonic() + timeout
+    chunks: List[bytes] = []
+    total = 0
+    timed_out = False
+    with selectors.DefaultSelector() as selector:
+        selector.register(fd, selectors.EVENT_READ)
+        while True:
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
+                if timed_out:
+                    break
+                timed_out = True
+                _kill_process_group(process)
+                # Collect the residue the killed process left in the pipe, briefly
+                deadline = now + POST_KILL_DRAIN_SECONDS
+                continue
+            wait_time = None if deadline is None else deadline - now
+            if not selector.select(wait_time):
+                continue
+            try:
+                chunk = os.read(fd, READ_CHUNK_SIZE_CHARS)
+            except OSError:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > TOOL_OUTPUT_BUFFER_LIMIT_CHARS:
+                _kill_process_group(process)
+                break
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         logger.warning("Tool subprocess did not exit within 5s after kill()")
-    reader.join(5)
-    output = "".join(chunks)
+    output = b"".join(chunks).decode("utf-8", errors="replace")
     if timed_out:
         raise subprocess.TimeoutExpired(process.args, timeout or 0, output=output)
     return output
