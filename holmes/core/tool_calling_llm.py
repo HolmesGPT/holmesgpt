@@ -123,6 +123,57 @@ def _extract_text_from_content(content: Any) -> str:
     return ""
 
 
+def _finish_reason_of(full_response: Any) -> Optional[str]:
+    """The response's finish_reason, or None when it isn't a real string
+    (e.g. a mock in tests, or a provider that omits it)."""
+    try:
+        finish_reason = full_response.choices[0].finish_reason
+    except (AttributeError, IndexError, TypeError):
+        return None
+    return finish_reason if isinstance(finish_reason, str) else None
+
+
+def _log_output_truncation(
+    llm: LLM,
+    response_stats: RequestStats,
+    iteration: int,
+    had_tool_calls: bool,
+) -> None:
+    """Explain a finish_reason=length response.
+
+    The requested limit and the tokens actually produced can differ by orders of
+    magnitude - an LLM proxy or the provider may enforce a smaller cap than the
+    one Holmes asked for, and for models with extended thinking enabled the
+    thinking tokens are charged against the same budget as the answer. Logging
+    both numbers is what makes those cases tellable apart.
+    """
+    requested = llm.get_maximum_output_token()
+    completion_tokens = response_stats.completion_tokens
+    reasoning_tokens = response_stats.reasoning_tokens
+
+    if completion_tokens and completion_tokens < requested * 0.9:
+        cause = (
+            "the response stopped well below the requested limit, so the cap came from "
+            "the provider or LLM proxy rather than from Holmes - check the output limit "
+            "configured for this model there, or set OVERRIDE_MAX_OUTPUT_TOKEN to match it"
+        )
+    elif reasoning_tokens and reasoning_tokens > completion_tokens * 0.5:
+        cause = (
+            "most of the output budget was spent on reasoning tokens, leaving little "
+            "for the answer - lower the thinking budget or raise the output limit"
+        )
+    else:
+        cause = "the response reached the requested output limit"
+
+    logging.warning(
+        f"LLM output truncated (finish_reason=length) on model={llm.model} "
+        f"iteration={iteration} had_tool_calls={had_tool_calls}: "
+        f"requested max output={requested}, produced completion_tokens={completion_tokens} "
+        f"(reasoning_tokens={reasoning_tokens}, prompt_tokens={response_stats.prompt_tokens}). "
+        f"{cause}."
+    )
+
+
 # Scope key for the local (caller) cluster in the agent-keyed prefix map.
 _LOCAL_BASH_PREFIX_SCOPE = ""
 
@@ -1285,6 +1336,19 @@ class ToolCallingLLM:
             )
 
             tools_to_call = getattr(response_message, "tool_calls", None)
+
+            finish_reason = _finish_reason_of(full_response)
+            if finish_reason == "length":
+                # Log every truncation, including on tool-calling iterations - those
+                # are otherwise invisible because only the final iteration's
+                # finish_reason is reported.
+                _log_output_truncation(
+                    llm=self.llm,
+                    response_stats=response_stats,
+                    iteration=i,
+                    had_tool_calls=bool(tools_to_call),
+                )
+
             if not tools_to_call:
                 # Capture the final iteration's finish_reason for usage tracking
                 # (HolmesUsageEvents.finish_reason). Earlier iterations always end
@@ -1292,12 +1356,8 @@ class ToolCallingLLM:
                 # (stop / length / content_filter / etc.). Skip if the value isn't
                 # a real string (e.g. MagicMock in tests), so pydantic validation
                 # of LLMResult below doesn't blow up.
-                try:
-                    fr = full_response.choices[0].finish_reason  # type: ignore
-                    if isinstance(fr, str):
-                        metadata["finish_reason"] = fr
-                except (AttributeError, IndexError, TypeError):
-                    pass
+                if finish_reason is not None:
+                    metadata["finish_reason"] = finish_reason
                 # Final answer as the trace root output (prompt set as root input by caller).
                 if response_message.content:
                     trace_span.log(output=response_message.content)

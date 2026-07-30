@@ -284,6 +284,25 @@ def _strip_images(message: dict) -> dict:
     return new_msg
 
 
+def _thinking_blocks_text(message: dict) -> str:
+    """Concatenated reasoning text from a message's `thinking_blocks`.
+
+    Redacted blocks carry their (opaque) payload under `data` instead of
+    `thinking`; both are sent back to the provider, so both count.
+    """
+    blocks = message.get("thinking_blocks")
+    if not isinstance(blocks, list):
+        return ""
+    parts = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        text = block.get("thinking") or block.get("data")
+        if isinstance(text, str):
+            parts.append(text)
+    return "".join(parts)
+
+
 def _count_anthropic_image_tokens(message: dict) -> int:
     """Count image tokens in a message using Anthropic's formula."""
     content = message.get("content")
@@ -359,6 +378,13 @@ class DefaultLLM(LLM):
     args: Dict
     is_robusta_model: bool
 
+    # Limits declared for the model by whoever configured it (model list
+    # `custom_args`, or the model registry for centrally hosted models).
+    # Class-level defaults so both are always readable, even on instances
+    # built without update_custom_args().
+    max_context_size: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+
     def __init__(
         self,
         model: str,
@@ -384,7 +410,15 @@ class DefaultLLM(LLM):
         )
 
     def update_custom_args(self):
-        self.max_context_size = self.args.get("custom_args", {}).get("max_context_size")
+        custom_args = self.args.get("custom_args") or {}
+        # `max_input_tokens` is litellm's name for the context window (that is the
+        # key get_context_window_size() reads from the cost map), so accept either.
+        self.max_context_size = custom_args.get("max_context_size") or custom_args.get(
+            "max_input_tokens"
+        )
+        # The model's real output ceiling, when it was declared. Without it,
+        # get_maximum_output_token() can only guess from the context window.
+        self.max_output_tokens = custom_args.get("max_output_tokens")
         self.args.pop("custom_args", None)
 
     def check_llm(
@@ -539,6 +573,25 @@ class DefaultLLM(LLM):
     def _is_anthropic_model(self) -> bool:
         return is_anthropic_model(self.model)
 
+    def _uncounted_thinking_tokens(self, message: dict) -> int:
+        """Reasoning tokens in this message that litellm's counter doesn't see.
+
+        An extended-thinking response carries the model's reasoning as
+        `thinking_blocks`, and some providers also set a `reasoning_content`
+        string. litellm's token counter reads `reasoning_content` but ignores
+        `thinking_blocks`, so when only the blocks are present the reasoning is
+        counted as zero context - even though it stays in the conversation and is
+        sent back to the provider (and billed as input) on every later turn.
+        """
+        if message.get("reasoning_content"):
+            return 0  # litellm's counter already includes this
+        text = _thinking_blocks_text(message)
+        if not text:
+            return 0
+        return litellm.token_counter(  # type: ignore
+            model=self.model, messages=[{"role": "assistant", "content": text}]
+        )
+
     @sentry_sdk.trace
     def count_tokens(
         self, messages: list[dict], tools: Optional[list[dict[str, Any]]] = None
@@ -557,9 +610,14 @@ class DefaultLLM(LLM):
         other_tokens = 0
         tools_to_call_tokens = 0
         anthropic_image_tokens = 0
+        thinking_tokens = 0
         cached_count = 0
         counted_count = 0
         for message in messages:
+            # Counted for every message, cached or not: the bulk calls below never
+            # see these tokens, so the running total needs them from here.
+            message_thinking_tokens = self._uncounted_thinking_tokens(message)
+            thinking_tokens += message_thinking_tokens
             # Reuse cached per-message token counts when available.
             # The cache is invalidated (key removed) whenever a message is modified (e.g. truncation).
             cached = message.get("token_count")
@@ -572,7 +630,7 @@ class DefaultLLM(LLM):
                     model=self.model, messages=[stripped]
                 )
                 img_tokens = _count_anthropic_image_tokens(message)
-                token_count += img_tokens
+                token_count += img_tokens + message_thinking_tokens
                 anthropic_image_tokens += img_tokens
                 message["token_count"] = token_count
                 counted_count += 1
@@ -580,6 +638,7 @@ class DefaultLLM(LLM):
                 token_count = litellm.token_counter(  # type: ignore
                     model=self.model, messages=[message]
                 )
+                token_count += message_thinking_tokens
                 message["token_count"] = token_count
                 counted_count += 1
             role = message.get("role")
@@ -613,7 +672,9 @@ class DefaultLLM(LLM):
         )
 
         tools_to_call_tokens = max(0, total_tokens - messages_token_count_without_tools)
-        total_tokens += anthropic_image_tokens
+        # Added after tools_to_call_tokens is derived: both bulk calls above miss
+        # these, so including them earlier would misattribute them to the tools.
+        total_tokens += anthropic_image_tokens + thinking_tokens
 
         elapsed_ms = (time.monotonic() - t0) * 1000
         logging.debug(
@@ -776,20 +837,66 @@ class DefaultLLM(LLM):
         else:
             raise Exception(f"Unexpected type returned by the LLM {type(result)}")
 
+    def _explicit_max_output_token_from_args(self) -> Optional[int]:
+        """The output limit set directly in the model args, if any.
+
+        completion() forwards these verbatim (see the max_tokens handling there),
+        so this is the limit that is actually enforced whenever it is present.
+        """
+        for key in ("max_tokens", "max_completion_tokens"):
+            value = self.args.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                logging.warning(
+                    f"Ignoring non-numeric {key}={value!r} configured for model {self.model}"
+                )
+        return None
+
     def get_maximum_output_token(self) -> int:
-        # Reserve output budget = max(64k, 12% of the context window). The 64k
-        # floor keeps small and unknown models usable (the 200k fallback window
-        # gives 12% = 24k, so they stay at 64k), while large windows scale up:
-        # a 1M-context model reserves 120k. The crossover is ~533k. This value
-        # is still capped below to the model's real max_output_tokens when the
-        # model is known to litellm.
-        max_output_tokens = max(64000, self.get_context_window_size() * 12 // 100)
+        """The output-token limit sent to the provider, reserved from the input
+        budget, and reported to clients.
+
+        Resolution order (kept in sync with docs/reference/context-management.md):
+          1. max_tokens / max_completion_tokens from the model args - what
+             completion() enforces, so reporting anything else would show a limit
+             nobody applies.
+          2. OVERRIDE_MAX_OUTPUT_TOKEN.
+          3. The limit declared for the model (custom_args.max_output_tokens).
+          4. Otherwise a share of the context window, as a guess.
+        3 and 4 are both capped by the model's real max_output_tokens whenever
+        litellm knows the model.
+        """
+        explicit_max_output_tokens = self._explicit_max_output_token_from_args()
+        if explicit_max_output_tokens is not None:
+            logging.debug(
+                f"Using max output token {explicit_max_output_tokens} from model args"
+            )
+            return explicit_max_output_tokens
 
         if OVERRIDE_MAX_OUTPUT_TOKEN:
             logging.debug(
                 f"Using OVERRIDE_MAX_OUTPUT_TOKEN {OVERRIDE_MAX_OUTPUT_TOKEN}"
             )
             return OVERRIDE_MAX_OUTPUT_TOKEN
+
+        # A declared limit is the model's actual ceiling; the fallback below is
+        # only a guess derived from the context window: max(64k, 12%). The 64k
+        # floor keeps small and unknown models usable (the 200k fallback window
+        # gives 12% = 24k, so they stay at 64k), while large windows scale up:
+        # a 1M-context model would guess 120k. The crossover is ~533k. Guessing
+        # high means asking for more output than the model can produce, so the
+        # limit we report is one the provider never enforces.
+        declared = self.max_output_tokens is not None
+        if declared:
+            max_output_tokens = int(self.max_output_tokens)  # type: ignore[arg-type]
+            logging.debug(
+                f"Using declared max output token {max_output_tokens} for model {self.model}"
+            )
+        else:
+            max_output_tokens = max(64000, self.get_context_window_size() * 12 // 100)
 
         # Try each name variant
         for name in self._get_model_name_variants_for_lookup():
@@ -803,14 +910,19 @@ class DefaultLLM(LLM):
             except Exception:
                 continue
 
+        if declared:
+            # Nothing to cap it with, but the declared value is authoritative -
+            # no need to warn about the missing cost-map entry.
+            return max_output_tokens
+
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_output_tokens")
         if warn_key not in _warned_missing_model_lookups:
             _warned_missing_model_lookups.add(warn_key)
             logging.warning(
                 f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-                f"using {max_output_tokens} tokens for max_output_tokens. "
-                f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
+                f"guessing {max_output_tokens} tokens for max_output_tokens from the context window. "
+                f"To set the model's real output limit, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable."
             )
         return max_output_tokens
 

@@ -22,7 +22,10 @@ def _mock_model_response() -> ModelResponse:
 
 
 def _make_llm(
-    args: dict, model: str = "test-model", max_context_size=None
+    args: dict,
+    model: str = "test-model",
+    max_context_size=None,
+    max_output_tokens=None,
 ) -> DefaultLLM:
     """Build a DefaultLLM bypassing __init__/check_llm so we can control self.args directly."""
     llm = DefaultLLM.__new__(DefaultLLM)
@@ -35,6 +38,7 @@ def _make_llm(
     llm.name = None
     llm.is_robusta_model = False
     llm.max_context_size = max_context_size
+    llm.max_output_tokens = max_output_tokens
     return llm
 
 
@@ -149,3 +153,98 @@ class TestCompletionMaxTokensHandling:
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["max_tokens"] == llm.get_maximum_output_token()
         assert kwargs["max_tokens"] <= 16384
+
+
+class TestDeclaredMaxOutputTokens:
+    """A model's output ceiling can be declared alongside its context window
+    (`custom_args.max_output_tokens`). Without it, get_maximum_output_token()
+    guesses from the context window, and the guess can exceed what the provider
+    (or an LLM proxy in front of it) really allows: the answer is then truncated
+    at the smaller cap while Holmes reserves input space for, and reports, the
+    larger one.
+
+    Resolution order asserted here:
+      1. max_tokens / max_completion_tokens in the model args
+      2. OVERRIDE_MAX_OUTPUT_TOKEN
+      3. declared max_output_tokens (capped by litellm's value when known)
+      4. max(64000, 12% of the context window)
+    """
+
+    def test_declared_limit_beats_context_window_guess(self, mock_completion):
+        """A declared ceiling is used instead of 12% of the context window, and it
+        is the value both reported and sent."""
+        llm = _make_llm(
+            {},
+            model="proxy/some-claude-alias",
+            max_context_size=1_000_000,
+            max_output_tokens=32_000,
+        )
+        assert llm.get_maximum_output_token() == 32_000
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+        assert mock_completion.call_args.kwargs["max_tokens"] == 32_000
+
+    def test_reported_limit_matches_args_limit(self, mock_completion):
+        """An explicit args limit is what completion() enforces, so it must also be
+        what get_maximum_output_token() reports - that value is reserved from the
+        input budget and reported to clients."""
+        llm = _make_llm(
+            {"max_tokens": 8000},
+            model="proxy/some-claude-alias",
+            max_context_size=1_000_000,
+            max_output_tokens=32_000,
+        )
+        assert llm.get_maximum_output_token() == 8000
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+        assert mock_completion.call_args.kwargs["max_tokens"] == 8000
+
+    def test_reported_limit_matches_args_completion_tokens_limit(self):
+        """Same for max_completion_tokens, which completion() forwards as-is."""
+        llm = _make_llm({"max_completion_tokens": 5000}, max_context_size=1_000_000)
+        assert llm.get_maximum_output_token() == 5000
+
+    def test_override_env_var_beats_declared_limit(self):
+        """OVERRIDE_MAX_OUTPUT_TOKEN stays the last-word escape hatch."""
+        with patch("holmes.core.llm.OVERRIDE_MAX_OUTPUT_TOKEN", 12345):
+            llm = _make_llm({}, max_context_size=1_000_000, max_output_tokens=32_000)
+            assert llm.get_maximum_output_token() == 12345
+
+    def test_declared_limit_capped_at_litellm_model_max(self):
+        """A declaration above what the model can actually produce is clamped down
+        for models litellm knows (gpt-4o caps at 16384)."""
+        llm = _make_llm({}, model="gpt-4o", max_output_tokens=999_999)
+        assert llm.get_maximum_output_token() <= 16384
+
+    def test_instance_without_declared_limit_falls_back(self):
+        """max_output_tokens is a class-level default, so instances that never ran
+        update_custom_args() keep the computed behavior instead of raising."""
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.model = "proxy/some-claude-alias"
+        llm.args = {}
+        assert llm.get_maximum_output_token() == 64000
+
+
+class TestUpdateCustomArgs:
+    """custom_args carries the limits declared for the model and must not leak
+    into the completion call."""
+
+    def test_extracts_both_limits_and_pops_custom_args(self):
+        llm = _make_llm(
+            {"custom_args": {"max_context_size": 400_000, "max_output_tokens": 32_000}}
+        )
+        llm.update_custom_args()
+        assert llm.max_context_size == 400_000
+        assert llm.max_output_tokens == 32_000
+        assert "custom_args" not in llm.args
+
+    def test_max_input_tokens_is_accepted_as_the_context_window(self):
+        """max_input_tokens is litellm's name for the context window."""
+        llm = _make_llm({"custom_args": {"max_input_tokens": 400_000}})
+        llm.update_custom_args()
+        assert llm.get_context_window_size() == 400_000
+        assert llm.get_maximum_output_token() == 64000
+
+    def test_missing_custom_args_leaves_limits_unset(self):
+        llm = _make_llm({})
+        llm.update_custom_args()
+        assert llm.max_context_size is None
+        assert llm.max_output_tokens is None

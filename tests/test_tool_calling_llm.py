@@ -14,6 +14,7 @@ Mocking strategy:
 """
 
 import json
+import logging
 import threading
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
@@ -81,10 +82,24 @@ def _make_mock_tool_call(tool_call_id="tc_1", tool_name="kubectl_get", arguments
     return tc
 
 
-def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20):
-    """Create a mock LLM response matching litellm ModelResponse shape."""
+def _make_llm_response(
+    content="done",
+    tool_calls=None,
+    cost=0.001,
+    prompt_tokens=50,
+    completion_tokens=20,
+    finish_reason=None,
+    reasoning_tokens=None,
+):
+    """Create a mock LLM response matching litellm ModelResponse shape.
+
+    finish_reason is left as a MagicMock unless given, so responses that don't
+    care about it are treated as "not reported" rather than a bogus value.
+    """
     resp = MagicMock()
     resp.choices = [MagicMock()]
+    if finish_reason is not None:
+        resp.choices[0].finish_reason = finish_reason
     msg = MagicMock()
     msg.content = content
     msg.tool_calls = tool_calls
@@ -117,7 +132,11 @@ def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_token
         "completion_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
         "prompt_tokens_details": None,
-        "completion_tokens_details": None,
+        "completion_tokens_details": (
+            {"reasoning_tokens": reasoning_tokens}
+            if reasoning_tokens is not None
+            else None
+        ),
     }.get(key, default)
     resp.usage = usage
 
@@ -1702,3 +1721,135 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Output truncation (finish_reason=length)
+# ---------------------------------------------------------------------------
+
+
+class TestOutputTruncationLogging:
+    """A finish_reason=length response means the answer was cut off. The limit
+    Holmes requested and the tokens actually produced can differ by orders of
+    magnitude - a proxy or the provider may enforce a smaller cap, and reasoning
+    tokens are charged against the same budget - so both numbers get logged."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_truncated_answer_is_logged_and_reported(
+        self, _mock_limit, make_ai, mock_llm, caplog
+    ):
+        resp = _make_llm_response(
+            content="partial answer", tool_calls=None, finish_reason="length"
+        )
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        with caplog.at_level(logging.WARNING):
+            events = _collect_stream_events(
+                ai.call_stream(msgs=[{"role": "user", "content": "explain everything"}])
+            )
+
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_ends) == 1
+        assert answer_ends[0].data["metadata"]["finish_reason"] == "length"
+
+        warning = next(
+            r.getMessage() for r in caplog.records if "finish_reason=length" in r.getMessage()
+        )
+        assert "requested max output=4096" in warning
+        assert "completion_tokens=20" in warning
+        assert "had_tool_calls=False" in warning
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_truncation_far_below_requested_limit_blames_the_provider(
+        self, _mock_limit, make_ai, mock_llm, caplog
+    ):
+        """Stopping well short of the requested limit means the cap was enforced
+        somewhere else - that is the case operators cannot otherwise see."""
+        resp = _make_llm_response(
+            content="partial", tool_calls=None, completion_tokens=100, finish_reason="length"
+        )
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        with caplog.at_level(logging.WARNING):
+            _collect_stream_events(
+                ai.call_stream(msgs=[{"role": "user", "content": "hi"}])
+            )
+
+        warning = next(
+            r.getMessage() for r in caplog.records if "finish_reason=length" in r.getMessage()
+        )
+        assert "provider or LLM proxy" in warning
+        assert "OVERRIDE_MAX_OUTPUT_TOKEN" in warning
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_truncation_dominated_by_reasoning_tokens_is_called_out(
+        self, _mock_limit, make_ai, mock_llm, caplog
+    ):
+        resp = _make_llm_response(
+            content="partial",
+            tool_calls=None,
+            completion_tokens=4096,
+            reasoning_tokens=4000,
+            finish_reason="length",
+        )
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        with caplog.at_level(logging.WARNING):
+            _collect_stream_events(
+                ai.call_stream(msgs=[{"role": "user", "content": "hi"}])
+            )
+
+        warning = next(
+            r.getMessage() for r in caplog.records if "finish_reason=length" in r.getMessage()
+        )
+        assert "reasoning_tokens=4000" in warning
+        assert "reasoning tokens" in warning
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_truncation_on_a_tool_calling_iteration_is_logged(
+        self, _mock_limit, make_ai, mock_llm, caplog
+    ):
+        """Only the final iteration's finish_reason is reported to clients, so a
+        truncated tool-calling turn would otherwise be invisible."""
+        tc = _make_mock_tool_call()
+        resp_with_tool = _make_llm_response(
+            content="Let me check", tool_calls=[tc], finish_reason="length"
+        )
+        resp_final = _make_llm_response(content="done", tool_calls=None, finish_reason="stop")
+        mock_llm.completion.side_effect = [resp_with_tool, resp_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        with caplog.at_level(logging.WARNING):
+            events = _collect_stream_events(
+                ai.call_stream(msgs=[{"role": "user", "content": "hi"}])
+            )
+
+        warnings = [
+            r.getMessage() for r in caplog.records if "finish_reason=length" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert "had_tool_calls=True" in warnings[0]
+
+        # The reported finish_reason still describes why the loop ended.
+        answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert answer_ends[0].data["metadata"]["finish_reason"] == "stop"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_untruncated_answer_logs_nothing(
+        self, _mock_limit, make_ai, mock_llm, caplog
+    ):
+        resp = _make_llm_response(content="full answer", tool_calls=None, finish_reason="stop")
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        with caplog.at_level(logging.WARNING):
+            _collect_stream_events(
+                ai.call_stream(msgs=[{"role": "user", "content": "hi"}])
+            )
+
+        assert not [r for r in caplog.records if "finish_reason=length" in r.getMessage()]
