@@ -12,6 +12,7 @@ ARG WHEEL_MIN_VERSION=0.46.2
 ARG SETUPTOOLS_MIN_VERSION=80.0.0
 
 COPY pyproject.toml poetry.lock* ./
+COPY README.md ./
 COPY holmes/ ./holmes/
 # Upgrade build tooling first so poetry and the package installs it runs use the
 # CVE-patched pip/setuptools/wheel.
