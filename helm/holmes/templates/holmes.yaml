@@ -147,10 +147,18 @@ spec:
           timeoutSeconds: 3
           failureThreshold: 3
         env:
-          # readOnlyRootFilesystem makes the default config path (~/.holmes)
-          # unwritable, so point it at the writable /tmp emptyDir.
+          {{- /* readOnlyRootFilesystem makes the default config path (~/.holmes)
+                 unwritable, so default it to the writable /tmp emptyDir. Skipped
+                 when the user sets it themselves, so we don't emit a duplicate
+                 env var and rely on the runtime's last-one-wins ordering. */}}
+          {{- $userEnvNames := list }}
+          {{- range concat (.Values.additionalEnvVars | default list) (.Values.additional_env_vars | default list) }}
+          {{- $userEnvNames = append $userEnvNames .name }}
+          {{- end }}
+          {{- if not (has "HOLMES_CONFIGPATH_DIR" $userEnvNames) }}
           - name: HOLMES_CONFIGPATH_DIR
             value: /tmp/.holmes
+          {{- end }}
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
           - name: ENABLE_JSON_LOGS_FORMAT
