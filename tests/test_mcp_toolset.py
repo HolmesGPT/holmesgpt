@@ -879,7 +879,9 @@ class TestExceptionGroupUnwrapping:
             "unhandled errors in a TaskGroup (1 sub-exception)", [auth_error]
         )
 
-        async def mock_invoke_async(params, request_context):
+        async def mock_invoke_async(
+            params, request_context, user_approved=False, session_approved_prefixes=None
+        ):
             raise group
 
         monkeypatch.setattr(mcp_tool, "_invoke_async", mock_invoke_async)
