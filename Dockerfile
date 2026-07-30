@@ -115,8 +115,6 @@ FROM python:3.11-alpine
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/venv/bin:$PATH"
 ENV PYTHONPATH=$PYTHONPATH:.:/app/holmes
-# /tmp is the only writable mount when readOnlyRootFilesystem is set
-ENV HOLMES_CONFIGPATH_DIR=/tmp/.holmes
 
 WORKDIR /app
 
