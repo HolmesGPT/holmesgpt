@@ -3,7 +3,6 @@ Memory limit utilities for tool subprocess execution.
 """
 
 import logging
-import re
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
@@ -14,12 +13,8 @@ logger = logging.getLogger(__name__)
 # goroutine stack dumps (Go) or core-dump noise that wastes tokens.
 OOM_OUTPUT_MAX_LINES = 10
 
-VIRTUAL_MEMORY_HEADROOM_MB = 2048
 
-GO_BINARIES = ("kubectl", "oc", "helm", "argocd", "docker", "kube-lineage")
-
-
-def get_ulimit_prefix(cmd: str = "") -> str:
+def get_ulimit_prefix() -> str:
     """
     Get the ulimit command prefix for memory protection.
 
@@ -27,18 +22,6 @@ def get_ulimit_prefix(cmd: str = "") -> str:
     The '|| true' ensures we continue even if ulimit is not supported.
     """
     memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
-    # Go binaries reserve ~2GB of virtual address space at startup regardless of
-    # real usage, so a plain `ulimit -v` kills them long before they reach the
-    # budget. For commands invoking a Go tool, GOMEMLIMIT holds the *real* heap
-    # to the budget (the Go GC works harder to fit instead of dying) and the
-    # virtual cap is raised by a fixed headroom to fit the startup reservation;
-    # all other commands keep the strict virtual cap unchanged.
-    if any(re.search(rf"\b{binary}\b", cmd) for binary in GO_BINARIES):
-        headroom_kb = (TOOL_MEMORY_LIMIT_MB + VIRTUAL_MEMORY_HEADROOM_MB) * 1024
-        return (
-            f"export GOMEMLIMIT={TOOL_MEMORY_LIMIT_MB}MiB; "
-            f"ulimit -v {headroom_kb} 2>/dev/null || true; "
-        )
     return f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
 
 
