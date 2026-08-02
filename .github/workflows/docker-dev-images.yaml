@@ -222,10 +222,6 @@ jobs:
         cache-from: type=gha,scope=holmes
         cache-to: type=gha,mode=max,scope=holmes
 
-    # Build the operator image and load it into the local docker daemon so the
-    # smoke test below can run it. The push step (non-fork only) reuses the
-    # cached layers and runs only after the smoke test passes, so a broken
-    # operator image never reaches the registry.
     - name: Build Holmes Operator Docker image
       uses: docker/build-push-action@v6
       with:
@@ -237,9 +233,6 @@ jobs:
         cache-from: type=gha,scope=operator
         cache-to: type=gha,mode=max,scope=operator
 
-    # --entrypoint is required: the image's ENTRYPOINT is the operator itself,
-    # so without it the args are appended to the entrypoint and kopf runs
-    # forever waiting for a cluster.
     - name: Smoke test Holmes Operator image
       timeout-minutes: 5
       run: docker run --rm --entrypoint python holmes-operator:smoke -c "import holmes_operator.operator; print('operator entrypoint OK')"

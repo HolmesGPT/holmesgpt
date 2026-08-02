@@ -1,5 +1,3 @@
-"""Tests for the operator's self-contained logging utilities."""
-
 import ast
 import json
 import logging
@@ -30,13 +28,11 @@ def test_build_json_formatter_emits_valid_json():
     line = buffer.getvalue().strip().splitlines()[-1]
     payload = json.loads(line)
     assert payload["message"] == "hello json"
-    # levelname is renamed to severity to match the other Robusta services.
     assert payload["severity"] == "INFO"
     assert payload["name"] == "holmes_operator.test.json"
 
 
 def test_json_format_constants_match_server():
-    """Server and operator logs must stay uniform for log scrapers."""
     from holmes.utils import log as server_log
 
     assert JSON_LOG_FMT == server_log.JSON_LOG_FMT
@@ -45,10 +41,6 @@ def test_json_format_constants_match_server():
 
 
 def test_holmes_operator_does_not_import_holmes_package():
-    """The operator image ships only holmes_operator (Dockerfile.operator copies
-    holmes_operator/ and installs deps with --no-root), so any import of the
-    holmes package crashes the operator at startup with ModuleNotFoundError.
-    Regression test for https://github.com/HolmesGPT/holmesgpt/issues/2336."""
     package_dir = Path(holmes_operator.__file__).parent
 
     offenders = []
@@ -58,7 +50,6 @@ def test_holmes_operator_does_not_import_holmes_package():
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
-                # level > 0 means a relative import, which stays in-package
                 names = [node.module] if node.module and node.level == 0 else []
             else:
                 continue

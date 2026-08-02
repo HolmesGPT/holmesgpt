@@ -68,9 +68,6 @@ jobs:
         load: true
         tags: holmes-operator:smoke
 
-    # --entrypoint is required: the image's ENTRYPOINT is the operator itself,
-    # so without it the args are appended to the entrypoint and kopf runs
-    # forever waiting for a cluster.
     - name: Smoke test Holmes Operator image
       timeout-minutes: 5
       run: docker run --rm --entrypoint python holmes-operator:smoke -c "import holmes_operator.operator; print('operator entrypoint OK')"

@@ -1,18 +1,3 @@
-"""Start-up test for the operator entrypoint, simulating the operator image.
-
-The operator image (Dockerfile.operator) ships only the holmes_operator
-package — the holmes package does not exist there. 0.37.0 shipped an operator
-that crashlooped on `ModuleNotFoundError: No module named 'holmes'` raised at
-module load time, before kopf even started (issue #2336).
-
-This test launches the entrypoint module in a subprocess where the holmes
-package is blocked, which reproduces the image environment: everything the
-operator executes at startup up to kopf.run() must succeed without holmes.
-A subprocess is used (rather than importing in-process) both to apply the
-import blocker cleanly and to avoid polluting the test process with the
-entrypoint's logging.basicConfig(force=True) and kopf handler registration.
-"""
-
 import subprocess
 import sys
 from pathlib import Path
