@@ -1,9 +1,4 @@
-"""Logging utilities for Holmes.
-
-Note: holmes_operator/log.py carries an intentional copy of the JSON format
-constants below — the operator image doesn't ship the holmes package, so it
-can't import this module. Keep the two in sync.
-"""
+"""Logging utilities for Holmes."""
 
 import logging
 from typing import Any

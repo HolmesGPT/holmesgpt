@@ -1,11 +1,4 @@
-"""Logging utilities for the Holmes operator.
-
-Intentionally duplicated from holmes/utils/log.py instead of imported: the
-operator image (Dockerfile.operator) ships only the holmes_operator package,
-so holmes_operator must never import from the holmes package (see issue #2336).
-Keep the format constants in sync with holmes/utils/log.py so server and
-operator logs stay uniform.
-"""
+"""Logging utilities for the Holmes operator."""
 
 import logging
 
