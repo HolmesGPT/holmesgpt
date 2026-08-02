@@ -261,6 +261,25 @@ jobs:
         cache-from: type=gha,scope=operator
         cache-to: type=gha,mode=max,scope=operator
 
+    # Load the operator image into the local docker daemon (fully cached from
+    # the build above) so we can actually run it.
+    - name: Load Holmes Operator image for smoke test
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile.operator
+        platforms: linux/amd64
+        load: true
+        tags: holmes-operator:smoke
+        cache-from: type=gha,scope=operator
+
+    # The operator image ships only the holmes_operator package; 0.37.0 shipped
+    # crashlooping on an import error at startup (issue #2336). Loading the
+    # entrypoint module executes everything the operator runs before kopf.run(),
+    # so a broken image fails here instead of in users' clusters.
+    - name: Smoke test Holmes Operator image
+      run: docker run --rm holmes-operator:smoke python -c "import holmes_operator.operator; print('operator entrypoint OK')"
+
     - name: Print image locations
       if: steps.fork_check.outputs.is_fork != 'true'
       run: |
