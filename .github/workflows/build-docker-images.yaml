@@ -59,9 +59,6 @@ jobs:
         build-args: |
           BUILDKIT_INLINE_CACHE=1
 
-    # Build the operator image for amd64 only and load it into the local docker
-    # daemon so we can run it before anything is pushed. The multi-arch push
-    # below reuses these layers from the builder's cache.
     - name: Build Holmes Operator image for smoke test
       uses: docker/build-push-action@v6
       with:
@@ -71,10 +68,6 @@ jobs:
         load: true
         tags: holmes-operator:smoke
 
-    # The operator image ships only the holmes_operator package; 0.37.0 shipped
-    # crashlooping on an import error at startup (issue #2336). Loading the
-    # entrypoint module executes everything the operator runs before kopf.run(),
-    # so a broken image fails the release instead of reaching users' clusters.
     - name: Smoke test Holmes Operator image
       run: docker run --rm holmes-operator:smoke python -c "import holmes_operator.operator; print('operator entrypoint OK')"
 
