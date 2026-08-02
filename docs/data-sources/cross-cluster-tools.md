@@ -4,7 +4,7 @@ Some of HolmesGPT's most useful tools — `kubectl`, in-cluster Prometheus, pod 
 
 **Cross-cluster tools** lift that restriction. A Holmes instance investigating one cluster (the **caller**) can run cluster-local tools that physically execute on the Holmes instance in another cluster (the **executor**), and get the result back in the same investigation. This is what powers **multi-agent investigations** ("compare this deployment with prod-eu", "find the failing pods across the whole fleet").
 
-The mechanism is opt-in per toolset via the `expose_remotely` flag, and gated per account by a feature toggle in the Robusta platform. It requires the [Robusta platform](https://platform.robusta.dev) — each executor cluster runs a Holmes instance connected to Robusta, which routes the remote tool calls.
+The mechanism is opt-in per toolset via the `expose_remotely` flag, and gated per account by a feature toggle in the Robusta platform. It requires the Robusta platform — each executor cluster runs a Holmes instance connected to Robusta, which routes the remote tool calls.
 
 ## Two ways to use it
 
@@ -19,7 +19,7 @@ The two switches are independent — turning one on does not turn on the other.
 
 ## What gets exposed
 
-By default, only the toolsets that are **useful only from inside a cluster** are exposed:
+By default, only the toolsets that are **useful exclusively inside a cluster** are exposed:
 
 | Toolset | Exposed by default | Notes |
 |---|---|---|
@@ -95,19 +95,17 @@ Toolsets that support [multiple instances](multi-instance-toolsets.md) resolve `
 
 An explicit `expose_remotely:` on the instance entry (or on the toolset) always wins over the heuristic:
 
-```yaml
-toolsets:
-  prometheus:
-    enabled: true
-    config:
-      instances:
-        - name: in-cluster
-          prometheus_url: http://prometheus.monitoring.svc:9090
-          # in-cluster → exposed automatically
-        - name: grafana-cloud
-          prometheus_url: https://prometheus-prod.grafana.net/api/prom
-          expose_remotely: true   # force-expose a SaaS endpoint (not the default)
-```
+    toolsets:
+      prometheus:
+        enabled: true
+        config:
+          instances:
+            - name: in-cluster
+              prometheus_url: http://prometheus.monitoring.svc:9090
+              # in-cluster → exposed automatically
+            - name: grafana-cloud
+              prometheus_url: https://prometheus-prod.grafana.net/api/prom
+              expose_remotely: true   # force-expose a SaaS endpoint (not the default)
 
 ## Connecting an external MCP client
 
@@ -151,7 +149,7 @@ Your client can now investigate any cluster in your fleet. Each remote tool take
 
 ## Requirements and limits
 
-- **Robusta platform required.** Each executor cluster runs a Holmes instance connected to the [Robusta platform](https://platform.robusta.dev); the platform routes the calls. This is not available for standalone / CLI-only Holmes.
+- **Robusta platform required.** Each executor cluster runs a Holmes instance connected to the Robusta platform; the platform routes the calls. This is not available for standalone / CLI-only Holmes.
 - **Matching Holmes versions.** A tool is callable only between clusters running the **same** Holmes version — identical versions guarantee identical tool schemas. A cluster on a different version simply won't appear as a callable target.
 - **Permissions.** On accounts with RBAC enabled, a user must hold **`MA_HOLMES_CHAT`** on the target cluster; clusters the user can't access never appear as targets.
 - **Read-only and pre-approved.** Only read-only tools run remotely. There is no remote approval prompt: `bash` runs **pre-approved** commands only, and any tool that would require approval is denied.
