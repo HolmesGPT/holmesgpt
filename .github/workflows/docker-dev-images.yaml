@@ -237,8 +237,12 @@ jobs:
         cache-from: type=gha,scope=operator
         cache-to: type=gha,mode=max,scope=operator
 
+    # --entrypoint is required: the image's ENTRYPOINT is the operator itself,
+    # so without it the args are appended to the entrypoint and kopf runs
+    # forever waiting for a cluster.
     - name: Smoke test Holmes Operator image
-      run: docker run --rm holmes-operator:smoke python -c "import holmes_operator.operator; print('operator entrypoint OK')"
+      timeout-minutes: 5
+      run: docker run --rm --entrypoint python holmes-operator:smoke -c "import holmes_operator.operator; print('operator entrypoint OK')"
 
     - name: Build and push Holmes Docker image
       if: steps.fork_check.outputs.is_fork != 'true'
