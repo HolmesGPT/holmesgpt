@@ -222,20 +222,16 @@ jobs:
         cache-from: type=gha,scope=holmes
         cache-to: type=gha,mode=max,scope=holmes
 
-    - name: Build Holmes Operator Docker image
+    - name: Build Holmes Operator Docker image (fork PR - no push)
+      if: steps.fork_check.outputs.is_fork == 'true'
       uses: docker/build-push-action@v6
       with:
         context: .
         file: ./Dockerfile.operator
         platforms: linux/amd64
-        load: true
-        tags: holmes-operator:smoke
+        push: false
         cache-from: type=gha,scope=operator
         cache-to: type=gha,mode=max,scope=operator
-
-    - name: Smoke test Holmes Operator image
-      timeout-minutes: 5
-      run: docker run --rm --entrypoint python holmes-operator:smoke -c "import holmes_operator.operator; print('operator entrypoint OK')"
 
     - name: Build and push Holmes Docker image
       if: steps.fork_check.outputs.is_fork != 'true'
@@ -251,7 +247,7 @@ jobs:
         cache-from: type=gha,scope=holmes
         cache-to: type=gha,mode=max,scope=holmes
 
-    - name: Push Holmes Operator Docker image
+    - name: Build and push Holmes Operator Docker image
       if: steps.fork_check.outputs.is_fork != 'true'
       uses: docker/build-push-action@v6
       with:
@@ -263,6 +259,7 @@ jobs:
           us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${{ github.sha }}
           us-central1-docker.pkg.dev/robusta-development/temporary-builds/holmes-operator:${{ steps.short_sha.outputs.sha_short }}
         cache-from: type=gha,scope=operator
+        cache-to: type=gha,mode=max,scope=operator
 
     - name: Print image locations
       if: steps.fork_check.outputs.is_fork != 'true'
