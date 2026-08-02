@@ -157,6 +157,156 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
 
     Run `git pull` in the clone whenever you want to pick up new or updated skills.
 
+### From a Bitbucket Repository
+
+Same pattern as GitHub — only the credentials and clone URL differ. Bitbucket uses a [Repository Access Token](https://support.atlassian.com/bitbucket-cloud/docs/repository-access-tokens/) with the `x-token-auth` username.
+
+=== "Holmes Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with a Bitbucket Repository Access Token.** Create the token under *Repository settings → Access tokens* with the `Repositories: Read` scope:
+
+    ```bash
+    kubectl create secret generic holmes-skills-git-credentials \
+      -n <holmes-namespace> \
+      --from-literal=token='<repository-access-token>'
+    ```
+
+    For a public repo, omit the Secret and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL below.
+
+    **2. Add the init container, volume, and skill path to your Helm values:**
+
+    ```yaml
+    additionalVolumes:
+      - name: skills-repo
+        emptyDir:
+          sizeLimit: 64Mi
+
+    additionalVolumeMounts:
+      - name: skills-repo
+        mountPath: /etc/holmes/skills-git
+        readOnly: true
+
+    initContainers:
+      - name: clone-skills
+        image: alpine/git:2.45.2
+        env:
+          - name: GIT_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: holmes-skills-git-credentials
+                key: token
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+
+            rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+
+            git clone --depth 1 --branch main \
+              "https://x-token-auth:${GIT_TOKEN}@bitbucket.org/<workspace>/<repo>.git" \
+              /skills-repo
+        volumeMounts:
+          - name: skills-repo
+            mountPath: /skills-repo
+
+    customSkillPaths:
+      - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust:
+
+    - `--branch main` — branch you push skills to.
+    - `https://bitbucket.org/<workspace>/<repo>.git` — your repo URL.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/<release>-holmes -n <holmes-namespace>
+    ```
+
+=== "Robusta Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with a Bitbucket Repository Access Token.** Create the token under *Repository settings → Access tokens* with the `Repositories: Read` scope:
+
+    ```bash
+    kubectl create secret generic holmes-skills-git-credentials \
+      -n <robusta-namespace> \
+      --from-literal=token='<repository-access-token>'
+    ```
+
+    For a public repo, omit the Secret and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL below.
+
+    **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
+
+    ```yaml
+    enableHolmesGPT: true
+
+    holmes:
+      additionalVolumes:
+        - name: skills-repo
+          emptyDir:
+            sizeLimit: 64Mi
+
+      additionalVolumeMounts:
+        - name: skills-repo
+          mountPath: /etc/holmes/skills-git
+          readOnly: true
+
+      initContainers:
+        - name: clone-skills
+          image: alpine/git:2.45.2
+          env:
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-skills-git-credentials
+                  key: token
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+
+              git clone --depth 1 --branch main \
+                "https://x-token-auth:${GIT_TOKEN}@bitbucket.org/<workspace>/<repo>.git" \
+                /skills-repo
+          volumeMounts:
+            - name: skills-repo
+              mountPath: /skills-repo
+
+      customSkillPaths:
+        - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust:
+
+    - `--branch main` — branch you push skills to.
+    - `https://bitbucket.org/<workspace>/<repo>.git` — your repo URL.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/robusta-holmes -n <robusta-namespace>
+    ```
+
+=== "Holmes CLI"
+
+    Clone the repo to your machine and point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+
+    ```yaml
+    custom_skill_paths:
+      - /path/to/your-skills-clone/
+    ```
+
+    Run `git pull` in the clone whenever you want to pick up new or updated skills.
+
 ### Inline in Helm Values
 
 Define skills directly in your Helm values. The chart creates a ConfigMap, mounts it, and registers the path — no extra wiring. Changes take effect on the next `helm upgrade`.
