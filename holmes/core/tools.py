@@ -656,7 +656,7 @@ class YAMLTool(Tool, BaseModel):
     def __execute_subprocess(self, cmd: str) -> Tuple[str, int]:
         try:
             logger.debug(f"Running `{cmd}`")
-            protected_cmd = get_ulimit_prefix() + cmd
+            protected_cmd = get_ulimit_prefix(cmd) + cmd
 
             result = subprocess.run(
                 protected_cmd,

@@ -13,9 +13,29 @@ from holmes.utils.memory_limit import (
 class TestGetUlimitPrefix:
     """Tests for get_ulimit_prefix function."""
 
-    def test_returns_ulimit_command_with_default(self):
-        """Test ulimit prefix format with default value."""
-        result = get_ulimit_prefix()
+    def test_returns_strict_ulimit_for_non_go_commands(self):
+        """Non-Go commands keep the strict virtual memory cap, unchanged."""
+        expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
+        expected = f"ulimit -v {expected_kb} 2>/dev/null || true; "
+        assert get_ulimit_prefix() == expected
+        assert get_ulimit_prefix("az vm list | jq '.[]'") == expected
+        assert get_ulimit_prefix("grep error /var/log/syslog") == expected
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "kubectl get pods -A -o yaml",
+            "oc get routes -n app",
+            "helm list -A",
+            "argocd app list",
+            "docker ps",
+            "kube-lineage pod my-pod",
+            "kubectl get pods -A -o json | jq '.items[].metadata.name'",
+        ],
+    )
+    def test_go_commands_get_gomemlimit_and_headroom(self, cmd):
+        """Commands invoking Go binaries get GOMEMLIMIT plus a raised virtual cap."""
+        result = get_ulimit_prefix(cmd)
         expected_kb = 1024 * (TOOL_MEMORY_LIMIT_MB + VIRTUAL_MEMORY_HEADROOM_MB)
         assert result == (
             f"export GOMEMLIMIT={TOOL_MEMORY_LIMIT_MB}MiB; "
@@ -26,9 +46,15 @@ class TestGetUlimitPrefix:
         """The GOMEMLIMIT env var reaches the tool subprocess (and its children)."""
         from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
 
-        result = execute_bash_command("echo $GOMEMLIMIT", timeout=10)
+        result = execute_bash_command("true kubectl; echo $GOMEMLIMIT", timeout=10)
         assert result.stdout == f"{TOOL_MEMORY_LIMIT_MB}MiB"
         assert result.return_code == 0
+
+    def test_gomemlimit_not_set_for_non_go_commands(self):
+        from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
+
+        result = execute_bash_command("echo -n \"$GOMEMLIMIT\"", timeout=10)
+        assert result.stdout == ""
 
 
 class TestCheckOomAndAppendHint:

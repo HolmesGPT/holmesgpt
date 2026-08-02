@@ -25,7 +25,7 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
     Returns:
         BashResult with stdout, return_code, and timed_out flag
     """
-    protected_cmd = get_ulimit_prefix() + cmd
+    protected_cmd = get_ulimit_prefix(cmd) + cmd
     process = subprocess.Popen(
         protected_cmd,
         shell=True,
