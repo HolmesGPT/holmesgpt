@@ -173,7 +173,7 @@ Same pattern as GitHub — only the credentials and clone URL differ. Bitbucket 
       --from-literal=token='<repository-access-token>'
     ```
 
-    For a public repo, omit the Secret and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL below.
+    For a public repo, omit the Secret, remove the `GIT_TOKEN` `env` block from the init container below, and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL.
 
     **2. Add the init container, volume, and skill path to your Helm values:**
 
@@ -239,7 +239,7 @@ Same pattern as GitHub — only the credentials and clone URL differ. Bitbucket 
       --from-literal=token='<repository-access-token>'
     ```
 
-    For a public repo, omit the Secret and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL below.
+    For a public repo, omit the Secret, remove the `GIT_TOKEN` `env` block from the init container below, and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL.
 
     **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
 
@@ -298,7 +298,15 @@ Same pattern as GitHub — only the credentials and clone URL differ. Bitbucket 
 
 === "Holmes CLI"
 
-    Clone the repo to your machine and point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+    Clone the repo to your machine. For a private repo, authenticate with a Repository Access Token (`Repositories: Read` scope):
+
+    ```bash
+    git clone "https://x-token-auth:<repository-access-token>@bitbucket.org/<workspace>/<repo>.git"
+    ```
+
+    For a public repo, drop the `x-token-auth:<repository-access-token>@` segment.
+
+    Then point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
 
     ```yaml
     custom_skill_paths:
