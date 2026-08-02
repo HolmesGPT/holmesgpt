@@ -45,15 +45,18 @@ ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # kubectl: official release binary from dl.k8s.io, pulled with upstream SHA-256
-# verification. v1.36.2 is the first kubectl built with Go >= 1.26.3 (go1.26.4),
-# so it already carries the stdlib CVE fixes (CVE-2026-42499/33814/39836/33811/
-# 39820/39823/39825/39826/42504) that previously forced a from-source rebuild --
-# it is now built with the exact toolchain our other bundled binaries use.
-# argocd/helm/kube-lineage are still rebuilt (see scripts/build_go_binaries.sh)
-# because no upstream release fixes their CVEs yet. Bump KUBECTL_VERSION as newer
-# releases ship (the 1.34/1.35 lines are still on a vulnerable Go toolchain).
+# verification. v1.36.3 is built with Go 1.26.5, so it carries the stdlib CVE
+# fixes (incl. CVE-2026-39822/42505). Known accepted findings: every kubectl
+# release (incl. v1.36.3) still vendors golang.org/x/net v0.49.0, which scanners
+# flag for CVE-2026-33814/25681/27136/39821 (High), CVE-2026-25680/42502/42506
+# (Medium) and CVE-2026-46600 -- all fixed in x/net <= 0.56.0 but with no kubectl
+# release shipping it yet. We previously rebuilt kubectl from source with an
+# x/net replace to clear these (see git history); that was reverted in favor of
+# the official binary. Bump KUBECTL_VERSION when a release ships x/net >= 0.56.0
+# -- check a candidate with:
+#   go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
 ARG TARGETARCH
-ARG KUBECTL_VERSION=v1.36.2
+ARG KUBECTL_VERSION=v1.36.3
 RUN cd /tmp \
     && curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o kubectl.sha256 \
