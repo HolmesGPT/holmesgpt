@@ -142,12 +142,12 @@ class PodLoggingTool(Tool):
                 description="Kubernetes namespace", type="string", required=True
             ),
             "start_time": ToolParameter(
-                description=f"Start time for logs. Can be an RFC3339 formatted datetime (e.g. '2023-03-01T10:30:00Z') for absolute time or a negative string number (e.g. -3600) for relative seconds before end_time. Default: -{DEFAULT_TIME_SPAN_SECONDS} (last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days)",
+                description=f"RFC3339 datetime (e.g. '2023-03-01T10:30:00Z') or negative number as string for seconds before end_time (e.g. '-3600'). Default: -{DEFAULT_TIME_SPAN_SECONDS} (last {DEFAULT_TIME_SPAN_SECONDS // SECONDS_PER_DAY} days)",
                 type="string",
                 required=False,
             ),
             "end_time": ToolParameter(
-                description="End time for logs. Must be an RFC3339 formatted datetime (e.g. '2023-03-01T12:30:00Z'). If not specified, defaults to current time.",
+                description="RFC3339 datetime (e.g. '2023-03-01T12:30:00Z'). Default: now.",
                 type="string",
                 required=False,
             ),
@@ -157,24 +157,12 @@ class PodLoggingTool(Tool):
                 required=False,
             ),
             "filter": ToolParameter(
-                description="""An optional filter for logs - can be a simple keyword/phrase or a regex pattern (case-insensitive).
-Examples of useful filters:
-- For errors: filter='err|error|fatal|critical|fail|exception|panic|crash'
-- For warnings: filter='warn|warning|caution'
-- For specific HTTP errors: filter='5[0-9]{2}|404|403'
-- For Java exceptions: filter='Exception|Error|Throwable|StackTrace'
-- For timeouts: filter='timeout|timed out|deadline exceeded'
-If you get no results with a filter, try a broader pattern or drop the filter.""",
+                description="Optional keyword/phrase or case-insensitive regex to match, e.g. filter='err|error|fatal|fail|exception|panic' for errors. If no results, broaden the pattern or drop the filter.",
                 type="string",
                 required=False,
             ),
             "exclude_filter": ToolParameter(
-                description="""An optional exclusion filter - logs matching this pattern will be excluded. Can be a simple keyword or regex pattern (case-insensitive).
-Examples of useful exclude filters:
-- Exclude HTTP 200s: exclude_filter='GET.*200|POST.*200'
-- Exclude health/metrics: exclude_filter='health|metrics|ping|heartbeat'
-- Exclude specific log levels: exclude_filter='"level": "INFO"'
-If you hit the log limit and see lots of repetitive INFO logs, use exclude_filter to remove the noise and focus on what matters.""",
+                description="Optional keyword or case-insensitive regex to exclude, e.g. exclude_filter='health|metrics|ping' to cut noise when hitting the log limit.",
                 type="string",
                 required=False,
             ),

@@ -47,6 +47,12 @@ if TYPE_CHECKING:
 # attempt number on the rest, so a sustained outage doesn't flood the logs.
 _RECONNECT_LOG_FULL_EVERY = 10
 
+# Upper bound on the re-sign-in performed during _full_reconnect (ROB-759).
+# Comfortably above the DAL httpx client's 60s request timeout so it only
+# fires if that bound is bypassed (misconfig/regression), guaranteeing the
+# reconnect loop can never be stalled indefinitely by a hung auth call.
+_RECONNECT_SIGN_IN_TIMEOUT_SECONDS = 90
+
 
 # ---- channel topic helpers ----
 
@@ -469,7 +475,16 @@ class RealtimeWorker:
         self._client = None
         self._channel = None
         self._last_auth_jwt = None
-        await asyncio.to_thread(self.dal.sign_in)
+        # Bound the re-sign-in (ROB-759): sign_in is a sync HTTP call whose
+        # timeout depends on the DAL's httpx client config; a half-open
+        # connection there would otherwise stall this reconnect loop for the
+        # full HTTP timeout (or forever if the config regresses). The bound
+        # keeps the reconnect cadence predictable — on timeout we raise into
+        # the caller's backoff loop like any other reconnect failure.
+        await asyncio.wait_for(
+            asyncio.to_thread(self.dal.sign_in),
+            timeout=_RECONNECT_SIGN_IN_TIMEOUT_SECONDS,
+        )
         await self._connect_and_subscribe()
 
     async def _maybe_refresh_auth(self) -> None:
