@@ -613,6 +613,32 @@ class TestResponseFormatPassthrough:
         answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
         assert len(answer_ends) == 1
 
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_response_format_only_sent_on_final_no_tools_completion(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        tc = _make_mock_tool_call()
+        resp_with_tool = _make_llm_response(content="Let me check", tool_calls=[tc])
+        resp_final = _make_llm_response(content='{"key": "value"}', tool_calls=None)
+        mock_llm.completion.side_effect = [resp_with_tool, resp_final]
+
+        ai = make_ai(max_steps=2)
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+        fmt = {"type": "json_object"}
+
+        result = ai.call(
+            [{"role": "user", "content": "give me json"}], response_format=fmt
+        )
+
+        assert result.result == '{"key": "value"}'
+        assert mock_llm.completion.call_count == 2
+        first_call = mock_llm.completion.call_args_list[0]
+        second_call = mock_llm.completion.call_args_list[1]
+        assert first_call.kwargs.get("tools")
+        assert first_call.kwargs.get("response_format") is None
+        assert second_call.kwargs.get("tools") is None
+        assert second_call.kwargs.get("response_format") == fmt
+
 
 # ---------------------------------------------------------------------------
 # Test 2: No-tools path (LLM answers immediately)
