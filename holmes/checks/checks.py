@@ -75,13 +75,27 @@ def _execute_ai_check(check: Check, ai: ToolCallingLLM) -> LLMResult:
         {"role": "system", "content": system_message},
         {"role": "user", "content": check.query},
     ]
-    response: LLMResult = ai.call(messages, response_format=CHECK_RESPONSE_FORMAT)
+    response: LLMResult = ai.call(messages)
     return response
 
 
 def _parse_check_response(response: LLMResult) -> CheckResponse:
     try:
-        result_json = json.loads(response.result or "{}")
+        result = response.result or "{}"
+        try:
+            result_json = json.loads(result)
+        except json.JSONDecodeError:
+            decoder = json.JSONDecoder()
+            for index, char in enumerate(result):
+                if char != "{":
+                    continue
+                try:
+                    result_json, _ = decoder.raw_decode(result[index:])
+                    break
+                except json.JSONDecodeError:
+                    continue
+            else:
+                raise
         return CheckResponse(**result_json)
     except (json.JSONDecodeError, Exception) as parse_error:
         return CheckResponse(
