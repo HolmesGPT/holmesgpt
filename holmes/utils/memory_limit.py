@@ -77,7 +77,7 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
     is_oom = return_code in (137, -9) or (return_code != 0 and has_oom_strings)
 
     if is_oom:
-        logger.warning(
+        logger.info(
             f"Tool command was OOM killed. Raise the memory limit for tool output by "
             f"setting TOOL_MEMORY_LIMIT_MB (currently {TOOL_MEMORY_LIMIT_MB} MB). See "
             f"https://holmesgpt.dev/data-sources/tool-execution-safety/#when-to-raise-the-limit"

@@ -81,8 +81,8 @@ class TestCheckOomAndAppendHint:
         assert f"{TOOL_MEMORY_LIMIT_MB} MB" in result
 
     def test_warning_logged_on_oom(self, caplog):
-        """Test that an OOM emits a warning log naming TOOL_MEMORY_LIMIT_MB and the docs."""
-        with caplog.at_level(logging.WARNING, logger="holmes.utils.memory_limit"):
+        """Test that an OOM emits an info log naming TOOL_MEMORY_LIMIT_MB and the docs."""
+        with caplog.at_level(logging.INFO, logger="holmes.utils.memory_limit"):
             check_oom_and_append_hint("Killed", 137)
         assert any(
             "TOOL_MEMORY_LIMIT_MB" in r.message
@@ -93,8 +93,8 @@ class TestCheckOomAndAppendHint:
         )
 
     def test_no_warning_logged_on_success(self, caplog):
-        """Test that successful commands do not emit the OOM warning log."""
-        with caplog.at_level(logging.WARNING, logger="holmes.utils.memory_limit"):
+        """Test that successful commands do not emit the OOM info log."""
+        with caplog.at_level(logging.INFO, logger="holmes.utils.memory_limit"):
             check_oom_and_append_hint("all good", 0)
         assert not caplog.records
 
