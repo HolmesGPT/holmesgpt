@@ -3,6 +3,7 @@ import pytest
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 from holmes.utils.memory_limit import (
     OOM_OUTPUT_MAX_LINES,
+    VIRTUAL_MEMORY_HEADROOM_MB,
     _truncate_oom_output,
     check_oom_and_append_hint,
     get_ulimit_prefix,
@@ -15,8 +16,19 @@ class TestGetUlimitPrefix:
     def test_returns_ulimit_command_with_default(self):
         """Test ulimit prefix format with default value."""
         result = get_ulimit_prefix()
-        expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
-        assert result == f"ulimit -v {expected_kb} 2>/dev/null || true; "
+        expected_kb = 1024 * (TOOL_MEMORY_LIMIT_MB + VIRTUAL_MEMORY_HEADROOM_MB)
+        assert result == (
+            f"export GOMEMLIMIT={TOOL_MEMORY_LIMIT_MB}MiB; "
+            f"ulimit -v {expected_kb} 2>/dev/null || true; "
+        )
+
+    def test_gomemlimit_visible_to_child_process(self):
+        """The GOMEMLIMIT env var reaches the tool subprocess (and its children)."""
+        from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
+
+        result = execute_bash_command("echo $GOMEMLIMIT", timeout=10)
+        assert result.stdout == f"{TOOL_MEMORY_LIMIT_MB}MiB"
+        assert result.return_code == 0
 
 
 class TestCheckOomAndAppendHint:

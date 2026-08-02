@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 # goroutine stack dumps (Go) or core-dump noise that wastes tokens.
 OOM_OUTPUT_MAX_LINES = 10
 
+VIRTUAL_MEMORY_HEADROOM_MB = 2048
+
 
 def get_ulimit_prefix() -> str:
     """
@@ -21,8 +23,15 @@ def get_ulimit_prefix() -> str:
     Returns a shell command prefix that sets virtual memory limit.
     The '|| true' ensures we continue even if ulimit is not supported.
     """
-    memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
-    return f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
+    # GOMEMLIMIT makes Go tools like kubectl fit their real heap into the budget
+    # (GC harder instead of dying while holding ~2GB of merely-reserved virtual
+    # address space); ulimit -v, raised by a headroom to accommodate those
+    # virtual reservations, remains the hard backstop.
+    memory_limit_kb = (TOOL_MEMORY_LIMIT_MB + VIRTUAL_MEMORY_HEADROOM_MB) * 1024
+    return (
+        f"export GOMEMLIMIT={TOOL_MEMORY_LIMIT_MB}MiB; "
+        f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
+    )
 
 
 def _truncate_oom_output(output: str) -> str:
