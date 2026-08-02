@@ -7,9 +7,11 @@ from typing import Any
 
 import kopf
 
-from holmes.common.env_vars import ENABLE_JSON_LOGS_FORMAT
-from holmes.utils.log import build_json_formatter
+# The operator image ships only the holmes_operator package (see
+# Dockerfile.operator), so never import from the holmes package here.
 from holmes_operator import context
+from holmes_operator.config import ENABLE_JSON_LOGS_FORMAT
+from holmes_operator.log import build_json_formatter
 
 # Import handlers to register them with kopf
 from holmes_operator.handlers import healthcheck  # noqa: F401

@@ -20,6 +20,10 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 MAX_HISTORY_ITEMS = int(os.getenv("MAX_HISTORY_ITEMS", "10"))
 CLEANUP_COMPLETED_CHECKS = load_bool("CLEANUP_COMPLETED_CHECKS", False)
 COMPLETED_CHECK_TTL_HOURS = int(os.getenv("COMPLETED_CHECK_TTL_HOURS", "24"))
+# When true, logs are emitted as JSON (one object per line) instead of the
+# default text format. Useful for log scrapers like Filebeat. Same toggle as
+# the Holmes server (holmes/common/env_vars.py). Defaults to false.
+ENABLE_JSON_LOGS_FORMAT = load_bool("ENABLE_JSON_LOGS_FORMAT", False)
 
 
 @dataclass
