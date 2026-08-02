@@ -1,4 +1,19 @@
 {{- if .Values.mcpAddons.github.enabled }}
+{{- $githubTools := .Values.mcpAddons.github.config.tools }}
+{{- $githubToolsets := .Values.mcpAddons.github.config.toolsets }}
+{{- if and (not $githubTools) $githubToolsets .Values.mcpAddons.github.auth.githubApp.secretName }}
+{{/* App installation tokens 403 on /user. Drop 'context' so get_me isn't advertised — Holmes then auto-skips its auth health check instead of disabling the toolset. */}}
+{{- $githubToolsets = join "," (without (splitList "," $githubToolsets) "context") }}
+{{- end }}
+{{- $githubFilterArg := "" }}
+{{- $githubFilterValue := "" }}
+{{- if $githubTools }}
+{{- $githubFilterArg = "--tools" }}
+{{- $githubFilterValue = $githubTools }}
+{{- else if $githubToolsets }}
+{{- $githubFilterArg = "--toolsets" }}
+{{- $githubFilterValue = $githubToolsets }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -17,16 +32,10 @@ metadata:
     {{- . | nindent 4 }}
   {{- end }}
 data:
-  {{- if .Values.mcpAddons.github.config.toolsets }}
-  {{- $toolsets := .Values.mcpAddons.github.config.toolsets }}
-  {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
-  {{/* App installation tokens 403 on /user. Drop 'context' so get_me isn't advertised — Holmes then auto-skips its auth health check instead of disabling the toolset. */}}
-  {{- $toolsets = join "," (without (splitList "," $toolsets) "context") }}
-  {{- end }}
-  GITHUB_TOOLSETS: {{ $toolsets | quote }}
-  {{- end }}
-  {{- if .Values.mcpAddons.github.config.tools }}
-  GITHUB_TOOLS: {{ .Values.mcpAddons.github.config.tools | quote }}
+  {{- if $githubTools }}
+  GITHUB_TOOLS: {{ $githubTools | quote }}
+  {{- else if $githubToolsets }}
+  GITHUB_TOOLSETS: {{ $githubToolsets | quote }}
   {{- end }}
 ---
 apiVersion: apps/v1
@@ -109,11 +118,15 @@ spec:
           - "http"
           - "--port"
           - "8000"
+          {{- if $githubFilterArg }}
+          - {{ $githubFilterArg | quote }}
+          - {{ $githubFilterValue | quote }}
+          {{- end }}
         {{- end }}
         {{- if or
               .Values.mcpAddons.github.auth.githubApp.secretName
-              .Values.mcpAddons.github.config.toolsets
-              .Values.mcpAddons.github.config.tools
+              $githubToolsets
+              $githubTools
               .Values.mcpAddons.github.config.host
               .Values.mcpAddons.github.config.customCACert.enabled
         }}
@@ -134,15 +147,17 @@ spec:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_PRIVATE_KEY
+        - name: GITHUB_MCP_SERVER_CMD
+          value: {{ printf "github-mcp-server stdio %s %s" $githubFilterArg $githubFilterValue | trim | quote }}
         {{- end }}
-        {{- if .Values.mcpAddons.github.config.toolsets }}
+        {{- if $githubToolsets }}
         - name: GITHUB_TOOLSETS
           valueFrom:
             configMapKeyRef:
               name: {{ .Release.Name }}-github-mcp-config
               key: GITHUB_TOOLSETS
         {{- end }}
-        {{- if .Values.mcpAddons.github.config.tools }}
+        {{- if $githubTools }}
         - name: GITHUB_TOOLS
           valueFrom:
             configMapKeyRef:
