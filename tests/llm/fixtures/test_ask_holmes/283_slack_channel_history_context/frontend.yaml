@@ -1,0 +1,6 @@
+additional_system_prompt: |
+  This interaction is happening in Slack. Use Slack-compatible markdown formatting so the content renders correctly.
+
+  This Holmes call was invoked from Slack channel: prod-incidents, Slack channel id: C08INC283X, Slack thread_ts: 1721000180.000000.
+
+frontend_tools: []
