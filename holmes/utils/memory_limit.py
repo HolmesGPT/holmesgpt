@@ -3,10 +3,6 @@ Memory limit utilities for tool subprocess execution.
 """
 
 import logging
-import os
-import signal
-import subprocess
-import typing
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 
@@ -17,8 +13,6 @@ logger = logging.getLogger(__name__)
 # goroutine stack dumps (Go) or core-dump noise that wastes tokens.
 OOM_OUTPUT_MAX_LINES = 10
 
-TOOL_OUTPUT_LIMIT_CHARS = 50 * 1024 * 1024
-
 
 def get_ulimit_prefix() -> str:
     """
@@ -28,20 +22,7 @@ def get_ulimit_prefix() -> str:
     The '|| true' ensures we continue even if ulimit is not supported.
     """
     memory_limit_kb = TOOL_MEMORY_LIMIT_MB * 1024
-    # oom_score_adj=1000 marks the tool subprocess (and every child it spawns,
-    # which inherit the value) as the kernel OOM killer's preferred victim, so
-    # when the pod runs out of memory the kernel kills the tool subprocess tree
-    # instead of the Holmes process itself. Raising one's own oom_score_adj
-    # needs no privileges, and on systems without /proc (e.g. macOS) the
-    # redirect+`|| true` make it a silent no-op.
-    # `ulimit -f` (in 1024-byte blocks) caps how much output the tool can write
-    # to its stdout file: the kernel kills any writer that exceeds it (SIGXFSZ).
-    output_limit_blocks = TOOL_OUTPUT_LIMIT_CHARS // 1024
-    return (
-        "echo 1000 > /proc/self/oom_score_adj 2>/dev/null || true; "
-        f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
-        f"ulimit -f {output_limit_blocks} 2>/dev/null || true; "
-    )
+    return f"ulimit -v {memory_limit_kb} 2>/dev/null || true; "
 
 
 def _truncate_oom_output(output: str) -> str:
@@ -92,11 +73,8 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
         or "Cannot allocate memory" in output
         or "bad_alloc" in output
         or "out of memory" in output
-        or "File size limit exceeded" in output
     )
-    is_oom = return_code in (137, -9, 153, -25) or (
-        return_code != 0 and has_oom_strings
-    )
+    is_oom = return_code in (137, -9) or (return_code != 0 and has_oom_strings)
 
     if is_oom:
         hint = (
@@ -118,19 +96,3 @@ def check_oom_and_append_hint(output: str, return_code: int) -> str:
         return hint
 
     return output
-
-
-def _kill_process_group(process: subprocess.Popen) -> None:
-    try:
-        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-    except (OSError, AttributeError):
-        try:
-            process.kill()
-        except OSError:
-            pass
-
-
-# Read back at most TOOL_OUTPUT_LIMIT_CHARS of the subprocess output collected in a file.
-def read_capped_output(output_file: typing.IO[str]) -> str:
-    output_file.seek(0)
-    return output_file.read(TOOL_OUTPUT_LIMIT_CHARS)

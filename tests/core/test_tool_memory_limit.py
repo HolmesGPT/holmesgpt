@@ -1,14 +1,8 @@
-import subprocess
-import sys
-import time
-
 import pytest
 
-import holmes.utils.memory_limit as memory_limit
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 from holmes.utils.memory_limit import (
     OOM_OUTPUT_MAX_LINES,
-    _kill_process_group,
     _truncate_oom_output,
     check_oom_and_append_hint,
     get_ulimit_prefix,
@@ -22,26 +16,7 @@ class TestGetUlimitPrefix:
         """Test ulimit prefix format with default value."""
         result = get_ulimit_prefix()
         expected_kb = 1024 * TOOL_MEMORY_LIMIT_MB
-        expected_blocks = memory_limit.TOOL_OUTPUT_LIMIT_CHARS // 1024
-        assert result == (
-            "echo 1000 > /proc/self/oom_score_adj 2>/dev/null || true; "
-            f"ulimit -v {expected_kb} 2>/dev/null || true; "
-            f"ulimit -f {expected_blocks} 2>/dev/null || true; "
-        )
-
-    @pytest.mark.skipif(
-        not sys.platform.startswith("linux"), reason="requires /proc"
-    )
-    def test_oom_score_adj_inherited_by_grandchild(self):
-        """A subprocess launched with the prefix, and its children, carry max OOM badness."""
-        script = (
-            get_ulimit_prefix()
-            + f"{sys.executable} -c 'print(open(\"/proc/self/oom_score_adj\").read().strip())'"
-        )
-        result = subprocess.run(
-            script, shell=True, executable="/bin/bash", capture_output=True, text=True
-        )
-        assert result.stdout.strip() == "1000"
+        assert result == f"ulimit -v {expected_kb} 2>/dev/null || true; "
 
 
 class TestCheckOomAndAppendHint:
@@ -185,78 +160,3 @@ class TestTruncateOomOutput:
         assert result_lines[OOM_OUTPUT_MAX_LINES - 1] == f"line {OOM_OUTPUT_MAX_LINES - 1}"
         omitted = total_lines - OOM_OUTPUT_MAX_LINES
         assert f"[... {omitted} lines of stack trace omitted ...]" in result_lines[-1]
-
-
-def _popen_in_own_group(script: str) -> subprocess.Popen:
-    return subprocess.Popen(
-        script,
-        shell=True,
-        executable="/bin/bash",
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-    )
-
-
-def _wait_for_pid_death(pid: int, timeout: float = 3.0) -> bool:
-    import os
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        time.sleep(0.05)
-    return False
-
-
-class TestKillProcessGroup:
-    """Tests for _kill_process_group function."""
-
-    def test_kill_already_exited_process_does_not_raise(self):
-        process = _popen_in_own_group("true")
-        process.wait(timeout=5)
-        _kill_process_group(process)
-
-    def test_kills_grandchild_in_group(self, tmp_path):
-        pidfile = tmp_path / "grandchild.pid"
-        process = _popen_in_own_group(
-            f"{sys.executable} -c 'import os,time; open(\"{pidfile}\",\"w\").write(str(os.getpid())); time.sleep(120)' & wait"
-        )
-        for _ in range(60):
-            if pidfile.exists():
-                break
-            time.sleep(0.05)
-        assert pidfile.exists(), "grandchild never started"
-        _kill_process_group(process)
-        process.wait(timeout=5)
-        assert _wait_for_pid_death(int(pidfile.read_text())), (
-            "grandchild survived process-group kill"
-        )
-
-
-class TestOutputCap:
-    """Tests for the ulimit -f output cap through execute_bash_command."""
-
-    def test_oversized_output_kills_command_and_caps_output(self, monkeypatch):
-        from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
-
-        monkeypatch.setattr(memory_limit, "TOOL_OUTPUT_LIMIT_CHARS", 100 * 1024)
-        result = execute_bash_command("yes xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", timeout=30)
-        assert result.timed_out is False
-        assert result.return_code not in (0, None)
-        # The [OOM] hint path truncates the raw output down to a few lines
-        assert len(result.stdout) < 10_000
-        assert "[OOM]" in result.stdout
-
-    def test_output_at_cap_boundary_not_flagged(self, monkeypatch):
-        from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
-
-        monkeypatch.setattr(memory_limit, "TOOL_OUTPUT_LIMIT_CHARS", 100 * 1024)
-        result = execute_bash_command("printf 'a%.0s' {1..1000}", timeout=30)
-        assert result.return_code == 0
-        assert result.stdout == "a" * 1000
-        assert "[OOM]" not in result.stdout
