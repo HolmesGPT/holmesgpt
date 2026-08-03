@@ -460,6 +460,41 @@ class TestPersonalSkills:
             == ""
         )
 
+    def test_empty_instruction_list_yields_empty_string_not_bracket_literal(
+        self, skills_dal
+    ):
+        """`instructions: []` must be "" for the same reason None must not become "None".
+
+        str([]) == "[]" is truthy, so returning it would suppress the caller's
+        `instruction or pretty()` fallback and hand the LLM "[]" as the skill body.
+        """
+        assert (
+            skills_dal._extract_skill_instruction({"runbook": {"instructions": []}}, "x")
+            == ""
+        )
+
+    @pytest.mark.parametrize("shape", [[], ["a"], "str", 7])
+    def test_non_dict_runbook_yields_empty_string_rather_than_raising(
+        self, skills_dal, shape
+    ):
+        """`runbook` is jsonb with no shape constraint, so it can hold a list or scalar.
+
+        `.get` on those raises AttributeError, which the caller converts into a silently
+        dropped skill.
+        """
+        assert skills_dal._extract_skill_instruction({"runbook": shape}, "x") == ""
+
+    def test_unexpected_instruction_type_is_not_logged_verbatim(
+        self, skills_dal, caplog
+    ):
+        """Personal skill bodies are private and must never reach shared logs."""
+        secret = {"private": "SECRET-BODY-DO-NOT-LOG"}
+
+        skills_dal._extract_skill_instruction({"runbook": {"instructions": secret}}, "x")
+
+        assert "SECRET-BODY-DO-NOT-LOG" not in caplog.text
+        assert "dict" in caplog.text
+
     def test_one_malformed_row_does_not_drop_the_whole_tier(self, skills_dal):
         """A row missing a required field must cost only that row.
 
@@ -536,6 +571,18 @@ class TestSkillHierarchyConfig:
 
         assert config.enabled is False
         assert config.order == ["global", "custom", "personal"]
+
+    @pytest.mark.parametrize("raw", ["false", "true", 0, 1, "", "no", None])
+    def test_non_boolean_enabled_is_treated_as_false(self, skills_dal, raw):
+        """bool("false") is True.
+
+        This jsonb is written by hand-run SQL, so the JSON *string* "false" is a realistic
+        mistake -- and coercing it would silently turn the hierarchy ON and start
+        suppressing skills that used to run.
+        """
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": raw})
+
+        assert skills_dal.get_skill_hierarchy_config().enabled is False
 
     def test_reads_enabled_and_order(self, skills_dal):
         self._settings(
