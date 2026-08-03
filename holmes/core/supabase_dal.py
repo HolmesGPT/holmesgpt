@@ -597,9 +597,18 @@ class SupabaseDal:
                 # Filter by cluster: null means all clusters, otherwise check membership
                 if clusters is not None and self.cluster not in clusters:
                     continue
-                instructions.append(
-                    RobustaSkillInstruction(id=id, symptom=symptom, title=title)
-                )
+                # Validate per row. id and title are required on the model, so a row with a
+                # null runbook_id or subject_name raises -- and if that reached the outer
+                # handler the account would silently lose EVERY global skill, not just the
+                # malformed one.
+                try:
+                    instructions.append(
+                        RobustaSkillInstruction(id=id, symptom=symptom, title=title)
+                    )
+                except Exception:
+                    logging.warning(
+                        "Skipping malformed skill row: runbook_id=%s", id
+                    )
             return instructions
         except Exception:
             logging.exception("Failed to fetch skill catalog", exc_info=True)

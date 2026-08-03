@@ -644,3 +644,58 @@ class TestSyncSkills:
         skills_dal.sync_skills(
             [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}], "c1"
         )
+
+class TestGlobalSkillCatalog:
+    """Regression tests for the global (account-wide) skill catalog read.
+
+    Same shape as the personal read, so it had the same defect: one malformed row aborted
+    the loop and the account silently lost every global skill.
+    """
+
+    @staticmethod
+    def _row(**overrides):
+        row = {
+            "runbook_id": "uuid-1",
+            "subject_name": "Global skill",
+            "symptoms": "when the thing breaks",
+            "clusters": None,
+            "enabled": True,
+        }
+        row.update(overrides)
+        return row
+
+    def _rows(self, skills_dal, rows):
+        chain = (
+            skills_dal.client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value
+        )
+        chain.execute.return_value = Mock(data=rows)
+
+    def test_one_malformed_row_does_not_drop_the_whole_catalog(self, skills_dal):
+        self._rows(
+            skills_dal,
+            [
+                self._row(runbook_id=None),      # invalid: id is required
+                self._row(runbook_id="ok-1"),
+                self._row(subject_name=None),    # invalid: title is required
+                self._row(runbook_id="ok-2"),
+            ],
+        )
+
+        result = skills_dal.get_skill_catalog()
+
+        assert {r.id for r in result} == {"ok-1", "ok-2"}
+
+    def test_filters_by_cluster_and_symptom(self, skills_dal):
+        self._rows(
+            skills_dal,
+            [
+                self._row(runbook_id="here", clusters=["test-cluster"]),
+                self._row(runbook_id="elsewhere", clusters=["other-cluster"]),
+                self._row(runbook_id="no-symptom", symptoms=None),
+                self._row(runbook_id="all-clusters", clusters=None),
+            ],
+        )
+
+        result = skills_dal.get_skill_catalog()
+
+        assert {r.id for r in result} == {"here", "all-clusters"}
