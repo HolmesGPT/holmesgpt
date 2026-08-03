@@ -76,11 +76,6 @@ Every LLM request includes an explicit output-token limit. It is the same value 
 
 The value is resolved in this order:
 
-1. A non-null `max_tokens` or `max_completion_tokens` in the model's args (model list) takes precedence (a `null` value is stripped, so it does not block the values below).
+1. A non-null `max_tokens` or `max_completion_tokens` in the model's args (model list / `custom_args`) takes precedence (a `null` value is stripped, so it does not block the computed default below).
 2. `OVERRIDE_MAX_OUTPUT_TOKEN` environment variable.
-3. `max_output_tokens` declared for the model under `custom_args` — the model's real output ceiling, when whoever configured the model declared it.
-4. Otherwise computed from the context window: `max(64000, 12%)` — so a 200k-context (or unknown) model gets 64k and a 1M-context model gets 120k.
-
-Options 3 and 4 are further capped by the model's `max_output_tokens` from litellm's cost map when the model is known there.
-
-The computed fallback is a guess, not the model's real limit. When it lands above the limit the provider (or an LLM proxy in front of it) actually enforces, answers are truncated at the smaller cap while Holmes reserves input space — and reports a maximum — for the larger one. Declare `max_output_tokens` for the model, or set `OVERRIDE_MAX_OUTPUT_TOKEN`, to keep the two aligned. A truncated response is logged with both numbers: the limit requested and the tokens actually produced (including reasoning tokens, which count against the same budget on models with extended thinking enabled).
+3. Computed: `max(64000, 12% of the context window)` — so a 200k-context (or unknown) model reserves 64k and a 1M-context model reserves 120k — further capped by the model's `max_output_tokens` from litellm's cost map when the model is known.
