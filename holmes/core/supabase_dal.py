@@ -284,10 +284,21 @@ class SupabaseDal:
         # prompt catalog), but it is per-account and changes rarely, so cache it briefly
         # rather than adding a blocking AccountSettings round trip to every turn. A short TTL
         # keeps a flag flip taking effect without a restart.
-        self.skill_hierarchy_cache = TTLCache(
-            maxsize=1,
-            ttl=int(os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")),
-        )
+        # Parsed defensively: this runs during __init__, so a typo in the env var would
+        # otherwise raise ValueError and stop Holmes from starting at all.
+        raw_ttl = os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")
+        try:
+            hierarchy_ttl = int(raw_ttl)
+            if hierarchy_ttl <= 0:
+                raise ValueError(f"must be positive, got {hierarchy_ttl}")
+        except ValueError as e:
+            logging.warning(
+                "Invalid SKILL_HIERARCHY_CACHE_TTL_SEC=%r (%s); falling back to 60s",
+                raw_ttl,
+                e,
+            )
+            hierarchy_ttl = 60
+        self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
         self.lock = threading.Lock()
 
     def patch_postgrest_execute(self):
@@ -645,21 +656,40 @@ class SupabaseDal:
         `instruction or pretty()`, and the string "None" is truthy -- it would suppress the
         fallback and hand the LLM the literal text "None" as the skill body.
         """
-        raw_instruction = (row.get("runbook") or {}).get("instructions")
+        runbook = row.get("runbook")
+        if runbook is not None and not isinstance(runbook, dict):
+            # `runbook` is jsonb with no shape constraint, so a row can legally hold a list
+            # or a scalar. `.get` on those raises AttributeError, and the caller turns any
+            # exception into a silently dropped skill -- so normalize to "" instead.
+            logging.error(
+                "Unexpected runbook shape for skill_id=%s: %s",
+                skill_id,
+                type(runbook).__name__,
+            )
+            return ""
+        raw_instruction = (runbook or {}).get("instructions")
         if raw_instruction is None:
             return ""
         # TODO: remove in the future when we migrate the table data
-        if isinstance(raw_instruction, list) and len(raw_instruction) == 1:
-            return raw_instruction[0]
-        elif isinstance(raw_instruction, list) and len(raw_instruction) > 1:
+        if isinstance(raw_instruction, list):
+            # An empty list must return "" for the same reason str(None) must not become
+            # "None": callers fall back with `instruction or pretty()`, and str([]) == "[]"
+            # is truthy, which would suppress the fallback and hand the LLM "[]" as a body.
+            if not raw_instruction:
+                return ""
+            if len(raw_instruction) == 1:
+                return raw_instruction[0]
             # not currently used, but will be used in the future
             return "\n - ".join(raw_instruction)
         elif isinstance(raw_instruction, str):
             # not supported by the current UI, but will be supported in the future
             return raw_instruction
-        # in case the format is unexpected, convert to string
+        # in case the format is unexpected, convert to string. Log the TYPE only -- personal
+        # skill bodies are private to their owner and must not be written to shared logs.
         logging.error(
-            f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
+            "Unexpected skill instruction format for skill_id=%s: %s",
+            skill_id,
+            type(raw_instruction).__name__,
         )
         return str(raw_instruction)
 
@@ -787,7 +817,19 @@ class SupabaseDal:
                 return default
 
             settings = res.data[0].get("settings") or {}
-            enabled = bool(settings.get("skill_name_hierarchy_enabled", False))
+            raw_enabled = settings.get("skill_name_hierarchy_enabled", False)
+            if isinstance(raw_enabled, bool):
+                enabled = raw_enabled
+            else:
+                # This jsonb is written by hand-run SQL in practice, so the JSON *string*
+                # "false" is a realistic mistake -- and bool("false") is True, which would
+                # silently turn the hierarchy ON and start suppressing skills. Treat any
+                # non-boolean as unset rather than guessing.
+                logging.warning(
+                    "Ignoring non-boolean skill_name_hierarchy_enabled=%r; treating as false",
+                    raw_enabled,
+                )
+                enabled = False
             order = settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
             if not isinstance(order, list) or not all(
                 isinstance(tier, str) for tier in order
