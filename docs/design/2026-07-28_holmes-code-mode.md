@@ -355,6 +355,47 @@ bodies **never enter the model's context** — only `print(summary)` does, once.
   accounts (the ROB-723 project's target segment); (3) default-on for
   tool-heavy request types if evals show correctness parity and a token win.
 
+# Security model
+
+The script is arbitrary, LLM-generated Python. The model is therefore
+**capability-limiting, not code-sandboxing**: assume the script can run any
+Python, and constrain what it can *reach*.
+
+**The trust boundary is the parent-side allow-list, not the generated client.**
+The subprocess is handed the bridge socket path (`HOLMES_CODE_SOCKET`), so a
+script can bypass the generated `holmes.*` stubs and send raw
+`{"tool": ..., "params": ...}` requests over the socket by hand. Every request
+is therefore re-checked in the parent's `dispatch` before any tool is looked up
+or invoked:
+
+- **Allow-list enforced server-side.** A requested tool name not in
+  `eligible_tool_names(...)` is rejected outright — `is_core` toolsets,
+  `bash`/`kubectl_run`, and any `approval_required_tools` are excluded, so a
+  script cannot reach a mutation/approval surface even by forging the request.
+- **Approval cannot be scripted around.** An `APPROVAL_REQUIRED` result at
+  dispatch is converted to an error; there is no auto-approve path.
+- **Credentials never enter the subprocess.** Tools execute in the parent; the
+  subprocess env is a minimal allow-list (`PATH`/`LANG`/`HOLMES_CODE_*`), never
+  the parent's `os.environ` (LLM/provider keys, DB creds, etc.).
+- **Per-tool validation is unchanged.** Dispatched calls go through the real
+  `tool.invoke()`, so each tool's own guards still apply.
+- **Resource bounds.** `ulimit` memory cap + wall-clock timeout kill runaway
+  scripts; oversized stdout flows through `spill_oversized_tool_result`.
+
+**Residual risk (accepted for v1, off by default).** There is **no
+language-level or OS sandbox** — subprocess + `ulimit` only. So a script can
+still (a) make **arbitrary outbound network calls** and (b) **read on-disk files
+the process can access** (env secrets are stripped, but files such as
+`/var/run/secrets/kubernetes.io/serviceaccount/token` are not). Combined with a
+successful **prompt injection** (Holmes ingests untrusted logs/alerts/objects),
+the blast radius is "anything the pod's process can reach and exfiltrate". This
+is the primary reason the feature is off by default; real isolation
+(RestrictedPython / gVisor / container sandbox / egress deny) is a Future Goal
+(see Out of Scope). These boundaries are covered by
+`tests/plugins/toolsets/code_execution/test_code_execution_security.py`,
+including a script that forges raw socket requests to excluded tools and the
+documented (currently-permitted) local-file read.
+
 # Token-cost impact
 
 - Addressable segment (≥6 iterations, tool-heavy real traffic): ~$15.3k/mo,
