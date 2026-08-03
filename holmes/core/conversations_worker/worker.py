@@ -939,7 +939,12 @@ class ConversationWorker:
             trace_type=os.environ.get("HOLMES_TRACE_BACKEND")
         )
 
-        skills = self.config.get_skill_catalog()
+        # Personal skills are scoped to the requesting end user. chat_request.user_id is the
+        # already-resolved "user Holmes may act on behalf of" -- the same value the per-user
+        # OAuth resolver keys on, so a conversation that opted out via
+        # metadata.oauth_enabled = false (e.g. a triggered workflow that must not run under
+        # its creator's identity) has user_id set to None here and loads no personal skills.
+        skills = self.config.get_skill_catalog(user_id=chat_request.user_id)
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:

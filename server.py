@@ -74,6 +74,7 @@ from holmes.utils.holmes_status import (
     refresh_holmes_status,
     update_holmes_status_in_db,
 )
+from holmes.utils.holmes_sync_skills import holmes_sync_skills_status
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import (
@@ -217,6 +218,10 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
+    try:
+        holmes_sync_skills_status(dal, config)
+    except Exception:
+        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
     if conversation_worker is not None:
         try:
             conversation_worker.start()
@@ -323,6 +328,17 @@ def _toolset_status_refresh_loop():
             except Exception:
                 logging.error(
                     "Error during periodic toolset status refresh", exc_info=True
+                )
+            try:
+                # Re-read the skill files every cycle rather than gating on a change
+                # signal: skills live on the filesystem, so a ConfigMap/Secret remount can
+                # change them with no toolset status change to detect. The sync is an
+                # idempotent upsert + prune, so repeating it is cheap and self-healing.
+                if dal.enabled:
+                    holmes_sync_skills_status(dal, config)
+            except Exception:
+                logging.error(
+                    "Error during periodic custom skills refresh", exc_info=True
                 )
 
     thread = threading.Thread(target=refresh_loop, daemon=True, name="toolset-refresh")
@@ -511,7 +527,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
         open_experiment_from_request(http_request)
 
-        skills = config.get_skill_catalog()
+        # Pass the end user's id so their personal skills are included for this request
+        # only. Server-initiated flows have no user_id and so load no personal skills.
+        skills = config.get_skill_catalog(user_id=chat_request.user_id)
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:

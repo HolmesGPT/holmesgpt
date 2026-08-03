@@ -67,6 +67,12 @@ class SkillsFetcher(Tool):
                 params=params,
             )
 
+        # The end user for this request. This toolset is built ONCE and cached across
+        # requests and users (the executor cache key ignores account/user), so per-user
+        # personal skills must never be baked into self._skill_catalog or the parameter
+        # description. They are resolved here instead, per invocation.
+        user_id = (context.request_context or {}).get("user_id")
+
         # Look up in skill catalog by name — remote skills have empty content
         # (catalog only stores metadata), so fetch full content from Supabase
         skill = self._find_skill(skill_id)
@@ -75,9 +81,26 @@ class SkillsFetcher(Tool):
         elif skill:
             return self._format_skill_result(skill, params)
 
+        # Not in the cached catalog. A personal skill is the expected case here: its id only
+        # ever appears in the per-request prompt catalog, never in this cached one. Try the
+        # user-scoped lookup first so one user can never read another's personal skill.
+        personal_miss: Optional[str] = None
+        if user_id and self._dal and self._dal.enabled:
+            personal_result, personal_miss = self._get_personal_skill(
+                skill_id, user_id, params
+            )
+            if personal_result is not None:
+                return personal_result
+
         # Fallback: try Supabase for UUID-style IDs not in catalog
         if self._dal and self._dal.enabled:
-            return self._get_robusta_skill(skill_id, params)
+            result = self._get_robusta_skill(skill_id, params)
+            # Say that a user-scoped lookup also ran and why it missed, otherwise the only
+            # feedback is "not found in remote storage" and the personal path is invisible
+            # when debugging.
+            if result.status == StructuredToolResultStatus.ERROR and personal_miss:
+                result.error = f"{result.error} {personal_miss}"
+            return result
 
         err_msg = (
             f"Skill '{skill_id}' not found. "
@@ -138,6 +161,40 @@ class SkillsFetcher(Tool):
             data=wrapped_content,
             params=params,
         )
+
+    def _get_personal_skill(
+        self, skill_id: str, user_id: str, params: dict
+    ) -> tuple[Optional[StructuredToolResult], Optional[str]]:
+        """Fetch a personal skill scoped to this end user.
+
+        Returns (result, miss_reason). The result is None when the id is not one of that
+        user's personal skills, so the caller can fall through to the global lookup -- a
+        miss is the normal case for a global skill id. miss_reason carries why, including
+        the underlying API error text, so a failed lookup is not invisible in the error the
+        LLM finally sees.
+        """
+        if not self._dal:
+            return None, None
+        try:
+            skill_content = self._dal.get_personal_skill_content(skill_id, user_id)
+        except Exception as e:
+            logging.warning(f"Failed to fetch personal skill '{skill_id}': {e}")
+            return None, f"A personal-skill lookup for this user also failed: {e}"
+
+        if not skill_content:
+            return None, "It is also not one of this user's personal skills."
+
+        description = skill_content.title
+        if skill_content.symptom:
+            description = f"{skill_content.title} — {skill_content.symptom}"
+        skill = Skill(
+            name=skill_content.id,
+            description=description,
+            content=skill_content.instruction or skill_content.pretty(),
+            source=SkillSource.PERSONAL,
+            display_name=skill_content.title,
+        )
+        return self._format_skill_result(skill, params), None
 
     def _get_robusta_skill(self, link: str, params: dict) -> StructuredToolResult:
         if self._dal and self._dal.enabled:
