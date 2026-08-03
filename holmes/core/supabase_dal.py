@@ -50,6 +50,10 @@ from holmes.core.truncation.dal_truncation_utils import (
     truncate_evidences_entities_if_necessary,
 )
 from holmes.plugins.skills import RobustaSkillInstruction
+from holmes.plugins.skills.skill_loader import (
+    DEFAULT_HIERARCHY_ORDER,
+    SkillHierarchyConfig,
+)
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
@@ -71,6 +75,9 @@ RUNBOOKS_TABLE = "HolmesRunbooks"
 SESSION_TOKENS_TABLE = "AuthTokens"
 HOLMES_STATUS_TABLE = "HolmesStatus"
 HOLMES_TOOLSET = "HolmesToolsStatus"
+HOLMES_CUSTOM_SKILLS_TABLE = "HolmesCustomSkills"
+ACCOUNT_SETTINGS_TABLE = "AccountSettings"
+PERSONAL_RUNBOOK_CATALOG = "PersonalRunbookCatalog"
 SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
 SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
@@ -606,29 +613,158 @@ class SupabaseDal:
             return None
 
         row = res.data[0]
-        id = row.get("runbook_id")
-        symptom = row.get("symptoms")
-        title = row.get("subject_name")
-        raw_instruction = row.get("runbook").get("instructions")
+        return RobustaSkillInstruction(
+            id=row.get("runbook_id"),
+            symptom=row.get("symptoms"),
+            instruction=self._extract_skill_instruction(row, skill_id),
+            title=row.get("subject_name"),
+        )
+
+    @staticmethod
+    def _extract_skill_instruction(row: dict, skill_id: str) -> str:
+        """Normalize the runbook.instructions jsonb into a single string."""
+        raw_instruction = (row.get("runbook") or {}).get("instructions")
         # TODO: remove in the future when we migrate the table data
         if isinstance(raw_instruction, list) and len(raw_instruction) == 1:
-            instruction = raw_instruction[0]
+            return raw_instruction[0]
         elif isinstance(raw_instruction, list) and len(raw_instruction) > 1:
             # not currently used, but will be used in the future
-            instruction = "\n - ".join(raw_instruction)
+            return "\n - ".join(raw_instruction)
         elif isinstance(raw_instruction, str):
             # not supported by the current UI, but will be supported in the future
-            instruction = raw_instruction
-        else:
-            # in case the format is unexpected, convert to string
-            logging.error(
-                f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
-            )
-            instruction = str(raw_instruction)
-
-        return RobustaSkillInstruction(
-            id=id, symptom=symptom, instruction=instruction, title=title
+            return raw_instruction
+        # in case the format is unexpected, convert to string
+        logging.error(
+            f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
         )
+        return str(raw_instruction)
+
+    def get_personal_skill_catalog(
+        self, user_id: str
+    ) -> Optional[List[RobustaSkillInstruction]]:
+        """List the given END USER's personal skills.
+
+        Reads through the get_personal_skills RPC rather than selecting HolmesRunbooks
+        directly. Personal rows are owner-only under RLS (user_id = auth.uid()), and Holmes
+        authenticates as its own account-member service user, so a plain table select would
+        match zero rows and personal skills would silently never load. The RPC is
+        SECURITY DEFINER and guarded on the caller being a member of the account.
+
+        `user_id` MUST be the end user's id from the request -- never self.user_id, which is
+        Holmes's own service identity and identical on every request.
+        """
+        if not self.enabled or not user_id:
+            return None
+
+        try:
+            res = self.client.rpc(
+                "get_personal_skills",
+                {"_account_id": self.account_id, "_user_id": user_id},
+            ).execute()
+            if not res.data:
+                return None
+
+            instructions = []
+            for row in res.data:
+                id = row.get("runbook_id")
+                symptom = row.get("symptoms")
+                title = row.get("subject_name")
+                clusters = row.get("clusters")
+                if not row.get("enabled", True):
+                    continue
+                if not symptom:
+                    logging.warning(
+                        "Skipping personal skill with empty symptom: %s", id
+                    )
+                    continue
+                # Filter by cluster: null means all clusters, otherwise check membership.
+                # This must happen before any hierarchy dedup so that a skill scoped to a
+                # different cluster cannot suppress an applicable one.
+                if clusters is not None and self.cluster not in clusters:
+                    continue
+                instructions.append(
+                    RobustaSkillInstruction(id=id, symptom=symptom, title=title)
+                )
+            return instructions
+        except Exception:
+            logging.exception("Failed to fetch personal skill catalog", exc_info=True)
+            return None
+
+    def get_personal_skill_content(
+        self, skill_id: str, user_id: str
+    ) -> Optional[RobustaSkillInstruction]:
+        """Fetch one personal skill's body for the given END USER.
+
+        Scoped by user_id so one user cannot fetch another user's personal skill content.
+        Goes through the SECURITY DEFINER RPC for the same reason as
+        get_personal_skill_catalog.
+        """
+        if not self.enabled or not user_id:
+            return None
+
+        try:
+            res = self.client.rpc(
+                "get_personal_skill_content",
+                {
+                    "_account_id": self.account_id,
+                    "_user_id": user_id,
+                    "_runbook_id": skill_id,
+                },
+            ).execute()
+            if not res.data:
+                return None
+
+            row = res.data[0] if isinstance(res.data, list) else res.data
+            return RobustaSkillInstruction(
+                id=row.get("runbook_id"),
+                symptom=row.get("symptoms"),
+                instruction=self._extract_skill_instruction(row, skill_id),
+                title=row.get("subject_name"),
+            )
+        except Exception:
+            logging.exception(
+                f"Failed to fetch personal skill content for skill_id={skill_id}",
+                exc_info=True,
+            )
+            return None
+
+    def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:
+        """Read the per-account skill name-collision policy from AccountSettings.
+
+        Defaults to disabled, which preserves today's behaviour (no cross-tier dedup).
+        Any read failure also falls back to the default rather than changing behaviour.
+        """
+        default = SkillHierarchyConfig()
+        if not self.enabled:
+            return default
+
+        try:
+            res = (
+                self.client.table(ACCOUNT_SETTINGS_TABLE)
+                .select("settings")
+                .eq("account_id", self.account_id)
+                .execute()
+            )
+            if not res.data:
+                return default
+
+            settings = res.data[0].get("settings") or {}
+            enabled = bool(settings.get("skill_name_hierarchy_enabled", False))
+            order = settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
+            if not isinstance(order, list) or not all(
+                isinstance(tier, str) for tier in order
+            ):
+                logging.warning(
+                    f"Ignoring malformed skill_name_hierarchy_order: {order!r}"
+                )
+                order = DEFAULT_HIERARCHY_ORDER
+            return SkillHierarchyConfig(enabled=enabled, order=order)
+        except Exception:
+            logging.exception(
+                "Failed to fetch skill hierarchy config; falling back to disabled",
+                exc_info=True,
+            )
+            return default
 
     def get_resource_instructions(
         self, type: str, name: Optional[str]
@@ -770,6 +906,45 @@ class SupabaseDal:
         except Exception as e:
             logging.exception(
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
+            )
+
+    def sync_skills(self, skills: list[dict], cluster_name: str) -> None:
+        """Mirror this cluster's filesystem + builtin skills into HolmesCustomSkills.
+
+        The filesystem stays the source of truth -- Holmes keeps executing these from disk.
+        These rows exist only so the UI can display them, so this is a plain upsert plus a
+        prune of names that no longer exist for this (account, cluster), exactly like
+        sync_toolsets. Best-effort: a failure here must never break startup.
+
+        Note this intentionally does NOT delete when `skills` is empty: an empty list means
+        "no skills loaded", which we cannot distinguish from a load failure, and wiping the
+        UI's view on a transient error would be worse than showing slightly stale rows.
+        """
+        if not self.enabled:
+            logging.info("Robusta store not initialized. Skipping sync holmes skills.")
+            return
+
+        if not skills:
+            logging.debug("No skills were provided for synchronization.")
+            return
+
+        provided_skill_names = [skill["skill_name"] for skill in skills]
+
+        try:
+            self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).upsert(
+                skills, on_conflict="account_id, cluster_id, skill_name"
+            ).execute()
+
+            self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).delete().eq(
+                "account_id", self.account_id
+            ).eq("cluster_id", cluster_name).not_.in_(
+                "skill_name", provided_skill_names
+            ).execute()
+
+            logging.info(f"Synchronized {len(skills)} custom skills successfully.")
+        except Exception as e:
+            logging.exception(
+                f"An error occurred during skill synchronization: {e}", exc_info=True
             )
 
     def record_usage_event(self, state: "UsageRecorderState") -> None:

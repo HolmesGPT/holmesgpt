@@ -67,6 +67,12 @@ class SkillsFetcher(Tool):
                 params=params,
             )
 
+        # The end user for this request. This toolset is built ONCE and cached across
+        # requests and users (the executor cache key ignores account/user), so per-user
+        # personal skills must never be baked into self._skill_catalog or the parameter
+        # description. They are resolved here instead, per invocation.
+        user_id = (context.request_context or {}).get("user_id")
+
         # Look up in skill catalog by name — remote skills have empty content
         # (catalog only stores metadata), so fetch full content from Supabase
         skill = self._find_skill(skill_id)
@@ -74,6 +80,14 @@ class SkillsFetcher(Tool):
             return self._get_robusta_skill(skill_id, params)
         elif skill:
             return self._format_skill_result(skill, params)
+
+        # Not in the cached catalog. A personal skill is the expected case here: its id only
+        # ever appears in the per-request prompt catalog, never in this cached one. Try the
+        # user-scoped lookup first so one user can never read another's personal skill.
+        if user_id and self._dal and self._dal.enabled:
+            personal_result = self._get_personal_skill(skill_id, user_id, params)
+            if personal_result is not None:
+                return personal_result
 
         # Fallback: try Supabase for UUID-style IDs not in catalog
         if self._dal and self._dal.enabled:
@@ -138,6 +152,38 @@ class SkillsFetcher(Tool):
             data=wrapped_content,
             params=params,
         )
+
+    def _get_personal_skill(
+        self, skill_id: str, user_id: str, params: dict
+    ) -> Optional[StructuredToolResult]:
+        """Fetch a personal skill scoped to this end user.
+
+        Returns None when the id is not one of that user's personal skills, so the caller
+        can fall through to the global lookup. Errors are also returned as None rather than
+        surfaced, because a miss here is the normal case for a global skill id.
+        """
+        if not self._dal:
+            return None
+        try:
+            skill_content = self._dal.get_personal_skill_content(skill_id, user_id)
+        except Exception as e:
+            logging.warning(f"Failed to fetch personal skill '{skill_id}': {e}")
+            return None
+
+        if not skill_content:
+            return None
+
+        description = skill_content.title
+        if skill_content.symptom:
+            description = f"{skill_content.title} — {skill_content.symptom}"
+        skill = Skill(
+            name=skill_content.id,
+            description=description,
+            content=skill_content.instruction or skill_content.pretty(),
+            source=SkillSource.PERSONAL,
+            display_name=skill_content.title,
+        )
+        return self._format_skill_result(skill, params)
 
     def _get_robusta_skill(self, link: str, params: dict) -> StructuredToolResult:
         if self._dal and self._dal.enabled:
