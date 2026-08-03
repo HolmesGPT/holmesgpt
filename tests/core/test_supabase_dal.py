@@ -328,6 +328,19 @@ class TestGetIssueDataFiring:
         assert data["firing"] is True
 
 
+@pytest.fixture
+def skills_dal():
+    """A SupabaseDal with a stubbed client, shared by the skill-related test classes."""
+    with patch("holmes.core.supabase_dal.create_client"):
+        dal = SupabaseDal(cluster="test-cluster")
+        dal.enabled = True
+        dal.client = Mock()
+        dal.account_id = "acct-1"
+        # Holmes's own service identity. Personal reads must never fall back to it.
+        dal.user_id = "holmes-service-user"
+        return dal
+
+
 class TestPersonalSkills:
     """Tests for the personal-skill DAL reads.
 
@@ -337,16 +350,6 @@ class TestPersonalSkills:
     tier with no error, and Holmes simply never loads anyone's personal skills.
     """
 
-    @pytest.fixture
-    def mock_dal(self):
-        with patch("holmes.core.supabase_dal.create_client"):
-            dal = SupabaseDal(cluster="test-cluster")
-            dal.enabled = True
-            dal.client = Mock()
-            dal.account_id = "acct-1"
-            # Holmes's own service identity. Personal reads must never fall back to it.
-            dal.user_id = "holmes-service-user"
-            return dal
 
     @staticmethod
     def _row(**overrides):
@@ -364,55 +367,55 @@ class TestPersonalSkills:
 
     # ── get_personal_skill_catalog ──
 
-    def test_calls_security_definer_rpc_with_end_user_id(self, mock_dal):
+    def test_calls_security_definer_rpc_with_end_user_id(self, skills_dal):
         """Must go through the RPC, not a table select.
 
         Personal rows are owner-only under RLS and Holmes authenticates as a service user,
         so a plain select would match zero rows.
         """
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
             data=[self._row()]
         )
 
-        result = mock_dal.get_personal_skill_catalog("end-user-1")
+        result = skills_dal.get_personal_skill_catalog("end-user-1")
 
         assert result is not None and len(result) == 1
-        fn_name, params = mock_dal.client.rpc.call_args[0]
+        fn_name, params = skills_dal.client.rpc.call_args[0]
         assert fn_name == "get_personal_skills"
         # Parameter names must match the SQL function signature exactly
         assert params == {"_account_id": "acct-1", "_user_id": "end-user-1"}
         # The table must not be read directly
-        mock_dal.client.table.assert_not_called()
+        skills_dal.client.table.assert_not_called()
 
-    def test_parses_rows_into_instructions(self, mock_dal):
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(
+    def test_parses_rows_into_instructions(self, skills_dal):
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
             data=[self._row(runbook_id="uuid-9", subject_name="Disk full")]
         )
 
-        result = mock_dal.get_personal_skill_catalog("end-user-1")
+        result = skills_dal.get_personal_skill_catalog("end-user-1")
 
         assert result[0].id == "uuid-9"
         assert result[0].title == "Disk full"
         assert result[0].symptom == "when the thing breaks"
 
-    def test_skips_disabled_skills(self, mock_dal):
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(
+    def test_skips_disabled_skills(self, skills_dal):
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
             data=[self._row(enabled=False)]
         )
 
-        assert mock_dal.get_personal_skill_catalog("end-user-1") == []
+        assert skills_dal.get_personal_skill_catalog("end-user-1") == []
 
-    def test_skips_skills_without_symptom(self, mock_dal):
+    def test_skips_skills_without_symptom(self, skills_dal):
         """A skill with no symptom cannot be matched, so it is dropped."""
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
             data=[self._row(symptoms=None)]
         )
 
-        assert mock_dal.get_personal_skill_catalog("end-user-1") == []
+        assert skills_dal.get_personal_skill_catalog("end-user-1") == []
 
-    def test_filters_by_cluster(self, mock_dal):
+    def test_filters_by_cluster(self, skills_dal):
         """Cluster scoping happens here, before any hierarchy dedup upstream."""
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
             data=[
                 self._row(runbook_id="here", clusters=["test-cluster"]),
                 self._row(runbook_id="elsewhere", clusters=["other-cluster"]),
@@ -420,39 +423,74 @@ class TestPersonalSkills:
             ]
         )
 
-        result = mock_dal.get_personal_skill_catalog("end-user-1")
+        result = skills_dal.get_personal_skill_catalog("end-user-1")
 
         assert {r.id for r in result} == {"here", "all-clusters"}
 
-    def test_no_user_id_does_not_call_rpc(self, mock_dal):
+    def test_no_user_id_does_not_call_rpc(self, skills_dal):
         """The server-initiated guardrail, enforced at the DAL too."""
-        assert mock_dal.get_personal_skill_catalog("") is None
-        assert mock_dal.get_personal_skill_catalog(None) is None
-        mock_dal.client.rpc.assert_not_called()
+        assert skills_dal.get_personal_skill_catalog("") is None
+        assert skills_dal.get_personal_skill_catalog(None) is None
+        skills_dal.client.rpc.assert_not_called()
 
-    def test_returns_none_when_disabled(self, mock_dal):
-        mock_dal.enabled = False
-        assert mock_dal.get_personal_skill_catalog("end-user-1") is None
-        mock_dal.client.rpc.assert_not_called()
+    def test_returns_none_when_disabled(self, skills_dal):
+        skills_dal.enabled = False
+        assert skills_dal.get_personal_skill_catalog("end-user-1") is None
+        skills_dal.client.rpc.assert_not_called()
 
-    def test_rpc_error_returns_none_rather_than_raising(self, mock_dal):
+    def test_rpc_error_returns_none_rather_than_raising(self, skills_dal):
         """A failed read must not break the whole chat request."""
-        mock_dal.client.rpc.side_effect = PGAPIError({"message": "boom"})
+        skills_dal.client.rpc.side_effect = PGAPIError({"message": "boom"})
 
-        assert mock_dal.get_personal_skill_catalog("end-user-1") is None
+        assert skills_dal.get_personal_skill_catalog("end-user-1") is None
+
+    def test_missing_instructions_yields_empty_string_not_none(self, skills_dal):
+        """Must be "" rather than str(None).
+
+        Callers fall back with `instruction or pretty()`, and the string "None" is truthy --
+        it would suppress the fallback and hand the LLM the literal text "None" as the
+        skill body.
+        """
+        assert skills_dal._extract_skill_instruction({"runbook": {}}, "x") == ""
+        assert skills_dal._extract_skill_instruction({}, "x") == ""
+        assert (
+            skills_dal._extract_skill_instruction(
+                {"runbook": {"instructions": None}}, "x"
+            )
+            == ""
+        )
+
+    def test_one_malformed_row_does_not_drop_the_whole_tier(self, skills_dal):
+        """A row missing a required field must cost only that row.
+
+        id and title are required on the model, so an invalid row raises. If that reached
+        the outer handler the user would silently lose every personal skill.
+        """
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
+            data=[
+                self._row(runbook_id=None),          # invalid: id is required
+                self._row(runbook_id="ok-1"),
+                self._row(subject_name=None),        # invalid: title is required
+                self._row(runbook_id="ok-2"),
+            ]
+        )
+
+        result = skills_dal.get_personal_skill_catalog("end-user-1")
+
+        assert {r.id for r in result} == {"ok-1", "ok-2"}
 
     # ── get_personal_skill_content ──
 
-    def test_content_rpc_is_scoped_to_the_user(self, mock_dal):
+    def test_content_rpc_is_scoped_to_the_user(self, skills_dal):
         """user_id is part of the lookup so one user cannot fetch another's body."""
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
             data=[self._row()]
         )
 
-        result = mock_dal.get_personal_skill_content("uuid-1", "end-user-1")
+        result = skills_dal.get_personal_skill_content("uuid-1", "end-user-1")
 
         assert result is not None
-        fn_name, params = mock_dal.client.rpc.call_args[0]
+        fn_name, params = skills_dal.client.rpc.call_args[0]
         assert fn_name == "get_personal_skill_content"
         assert params == {
             "_account_id": "acct-1",
@@ -460,23 +498,23 @@ class TestPersonalSkills:
             "_runbook_id": "uuid-1",
         }
 
-    def test_content_normalizes_instructions_list(self, mock_dal):
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(
+    def test_content_normalizes_instructions_list(self, skills_dal):
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
             data=[self._row(runbook={"instructions": ["only step"]})]
         )
 
-        result = mock_dal.get_personal_skill_content("uuid-1", "end-user-1")
+        result = skills_dal.get_personal_skill_content("uuid-1", "end-user-1")
 
         assert result.instruction == "only step"
 
-    def test_content_missing_returns_none(self, mock_dal):
-        mock_dal.client.rpc.return_value.execute.return_value = Mock(data=[])
+    def test_content_missing_returns_none(self, skills_dal):
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(data=[])
 
-        assert mock_dal.get_personal_skill_content("nope", "end-user-1") is None
+        assert skills_dal.get_personal_skill_content("nope", "end-user-1") is None
 
-    def test_content_without_user_id_does_not_call_rpc(self, mock_dal):
-        assert mock_dal.get_personal_skill_content("uuid-1", None) is None
-        mock_dal.client.rpc.assert_not_called()
+    def test_content_without_user_id_does_not_call_rpc(self, skills_dal):
+        assert skills_dal.get_personal_skill_content("uuid-1", None) is None
+        skills_dal.client.rpc.assert_not_called()
 
 
 class TestSkillHierarchyConfig:
@@ -486,91 +524,94 @@ class TestSkillHierarchyConfig:
     resolution would start dropping skills that used to run.
     """
 
-    @pytest.fixture
-    def mock_dal(self):
-        with patch("holmes.core.supabase_dal.create_client"):
-            dal = SupabaseDal(cluster="test-cluster")
-            dal.enabled = True
-            dal.client = Mock()
-            dal.account_id = "acct-1"
-            return dal
 
-    def _settings(self, mock_dal, settings):
-        chain = mock_dal.client.table.return_value.select.return_value.eq.return_value
+    def _settings(self, skills_dal, settings):
+        chain = skills_dal.client.table.return_value.select.return_value.eq.return_value
         chain.execute.return_value = Mock(data=[{"settings": settings}])
 
-    def test_defaults_to_disabled_when_unset(self, mock_dal):
-        self._settings(mock_dal, {})
+    def test_defaults_to_disabled_when_unset(self, skills_dal):
+        self._settings(skills_dal, {})
 
-        config = mock_dal.get_skill_hierarchy_config()
+        config = skills_dal.get_skill_hierarchy_config()
 
         assert config.enabled is False
         assert config.order == ["global", "custom", "personal"]
 
-    def test_reads_enabled_and_order(self, mock_dal):
+    def test_reads_enabled_and_order(self, skills_dal):
         self._settings(
-            mock_dal,
+            skills_dal,
             {
                 "skill_name_hierarchy_enabled": True,
                 "skill_name_hierarchy_order": ["personal", "custom", "global"],
             },
         )
 
-        config = mock_dal.get_skill_hierarchy_config()
+        config = skills_dal.get_skill_hierarchy_config()
 
         assert config.enabled is True
         assert config.order == ["personal", "custom", "global"]
 
-    def test_reads_from_account_settings_table(self, mock_dal):
-        self._settings(mock_dal, {})
+    def test_reads_from_account_settings_table(self, skills_dal):
+        self._settings(skills_dal, {})
 
-        mock_dal.get_skill_hierarchy_config()
+        skills_dal.get_skill_hierarchy_config()
 
-        mock_dal.client.table.assert_called_with("AccountSettings")
+        skills_dal.client.table.assert_called_with("AccountSettings")
 
-    def test_malformed_order_falls_back_to_default(self, mock_dal):
+    def test_malformed_order_falls_back_to_default(self, skills_dal):
         self._settings(
-            mock_dal,
+            skills_dal,
             {"skill_name_hierarchy_enabled": True, "skill_name_hierarchy_order": "nonsense"},
         )
 
-        config = mock_dal.get_skill_hierarchy_config()
+        config = skills_dal.get_skill_hierarchy_config()
 
         assert config.order == ["global", "custom", "personal"]
 
-    def test_no_row_falls_back_to_disabled(self, mock_dal):
-        chain = mock_dal.client.table.return_value.select.return_value.eq.return_value
+    def test_no_row_falls_back_to_disabled(self, skills_dal):
+        chain = skills_dal.client.table.return_value.select.return_value.eq.return_value
         chain.execute.return_value = Mock(data=[])
 
-        assert mock_dal.get_skill_hierarchy_config().enabled is False
+        assert skills_dal.get_skill_hierarchy_config().enabled is False
 
-    def test_read_failure_falls_back_to_disabled(self, mock_dal):
-        mock_dal.client.table.side_effect = PGAPIError({"message": "boom"})
+    def test_read_failure_falls_back_to_disabled(self, skills_dal):
+        skills_dal.client.table.side_effect = PGAPIError({"message": "boom"})
 
-        assert mock_dal.get_skill_hierarchy_config().enabled is False
+        assert skills_dal.get_skill_hierarchy_config().enabled is False
+
+    def test_result_is_cached_across_calls(self, skills_dal):
+        """This is read on every chat request, so it must not hit Supabase every turn."""
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": True})
+
+        first = skills_dal.get_skill_hierarchy_config()
+        second = skills_dal.get_skill_hierarchy_config()
+
+        assert first.enabled is True and second.enabled is True
+        assert skills_dal.client.table.call_count == 1
+
+    def test_failure_is_cached_too(self, skills_dal):
+        """A persistent read failure must not retry Supabase on every request."""
+        skills_dal.client.table.side_effect = PGAPIError({"message": "boom"})
+
+        skills_dal.get_skill_hierarchy_config()
+        skills_dal.get_skill_hierarchy_config()
+
+        assert skills_dal.client.table.call_count == 1
 
 
 class TestSyncSkills:
     """Tests for the HolmesCustomSkills mirror write."""
 
-    @pytest.fixture
-    def mock_dal(self):
-        with patch("holmes.core.supabase_dal.create_client"):
-            dal = SupabaseDal(cluster="test-cluster")
-            dal.enabled = True
-            dal.client = Mock()
-            dal.account_id = "acct-1"
-            return dal
 
-    def test_upserts_and_prunes_stale_names(self, mock_dal):
+    def test_upserts_and_prunes_stale_names(self, skills_dal):
         rows = [
             {"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"},
             {"account_id": "acct-1", "cluster_id": "c1", "skill_name": "beta"},
         ]
 
-        mock_dal.sync_skills(rows, "c1")
+        skills_dal.sync_skills(rows, "c1")
 
-        table = mock_dal.client.table
+        table = skills_dal.client.table
         table.assert_called_with("HolmesCustomSkills")
         upsert = table.return_value.upsert
         upsert.assert_called_once_with(
@@ -580,26 +621,26 @@ class TestSyncSkills:
         not_in = table.return_value.delete.return_value.eq.return_value.eq.return_value.not_.in_
         not_in.assert_called_once_with("skill_name", ["alpha", "beta"])
 
-    def test_empty_list_does_not_delete_everything(self, mock_dal):
+    def test_empty_list_does_not_delete_everything(self, skills_dal):
         """"No skills loaded" is indistinguishable from a load failure, so an empty list
         must not wipe the UI's view."""
-        mock_dal.sync_skills([], "c1")
+        skills_dal.sync_skills([], "c1")
 
-        mock_dal.client.table.assert_not_called()
+        skills_dal.client.table.assert_not_called()
 
-    def test_disabled_dal_is_a_noop(self, mock_dal):
-        mock_dal.enabled = False
+    def test_disabled_dal_is_a_noop(self, skills_dal):
+        skills_dal.enabled = False
 
-        mock_dal.sync_skills(
+        skills_dal.sync_skills(
             [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}], "c1"
         )
 
-        mock_dal.client.table.assert_not_called()
+        skills_dal.client.table.assert_not_called()
 
-    def test_write_failure_is_swallowed(self, mock_dal):
+    def test_write_failure_is_swallowed(self, skills_dal):
         """A display-only mirror must never break startup."""
-        mock_dal.client.table.side_effect = PGAPIError({"message": "boom"})
+        skills_dal.client.table.side_effect = PGAPIError({"message": "boom"})
 
-        mock_dal.sync_skills(
+        skills_dal.sync_skills(
             [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}], "c1"
         )

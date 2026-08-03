@@ -280,6 +280,14 @@ class SupabaseDal:
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
+        # The skill hierarchy config is read on every chat request (it feeds the per-request
+        # prompt catalog), but it is per-account and changes rarely, so cache it briefly
+        # rather than adding a blocking AccountSettings round trip to every turn. A short TTL
+        # keeps a flag flip taking effect without a restart.
+        self.skill_hierarchy_cache = TTLCache(
+            maxsize=1,
+            ttl=int(os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")),
+        )
         self.lock = threading.Lock()
 
     def patch_postgrest_execute(self):
@@ -622,8 +630,15 @@ class SupabaseDal:
 
     @staticmethod
     def _extract_skill_instruction(row: dict, skill_id: str) -> str:
-        """Normalize the runbook.instructions jsonb into a single string."""
+        """Normalize the runbook.instructions jsonb into a single string.
+
+        Returns "" when there is nothing to extract, NOT str(None). Callers fall back with
+        `instruction or pretty()`, and the string "None" is truthy -- it would suppress the
+        fallback and hand the LLM the literal text "None" as the skill body.
+        """
         raw_instruction = (row.get("runbook") or {}).get("instructions")
+        if raw_instruction is None:
+            return ""
         # TODO: remove in the future when we migrate the table data
         if isinstance(raw_instruction, list) and len(raw_instruction) == 1:
             return raw_instruction[0]
@@ -682,9 +697,18 @@ class SupabaseDal:
                 # different cluster cannot suppress an applicable one.
                 if clusters is not None and self.cluster not in clusters:
                     continue
-                instructions.append(
-                    RobustaSkillInstruction(id=id, symptom=symptom, title=title)
-                )
+                # Validate per row. id and title are required on the model, so a row with a
+                # null runbook_id or subject_name raises -- and if that reached the outer
+                # handler the user would silently lose EVERY personal skill, not just the
+                # malformed one. Skip the bad row instead.
+                try:
+                    instructions.append(
+                        RobustaSkillInstruction(id=id, symptom=symptom, title=title)
+                    )
+                except Exception:
+                    logging.warning(
+                        "Skipping malformed personal skill row: runbook_id=%s", id
+                    )
             return instructions
         except Exception:
             logging.exception("Failed to fetch personal skill catalog", exc_info=True)
@@ -738,6 +762,10 @@ class SupabaseDal:
         if not self.enabled:
             return default
 
+        cached = self.skill_hierarchy_cache.get("config")
+        if cached is not None:
+            return cached
+
         try:
             res = (
                 self.client.table(ACCOUNT_SETTINGS_TABLE)
@@ -746,6 +774,7 @@ class SupabaseDal:
                 .execute()
             )
             if not res.data:
+                self.skill_hierarchy_cache["config"] = default
                 return default
 
             settings = res.data[0].get("settings") or {}
@@ -758,12 +787,17 @@ class SupabaseDal:
                     f"Ignoring malformed skill_name_hierarchy_order: {order!r}"
                 )
                 order = DEFAULT_HIERARCHY_ORDER
-            return SkillHierarchyConfig(enabled=enabled, order=order)
+            config = SkillHierarchyConfig(enabled=enabled, order=order)
+            self.skill_hierarchy_cache["config"] = config
+            return config
         except Exception:
             logging.exception(
                 "Failed to fetch skill hierarchy config; falling back to disabled",
                 exc_info=True,
             )
+            # Cache the fallback too, so a persistent read failure does not retry Supabase
+            # on every single chat request.
+            self.skill_hierarchy_cache["config"] = default
             return default
 
     def get_resource_instructions(

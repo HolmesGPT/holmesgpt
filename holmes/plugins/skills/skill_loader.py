@@ -234,11 +234,17 @@ def _resolve_name_collisions(skills: List[Skill], order: List[str]) -> List[Skil
             continue
         rank_by_source.setdefault(source, index)
 
-    # Anything not named in the order (notably BUILTIN) sorts below everything named.
-    lowest = len(order) + 1
+    # Anything not named in the order sorts below everything named, and BUILTIN sorts below
+    # even that. Ranking every unlisted source equally would break the documented "builtin is
+    # always lowest" contract under a partial order: with order=["global"], a personal and a
+    # builtin skill would tie and insertion order would decide the winner.
+    unlisted = len(order) + 1
+    builtin = unlisted + 1
 
     def rank(skill: Skill) -> int:
-        return rank_by_source.get(skill.source, lowest)
+        if skill.source in rank_by_source:
+            return rank_by_source[skill.source]
+        return builtin if skill.source == SkillSource.BUILTIN else unlisted
 
     winners: dict[str, Skill] = {}
     for skill in skills:

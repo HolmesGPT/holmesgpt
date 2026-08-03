@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.plugins.skills.skill_loader import (
     DEFAULT_HIERARCHY_ORDER,
+    Skill,
+    _resolve_name_collisions,
     SkillHierarchyConfig,
     SkillSource,
     load_skill_catalog,
@@ -169,19 +171,49 @@ def test_flag_on_reversed_order_personal_wins(tmp_path):
     assert catalog.skills[0].source == SkillSource.PERSONAL
 
 
-def test_flag_on_custom_beats_builtin(tmp_path):
-    """Builtin is always lowest priority even though it is not in `order`."""
-    dal = _dal()
-    _write_skill(tmp_path / "custom-only", "custom-only")
+def _skill(name, source):
+    return Skill(name=name, description="d", content="c", source=source)
 
-    catalog = load_skill_catalog(
-        dal=dal,
-        custom_skill_paths=[tmp_path],
-        hierarchy=SkillHierarchyConfig(enabled=True),
-    )
 
-    names = {s.collision_key(): s.source for s in catalog.skills}
-    assert names["custom-only"] == SkillSource.USER
+def test_builtin_always_loses_a_collision():
+    """Builtin is lowest priority even though it is not named in `order`.
+
+    Exercised against _resolve_name_collisions directly rather than through
+    load_skill_catalog: a filesystem user skill already overwrites a same-named builtin in
+    the name-keyed dict before dedup runs, so that path can never present this collision.
+    """
+    skills = [
+        _skill("shared", SkillSource.BUILTIN),
+        _skill("shared", SkillSource.USER),
+    ]
+
+    kept = _resolve_name_collisions(skills, DEFAULT_HIERARCHY_ORDER)
+
+    assert [s.source for s in kept] == [SkillSource.USER]
+
+
+def test_builtin_stays_lowest_under_a_partial_order():
+    """With order=["global"], personal and builtin are both unlisted -- builtin must still
+    lose. Ranking every unlisted source equally would let insertion order decide."""
+    skills = [
+        _skill("shared", SkillSource.BUILTIN),
+        _skill("shared", SkillSource.PERSONAL),
+    ]
+
+    kept = _resolve_name_collisions(skills, ["global"])
+
+    assert [s.source for s in kept] == [SkillSource.PERSONAL]
+
+
+def test_listed_tier_beats_any_unlisted_tier():
+    skills = [
+        _skill("shared", SkillSource.USER),
+        _skill("shared", SkillSource.REMOTE),
+    ]
+
+    kept = _resolve_name_collisions(skills, ["global"])
+
+    assert [s.source for s in kept] == [SkillSource.REMOTE]
 
 
 def test_flag_on_collision_is_case_and_separator_insensitive(tmp_path):

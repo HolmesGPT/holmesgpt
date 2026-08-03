@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
@@ -44,7 +44,9 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
             logging.debug("No filesystem or builtin skills found to sync.")
             return
 
-        updated_at = datetime.now().isoformat()
+        # UTC-aware: a naive timestamp would be interpreted in the database session's
+        # timezone, so updated_at would not reflect the real sync time off-UTC.
+        updated_at = datetime.now(timezone.utc).isoformat()
         rows = [
             {
                 "account_id": dal.account_id,
