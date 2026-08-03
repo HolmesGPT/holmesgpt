@@ -122,8 +122,8 @@ class TestCacheControlInjectionPoints:
 class TestCacheControlOverride:
     """A per-model `cache_control` field in model_list.yaml must override the
     automatic per-route default: False suppresses the cache hint even for
-    models that normally support it, True forces it for models that normally
-    skip it (e.g. a Bedrock Nova model not covered by the default yet).
+    models that normally support it (e.g. Bedrock Claude), True forces it for
+    models that normally skip it (e.g. Gemini and Bedrock Nova).
     """
 
     @pytest.mark.parametrize(
