@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 import threading
 import time
 
@@ -47,14 +46,6 @@ from holmes.utils.file_utils import load_yaml_file
 if TYPE_CHECKING:
     from holmes.config import Config
 
-try:
-    # Not part of litellm's public API: used only to detect whether a model name
-    # resolves to a family-specific tokenizer. Any failure falls back to
-    # counting under the model name as configured.
-    from litellm.utils import _select_tokenizer as _litellm_select_tokenizer
-except ImportError:  # pragma: no cover - litellm internals moved
-    _litellm_select_tokenizer = None  # type: ignore[assignment]
-
 MODEL_LIST_FILE_LOCATION = os.environ.get(
     "MODEL_LIST_FILE_LOCATION", "/etc/holmes/config/model_list.yaml"
 )
@@ -62,17 +53,6 @@ MODEL_LIST_FILE_LOCATION = os.environ.get(
 
 OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
-
-# Output limit assumed for a model that declares none and that litellm's cost map
-# doesn't know. Deliberately not derived from the context window: a share of a
-# large input window is no evidence the model can produce that many output
-# tokens, and asking for more than it allows does not yield a longer answer -
-# the request gets capped at the provider's own default instead, which is far
-# smaller than this.
-FALLBACK_MAX_OUTPUT_TOKENS = 64000
-
-# The tokenizer litellm falls back to for any model it doesn't recognise.
-_GENERIC_TOKENIZER_TYPE = "openai_tokenizer"
 
 _warned_missing_model_lookups: set[tuple[str, str]] = set()
 
@@ -172,53 +152,6 @@ def _bundled_pricing_for_underlying_model(
     if not bundled:
         return None
     return _pricing_dict_from_bundled(bundled)
-
-
-def _tokenizer_name_candidates(model: str) -> List[str]:
-    """Names to try when looking for a model-family tokenizer, most specific first.
-
-    litellm matches its bundled tokenizers against bare model ids, so routing
-    prefixes (``anthropic/``, ``bedrock/``, ...), dotted qualifiers and trailing
-    version suffixes all have to come off before a match becomes possible.
-    """
-    candidates: List[str] = []
-
-    def add(name: str) -> None:
-        if name and name not in candidates:
-            candidates.append(name)
-
-    for form in (model, model.lower()):
-        rest = form
-        while True:
-            add(rest)
-            match = re.match(r"^[^/.]+[/.](.+)$", rest)
-            if not match:
-                break
-            rest = match.group(1)
-
-    for name in list(candidates):
-        stripped = re.sub(r"[:@]\d+$", "", name)
-        stripped = re.sub(r"[-_]v\d+$", "", stripped)
-        add(stripped)
-
-    return candidates
-
-
-def _has_family_tokenizer(model: str) -> bool:
-    """True if litellm resolves this exact name to a model-family tokenizer
-    rather than to its generic fallback."""
-    if _litellm_select_tokenizer is None:
-        return False
-    try:
-        selected = _litellm_select_tokenizer(model)
-    except Exception:
-        return False
-    tokenizer_type = (
-        selected.get("type")
-        if isinstance(selected, dict)
-        else getattr(selected, "type", None)
-    )
-    return bool(tokenizer_type) and tokenizer_type != _GENERIC_TOKENIZER_TYPE
 
 
 def get_context_window_compaction_threshold_pct() -> int:
@@ -425,11 +358,6 @@ class DefaultLLM(LLM):
     api_version: Optional[str]
     args: Dict
     is_robusta_model: bool
-
-    # Limits declared for the model by whoever configured it, and the name token
-    # counting resolved to. Class-level defaults so all three stay readable on
-    # instances built without update_custom_args().
-    max_context_size: Optional[int] = None
     max_output_tokens: Optional[int] = None
     _tokenizer_model_name: Optional[str] = None
 
@@ -459,12 +387,7 @@ class DefaultLLM(LLM):
 
     def update_custom_args(self):
         custom_args = self.args.get("custom_args") or {}
-        # `max_input_tokens` is litellm's name for the context window - the key
-        # get_context_window_size() reads from the cost map - so accept either.
-        self.max_context_size = custom_args.get("max_context_size") or custom_args.get(
-            "max_input_tokens"
-        )
-        # The model's real output ceiling, when whoever configured it declared one.
+        self.max_context_size = custom_args.get("max_context_size")
         self.max_output_tokens = custom_args.get("max_output_tokens")
         self.args.pop("custom_args", None)
 
@@ -621,28 +544,13 @@ class DefaultLLM(LLM):
         return is_anthropic_model(self.model)
 
     def _get_tokenizer_model_name(self) -> str:
-        """The model name to count tokens under.
-
-        Counting under a name litellm doesn't recognise silently falls back to its
-        generic tokenizer, which under-counts for families that ship their own - so
-        the context usage we report and budget against comes out below what the
-        provider actually charges. get_context_window_size() and
-        get_maximum_output_token() already normalise the name for their cost-map
-        lookups; this does the same for token counting.
-
-        Resolved once per instance: probing candidates loads a tokenizer.
-        """
+        """litellm keys its tokenizers on bare model ids, so counting under a routed
+        name falls back to a generic tokenizer that under-counts."""
         if self._tokenizer_model_name is None:
-            self._tokenizer_model_name = self.model
-            for candidate in _tokenizer_name_candidates(self.model):
-                if _has_family_tokenizer(candidate):
-                    self._tokenizer_model_name = candidate
-                    break
-            if self._tokenizer_model_name != self.model:
-                logging.debug(
-                    f"Counting tokens for model {self.model} under the name "
-                    f"{self._tokenizer_model_name}, which has its own tokenizer"
-                )
+            try:
+                self._tokenizer_model_name = litellm.get_llm_provider(self.model)[0]
+            except Exception:
+                self._tokenizer_model_name = self.model
         return self._tokenizer_model_name
 
     @sentry_sdk.trace
@@ -883,52 +791,16 @@ class DefaultLLM(LLM):
         else:
             raise Exception(f"Unexpected type returned by the LLM {type(result)}")
 
-    def _explicit_max_output_token_from_args(self) -> Optional[int]:
-        """The output limit set directly in the model args, if any.
-
-        completion() forwards these verbatim, so whenever one is present it is the
-        limit actually enforced - and therefore the one to report and reserve.
-        """
-        for key in ("max_tokens", "max_completion_tokens"):
-            value = self.args.get(key)
-            if value is None:
-                continue
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                logging.warning(
-                    f"Ignoring non-numeric {key}={value!r} configured for model {self.model}"
-                )
-        return None
-
-    def _litellm_max_output_token(self) -> Optional[int]:
-        """The model's output ceiling per litellm's cost map, if it knows the model."""
-        for name in self._get_model_name_variants_for_lookup():
-            try:
-                value = litellm.model_cost[name]["max_output_tokens"]
-            except Exception:
-                continue
-            if value:
-                return int(value)
-        return None
-
     def get_maximum_output_token(self) -> int:
-        """The output-token limit sent to the provider, reserved from the input
-        budget, and reported to clients.
-
-        Resolution order (kept in sync with docs/reference/context-management.md):
-          1. max_tokens / max_completion_tokens from the model args.
-          2. OVERRIDE_MAX_OUTPUT_TOKEN.
-          3. The limit declared for the model, capped by litellm's value for it.
-          4. litellm's value for the model.
-          5. FALLBACK_MAX_OUTPUT_TOKENS.
-        """
-        explicit_max_output_tokens = self._explicit_max_output_token_from_args()
-        if explicit_max_output_tokens is not None:
-            logging.debug(
-                f"Using max output token {explicit_max_output_tokens} from model args"
-            )
-            return explicit_max_output_tokens
+        # Reserve output budget = max(64k, 12% of the context window). The 64k
+        # floor keeps small and unknown models usable (the 200k fallback window
+        # gives 12% = 24k, so they stay at 64k), while large windows scale up:
+        # a 1M-context model reserves 120k. The crossover is ~533k. This value
+        # is still capped below to the model's real max_output_tokens when the
+        # model is known to litellm.
+        max_output_tokens = self.max_output_tokens or max(
+            64000, self.get_context_window_size() * 12 // 100
+        )
 
         if OVERRIDE_MAX_OUTPUT_TOKEN:
             logging.debug(
@@ -936,17 +808,17 @@ class DefaultLLM(LLM):
             )
             return OVERRIDE_MAX_OUTPUT_TOKEN
 
-        litellm_max_output_tokens = self._litellm_max_output_token()
-
-        if self.max_output_tokens is not None:
-            declared = int(self.max_output_tokens)
-            logging.debug(f"Using declared max output token {declared}")
-            if litellm_max_output_tokens:
-                return min(declared, litellm_max_output_tokens)
-            return declared
-
-        if litellm_max_output_tokens:
-            return litellm_max_output_tokens
+        # Try each name variant
+        for name in self._get_model_name_variants_for_lookup():
+            try:
+                litellm_max_output_tokens = litellm.model_cost[name][
+                    "max_output_tokens"
+                ]
+                if litellm_max_output_tokens < max_output_tokens:
+                    max_output_tokens = litellm_max_output_tokens
+                return max_output_tokens
+            except Exception:
+                continue
 
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_output_tokens")
@@ -954,11 +826,10 @@ class DefaultLLM(LLM):
             _warned_missing_model_lookups.add(warn_key)
             logging.warning(
                 f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-                f"assuming {FALLBACK_MAX_OUTPUT_TOKENS} tokens for max_output_tokens. "
-                f"To set the model's real output limit, declare max_output_tokens for it "
-                f"or set the OVERRIDE_MAX_OUTPUT_TOKEN environment variable."
+                f"using {max_output_tokens} tokens for max_output_tokens. "
+                f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
             )
-        return FALLBACK_MAX_OUTPUT_TOKENS
+        return max_output_tokens
 
 
 class LLMModelRegistry:

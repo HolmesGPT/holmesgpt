@@ -64,25 +64,23 @@ class TestCompletionMaxTokensHandling:
       4. args={max_completion_tokens: 8000}       -> forward as-is, do NOT inject max_tokens
       5. args={max_completion_tokens: None}       -> strip null sentinel, inject computed
       6. OVERRIDE_MAX_OUTPUT_TOKEN set            -> injected value honors the override
-      7. known model in litellm cost map          -> injected value is the model's max
-      8. unknown model                            -> injected value is the fallback,
-                                                     never extrapolated from the window
+      7. known model in litellm cost map          -> injected value capped at model max
+      8. custom_args declares max_output_tokens    -> that value, not the computed one
     """
 
-    def test_unknown_model_with_large_context_is_not_extrapolated(
+    def test_unknown_model_with_custom_context_injects_computed_limit(
         self, mock_completion
     ):
-        """A large context window is not evidence of a large output ceiling. An
-        unknown model gets the fallback limit whatever its window size, because
-        asking for more than the model allows does not produce a longer answer —
-        the request is capped at the provider's own default instead."""
+        """Row 1: a proxy-aliased model unknown to litellm with
+        max_context_size: 1000000 must get max(64000, 12% of 1000000) = 120000,
+        not litellm's 4096 Anthropic fallback."""
         llm = _make_llm({}, model="proxy/some-claude-alias", max_context_size=1_000_000)
         llm.completion(messages=[{"role": "user", "content": "hi"}])
         kwargs = mock_completion.call_args.kwargs
-        assert kwargs["max_tokens"] == 64000
+        assert kwargs["max_tokens"] == 120000
 
-    def test_small_context_unknown_model_gets_the_same_fallback(self, mock_completion):
-        """The fallback does not scale with the window in either direction."""
+    def test_small_context_unknown_model_holds_64k_floor(self, mock_completion):
+        """A 200k-context model (12% = 24k) stays at the 64k floor, not below it."""
         llm = _make_llm({}, model="proxy/some-claude-alias", max_context_size=200_000)
         llm.completion(messages=[{"role": "user", "content": "hi"}])
         kwargs = mock_completion.call_args.kwargs
@@ -91,9 +89,9 @@ class TestCompletionMaxTokensHandling:
     def test_unknown_model_no_args_no_context_uses_fallback_not_4096(
         self, mock_completion
     ):
-        """A model litellm doesn't know, with no max_tokens and no context
-        override, must send the fallback limit — NOT litellm's silent 4096
-        Anthropic default."""
+        """A model litellm doesn't know, with no max_tokens and
+        no context override, must send the fallback-derived 64000 (max(64k, 12% of the
+        200k fallback window)) — NOT litellm's silent 4096 Anthropic default."""
         llm = _make_llm({}, model="proxy/unknown-claude", max_context_size=None)
         llm.completion(messages=[{"role": "user", "content": "hi"}])
         kwargs = mock_completion.call_args.kwargs
@@ -157,22 +155,11 @@ class TestCompletionMaxTokensHandling:
         assert kwargs["max_tokens"] == llm.get_maximum_output_token()
         assert kwargs["max_tokens"] <= 16384
 
-
-class TestDeclaredMaxOutputTokens:
-    """A model's output ceiling can be declared alongside its context window
-    (`custom_args.max_output_tokens`). Without it, an unknown model falls back to
-    a fixed assumption, and the value Holmes reports must be the value it sends —
-    otherwise clients are shown a limit nobody enforces.
-
-    Resolution order asserted here:
-      1. max_tokens / max_completion_tokens in the model args
-      2. OVERRIDE_MAX_OUTPUT_TOKEN
-      3. declared max_output_tokens (capped by litellm's value when known)
-      4. litellm's value for the model
-      5. the fallback
-    """
-
-    def test_declared_limit_is_reported_and_sent(self, mock_completion):
+    def test_declared_max_output_tokens_replaces_the_computed_value(
+        self, mock_completion
+    ):
+        """Row 8: a limit declared for the model is the one sent and reported, so the
+        budget Holmes reserves matches the cap that is actually in force."""
         llm = _make_llm(
             {},
             model="proxy/some-claude-alias",
@@ -183,50 +170,18 @@ class TestDeclaredMaxOutputTokens:
         llm.completion(messages=[{"role": "user", "content": "hi"}])
         assert mock_completion.call_args.kwargs["max_tokens"] == 32_000
 
-    def test_reported_limit_matches_args_limit(self, mock_completion):
-        """An args limit is what completion() enforces, so it must also be what
-        get_maximum_output_token() reports — that value is reserved from the input
-        budget and reported to clients."""
-        llm = _make_llm(
-            {"max_tokens": 8000},
-            model="proxy/some-claude-alias",
-            max_context_size=1_000_000,
-            max_output_tokens=32_000,
-        )
-        assert llm.get_maximum_output_token() == 8000
-        llm.completion(messages=[{"role": "user", "content": "hi"}])
-        assert mock_completion.call_args.kwargs["max_tokens"] == 8000
-
-    def test_reported_limit_matches_args_completion_tokens_limit(self):
-        """Same for max_completion_tokens, which completion() forwards as-is."""
-        llm = _make_llm({"max_completion_tokens": 5000}, max_context_size=1_000_000)
-        assert llm.get_maximum_output_token() == 5000
-
-    def test_override_env_var_beats_declared_limit(self):
-        with patch("holmes.core.llm.OVERRIDE_MAX_OUTPUT_TOKEN", 12345):
-            llm = _make_llm({}, max_context_size=1_000_000, max_output_tokens=32_000)
-            assert llm.get_maximum_output_token() == 12345
-
-    def test_declared_limit_capped_at_litellm_model_max(self):
-        """A declaration above what the model can actually produce is clamped down
-        for models litellm knows (gpt-4o caps at 16384)."""
+    def test_declared_max_output_tokens_still_capped_at_model_max(self):
+        """A declaration above what the model can produce is clamped for models
+        litellm knows (gpt-4o caps at 16384)."""
         llm = _make_llm({}, model="gpt-4o", max_output_tokens=999_999)
         assert llm.get_maximum_output_token() <= 16384
 
-    def test_instance_without_declared_limit_falls_back(self):
-        """max_output_tokens is a class-level default, so instances that never ran
-        update_custom_args() keep working instead of raising."""
-        llm = DefaultLLM.__new__(DefaultLLM)
-        llm.model = "proxy/some-claude-alias"
-        llm.args = {}
-        assert llm.get_maximum_output_token() == 64000
+    def test_override_env_var_beats_declared_max_output_tokens(self):
+        with patch("holmes.core.llm.OVERRIDE_MAX_OUTPUT_TOKEN", 12345):
+            llm = _make_llm({}, max_output_tokens=32_000)
+            assert llm.get_maximum_output_token() == 12345
 
-
-class TestUpdateCustomArgs:
-    """custom_args carries the limits declared for the model and must not leak
-    into the completion call."""
-
-    def test_extracts_both_limits_and_pops_custom_args(self):
+    def test_update_custom_args_reads_both_declared_limits(self):
         llm = _make_llm(
             {"custom_args": {"max_context_size": 400_000, "max_output_tokens": 32_000}}
         )
@@ -234,16 +189,3 @@ class TestUpdateCustomArgs:
         assert llm.max_context_size == 400_000
         assert llm.max_output_tokens == 32_000
         assert "custom_args" not in llm.args
-
-    def test_max_input_tokens_is_accepted_as_the_context_window(self):
-        """max_input_tokens is litellm's name for the context window."""
-        llm = _make_llm({"custom_args": {"max_input_tokens": 400_000}})
-        llm.update_custom_args()
-        assert llm.get_context_window_size() == 400_000
-        assert llm.get_maximum_output_token() == 64000
-
-    def test_missing_custom_args_leaves_limits_unset(self):
-        llm = _make_llm({})
-        llm.update_custom_args()
-        assert llm.max_context_size is None
-        assert llm.max_output_tokens is None

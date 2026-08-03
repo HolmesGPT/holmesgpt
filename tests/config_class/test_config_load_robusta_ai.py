@@ -167,9 +167,8 @@ def test_robusta_ai_config_get_llm_context_override(
 def test_robusta_ai_config_get_llm_output_limit_override(
     mock_parse, mock_cluster, *, monkeypatch
 ):
-    """A declared max_output_tokens must reach get_maximum_output_token(): that is
-    the limit sent as max_tokens, reserved from the input budget, and reported to
-    clients. Without it an unknown model would only get the fallback."""
+    """A declared max_output_tokens must reach get_maximum_output_token(), so the
+    limit Holmes reports and reserves is the one configured for the model."""
     config = Config.load_from_env()
     llm = config._get_llm("Robusta/declared-limits")
     assert llm.get_context_window_size() == 1000000
