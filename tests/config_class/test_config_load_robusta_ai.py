@@ -138,6 +138,11 @@ ROBUSTA_HOLMES_ARGS_MODELS = RobustaModelsResponse(
             model="claude-sonnet-4-20250514",
             is_default=False,
         ),
+        "Robusta/declared-limits": RobustaModel(
+            holmes_args={"max_context_size": 1000000, "max_output_tokens": 32000},
+            model="proxy/alias-unknown-to-litellm",
+            is_default=False,
+        ),
     }
 )
 
@@ -153,4 +158,20 @@ def test_robusta_ai_config_get_llm_context_override(
     config = Config.load_from_env()
     llm = config._get_llm("Robusta/sonnet-1m")
     assert llm.get_context_window_size() == 1000000
+    assert llm.args.get("custom_args") is None
+
+
+@patch("holmes.core.llm.ROBUSTA_AI", True)
+@patch("holmes.core.llm.fetch_robusta_models", return_value=ROBUSTA_HOLMES_ARGS_MODELS)
+@patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
+def test_robusta_ai_config_get_llm_output_limit_override(
+    mock_parse, mock_cluster, *, monkeypatch
+):
+    """A declared max_output_tokens must reach get_maximum_output_token(): that is
+    the limit sent as max_tokens, reserved from the input budget, and reported to
+    clients. Without it an unknown model would only get the fallback."""
+    config = Config.load_from_env()
+    llm = config._get_llm("Robusta/declared-limits")
+    assert llm.get_context_window_size() == 1000000
+    assert llm.get_maximum_output_token() == 32000
     assert llm.args.get("custom_args") is None

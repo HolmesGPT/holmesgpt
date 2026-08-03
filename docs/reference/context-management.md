@@ -76,6 +76,10 @@ Every LLM request includes an explicit output-token limit. It is the same value 
 
 The value is resolved in this order:
 
-1. A non-null `max_tokens` or `max_completion_tokens` in the model's args (model list / `custom_args`) takes precedence (a `null` value is stripped, so it does not block the computed default below).
+1. A non-null `max_tokens` or `max_completion_tokens` in the model's args (model list) takes precedence (a `null` value is stripped, so it does not block the values below).
 2. `OVERRIDE_MAX_OUTPUT_TOKEN` environment variable.
-3. Computed: `max(64000, 12% of the context window)` — so a 200k-context (or unknown) model reserves 64k and a 1M-context model reserves 120k — further capped by the model's `max_output_tokens` from litellm's cost map when the model is known.
+3. `max_output_tokens` declared for the model under `custom_args`, capped by the model's `max_output_tokens` from litellm's cost map when the model is known there.
+4. The model's `max_output_tokens` from litellm's cost map.
+5. A fixed fallback of 64k for a model that declares no limit and that litellm's cost map doesn't know.
+
+The fallback is not derived from the context window. A large input window is no evidence that the model can produce a proportionally large answer, and asking for more output than the model allows does not produce a longer answer — the request is capped at the provider's own default instead, which is far smaller. If the fallback is wrong for your model, declare `max_output_tokens` for it or set `OVERRIDE_MAX_OUTPUT_TOKEN`.
