@@ -459,14 +459,55 @@ regression on trivial asks.
 
 # Open Questions
 
-1. **Execution bridge**: run tools in the parent process with the subprocess
-   calling back over IPC (keeps validation & credentials out of the subprocess —
-   preferred), vs. running tools in the subprocess directly (simpler, but the
-   subprocess then holds credentials). Leaning IPC.
-2. **Which tools are "statically pre-approved/read-only"** enough to expose in
-   the client module — reuse the remote-tool-execution `expose_remotely` set as
-   the v1 allowlist, or define a separate code-mode allowlist?
-3. **Routing**: prompt-only (model chooses) for v1, or a cheap pre-classifier?
-   Prompt-only is simplest; measure regression on trivial asks first.
-4. **Sub-call cost attribution** in `HolmesUsageEvents` — do sub-calls count
-   toward `tool_call_count`? (Yes, for honest before/after comparison.)
+## Resolved during implementation
+
+1. **Execution bridge** — *Resolved: IPC.* Tools run in the **parent**; the
+   subprocess calls back over a newline-delimited-JSON AF_UNIX socket. Keeps
+   validation and credentials out of the subprocess. (See `bridge.py`,
+   `runner.py`.)
+2. **Which tools are exposed** — *Resolved for v1.* Eligibility = exclude
+   `is_core` toolsets, `bash`/`kubectl_run`, and any `approval_required_tools`
+   (`client_generator._is_eligible`). Enforced parent-side in `dispatch`, not
+   just via the generated client. **Still worth confirming with the team**
+   whether this should be pinned to the exact remote-tool-execution
+   `expose_remotely` set — the two are defined independently and could drift.
+
+## Still open
+
+3. **Routing** — v1 is prompt-only (the model chooses when to use code mode). In
+   the first live A/B the model often kept using efficient server-side tools
+   (`kubernetes_jq_query`, log `filter`) and did not reach for code mode, so a
+   cheap pre-classifier — or stronger prompting — may be needed to actually
+   trigger it where it helps. Measure regression on trivial asks first.
+4. **Sub-call cost attribution** in `HolmesUsageEvents` — should sub-calls count
+   toward `tool_call_count` (proposed: yes, for honest before/after)? Not yet
+   wired.
+5. **Sandbox before default-on** — v1 has no language/OS sandbox, so the
+   documented residual risk (arbitrary outbound network + on-disk secret reads,
+   amplified under prompt injection — see Security model) stands. Decision:
+   gate default-on behind real isolation (RestrictedPython / gVisor / container
+   / egress-deny), or ship config-enabled only for trusted operators?
+6. **Demonstrating the token win in a *live* eval** — Holmes filters
+   server-side almost everywhere, so a live ask_holmes A/B can't cleanly show a
+   token drop (the two committed A/B evals only assert correctness parity). The
+   win is proven deterministically in
+   `tests/plugins/toolsets/code_execution/test_code_mode_token_reduction.py`
+   (result filtering 250k→136 tokens; call consolidation 8→1 result). Open
+   whether we also want a live eval backed by a data source with **no**
+   server-side filter, or accept the unit-level proof + a prod A/B.
+7. **When to flip default-on** — needs a real-traffic A/B; the ~15–25%
+   total-spend estimate is unvalidated in production.
+8. **Live sub-call streaming to the UI** — sub-calls are recorded (name / status
+   / timing) and summarized in the result today, but not streamed as nested
+   tool cards. That needs a `parent_tool_call_id` field + a loop-level streaming
+   hook + frontend work (separate PR).
+9. **Serial sub-calls** — the bridge is single-connection / single-threaded, so
+   sub-calls inside one script run serially. Fine for v1; open whether parallel
+   fan-out inside a script justifies a multi-connection bridge.
+10. **Prompt-overhead crossover** — enabling the toolset injects its API
+    reference into the system prompt; on small tasks that overhead isn't repaid
+    (observed in the CI eval, where the codemode variant cost slightly *more*).
+    Open where the crossover is and whether the reference should be trimmed or
+    lazily disclosed.
+11. **Documentation page** — `docs/data-sources/builtin-toolsets/code-execution.md`
+    is still a follow-up.
