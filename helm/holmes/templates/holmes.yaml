@@ -9,6 +9,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: holmes
+    app.kubernetes.io/instance: {{ .Release.Name }}
     {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- with (include "holmes.commonAnnotations" .) }}
   annotations:
@@ -26,10 +27,12 @@ spec:
   selector:
     matchLabels:
       app: holmes
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app: holmes
+        app.kubernetes.io/instance: {{ .Release.Name }}
         {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         {{- with (include "holmes.commonAnnotations" .) }}
@@ -228,7 +231,7 @@ spec:
           {{- end }}
           - name: playbooks-config-secret
             mountPath: /etc/robusta/config
-          - name: custom-toolsets-configmap
+          - name: toolsets-configmap
             mountPath: /etc/holmes/config
           {{- if .Values.customSkills }}
           - name: holmes-skills
@@ -272,9 +275,9 @@ spec:
           secret:
             secretName: robusta-playbooks-config-secret
             optional: true
-        - name: custom-toolsets-configmap
+        - name: toolsets-configmap
           configMap:
-            name: custom-toolsets-configmap
+            name: {{ .Release.Name }}-toolsets
             optional: true
         {{- if .Values.customSkills }}
         - name: holmes-skills
@@ -297,6 +300,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: holmes
+    app.kubernetes.io/instance: {{ .Release.Name }}
     {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- with (include "holmes.commonAnnotations" .) }}
   annotations:
@@ -305,6 +309,7 @@ metadata:
 spec:
   selector:
     app: holmes
+    app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: http
       protocol: TCP

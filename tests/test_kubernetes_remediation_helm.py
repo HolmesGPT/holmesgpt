@@ -89,6 +89,24 @@ def test_toolset_config_emits_approval_not_restricted():
     assert "approvalRequiredTools" in text
 
 
+def test_holmes_chart_scopes_toolset_configmap_to_release():
+    toolset_config = (HELM_DIR / "templates" / "toolset-config.yaml").read_text()
+    holmes = (HELM_DIR / "templates" / "holmes.yaml").read_text()
+
+    assert "name: {{ .Release.Name }}-toolsets" in toolset_config
+    assert "name: {{ .Release.Name }}-toolsets" in holmes
+    assert "custom-toolsets-configmap" not in toolset_config
+    assert "custom-toolsets-configmap" not in holmes
+
+
+def test_holmes_service_selector_is_release_scoped():
+    text = (HELM_DIR / "templates" / "holmes.yaml").read_text()
+
+    assert "matchLabels:\n      app: holmes\n      app.kubernetes.io/instance: {{ .Release.Name }}" in text
+    assert "selector:\n    app: holmes\n    app.kubernetes.io/instance: {{ .Release.Name }}" in text
+    assert "labels:\n        app: holmes\n        app.kubernetes.io/instance: {{ .Release.Name }}" in text
+
+
 def test_llm_instructions_mention_the_tool_split():
     text = (TEMPLATE_DIR / "_helpers.tpl").read_text()
     assert "run_kubectl_command" in text
