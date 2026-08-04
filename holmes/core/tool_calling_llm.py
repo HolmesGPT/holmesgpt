@@ -1128,6 +1128,7 @@ class ToolCallingLLM:
 
             tools = None if i == max_steps else tools
             tool_choice = "auto" if tools else None
+            effective_response_format = response_format if not tools else None
 
             compaction_start_event = check_compaction_needed(self.llm, messages, tools)
             if compaction_start_event:
@@ -1185,7 +1186,7 @@ class ToolCallingLLM:
                     messages=parse_messages_tags(messages),  # type: ignore
                     tools=tools,
                     tool_choice=tool_choice,
-                    response_format=response_format,
+                    response_format=effective_response_format,
                     temperature=TEMPERATURE,
                     stream=False,
                     drop_params=True,
@@ -1273,6 +1274,11 @@ class ToolCallingLLM:
                 raise LLMInterruptedError()
 
             response_message = full_response.choices[0].message  # type: ignore
+            tools_to_call = getattr(response_message, "tool_calls", None)
+
+            if response_format and tools and not tools_to_call:
+                tools = None
+                continue
 
             messages.append(
                 response_message.model_dump(
@@ -1284,7 +1290,6 @@ class ToolCallingLLM:
                 messages, tools, full_response, limit_result, metadata, stats
             )
 
-            tools_to_call = getattr(response_message, "tool_calls", None)
             if not tools_to_call:
                 # Capture the final iteration's finish_reason for usage tracking
                 # (HolmesUsageEvents.finish_reason). Earlier iterations always end
