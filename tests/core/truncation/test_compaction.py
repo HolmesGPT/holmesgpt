@@ -485,6 +485,29 @@ def test_compaction_falls_back_when_primary_request_fails():
     assert "400 toolConfig must be defined" in result.fallback_reason
 
 
+def test_compaction_returns_original_history_when_fallback_also_fails():
+    """If the flattened retry also fails, compaction degrades gracefully:
+    the original history is returned unchanged instead of raising."""
+    history = _history_with_tool_calls()
+    llm = RecordingFakeLLM(
+        [
+            RuntimeError("400 toolConfig must be defined"),
+            RuntimeError("502 bad gateway"),
+        ]
+    )
+    result = compact_conversation_history(
+        original_conversation_history=history,
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    assert len(llm.calls) == 2
+    assert result.messages_after_compaction == history
+    assert result.fallback_used is True
+    assert result.fallback_reason is not None
+    assert "400 toolConfig must be defined" in result.fallback_reason
+    assert "502 bad gateway" in result.fallback_reason
+
+
 def test_compaction_primary_success_reports_no_fallback():
     """A successful primary summarization reports fallback_used=False."""
     llm = RecordingFakeLLM([_make_response(content="THE SUMMARY")])

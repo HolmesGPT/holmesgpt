@@ -290,11 +290,18 @@ def compact_conversation_history(
         )
         flattened_history, _ = strip_system_prompt(conversation_history)
         flattened_history = _flatten_tool_messages_for_compaction(flattened_history)
-        response = llm.completion(
-            messages=flattened_history + [instructions_message], drop_params=True
-        )  # type: ignore
-        compaction_usage += RequestStats.from_response(response)
-        response_message = _get_response_message(response)
+        try:
+            response = llm.completion(
+                messages=flattened_history + [instructions_message], drop_params=True
+            )  # type: ignore
+            compaction_usage += RequestStats.from_response(response)
+            response_message = _get_response_message(response)
+        except Exception as e:
+            # Both attempts failed — degrade gracefully via the empty-summary
+            # path below (original history returned unchanged) instead of
+            # aborting the whole turn.
+            fallback_reason = f"{fallback_reason}; fallback request also failed: {e}"
+            response_message = None
 
     summary_text = (
         _extract_text_content(response_message).strip() if response_message else ""
