@@ -22,7 +22,7 @@ from postgrest._sync.request_builder import SyncQueryRequestBuilder
 from postgrest.base_request_builder import QueryArgs
 from postgrest.exceptions import APIError as PGAPIError
 from postgrest.types import ReturnMethod
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from supabase import create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
@@ -624,7 +624,10 @@ class SupabaseDal:
                             id=id, symptom=symptom or "", title=title, alerts=alerts
                         )
                     )
-                except Exception:
+                # Only ValidationError: that is what a malformed ROW raises, and it is the
+                # only thing worth skipping past. A broader catch here would also swallow
+                # genuine bugs in this loop and report them as "malformed data".
+                except ValidationError:
                     logging.warning(
                         "Skipping malformed skill row: runbook_id=%s", id
                     )
@@ -761,7 +764,9 @@ class SupabaseDal:
                             id=id, symptom=symptom or "", title=title, alerts=alerts
                         )
                     )
-                except Exception:
+                # See get_skill_catalog: only ValidationError, so a real bug in this loop
+                # surfaces instead of being logged as malformed data.
+                except ValidationError:
                     logging.warning(
                         "Skipping malformed personal skill row: runbook_id=%s", id
                     )

@@ -347,7 +347,12 @@ class Config(RobustaBaseConfig):
         never be baked into it (see SkillsFetcher, which resolves personal skills at
         invoke time from the request's user_id instead).
         """
-        hierarchy = self.dal.get_skill_hierarchy_config() if self.dal else None
+        # No `if self.dal` guard: it is a property that lazily constructs a SupabaseDal, so
+        # it is never falsy and the guard read as if the DAL were optional here. The
+        # not-configured case is handled inside get_skill_hierarchy_config, which returns the
+        # disabled default when the DAL is not enabled, and it is TTL-cached so this does not
+        # add a Supabase round trip to every chat turn.
+        hierarchy = self.dal.get_skill_hierarchy_config()
         return load_skill_catalog(
             dal=self.dal,
             custom_skill_paths=self.custom_skill_paths,
