@@ -8,9 +8,10 @@ instead of scripts may save our token cost for tool calls." Project: *Minimize
 Token Cost for us (and users)*.
 
 Related reading:
+
 - `2026-06-10_remote-tool-execution.md` (relay) — the `expose_remotely` /
-  `is_core` markers, the **pre-approved-only, no-approval-round-trip** trust
-  model, and the 1MB inline result cap. Code mode reuses all three.
+  `is_core` markers and the **pre-approved-only, no-approval-round-trip** trust
+  model. Code mode reuses the same posture.
 - `2025-10-23_holmes-event-driven-architecture.md` (relay) — the SSE event
   contract (`start_tool_calling` / `tool_calling_result`) that carries tool
   calls to the UI, and relay's role as a transparent pipe.
@@ -19,495 +20,531 @@ Related reading:
 
 ## Overview
 
-Holmes investigates by running an **agentic tool-calling loop**: the LLM emits
-one or more tool calls, Holmes executes them, appends each result to the
-conversation, and re-sends the whole growing history on the next step. Complex
-investigations run 10–55 tool calls across many steps, and because every step
-re-sends all prior tool results, input tokens grow super-linearly with
-iteration count.
+Holmes investigates by running an **agentic tool-calling loop**: the LLM emits a
+tool call, Holmes runs it, appends the result to the conversation, and re-sends
+the whole growing history on the next step. Complex investigations run tens of
+tool calls across many steps, and because every step re-sends all prior tool
+results, input tokens grow super-linearly with the number of steps.
 
 **Code mode** ([Anthropic](https://www.anthropic.com/engineering/code-execution-with-mcp),
 [Cloudflare](https://blog.cloudflare.com/code-mode/)) replaces "many small tool
 calls, one per LLM step" with "the LLM writes **one Python script** that composes
-many tool calls, runs it in a sandbox, and only the **filtered final result**
-returns to the model's context." Tool outputs the model never needs are
-filtered *inside the script* and never enter the context window at all.
+many tool calls, runs it, and returns only the **filtered result** to the
+model." Tool output the model never needs is filtered *inside the script* and
+never enters the context window.
 
-Solution: a new **`code_execution` toolset** in Holmes whose single tool takes a
-Python snippet, runs it in a subprocess pre-loaded with a **generated `holmes`
-client module** that exposes the current request's tools as callable Python
-functions. Each function dispatches back into the existing `ToolExecutor`, so
-tools behave identically whether called directly or from a script. Sub-calls
-still emit their own SSE events, so the UI shows the same per-tool cards it does
-today; the wrapping script does not become an opaque black box.
+This design adds a `code_execution` toolset whose single tool, `run_python_code`,
+runs an LLM-written Python script in a subprocess. The script is given a
+generated `holmes` client — one Python function per tool the request already has
+— and each call is relayed back to the parent Holmes process, which runs the
+real tool through the existing `ToolExecutor`. So tools behave identically
+whether called directly or from a script, credentials stay in the parent, and
+the agentic loop is unchanged: `run_python_code` is just another tool call. The
+feature is off by default.
 
-Stakeholders: AI/Holmes team (the runtime + prompting), backend/relay (SSE
-passthrough — no code changes expected), frontend (one new event field to
-surface script + sub-calls).
+Stakeholders: AI/Holmes team (runtime + prompting), backend/relay (SSE
+passthrough — no relay change), frontend (nested sub-call rendering, a later
+increment).
 
 ## Glossary
 
 - **Code mode** — the execution path where the LLM writes Python composing tool
   calls, instead of emitting one function call per LLM step.
-- **`code_execution` toolset / `run_python_code` tool** — the new toolset and
-  its single tool (this design). Modeled on `BashExecutorToolset`
-  (`holmes/plugins/toolsets/bash/bash_toolset.py:399`).
-- **client module (`holmes`)** — an auto-generated Python module, injected into
-  the script's namespace, whose functions mirror the request's tools
-  (`holmes.kubernetes.get_pods(...)`, `holmes.prometheus.query(...)`). Each is a
-  thin wrapper that calls `ToolExecutor.get_tool_by_name(name).invoke(...)`.
-- **sub-call** — a tool invoked from inside a running script (as opposed to a
-  top-level tool call the LLM emits directly).
+- **`code_execution` toolset / `run_python_code` tool** — the new toolset and its
+  single tool (this design), modeled on the existing `bash` toolset.
+- **client (`holmes`)** — an auto-generated object injected into the script's
+  namespace, exposing one function per eligible tool (`holmes.kubectl_get(...)`,
+  `holmes.list_events(...)`). Each function relays the call to the parent.
+- **bridge** — the parent-side server that receives a script's tool-call requests
+  over a unix-domain socket, checks them against the allow-list, dispatches into
+  `ToolExecutor`, and streams the result back.
+- **sub-call** — a tool invoked from inside a running script (versus a top-level
+  tool call the LLM emits directly).
 - **the two token sinks** — (1) *tool-definition overhead*: all tool schemas
   loaded into context up-front; (2) *intermediate-result bloat*: every tool
   result re-sent through context on each subsequent step. Sink (2) is the one
   that matters for Holmes (see Background).
-- **spill-to-disk** — the existing size guard
-  (`holmes/core/tools_utils/tool_context_window_limiter.py:30`) that saves an
-  oversized tool result to a file and hands the model a `cat … | jq` pointer
-  instead of the payload.
+- **spill-to-disk** — the existing size guard that saves an oversized tool
+  result to a file and hands the model a `cat … | jq` pointer instead of the
+  payload.
+- **`is_core`** — a toolset marker (from remote-tool-execution) for internal
+  agent-loop machinery (`robusta_platform_mcp`, `core_investigation`/`TodoWrite`,
+  `skills`); such toolsets are never exposed to remote callers or to code mode.
 
 ## Background
 
-- **Where the money is (30-day prod, customer-facing).** ~$23k/mo total Holmes
-  spend; **82.6% overall prompt-cache hit** (89–94% on the expensive buckets).
-  Cost is ~99% *input* tokens (completion averages 4–11k against prompt averages
-  of 142k → 2.9M). Spend rises with iteration count in lockstep with
-  `avg_tool_calls` (4-6 iters → 10 calls, 7-10 → 19, 11-20 → 30, 21-50 → 55).
-  Requests with **≥6 iterations = $15.3k/mo (66.5% of spend)** — the exact
-  multi-tool-chaining regime code mode targets.
+- **Where the money is (30-day prod).** ~$23k/mo total Holmes spend; **82.6%
+  overall prompt-cache hit** (89–94% on the expensive buckets). Cost is ~99%
+  *input* tokens. Spend rises with step count in lockstep with tool-call count
+  (4–6 iters → ~10 calls, 7–10 → ~19, 11–20 → ~30, 21–50 → ~55). Requests with
+  **≥6 iterations are ~$15.3k/mo (66.5% of spend)** — the multi-tool-chaining
+  regime code mode targets.
 - **Sink (1) is already neutralized by prompt caching.** The static prefix
   (system prompt + all tool schemas) is identical every step and is the most
   cacheable content, so at 82.6% cache hit the "don't load all tool defs
-  up-front" half of the Anthropic/Cloudflare 98% headline buys us almost nothing
-  in dollars. **The win must come from sink (2): fewer results entering context,
-  and fewer iterations.** This re-prioritizes the design: result-filtering and
-  call-consolidation first; progressive tool-def disclosure is a Future Goal, not
-  v1.
-- **Holmes already has a proto-code-mode.** The `bash` toolset
-  (`bash_toolset.py:94`) runs shell (kubectl/jq/grep) with prefix allow/deny
-  validation, and `spill_oversized_tool_result` already keeps oversized payloads
-  out of context behind a file pointer. So v1 is capturing the *residual* between
-  "compose CLI tools in bash" and "compose **all** toolsets (Prometheus, Grafana,
-  Datadog, k8s, …) in one typed script" — not a greenfield 98%. **Estimated
-  saving: ~15–25% of total spend (~$3–6k/mo)**, pending the trace study; the
-  wide band is because the result-vs-definition token split is not measurable
-  from prod telemetry alone.
-- **Not everything is addressable.** The single largest uncached-cost bucket is
-  short `user_chat` (1–3 iters, cold cache) — code mode does nothing for it.
-  `health_check` synthetic traffic is a separate config problem. v1 scopes to
-  multi-iteration, tool-heavy real traffic.
+  up-front" half of the headline 98% figure buys almost nothing in dollars. The
+  win has to come from **sink (2): fewer results entering context, and fewer
+  steps.** So this design prioritizes result-filtering and call-consolidation;
+  progressive tool-def disclosure is out of scope.
+- **Holmes already has a proto-code-mode: the `bash` toolset.** It runs shell
+  (`kubectl`/`jq`/`grep`) with prefix allow/deny validation, and `spill-to-disk`
+  already keeps oversized payloads out of context. Code mode captures the
+  *residual* between "compose CLI tools in bash" and "compose **all** toolsets
+  (Prometheus, Grafana, Datadog, k8s, …) in one typed Python script." Because
+  bash is the closest existing analog, this doc compares the two directly under
+  [Code mode vs. bash mode](#code-mode-vs-bash-mode).
+- **Not everything is addressable.** The largest uncached-cost bucket is short
+  `user_chat` (1–3 iters, cold cache) — code mode does nothing for it. v1 scopes
+  to multi-iteration, tool-heavy traffic.
 
 ## Goals
 
 User stories:
 
-1. Holmes investigates "which of the 200 pods in namespace X restarted in the
-   last hour, and why?" by writing one script that lists pods, filters to
-   restarted ones in Python, fetches logs only for those, and returns a 5-line
-   summary — instead of 20 LLM steps each re-sending the full pod list.
+1. Holmes answers "which of the 200 pods in namespace X restarted in the last
+   hour, and why?" by writing one script that lists pods, filters to the
+   restarted ones in Python, fetches logs only for those, and returns a short
+   summary — instead of many LLM steps each re-sending the full pod list.
 2. A script that pulls a 10,000-series Prometheus range and returns only the top
-   3 offenders keeps the other 9,997 series out of the model's context entirely.
+   3 offenders keeps the other 9,997 series out of the model's context.
 3. The user watching the Ask-Holmes UI still sees each sub-call as its own tool
-   card (name, status, expandable output) plus the script that drove them — code
-   mode is not an opaque box.
-4. A simple single-tool ask ("is the cluster healthy?") is **not** made slower or
-   costlier — the model keeps using direct tool calls for trivial work.
+   card, plus the script that drove them — code mode is not an opaque box.
+4. A trivial single-tool ask ("is the cluster healthy?") is **not** made slower
+   or costlier — the model keeps using direct tool calls for simple work.
 
 Technical requirements:
 
-- A new `code_execution` toolset with one tool `run_python_code`, off by default
-  behind a feature flag, modeled on `BashExecutorToolset`.
-- Tools callable from a script go through the **same** `ToolExecutor` path,
-  validation, transformers, and result-size guard as direct calls — no bypass.
-- **Read-only / pre-approved trust model**, identical to remote-tool-execution:
-  a running synchronous script cannot pause for interactive approval, so
-  approval-gated tools are **denied on the spot inside a script**; only
-  pre-approved / read-only tools are callable. `is_core` toolsets
-  (`robusta_platform_mcp`, `core_investigation`/`TodoWrite`, `skills`) are never
-  exposed in the client module.
-- Every sub-call emits its own `start_tool_calling` / `tool_calling_result` SSE
-  event (with a `parent_tool_call_id`) so relay forwards them unchanged and the
-  UI renders them — see Observability.
-- Script stdout over the per-tool cap goes through `spill_oversized_tool_result`
-  (same 15% / 25k-token guard), so a runaway script can't flood context.
-- `LLMResult` already exposes `num_llm_calls`, `total_tokens`,
-  `max_prompt_tokens_per_call`, etc. (`llm_usage.py:81`); code mode must move
-  these *down* for multi-step tasks and this is asserted in tests.
+- One new toolset `code_execution` with one tool `run_python_code`, off by
+  default behind a feature flag.
+- A script's tool calls go through the **same** `ToolExecutor`, validation,
+  transformers, and result-size guard as direct calls — no bypass.
+- **Read-only / pre-approved surface only.** A synchronous script cannot pause
+  for interactive approval, so approval-gated tools are denied inside a script;
+  only read-only / pre-approved tools are callable. `is_core` toolsets are never
+  exposed.
+- **Credentials never enter the untrusted subprocess.**
+- Script stdout over the per-tool cap flows through `spill-to-disk`, so a runaway
+  script can't flood context.
 - Works on any model/provider — it is an ordinary tool call, no special API.
 
 ## Out of Scope
 
-- **Interactive approval inside a script.** No approval round-trip (matches
-  remote-tool-execution). Approval-gated tools are denied at call time inside a
-  script; the model must fall back to a direct tool call to trigger the normal
-  approval flow.
-- **A real language-level sandbox** (RestrictedPython / gVisor / container
-  isolation) in v1. v1 reuses the bash trust model — subprocess + `ulimit`
-  memory cap + read-only tools. Hardening is a Future Goal and an explicit
-  security decision (see Assumptions).
-- **Progressive disclosure of tool definitions** (filesystem tree of stubs,
-  `search_tools`) — deprioritized because caching already neutralizes sink (1).
+- **Interactive approval inside a script.** No approval round-trip; approval-gated
+  tools are denied at call time, and the model falls back to a direct tool call
+  to trigger the normal approval flow.
+- **A language-level or OS sandbox** in v1 (RestrictedPython / gVisor / container
+  isolation). v1's isolation is subprocess + `ulimit` + the tool allow-list; real
+  sandboxing is a Future Goal and the gating decision for broad rollout (see
+  [Security model](#security-model)).
+- **Progressive disclosure of tool definitions** — deprioritized because caching
+  already neutralizes sink (1).
 - **Writing/mutating tools from a script** — read-only tools only.
-- **Persisted "skills"** (saving successful scripts as reusable functions across
-  sessions).
+- **Persisted "skills"** (saving successful scripts as reusable functions).
 
 ## Future Goals
 
-- Language-level sandboxing to allow a broader tool set and untrusted code.
-- Progressive tool-def disclosure if tool count ever grows enough to matter
-  despite caching.
-- Auto-routing: a cheap classifier that pre-selects code mode vs direct calls
+- Language-level / OS sandboxing, to allow a broader tool set and to make the
+  feature safe under untrusted input.
+- Auto-routing: a cheap classifier that pre-selects code mode vs. direct calls
   per request, instead of leaving it to the model + prompt.
-- Persisted skills (reusable scripts) and cross-call state files.
+- Live per-sub-call streaming to the UI (nested tool cards) — see Observability.
 - Extending code mode across clusters by composing the remote tools from
   `2026-06-10_remote-tool-execution.md` inside a script.
 
 ## Assumptions & Constraints
 
-- **Security posture.** Holmes runs in-cluster with live credentials and RBAC.
-  Executing LLM-generated Python is a materially larger attack surface than
-  prefix-validated bash. v1's mitigation is **not** interpreter sandboxing; it is
-  that (a) only read-only / pre-approved tools are reachable, (b) the same
-  allow/deny validation still runs on any `bash` sub-call, (c) a `ulimit` memory
-  cap and wall-clock timeout bound the subprocess, and (d) the feature is
-  off-by-default behind a flag. This is the identical stance the team already
-  accepted for remote tool execution, and it is called out here as a conscious
-  decision, not an oversight.
-- **Relay is a transparent SSE pipe.** `ClientsManager.send_stream_message`
-  yields Holmes's SSE bytes verbatim; relay identifies tool calls solely by
-  `tool_call_id` (`SSE/holmes_tools_helper.py:upsert_tool_call`). So sub-calls
-  are observable **iff Holmes emits them as normal SSE events** — no relay change
-  needed as long as we reuse the existing event types.
-- The frontend renders a **flat `HolmesTool[]`** via two independent consumers
-  (legacy `onChunk` in `holmes-chat-history.store.ts:1333` and the realtime
-  `EventProjector._processEvent` in `event-projector.ts:228`). A new event field
-  must be handled in **both**, or it is silently dropped in one path.
-- Per-tool result cap = `min(15% ctx, 25k tokens)`
-  (`TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_*`); compaction fires at 95% (rarely — 0.5%
-  of requests). Code mode does not change these; it feeds through them.
+- Holmes runs in-cluster with live credentials and RBAC. Executing
+  LLM-generated Python is a materially larger surface than prefix-validated bash;
+  the design constrains what a script can *reach*, not what Python it can run
+  (see [Security model](#security-model)).
+- **Relay is a transparent SSE pipe** — it forwards Holmes's SSE bytes verbatim
+  and keys tool calls by `tool_call_id`. So sub-calls become observable purely by
+  Holmes emitting them as normal SSE events; no relay change is needed.
+- The per-tool result cap is `min(15% of context, 25k tokens)`; compaction fires
+  at 95% (rare). Code mode does not change these; its output feeds through them.
 
 # Design
 
 ## Current Design
 
-- **The loop** — `holmes/core/tool_calling_llm.py`. `ToolCallingLLM.call_stream`
-  (`:1035`) runs `while i < max_steps` (`:1105`): assemble messages → check/apply
-  compaction (`:1115`) → `self.llm.completion(..., tools=tools)` (`:1167`) →
-  append assistant turn → if `tool_calls` present, execute them in a
-  `ThreadPoolExecutor(max_workers=16)` (`:1320`), append each
-  `tool_call_result.to_llm_message()` (`:1415`), loop; else return the answer.
-  Tool execution funnels through `_invoke_llm_tool_call` (`:870`) →
-  `_directly_invoke_tool_call` (`:747`) → `tool.invoke(params, context)`
-  (`:789`).
-- **Tools** — `holmes/core/tools.py`. `Tool` (`:284`) with `parameters:
-  Dict[str, ToolParameter]` and abstract `_invoke(...) -> StructuredToolResult`
-  (`:516`). `Toolset` (`:719`). `StructuredToolResult` (`:96`) with
-  `stringify_data(compact=True)` (`:111`). Approval via `requires_approval`
-  (`:423`) returning `APPROVAL_REQUIRED`. `expose_remotely` / `is_core` markers
-  exist from remote-tool-execution.
-- **Tool → LLM schema** — `holmes/core/openai_formatting.py`.
-  `format_tool_to_open_ai_standard` (`:153`), `type_to_open_ai_schema` (`:71`).
-- **Dispatch registry** — `holmes/core/tools_utils/tool_executor.py`.
-  `get_all_tools_openai_format` (`:178`), `get_tool_by_name` (`:100`),
-  `clone_with_extra_tools` (`:153`, per-request tool injection).
-- **Result size guard** — `tool_context_window_limiter.py:spill_oversized_tool_result`
-  (`:30`); the file-pointer fallback is gated on `_has_bash_for_file_access`
-  (`:246`).
-- **The bash executor** — `bash_toolset.py`: `RunBashCommand` (`:94`),
-  validation via `validate_command`, `requires_approval` → `APPROVAL_REQUIRED`
-  for unknown prefixes; `BashExecutorToolset` (`:399`). Low level:
-  `common/bash.py:execute_bash_command` (`:17`) = `subprocess(shell=True)` +
-  `get_ulimit_prefix()` memory cap. **No interpreter sandbox.**
-- **Prompting** — `holmes/plugins/prompts/generic_ask.jinja2` (main system
-  prompt), `_toolsets_instructions.jinja2` (injects each toolset's
-  `llm_instructions`). Built by `holmes/core/prompt.py:build_system_prompt`
-  (`:177`).
-- **Streaming contract** — Holmes emits SSE `start_tool_calling` (name + id) then
-  `tool_calling_result` (result + status). Relay's `SSEEventType`
-  (`relay/pkg/holmes/common/data_types.py:7`) and `upsert_tool_call`
-  (`SSE/holmes_tools_helper.py:102`) merge the pair into one `HolmesToolCall`
-  keyed by `tool_call_id`. Frontend consumes via `enums.ts`, projects into
-  `HolmesTool[]` (`holmes-types.d.ts:189`), renders per-tool in
-  `HolmesToolsCollapseBlock.vue`.
+Holmes's agentic loop assembles the conversation, calls the LLM with the full
+tool-schema set, executes any returned tool calls in a bounded thread pool,
+appends each result back into the conversation, and repeats until the model
+answers. Every tool result therefore lives in the context and is re-sent on
+every later step.
 
-Pros: the loop, dispatch, size-guard, validation, and streaming are all
-battle-tested. Cons: tools compose only one-per-step through the model, so
-intermediate results flow through context repeatedly.
+Two existing pieces matter for this design:
+
+- **The `bash` toolset** runs a shell command in a subprocess with a `ulimit`
+  memory cap and a wall-clock timeout, validating the command against a prefix
+  allow/deny list and returning `APPROVAL_REQUIRED` for anything not
+  pre-approved. It is Holmes's existing "compose tools in code" path, limited to
+  CLI tools.
+- **The result-size guard (`spill-to-disk`)** intercepts any oversized tool
+  result and replaces it with a file pointer so it can't flood the context.
+
+Both are reused unchanged by code mode. The gap they leave: tools compose only
+one-per-step through the model (or, for bash, only CLI tools), so intermediate
+results flow through the context repeatedly.
 
 ## Proposed Design
 
-### 1. The `run_python_code` tool
+### The `run_python_code` tool
 
-New toolset `holmes/plugins/toolsets/code_execution/`, registered in
-`holmes/plugins/toolsets/__init__.py:load_python_toolsets`. One `Tool`:
+A new toolset `code_execution` with a single tool:
 
-- **Parameters**: `code: str` (the Python snippet), optional `timeout: int`
-  (default 60s).
-- **`_invoke(params, context)`**:
-  1. Materialize the **client module** (§2) for `context`'s `ToolExecutor` and
-     the request's enabled, non-`is_core`, pre-approved/read-only tools.
-  2. Write the snippet + a bootstrap that imports the client module to a temp
-     file (per-request `tmp` dir; `xdist_group` in tests).
-  3. Run it via `execute_bash_command("python3 <file>", timeout)` — reusing the
-     bash executor's `get_ulimit_prefix()` memory cap and timeout handling
-     (`common/bash.py`).
-  4. Capture stdout/stderr → `StructuredToolResult` (SUCCESS / ERROR / NO_DATA,
-     `return_code`, `invocation`, `elapsed_seconds`), same shape as
-     `bash_result_to_structured`.
-  5. Pass the result through `spill_oversized_tool_result` so oversized stdout
-     becomes a file pointer, not a context flood.
-- **`BashExecutorConfig`-style config**: `enabled=False` by default,
-  `is_core=False`, `expose_remotely=False` (a script fanning out to remote tools
-  is a Future Goal), plus a `llm_instructions` jinja2 template teaching the model
-  *when* to use it (multi-step / large-result tasks) and *when not to* (trivial
-  asks) — surfaced via `_toolsets_instructions.jinja2`.
+- **Parameters:** `code` (the Python script) and optional `timeout` (default 60s,
+  clamped to ≤300s).
+- **Behavior:** the tool generates the `holmes` client for the request's eligible
+  tools, writes the script plus a small bootstrap to a temp file, runs it as a
+  `python3` subprocess (reusing bash's `ulimit` memory cap and timeout), captures
+  stdout/stderr into a `StructuredToolResult`, and passes that result through
+  `spill-to-disk`. The result also carries a short footer listing each sub-call
+  (name / status / timing) for traceability.
+- **Config:** `enabled=False` by default; `is_core=False`; not exposed remotely.
+  Its `llm_instructions` teach the model *when* to use code mode (multi-step /
+  large-result tasks) and *when not to* (trivial asks).
 
-The agentic loop (`call_stream`) needs **no change**: `run_python_code` is an
-ordinary tool call. Parallel execution, the result-feedback path, and
-compaction all apply unchanged.
+The agentic loop needs **no change** — `run_python_code` is an ordinary tool
+call, so parallel execution, the result-feedback path, and compaction all apply
+unchanged.
 
-### 2. The generated `holmes` client module
+### The generated `holmes` client
 
-Generated per request from the `ToolExecutor`'s eligible tools:
+For each request, Holmes generates a `holmes` object with one function per
+**eligible** tool. A function's signature is derived from the tool's parameter
+schema and its docstring from the tool's description; the body relays the call to
+the parent and returns the tool's data (raising a catchable `holmes.HolmesToolError`
+on a tool error, so a script can `try/except`).
 
-```text
-holmes/
-  kubernetes.py     get_pods(namespace: str, ...) -> dict
-  prometheus.py     query(promql: str, ...) -> dict
-  logs.py           fetch(pod: str, ...) -> dict
-  ...
-```
+**Eligibility** (the allow-list) excludes:
 
-- One Python function per `Tool`, grouped into a module per toolset. Signature is
-  derived from `parameters: Dict[str, ToolParameter]` by **inverting** the
-  `type_to_open_ai_schema` mapping (`openai_formatting.py:71`) into Python type
-  hints; docstring = the tool's `description`.
-- Each function body is a thin wrapper:
-  `return _dispatch("<tool_name>", locals())` → calls
-  `ToolExecutor.get_tool_by_name(name).invoke(params, context)` and returns the
-  parsed `StructuredToolResult.data` (raising a Python exception on ERROR so the
-  script can `try/except`).
-- **Eligibility filter** (applied when building the module):
-  - exclude `is_core` toolsets (`robusta_platform_mcp`, `core_investigation`,
-    `skills`);
-  - exclude tools whose `requires_approval(...)` is not statically
-    pre-approved/read-only — a call to one inside a script returns an ERROR
-    "approval-gated tool; call it directly instead," never a silent pause.
-- Dispatch runs in the **same process** as the loop (the script subprocess calls
-  back via a thin RPC/stdin-stdout bridge to the parent, or — simpler v1 — the
-  parent process runs the tools and the subprocess only runs the user's Python
-  with the client stubbed to IPC). The exact bridge is an implementation
-  decision captured in Open Questions; both keep validation server-side.
+- `is_core` toolsets (agent-loop machinery);
+- the `bash` and `kubectl_run` toolsets (mutation / shell surfaces) and the
+  `code_execution` toolset itself (no recursion);
+- any tool matching its toolset's `approval_required_tools` patterns.
 
-### 3. Observability — sub-calls are first-class
+The remaining read-only / pre-approved tools are the only functions the client
+exposes.
 
-To keep the UI honest (user story 3), each sub-call emits the **existing** SSE
-events with one new field:
+### Execution and isolation
 
-- `start_tool_calling` / `tool_calling_result` gain an optional
-  `parent_tool_call_id` pointing at the `run_python_code` call's id.
-- Relay needs **no change** — it forwards bytes and keys tool calls by id
-  (`upsert_tool_call`), so the sub-call events flow through as ordinary tool
-  cards.
-- Frontend: add `parent_tool_call_id` handling in **both** consumers
-  (`holmes-chat-history.store.ts:1333` and `event-projector.ts:228`) and a
-  `subTools?: HolmesTool[]` field on `HolmesTool` (`holmes-types.d.ts:189`);
-  render sub-calls nested inside the parent row in `HolmesToolsCollapseBlock.vue`
-  (which already supports nested `HolmesTools`). The script itself renders in the
-  parent row's "Request" tab. Unknown/unhandled → the realtime projector's
-  `default` warns (`event-projector.ts:431`); we handle it explicitly so nothing
-  is dropped.
+The untrusted script runs in a **subprocess**; the real tools run in the
+**parent** Holmes process. They communicate over a **unix-domain socket**: the
+script's `holmes.*` call sends `{tool, params}` to the parent; the parent's
+**bridge** validates and dispatches it and streams the result back. Two
+properties fall out of this split:
+
+- **Credentials stay in the parent.** The subprocess is started with a minimal
+  environment allow-list (`PATH`, locale, and the bridge's socket/script paths) —
+  never the parent's `os.environ`, so LLM/provider keys and other secrets are not
+  visible to the script.
+- **The allow-list is enforced parent-side.** The subprocess is given the socket
+  path, so a script can bypass the generated client and hand-craft raw socket
+  requests. The parent therefore re-checks every request's tool name against the
+  eligibility allow-list *before* looking up or invoking anything, and converts
+  an `APPROVAL_REQUIRED` outcome into an error. The generated client is a
+  convenience; the socket boundary is the security boundary.
+
+### Observability — sub-calls stay visible
+
+Code mode must not turn N tool calls into one opaque box (user story 3). The
+design keeps sub-calls first-class by reusing the **existing** SSE events with
+one added optional field, `parent_tool_call_id`, pointing at the enclosing
+`run_python_code` call. Because relay only forwards bytes and keys tool calls by
+id, sub-call events flow through unchanged, and the frontend nests them under the
+parent card (the script renders in the parent's "Request" tab). This needs no
+relay change and an additive frontend change in both stream consumers.
+
+*v1 status:* the tool records each sub-call and returns them as a summary footer
+in the result; the live nested-card streaming (the `parent_tool_call_id` field +
+frontend nesting) is the remaining increment and ships as a separate frontend
+PR.
 
 ### Data flow
 
 ```text
-LLM step k                Holmes                          UI (via relay pipe)
-  │                         │                               │
-  ├─ tool_call ───────────▶ run_python_code(code)           │
-  │                         │  build holmes client module   ├─ card: "run_python_code"
-  │                         │  spawn python subprocess ──┐   │
-  │                         │                            │   │
-  │                         │   script calls:            │   │
-  │                         │     holmes.k8s.get_pods() ─┼──▶ emit start/result   ├─ nested card (sub-call)
-  │                         │       → ToolExecutor.invoke │   │   (parent_tool_call_id)
-  │                         │     filter in Python        │   │
-  │                         │     holmes.logs.fetch(x3) ──┼──▶ emit start/result   ├─ nested cards
-  │                         │     print(summary)          │   │
-  │                         │                            ◀┘   │
-  │                         │  stdout → spill guard          │
-  ◀─ tool result (summary) ─┤  (only the 5-line summary      │
-  │   enters context           enters context, not the       │
-  │                            9,997 discarded series)        │
+LLM step k                Holmes parent                     UI (via relay pipe)
+  │                         │                                 │
+  ├─ tool_call ───────────▶ run_python_code(code)             ├─ card: "run_python_code"
+  │                         │  generate holmes client         │
+  │                         │  spawn python subprocess ──┐     │
+  │                         │                            │     │
+  │                         │  script (subprocess):      │     │
+  │                         │    holmes.list_pods() ──────▶ bridge: validate + dispatch
+  │                         │       (result → subprocess)│     ├─ nested card (sub-call)
+  │                         │    filter in Python        │     │
+  │                         │    holmes.logs(x3) ─────────▶ bridge: validate + dispatch
+  │                         │    print(summary)          │     ├─ nested cards
+  │                         │                            ◀┘     │
+  │                         │  stdout → spill guard            │
+  ◀─ tool result (summary) ─┤  (only the summary enters        │
+  │                            context, not the raw data)      │
   ▼
 LLM step k+1  (history grew by ~summary, not by all raw tool output)
 ```
 
-The token win is structural: the raw `get_pods` list and the two unused log
-bodies **never enter the model's context** — only `print(summary)` does, once.
+The token win is structural: the raw tool outputs the script discards **never
+enter the model's context** — only what it `print`s does, once.
 
-### Feature flag & rollout
+## Code mode vs. bash mode
 
-- Off by default. Enable per-account/per-request via the existing config path
-  (`toolsets.code_execution.enabled: true`) and, for the hosted product, an
-  `AccountSettings` flag read the same way remote-tool-execution reads its flag.
-- Rollout: (1) internal accounts + evals; (2) opt-in beta on a few high-iteration
-  accounts (the ROB-723 project's target segment); (3) default-on for
-  tool-heavy request types if evals show correctness parity and a token win.
+Bash is the existing "compose tools in code" path, so it is the right baseline.
+The two share their runtime primitives (subprocess, `ulimit`, timeout,
+spill-to-disk) but differ in reach and in where the safety boundary sits.
 
-# Security model
+| Dimension | Bash mode (`bash` toolset) | Code mode (`code_execution`) |
+|---|---|---|
+| **What executes** | One shell command line (`shell=True`) | An arbitrary Python script |
+| **Reach / composition** | CLI tools only (`kubectl`, `jq`, `grep`, …); model hand-writes/parses text | All Holmes toolsets (Prometheus, Grafana, k8s, …) as typed `holmes.*` functions in one script |
+| **Whitelisting** | Prefix allow/deny list on the **command** itself | No allow-list on the **code** (arbitrary Python by design); the allow-list is on **which Holmes tools** the script may call, enforced parent-side at the bridge |
+| **Approval** | Per-command: an unknown/mutating prefix returns `APPROVAL_REQUIRED` → interactive approval | Approval-gated tools are **denied** at dispatch inside a script (no round-trip); the model must call them directly |
+| **Memory** | `ulimit -v` cap on the shell subprocess | Same `ulimit -v` cap on the `python3` subprocess |
+| **CPU / time** | Wall-clock timeout on the command | Wall-clock timeout on the script (default 60s, ≤300s) |
+| **Credentials / env** | Command inherits the Holmes process environment (kubeconfig, keys) | Subprocess gets a **minimal env allow-list** — no `os.environ`; tools (and their creds) run in the parent, reached only via the socket |
+| **Security boundary** | Command-prefix validation; single process | Parent-side tool allow-list + per-tool validation at the socket bridge; untrusted code isolated to the subprocess |
+| **Injection patterns** | Shell injection bounded by prefix validation (metachar/quoting risk within allowed commands; secrets-read commands denied) | No shell. Tool-name/param **injection over the bridge** is bounded by the parent allow-list + each tool's own validation. **Residual (v1):** the Python itself can make arbitrary outbound network calls and read on-disk files — no OS sandbox (see Security model) |
+| **Result-size guard** | `spill-to-disk` on stdout | Same guard on stdout — *and* the script can pre-filter so less reaches stdout at all |
+| **Sandbox** | None (subprocess + `ulimit`) | None in v1 (subprocess + `ulimit`); OS/language sandbox is a Future Goal |
+| **Token behavior** | Intermediate data can stay in the shell pipe, but only across CLI tools | Intermediate data from **any** toolset stays in the subprocess; only `print()` output re-enters context |
 
-The script is arbitrary, LLM-generated Python. The model is therefore
-**capability-limiting, not code-sandboxing**: assume the script can run any
-Python, and constrain what it can *reach*.
+Net: code mode is a strict superset of bash's composition ability across all
+toolsets, with the same resource bounds, and it moves the safety boundary from
+"validate the command string" to "validate which tools the code may call, in the
+parent." Its new risk relative to bash is that the executed language is
+unconstrained (network + filesystem), which is what the Security model addresses.
 
-**The trust boundary is the parent-side allow-list, not the generated client.**
-The subprocess is handed the bridge socket path (`HOLMES_CODE_SOCKET`), so a
-script can bypass the generated `holmes.*` stubs and send raw
-`{"tool": ..., "params": ...}` requests over the socket by hand. Every request
-is therefore re-checked in the parent's `dispatch` before any tool is looked up
-or invoked:
+## Error states / failure scenarios
 
-- **Allow-list enforced server-side.** A requested tool name not in
-  `eligible_tool_names(...)` is rejected outright — `is_core` toolsets,
-  `bash`/`kubectl_run`, and any `approval_required_tools` are excluded, so a
-  script cannot reach a mutation/approval surface even by forging the request.
-- **Approval cannot be scripted around.** An `APPROVAL_REQUIRED` result at
-  dispatch is converted to an error; there is no auto-approve path.
-- **Credentials never enter the subprocess.** Tools execute in the parent; the
-  subprocess env is a minimal allow-list (`PATH`/`LANG`/`HOLMES_CODE_*`), never
-  the parent's `os.environ` (LLM/provider keys, DB creds, etc.).
-- **Per-tool validation is unchanged.** Dispatched calls go through the real
-  `tool.invoke()`, so each tool's own guards still apply.
-- **Resource bounds.** `ulimit` memory cap + wall-clock timeout kill runaway
-  scripts; oversized stdout flows through `spill_oversized_tool_result`.
+- **Syntax error / runtime exception** → `ERROR` result with the traceback and a
+  non-zero return code; the model reads it and self-corrects.
+- **Timeout / infinite loop** → the subprocess is killed at the wall-clock
+  deadline; `ERROR` result.
+- **Memory blow-up** → the `ulimit` cap kills the subprocess; `ERROR` result.
+- **Huge stdout** → `spill-to-disk` replaces it with a file pointer.
+- **Sub-call to a non-eligible / approval-gated / unknown tool** → the bridge
+  returns an error to the script (raised as `holmes.HolmesToolError`); the tool
+  never runs.
+- **Sub-tool returns an error** → surfaced as a catchable `holmes.HolmesToolError`.
+- **Executor not wired** → the tool returns a clear configuration error rather
+  than crashing the loop.
 
-**Residual risk (accepted for v1, off by default).** There is **no
-language-level or OS sandbox** — subprocess + `ulimit` only. So a script can
-still (a) make **arbitrary outbound network calls** and (b) **read on-disk files
-the process can access** (env secrets are stripped, but files such as
-`/var/run/secrets/kubernetes.io/serviceaccount/token` are not). Combined with a
-successful **prompt injection** (Holmes ingests untrusted logs/alerts/objects),
-the blast radius is "anything the pod's process can reach and exfiltrate". This
-is the primary reason the feature is off by default; real isolation
-(RestrictedPython / gVisor / container sandbox / egress deny) is a Future Goal
-(see Out of Scope). These boundaries are covered by
+## Scale / limitations
+
+- **Concurrency.** The agentic loop already runs top-level tool calls in a
+  bounded thread pool; each `run_python_code` call is one such call and spawns one
+  subprocess. Memory must be sized so `pool_size × ulimit` fits the pod's limit.
+- **Serial sub-calls.** The bridge is single-connection / single-threaded, so
+  sub-calls *within* one script run serially. Fine for v1; parallel fan-out
+  inside a script would need a multi-connection bridge (Open Questions).
+- **Prompt overhead when unused.** Enabling the toolset adds its API reference to
+  the system prompt; on small tasks that overhead is not repaid (Open Questions).
+
+## Security model
+
+The script is arbitrary, LLM-generated Python, and Holmes ingests untrusted data
+(logs, alerts, k8s object contents), so the realistic threat is **prompt
+injection → code execution**. The model is therefore **capability-limiting, not
+code-sandboxing**: assume the script can run any Python, and constrain what it
+can reach.
+
+**Enforced boundary (v1).**
+
+- **Parent-side tool allow-list.** Every bridge request is checked against the
+  eligibility set *before* dispatch, so a script cannot reach `is_core`, `bash` /
+  `kubectl_run`, or approval-gated tools — even by forging raw socket requests
+  that bypass the generated client.
+- **Approval is not scriptable.** An `APPROVAL_REQUIRED` result at dispatch
+  becomes an error; there is no auto-approve path.
+- **Credentials isolated.** Tools run in the parent; the subprocess env is a
+  minimal allow-list, never the parent's secrets.
+- **Per-tool validation unchanged**, and **resource bounds** (`ulimit` + timeout)
+  apply to the subprocess.
+
+**Residual risk (accepted for v1, off by default).** There is **no language/OS
+sandbox** — subprocess + `ulimit` only. A script can therefore still (a) make
+**arbitrary outbound network calls** and (b) **read on-disk files** the process
+can access (env secrets are stripped, but files such as the mounted
+ServiceAccount token are not). Under prompt injection the blast radius is
+"anything the pod's process can reach and exfiltrate", and note that reading the
+SA token from disk would let a script bypass the read-only tool allow-list by
+calling the API server directly. **The allow-list bounds the tools, not the
+runtime.**
+
+**Path to production.** The IPC split is deliberately sandbox-friendly: the
+untrusted subprocess needs *only* the socket, so it can be jailed hard without
+losing function. The recommended posture:
+
+- *Self-hosted, single-tenant (operator owns the data):* ship enabled-by-config
+  with least-privilege read-only RBAC (no secret reads), an egress `NetworkPolicy`
+  that denies all but the LLM/relay endpoint, and no SA-token mount in the exec
+  path.
+- *Multi-tenant / untrusted input:* real isolation is a **prerequisite** — run the
+  subprocess in an egress-denied, credential-free sandbox (gVisor or a microVM;
+  read-only rootfs, non-root, dropped caps, seccomp). This is the gating decision
+  for default-on (Open Questions).
+
+These boundaries are covered by
 `tests/plugins/toolsets/code_execution/test_code_execution_security.py`,
-including a script that forges raw socket requests to excluded tools and the
-documented (currently-permitted) local-file read.
+including a script that forges raw socket requests to excluded tools (denied) and
+the documented, currently-permitted local-file read.
 
-# Token-cost impact
+## Observability
 
-- Addressable segment (≥6 iterations, tool-heavy real traffic): ~$15.3k/mo,
-  already ~82% cache-discounted.
-- Expected reduction on that segment: **20–40%**, from (i) fewer LLM iterations
-  (compose N calls in one script) and (ii) large results filtered before they
-  ever enter context.
-- **Net estimate: ~15–25% of total Holmes spend (~$3–6k/mo, ~$40–70k/yr)** — not
-  the 98% headline, because caching already banked sink (1) and bash+spill
-  already bank part of sink (2).
-- Instrumentation: `LLMResult`/`RequestStats` already record every needed field;
-  the eval harness records per-variant `total_tokens` / `num_llm_calls` /
-  `tool_call_count`, and `HolmesUsageEvents` gives the prod before/after.
+- **Sub-call visibility** as described above — recorded + summarized in v1, live
+  nested cards as the follow-up.
+- **Operational:** every executed script and its sub-call list should be logged
+  for audit/forensics; `LLMResult`/`RequestStats` already record `num_llm_calls`,
+  `total_tokens`, and tool-call counts, and `HolmesUsageEvents` gives the prod
+  before/after for a rollout A/B.
 
-# Testing plan (summary)
+## Infrastructure
 
-Full plan tracked separately; the layers:
+- No new infra. `run_python_code` needs `python3` in the Holmes image (already
+  present) and is verified by the toolset's prerequisite check.
+- Off by default; enabled per-account/per-request via the existing config path
+  and (for the hosted product) an `AccountSettings` flag read the same way
+  remote-tool-execution reads its flag.
+- Rollout: (1) internal accounts + evals; (2) opt-in beta on high-iteration
+  accounts under the self-hosted hardening above; (3) default-on for tool-heavy
+  request types once evals show correctness parity, a prod A/B shows the win, and
+  — for any untrusted-input exposure — the runtime sandbox is in place.
 
-1. **Unit** (`tests/plugins/toolsets/code_execution/`) — real trivial
-   subprocesses (à la `test_bash_command_execution.py`), the
-   result→`StructuredToolResult` converter, and spill reuse (both
-   `_has_bash_for_file_access` branches).
-2. **Integration** (`tests/test_tool_calling_llm.py`) — script the mocked
-   `llm.completion` to emit a `run_python_code` call; assert `num_llm_calls` /
-   `total_tokens` are lower than the equivalent N-direct-call script;
-   re-entrancy under the 16-worker pool; sub-call error propagation.
-3. **LLM evals** — new `test_ask_holmes` fixture with
-   `toolsets_matrix: [classic, codemode]`, shared `expected_output` (correctness
-   parity), `max_tokens` on the codemode variant, plus a cross-variant assertion
-   `codemode.total_tokens < classic.total_tokens`. Runs in `eval-regression.yaml`
-   behind an `evals-*` label.
-4. **Observability** — unit tests in both FE consumers
-   (`event-projector.test.ts` + a new legacy `onChunk` test) asserting
-   `parent_tool_call_id` nests sub-calls and keeps intermediate output visible;
-   relay `test_holmes_chat_streaming.py` / `test_sse_events.py` for the new field.
-5. **Local-stack manual** — `harness/bind.py up` + `verify --ui`; drive a
-   code-mode investigation and confirm sub-call cards render.
+## Token-cost impact
 
-Edge / failure modes explicitly covered: syntax error → self-correcting ERROR;
-runtime exception; timeout / infinite loop; memory blow-up (ulimit); huge stdout
-→ spill; approval-gated sub-call denied (not bypassed); bash validation still
-enforced inside a script; partial sub-call failure; secret-leakage attempt;
-no-bash fallback; xdist temp-file isolation; cross-model codegen; routing
-regression on trivial asks.
-
-# Alternatives considered
-
-- **Do nothing / lean on bash.** The bash toolset already composes CLI tools, but
-  it can't reach Holmes's Python toolsets (Prometheus, Grafana, Datadog, …) and
-  the model must serialize/parse JSON by hand. Code mode gives a typed API over
-  *all* toolsets. Rejected as insufficient for the addressable segment.
-- **Progressive tool-def disclosure only** (the other half of the Anthropic
-  design). Rejected for v1: caching already makes sink (1) nearly free in
-  dollars, so it would add complexity for little saving.
-- **Real sandbox (RestrictedPython / container) in v1.** Safer, but a large lift
-  and it blocks shipping a measurable token win. Deferred to Future Goals; v1
-  adopts the already-accepted read-only/pre-approved trust model.
-- **New dedicated SSE event type for nested calls.** Rejected in favor of reusing
-  `start_tool_calling` / `tool_calling_result` + a `parent_tool_call_id` field,
-  so relay stays a pure pipe and the FE change is additive.
+- Addressable segment (≥6 iterations, tool-heavy): ~$15.3k/mo, already ~82%
+  cache-discounted.
+- **Net estimate: ~15–25% of total Holmes spend (~$3–6k/mo)** — deliberately not
+  the headline 98%, because caching already banked sink (1) and bash+spill
+  already bank part of sink (2). The band is wide because the
+  result-vs-definition token split isn't measurable from prod telemetry alone;
+  the rollout A/B closes it.
+- The *mechanism* is proven deterministically (not model-dependent): measuring
+  the context-token cost of a tool result with the product's own tokenizer, a
+  filtered script returns **250,029 → 136 tokens** on a large payload and
+  collapses **8 sub-call results into 1** (30,952 → 275 tokens). See
+  Implementation & Verification.
 
 # Open Questions
 
-## Resolved during implementation
+1. **Sandbox before default-on.** Ship config-enabled for trusted operators with
+   the RBAC/egress hardening, or block default-on on a real runtime sandbox
+   (gVisor / microVM)? This is the main go-to-prod decision.
+2. **Routing.** v1 is prompt-only. Because Holmes's server-side filters
+   (`kubernetes_jq_query`, log `filter`) already handle many tasks, the model
+   often won't reach for code mode; a cheap pre-classifier or stronger prompting
+   may be needed to realize the savings. Measure regression on trivial asks
+   first.
+3. **Eligibility source of truth.** Should the code-mode allow-list be pinned to
+   the exact remote-tool-execution `expose_remotely` set (they are defined
+   independently today and could drift)?
+4. **Sub-call cost attribution.** Should sub-calls count toward `tool_call_count`
+   in `HolmesUsageEvents` (proposed: yes, for an honest before/after)?
+5. **Parallel sub-calls.** Is intra-script parallel fan-out worth a
+   multi-connection bridge, or is serial fine indefinitely?
+6. **Prompt-overhead crossover.** Where is the task size at which the toolset's
+   API-reference overhead is repaid, and should the reference be trimmed or
+   lazily disclosed for small requests?
+7. **Live A/B demonstration.** Do we want a live eval backed by a data source
+   with no server-side filter (to show the win end-to-end), or is the
+   deterministic proof + a prod A/B sufficient?
 
-1. **Execution bridge** — *Resolved: IPC.* Tools run in the **parent**; the
-   subprocess calls back over a newline-delimited-JSON AF_UNIX socket. Keeps
-   validation and credentials out of the subprocess. (See `bridge.py`,
-   `runner.py`.)
-2. **Which tools are exposed** — *Resolved for v1.* Eligibility = exclude
-   `is_core` toolsets, `bash`/`kubectl_run`, and any `approval_required_tools`
-   (`client_generator._is_eligible`). Enforced parent-side in `dispatch`, not
-   just via the generated client. **Still worth confirming with the team**
-   whether this should be pinned to the exact remote-tool-execution
-   `expose_remotely` set — the two are defined independently and could drift.
+# Implementation & Verification
 
-## Still open
+Implemented in HolmesGPT: the `code_execution` toolset (tool, generated client,
+socket bridge, subprocess runner, config), a generic `set_tool_executor` wiring
+hook on the agentic loop, and a request-scoped executor handle on the tool
+context. Off by default. Verified by:
 
-3. **Routing** — v1 is prompt-only (the model chooses when to use code mode). In
-   the first live A/B the model often kept using efficient server-side tools
-   (`kubernetes_jq_query`, log `filter`) and did not reach for code mode, so a
-   cheap pre-classifier — or stronger prompting — may be needed to actually
-   trigger it where it helps. Measure regression on trivial asks first.
-4. **Sub-call cost attribution** in `HolmesUsageEvents` — should sub-calls count
-   toward `tool_call_count` (proposed: yes, for honest before/after)? Not yet
-   wired.
-5. **Sandbox before default-on** — v1 has no language/OS sandbox, so the
-   documented residual risk (arbitrary outbound network + on-disk secret reads,
-   amplified under prompt injection — see Security model) stands. Decision:
-   gate default-on behind real isolation (RestrictedPython / gVisor / container
-   / egress-deny), or ship config-enabled only for trusted operators?
-6. **Demonstrating the token win in a *live* eval** — Holmes filters
-   server-side almost everywhere, so a live ask_holmes A/B can't cleanly show a
-   token drop (the two committed A/B evals only assert correctness parity). The
-   win is proven deterministically in
-   `tests/plugins/toolsets/code_execution/test_code_mode_token_reduction.py`
-   (result filtering 250k→136 tokens; call consolidation 8→1 result). Open
-   whether we also want a live eval backed by a data source with **no**
-   server-side filter, or accept the unit-level proof + a prod A/B.
-7. **When to flip default-on** — needs a real-traffic A/B; the ~15–25%
-   total-spend estimate is unvalidated in production.
-8. **Live sub-call streaming to the UI** — sub-calls are recorded (name / status
-   / timing) and summarized in the result today, but not streamed as nested
-   tool cards. That needs a `parent_tool_call_id` field + a loop-level streaming
-   hook + frontend work (separate PR).
-9. **Serial sub-calls** — the bridge is single-connection / single-threaded, so
-   sub-calls inside one script run serially. Fine for v1; open whether parallel
-   fan-out inside a script justifies a multi-connection bridge.
-10. **Prompt-overhead crossover** — enabling the toolset injects its API
-    reference into the system prompt; on small tasks that overhead isn't repaid
-    (observed in the CI eval, where the codemode variant cost slightly *more*).
-    Open where the crossover is and whether the reference should be trimmed or
-    lazily disclosed.
-11. **Documentation page** — `docs/data-sources/builtin-toolsets/code-execution.md`
-    is still a follow-up.
+- **Deterministic token-reduction proof** (`test_code_mode_token_reduction.py`) —
+  measures the context-token cost of a tool result classic vs. code mode with the
+  product's own formatter + `litellm` tokenizer. Result filtering 250,029 → 136
+  tokens (99.95%); call consolidation (8 results → 1) 30,952 → 275 (99.11%);
+  correctness asserted. No LLM, no cluster.
+- **Unit / integration** (`test_code_execution.py`, `_wiring.py`, `_security.py`)
+  — 24 tests over the real subprocess: eligibility exclusions, the token-saving
+  property, executor wiring, and failure modes (syntax/runtime error, timeout,
+  unavailable tool, erroring sub-tool, approval denied-not-paused, unwired
+  executor, timeout clamping, env-secret isolation), plus the security-boundary
+  tests (raw-socket bypass of the client denied for excluded/approval-gated/
+  unknown names; documented local-file-read gap). No regressions in the existing
+  loop/executor tests.
+- **LLM evals** — two ask_holmes A/B fixtures (`toolsets_matrix`: classic vs.
+  codemode) asserting **correctness parity**; 4/4 passing in CI on opus-4.6.
+  These do not claim the token win (Holmes filters server-side, so the model
+  didn't switch to code mode on small fixtures) — the deterministic test above is
+  the token-win proof.
+
+# Detailed Implementation & Context
+
+Files as of this doc's writing; re-verify line numbers before editing.
+
+## The loop and existing primitives (reused)
+
+- **Loop:** `holmes/core/tool_calling_llm.py` — `ToolCallingLLM.call_stream` runs
+  `while i < max_steps`: assemble → compaction check → `llm.completion(tools=…)` →
+  execute tool calls in `ThreadPoolExecutor(max_workers=16)` → append each
+  `to_llm_message()` → repeat. Tool execution funnels through
+  `_directly_invoke_tool_call` → `tool.invoke(params, context)`.
+- **Tools:** `holmes/core/tools.py` — `Tool` (abstract `_invoke → StructuredToolResult`),
+  `Toolset`, `StructuredToolResult.stringify_data`, `requires_approval →
+  APPROVAL_REQUIRED`, and the `is_core` marker.
+- **Dispatch registry:** `holmes/core/tools_utils/tool_executor.py` —
+  `get_tool_by_name`, `ensure_toolset_initialized`.
+- **Result guard:** `holmes/core/tools_utils/tool_context_window_limiter.py:spill_oversized_tool_result`.
+- **Bash primitives:** `holmes/plugins/toolsets/bash/common/bash.py` —
+  `execute_bash_command`, `get_ulimit_prefix()`.
+- **Token measurement:** `holmes/core/tools_utils/token_counting.py:count_tool_response_tokens`
+  → `holmes/core/models.py:format_tool_result_data` + `LLM.count_tokens`.
+
+## New: `holmes/plugins/toolsets/code_execution/`
+
+- **`code_execution_toolset.py`** — `RunPythonCode(Tool)` + `CodeExecutionToolset(Toolset)`.
+  `_invoke` resolves the request's `ToolExecutor` from a request-scoped handle on
+  `ToolInvokeContext` (falling back to the wired toolset handle), builds the
+  eligible-tool spec, launches the runner subprocess (stdout → temp file to avoid
+  a pipe deadlock), and serves the bridge until the process exits or the deadline
+  passes. `_make_dispatch(context, executor, allowed)` is the **security boundary**:
+  it rejects any `tool_name not in allowed`, converts `APPROVAL_REQUIRED` to an
+  error, and otherwise invokes the real tool with a request-scoped sub-context.
+  `_build_subprocess_env(...)` builds the minimal env allow-list (`_ENV_PASSTHROUGH`
+  = PATH/LANG/LC_*/TZ + `HOLMES_CODE_*`), never `os.environ`. `_resolve_timeout`
+  clamps to `[1, max_timeout_seconds]`, default `default_timeout_seconds`.
+  `_is_core=True`, `enabled=False`.
+- **`client_generator.py`** — `EXCLUDED_TOOLSET_NAMES = {"bash", "kubectl_run",
+  "code_execution"}`; `_is_eligible(tool, toolset)` (excludes `is_core`, the
+  excluded names, and `approval_required_tools` matches); `eligible_tools`,
+  `eligible_tool_names`, `build_tools_spec`, `build_api_reference`, `_sanitize_attr`.
+- **`bridge.py`** — `ToolCallBridge` (context manager binding an AF_UNIX socket;
+  `serve_until_exit(process, deadline)` is single-connection with recv/accept
+  timeouts) and `SubToolCall` records. `_handle_line` parses `{tool, params}` and
+  calls the injected `dispatch`.
+- **`runner.py`** — stdlib-only subprocess bootstrap. `_Bridge` (newline-delimited
+  JSON over the socket), `_build_holmes_namespace` (turns the tools spec into
+  `holmes.<attr>()` functions + `holmes.HolmesToolError`), and `main()` returning
+  exit codes (0 ok, 1 exception, 2 SyntaxError, 3 HolmesToolError). Reads
+  `HOLMES_CODE_SOCKET` / `HOLMES_CODE_USER_FILE` / `HOLMES_CODE_TOOLS` from env.
+- **`code_execution_config.py`** — `CodeExecutionConfig(ToolsetConfig)` with
+  `default_timeout_seconds=60`, `max_timeout_seconds=300`.
+
+## Wiring (minimal, generic)
+
+- `holmes/core/tool_calling_llm.py` — a `_wire_toolset_executors()` hook called
+  from `__init__` invokes `set_tool_executor(self.tool_executor)` on any toolset
+  that exposes it (guarded for non-list `toolsets`); and the `ToolInvokeContext`
+  built in `_directly_invoke_tool_call` now carries `tool_executor` so dispatch is
+  request-scoped.
+- `holmes/core/tools.py` — `ToolInvokeContext.tool_executor: Optional[Any] =
+  Field(default=None, exclude=True)` (excluded from serialization).
+- `holmes/plugins/toolsets/__init__.py` — `CodeExecutionToolset()` appended in
+  `load_python_toolsets` after `BashExecutorToolset()`.
+
+## Tests
+
+`tests/plugins/toolsets/code_execution/` — `test_code_execution.py`,
+`test_code_execution_wiring.py`, `test_code_execution_security.py`,
+`test_code_mode_token_reduction.py`; all run the real subprocess bridge, grouped
+under `xdist_group("code_execution")`. Eval fixtures:
+`tests/llm/fixtures/test_ask_holmes/285_code_mode_count_configmaps/` and
+`286_code_mode_large_configmap_filter/` (each a classic-vs-codemode
+`toolsets_matrix`).
