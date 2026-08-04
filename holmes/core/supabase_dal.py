@@ -651,7 +651,12 @@ class SupabaseDal:
         row = res.data[0]
         return RobustaSkillInstruction(
             id=row.get("runbook_id"),
-            symptom=row.get("symptoms"),
+            # `or ""` because an alert-only skill has NULL symptoms, and `symptom` is typed
+            # `str` -- its "" default applies only when the field is OMITTED, so an explicit
+            # None raises ValidationError. Since the catalog read started keeping alert-only
+            # skills, they are offered to the LLM, and without this their body could never be
+            # fetched. Matches what get_skill_catalog already does per row.
+            symptom=row.get("symptoms") or "",
             instruction=self._extract_skill_instruction(row, skill_id),
             title=row.get("subject_name"),
         )
@@ -792,7 +797,11 @@ class SupabaseDal:
             row = res.data[0] if isinstance(res.data, list) else res.data
             return RobustaSkillInstruction(
                 id=row.get("runbook_id"),
-                symptom=row.get("symptoms"),
+                # See get_skill_content: an alert-only skill has NULL symptoms and an
+                # explicit None fails validation. Here the ValidationError would be
+                # swallowed by the handler below and the caller would read the result as
+                # "not one of this user's skills", falling through to the global lookup.
+                symptom=row.get("symptoms") or "",
                 instruction=self._extract_skill_instruction(row, skill_id),
                 title=row.get("subject_name"),
             )

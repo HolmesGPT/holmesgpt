@@ -542,6 +542,24 @@ class TestPersonalSkills:
 
         assert result.instruction == "only step"
 
+    def test_content_of_an_alert_only_skill_is_fetchable(self, skills_dal):
+        """An alert-only personal skill has NULL symptoms, and its body must still load.
+
+        `symptom` on the model defaults to "" but is typed `str`, so the default only applies
+        when the field is OMITTED -- passing an explicit None raises ValidationError. That
+        exception is swallowed here and the caller sees None, i.e. "not one of this user's
+        skills", so the skill is offered in the prompt and can never be fetched.
+        """
+        skills_dal.client.rpc.return_value.execute.return_value = Mock(
+            data=[self._row(symptoms=None, alerts=["KubePodCrashLooping"])]
+        )
+
+        result = skills_dal.get_personal_skill_content("uuid-1", "end-user-1")
+
+        assert result is not None
+        assert result.symptom == ""
+        assert result.instruction == "step one"
+
     def test_content_missing_returns_none(self, skills_dal):
         skills_dal.client.rpc.return_value.execute.return_value = Mock(data=[])
 
@@ -746,3 +764,29 @@ class TestGlobalSkillCatalog:
         result = skills_dal.get_skill_catalog()
 
         assert {r.id for r in result} == {"here", "all-clusters"}
+
+    def test_content_of_an_alert_only_skill_is_fetchable(self, skills_dal):
+        """An alert-only global skill has NULL symptoms, and its body must still load.
+
+        The catalog read now keeps alert-only skills (they are matched by `alerts` instead of
+        symptoms), so the LLM is offered them. `symptom` is typed `str` with a "" default, so
+        the default applies only when the field is OMITTED -- an explicit None raises
+        ValidationError. Unlike the catalog read, this method has no try/except, so the error
+        surfaces to the LLM as "Failed to fetch skill with UUID ...".
+        """
+        self._rows(
+            skills_dal,
+            [
+                self._row(
+                    symptoms=None,
+                    alerts=["KubePodCrashLooping"],
+                    runbook={"instructions": ["step one"]},
+                )
+            ],
+        )
+
+        result = skills_dal.get_skill_content("uuid-1")
+
+        assert result is not None
+        assert result.symptom == ""
+        assert result.instruction == "step one"
