@@ -37,14 +37,43 @@ class SkillsFetcher(Tool):
         if skill_catalog:
             available_skills = skill_catalog.list_available_skills()
 
-        skill_list = ", ".join([f'"{s}"' for s in available_skills])
+        # This list deliberately OMITS the current user's personal skills. The toolset is
+        # built once and cached across requests and users (the executor cache key ignores
+        # account/user), so baking per-user ids in would leak them between users and freeze
+        # them at first request. They are resolved per-invocation instead, from
+        # request_context["user_id"] -- see _get_personal_skill.
+        #
+        # So the list is NOT a closed set, and it must not claim to be. Declaring
+        # "Must be one of: <list>" made the model refuse to fetch personal skills it could
+        # plainly see in the prompt catalog: it read the parameter description as a hard
+        # contract and self-censored, answering that the id "is not in my available skill
+        # list to fetch directly" -- even though the fetch would have succeeded. Worse, with
+        # no global or filesystem skills this rendered as a bare "Must be one of: ", an empty
+        # allow-list, so for a user whose only skills are personal nothing looked fetchable.
+        known_ids = ", ".join([f'"{s}"' for s in available_skills])
+        skill_id_description = "The skill_id: either a UUID or a skill name."
+        if known_ids:
+            skill_id_description += (
+                f" Known ids include: {known_ids}. That list is not exhaustive -- it omits"
+                " the current user's personal skills, which are resolved when the tool runs."
+                " Pass any skill id listed in the Skill Catalog section of your"
+                " instructions, even if it does not appear above."
+            )
+        else:
+            # No global or filesystem skills. Say nothing about a list of known ids at all:
+            # referring to one that was never rendered reads as an empty allow-list.
+            skill_id_description += (
+                " Pass any skill id listed in the Skill Catalog section of your"
+                " instructions, including the current user's personal skills, which are"
+                " resolved when the tool runs."
+            )
 
         super().__init__(
             name="fetch_skill",
             description="Get skill content by skill link. Use this to get troubleshooting steps for incidents",
             parameters={
                 "skill_id": ToolParameter(
-                    description=f"The skill_id: either a UUID or a skill name. Must be one of: {skill_list}",
+                    description=skill_id_description,
                     type="string",
                     required=True,
                 ),
