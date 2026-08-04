@@ -333,7 +333,7 @@ class Config(RobustaBaseConfig):
         return Config.get_robusta_global_config_value("cluster_name")
 
     def get_skill_catalog(
-        self, user_id: Optional[str] = None
+        self, user_id: Optional[str] = None, alert_name: Optional[str] = None
     ) -> Optional[SkillCatalog]:
         """Build the per-request skill catalog that feeds the system prompt.
 
@@ -353,6 +353,7 @@ class Config(RobustaBaseConfig):
             custom_skill_paths=self.custom_skill_paths,
             user_id=user_id,
             hierarchy=hierarchy,
+            alert_name=alert_name,
         )
 
     # ── Unified factory methods ──

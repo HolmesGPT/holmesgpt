@@ -923,6 +923,54 @@ class ConversationWorker:
                             return text
         return None
 
+    def _resolve_alert_name(
+        self, task: ConversationTask, chat_request: ChatRequest
+    ) -> Optional[str]:
+        """The firing alert's ``GroupedIssues.aggregation_key``, for alert flows only.
+
+        Returned only for alert-related conversations, so ordinary chat keeps being offered
+        every skill (alert-scoped ones included, with their alert names in the description).
+
+        Two id fields, and BOTH are needed. Alert triage names the GroupedIssue in
+        ``metadata.finding_id`` and sets no ``source_ref``; the FE's alert-investigation flow
+        uses ``source_ref``. Wiring only ``source_ref`` -- the field whose docstring advertises
+        "an issue id when request_source='alert_investigation'" -- silently leaves triage
+        unfiltered, which is the whole reason alert scoping needs to work.
+
+        `request_type` is checked on the Conversations row's metadata first: relay persists
+        'alert_investigation' there, whereas Holmes's own ChatRequest.request_type carries a
+        different, backend-set taxonomy ('user_chat', 'scheduled_prompt', …).
+        """
+        meta = task.metadata or {}
+        markers = {
+            meta.get("request_type"),
+            meta.get("request_source"),
+            chat_request.request_type,
+            chat_request.request_source,
+        }
+        if "alert_investigation" not in markers:
+            return None
+
+        issue_id = (
+            meta.get("finding_id") or chat_request.source_ref or meta.get("source_ref")
+        )
+        if not issue_id:
+            logging.debug(
+                "Alert investigation %s carries no finding_id/source_ref; "
+                "alert-scoped skills will not be filtered.",
+                task.conversation_id,
+            )
+            return None
+
+        try:
+            issue = self.dal.get_issue_data(str(issue_id))
+        except Exception:
+            logging.warning(
+                "Could not resolve issue %s for alert-scoped skills", issue_id
+            )
+            return None
+        return (issue or {}).get("aggregation_key") or None
+
     def _run_chat_and_publish(
         self,
         task: ConversationTask,
@@ -944,7 +992,10 @@ class ConversationWorker:
         # OAuth resolver keys on, so a conversation that opted out via
         # metadata.oauth_enabled = false (e.g. a triggered workflow that must not run under
         # its creator's identity) has user_id set to None here and loads no personal skills.
-        skills = self.config.get_skill_catalog(user_id=chat_request.user_id)
+        skills = self.config.get_skill_catalog(
+            user_id=chat_request.user_id,
+            alert_name=self._resolve_alert_name(task, chat_request),
+        )
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:

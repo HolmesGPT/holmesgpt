@@ -65,6 +65,21 @@ class Skill(BaseModel):
     # so their human name has to be tracked separately. Filesystem skills leave this
     # unset because `name` already IS the human name.
     display_name: Optional[str] = None
+    # GroupedIssues.aggregation_key values this skill is scoped to. Empty means "all alerts",
+    # exactly as `clusters = null` means "all clusters". Filesystem skills never set it.
+    alerts: List[str] = []
+
+    def applies_to_alert(self, alert_name: Optional[str]) -> bool:
+        """Whether this skill may run for the given alert.
+
+        An unscoped skill (empty `alerts`) always applies. A scoped skill applies only to the
+        alerts it names. When there is NO alert context at all -- Ask Holmes chat, the CLI --
+        nothing is filtered out: a scoped skill is still offered, and the alert names are
+        surfaced in the prompt so the model can judge relevance itself.
+        """
+        if not self.alerts or alert_name is None:
+            return True
+        return alert_name in self.alerts
 
     def collision_key(self) -> str:
         return normalize_skill_name(self.display_name or self.name)
@@ -202,6 +217,12 @@ def map_robusta_instruction_to_skill(
     description = instr.title
     if instr.symptom:
         description = f"{instr.title} — {instr.symptom}"
+    # Surface the alert scoping in the description too. The deterministic filter only applies
+    # when there IS an alert context, so in chat this is the only signal the model has that a
+    # skill is alert-specific -- and for an alert-only skill (no symptoms) it is the ONLY
+    # description content beyond the title.
+    if instr.alerts:
+        description = f"{description} (applies to alerts: {', '.join(instr.alerts)})"
 
     return Skill(
         name=instr.id,
@@ -210,6 +231,7 @@ def map_robusta_instruction_to_skill(
         source=source,
         source_path=instr.id,
         display_name=instr.title,
+        alerts=instr.alerts,
     )
 
 
@@ -274,6 +296,7 @@ def load_skill_catalog(
     custom_skill_paths: Optional[List[Union[str, Path]]] = None,
     user_id: Optional[str] = None,
     hierarchy: Optional[SkillHierarchyConfig] = None,
+    alert_name: Optional[str] = None,
 ) -> Optional[SkillCatalog]:
     """Load skills from all sources and merge into a single catalog.
 
@@ -288,6 +311,11 @@ def load_skill_catalog(
 
     `hierarchy` controls cross-tier name-collision resolution. When it is None or disabled
     (the default) no cross-tier dedup happens at all, which is exactly today's behaviour.
+
+    `alert_name` is the firing alert's GroupedIssues.aggregation_key, set only for alert
+    investigations. When present, skills scoped to other alerts are dropped deterministically.
+    When absent (chat, CLI) nothing is filtered -- alert-scoped skills are still offered, with
+    their alert names in the description so the model can weigh them.
     """
     skills_by_name: dict[str, Skill] = {}
 
@@ -357,6 +385,12 @@ def load_skill_catalog(
         return None
 
     skills = list(skills_by_name.values())
+
+    # Alert scoping. Deliberately BEFORE the hierarchy dedup, for the same reason the DAL's
+    # cluster filter is: a higher-tier skill scoped to a different alert must not suppress a
+    # lower-tier one that does apply to this alert.
+    if alert_name is not None:
+        skills = [s for s in skills if s.applies_to_alert(alert_name)]
 
     # Cross-tier name-collision resolution. Runs AFTER the per-tier cluster/agent filtering
     # done by the DAL, so only skills that actually apply to this request compete.

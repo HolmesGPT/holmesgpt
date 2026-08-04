@@ -602,8 +602,14 @@ class SupabaseDal:
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
                 clusters = row.get("clusters")
-                if not symptom:
-                    logging.warning("Skipping skill with empty symptom: %s", id)
+                alerts = row.get("alerts") or []
+                # A skill needs SOME way to be matched, but alerts are a valid alternative to
+                # symptoms -- the UI enforces "either symptoms or alerts". Requiring symptoms
+                # here silently discarded every alert-only skill.
+                if not symptom and not alerts:
+                    logging.warning(
+                        "Skipping skill with neither symptom nor alerts: %s", id
+                    )
                     continue
                 # Filter by cluster: null means all clusters, otherwise check membership
                 if clusters is not None and self.cluster not in clusters:
@@ -614,7 +620,9 @@ class SupabaseDal:
                 # malformed one.
                 try:
                     instructions.append(
-                        RobustaSkillInstruction(id=id, symptom=symptom, title=title)
+                        RobustaSkillInstruction(
+                            id=id, symptom=symptom or "", title=title, alerts=alerts
+                        )
                     )
                 except Exception:
                     logging.warning(
@@ -724,11 +732,13 @@ class SupabaseDal:
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
                 clusters = row.get("clusters")
+                alerts = row.get("alerts") or []
                 if not row.get("enabled", True):
                     continue
-                if not symptom:
+                # See get_skill_catalog: alerts are a valid alternative to symptoms.
+                if not symptom and not alerts:
                     logging.warning(
-                        "Skipping personal skill with empty symptom: %s", id
+                        "Skipping personal skill with neither symptom nor alerts: %s", id
                     )
                     continue
                 # Filter by cluster: null means all clusters, otherwise check membership.
@@ -742,7 +752,9 @@ class SupabaseDal:
                 # malformed one. Skip the bad row instead.
                 try:
                     instructions.append(
-                        RobustaSkillInstruction(id=id, symptom=symptom, title=title)
+                        RobustaSkillInstruction(
+                            id=id, symptom=symptom or "", title=title, alerts=alerts
+                        )
                     )
                 except Exception:
                     logging.warning(
