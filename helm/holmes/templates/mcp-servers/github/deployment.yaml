@@ -41,9 +41,14 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
+  {{- if or (include "holmes.commonAnnotations" .) .Values.mcpAddons.github.deploymentAnnotations }}
   annotations:
+    {{- with (include "holmes.commonAnnotations" .) }}
     {{- . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.mcpAddons.github.deploymentAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   {{- end }}
 spec:
   replicas: 1
