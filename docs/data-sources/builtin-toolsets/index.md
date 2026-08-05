@@ -48,6 +48,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-mongodb:{ .lg .middle } **MongoDB**](mongodb.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
+-   [:material-database-search:{ .lg .middle } **Trino**](trino.md)
 
 </div>
 
@@ -115,6 +116,8 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 <div class="grid cards" markdown>
 
 -   [:material-pipe:{ .lg .middle } **Prefect (MCP)**](prefect-mcp.md)
+-   [:material-airplane:{ .lg .middle } **Apache Airflow**](airflow.md)
+-   [:material-water:{ .lg .middle } **Apache Flink**](flink.md)
 
 </div>
 

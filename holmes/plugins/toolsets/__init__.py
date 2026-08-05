@@ -20,6 +20,7 @@ from holmes.core.tools import (
     YAMLToolset,
 )
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
+from holmes.plugins.toolsets.airflow.airflow import AirflowToolset
 from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
 from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
@@ -41,6 +42,7 @@ from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
     ElasticsearchClusterToolset,
     ElasticsearchDataToolset,
 )
+from holmes.plugins.toolsets.flink.flink import FlinkToolset
 from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
     OpenSearchQueryAssistToolset,
 )
@@ -68,6 +70,7 @@ from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
+from holmes.plugins.toolsets.trino.trino import TrinoToolset
 from holmes.plugins.toolsets.victorialogs.victorialogs import VictoriaLogsToolset
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -127,6 +130,9 @@ def load_python_toolsets(
         SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),
         multi_instance(AzureSQLToolset),
         multi_instance(ServiceNowTablesToolset),
+        multi_instance(AirflowToolset),
+        multi_instance(FlinkToolset),
+        multi_instance(TrinoToolset),
         multi_instance(VictoriaLogsToolset),
         DatabaseToolset(),
         multi_instance(ElasticsearchDataToolset),

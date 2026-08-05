@@ -80,20 +80,20 @@ RUN curl -fsSLO "${MSODBCSQL_DOWNLOAD}/msodbcsql18_${MSODBCSQL_VERSION}_${TARGET
 # kube-lineage / ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
 COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz /tmp/kube-lineage.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz.sha256 /tmp/kube-lineage.gz.sha256
-RUN cd /tmp && sha256sum -c kube-lineage.gz.sha256 \
+RUN cd /tmp && sed -i 's/\r$//' kube-lineage.gz.sha256 && sha256sum -c kube-lineage.gz.sha256 \
     && gunzip /tmp/kube-lineage.gz && mv /tmp/kube-lineage /kube-lineage && chmod +x /kube-lineage \
     && rm -f /tmp/kube-lineage.gz.sha256
 RUN /kube-lineage --version
 
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz.sha256 /tmp/argocd.gz.sha256
-RUN cd /tmp && sha256sum -c argocd.gz.sha256 \
+RUN cd /tmp && sed -i 's/\r$//' argocd.gz.sha256 && sha256sum -c argocd.gz.sha256 \
     && gunzip /tmp/argocd.gz && mv /tmp/argocd /argocd && chmod +x /argocd \
     && rm -f /tmp/argocd.gz.sha256
 
 COPY bin/go-cve-rebuild/${TARGETARCH}/helm.gz /tmp/helm.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/helm.gz.sha256 /tmp/helm.gz.sha256
-RUN cd /tmp && sha256sum -c helm.gz.sha256 \
+RUN cd /tmp && sed -i 's/\r$//' helm.gz.sha256 && sha256sum -c helm.gz.sha256 \
     && gunzip /tmp/helm.gz && mv /tmp/helm /helm && chmod +x /helm \
     && rm -f /tmp/helm.gz.sha256
 

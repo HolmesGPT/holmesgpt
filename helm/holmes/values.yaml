@@ -175,6 +175,34 @@ resources:
   limits:
     memory: 2048Mi
 
+# Optional Telegram chat adapter. It is deployed as a dedicated single-replica
+# workload so Holmes API autoscaling never starts competing Telegram pollers.
+telegram:
+  enabled: false
+  # Existing Secret containing the Telegram Bot API token.
+  existingSecret:
+    name: ""
+    key: bot-token
+  # Empty means every Telegram chat may use the bot. Prefer an explicit
+  # allowlist for production; group chat IDs are usually negative.
+  allowedChatIds: []
+  # Defaults to the Holmes Service created by this release.
+  holmesApiUrl: ""
+  pollTimeoutSeconds: 30
+  requestTimeoutSeconds: 120
+  historyMessages: 30
+  additionalEnvVars: []
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
 additionalVolumes: []
 additionalVolumeMounts: []
 
@@ -968,9 +996,3 @@ operator:
   nodeSelector: {}
   tolerations: []
   affinity: {}
-
-
-
-
-
-       
