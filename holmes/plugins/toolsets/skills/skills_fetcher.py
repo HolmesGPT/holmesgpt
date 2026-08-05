@@ -37,27 +37,17 @@ class SkillsFetcher(Tool):
         if skill_catalog:
             available_skills = skill_catalog.list_available_skills()
 
-        # Omits personal skills: this toolset is cached across users, so per-user ids would
-        # leak (see _get_personal_skill, which resolves them per invocation). The list is
-        # therefore open, and must not say otherwise -- "Must be one of: <list>" made the
-        # model refuse to fetch personal skills it could see in the prompt catalog.
-        known_ids = ", ".join([f'"{s}"' for s in available_skills])
-        skill_id_description = "The skill_id: either a UUID or a skill name."
-        if known_ids:
-            skill_id_description += (
-                f" Known ids include: {known_ids}. That list is not exhaustive -- it omits"
-                " the current user's personal skills, which are resolved when the tool runs."
-                " Pass any skill id listed in the Skill Catalog section of your"
-                " instructions, even if it does not appear above."
-            )
-        else:
-            # Mention no list at all: referring to one that was never rendered reads as an
-            # empty allow-list, so nothing looks fetchable.
-            skill_id_description += (
-                " Pass any skill id listed in the Skill Catalog section of your"
-                " instructions, including the current user's personal skills, which are"
-                " resolved when the tool runs."
-            )
+        # Deliberately advertises NO id list. This toolset is built once and cached across
+        # requests and users, so any list baked in here is wrong in both directions: it omits
+        # the requesting user's personal skills, and it still contains skills the per-request
+        # catalog filtered out (hierarchy collision losers, other alerts' skills). Naming the
+        # authoritative source instead keeps the two from diverging -- an earlier
+        # "Must be one of: <list>" made the model refuse personal skills it could plainly see.
+        skill_id_description = (
+            "The skill_id: either a UUID or a skill name. Use the ids from the Skill Catalog"
+            " section of your instructions -- that catalog is built per request and is the"
+            " authoritative list, including the current user's personal skills."
+        )
 
         super().__init__(
             name="fetch_skill",

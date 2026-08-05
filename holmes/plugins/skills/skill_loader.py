@@ -236,9 +236,13 @@ def map_robusta_instruction_to_skill(
 def _resolve_name_collisions(skills: List[Skill], order: List[str]) -> List[Skill]:
     """Keep only the highest-priority skill per normalized human name.
 
-    Deterministic and resolved in Python, not in the prompt: losers are dropped before the
-    model sees them, so a shadowed duplicate can never be fetched. BUILTIN is always lowest
-    and is not part of `order`.
+    Deterministic and resolved in Python rather than left to the prompt, so losers are not
+    offered to the model. BUILTIN is always lowest and is not part of `order`.
+
+    NOT an access control. This shapes the per-request prompt catalog only; the cached
+    fetch_skill toolset is built without a hierarchy, so a loser's id stays resolvable if the
+    model supplies it from somewhere else. Treat this as ranking what gets advertised, not as
+    a guarantee that a shadowed skill can never run.
 
     Callers MUST apply cluster/agent/alert filtering BEFORE this, so a higher-tier skill that
     does not apply cannot suppress an applicable lower-tier one.

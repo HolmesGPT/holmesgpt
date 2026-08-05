@@ -681,10 +681,22 @@ class SupabaseDal:
             # is truthy, which would suppress the fallback and hand the LLM "[]" as a body.
             if not raw_instruction:
                 return ""
-            if len(raw_instruction) == 1:
-                return raw_instruction[0]
-            # not currently used, but will be used in the future
-            return "\n - ".join(raw_instruction)
+            # Elements must all be strings before either fast path. jsonb has no shape
+            # constraint, so a list of dicts is possible -- and it used to return the dict
+            # itself (breaking this function's `-> str` contract, then failing validation in
+            # RobustaSkillInstruction) or raise TypeError out of the join. Both left the
+            # skill unfetchable. Fall through to "" instead, so pretty() renders the row.
+            if all(isinstance(item, str) for item in raw_instruction):
+                if len(raw_instruction) == 1:
+                    return raw_instruction[0]
+                # not currently used, but will be used in the future
+                return "\n - ".join(raw_instruction)
+            logging.error(
+                "Unexpected skill instruction element types for skill_id=%s: %s",
+                skill_id,
+                sorted({type(item).__name__ for item in raw_instruction}),
+            )
+            return ""
         elif isinstance(raw_instruction, str):
             # not supported by the current UI, but will be supported in the future
             return raw_instruction

@@ -473,6 +473,45 @@ class TestPersonalSkills:
             == ""
         )
 
+    @pytest.mark.parametrize(
+        "instructions",
+        [
+            [{"step": 1}],                # used to return the dict itself
+            [["a", "b"]],                 # used to return the inner list
+            [{"a": 1}, {"b": 2}],         # used to raise TypeError out of the join
+            ["ok", {"step": 2}],          # mixed: one good element is not enough
+            [None],
+            [7],
+        ],
+    )
+    def test_instruction_list_of_non_strings_yields_empty_string(
+        self, skills_dal, instructions
+    ):
+        """This function is typed `-> str`, and every path must honour that.
+
+        jsonb has no shape constraint, so `instructions` can hold non-strings. Returning the
+        element itself broke the contract (RobustaSkillInstruction.instruction is typed str,
+        so it then failed validation), and the multi-element join raised TypeError. Either way
+        the skill became unfetchable. "" is correct because it lets the caller's
+        `instruction or pretty()` fallback render the row instead.
+        """
+        result = skills_dal._extract_skill_instruction(
+            {"runbook": {"instructions": instructions}}, "x"
+        )
+
+        assert result == ""
+
+    def test_instruction_list_of_non_strings_does_not_log_the_body(
+        self, skills_dal, caplog
+    ):
+        """Personal skill bodies are private -- log element types, never contents."""
+        skills_dal._extract_skill_instruction(
+            {"runbook": {"instructions": [{"private": "SECRET-STEP-DO-NOT-LOG"}]}}, "x"
+        )
+
+        assert "SECRET-STEP-DO-NOT-LOG" not in caplog.text
+        assert "dict" in caplog.text
+
     @pytest.mark.parametrize("shape", [[], ["a"], "str", 7])
     def test_non_dict_runbook_yields_empty_string_rather_than_raising(
         self, skills_dal, shape

@@ -154,31 +154,31 @@ class TestSkillIdParameterDescription:
             ]
         )
 
-    def test_does_not_claim_a_closed_set(self):
-        description = self._description(self._catalog("uuid-global"))
+    def test_advertises_no_id_list_at_all(self):
+        """No ids may appear here, however they are phrased.
 
-        assert "Must be one of" not in description
-        assert "not exhaustive" in description
-        assert "uuid-global" in description
-
-    def test_empty_catalog_does_not_render_an_empty_allow_list(self):
-        """With no global/filesystem skills the old text was a bare "Must be one of: ",
-        i.e. an empty allow-list -- the worst case for a personal-skills-only user.
-
-        The replacement must not mention a list of known ids either: referring to one that
-        was never rendered ("that list is not exhaustive", "does not appear above") is the
-        same failure in a different costume.
+        This description is cached across requests and users, so a baked-in list is wrong in
+        both directions: it omits the requesting user's personal skills, and it retains
+        skills the per-request catalog filtered out (hierarchy losers, other alerts'). Any
+        id in this string is a claim the cached toolset cannot back.
         """
-        for catalog in (None, SkillCatalog(skills=[])):
-            description = self._description(catalog)
+        description = self._description(self._catalog("uuid-global", "uuid-other"))
 
-            assert "Must be one of" not in description
-            assert "Known ids include" not in description
-            assert "not exhaustive" not in description
-            assert "does not appear above" not in description
-            # still tells the model where the ids actually come from
-            assert "Skill Catalog" in description
-            assert "personal" in description
+        assert "uuid-global" not in description
+        assert "uuid-other" not in description
+        assert "Must be one of" not in description
+        assert "Known ids include" not in description
+
+    def test_is_identical_whatever_the_cached_catalog_holds(self):
+        """Nothing catalog-dependent leaks in, so the cached description cannot go stale."""
+        variants = {
+            self._description(None),
+            self._description(SkillCatalog(skills=[])),
+            self._description(self._catalog("uuid-global")),
+            self._description(self._catalog("a", "b", "c")),
+        }
+
+        assert len(variants) == 1
 
     def test_points_the_model_at_the_prompt_catalog(self):
         description = self._description(self._catalog("uuid-global"))
