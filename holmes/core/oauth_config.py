@@ -278,8 +278,14 @@ class OAuthExchangeManager:
         # to the server-side config (for pre-registered confidential clients like Azure AD).
         client_secret = oauth_code.client_secret or pending.oauth_config.client_secret
 
-        # RFC 8707 resource indicator: a frontend-supplied value wins over config
-        effective_resource = oauth_code.resource or pending.oauth_config.resource
+        # RFC 8707 resource indicator: a frontend-supplied value wins over config.
+        # None-based precedence so an explicit empty-string override (opt out of
+        # sending a resource) is not silently replaced by the configured value.
+        effective_resource = (
+            oauth_code.resource
+            if oauth_code.resource is not None
+            else pending.oauth_config.resource
+        )
 
         try:
             token_data = exchange_code_for_tokens(
@@ -297,7 +303,7 @@ class OAuthExchangeManager:
 
         # Record the resource the token was actually issued for, so cache and
         # persistent storage use it for refreshes instead of the configured default.
-        if effective_resource:
+        if effective_resource is not None:
             token_data["resource"] = effective_resource
 
         if token_manager is None:

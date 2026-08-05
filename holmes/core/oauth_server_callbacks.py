@@ -75,8 +75,9 @@ def process_oauth_callback(
     effective_client_secret = request.client_secret or oauth.client_secret
 
     # RFC 8707 resource indicator: frontend value wins, else the toolset's
-    # configured resource (defaults to the MCP server url).
-    effective_resource = request.resource or oauth.resource
+    # configured resource (defaults to the MCP server url). None-based precedence
+    # so an explicit empty-string override is preserved.
+    effective_resource = request.resource if request.resource is not None else oauth.resource
 
     logger.info("OAuth exchange: token_url=%s client_id=%s", oauth.token_url, effective_client_id)
     token_data = exchange_code_for_tokens(
@@ -90,7 +91,7 @@ def process_oauth_callback(
     )
     # Include client_id in token_data so store_token persists it for refresh
     token_data["client_id"] = effective_client_id
-    if effective_resource:
+    if effective_resource is not None:
         token_data["resource"] = effective_resource
 
     request_context = {"user_id": request.user_id} if request.user_id else None

@@ -729,13 +729,14 @@ class TestResourceIndicator:
 
         # Cache holds the effective (frontend) resource, not the configured one
         cache_key = manager.get_cache_key(oauth_config, ctx)
-        assert manager.cache._cache[cache_key].resource == "http://frontend-resource/mcp"
+        entry = manager.cache._cache[cache_key]
+        assert entry.resource == "http://frontend-resource/mcp"
 
-        # Reactive refresh uses the effective resource
-        manager.cache._cache[cache_key].expires_at = time.monotonic() - 1
+        # The background sweep refreshes with the resource the token was issued
+        # for. (A caller demanding a *different* resource instead gets an
+        # audience-correct refresh — see test_cache_hit_refused_for_different_resource.)
         with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
-            refreshed = manager.get_access_token(oauth_config, ctx)
-        assert refreshed == "tok"
+            manager._refresh_single_token(cache_key, entry)
         assert mock_post.call_args[1]["data"]["resource"] == "http://frontend-resource/mcp"
         manager.shutdown()
 
@@ -744,6 +745,119 @@ class TestResourceIndicator:
         manager2.preload_from_store()
         assert manager2.cache._cache[cache_key].resource == "http://frontend-resource/mcp"
         manager2.shutdown()
+
+    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="empty-override-signing-key")
+    def test_frontend_empty_resource_override_preserved(self, _mock):
+        """An explicit frontend resource='' override (opt out of RFC 8707) must not be
+        replaced by the configured resource — through exchange, cache, refresh, and restart."""
+        oauth_config = self._oauth(resource="http://config-resource/mcp")
+        ctx = {"user_id": "empty-override-user"}
+        dal, _rows = self._fake_dal()
+        manager = self._manager_on(dal)
+
+        tool_call_id = "tc-empty-override"
+        _get_exchange_manager().register_pending(
+            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+        )
+        oauth_code = OAuthDecisionCode(
+            toolset_name="t", code="c", redirect_uri="http://cb", resource="",
+        )
+        exchange_response = self._mock_token_response()
+        exchange_response.json.return_value = {
+            "access_token": "tok", "expires_in": 3600, "refresh_token": "rt",
+        }
+        with patch("holmes.core.oauth_config.httpx.post", return_value=exchange_response) as mock_post:
+            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, ctx, token_manager=manager)
+        # Exchange sent no resource parameter at all
+        assert "resource" not in mock_post.call_args[1]["data"]
+
+        # The empty override is what's cached, not the configured value
+        cache_key = manager.get_cache_key(oauth_config, ctx)
+        assert manager.cache._cache[cache_key].resource == ""
+
+        # Refresh sends no resource parameter
+        manager.cache._cache[cache_key].expires_at = time.monotonic() - 1
+        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_refresh:
+            manager.get_access_token(oauth_config, ctx)
+        assert "resource" not in mock_refresh.call_args[1]["data"]
+        manager.shutdown()
+
+        # The empty override survives a restart
+        manager2 = self._manager_on(dal)
+        manager2.preload_from_store()
+        assert manager2.cache._cache[cache_key].resource == ""
+        manager2.shutdown()
+
+    # ── RFC 8707 audience binding on token lookup ──────────────────────
+
+    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="audience-signing-key")
+    def test_cache_hit_refused_for_different_resource(self, _mock):
+        """A cached token issued for one MCP resource must not be served to a toolset
+        that shares the IdP but targets a different resource; refresh mints an
+        audience-correct token for the requested resource instead."""
+        config_a = self._oauth(resource="http://mcp-a:8000/mcp")
+        config_b = self._oauth(resource="http://mcp-b:8000/mcp")
+        ctx = {"user_id": "audience-user"}
+        dal, _rows = self._fake_dal()
+        manager = self._manager_on(dal)
+
+        manager.store_token(
+            config_a,
+            {"access_token": "tok-for-a", "expires_in": 3600, "refresh_token": "rt"},
+            ctx,
+        )
+
+        refresh_response = self._mock_token_response()
+        refresh_response.json.return_value = {"access_token": "tok-for-b", "expires_in": 300}
+        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=refresh_response) as mock_post:
+            token = manager.get_access_token(config_b, ctx)
+
+        assert token != "tok-for-a"
+        assert token == "tok-for-b"
+        assert mock_post.call_args[1]["data"]["grant_type"] == "refresh_token"
+        assert mock_post.call_args[1]["data"]["resource"] == "http://mcp-b:8000/mcp"
+        manager.shutdown()
+
+    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="audience-signing-key-2")
+    def test_stored_token_refused_for_different_resource(self, _mock):
+        """A persisted token issued for one resource must not be loaded from the store
+        for a toolset requesting a different resource."""
+        config_a = self._oauth(resource="http://mcp-a:8000/mcp")
+        config_b = self._oauth(resource="http://mcp-b:8000/mcp")
+        ctx = {"user_id": "audience-store-user"}
+        dal, _rows = self._fake_dal()
+
+        manager_a = self._manager_on(dal)
+        manager_a._store.store_token(
+            config_a.authorization_url,
+            {"access_token": "tok-for-a", "expires_in": 3600},
+            user_id="audience-store-user",
+            token_url=config_a.token_url,
+            client_id=config_a.client_id,
+            resource=config_a.resource,
+        )
+        manager_a.shutdown()
+
+        # Fresh manager (empty cache, no refresh token) — the store hit is refused
+        manager_b = self._manager_on(dal)
+        assert manager_b.get_access_token(config_b, ctx) is None
+        # ...but the toolset the token was issued for still gets it
+        assert manager_b.get_access_token(config_a, ctx) == "tok-for-a"
+        manager_b.shutdown()
+
+    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="audience-signing-key-3")
+    def test_legacy_cached_token_served_to_resource_aware_caller(self, _mock):
+        """Safe fallback: a legacy token with no resource metadata keeps working for
+        callers that do request a resource (no forced re-auth on upgrade)."""
+        config = self._oauth(resource="http://mcp-a:8000/mcp")
+        ctx = {"user_id": "legacy-audience-user"}
+        dal, _rows = self._fake_dal()
+        manager = self._manager_on(dal)
+
+        cache_key = manager.get_cache_key(config, ctx)
+        manager.cache.set(cache_key, "legacy-tok", expires_in=3600)  # no resource metadata
+        assert manager.get_access_token(config, ctx) == "legacy-tok"
+        manager.shutdown()
 
     @patch("holmes.config.Config.get_robusta_global_config_value", return_value="legacy-signing-key")
     def test_legacy_token_without_resource_falls_back_to_config_after_restart(self, _mock):
