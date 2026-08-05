@@ -14,6 +14,7 @@ tags:
   - kubernetes
   - counting
   - regression
+  - extended
 
 before_test: |
   echo "Creating 5 namespaces for ConfigMap counting test"

@@ -13,4 +13,5 @@ tags:
   - fast
   - question-answer
   - token-limit
+  - extended
 max_tokens: 4000
