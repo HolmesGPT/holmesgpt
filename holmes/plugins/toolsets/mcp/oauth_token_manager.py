@@ -216,6 +216,10 @@ class OAuthTokenManager:
 
         expires_in = token_data.get("expires_in", 300)
 
+        # RFC 8707: prefer the effective resource recorded on the token during the
+        # exchange (e.g. a frontend override) over the configured default.
+        resource = token_data.get("resource", getattr(oauth_config, "resource", None))
+
         self._cache.set(
             cache_key,
             access_token,
@@ -226,7 +230,7 @@ class OAuthTokenManager:
             client_id=oauth_config.client_id,
             authorization_url=oauth_config.authorization_url,
             user_id=user_id,
-            resource=getattr(oauth_config, "resource", None),
+            resource=resource,
         )
 
         if self._store:
@@ -236,7 +240,7 @@ class OAuthTokenManager:
                 user_id=user_id,
                 token_url=oauth_config.token_url,
                 client_id=oauth_config.client_id,
-                resource=getattr(oauth_config, "resource", None),
+                resource=resource,
             )
 
         logger.debug(
@@ -358,10 +362,16 @@ class OAuthTokenManager:
         if not refresh_token:
             return None
 
+        # RFC 8707: prefer the resource the cached token was issued for (which may
+        # be a frontend override) over the configured default.
+        resource = self._cache.get_resource(cache_key)
+        if resource is None:
+            resource = getattr(oauth_config, "resource", None)
+
         try:
             result = self._do_refresh_request(
                 oauth_config.token_url, oauth_config.client_id, refresh_token, cache_key,
-                resource=getattr(oauth_config, "resource", None),
+                resource=resource,
             )
             if not result:
                 self._cache.evict(cache_key)
@@ -375,7 +385,7 @@ class OAuthTokenManager:
                     user_id=user_id,
                     token_url=oauth_config.token_url,
                     client_id=oauth_config.client_id,
-                    resource=getattr(oauth_config, "resource", None),
+                    resource=resource,
                 )
             return access_token
         except Exception:

@@ -92,6 +92,14 @@ class OAuthTokenCache:
                 return None
             return entry.refresh_token
 
+    def get_resource(self, key: str) -> Optional[str]:
+        """Return the RFC 8707 resource the cached token was issued for, if any."""
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            return entry.resource
+
     def set(
         self,
         key: str,
@@ -260,7 +268,7 @@ class DalTokenStore(TokenStore):
                 enriched["token_url"] = token_url
             if client_id:
                 enriched["client_id"] = client_id
-            if resource:
+            if resource is not None:
                 enriched["resource"] = resource
             encrypted = self._encrypt_token(enriched)
             if not encrypted:
@@ -404,7 +412,16 @@ class DiskTokenStore(TokenStore):
             return False
         with self._lock:
             data = self._load()
-            data[provider_name] = token_data
+            # Include metadata needed for refresh after a process restart
+            # (mirrors DalTokenStore's enrichment)
+            enriched = dict(token_data)
+            if token_url:
+                enriched["token_url"] = token_url
+            if client_id:
+                enriched["client_id"] = client_id
+            if resource is not None:
+                enriched["resource"] = resource
+            data[provider_name] = enriched
             fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 json.dump(data, f, indent=2)

@@ -703,6 +703,48 @@ class TestResourceIndicator:
         assert mock_post.call_args[1]["data"]["resource"] == "http://mcp-server:8000/mcp"
         manager2.shutdown()
 
+    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="override-signing-key")
+    def test_frontend_resource_override_persists_and_wins_on_refresh(self, _mock):
+        """A frontend-supplied resource must be the one persisted with the token and
+        used by refreshes — not the configured default — including after a restart."""
+        oauth_config = self._oauth(resource="http://config-resource/mcp")
+        ctx = {"user_id": "override-user"}
+        dal, _rows = self._fake_dal()
+        manager = self._manager_on(dal)
+
+        tool_call_id = "tc-override-refresh"
+        _get_exchange_manager().register_pending(
+            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+        )
+        oauth_code = OAuthDecisionCode(
+            toolset_name="t", code="c", redirect_uri="http://cb",
+            resource="http://frontend-resource/mcp",
+        )
+        exchange_response = self._mock_token_response()
+        exchange_response.json.return_value = {
+            "access_token": "tok", "expires_in": 3600, "refresh_token": "rt",
+        }
+        with patch("holmes.core.oauth_config.httpx.post", return_value=exchange_response):
+            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, ctx, token_manager=manager)
+
+        # Cache holds the effective (frontend) resource, not the configured one
+        cache_key = manager.get_cache_key(oauth_config, ctx)
+        assert manager.cache._cache[cache_key].resource == "http://frontend-resource/mcp"
+
+        # Reactive refresh uses the effective resource
+        manager.cache._cache[cache_key].expires_at = time.monotonic() - 1
+        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            refreshed = manager.get_access_token(oauth_config, ctx)
+        assert refreshed == "tok"
+        assert mock_post.call_args[1]["data"]["resource"] == "http://frontend-resource/mcp"
+        manager.shutdown()
+
+        # The override survives a restart: a fresh manager preloads it from the DB
+        manager2 = self._manager_on(dal)
+        manager2.preload_from_store()
+        assert manager2.cache._cache[cache_key].resource == "http://frontend-resource/mcp"
+        manager2.shutdown()
+
     @patch("holmes.config.Config.get_robusta_global_config_value", return_value="legacy-signing-key")
     def test_legacy_token_without_resource_falls_back_to_config_after_restart(self, _mock):
         """A token persisted by a pre-upgrade pod (no resource in the blob) must pick up

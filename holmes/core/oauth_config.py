@@ -278,6 +278,9 @@ class OAuthExchangeManager:
         # to the server-side config (for pre-registered confidential clients like Azure AD).
         client_secret = oauth_code.client_secret or pending.oauth_config.client_secret
 
+        # RFC 8707 resource indicator: a frontend-supplied value wins over config
+        effective_resource = oauth_code.resource or pending.oauth_config.resource
+
         try:
             token_data = exchange_code_for_tokens(
                 token_url=pending.oauth_config.token_url,
@@ -286,11 +289,16 @@ class OAuthExchangeManager:
                 client_id=client_id,
                 code_verifier=pending.code_verifier,
                 client_secret=client_secret,
-                resource=oauth_code.resource or pending.oauth_config.resource,
+                resource=effective_resource,
             )
         except (OAuthTokenExchangeError, KeyError, Exception):
             logger.exception("OAuth exchange failed (tool_call_id=%s, token_url=%s)", tool_call_id, pending.oauth_config.token_url)
             return
+
+        # Record the resource the token was actually issued for, so cache and
+        # persistent storage use it for refreshes instead of the configured default.
+        if effective_resource:
+            token_data["resource"] = effective_resource
 
         if token_manager is None:
             from holmes.core.oauth_utils import _get_token_manager
