@@ -3,14 +3,21 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.plugins.skills.skill_loader import (
     DEFAULT_HIERARCHY_ORDER,
+    TIER_CUSTOM,
+    TIER_GLOBAL,
+    TIER_PERSONAL,
+    TIER_TO_SOURCE,
     Skill,
     _resolve_name_collisions,
     SkillHierarchyConfig,
     SkillSource,
     load_skill_catalog,
+    normalize_skill_name,
 )
 
 SKILL_BODY = "---\ndescription: Test skill {name}\n---\n## Goal\nTest\n"
@@ -286,3 +293,158 @@ def test_filtered_out_global_does_not_suppress_applicable_personal(tmp_path):
 
     assert [s.name for s in catalog.skills] == ["uuid-p"]
     assert catalog.skills[0].source == SkillSource.PERSONAL
+
+
+# ── collision key construction ──
+#
+# Every collision above is decided by comparing normalized human names, so these two
+# functions are the foundation the whole hierarchy rests on. They were previously only
+# exercised indirectly, through a single case/separator collision test.
+
+
+class TestNormalizeSkillName:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("MySkill", "myskill"),
+            ("my skill", "my-skill"),
+            ("my_skill", "my-skill"),
+            ("My Skill", "my-skill"),
+            ("my-skill", "my-skill"),
+            ("  my skill  ", "my-skill"),
+            ("my\tskill", "my-skill"),
+            ("my\nskill", "my-skill"),
+            ("", ""),
+            ("   ", ""),
+        ],
+    )
+    def test_normalizes(self, raw, expected):
+        assert normalize_skill_name(raw) == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["my   skill", "my___skill", "my _ skill", "my \t skill"],
+    )
+    def test_runs_of_separators_collapse_to_one_hyphen(self, raw):
+        r"""`[\s_]+` is a run, not a single character.
+
+        Without the `+` these would become "my---skill" and would NOT collide with
+        "my-skill", so the dedup would silently stop working for names typed with
+        inconsistent spacing -- exactly the case the hierarchy exists to catch.
+        """
+        assert normalize_skill_name(raw) == "my-skill"
+
+    def test_existing_hyphens_are_not_collapsed(self):
+        r"""Deliberate asymmetry worth pinning: the pattern is `[\s_]+`, so hyphens are
+        left alone. "my--skill" and "my-skill" therefore do NOT collide, while
+        "my  skill" and "my-skill" do."""
+        assert normalize_skill_name("my--skill") == "my--skill"
+        assert normalize_skill_name("my--skill") != normalize_skill_name("my-skill")
+
+
+class TestSkillCollisionKey:
+    @staticmethod
+    def _skill(name, display_name=None):
+        return Skill(
+            name=name,
+            description="d",
+            content="c",
+            source=SkillSource.REMOTE,
+            display_name=display_name,
+        )
+
+    def test_prefers_display_name(self):
+        """Remote and personal skills carry a UUID in `name`, so comparing `name` would
+        never detect a collision -- the human name lives in display_name."""
+        skill = self._skill("2c4e4549-a6f4-25b3-c845-ddb4a6f425b3", "My Skill")
+
+        assert skill.collision_key() == "my-skill"
+
+    def test_falls_back_to_name_when_display_name_is_none(self):
+        """Filesystem skills leave display_name unset because `name` IS the human name."""
+        assert self._skill("My Skill").collision_key() == "my-skill"
+
+    def test_falls_back_to_name_when_display_name_is_empty(self):
+        """`display_name or name` -- "" is falsy, so an empty title falls back to `name`
+        rather than collapsing every such skill onto a shared "" key, which would make
+        them all collide with each other."""
+        skill = self._skill("real-name", display_name="")
+
+        assert skill.collision_key() == "real-name"
+
+    def test_display_name_is_normalized_too(self):
+        assert self._skill("uuid", "  My_Skill  ").collision_key() == "my-skill"
+
+
+# ── tier/order configuration edge cases ──
+
+
+def test_every_default_order_tier_maps_to_a_source():
+    """A tier named in the default order but missing from TIER_TO_SOURCE is silently
+    ignored by _resolve_name_collisions (it only logs a warning), so the default order
+    would quietly stop ranking that tier. Fail loudly here instead."""
+    assert [TIER_GLOBAL, TIER_CUSTOM, TIER_PERSONAL] == DEFAULT_HIERARCHY_ORDER
+    assert all(tier in TIER_TO_SOURCE for tier in DEFAULT_HIERARCHY_ORDER)
+    # Distinct sources, otherwise two tiers would tie and ordering would be ambiguous
+    mapped = [TIER_TO_SOURCE[tier] for tier in DEFAULT_HIERARCHY_ORDER]
+    assert len(set(mapped)) == len(mapped)
+
+
+def test_empty_order_through_load_skill_catalog_uses_the_default(tmp_path):
+    """`hierarchy.order or DEFAULT_HIERARCHY_ORDER` -- an explicitly empty order is
+    treated as unset, so global still wins rather than the tie-break deciding."""
+    _write_skill(tmp_path / "dup", "dup")
+    dal = _dal(global_skills=[_instr("uuid-g", "dup")])
+
+    catalog = load_skill_catalog(
+        dal=dal,
+        custom_skill_paths=[tmp_path],
+        hierarchy=SkillHierarchyConfig(enabled=True, order=[]),
+    )
+
+    assert [s.name for s in catalog.skills] == ["uuid-g"]
+
+
+def test_empty_order_passed_directly_still_keeps_builtin_lowest():
+    """Called directly with [], every non-builtin ties as "unlisted" -- but builtin must
+    still rank below even that, so it loses rather than winning on insertion order."""
+    skills = [
+        _skill("shared", SkillSource.BUILTIN),
+        _skill("shared", SkillSource.PERSONAL),
+    ]
+
+    kept = _resolve_name_collisions(skills, [])
+
+    assert [s.source for s in kept] == [SkillSource.PERSONAL]
+
+
+def test_duplicate_tier_in_order_uses_its_first_position():
+    """`rank_by_source.setdefault` means a repeated tier keeps its earliest rank, so a
+    duplicate cannot demote a tier below one listed after it."""
+    skills = [
+        _skill("shared", SkillSource.PERSONAL),
+        _skill("shared", SkillSource.REMOTE),
+    ]
+
+    assert [s.source for s in _resolve_name_collisions(
+        skills, ["global", "global", "personal"]
+    )] == [SkillSource.REMOTE]
+    assert [s.source for s in _resolve_name_collisions(
+        skills, ["personal", "global", "personal"]
+    )] == [SkillSource.PERSONAL]
+
+
+def test_survivors_keep_their_input_order():
+    """Resolution filters in place rather than rebuilding from the winners dict, so the
+    prompt catalog's ordering stays stable instead of reshuffling per request."""
+    skills = [
+        _skill("alpha", SkillSource.USER),
+        _skill("shared", SkillSource.REMOTE),
+        _skill("beta", SkillSource.USER),
+        _skill("shared", SkillSource.PERSONAL),
+    ]
+
+    kept = _resolve_name_collisions(skills, DEFAULT_HIERARCHY_ORDER)
+
+    assert [s.name for s in kept] == ["alpha", "shared", "beta"]
+    assert kept[1].source == SkillSource.REMOTE
