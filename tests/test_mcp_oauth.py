@@ -642,6 +642,94 @@ class TestResourceIndicator:
         post_data = mock_post.call_args[1]["data"]
         assert post_data["resource"] == "http://mcp-server:8000/mcp"
 
+    # ── Pod restart round-trip ─────────────────────────────────────────
+
+    def _fake_dal(self):
+        """MagicMock dal backed by an in-memory row store, shared across 'pods'."""
+        rows: dict = {}
+        dal = MagicMock()
+
+        def upsert(provider_name, encrypted_token, signing_key_hash, token_expiry, user_id):
+            rows[(provider_name, user_id)] = {
+                "provider_name": provider_name,
+                "user_id": user_id,
+                "encrypted_token": encrypted_token,
+                "token_expiry": token_expiry,
+            }
+
+        dal.upsert_oauth_token.side_effect = upsert
+        dal.get_oauth_token.side_effect = lambda provider_name, user_id, signing_key_hash: rows.get((provider_name, user_id))
+        dal.get_all_oauth_tokens_for_cluster.side_effect = lambda signing_key_hash: list(rows.values())
+        return dal, rows
+
+    def _manager_on(self, dal) -> OAuthTokenManager:
+        """A fresh OAuthTokenManager (empty cache — i.e. a freshly started pod) over the given dal."""
+        from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+
+        manager = OAuthTokenManager()
+        manager._shutdown_event.set()
+        manager._store = DalTokenStore(dal=dal)
+        return manager
+
+    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="restart-signing-key")
+    def test_resource_survives_pod_restart(self, _mock):
+        """Persist a token with a resource, 'restart' into a new manager with an empty
+        cache, preload from the DB, and verify the sweep refresh still sends the resource."""
+        oauth_config = self._oauth(resource="http://mcp-server:8000/mcp")
+        ctx = {"user_id": "restart-user"}
+        dal, rows = self._fake_dal()
+
+        # Pod 1: store the token as the OAuth exchange would
+        manager1 = self._manager_on(dal)
+        manager1.store_token(
+            oauth_config,
+            {"access_token": "tok-before-restart", "expires_in": 3600, "refresh_token": "rt"},
+            ctx,
+        )
+        assert rows, "token was not persisted to the DB"
+        manager1.shutdown()
+
+        # Pod 2: brand-new manager, empty cache, same DB — startup preload
+        manager2 = self._manager_on(dal)
+        manager2.preload_from_store()
+        cache_key = manager2.get_cache_key(oauth_config, ctx)
+        entry = manager2.cache._cache[cache_key]
+        assert entry.resource == "http://mcp-server:8000/mcp"
+        assert manager2.cache.get_valid_access_token(cache_key) == "tok-before-restart"
+
+        # Background sweep refresh right after restart still sends the resource
+        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            manager2._refresh_single_token(cache_key, entry)
+        assert mock_post.call_args[1]["data"]["resource"] == "http://mcp-server:8000/mcp"
+        manager2.shutdown()
+
+    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="legacy-signing-key")
+    def test_legacy_token_without_resource_falls_back_to_config_after_restart(self, _mock):
+        """A token persisted by a pre-upgrade pod (no resource in the blob) must pick up
+        the config-derived resource when loaded on demand after a restart."""
+        oauth_config = self._oauth(resource="http://mcp-server:8000/mcp")
+        ctx = {"user_id": "legacy-user"}
+        dal, _rows = self._fake_dal()
+
+        # Pre-upgrade pod: persist a token blob WITHOUT a resource key
+        manager_old = self._manager_on(dal)
+        manager_old._store.store_token(
+            oauth_config.authorization_url,
+            {"access_token": "legacy-tok", "expires_in": 3600, "refresh_token": "rt"},
+            user_id="legacy-user",
+            token_url=oauth_config.token_url,
+            client_id=oauth_config.client_id,
+        )
+        manager_old.shutdown()
+
+        # Post-upgrade pod: on-demand load falls back to the config's resource
+        manager_new = self._manager_on(dal)
+        token = manager_new.get_access_token(oauth_config, ctx)
+        assert token == "legacy-tok"
+        cache_key = manager_new.get_cache_key(oauth_config, ctx)
+        assert manager_new.cache._cache[cache_key].resource == "http://mcp-server:8000/mcp"
+        manager_new.shutdown()
+
     # ── Frontend metadata ──────────────────────────────────────────────
 
     def test_requires_approval_metadata_includes_resource(self):
