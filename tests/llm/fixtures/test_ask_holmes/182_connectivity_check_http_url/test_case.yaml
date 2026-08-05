@@ -3,7 +3,6 @@ tags:
   - question-answer
   - network
   - hard
-  - extended
 expected_output:
   - "https://www.google.com/favicon.ico is accessible"
   - "https://www.google.com/favicon.webp is not accessible and returns 404"

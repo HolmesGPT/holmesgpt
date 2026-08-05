@@ -17,7 +17,6 @@ tags:
   - logs
   - datadog
   - hard
-  - extended
 
 toolsets_matrix:
   - toolsets.yaml
