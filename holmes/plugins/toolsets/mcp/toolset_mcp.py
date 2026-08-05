@@ -196,6 +196,17 @@ class MCPConfig(ToolsetConfig):
         examples=["get_me", "get_current_user"],
     )
 
+    @model_validator(mode="after")
+    def default_oauth_resource(self) -> "MCPConfig":
+        """Default the RFC 8707 resource indicator to the MCP server's canonical URL.
+
+        Only fills the value when it wasn't configured explicitly (None); an
+        explicit empty string opts out of sending a resource parameter entirely.
+        """
+        if self.oauth is not None and self.oauth.resource is None:
+            self.oauth.resource = str(self.url).rstrip("/")
+        return self
+
     def get_lock_string(self) -> str:
         return str(self.url)
 
@@ -372,6 +383,7 @@ class RemoteMCPTool(Tool):
                 client_secret=oauth_config.client_secret,
                 scopes=oauth_config.scopes,
                 registration_endpoint=oauth_config.registration_endpoint,
+                resource=oauth_config.resource,
             )
             token_data = cli_oauth_flow(oauth_endpoints, self.toolset.name)
             if token_data:
@@ -404,6 +416,8 @@ class RemoteMCPTool(Tool):
             metadata["scopes"] = oauth_config.scopes
         if oauth_config.registration_endpoint:
             metadata["registration_endpoint"] = oauth_config.registration_endpoint
+        if oauth_config.resource:
+            metadata["resource"] = oauth_config.resource
         params["__oauth_metadata"] = metadata
 
         return ApprovalRequirement(

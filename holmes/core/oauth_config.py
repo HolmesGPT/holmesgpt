@@ -43,8 +43,13 @@ def exchange_code_for_tokens(
     client_id: str,
     code_verifier: Optional[str] = None,
     client_secret: Optional[str] = None,
+    resource: Optional[str] = None,
 ) -> dict:
     """Exchange an OAuth authorization code for tokens at the IdP's token endpoint.
+
+    ``resource`` is the RFC 8707 resource indicator (the MCP server's canonical
+    URL). The MCP authorization spec (rev 2025-06-18) requires it in the token
+    request; when absent nothing is sent, preserving legacy behavior.
 
     Returns the parsed JSON token response (containing at least ``access_token``).
     Raises :class:`OAuthTokenExchangeError` on HTTP failure or missing ``access_token``.
@@ -57,6 +62,8 @@ def exchange_code_for_tokens(
     }
     if code_verifier:
         data["code_verifier"] = code_verifier
+    if resource:
+        data["resource"] = resource
 
     # Some IdPs (e.g. Notion) require client credentials via HTTP Basic Auth,
     # while others (e.g. Supabase) accept them in the POST body.
@@ -130,6 +137,7 @@ class OAuthEndpoints:
     client_secret: Optional[str] = None
     scopes: Optional[List[str]] = None
     registration_endpoint: Optional[str] = None
+    resource: Optional[str] = None
 
 
 class MCPOAuthConfig(BaseModel):
@@ -148,6 +156,7 @@ class MCPOAuthConfig(BaseModel):
     client_secret: Optional[str] = Field(default=None, description="OAuth client secret for confidential clients.")
     scopes: Optional[List[str]] = Field(default=None, description="OAuth scopes to request.")
     registration_endpoint: Optional[str] = Field(default=None, description="DCR endpoint (auto-populated during discovery, sent to frontend for client registration).")
+    resource: Optional[str] = Field(default=None, description="RFC 8707 resource indicator: the MCP server's canonical URL, sent in authorization and token requests. Defaults to the toolset's MCP server url.")
 
     @model_validator(mode="after")
     def auto_enable_when_configured(self):
@@ -164,7 +173,7 @@ class MCPOAuthConfig(BaseModel):
         environment variables (typically injected from a Kubernetes Secret) —
         same Jinja syntax the headers code path already supports.
         """
-        for field in ("client_secret", "authorization_url", "token_url", "client_id", "registration_endpoint"):
+        for field in ("client_secret", "authorization_url", "token_url", "client_id", "registration_endpoint", "resource"):
             setattr(self, field, render_env_template(getattr(self, field), f"MCPOAuthConfig.{field}"))
         return self
 
@@ -181,6 +190,7 @@ class OAuthDecisionCode(BaseModel):
     code_verifier: Optional[str] = None
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
+    resource: Optional[str] = None
 
 
 def parse_oauth_decision(decision: Optional[Dict[str, Any]]) -> Optional[OAuthDecisionCode]:
@@ -276,6 +286,7 @@ class OAuthExchangeManager:
                 client_id=client_id,
                 code_verifier=pending.code_verifier,
                 client_secret=client_secret,
+                resource=oauth_code.resource or pending.oauth_config.resource,
             )
         except (OAuthTokenExchangeError, KeyError, Exception):
             logger.exception("OAuth exchange failed (tool_call_id=%s, token_url=%s)", tool_call_id, pending.oauth_config.token_url)

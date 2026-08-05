@@ -74,6 +74,10 @@ def process_oauth_callback(
     # to the server-side config (for pre-registered confidential clients like Azure AD).
     effective_client_secret = request.client_secret or oauth.client_secret
 
+    # RFC 8707 resource indicator: frontend value wins, else the toolset's
+    # configured resource (defaults to the MCP server url).
+    effective_resource = request.resource or oauth.resource
+
     logger.info("OAuth exchange: token_url=%s client_id=%s", oauth.token_url, effective_client_id)
     token_data = exchange_code_for_tokens(
         token_url=oauth.token_url,
@@ -82,9 +86,12 @@ def process_oauth_callback(
         client_id=effective_client_id,
         code_verifier=request.code_verifier,
         client_secret=effective_client_secret,
+        resource=effective_resource,
     )
     # Include client_id in token_data so store_token persists it for refresh
     token_data["client_id"] = effective_client_id
+    if effective_resource:
+        token_data["resource"] = effective_resource
 
     request_context = {"user_id": request.user_id} if request.user_id else None
     mgr.store_token(oauth, token_data, request_context=request_context)

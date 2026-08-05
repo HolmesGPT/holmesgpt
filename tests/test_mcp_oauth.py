@@ -39,6 +39,7 @@ from holmes.core.oauth_config import (
 )
 from holmes.core.oauth_utils import (
     _get_token_manager,
+    build_authorization_url,
     cli_oauth_flow,
     generate_pkce,
 )
@@ -438,6 +439,246 @@ class TestExchangeCodeForToken:
                     client_secret="slack-client-secret",
                 )
             assert "access_token" in str(excinfo.value.detail)
+
+
+class TestResourceIndicator:
+    """RFC 8707 resource indicator support (MCP authorization spec rev 2025-06-18)."""
+
+    def _oauth(self, **kwargs):
+        return MCPOAuthConfig(
+            enabled=True,
+            authorization_url="http://idp/authorize",
+            token_url="http://idp/token",
+            client_id="cid",
+            **kwargs,
+        )
+
+    def _mock_token_response(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.json.return_value = {
+            "access_token": "tok",
+            "token_type": "Bearer",
+            "expires_in": 300,
+        }
+        return mock_response
+
+    # ── Config defaulting ──────────────────────────────────────────────
+
+    def test_resource_defaults_to_mcp_server_url(self):
+        config = MCPConfig(
+            url="http://mcp-server:8000/mcp",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=self._oauth(),
+        )
+        assert config.oauth.resource == "http://mcp-server:8000/mcp"
+
+    def test_resource_default_strips_trailing_slash(self):
+        config = MCPConfig(
+            url="http://mcp-server:8000",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=self._oauth(),
+        )
+        assert config.oauth.resource == "http://mcp-server:8000"
+
+    def test_resource_explicit_override_preserved(self):
+        config = MCPConfig(
+            url="http://mcp-server:8000/mcp",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=self._oauth(resource="https://canonical.example.com/mcp"),
+        )
+        assert config.oauth.resource == "https://canonical.example.com/mcp"
+
+    def test_resource_empty_string_opts_out_of_default(self):
+        config = MCPConfig(
+            url="http://mcp-server:8000/mcp",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=self._oauth(resource=""),
+        )
+        assert config.oauth.resource == ""
+
+    def test_resource_none_on_standalone_oauth_config(self):
+        assert self._oauth().resource is None
+
+    def test_resource_env_template_rendered(self, monkeypatch):
+        monkeypatch.setenv("MCP_OAUTH_RESOURCE", "https://env.example.com/mcp")
+        oauth = self._oauth(resource="{{ env.MCP_OAUTH_RESOURCE }}")
+        assert oauth.resource == "https://env.example.com/mcp"
+
+    def test_get_oauth_config_includes_resource(self):
+        toolset = RemoteMCPToolset(name="test-resource", enabled=True)
+        toolset._mcp_config = MCPConfig(
+            url="http://mcp-server:8000/mcp",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=self._oauth(),
+        )
+        published = toolset.get_oauth_config()
+        assert published["resource"] == "http://mcp-server:8000/mcp"
+
+    # ── Authorization URL ──────────────────────────────────────────────
+
+    def test_build_authorization_url_includes_resource(self):
+        url = build_authorization_url(
+            "http://idp/authorize", "cid", "http://cb", "chal", "state1",
+            resource="http://mcp-server:8000/mcp",
+        )
+        params = parse_qs(urlparse(url).query)
+        assert params["resource"] == ["http://mcp-server:8000/mcp"]
+
+    def test_build_authorization_url_omits_resource_when_absent(self):
+        url = build_authorization_url("http://idp/authorize", "cid", "http://cb", "chal", "state1")
+        params = parse_qs(urlparse(url).query)
+        assert "resource" not in params
+
+    # ── Token exchange ─────────────────────────────────────────────────
+
+    def test_exchange_includes_resource(self):
+        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            exchange_code_for_tokens(
+                token_url="http://idp/token",
+                code="c",
+                redirect_uri="http://cb",
+                client_id="cid",
+                resource="http://mcp-server:8000/mcp",
+            )
+        post_data = mock_post.call_args[1]["data"]
+        assert post_data["resource"] == "http://mcp-server:8000/mcp"
+
+    def test_exchange_omits_resource_when_absent(self):
+        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            exchange_code_for_tokens(
+                token_url="http://idp/token",
+                code="c",
+                redirect_uri="http://cb",
+                client_id="cid",
+            )
+        post_data = mock_post.call_args[1]["data"]
+        assert "resource" not in post_data
+
+    def test_complete_exchange_uses_config_resource(self):
+        tool_call_id = "tc-resource-config"
+        oauth_config = self._oauth(resource="http://mcp-server:8000/mcp")
+        _get_exchange_manager().register_pending(
+            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+        )
+        oauth_code = OAuthDecisionCode(toolset_name="t", code="c", redirect_uri="http://cb")
+        request_context = {"user_id": "test-user"}
+
+        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        post_data = mock_post.call_args[1]["data"]
+        assert post_data["resource"] == "http://mcp-server:8000/mcp"
+
+    def test_complete_exchange_frontend_resource_wins(self):
+        tool_call_id = "tc-resource-frontend"
+        oauth_config = self._oauth(resource="http://config-resource/mcp")
+        _get_exchange_manager().register_pending(
+            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+        )
+        oauth_code = OAuthDecisionCode(
+            toolset_name="t", code="c", redirect_uri="http://cb",
+            resource="http://frontend-resource/mcp",
+        )
+        request_context = {"user_id": "test-user"}
+
+        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        post_data = mock_post.call_args[1]["data"]
+        assert post_data["resource"] == "http://frontend-resource/mcp"
+
+    def test_complete_exchange_no_resource_is_byte_identical(self):
+        tool_call_id = "tc-resource-none"
+        oauth_config = self._oauth()
+        _get_exchange_manager().register_pending(
+            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+        )
+        oauth_code = OAuthDecisionCode(toolset_name="t", code="c", redirect_uri="http://cb")
+        request_context = {"user_id": "test-user"}
+
+        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        post_data = mock_post.call_args[1]["data"]
+        assert "resource" not in post_data
+
+    # ── Refresh requests ───────────────────────────────────────────────
+
+    def test_refresh_request_includes_resource(self):
+        mgr = _get_token_manager()
+        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            result = mgr._do_refresh_request(
+                "http://idp/token", "cid", "rt", "cache-key-resource",
+                resource="http://mcp-server:8000/mcp",
+            )
+        assert result is not None
+        post_data = mock_post.call_args[1]["data"]
+        assert post_data["grant_type"] == "refresh_token"
+        assert post_data["resource"] == "http://mcp-server:8000/mcp"
+
+    def test_refresh_request_omits_resource_when_absent(self):
+        mgr = _get_token_manager()
+        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            result = mgr._do_refresh_request("http://idp/token", "cid", "rt", "cache-key-no-resource")
+        assert result is not None
+        post_data = mock_post.call_args[1]["data"]
+        assert "resource" not in post_data
+
+    def test_sweep_refresh_uses_cached_entry_resource(self):
+        """The background sweep refreshes from the cache entry — resource must survive the round-trip."""
+        mgr = _get_token_manager()
+        oauth_config = self._oauth(resource="http://mcp-server:8000/mcp")
+        request_context = {"user_id": "sweep-user"}
+        mgr.store_token(
+            oauth_config,
+            {"access_token": "tok", "expires_in": 60, "refresh_token": "rt"},
+            request_context,
+        )
+        cache_key = mgr.get_cache_key(oauth_config, request_context)
+        entry = mgr.cache._cache[cache_key]
+        assert entry.resource == "http://mcp-server:8000/mcp"
+
+        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+            mgr._refresh_single_token(cache_key, entry)
+        post_data = mock_post.call_args[1]["data"]
+        assert post_data["resource"] == "http://mcp-server:8000/mcp"
+
+    # ── Frontend metadata ──────────────────────────────────────────────
+
+    def test_requires_approval_metadata_includes_resource(self):
+        oauth = self._oauth(scopes=["mcp:tools"])
+        toolset = RemoteMCPToolset(name="test-resource-meta", enabled=True)
+        toolset._mcp_config = MCPConfig(
+            url="http://mcp-server:8000/mcp",
+            mode=MCPMode.STREAMABLE_HTTP,
+            oauth=oauth,
+        )
+        tool = RemoteMCPTool(name="t", description="", parameters={}, toolset=toolset)
+        context = MagicMock()
+        context.user_approved = False
+        context.tool_call_id = "tc-resource-meta"
+        context.request_context = {"user_id": "meta-user"}
+
+        cache_key = _get_token_manager().get_cache_key(oauth, context.request_context)
+        _get_token_manager().cache.evict(cache_key)
+        _get_token_manager()._store = MagicMock()
+        _get_token_manager()._store.get_token.return_value = None
+
+        params = {}
+        result = tool.requires_approval(params, context)
+        assert result is not None
+        assert params["__oauth_metadata"]["resource"] == "http://mcp-server:8000/mcp"
+
+    def test_oauth_decision_code_parses_resource(self):
+        decision = parse_oauth_decision(
+            {
+                "toolset_name": "t",
+                "code": "c",
+                "redirect_uri": "http://cb",
+                "resource": "http://mcp-server:8000/mcp",
+            }
+        )
+        assert decision is not None
+        assert decision.resource == "http://mcp-server:8000/mcp"
 
 
 class TestParseOAuthDecision:

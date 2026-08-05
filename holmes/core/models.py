@@ -134,6 +134,7 @@ class OAuthCallbackRequest(BaseModel):
     redirect_uri: str
     client_id: Optional[str] = None
     client_secret: Optional[str] = None  # Required by some IdPs (e.g. Supabase) that don't support public clients
+    resource: Optional[str] = None  # RFC 8707 resource indicator (canonical MCP server URL)
     user_id: Optional[str] = None
 
 
