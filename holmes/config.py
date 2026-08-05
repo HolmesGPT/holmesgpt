@@ -337,21 +337,17 @@ class Config(RobustaBaseConfig):
     ) -> Optional[SkillCatalog]:
         """Build the per-request skill catalog that feeds the system prompt.
 
-        This is rebuilt on every request, so it is where the personal tier and the
-        name-collision hierarchy are applied. `user_id` must be the END USER's id from the
-        request; when absent (alert triage, triggered workflows, scheduled prompts) no
-        personal skills are loaded.
+        Rebuilt every request, so this is where the personal tier and the collision hierarchy
+        are applied. `user_id` must be the END USER's id; absent (alert triage, triggered
+        workflows, scheduled prompts) no personal skills load.
 
-        Note the fetch_skill tool's own id list is NOT built here -- that toolset is
-        constructed once and cached across requests and users, so per-user skills must
-        never be baked into it (see SkillsFetcher, which resolves personal skills at
-        invoke time from the request's user_id instead).
+        The fetch_skill tool's own id list is NOT built here -- that toolset is cached across
+        requests and users, so per-user skills must never be baked into it. SkillsFetcher
+        resolves them at invoke time instead.
         """
-        # No `if self.dal` guard: it is a property that lazily constructs a SupabaseDal, so
-        # it is never falsy and the guard read as if the DAL were optional here. The
-        # not-configured case is handled inside get_skill_hierarchy_config, which returns the
-        # disabled default when the DAL is not enabled, and it is TTL-cached so this does not
-        # add a Supabase round trip to every chat turn.
+        # `self.dal` is a lazily-constructing property, so no truthiness guard: the
+        # not-configured case is handled inside get_skill_hierarchy_config, which is
+        # TTL-cached and so adds no round trip per turn.
         hierarchy = self.dal.get_skill_hierarchy_config()
         return load_skill_catalog(
             dal=self.dal,

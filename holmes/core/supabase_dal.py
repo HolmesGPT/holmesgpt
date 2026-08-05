@@ -280,12 +280,9 @@ class SupabaseDal:
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
-        # The skill hierarchy config is read on every chat request (it feeds the per-request
-        # prompt catalog), but it is per-account and changes rarely, so cache it briefly
-        # rather than adding a blocking AccountSettings round trip to every turn. A short TTL
-        # keeps a flag flip taking effect without a restart.
-        # Parsed defensively: this runs during __init__, so a typo in the env var would
-        # otherwise raise ValueError and stop Holmes from starting at all.
+        # Read on every chat request but per-account and rarely changed, so cache it briefly
+        # instead of adding an AccountSettings round trip per turn. Parsed defensively: this
+        # runs in __init__, so a bad env var must not stop Holmes from starting.
         raw_ttl = os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")
         try:
             hierarchy_ttl = int(raw_ttl)
@@ -603,9 +600,8 @@ class SupabaseDal:
                 title = row.get("subject_name")
                 clusters = row.get("clusters")
                 alerts = row.get("alerts") or []
-                # A skill needs SOME way to be matched, but alerts are a valid alternative to
-                # symptoms -- the UI enforces "either symptoms or alerts". Requiring symptoms
-                # here silently discarded every alert-only skill.
+                # Alerts are a valid alternative to symptoms (the UI enforces "either"), so
+                # requiring symptoms here discarded every alert-only skill.
                 if not symptom and not alerts:
                     logging.warning(
                         "Skipping skill with neither symptom nor alerts: %s", id
@@ -614,19 +610,14 @@ class SupabaseDal:
                 # Filter by cluster: null means all clusters, otherwise check membership
                 if clusters is not None and self.cluster not in clusters:
                     continue
-                # Validate per row. id and title are required on the model, so a row with a
-                # null runbook_id or subject_name raises -- and if that reached the outer
-                # handler the account would silently lose EVERY global skill, not just the
-                # malformed one.
+                # Per row, so one malformed row costs that skill rather than the whole
+                # catalog. ValidationError only -- a broader catch would hide real bugs.
                 try:
                     instructions.append(
                         RobustaSkillInstruction(
                             id=id, symptom=symptom or "", title=title, alerts=alerts
                         )
                     )
-                # Only ValidationError: that is what a malformed ROW raises, and it is the
-                # only thing worth skipping past. A broader catch here would also swallow
-                # genuine bugs in this loop and report them as "malformed data".
                 except ValidationError:
                     logging.warning(
                         "Skipping malformed skill row: runbook_id=%s", id
@@ -654,11 +645,9 @@ class SupabaseDal:
         row = res.data[0]
         return RobustaSkillInstruction(
             id=row.get("runbook_id"),
-            # `or ""` because an alert-only skill has NULL symptoms, and `symptom` is typed
-            # `str` -- its "" default applies only when the field is OMITTED, so an explicit
-            # None raises ValidationError. Since the catalog read started keeping alert-only
-            # skills, they are offered to the LLM, and without this their body could never be
-            # fetched. Matches what get_skill_catalog already does per row.
+            # `or ""` -- an alert-only skill has NULL symptoms, and `symptom` is typed `str`,
+            # so its "" default applies only when OMITTED; an explicit None fails validation
+            # and the skill becomes unfetchable despite being offered to the LLM.
             symptom=row.get("symptoms") or "",
             instruction=self._extract_skill_instruction(row, skill_id),
             title=row.get("subject_name"),
@@ -669,14 +658,13 @@ class SupabaseDal:
         """Normalize the runbook.instructions jsonb into a single string.
 
         Returns "" when there is nothing to extract, NOT str(None). Callers fall back with
-        `instruction or pretty()`, and the string "None" is truthy -- it would suppress the
-        fallback and hand the LLM the literal text "None" as the skill body.
+        `instruction or pretty()`, and "None" is truthy -- it would suppress the fallback and
+        hand the LLM the literal text "None" as the skill body.
         """
         runbook = row.get("runbook")
         if runbook is not None and not isinstance(runbook, dict):
-            # `runbook` is jsonb with no shape constraint, so a row can legally hold a list
-            # or a scalar. `.get` on those raises AttributeError, and the caller turns any
-            # exception into a silently dropped skill -- so normalize to "" instead.
+            # jsonb has no shape constraint, so this can be a list or scalar. `.get` on those
+            # raises, and the caller turns any exception into a silently dropped skill.
             logging.error(
                 "Unexpected runbook shape for skill_id=%s: %s",
                 skill_id,
@@ -714,14 +702,12 @@ class SupabaseDal:
     ) -> Optional[List[RobustaSkillInstruction]]:
         """List the given END USER's personal skills.
 
-        Reads through the get_personal_skills RPC rather than selecting HolmesRunbooks
-        directly. Personal rows are owner-only under RLS (user_id = auth.uid()), and Holmes
-        authenticates as its own account-member service user, so a plain table select would
-        match zero rows and personal skills would silently never load. The RPC is
-        SECURITY DEFINER and guarded on the caller being a member of the account.
+        Goes through the SECURITY DEFINER get_personal_skills RPC, not a table select:
+        personal rows are owner-only under RLS and Holmes authenticates as its own service
+        user, so a select would match zero rows and silently load nothing.
 
-        `user_id` MUST be the end user's id from the request -- never self.user_id, which is
-        Holmes's own service identity and identical on every request.
+        `user_id` MUST come from the request -- never self.user_id, which is Holmes's own
+        service identity and identical on every request.
         """
         if not self.enabled or not user_id:
             return None
@@ -749,9 +735,8 @@ class SupabaseDal:
                         "Skipping personal skill with neither symptom nor alerts: %s", id
                     )
                     continue
-                # Filter by cluster: null means all clusters, otherwise check membership.
-                # This must happen before any hierarchy dedup so that a skill scoped to a
-                # different cluster cannot suppress an applicable one.
+                # Cluster filter (null = all). Must precede hierarchy dedup, so a skill
+                # scoped to another cluster cannot suppress an applicable one.
                 if clusters is not None and self.cluster not in clusters:
                     continue
                 # Validate per row. id and title are required on the model, so a row with a
@@ -847,10 +832,8 @@ class SupabaseDal:
             if isinstance(raw_enabled, bool):
                 enabled = raw_enabled
             else:
-                # This jsonb is written by hand-run SQL in practice, so the JSON *string*
-                # "false" is a realistic mistake -- and bool("false") is True, which would
-                # silently turn the hierarchy ON and start suppressing skills. Treat any
-                # non-boolean as unset rather than guessing.
+                # Written by hand-run SQL, so the string "false" is a realistic mistake --
+                # and bool("false") is True, which would silently enable suppression.
                 logging.warning(
                     "Ignoring non-boolean skill_name_hierarchy_enabled=%r; treating as false",
                     raw_enabled,

@@ -8,15 +8,14 @@ class RobustaSkillInstruction(BaseModel):
     """Supabase-hosted skill instruction from the HolmesRunbooks table."""
 
     id: str
-    # Defaults to "" because a skill may be scoped by `alerts` INSTEAD of symptoms -- the
-    # UI validates "either symptoms or alerts must be provided", so requiring symptoms here
-    # made Holmes silently drop every alert-only skill.
+    # Defaults to "": a skill may be scoped by `alerts` INSTEAD of symptoms (the UI validates
+    # "either"), so requiring symptoms dropped every alert-only skill.
     symptom: str = ""
     title: str
     instruction: Optional[str] = None
     # GroupedIssues.aggregation_key values this skill is scoped to; empty means all alerts.
-    # The UI's picker offers exactly these (see getRecentAlertNames), so matching against an
-    # issue's own aggregation_key is an exact string comparison by construction.
+    # The UI's picker offers exactly these (getRecentAlertNames), so comparing against an
+    # issue's own aggregation_key is exact by construction.
     alerts: List[str] = []
 
     class _LiteralDumper(yaml.SafeDumper):

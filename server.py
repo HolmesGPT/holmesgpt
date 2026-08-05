@@ -330,10 +330,9 @@ def _toolset_status_refresh_loop():
                     "Error during periodic toolset status refresh", exc_info=True
                 )
             try:
-                # Re-read the skill files every cycle rather than gating on a change
-                # signal: skills live on the filesystem, so a ConfigMap/Secret remount can
-                # change them with no toolset status change to detect. The sync is an
-                # idempotent upsert + prune, so repeating it is cheap and self-healing.
+                # Re-read every cycle rather than gating on a change signal: a
+                # ConfigMap/Secret remount changes skills with no toolset status change to
+                # detect. The sync is an idempotent upsert + prune, so repeating is cheap.
                 if dal.enabled:
                     holmes_sync_skills_status(dal, config)
             except Exception:
@@ -527,8 +526,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
         open_experiment_from_request(http_request)
 
-        # Pass the end user's id so their personal skills are included for this request
-        # only. Server-initiated flows have no user_id and so load no personal skills.
+        # End user's id, so their personal skills are included for this request only.
         skills = config.get_skill_catalog(user_id=chat_request.user_id)
 
         prompt_component_overrides = None

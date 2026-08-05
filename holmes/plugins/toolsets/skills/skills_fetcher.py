@@ -37,19 +37,10 @@ class SkillsFetcher(Tool):
         if skill_catalog:
             available_skills = skill_catalog.list_available_skills()
 
-        # This list deliberately OMITS the current user's personal skills. The toolset is
-        # built once and cached across requests and users (the executor cache key ignores
-        # account/user), so baking per-user ids in would leak them between users and freeze
-        # them at first request. They are resolved per-invocation instead, from
-        # request_context["user_id"] -- see _get_personal_skill.
-        #
-        # So the list is NOT a closed set, and it must not claim to be. Declaring
-        # "Must be one of: <list>" made the model refuse to fetch personal skills it could
-        # plainly see in the prompt catalog: it read the parameter description as a hard
-        # contract and self-censored, answering that the id "is not in my available skill
-        # list to fetch directly" -- even though the fetch would have succeeded. Worse, with
-        # no global or filesystem skills this rendered as a bare "Must be one of: ", an empty
-        # allow-list, so for a user whose only skills are personal nothing looked fetchable.
+        # Omits personal skills: this toolset is cached across users, so per-user ids would
+        # leak (see _get_personal_skill, which resolves them per invocation). The list is
+        # therefore open, and must not say otherwise -- "Must be one of: <list>" made the
+        # model refuse to fetch personal skills it could see in the prompt catalog.
         known_ids = ", ".join([f'"{s}"' for s in available_skills])
         skill_id_description = "The skill_id: either a UUID or a skill name."
         if known_ids:
@@ -60,8 +51,8 @@ class SkillsFetcher(Tool):
                 " instructions, even if it does not appear above."
             )
         else:
-            # No global or filesystem skills. Say nothing about a list of known ids at all:
-            # referring to one that was never rendered reads as an empty allow-list.
+            # Mention no list at all: referring to one that was never rendered reads as an
+            # empty allow-list, so nothing looks fetchable.
             skill_id_description += (
                 " Pass any skill id listed in the Skill Catalog section of your"
                 " instructions, including the current user's personal skills, which are"
@@ -96,10 +87,7 @@ class SkillsFetcher(Tool):
                 params=params,
             )
 
-        # The end user for this request. This toolset is built ONCE and cached across
-        # requests and users (the executor cache key ignores account/user), so per-user
-        # personal skills must never be baked into self._skill_catalog or the parameter
-        # description. They are resolved here instead, per invocation.
+        # Resolved per invocation, not baked into the cached toolset -- see __init__.
         user_id = (context.request_context or {}).get("user_id")
 
         # Look up in skill catalog by name — remote skills have empty content
@@ -110,9 +98,8 @@ class SkillsFetcher(Tool):
         elif skill:
             return self._format_skill_result(skill, params)
 
-        # Not in the cached catalog. A personal skill is the expected case here: its id only
-        # ever appears in the per-request prompt catalog, never in this cached one. Try the
-        # user-scoped lookup first so one user can never read another's personal skill.
+        # Not in the cached catalog -- the expected case for a personal skill. User-scoped
+        # lookup goes first so one user can never read another's.
         personal_miss: Optional[str] = None
         if user_id and self._dal and self._dal.enabled:
             personal_result, personal_miss = self._get_personal_skill(
@@ -124,9 +111,7 @@ class SkillsFetcher(Tool):
         # Fallback: try Supabase for UUID-style IDs not in catalog
         if self._dal and self._dal.enabled:
             result = self._get_robusta_skill(skill_id, params)
-            # Say that a user-scoped lookup also ran and why it missed, otherwise the only
-            # feedback is "not found in remote storage" and the personal path is invisible
-            # when debugging.
+            # Report the personal miss too, or that path is invisible when debugging.
             if result.status == StructuredToolResultStatus.ERROR and personal_miss:
                 result.error = f"{result.error} {personal_miss}"
             return result
@@ -196,11 +181,9 @@ class SkillsFetcher(Tool):
     ) -> tuple[Optional[StructuredToolResult], Optional[str]]:
         """Fetch a personal skill scoped to this end user.
 
-        Returns (result, miss_reason). The result is None when the id is not one of that
-        user's personal skills, so the caller can fall through to the global lookup -- a
-        miss is the normal case for a global skill id. miss_reason carries why, including
-        the underlying API error text, so a failed lookup is not invisible in the error the
-        LLM finally sees.
+        Returns (result, miss_reason). A None result means "not this user's skill" -- the
+        normal case for a global id -- so the caller falls through. miss_reason carries why,
+        so a failed lookup is not invisible in the error the LLM sees.
         """
         if not self._dal:
             return None, None

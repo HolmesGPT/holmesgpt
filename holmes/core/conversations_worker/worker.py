@@ -928,18 +928,16 @@ class ConversationWorker:
     ) -> Optional[str]:
         """The firing alert's ``GroupedIssues.aggregation_key``, for alert flows only.
 
-        Returned only for alert-related conversations, so ordinary chat keeps being offered
-        every skill (alert-scoped ones included, with their alert names in the description).
+        Returned only for alert conversations, so ordinary chat keeps being offered every
+        skill (alert-scoped ones included, with their alert names in the description).
 
-        Two id fields, and BOTH are needed. Alert triage names the GroupedIssue in
-        ``metadata.finding_id`` and sets no ``source_ref``; the FE's alert-investigation flow
-        uses ``source_ref``. Wiring only ``source_ref`` -- the field whose docstring advertises
-        "an issue id when request_source='alert_investigation'" -- silently leaves triage
-        unfiltered, which is the whole reason alert scoping needs to work.
+        BOTH id fields are needed: triage names the GroupedIssue in ``metadata.finding_id``
+        and sets no ``source_ref``, while the FE's alert-investigation flow uses
+        ``source_ref``. Wiring only ``source_ref`` leaves triage silently unfiltered.
 
-        `request_type` is checked on the Conversations row's metadata first: relay persists
-        'alert_investigation' there, whereas Holmes's own ChatRequest.request_type carries a
-        different, backend-set taxonomy ('user_chat', 'scheduled_prompt', …).
+        `request_type` comes from the Conversations metadata first -- relay persists
+        'alert_investigation' there, while ChatRequest.request_type carries a different,
+        backend-set taxonomy ('user_chat', 'scheduled_prompt', …).
         """
         meta = task.metadata or {}
         markers = {
@@ -987,11 +985,9 @@ class ConversationWorker:
             trace_type=os.environ.get("HOLMES_TRACE_BACKEND")
         )
 
-        # Personal skills are scoped to the requesting end user. chat_request.user_id is the
-        # already-resolved "user Holmes may act on behalf of" -- the same value the per-user
-        # OAuth resolver keys on, so a conversation that opted out via
-        # metadata.oauth_enabled = false (e.g. a triggered workflow that must not run under
-        # its creator's identity) has user_id set to None here and loads no personal skills.
+        # chat_request.user_id is the already-resolved "user Holmes may act on behalf of" --
+        # the same value the per-user OAuth resolver keys on, so a conversation that opted out
+        # via metadata.oauth_enabled = false loads no personal skills either.
         skills = self.config.get_skill_catalog(
             user_id=chat_request.user_id,
             alert_name=self._resolve_alert_name(task, chat_request),
