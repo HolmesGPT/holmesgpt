@@ -2,6 +2,7 @@ user_prompt: "Find login failures in my-app-52"
 tags:
   - logs
   - medium
+  - extended
 expected_output: |
   A summary with the following errors in whichever order:
     1. Login issues due to redis timeouts

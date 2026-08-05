@@ -3,6 +3,7 @@ tags:
   - kubernetes
   - network
   - hard
+  - extended
 expected_output:
   - Frontend getting timeouts because NetworkPolicy on backend only allows ingress from pods with tier backend label not frontend
 before_test: |

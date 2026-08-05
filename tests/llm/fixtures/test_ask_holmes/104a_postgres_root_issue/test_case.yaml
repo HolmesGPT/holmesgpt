@@ -6,6 +6,7 @@ expected_output:
 tags:
   - hard
   - database
+  - extended
 
 before_test: |
   kubectl create namespace namespace-104a

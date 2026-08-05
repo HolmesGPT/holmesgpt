@@ -3,6 +3,7 @@ tags:
   - logs
   - context_window
   - medium
+  - extended
 expected_output:
   - Backend service unable to handle requests due to database connection pool exhausted at 100/100 connections causing timeouts
 before_test: |

@@ -31,3 +31,4 @@ after_test: |
 tags:
   - logs
   - medium
+  - extended
