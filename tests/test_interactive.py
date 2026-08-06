@@ -27,6 +27,7 @@ from holmes.interactive import (
     handle_feedback_command,
     run_interactive_loop,
 )
+from holmes.utils.sessions import ChatSession, SessionManager
 from holmes.utils.stream import StreamEvents, StreamMessage
 from tests.mocks.toolset_mocks import SampleToolset
 
@@ -894,8 +895,6 @@ class TestRunInteractiveLoop(unittest.TestCase):
         mock_check_version,
     ):
         """A continued session keeps its history and is saved back in place."""
-        from holmes.utils.sessions import ChatSession, SessionManager
-
         sessions_dir = tempfile.mkdtemp()
         try:
             manager = SessionManager(sessions_dir=sessions_dir)
@@ -1000,8 +999,6 @@ class TestRunInteractiveLoop(unittest.TestCase):
         mock_check_version,
     ):
         """After /clear, --file is attached by the new session's first question only."""
-        from holmes.utils.sessions import ChatSession, SessionManager
-
         sessions_dir = tempfile.mkdtemp()
         try:
             manager = SessionManager(sessions_dir=sessions_dir)

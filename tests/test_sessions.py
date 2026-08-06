@@ -113,7 +113,7 @@ class TestSessionManager:
 class TestSessionPermissions:
     """Sessions contain tool output, so they must not be world readable."""
 
-    def _mode(self, path) -> int:
+    def _mode(self, path: str | os.PathLike[str]) -> int:
         return stat.S_IMODE(os.stat(path).st_mode)
 
     def test_dir_and_file_are_owner_only_under_a_permissive_umask(self, tmp_path):
