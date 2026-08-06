@@ -964,7 +964,9 @@ class TestRunInteractiveLoop(unittest.TestCase):
             self.mock_ai.call_stream.assert_called_once()
             mock_build_messages.assert_not_called()
             msgs_arg = self.mock_ai.call_stream.call_args.kwargs["msgs"]
-            self.assertEqual(msgs_arg[0], {"role": "system", "content": "sys"})
+            # The whole prior conversation is preserved, in order, as a prefix.
+            self.assertEqual(msgs_arg[: len(prior.messages)], prior.messages)
+            self.assertEqual(len(msgs_arg), len(prior.messages) + 1)
             self.assertEqual(msgs_arg[-1]["role"], "user")
             self.assertTrue(msgs_arg[-1]["content"].startswith("follow up"))
             # --file content must be attached to the first continued question.
@@ -981,6 +983,100 @@ class TestRunInteractiveLoop(unittest.TestCase):
             self.assertEqual(
                 [tc["tool_call_id"] for tc in updated.tool_calls], ["prior_call"]
             )
+        finally:
+            shutil.rmtree(sessions_dir, ignore_errors=True)
+
+    @patch("holmes.interactive.check_version_async")
+    @patch("holmes.interactive.PromptSession")
+    @patch("holmes.interactive.build_initial_ask_messages")
+    @patch(
+        "holmes.interactive.config_path_dir", new_callable=lambda: tempfile.gettempdir()
+    )
+    def test_clear_does_not_reattach_files_to_later_questions(
+        self,
+        mock_config_dir,
+        mock_build_messages,
+        mock_prompt_session_class,
+        mock_check_version,
+    ):
+        """After /clear, --file is attached by the new session's first question only."""
+        from holmes.utils.sessions import ChatSession, SessionManager
+
+        sessions_dir = tempfile.mkdtemp()
+        try:
+            manager = SessionManager(sessions_dir=sessions_dir)
+            prior = ChatSession(
+                session_id="clear-test-id",
+                title="prior question",
+                messages=[
+                    {"role": "system", "content": "sys"},
+                    {"role": "user", "content": "prior question"},
+                    {"role": "assistant", "content": "prior answer"},
+                ],
+            )
+            manager.save(prior)
+
+            log_file = os.path.join(sessions_dir, "error.log")
+            with open(log_file, "w") as f:
+                f.write("OOMKilled at 03:14")
+
+            mock_session = Mock()
+            mock_prompt_session_class.return_value = mock_session
+            mock_session.prompt.side_effect = [
+                SlashCommands.CLEAR.command,
+                "first after clear",
+                "second after clear",
+                "/exit",
+            ]
+            # Stands in for the real system prompt + file attachment that
+            # build_initial_ask_messages does for a new session's first question.
+            mock_build_messages.return_value = [
+                {"role": "system", "content": "fresh sys"},
+                {"role": "user", "content": "first after clear + file contents"},
+            ]
+
+            def _mock_stream(**kwargs):
+                history = list(kwargs["msgs"]) + [
+                    {"role": "assistant", "content": "Test response"}
+                ]
+                yield StreamMessage(
+                    event=StreamEvents.ANSWER_END,
+                    data={
+                        "content": "Test response",
+                        "messages": history,
+                        "tool_calls": [],
+                        "num_llm_calls": 1,
+                        "costs": {},
+                    },
+                )
+
+            self.mock_ai.call_stream = Mock(side_effect=_mock_stream)
+
+            run_interactive_loop(
+                ai=self.mock_ai,
+                console=self.mock_console,
+                initial_user_input=None,
+                include_files=[Path(log_file)],
+                show_tool_output=False,
+                check_version=False,
+                session_manager=manager,
+                resume_session=prior,
+            )
+
+            self.assertEqual(self.mock_ai.call_stream.call_count, 2)
+            # First question of the fresh session: files go through
+            # build_initial_ask_messages, which receives them.
+            mock_build_messages.assert_called_once()
+            self.assertEqual(mock_build_messages.call_args[0][1], [Path(log_file)])
+            # Second question must be the bare question, with no file contents
+            # appended a second time.
+            second_msgs = self.mock_ai.call_stream.call_args_list[1].kwargs["msgs"]
+            self.assertEqual(
+                second_msgs[-1], {"role": "user", "content": "second after clear"}
+            )
+            # The cleared conversation is not resumed, and its file is gone from
+            # the history the new session builds on.
+            self.assertNotIn("prior question", str(second_msgs))
         finally:
             shutil.rmtree(sessions_dir, ignore_errors=True)
 

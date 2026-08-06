@@ -1,7 +1,10 @@
 """Unit tests for holmes.utils.sessions (local session storage for --continue)."""
 
 import os
+import stat
 import time
+
+import pytest
 
 from holmes.utils.sessions import ChatSession, SessionManager, derive_title
 
@@ -104,6 +107,53 @@ class TestSessionManager:
     def test_new_session_ids_are_unique(self):
         ids = {SessionManager.new_session_id() for _ in range(100)}
         assert len(ids) == 100
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+class TestSessionPermissions:
+    """Sessions contain tool output, so they must not be world readable."""
+
+    def _mode(self, path) -> int:
+        return stat.S_IMODE(os.stat(path).st_mode)
+
+    def test_dir_and_file_are_owner_only_under_a_permissive_umask(self, tmp_path):
+        original_umask = os.umask(0o000)
+        try:
+            manager = SessionManager(sessions_dir=str(tmp_path / "sessions"))
+            session = _make_session(manager, "keep this private")
+        finally:
+            os.umask(original_umask)
+
+        session_file = os.path.join(manager.sessions_dir, f"{session.session_id}.json")
+        assert self._mode(manager.sessions_dir) == 0o700
+        assert self._mode(session_file) == 0o600
+
+    def test_temp_file_is_owner_only_before_the_rename(self, tmp_path, monkeypatch):
+        manager = SessionManager(sessions_dir=str(tmp_path))
+        real_replace = os.replace
+        captured = {}
+
+        def _capture_then_replace(src, dst):
+            captured["mode"] = self._mode(src)
+            return real_replace(src, dst)
+
+        monkeypatch.setattr("holmes.utils.sessions.os.replace", _capture_then_replace)
+        original_umask = os.umask(0o000)
+        try:
+            _make_session(manager, "keep this private")
+        finally:
+            os.umask(original_umask)
+
+        assert captured["mode"] == 0o600
+
+    def test_existing_world_readable_dir_is_tightened(self, tmp_path):
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir(mode=0o755)
+        manager = SessionManager(sessions_dir=str(sessions_dir))
+
+        _make_session(manager, "keep this private")
+
+        assert self._mode(sessions_dir) == 0o700
 
 
 class TestDeriveTitle:

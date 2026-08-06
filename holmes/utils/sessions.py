@@ -28,6 +28,11 @@ _TITLE_MAX_LENGTH = 80
 # sessions for --continue still works; only saving is disabled.
 _DISABLE_PERSISTENCE_ENV = "HOLMES_DISABLE_SESSION_PERSISTENCE"
 
+# Sessions hold conversation history and tool output (cluster state, logs), so
+# the directory and its files stay readable by their owner only.
+_DIR_MODE = 0o700
+_FILE_MODE = 0o600
+
 
 def session_persistence_disabled() -> bool:
     """Whether saving sessions to disk has been turned off via env var."""
@@ -103,6 +108,18 @@ class SessionManager:
     def _path(self, session_id: str) -> str:
         return os.path.join(self.sessions_dir, f"{session_id}.json")
 
+    def _ensure_dir(self) -> None:
+        """Create the sessions directory, keeping it private to its owner."""
+        os.makedirs(self.sessions_dir, mode=_DIR_MODE, exist_ok=True)
+        # makedirs applies the umask, and ignores the mode entirely for a
+        # directory that already exists, so set the mode explicitly.
+        try:
+            os.chmod(self.sessions_dir, _DIR_MODE)
+        except OSError as e:
+            logging.debug(
+                "Could not restrict permissions on %s: %s", self.sessions_dir, e
+            )
+
     @staticmethod
     def new_session_id() -> str:
         """Time-prefixed id so files sort chronologically and stay unique."""
@@ -110,13 +127,16 @@ class SessionManager:
 
     def save(self, session: ChatSession) -> None:
         """Atomically write a session to disk (write temp file, then rename)."""
-        os.makedirs(self.sessions_dir, exist_ok=True)
+        self._ensure_dir()
         session.updated_at = _utc_now_iso()
         target = self._path(session.session_id)
         tmp = f"{target}.{os.getpid()}.tmp"
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _FILE_MODE)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(session.model_dump_json(indent=2))
+            # os.open applies the umask to the mode above, os.chmod does not.
+            os.chmod(tmp, _FILE_MODE)
             os.replace(tmp, target)
         except Exception:
             logging.exception("Failed to save session %s", session.session_id)

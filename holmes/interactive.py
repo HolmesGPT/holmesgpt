@@ -2535,7 +2535,7 @@ def run_interactive_loop(
     # Files passed with --file are attached to the first question of a continued
     # session, since build_initial_ask_messages (which normally attaches them) is
     # skipped when the history comes from disk.
-    pending_include_files = None
+    pending_include_files: Optional[List[Path]] = None
     if resume_session is not None:
         messages = list(resume_session.messages)
         current_session_id = resume_session.session_id
@@ -2626,8 +2626,11 @@ def run_interactive_loop(
                     last_response = None
                     all_tool_calls_history.clear()
                     # Start a fresh session on the next question rather than
-                    # overwriting the conversation we just cleared.
+                    # overwriting the conversation we just cleared. The new
+                    # session's first question goes through
+                    # build_initial_ask_messages, which attaches --file itself.
                     current_session_id = None
+                    pending_include_files = None
                     # Reset the show completer history
                     show_completer.update_history([])
                     ai.reset_interaction_state()
