@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 from io import StringIO
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -943,11 +944,15 @@ class TestRunInteractiveLoop(unittest.TestCase):
 
             self.mock_ai.call_stream = Mock(side_effect=_mock_stream)
 
+            log_file = os.path.join(sessions_dir, "error.log")
+            with open(log_file, "w") as f:
+                f.write("OOMKilled at 03:14")
+
             run_interactive_loop(
                 ai=self.mock_ai,
                 console=self.mock_console,
                 initial_user_input="follow up",
-                include_files=None,
+                include_files=[Path(log_file)],
                 show_tool_output=False,
                 check_version=False,
                 session_manager=manager,
@@ -960,7 +965,10 @@ class TestRunInteractiveLoop(unittest.TestCase):
             mock_build_messages.assert_not_called()
             msgs_arg = self.mock_ai.call_stream.call_args.kwargs["msgs"]
             self.assertEqual(msgs_arg[0], {"role": "system", "content": "sys"})
-            self.assertEqual(msgs_arg[-1], {"role": "user", "content": "follow up"})
+            self.assertEqual(msgs_arg[-1]["role"], "user")
+            self.assertTrue(msgs_arg[-1]["content"].startswith("follow up"))
+            # --file content must be attached to the first continued question.
+            self.assertIn("OOMKilled at 03:14", msgs_arg[-1]["content"])
 
             # The same session file was updated in place with the new turn.
             sessions = manager.list_sessions()

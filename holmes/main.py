@@ -30,6 +30,7 @@ from holmes.config import (
 )
 from holmes.core.prompt import (
     PromptComponent,
+    append_all_files_to_user_prompt,
     build_initial_ask_messages,
     build_system_prompt,
     generate_user_prompt,
@@ -425,10 +426,16 @@ def ask(
 
         if resumed_session is not None:
             # Continue the previous conversation: keep its history and append
-            # the new question. The system prompt from the original run is
-            # reused as-is.
+            # the new question, with any --file contents attached to it like a
+            # fresh run does. The system prompt from the original run is reused
+            # as-is.
             messages = list(resumed_session.messages)
-            messages.append({"role": "user", "content": prompt})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": append_all_files_to_user_prompt(prompt, include_file),  # type: ignore
+                }
+            )
         else:
             messages = build_initial_ask_messages(
                 prompt,  # type: ignore

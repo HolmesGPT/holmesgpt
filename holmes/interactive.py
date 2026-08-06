@@ -59,7 +59,11 @@ from holmes.core.feedback import (
     FeedbackCallback,
     UserFeedback,
 )
-from holmes.core.prompt import PromptComponent, build_initial_ask_messages
+from holmes.core.prompt import (
+    PromptComponent,
+    append_all_files_to_user_prompt,
+    build_initial_ask_messages,
+)
 from holmes.core.models import PendingToolApproval
 from holmes.core.tool_calling_llm import (
     ApprovalCallback,
@@ -2528,10 +2532,15 @@ def run_interactive_loop(
     # session so previously persisted tool calls are not lost when this session
     # is saved again, and so /show works on the earlier tool outputs.
     all_tool_calls_history: List[ToolCallResult] = []
+    # Files passed with --file are attached to the first question of a continued
+    # session, since build_initial_ask_messages (which normally attaches them) is
+    # skipped when the history comes from disk.
+    pending_include_files = None
     if resume_session is not None:
         messages = list(resume_session.messages)
         current_session_id = resume_session.session_id
         all_tool_calls_history = deserialize_tool_calls(resume_session.tool_calls)
+        pending_include_files = include_files
         render_resumed_session(console, resume_session)
 
     if not initial_user_input and resume_session is None:
@@ -2702,6 +2711,15 @@ def run_interactive_loop(
                     prompt_component_overrides=prompt_component_overrides,
                 )
             else:
+                if pending_include_files:
+                    for file_path in pending_include_files:
+                        console.print(
+                            f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+                        )
+                    user_input = append_all_files_to_user_prompt(
+                        user_input, pending_include_files
+                    )
+                    pending_include_files = None
                 messages.append({"role": "user", "content": user_input})
 
             escape_hint = (

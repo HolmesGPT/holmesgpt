@@ -80,6 +80,38 @@ class TestAskContinue:
         assert sessions[0].user_turns == 2
 
     @patch("holmes.config.Config.create_toolcalling_llm")
+    def test_continue_attaches_files_to_the_new_question(
+        self, mock_create_toolcalling_llm, tmp_path, monkeypatch
+    ):
+        """--file must reach the LLM when continuing, not just print a message."""
+        monkeypatch.setattr("holmes.utils.sessions.config_path_dir", str(tmp_path))
+        manager = SessionManager(sessions_dir=str(tmp_path / "sessions"))
+        _make_session(manager, "why is my pod crashing?")
+        log_file = tmp_path / "error.log"
+        log_file.write_text("OOMKilled at 03:14")
+
+        mock_ai = MagicMock()
+        mock_ai.llm.model = "gpt-4o"
+        mock_ai.call.return_value = LLMResult(result="ok", tool_calls=[], messages=[])
+        mock_create_toolcalling_llm.return_value = mock_ai
+
+        result = runner.invoke(
+            app,
+            [
+                "ask",
+                "-c",
+                "what does this say?",
+                "-f",
+                str(log_file),
+                "--no-interactive",
+            ],
+        )
+
+        assert result.exit_code == 0, f"CLI failed with output: {result.output}"
+        last_message = mock_ai.call.call_args[0][0][-1]
+        assert "OOMKilled at 03:14" in last_message["content"]
+
+    @patch("holmes.config.Config.create_toolcalling_llm")
     def test_continue_without_any_session_fails(
         self, mock_create_toolcalling_llm, tmp_path, monkeypatch
     ):
