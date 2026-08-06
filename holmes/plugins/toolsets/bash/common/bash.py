@@ -27,9 +27,7 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
     """
     protected_cmd = get_ulimit_prefix() + cmd
     process = subprocess.Popen(
-        protected_cmd,
-        shell=True,
-        executable="/bin/bash",
+        ["/bin/bash", "-c", protected_cmd],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
