@@ -104,6 +104,33 @@ stable, exactly like that precedent.
 {{- end -}}
 {{- end -}}
 {{- /* Structured records, not joined values: concatenation would hash two
-       adjacent secrets whose contents merely shifted a boundary identically. */ -}}
+        adjacent secrets whose contents merely shifted a boundary identically. */ -}}
 {{- toJson $parts | sha256sum -}}
+{{- end -}}
+
+{{/*
+Return the user-supplied config map as YAML, if any.
+Supports both standalone (config) and subchart (holmes.config) value paths.
+Usage: {{ include "holmes.config" . }}
+*/}}
+{{- define "holmes.config" -}}
+{{- if .Values.config -}}
+{{- .Values.config | toYaml -}}
+{{- else if and .Values.holmes .Values.holmes.config -}}
+{{- .Values.holmes.config | toYaml -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Return the configured default model name, if any.
+Supports both standalone (config.model) and subchart (holmes.config.model)
+value paths.
+Usage: {{- with (include "holmes.config.model" .) }}
+*/}}
+{{- define "holmes.config.model" -}}
+{{- if .Values.config.model -}}
+{{- .Values.config.model -}}
+{{- else if and .Values.holmes .Values.holmes.config.model -}}
+{{- .Values.holmes.config.model -}}
+{{- end -}}
 {{- end -}}
