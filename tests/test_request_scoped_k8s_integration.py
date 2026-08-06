@@ -9,6 +9,7 @@ so we can assert on the identity the command actually ran as.
 import concurrent.futures
 import os
 import stat
+import tempfile
 import textwrap
 
 import pytest
@@ -114,14 +115,14 @@ def test_no_global_state_mutation_and_no_leftover_files(
 ):
     monkeypatch.setenv(AUTH_MODE, "request_token")
     before_env = dict(os.environ)
-    tmpdir = os.environ.get("TMPDIR", "/tmp")
+    # Must match where mkstemp actually writes, which is not necessarily $TMPDIR.
+    tmpdir = tempfile.gettempdir()
     before_files = {f for f in os.listdir(tmpdir) if f.startswith("holmes-kubeconfig-")}
 
     _tool().invoke({}, context=_ctx("Bearer USER-BOB"))
 
     # os.environ must be untouched (no global KUBECONFIG).
     assert dict(os.environ) == before_env
-    assert "KUBECONFIG" not in os.environ or before_env.get("KUBECONFIG")
     # Temp kubeconfig must be gone.
     after_files = {f for f in os.listdir(tmpdir) if f.startswith("holmes-kubeconfig-")}
     assert after_files == before_files

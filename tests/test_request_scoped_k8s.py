@@ -53,21 +53,23 @@ def test_extract_strips_bearer_and_is_case_insensitive(monkeypatch):
 
 def test_header_priority_order(monkeypatch):
     monkeypatch.setenv(AUTH_MODE, "request_token")
-    ctx = {
+    request_context = {
         "headers": {
             "Authorization": "Bearer from-authz",
             "X-Auth-Request-Id-Token": "from-oauth2proxy",
         }
     }
     # Default order prefers X-Auth-Request-Id-Token over Authorization.
-    assert extract_request_token(ctx) == "from-oauth2proxy"
+    assert extract_request_token(request_context) == "from-oauth2proxy"
 
 
 def test_custom_header_list(monkeypatch):
     monkeypatch.setenv(AUTH_MODE, "request_token")
     monkeypatch.setenv(TOKEN_HEADERS, "X-Id-Token")
-    ctx = {"headers": {"X-Id-Token": "custom", "Authorization": "Bearer ignored"}}
-    assert extract_request_token(ctx) == "custom"
+    request_context = {
+        "headers": {"X-Id-Token": "custom", "Authorization": "Bearer ignored"}
+    }
+    assert extract_request_token(request_context) == "custom"
 
 
 def test_kubeconfig_is_per_invocation_and_cleaned_up(monkeypatch, tmp_path):
@@ -77,8 +79,8 @@ def test_kubeconfig_is_per_invocation_and_cleaned_up(monkeypatch, tmp_path):
     monkeypatch.setenv("HOLMES_K8S_CA_CERT", str(ca))
     monkeypatch.setenv("HOLMES_K8S_API_SERVER", "https://api.example:6443")
 
-    ctx = {"headers": {"Authorization": "Bearer SECRET"}}
-    env, path = build_request_scoped_env(ctx)
+    request_context = {"headers": {"Authorization": "Bearer SECRET"}}
+    env, path = build_request_scoped_env(request_context)
 
     assert env is not None and "KUBECONFIG" in env
     assert path is not None and os.path.isfile(path)
@@ -93,7 +95,7 @@ def test_kubeconfig_is_per_invocation_and_cleaned_up(monkeypatch, tmp_path):
     assert f"certificate-authority: '{ca}'" in content
 
     # Two concurrent requests must get distinct kubeconfig files (no shared state).
-    env2, path2 = build_request_scoped_env(ctx)
+    _, path2 = build_request_scoped_env(request_context)
     assert path2 != path
 
     cleanup_kubeconfig(path)
@@ -110,7 +112,7 @@ def test_cleanup_missing_path_is_safe():
 def test_missing_ca_does_not_silently_disable_tls_verification(monkeypatch):
     monkeypatch.setenv(AUTH_MODE, "request_token")
     monkeypatch.setenv("HOLMES_K8S_CA_CERT", "/definitely/not/here.crt")
-    env, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
     try:
         content = open(path).read()
         assert "insecure-skip-tls-verify" not in content
@@ -123,7 +125,7 @@ def test_insecure_skip_requires_explicit_opt_in(monkeypatch):
     monkeypatch.setenv(AUTH_MODE, "request_token")
     monkeypatch.setenv("HOLMES_K8S_CA_CERT", "/definitely/not/here.crt")
     monkeypatch.setenv("HOLMES_K8S_INSECURE_SKIP_TLS_VERIFY", "true")
-    env, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
     try:
         assert "insecure-skip-tls-verify: true" in open(path).read()
     finally:
@@ -149,7 +151,7 @@ def test_malformed_tokens_are_rejected(monkeypatch, bad_token):
 def test_token_with_quote_is_escaped_not_injected(monkeypatch, tmp_path):
     """A quote in the credential must stay inside the scalar, not break out."""
     monkeypatch.setenv(AUTH_MODE, "request_token")
-    env, path = build_request_scoped_env({"headers": {"Authorization": "ab'cd"}})
+    _, path = build_request_scoped_env({"headers": {"Authorization": "ab'cd"}})
     try:
         content = open(path).read()
         assert "token: 'ab''cd'" in content
@@ -167,7 +169,7 @@ def test_rendered_kubeconfig_is_valid_yaml(monkeypatch, tmp_path):
     ca.write_text("CADATA")
     monkeypatch.setenv("HOLMES_K8S_CA_CERT", str(ca))
     monkeypatch.setenv("HOLMES_K8S_API_SERVER", "https://api.example:6443")
-    env, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T0K"}})
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T0K"}})
     try:
         cfg = yaml.safe_load(open(path).read())
         assert cfg["current-context"] == "holmes-request-scoped"
@@ -182,9 +184,19 @@ def test_api_server_defaults_to_in_cluster_endpoint(monkeypatch):
     monkeypatch.setenv(AUTH_MODE, "request_token")
     monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
     monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "6443")
-    env, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
     try:
         assert "server: 'https://10.0.0.1:6443'" in open(path).read()
+    finally:
+        cleanup_kubeconfig(path)
+
+
+def test_api_server_falls_back_to_default_service_dns(monkeypatch):
+    """With no override and no in-cluster env vars, use kubernetes.default.svc."""
+    monkeypatch.setenv(AUTH_MODE, "request_token")
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
+    try:
+        assert "server: 'https://kubernetes.default.svc'" in open(path).read()
     finally:
         cleanup_kubeconfig(path)
 
@@ -192,8 +204,37 @@ def test_api_server_defaults_to_in_cluster_endpoint(monkeypatch):
 def test_ipv6_api_server_host_is_bracketed(monkeypatch):
     monkeypatch.setenv(AUTH_MODE, "request_token")
     monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "fd00::1")
-    env, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
     try:
         assert "server: 'https://[fd00::1]:443'" in open(path).read()
+    finally:
+        cleanup_kubeconfig(path)
+
+
+@pytest.mark.parametrize(
+    "bad_server",
+    ["http://api.example:6443", "api.example:6443", "https://", "ftp://api.example"],
+)
+def test_non_https_api_server_override_is_rejected(monkeypatch, bad_server):
+    """A cleartext or malformed endpoint must never receive the user's token."""
+    monkeypatch.setenv(AUTH_MODE, "request_token")
+    monkeypatch.setenv("HOLMES_K8S_API_SERVER", bad_server)
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
+    monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "6443")
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
+    try:
+        server = yaml.safe_load(open(path).read())["clusters"][0]["cluster"]["server"]
+        # Falls back to in-cluster discovery rather than honouring the override.
+        assert server == "https://10.0.0.1:6443"
+    finally:
+        cleanup_kubeconfig(path)
+
+
+def test_https_api_server_override_is_accepted_case_insensitively(monkeypatch):
+    monkeypatch.setenv(AUTH_MODE, "request_token")
+    monkeypatch.setenv("HOLMES_K8S_API_SERVER", "HTTPS://API.EXAMPLE:6443")
+    _, path = build_request_scoped_env({"headers": {"Authorization": "Bearer T"}})
+    try:
+        assert "server: 'HTTPS://API.EXAMPLE:6443'" in open(path).read()
     finally:
         cleanup_kubeconfig(path)

@@ -34,6 +34,7 @@ import os
 import stat
 import tempfile
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 from requests.structures import CaseInsensitiveDict
 
@@ -135,10 +136,24 @@ def extract_request_token(request_context: Optional[Dict[str, Any]]) -> Optional
     return None
 
 
+def _is_https_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
 def _api_server_url() -> str:
     override = os.environ.get(_API_SERVER_ENV)
     if override:
-        return override
+        if _is_https_url(override):
+            return override
+        # An http:// (or malformed) endpoint would put the user's bearer token
+        # on the wire in cleartext, so ignore it and fall back to discovery.
+        logger.error(
+            "request-scoped k8s auth: ignoring %s=%r, an absolute https:// URL "
+            "is required to avoid sending the token in cleartext.",
+            _API_SERVER_ENV,
+            override,
+        )
     host = os.environ.get("KUBERNETES_SERVICE_HOST")
     port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
     if host:

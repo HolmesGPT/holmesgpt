@@ -379,7 +379,10 @@ export HOLMES_K8S_REQUEST_TOKEN_HEADERS="X-Forwarded-Access-Token"
 ### HOLMES_K8S_API_SERVER
 **Default:** derived from `KUBERNETES_SERVICE_HOST`/`KUBERNETES_SERVICE_PORT`, falling back to `https://kubernetes.default.svc`
 
-API server URL written into the generated per-request kubeconfig.
+API server URL written into the generated per-request kubeconfig. Must be an
+absolute `https://` URL; any other value is ignored (with an error logged) and
+the in-cluster endpoint is used instead, so the user's token is never sent in
+cleartext.
 
 ### HOLMES_K8S_CA_CERT
 **Default:** `"/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"`
