@@ -368,7 +368,7 @@ export HOLMES_K8S_AUTH_MODE="request_token"
 
 Ordered, comma-separated list of headers to read the user's token from when
 `HOLMES_K8S_AUTH_MODE=request_token`. The first non-empty match wins, and a
-leading `Bearer ` prefix is stripped. `oauth2-proxy` injects
+leading `Bearer` prefix and following whitespace are stripped. `oauth2-proxy` injects
 `X-Auth-Request-Id-Token`; a plain reverse proxy forwards `Authorization`.
 
 **Example:**
