@@ -39,7 +39,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
+        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos (include "holmes.config" .) | toYaml | sha256sum }}
         {{- if .Values.skillRepos }}
         # Rolls the pod when a skill repo credential Secret's DATA rotates —
         # the token env vars come from secretKeyRef, which a Secret update
@@ -165,6 +165,10 @@ spec:
             value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
+          {{- with (include "holmes.config.model" .) }}
+          - name: MODEL
+            value: {{ . | quote }}
+          {{- end }}
           - name: SENTRY_DSN
             value: {{ .Values.sentryDSN }}
           {{- if $tls.enabled }}
