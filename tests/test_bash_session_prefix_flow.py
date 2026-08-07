@@ -9,7 +9,7 @@ Tests the full client experience:
 This test mocks LLM and bash tool responses but uses the real:
 - Server endpoints
 - _execute_tool_decisions()
-- extract_bash_session_prefixes()
+- extract_bash_session_prefixes_by_agent()
 """
 
 import json
@@ -348,7 +348,7 @@ def test_bash_session_prefix_memory_flow(
     # 1. _execute_tool_decisions runs, executes call_1, injects prefixes into message
     # 2. LLM is called again, returns call_2 (kubectl get nodes)
     # 3. call_2 is executed - but at this point, the message with prefixes
-    #    IS in the conversation, so extract_bash_session_prefixes should find it
+    #    IS in the conversation, so extract_bash_session_prefixes_by_agent should find it
 
     # Check if we got approval_required or answer_end
     if StreamEvents.APPROVAL_REQUIRED.value in event_types:
@@ -501,11 +501,13 @@ class TestExtractTextFromContent:
 
 
 class TestExtractBashSessionPrefixesWithArrayContent:
-    """Tests for extract_bash_session_prefixes with array content format."""
+    """Tests for extract_bash_session_prefixes_by_agent with array content format."""
 
     def test_extract_from_array_content(self):
         """Test extraction from messages with array content (real-world format)."""
-        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+        from holmes.core.tool_calling_llm import (
+            extract_bash_session_prefixes_by_agent,
+        )
 
         messages = [
             {"role": "system", "content": "You are helpful"},
@@ -523,12 +525,14 @@ class TestExtractBashSessionPrefixesWithArrayContent:
             },
         ]
 
-        prefixes = extract_bash_session_prefixes(messages)
+        prefixes = extract_bash_session_prefixes_by_agent(messages).get("", [])
         assert "rm" in prefixes
 
     def test_extract_from_string_content(self):
         """Test extraction from messages with string content."""
-        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+        from holmes.core.tool_calling_llm import (
+            extract_bash_session_prefixes_by_agent,
+        )
 
         messages = [
             {"role": "system", "content": "You are helpful"},
@@ -540,12 +544,14 @@ class TestExtractBashSessionPrefixesWithArrayContent:
             },
         ]
 
-        prefixes = extract_bash_session_prefixes(messages)
+        prefixes = extract_bash_session_prefixes_by_agent(messages).get("", [])
         assert "kubectl get" in prefixes
 
     def test_extract_multiple_prefixes_mixed_formats(self):
         """Test extraction from messages with mixed content formats."""
-        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+        from holmes.core.tool_calling_llm import (
+            extract_bash_session_prefixes_by_agent,
+        )
 
         messages = [
             {
@@ -563,7 +569,7 @@ class TestExtractBashSessionPrefixesWithArrayContent:
             },
         ]
 
-        prefixes = extract_bash_session_prefixes(messages)
+        prefixes = extract_bash_session_prefixes_by_agent(messages).get("", [])
         assert "kubectl get" in prefixes
         assert "rm" in prefixes
         assert "grep" in prefixes

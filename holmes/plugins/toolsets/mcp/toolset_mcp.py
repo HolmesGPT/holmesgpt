@@ -52,6 +52,14 @@ from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
+
+REMOTE_TOOL_APPROVED_PARAM = "__robusta_user_approved"
+REMOTE_TOOL_SESSION_PREFIXES_PARAM = "__robusta_session_approved_prefixes"
+# Relay namespaces cross-cluster (remote) tools with this name prefix. It is the
+# only signal relay exposes for remoteness (there is no MCP `_meta`/annotation),
+# so we evaluate it once at tool-load time and store the result on the tool as
+# `is_remote` rather than re-sniffing the name on every invoke/one-liner call.
+REMOTE_TOOL_NAME_PREFIX = "remote_"
 display_logger = logging.getLogger("holmes.display.mcp_toolset")
 
 
@@ -188,6 +196,17 @@ class MCPConfig(ToolsetConfig):
         examples=["get_me", "get_current_user"],
     )
 
+    @model_validator(mode="after")
+    def default_oauth_resource(self) -> "MCPConfig":
+        """Default the RFC 8707 resource indicator to the MCP server's canonical URL.
+
+        Only fills the value when it wasn't configured explicitly (None); an
+        explicit empty string opts out of sending a resource parameter entirely.
+        """
+        if self.oauth is not None and self.oauth.resource is None:
+            self.oauth.resource = str(self.url).rstrip("/")
+        return self
+
     def get_lock_string(self) -> str:
         return str(self.url)
 
@@ -322,6 +341,9 @@ class RemoteMCPTool(Tool):
     toolset: "RemoteMCPToolset" = Field(exclude=True)
     # Real server-side tool name; exposed name is prefixed on collision.
     mcp_tool_name: str = Field(default="", exclude=True)
+    # Whether this is a relay cross-cluster tool. Decided once at creation (see
+    # REMOTE_TOOL_NAME_PREFIX) so call-time logic reads state instead of the name.
+    is_remote: bool = Field(default=False, exclude=True)
 
     @property
     def collision_safe_name(self) -> str:
@@ -361,6 +383,7 @@ class RemoteMCPTool(Tool):
                 client_secret=oauth_config.client_secret,
                 scopes=oauth_config.scopes,
                 registration_endpoint=oauth_config.registration_endpoint,
+                resource=oauth_config.resource,
             )
             token_data = cli_oauth_flow(oauth_endpoints, self.toolset.name)
             if token_data:
@@ -393,6 +416,8 @@ class RemoteMCPTool(Tool):
             metadata["scopes"] = oauth_config.scopes
         if oauth_config.registration_endpoint:
             metadata["registration_endpoint"] = oauth_config.registration_endpoint
+        if oauth_config.resource:
+            metadata["resource"] = oauth_config.resource
         params["__oauth_metadata"] = metadata
 
         return ApprovalRequirement(
@@ -416,7 +441,14 @@ class RemoteMCPTool(Tool):
 
             lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
             with lock:
-                return asyncio.run(self._invoke_async(params, context.request_context))
+                return asyncio.run(
+                    self._invoke_async(
+                        params,
+                        context.request_context,
+                        context.user_approved,
+                        context.session_approved_prefixes,
+                    )
+                )
         except Exception as e:
             error_detail = _extract_root_error_message(e)
             return StructuredToolResult(
@@ -436,7 +468,14 @@ class RemoteMCPTool(Tool):
             with lock:
                 tools_result = asyncio.run(self.toolset._get_server_tools_with_context(context.request_context))
 
-            real_tools = [RemoteMCPTool.create(tool, self.toolset) for tool in tools_result.tools]
+            real_tools = [
+                RemoteMCPTool.create(
+                    tool,
+                    self.toolset,
+                    is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX),
+                )
+                for tool in tools_result.tools
+            ]
 
             if real_tools:
                 tool_names = [t.name for t in real_tools]
@@ -522,17 +561,54 @@ class RemoteMCPTool(Tool):
         return ""
 
     async def _invoke_async(
-        self, params: Dict, request_context: Optional[Dict[str, Any]]
+        self,
+        params: Dict,
+        request_context: Optional[Dict[str, Any]],
+        user_approved: bool = False,
+        session_approved_prefixes: Optional[List[str]] = None,
     ) -> StructuredToolResult:
+        is_remote = self.is_remote
+        call_params = params
+        if user_approved:
+            call_params = {**call_params, REMOTE_TOOL_APPROVED_PARAM: True}
+        if is_remote and session_approved_prefixes:
+            call_params = {
+                **call_params,
+                REMOTE_TOOL_SESSION_PREFIXES_PARAM: list(session_approved_prefixes),
+            }
+
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
-            tool_result = await session.call_tool(self.mcp_tool_name or self.name, params)
+            tool_result = await session.call_tool(
+                self.mcp_tool_name or self.name, call_params
+            )
 
         text_chunks = [
             self._extract_text_from_content_block(c) for c in tool_result.content
         ]
         merged_text = " ".join(t for t in text_chunks if t)
+
+        try:
+            response_data = json.loads(merged_text) if merged_text else {}
+        except (json.JSONDecodeError, ValueError):
+            response_data = {}
+        if (
+            isinstance(response_data, dict)
+            and response_data.get("status")
+            == StructuredToolResultStatus.APPROVAL_REQUIRED.value
+        ):
+            logger.info(
+                "MCP tool %s requires approval: %s",
+                self.name,
+                response_data.get("error"),
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+                error=response_data.get("error"),
+                params=response_data.get("params", params),
+                invocation=f"MCPtool {self.name} with params {params}",
+            )
 
         is_error = tool_result.isError or self._is_content_error(merged_text)
 
@@ -561,6 +637,7 @@ class RemoteMCPTool(Tool):
         cls,
         tool: MCP_Tool,
         toolset: "RemoteMCPToolset",
+        is_remote: bool = False,
     ):
         parameters = cls.parse_input_schema(tool.inputSchema)
         return cls(
@@ -569,6 +646,7 @@ class RemoteMCPTool(Tool):
             description=tool.description or "",
             parameters=parameters,
             toolset=toolset,
+            is_remote=is_remote,
         )
 
     @classmethod
@@ -782,6 +860,33 @@ class RemoteMCPTool(Tool):
         )
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
+        is_remote = self.is_remote
+        agent = None
+        display_params = params or {}
+        if is_remote:
+            agent = display_params.get("agent_name")
+            display_params = {
+                k: v
+                for k, v in display_params.items()
+                if k
+                not in (
+                    "agent_name",
+                    "instance",
+                    REMOTE_TOOL_APPROVED_PARAM,
+                    REMOTE_TOOL_SESSION_PREFIXES_PARAM,
+                )
+            }
+
+        one_liner = self._base_one_liner(display_params)
+
+        if is_remote:
+            suffix = (
+                f" on remote cluster `{agent}`" if agent else " on a remote cluster"
+            )
+            one_liner = f"{one_liner}{suffix}"
+        return one_liner
+
+    def _base_one_liner(self, params: Dict) -> str:
         # AWS MCP cli_command
         if params and params.get("cli_command"):
             return f"{params.get('cli_command')}"
@@ -830,7 +935,12 @@ class RemoteMCPToolset(Toolset):
             tools_result = asyncio.run(self._get_server_tools_with_context(request_context))
         else:
             tools_result = asyncio.run(self._get_server_tools())
-        return [RemoteMCPTool.create(tool, self) for tool in tools_result.tools]
+        return [
+            RemoteMCPTool.create(
+                tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
+            )
+            for tool in tools_result.tools
+        ]
 
     def _render_headers(
         self, request_context: Optional[Dict[str, Any]] = None
