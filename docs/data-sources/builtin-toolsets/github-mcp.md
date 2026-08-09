@@ -438,7 +438,7 @@ Find the **App ID** on the App's settings page (under "About").
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-**Multi-organization support (alpha)**
+#### Multi-organization support (alpha)
 
 A GitHub App installation token is scoped to one organization, so by default the server serves the single installation named by `GITHUB_APP_INSTALLATION_ID`.
 
