@@ -508,17 +508,26 @@ mcpAddons:
       secretKey: "token"  # Key in secret (default: "token")
 
       # Option 2: GitHub App installation token
-      # Deploys a self-hosted MCP server that generates and refreshes installation tokens
+      # Deploys a self-hosted MCP server that generates and caches installation tokens
       # from GitHub App credentials. Uses a separate image with built-in token management.
+      #
+      # GITHUB_APP_INSTALLATION_ID is OPTIONAL:
+      #   - Omit it to enable multi-organization support: the server auto-discovers
+      #     every installation of the App and routes each tool call to the right
+      #     organization's credentials based on the owner/org being accessed.
+      #   - Set it to pin the server to a single installation (legacy behavior).
+      #
       #   kubectl create secret generic holmes-github-app \
       #     --from-literal=GITHUB_APP_ID=<APP_ID> \
-      #     --from-literal=GITHUB_APP_INSTALLATION_ID=<INSTALLATION_ID> \
       #     --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.7"                          # Image with GitHub App token management
+        image: "github-app-mcp:2.0.0"                          # Image with GitHub App token management + multi-org routing
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+        # Org/user whose installation handles requests that don't name an owner
+        # (multi-org mode only). Defaults to the first discovered installation.
+        defaultOwner: ""
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)

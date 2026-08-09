@@ -92,13 +92,9 @@ spec:
           name: http
           protocol: TCP
         {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
-        args:
-          - "--stdio"
-          - "python3 /app/wrapper.py"
-          - "--port"
-          - "8000"
-          - "--outputTransport"
-          - "streamableHttp"
+        {{/* github-app-mcp 2.0.0+ image is self-contained: its entrypoint runs a
+             token-routing proxy on port 8000 in front of github-mcp-server http.
+             No args needed. */}}
         {{- else }}
         # PAT path: native HTTP mode of github-mcp-server (v1.4.0+).
         # Auth is per-request via Authorization: Bearer, set by Holmes (see toolset-config.yaml + holmes.yaml).
@@ -124,16 +120,23 @@ spec:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_ID
+        {{/* Optional: omit the key from the secret to enable multi-org
+             auto-discovery; set it to pin a single installation (legacy). */}}
         - name: GITHUB_APP_INSTALLATION_ID
           valueFrom:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_INSTALLATION_ID
+              optional: true
         - name: GITHUB_APP_PRIVATE_KEY
           valueFrom:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_PRIVATE_KEY
+        {{- if .Values.mcpAddons.github.auth.githubApp.defaultOwner }}
+        - name: GITHUB_APP_DEFAULT_OWNER
+          value: {{ .Values.mcpAddons.github.auth.githubApp.defaultOwner | quote }}
+        {{- end }}
         {{- end }}
         {{- if .Values.mcpAddons.github.config.toolsets }}
         - name: GITHUB_TOOLSETS
@@ -162,6 +165,22 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
+        {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+        {{/* The github-app-mcp proxy serves /healthz (process up) and /readyz
+             (at least one GitHub App installation discovered). */}}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        {{- else }}
         readinessProbe:
           tcpSocket:
             port: 8000
@@ -172,6 +191,7 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
+        {{- end }}
         {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
         volumeMounts:
         - name: ca-cert

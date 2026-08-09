@@ -97,4 +97,8 @@ fields. If you don't have a value, leave the field out.
 
 - WRONG: `{"owner":"x","repo":"y","sha":null,"path":""}`
 - RIGHT: `{"owner":"x","repo":"y"}`
+
+Always pass the correct `owner`/`org` argument on every call — the server may
+route credentials per organization based on it, so an omitted or wrong owner
+can hit the wrong organization's permissions.
 {{- end -}}
