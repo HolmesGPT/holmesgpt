@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 from urllib.parse import quote, unquote, urlparse
 
+import certifi
 import requests
 from pydantic import ConfigDict, Field, model_validator
 
@@ -77,7 +78,7 @@ _DATABASE_DRIVERS: Dict[str, DatabaseDriverInfo] = {
     "mysql": DatabaseDriverInfo(DatabaseSubtype.MYSQL, "mysql+pymysql"),
     "mariadb": DatabaseDriverInfo(DatabaseSubtype.MARIADB, "mysql+pymysql"),
     "sqlite": DatabaseDriverInfo(DatabaseSubtype.SQLITE, None),
-    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pymssql"),
+    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pytds"),
     "clickhouse": DatabaseDriverInfo(DatabaseSubtype.CLICKHOUSE, None),
 }
 
@@ -258,7 +259,7 @@ class DatabaseConfig(ToolsetConfig):
         description=(
             "SQLAlchemy-compatible database connection URL. "
             "Supported databases: PostgreSQL, MySQL/MariaDB, SQLite, SQL Server. "
-            "Pure-Python drivers are used automatically (pg8000, PyMySQL, pymssql)."
+            "Pure-Python drivers are used automatically (pg8000, PyMySQL, python-tds)."
         ),
         examples=[
             "postgresql://user:pass@host:5432/db",
@@ -282,7 +283,10 @@ class DatabaseConfig(ToolsetConfig):
         description=(
             "When True (default), verify SSL certificates for database connections. "
             "Set to False for self-signed certificates or development environments. "
-            "Required for some managed databases with custom certificates (e.g., RDS with custom CAs)."
+            "Required for some managed databases with custom certificates (e.g., RDS with custom CAs). "
+            "For SQL Server, True connects with TLS and certificate verification "
+            "(required by Azure SQL) while False disables TLS entirely "
+            "(use for servers with self-signed certificates)."
         ),
     )
 
@@ -490,9 +494,18 @@ class DatabaseToolset(Toolset):
                 )
 
     def _create_engine(self, url: str):
-        connect_args = {}
+        connect_args: Dict[str, Any] = {}
 
-        if not self.database_config.verify_ssl:
+        if "mssql" in url or "pytds" in url:
+            # pytds only enables TLS when a CA bundle is passed, and always
+            # verifies the server certificate against it — there is no
+            # encrypt-without-verification mode. verify_ssl=True therefore
+            # means an encrypted, certificate-verified connection (Azure SQL
+            # requires TLS); verify_ssl=False disables TLS entirely, which is
+            # what servers with self-signed certificates need.
+            if self.database_config.verify_ssl:
+                connect_args["cafile"] = certifi.where()
+        elif not self.database_config.verify_ssl:
             if "postgresql" in url:
                 # pg8000 uses ssl_context parameter
                 connect_args["ssl_context"] = None
@@ -500,8 +513,6 @@ class DatabaseToolset(Toolset):
                 connect_args["ssl_disabled"] = True
             elif "clickhouse" in url:
                 connect_args["verify"] = False
-            elif "mssql" in url or "pymssql" in url:
-                connect_args["TrustServerCertificate"] = "yes"
 
         return sqlalchemy.create_engine(
             url, pool_pre_ping=True, connect_args=connect_args

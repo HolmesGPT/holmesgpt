@@ -3,6 +3,7 @@
 import os
 import tempfile
 
+import certifi
 import pytest
 from pydantic import ValidationError
 
@@ -55,7 +56,14 @@ class TestNormaliseUrl:
     def test_mssql_url(self):
         assert (
             _normalise_url("mssql://user:pass@host/db")
-            == "mssql+pymssql://user:pass@host/db"
+            == "mssql+pytds://user:pass@host/db"
+        )
+
+    def test_legacy_pymssql_url_rewritten_to_pytds(self):
+        # Configs written before the pymssql -> python-tds swap keep working.
+        assert (
+            _normalise_url("mssql+pymssql://user:pass@host/db")
+            == "mssql+pytds://user:pass@host/db"
         )
 
     def test_sqlite_url(self):
@@ -142,6 +150,50 @@ class TestDatabaseToolset:
     def test_toolset_disabled_by_default(self):
         toolset = DatabaseToolset()
         assert toolset.enabled is False
+
+
+class TestCreateEngineConnectArgs:
+    """verify_ssl maps to the correct driver-specific connect_args."""
+
+    def _connect_args(self, monkeypatch, url, verify_ssl):
+        toolset = DatabaseToolset()
+        toolset.config = DatabaseConfig(connection_url=url, verify_ssl=verify_ssl)
+        captured = {}
+
+        def fake_create_engine(engine_url, **kwargs):
+            captured["connect_args"] = kwargs["connect_args"]
+
+        monkeypatch.setattr(sqlalchemy, "create_engine", fake_create_engine)
+        toolset._create_engine(url)
+        return captured["connect_args"]
+
+    def test_mssql_verify_ssl_enables_tls_with_ca_bundle(self, monkeypatch):
+        # pytds only turns TLS on when a CA bundle is passed; certifi's bundle
+        # gives a certificate-verified connection (required by Azure SQL).
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {"cafile": certifi.where()}
+
+    def test_mssql_no_verify_ssl_disables_tls(self, monkeypatch):
+        # pytds has no encrypt-without-verification mode, so verify_ssl=False
+        # means no TLS at all (self-signed / plain servers).
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=False
+        )
+        assert args == {}
+
+    def test_postgres_no_verify_ssl(self, monkeypatch):
+        args = self._connect_args(
+            monkeypatch, "postgresql+pg8000://user:pass@host/db", verify_ssl=False
+        )
+        assert args == {"ssl_context": None}
+
+    def test_postgres_verify_ssl_passes_no_args(self, monkeypatch):
+        args = self._connect_args(
+            monkeypatch, "postgresql+pg8000://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {}
 
 
 class TestSubtypeIcons:
@@ -360,6 +412,9 @@ class TestDetectSubtype:
 
     def test_mssql(self):
         assert _detect_subtype("mssql://user:pass@host/db") == DatabaseSubtype.MSSQL
+
+    def test_mssql_pytds(self):
+        assert _detect_subtype("mssql+pytds://user:pass@host/db") == DatabaseSubtype.MSSQL
 
     def test_mssql_pymssql(self):
         assert _detect_subtype("mssql+pymssql://user:pass@host/db") == DatabaseSubtype.MSSQL

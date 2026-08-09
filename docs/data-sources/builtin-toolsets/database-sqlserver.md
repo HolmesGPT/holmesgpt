@@ -46,13 +46,13 @@ GRANT VIEW DEFINITION TO holmes_readonly;
       sqlserver-prod:
         type: database
         config:
-          connection_url: "mssql+pymssql://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
+          connection_url: "mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
         llm_instructions: "Production SQL Server database with application data"
 
       sqlserver-analytics:
         type: database
         config:
-          connection_url: "mssql+pymssql://analyst:pass@analytics-sql.internal:1433/analytics"
+          connection_url: "mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics"
         llm_instructions: "Analytics SQL Server for reporting and BI"
     ```
 
@@ -68,12 +68,22 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
     **Connection URL format:**
     ```
-    mssql+pymssql://[username]:[password]@[host]:[port]/[database]
+    mssql+pytds://[username]:[password]@[host]:[port]/[database]
     ```
 
-    **With encryption:**
+    Plain `mssql://` URLs and legacy `mssql+pymssql://` URLs are automatically rewritten to use the `pytds` driver.
+
+    **TLS encryption:**
+
+    Encryption is controlled by the `verify_ssl` option (default: `true`). When `true`, connections use TLS with certificate verification — this is what Azure SQL and other TLS-enforcing servers need. Set it to `false` for servers with self-signed certificates, which disables TLS entirely:
+
     ```yaml
-    connection_url: "mssql+pymssql://user:pass@server:1433/db?encrypt=true"
+    toolsets:
+      sqlserver-dev:
+        type: database
+        config:
+          connection_url: "mssql+pytds://user:pass@server:1433/db"
+          verify_ssl: false  # self-signed certificate
     ```
 
 === "Holmes Helm Chart"
@@ -82,7 +92,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
     ```bash
     kubectl create secret generic sqlserver-credentials \
-      --from-literal=url='mssql+pymssql://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
+      --from-literal=url='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
       -n holmes
     ```
 
@@ -137,7 +147,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
     ```bash
     kubectl create secret generic sqlserver-credentials \
-      --from-literal=url='mssql+pymssql://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
+      --from-literal=url='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
       -n default
     ```
 
@@ -192,7 +202,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
 - **connection_url** (required): SQL Server connection URL
 - **read_only** (default: `true`): Only allow SELECT/SHOW/DESCRIBE/EXPLAIN/WITH statements
-- **verify_ssl** (default: `true`): Verify SSL certificates
+- **verify_ssl** (default: `true`): Connect with TLS and certificate verification (required by Azure SQL). Set to `false` to disable TLS for servers with self-signed certificates
 - **max_rows** (default: `200`): Maximum rows to return (1-10000)
 - **llm_instructions**: Context about this database
 
