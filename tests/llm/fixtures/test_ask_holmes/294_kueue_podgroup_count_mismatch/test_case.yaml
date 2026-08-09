@@ -1,0 +1,77 @@
+user_prompt: "A gang-scheduled group of 3 pods labeled kueue.x-k8s.io/pod-group-name=distributed-train in namespace 'app-294' on queue 'team-a-queue' has been stuck for over 20 minutes with not all pods running. Investigate using the available tools and determine the root cause."
+expected_output:
+  - Only 1 of the expected 3 pods in the distributed-train pod-group is actually running
+  - The other 2 pods are unschedulable due to requesting more CPU than any node has
+  - The root cause is a pod-group/gang-scheduling shortfall, not insufficient Kueue quota
+
+tags:
+  - kubernetes
+  - easy
+  - question-answer
+
+evaluation:
+  correctness: 1
+
+before_test: |
+  KUEUE_VERSION=v0.19.0
+  if kubectl get crd workloads.kueue.x-k8s.io >/dev/null 2>&1; then
+    INSTALLED_IMAGE=$(kubectl get deployment/kueue-controller-manager -n kueue-system -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    if [[ "$INSTALLED_IMAGE" != *"$KUEUE_VERSION"* ]]; then
+      echo "❌ an existing Kueue install (image: ${INSTALLED_IMAGE:-none}) does not match the expected ${KUEUE_VERSION}; refusing to reuse it"
+      exit 1
+    fi
+  else
+    kubectl apply --server-side -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
+  fi
+  for i in {1..60}; do
+    kubectl get deployment/kueue-controller-manager -n kueue-system >/dev/null 2>&1 && break
+    sleep 1
+  done
+  kubectl wait --for=condition=Available deployment/kueue-controller-manager -n kueue-system --timeout=60s
+
+  kubectl apply -f ./manifest.yaml
+  # Poll for the specific root-cause state, not just "1 pod running": pod 0
+  # must be Running, and pods 1/2 must each be confirmed Unschedulable by the
+  # scheduler (PodScheduled=False, reason=Unschedulable) - not merely absent
+  # from the running count, which a transient scheduling delay could also
+  # produce.
+  READY=false
+  for i in {1..60}; do
+    RUNNING=$(kubectl get pod distributed-train-0 -n app-294 -o jsonpath='{.status.phase}' 2>/dev/null)
+    UNSCHED_1=$(kubectl get pod distributed-train-1 -n app-294 -o jsonpath='{.status.conditions[?(@.type=="PodScheduled")].reason}' 2>/dev/null)
+    UNSCHED_2=$(kubectl get pod distributed-train-2 -n app-294 -o jsonpath='{.status.conditions[?(@.type=="PodScheduled")].reason}' 2>/dev/null)
+    if [ "$RUNNING" = "Running" ] && [ "$UNSCHED_1" = "Unschedulable" ] && [ "$UNSCHED_2" = "Unschedulable" ]; then
+      echo "✅ pod-group settled: pod 0 Running, pods 1/2 confirmed Unschedulable!"
+      READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/60: waiting for pod-group to settle (pod0=$RUNNING pod1=$UNSCHED_1 pod2=$UNSCHED_2), checking in 1s..."
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "❌ pod-group did not settle into the expected 1-Running/2-Unschedulable state after 60s"
+    kubectl get pods -n app-294 -o wide
+    exit 1
+  fi
+
+after_test: |
+  # Kueue's standalone "pod" integration ties each pod's kueue.x-k8s.io/managed
+  # finalizer to its Workload's lifecycle - the finalizer is only released once
+  # the Workload is gone. Deleting the Pods first with the default blocking
+  # wait deadlocks (it waits forever for a finalizer removal that can't happen
+  # until the Workload, deleted on the next line, is gone). So: delete the
+  # Workload first (unblocks the finalizer condition), delete Pods with
+  # --wait=false as a non-blocking follow-up, then the rest.
+  kubectl delete workload distributed-train -n app-294 --ignore-not-found
+  kubectl delete pods -n app-294 -l kueue.x-k8s.io/pod-group-name=distributed-train --ignore-not-found --wait=false
+  kubectl delete namespace app-294 --ignore-not-found
+  for i in {1..60}; do
+    kubectl get namespace app-294 >/dev/null 2>&1 || break
+    sleep 1
+  done
+  kubectl delete clusterqueue app-294-cq --ignore-not-found
+  kubectl delete resourceflavor app-294-flavor --ignore-not-found
+  if kubectl get namespace app-294 >/dev/null 2>&1; then
+    echo "❌ namespace app-294 still exists after bounded teardown wait"
+    exit 1
+  fi

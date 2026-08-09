@@ -1,0 +1,123 @@
+user_prompt: "Job 'lowpri-sweep' in namespace 'app-295' was running but is now stuck in Pending again. Investigate using the available tools and determine the root cause."
+expected_output:
+  - The Workload's Evicted condition is True with reason Preempted
+  - It was preempted to make room for a higher-priority workload
+  - The root cause is preemption, not insufficient quota or a queue misconfiguration
+
+tags:
+  - kubernetes
+  - easy
+  - question-answer
+
+evaluation:
+  correctness: 1
+
+# Submits a low-priority Job that fills the ClusterQueue's entire quota and
+# gets admitted, then submits a higher-priority Job requesting the same
+# quota. With preemption.withinClusterQueue=LowerPriority set on the
+# ClusterQueue, Kueue preempts the low-priority workload to admit the
+# high-priority one.
+before_test: |
+  KUEUE_VERSION=v0.19.0
+  if kubectl get crd workloads.kueue.x-k8s.io >/dev/null 2>&1; then
+    INSTALLED_IMAGE=$(kubectl get deployment/kueue-controller-manager -n kueue-system -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    if [[ "$INSTALLED_IMAGE" != *"$KUEUE_VERSION"* ]]; then
+      echo "❌ an existing Kueue install (image: ${INSTALLED_IMAGE:-none}) does not match the expected ${KUEUE_VERSION}; refusing to reuse it"
+      exit 1
+    fi
+  else
+    kubectl apply --server-side -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
+  fi
+  for i in {1..60}; do
+    kubectl get deployment/kueue-controller-manager -n kueue-system >/dev/null 2>&1 && break
+    sleep 1
+  done
+  kubectl wait --for=condition=Available deployment/kueue-controller-manager -n kueue-system --timeout=60s
+
+  kubectl apply -f ./manifest.yaml
+
+  # Wait for the low-priority Job to be admitted before submitting the
+  # high-priority one, so preemption (not FIFO ordering) is what's exercised.
+  ADMITTED=false
+  for i in {1..60}; do
+    WORKLOAD=$(kubectl get workload -n app-295 -o name 2>/dev/null | head -1)
+    if [ -n "$WORKLOAD" ] && kubectl get "$WORKLOAD" -n app-295 -o jsonpath='{.status.conditions[?(@.type=="Admitted")].status}' 2>/dev/null | grep -q "True"; then
+      echo "✅ Low-priority workload admitted!"
+      ADMITTED=true
+      break
+    fi
+    echo "⏳ Attempt $i/60: waiting for low-priority workload admission, checking in 1s..."
+    sleep 1
+  done
+  if [ "$ADMITTED" = false ]; then
+    echo "❌ Low-priority workload was not admitted after 60s"
+    kubectl get workload -n app-295 -o yaml
+    exit 1
+  fi
+
+  cat <<'EOF' | kubectl apply -f -
+  apiVersion: batch/v1
+  kind: Job
+  metadata:
+    name: highpri-train
+    namespace: app-295
+    labels:
+      kueue.x-k8s.io/queue-name: preempt-queue
+      kueue.x-k8s.io/priority-class: app-295-high-priority
+  spec:
+    suspend: true
+    template:
+      spec:
+        containers:
+          - name: main
+            image: busybox:1.36
+            command: ["sh", "-c", "echo train && sleep 3600"]
+            resources:
+              requests:
+                cpu: "800m"
+                memory: 1Gi
+        restartPolicy: Never
+    backoffLimit: 0
+  EOF
+
+  # Wait for the low-priority workload to be evicted specifically because it
+  # was preempted (reason=Preempted), not just Evicted=True for some other,
+  # unrelated reason.
+  EVICTED=false
+  for i in {1..60}; do
+    WORKLOAD=$(kubectl get workload -n app-295 -l "kueue.x-k8s.io/job-name=lowpri-sweep" -o name 2>/dev/null | head -1)
+    if [ -z "$WORKLOAD" ]; then
+      WORKLOAD=$(kubectl get workload -n app-295 -o name 2>/dev/null | grep lowpri | head -1)
+    fi
+    if [ -n "$WORKLOAD" ]; then
+      EVICTED_STATUS=$(kubectl get "$WORKLOAD" -n app-295 -o jsonpath='{.status.conditions[?(@.type=="Evicted")].status}' 2>/dev/null)
+      EVICTED_REASON=$(kubectl get "$WORKLOAD" -n app-295 -o jsonpath='{.status.conditions[?(@.type=="Evicted")].reason}' 2>/dev/null)
+      if [ "$EVICTED_STATUS" = "True" ] && [ "$EVICTED_REASON" = "Preempted" ]; then
+        echo "✅ Low-priority workload was preempted as expected!"
+        EVICTED=true
+        break
+      fi
+    fi
+    echo "⏳ Attempt $i/60: waiting for preemption (evicted=$EVICTED_STATUS reason=$EVICTED_REASON), checking in 1s..."
+    sleep 1
+  done
+  if [ "$EVICTED" = false ]; then
+    echo "❌ Low-priority workload was not preempted (Evicted=True, reason=Preempted) after 60s"
+    kubectl get workload -n app-295 -o yaml
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete job highpri-train lowpri-sweep -n app-295 --ignore-not-found
+  kubectl delete namespace app-295 --ignore-not-found
+  for i in {1..60}; do
+    kubectl get namespace app-295 >/dev/null 2>&1 || break
+    sleep 1
+  done
+  kubectl delete clusterqueue app-295-cq --ignore-not-found
+  kubectl delete resourceflavor app-295-flavor --ignore-not-found
+  kubectl delete workloadpriorityclass app-295-low-priority app-295-high-priority --ignore-not-found
+  if kubectl get namespace app-295 >/dev/null 2>&1; then
+    echo "❌ namespace app-295 still exists after bounded teardown wait"
+    exit 1
+  fi
