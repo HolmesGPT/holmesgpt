@@ -56,13 +56,17 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
               secretKeyRef:
                 name: holmes-skills-git-credentials
                 key: token
+          - name: GIT_REPO
+            value: github.com/<org>/<repo>.git
+          - name: GIT_BRANCH
+            value: main
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -e
             rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
-            git clone --depth 1 --branch main \
-              "https://oauth2:${GIT_PAT}@github.com/<org>/<repo>.git" \
+            git clone --depth 1 --branch "$GIT_BRANCH" \
+              "https://oauth2:${GIT_PAT}@${GIT_REPO}" \
               /skills-repo
         volumeMounts:
           - name: skills-repo
@@ -72,10 +76,10 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
       - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
     ```
 
-    Adjust:
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
 
-    - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
     - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
 
     **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
@@ -122,13 +126,17 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
                 secretKeyRef:
                   name: holmes-skills-git-credentials
                   key: token
+            - name: GIT_REPO
+              value: github.com/<org>/<repo>.git
+            - name: GIT_BRANCH
+              value: main
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -e
               rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
-              git clone --depth 1 --branch main \
-                "https://oauth2:${GIT_PAT}@github.com/<org>/<repo>.git" \
+              git clone --depth 1 --branch "$GIT_BRANCH" \
+                "https://oauth2:${GIT_PAT}@${GIT_REPO}" \
                 /skills-repo
           volumeMounts:
             - name: skills-repo
@@ -138,10 +146,10 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
         - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
     ```
 
-    Adjust:
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
 
-    - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
     - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
 
     **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
@@ -200,6 +208,11 @@ Create the App, generate a private key, and install it on your skills repo by fo
         envFrom:
           - secretRef:
               name: holmes-github-app
+        env:
+          - name: GIT_REPO
+            value: github.com/<org>/<repo>.git
+          - name: GIT_BRANCH
+            value: main
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -229,8 +242,8 @@ Create the App, generate a private key, and install it on your skills repo by fo
             fi
 
             rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
-            git clone --depth 1 --branch main \
-              "https://x-access-token:${TOKEN}@github.com/<org>/<repo>.git" \
+            git clone --depth 1 --branch "$GIT_BRANCH" \
+              "https://x-access-token:${TOKEN}@${GIT_REPO}" \
               /skills-repo
         volumeMounts:
           - name: skills-repo
@@ -240,10 +253,10 @@ Create the App, generate a private key, and install it on your skills repo by fo
       - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
     ```
 
-    Adjust:
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
 
-    - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
     - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
 
     The init container installs `git`, `openssl`, and `curl` at startup, which requires egress to the Alpine package CDN. If your cluster restricts egress, build a small image with those packages preinstalled and drop the `apk add` line.
@@ -289,6 +302,11 @@ Create the App, generate a private key, and install it on your skills repo by fo
           envFrom:
             - secretRef:
                 name: holmes-github-app
+          env:
+            - name: GIT_REPO
+              value: github.com/<org>/<repo>.git
+            - name: GIT_BRANCH
+              value: main
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -318,8 +336,8 @@ Create the App, generate a private key, and install it on your skills repo by fo
               fi
 
               rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
-              git clone --depth 1 --branch main \
-                "https://x-access-token:${TOKEN}@github.com/<org>/<repo>.git" \
+              git clone --depth 1 --branch "$GIT_BRANCH" \
+                "https://x-access-token:${TOKEN}@${GIT_REPO}" \
                 /skills-repo
           volumeMounts:
             - name: skills-repo
@@ -329,10 +347,10 @@ Create the App, generate a private key, and install it on your skills repo by fo
         - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
     ```
 
-    Adjust:
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
 
-    - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
     - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
 
     The init container installs `git`, `openssl`, and `curl` at startup, which requires egress to the Alpine package CDN. If your cluster restricts egress, build a small image with those packages preinstalled and drop the `apk add` line.
