@@ -106,7 +106,20 @@ class TestExecuteSubprocessTimeout:
         tool = _make_tool("sleep 30")
         context = create_mock_tool_invoke_context()
 
-        with patch("os.killpg", side_effect=ProcessLookupError()):
+        # Perform the real kill so the spawned `sleep 30` process group is
+        # actually reaped (avoiding an orphaned process), then raise
+        # ProcessLookupError to simulate the race where the process had
+        # already exited by the time killpg was called.
+        real_killpg = os.killpg
+
+        def killpg_then_raise(pgid, sig):
+            try:
+                real_killpg(pgid, sig)
+            except ProcessLookupError:
+                pass
+            raise ProcessLookupError()
+
+        with patch("os.killpg", side_effect=killpg_then_raise):
             result = tool._invoke(params={}, context=context)
 
         assert result.return_code == 124
