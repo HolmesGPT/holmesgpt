@@ -63,7 +63,7 @@ Tools are granted per scope, so only pick the ones you actually want Holmes to h
 The Rovo MCP Server expects HTTP Basic authentication with your Atlassian account email and the API token:
 
 ```bash
-printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_API_TOKEN>" | base64 -w0
+printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_API_TOKEN>" | base64 | tr -d '\n'
 ```
 
 Keep the resulting base64 string — it becomes the `Authorization: Basic <value>` header below. Run this once per token if you created both a Jira and a Confluence token.
@@ -80,8 +80,8 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
     Export one base64 credential per token:
 
     ```bash
-    export ATLASSIAN_MCP_JIRA=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_JIRA_TOKEN>" | base64 -w0)
-    export ATLASSIAN_MCP_CONFLUENCE=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_CONFLUENCE_TOKEN>" | base64 -w0)
+    export ATLASSIAN_MCP_JIRA=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_JIRA_TOKEN>" | base64 | tr -d '\n')
+    export ATLASSIAN_MCP_CONFLUENCE=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_CONFLUENCE_TOKEN>" | base64 | tr -d '\n')
     ```
 
     Add the MCP servers to **~/.holmes/config.yaml**:
@@ -120,8 +120,8 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
 
     ```bash
     kubectl create secret generic atlassian-mcp-credentials \
-      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 -w0)" \
-      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 -w0)" \
+      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 | tr -d '\n')" \
+      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 | tr -d '\n')" \
       -n <NAMESPACE>
     ```
 
@@ -175,8 +175,8 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
 
     ```bash
     kubectl create secret generic atlassian-mcp-credentials \
-      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 -w0)" \
-      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 -w0)" \
+      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 | tr -d '\n')" \
+      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 | tr -d '\n')" \
       -n <NAMESPACE>
     ```
 
@@ -240,21 +240,31 @@ Everything else is scope-dependent:
 | `getTransitionsForJiraIssue` | List available workflow transitions | `read:jira-work` |
 | `getJiraIssueRemoteIssueLinks` | List remote links on an issue | `read:jira-work` |
 | `getJiraProjectIssueTypesMetadata` | List issue types for a project | `read:jira-work` |
+| `getJiraIssueTypeMetaWithFields` | Get create/edit field metadata for an issue type | `read:jira-work` |
+| `getIssueLinkTypes` | List the available issue link types | `read:jira-work` |
 | `lookupJiraAccountId` | Resolve a user to an account ID | `read:jira-work` |
 | `searchJiraIssuesUsingJql` | Search issues with JQL | `search:jira-work` |
 | `createJiraIssue` | Create an issue | `write:jira-work` |
 | `editJiraIssue` | Edit an existing issue | `write:jira-work` |
 | `addCommentToJiraIssue` | Comment on an issue | `write:jira-work` |
+| `addWorklogToJiraIssue` | Log work against an issue | `write:jira-work` |
 | `transitionJiraIssue` | Move an issue through its workflow | `write:jira-work` |
 | `getConfluencePage` | Get a Confluence page and its body | `read:page:confluence` |
 | `getPagesInConfluenceSpace` | List pages in a space | `read:page:confluence` |
+| `getConfluencePageDescendants` | Walk a page's child pages | `read:hierarchical-content:confluence` |
 | `getConfluenceSpaces` | List spaces | `read:space:confluence` |
-| `getConfluencePageFooterComments` | Read page comments | `read:comment:confluence` |
+| `getConfluencePageFooterComments` | Read footer comments on a page | `read:comment:confluence` |
+| `getConfluencePageInlineComments` | Read inline comments on a page | `read:comment:confluence` |
+| `getConfluenceCommentChildren` | Read replies to a comment | `read:comment:confluence` |
 | `searchConfluenceUsingCql` | Search Confluence with CQL | `search:confluence` |
 | `createConfluencePage` | Create a page | `write:page:confluence` |
 | `updateConfluencePage` | Update a page | `write:page:confluence` |
+| `createConfluenceFooterComment` | Add a footer comment to a page | `write:page:confluence` |
+| `createConfluenceInlineComment` | Add an inline comment to a page | `write:page:confluence` |
 
-See Atlassian's [supported tools](https://support.atlassian.com/atlassian-rovo-mcp-server/docs/supported-tools/) reference for the complete list.
+Atlassian adds tools over time, so treat this as a snapshot rather than a contract — `holmes toolset list` and the server's own `tools/list` are the source of truth for what your token actually gets. See Atlassian's [supported tools](https://support.atlassian.com/atlassian-rovo-mcp-server/docs/supported-tools/) reference for products beyond Jira and Confluence.
+
+Three `TeamworkGraph` tools (`getTeamworkGraphContext`, `getTeamworkGraphObject`, `addTeamworkGraphContext`) are also advertised to every client. They traverse relationships across Atlassian products and require their own scopes, so they will appear in your tool list even when they are not usable.
 
 !!! note "Most tools need a cloudId"
     Rovo tools are site-scoped and take a `cloudId` argument. Holmes can discover it by calling `getAccessibleAtlassianResources`, but putting it in `llm_instructions` saves a round trip. To look it up yourself, visit `https://<your-site>.atlassian.net/_edge/tenant_info`.
@@ -289,13 +299,13 @@ holmes ask "Open a Jira ticket in PROJ describing the OOMKills on the payments d
 
 ## Troubleshooting
 
-The tool count tells you what went wrong. Count what the server returns before debugging anything else:
+Which tools come back tells you what went wrong, so check the tool list before debugging anything else. The counts below were observed against Rovo at the time of writing and will drift as Atlassian ships tools — the pattern is what matters, not the exact number:
 
 | Tools returned | Meaning |
 |----------------|---------|
-| 3 (`TeamworkGraph` only) | Classic API token — no scopes at all |
-| 5 (`TeamworkGraph` + `atlassianUserInfo` + `getAccessibleAtlassianResources`) | Scoped token, but none of its scopes map to Rovo tools |
-| 14 | Scoped Jira token with `read:jira-work` and `search:jira-work` |
+| `TeamworkGraph` only (3) | Classic API token — no scopes at all |
+| `TeamworkGraph` plus `atlassianUserInfo` and `getAccessibleAtlassianResources` (5) | Scoped token, but none of its scopes map to Rovo tools |
+| The above plus a block of `*Jira*` or `*Confluence*` tools (14 for Jira read + search) | Working scoped token |
 
 **Only three `TeamworkGraph` tools appear**
 
@@ -321,9 +331,11 @@ curl -s -o /dev/null -w '%{http_code}\n' -u "<EMAIL>:<TOKEN>" \
   "https://api.atlassian.com/ex/confluence/$CLOUD_ID/wiki/api/v2/spaces?limit=1"
 ```
 
+Note that the Confluence probe hits `/wiki/api/v2/spaces`, which specifically requires `read:space:confluence`. If you scoped the token more narrowly — say `read:page:confluence` and `search:confluence` only — this probe returns `401` even though the token is valid and Rovo will serve the page and search tools. Probe `/wiki/api/v2/pages?limit=1` instead in that case. These probes must go through `api.atlassian.com`; scoped tokens are rejected against `<your-site>.atlassian.net`.
+
 **`401 Unauthorized`**
 
-The email/token pair is wrong, the base64 encoding is malformed, or the token has been revoked. Re-run the `printf ... | base64 -w0` command and make sure there is no trailing newline (`-w0` on GNU coreutils; on macOS use `base64` with no flags).
+The email/token pair is wrong, the base64 encoding is malformed, or the token has been revoked. Re-run the `printf ... | base64 | tr -d '\n'` command — the `tr` is what strips the line wrapping that `base64` adds by default, and a header containing a newline will be rejected.
 
 **The toolset fails to load entirely**
 
