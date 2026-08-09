@@ -65,7 +65,7 @@ HolmesGPT ships with read-only integrations for every major observability vendor
 - **Databases**: PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, MongoDB Atlas
 - **ITSM**: ServiceNow
 - **Messaging**: Kafka, RabbitMQ
-- **Knowledge**: Confluence, Notion, Slab, Internet/web search
+- **Knowledge**: Atlassian Rovo (Jira + Confluence), Confluence, Notion, Slab, Internet/web search
 
 See the [full list of built-in toolsets](data-sources/builtin-toolsets/index.md).
 
