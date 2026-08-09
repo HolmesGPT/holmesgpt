@@ -568,7 +568,18 @@ class RemoteMCPTool(Tool):
         session_approved_prefixes: Optional[List[str]] = None,
     ) -> StructuredToolResult:
         is_remote = self.is_remote
-        call_params = params
+        # Strict tool-call schemas force the LLM to emit every parameter, sending null
+        # for ones it wants to omit. MCP servers may treat an explicit null differently
+        # from an absent key, so drop null values for parameters the server's own schema
+        # marks optional. Nulls for required params pass through so the server returns a
+        # real validation error the LLM can act on.
+        call_params = {
+            k: v
+            for k, v in params.items()
+            if v is not None
+            or k not in self.parameters
+            or self.parameters[k].required
+        }
         if user_approved:
             call_params = {**call_params, REMOTE_TOOL_APPROVED_PARAM: True}
         if is_remote and session_approved_prefixes:

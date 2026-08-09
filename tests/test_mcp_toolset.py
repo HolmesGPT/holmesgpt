@@ -1378,6 +1378,85 @@ class TestStreamableHttp:
         for expected in expected_in_response:
             assert expected in result.data
 
+    @pytest.mark.parametrize(
+        "params,expected_call_params",
+        [
+            # Null for an optional param is dropped so the server sees an absent key,
+            # matching what strict tool-call schemas make the LLM send when omitting.
+            ({"query": "errors", "tenant_uuid": None}, {"query": "errors"}),
+            # Null for a required param passes through so the server can return a
+            # real validation error.
+            ({"query": None, "tenant_uuid": None}, {"query": None}),
+            # Null for a key not in the schema is passed through untouched.
+            (
+                {"query": "errors", "unknown_key": None},
+                {"query": "errors", "unknown_key": None},
+            ),
+            # Non-null optional values are kept.
+            (
+                {"query": "errors", "tenant_uuid": "abc-123"},
+                {"query": "errors", "tenant_uuid": "abc-123"},
+            ),
+        ],
+    )
+    def test_run_tool_strips_null_optional_params(
+        self,
+        params,
+        expected_call_params,
+        monkeypatch,
+        suppress_migration_warnings,
+    ):
+        tool = Tool(
+            name="query_logs",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "tenant_uuid": {"type": "string"},
+                },
+                "required": ["query"],
+            },
+            description="Test tool",
+        )
+
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(mock_toolset, "_get_server_tools", mock_get_server_tools)
+        mock_toolset.prerequisites_callable(config=mock_toolset.config)
+
+        mcp_tool = RemoteMCPTool.create(tool, mock_toolset)
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        call_tool_result = CallToolResult(
+            content=[TextContent(type="text", text='{"ok": true}')],
+            isError=False,
+        )
+        mock_session.call_tool = AsyncMock(return_value=call_tool_result)
+
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+
+        with client_patch, session_patch:
+            result = asyncio.run(mcp_tool._invoke_async(params, None))
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        mock_session.call_tool.assert_awaited_once_with(
+            "query_logs", expected_call_params
+        )
+
     def test_list_tools(self, monkeypatch, suppress_migration_warnings):
         mock_session = AsyncMock()
         mock_session.initialize = AsyncMock(return_value=None)
