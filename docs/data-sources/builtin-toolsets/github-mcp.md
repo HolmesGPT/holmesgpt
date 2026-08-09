@@ -399,10 +399,6 @@ Find the **App ID** on the App's settings page (under "About").
         auth:
           githubApp:
             secretName: "holmes-github-app"
-            # Optional (multi-org mode): org/user whose credentials handle
-            # requests that don't name an owner. Defaults to the first
-            # discovered installation.
-            # defaultOwner: "my-main-org"
     ```
 
     A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
@@ -448,9 +444,9 @@ Find the **App ID** on the App's settings page (under "About").
 Installation tokens are scoped to a single organization, so a GitHub App installed on several organizations has one installation (and one token) per organization. The `github-app-mcp` server handles this transparently:
 
 - Install the same App on every organization or user account Holmes should reach, and omit `GITHUB_APP_INSTALLATION_ID` from the secret.
-- The server discovers all installations of the App at startup and re-checks every 5 minutes, so installing the App on a new organization requires no restart or config change.
+- The server discovers all installations of the App at startup, and re-checks whenever a request names an organization it hasn't seen, so installing the App on a new organization requires no restart or config change.
 - Each tool call is routed to the right organization's credentials based on the `owner`/`org` it targets.
-- Requests that don't name an owner — and owners the App isn't installed on — use the default installation: the first discovered, or the one chosen via `mcpAddons.github.auth.githubApp.defaultOwner`.
+- Requests that don't name an owner — and owners the App isn't installed on — use the first discovered installation.
 - Setting `GITHUB_APP_INSTALLATION_ID` in the secret pins the server to that single installation and disables discovery (the pre-2.0.0 behavior).
 
 !!! info "How token management works"

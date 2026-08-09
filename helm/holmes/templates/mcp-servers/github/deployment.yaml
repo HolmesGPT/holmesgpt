@@ -133,10 +133,6 @@ spec:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_PRIVATE_KEY
-        {{- if .Values.mcpAddons.github.auth.githubApp.defaultOwner }}
-        - name: GITHUB_APP_DEFAULT_OWNER
-          value: {{ .Values.mcpAddons.github.auth.githubApp.defaultOwner | quote }}
-        {{- end }}
         {{- end }}
         {{- if .Values.mcpAddons.github.config.toolsets }}
         - name: GITHUB_TOOLSETS

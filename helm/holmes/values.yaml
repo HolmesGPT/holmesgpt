@@ -525,9 +525,6 @@ mcpAddons:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
         image: "github-app-mcp:2.0.0"                          # Image with GitHub App token management + multi-org routing
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
-        # Org/user whose installation handles requests that don't name an owner
-        # (multi-org mode only). Defaults to the first discovered installation.
-        defaultOwner: ""
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)
