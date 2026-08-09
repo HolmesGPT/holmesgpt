@@ -7,7 +7,7 @@ The GitHub MCP server provides access to GitHub repositories, pull requests, iss
 Holmes supports two authentication methods for GitHub. Both deploy a self-hosted MCP server pod in your cluster that wraps the [official GitHub MCP server](https://github.com/github/github-mcp-server):
 
 - **Personal Access Token (PAT)**: Uses the standard `github-mcp` image. The PAT is passed directly to the MCP server.
-- **GitHub App**: Uses the `github-app-mcp` image which automatically generates and caches short-lived installation tokens from GitHub App credentials. Supports a single App installed on multiple organizations, with requests routed to the right organization's credentials automatically.
+- **GitHub App**: Uses the `github-app-mcp` image which automatically generates and caches short-lived installation tokens from GitHub App credentials. One App installed on several organizations can be served from a single deployment via [multi-organization support (alpha)](#multi-organization-support-alpha).
 
 Both methods support GitHub.com and GitHub Enterprise Server.
 
@@ -293,9 +293,9 @@ Install the App on your organization or repositories:
 3. Choose **All repositories** or **Only select repositories**
 4. Click **Install**
 
-Repeat for every organization or user account Holmes should reach — the server discovers all installations of the App automatically.
+Note the **Installation ID** from the URL after installation: `https://github.com/settings/installations/<INSTALLATION_ID>`. See [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for more details.
 
-The **Installation ID** (visible in the URL after installation: `https://github.com/settings/installations/<INSTALLATION_ID>`) is **optional**: omit it from the secret for multi-organization auto-discovery, or set it to pin the server to that one installation. See [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for more details.
+To reach more than one organization from a single deployment, see [Multi-organization support (alpha)](#multi-organization-support-alpha).
 
 **Step 4: Note the App ID**
 
@@ -312,11 +312,9 @@ Find the **App ID** on the App's settings page (under "About").
     ```bash
     kubectl create namespace holmes-mcp  # if not already created
 
-    # GITHUB_APP_INSTALLATION_ID is optional: omit it (as below) for
-    # multi-organization auto-discovery, or add
-    # --from-literal=GITHUB_APP_INSTALLATION_ID=<ID> to pin one installation.
     kubectl create secret generic holmes-github-app \
       --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       -n holmes-mcp
     ```
@@ -341,23 +339,28 @@ Find the **App ID** on the App's settings page (under "About").
         spec:
           containers:
           - name: github-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:2.0.0
+            # For multi-org (alpha) use github-app-mcp:2.0.0 and drop the args below
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.7
             ports:
             - containerPort: 8000
+            args:
+              - "--stdio"
+              - "python3 /app/wrapper.py"
+              - "--port"
+              - "8000"
+              - "--outputTransport"
+              - "streamableHttp"
             env:
             - name: GITHUB_APP_ID
               valueFrom:
                 secretKeyRef:
                   name: holmes-github-app
                   key: GITHUB_APP_ID
-            # Optional: set to pin a single installation; omit the key from the
-            # secret for multi-organization auto-discovery
             - name: GITHUB_APP_INSTALLATION_ID
               valueFrom:
                 secretKeyRef:
                   name: holmes-github-app
                   key: GITHUB_APP_INSTALLATION_ID
-                  optional: true
             - name: GITHUB_APP_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
@@ -381,11 +384,9 @@ Find the **App ID** on the App's settings page (under "About").
     **Create the Kubernetes secret:**
 
     ```bash
-    # GITHUB_APP_INSTALLATION_ID is optional: omit it (as below) for
-    # multi-organization auto-discovery, or add
-    # --from-literal=GITHUB_APP_INSTALLATION_ID=<ID> to pin one installation.
     kubectl create secret generic holmes-github-app \
       --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       -n <NAMESPACE>
     ```
@@ -412,11 +413,9 @@ Find the **App ID** on the App's settings page (under "About").
     **Create the Kubernetes secret:**
 
     ```bash
-    # GITHUB_APP_INSTALLATION_ID is optional: omit it (as below) for
-    # multi-organization auto-discovery, or add
-    # --from-literal=GITHUB_APP_INSTALLATION_ID=<ID> to pin one installation.
     kubectl create secret generic holmes-github-app \
       --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       -n <NAMESPACE>
     ```
@@ -439,22 +438,37 @@ Find the **App ID** on the App's settings page (under "About").
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-**Multi-organization support**
+**Multi-organization support (alpha)**
 
-Installation tokens are scoped to a single organization, so a GitHub App installed on several organizations has one installation (and one token) per organization. The `github-app-mcp` server handles this transparently:
+A GitHub App installation token is scoped to one organization, so by default the server serves the single installation named by `GITHUB_APP_INSTALLATION_ID`.
+
+Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment:
+
+```yaml
+mcpAddons:
+  github:
+    enabled: true
+    auth:
+      githubApp:
+        secretName: "holmes-github-app"
+        multiOrg: true    # alpha
+```
 
 - Install the same App on every organization or user account Holmes should reach, and omit `GITHUB_APP_INSTALLATION_ID` from the secret.
-- The server discovers all installations of the App at startup, and re-checks whenever a request names an organization it hasn't seen, so installing the App on a new organization requires no restart or config change.
+- The server discovers all installations at startup, and re-checks whenever a request names an organization it hasn't seen, so installing the App on a new organization requires no restart or config change.
 - Each tool call is routed to the right organization's credentials based on the `owner`/`org` it targets.
 - Requests that don't name an owner — and owners the App isn't installed on — use the first discovered installation.
-- Setting `GITHUB_APP_INSTALLATION_ID` in the secret pins the server to that single installation and disables discovery (the pre-2.0.0 behavior).
+- Keeping `GITHUB_APP_INSTALLATION_ID` in the secret pins the server to that one installation even with `multiOrg: true`.
+
+!!! warning "Alpha"
+    Multi-org routing is not covered by the stable release. Leave `multiOrg` unset to keep the single-organization image, which is unchanged.
 
 !!! info "How token management works"
     The `github-app-mcp` image handles token management internally:
 
     1. Generates a JWT signed with the App's private key
-    2. Exchanges it for a short-lived (1 hour) installation token per organization, on demand
-    3. Injects the right organization's token into each request to the underlying MCP server
+    2. Exchanges it for a short-lived (1 hour) installation token, on demand
+    3. Injects the token into each request to the underlying MCP server
     4. Caches each token and mints a fresh one when it is within 5 minutes of expiry
 
 ## Available Tools
