@@ -38,14 +38,22 @@ An Atlassian organization admin has to turn this on before any token will work:
 
 Tools are granted per scope, so only pick the ones you actually want Holmes to have:
 
-| Scope | Unlocks |
-|-------|---------|
-| `read:jira-work` | Reading issues, projects, transitions, and issue metadata |
-| `search:jira-work` | JQL search |
-| `write:jira-work` | Creating and editing issues, comments, worklogs, transitions |
-| `read:page:confluence`, `read:space:confluence`, `read:hierarchical-content:confluence`, `read:comment:confluence` | Reading Confluence pages, spaces, and comments |
-| `search:confluence` | CQL search |
-| `write:page:confluence` | Creating and updating Confluence pages and comments |
+| App | Scope | Unlocks |
+|-----|-------|---------|
+| Jira | `read:jira-work` | Reading issues, projects, transitions, and issue metadata |
+| Jira | `search:jira-work` | JQL search |
+| Jira | `write:jira-work` | Creating and editing issues, comments, worklogs, transitions |
+| Confluence | `read:page:confluence` | Reading page bodies and listing pages in a space |
+| Confluence | `read:space:confluence` | Listing spaces |
+| Confluence | `read:comment:confluence` | Reading page comments |
+| Confluence | `read:hierarchical-content:confluence` | Walking page descendants |
+| Confluence | `search:confluence` | CQL search |
+| Confluence | `write:page:confluence` | Creating and updating pages and comments |
+
+!!! danger "Confluence: pick the granular scopes, not the classic ones"
+    The token creation screen offers Confluence scopes in two styles, and **Rovo only accepts the granular ones** — the `<action>:<resource>:confluence` names in the table above.
+
+    Selecting the classic `read:confluence-content.all`-style scopes produces a token that looks fine but grants no Confluence tools in Rovo. It still authenticates, and it still works against the legacy `/wiki/rest/api/content` REST endpoint, which makes it easy to conclude the token is good. Jira is not affected — its scopes (`read:jira-work` and friends) are the classic-style names and are what Rovo expects.
 
 !!! tip "Read-only is a good default"
     For investigations, the read and search scopes are enough. Only add the `write:` scopes if you want Holmes to open tickets or post comments.
@@ -216,7 +224,14 @@ The `{{ env.* }}` placeholders are resolved when Holmes loads its configuration,
 
 ## Available Tools
 
-The tools Atlassian exposes depend on the scopes attached to your token.
+The tools Atlassian exposes depend on the scopes attached to your token. Every scoped token also gets these two platform tools regardless of which app it targets, which is useful for confirming a token is live:
+
+| Tool | Description |
+|------|-------------|
+| `atlassianUserInfo` | Returns the authenticated account ID |
+| `getAccessibleAtlassianResources` | Lists the sites the token can reach, with their `cloudId` |
+
+Everything else is scope-dependent:
 
 | Tool | Description | Scope |
 |------|-------------|-------|
@@ -242,7 +257,7 @@ The tools Atlassian exposes depend on the scopes attached to your token.
 See Atlassian's [supported tools](https://support.atlassian.com/atlassian-rovo-mcp-server/docs/supported-tools/) reference for the complete list.
 
 !!! note "Most tools need a cloudId"
-    Rovo tools are site-scoped and take a `cloudId` argument. You can find yours at `https://<your-site>.atlassian.net/_edge/tenant_info`. Holmes will usually discover it via `getVisibleJiraProjects`, but putting it in `llm_instructions` saves a round trip.
+    Rovo tools are site-scoped and take a `cloudId` argument. Holmes can discover it by calling `getAccessibleAtlassianResources`, but putting it in `llm_instructions` saves a round trip. To look it up yourself, visit `https://<your-site>.atlassian.net/_edge/tenant_info`.
 
 ## Testing the Connection
 
@@ -274,13 +289,37 @@ holmes ask "Open a Jira ticket in PROJ describing the OOMKills on the payments d
 
 ## Troubleshooting
 
-**Only three `TeamworkGraph` tools appear, and no Jira or Confluence tools**
+The tool count tells you what went wrong. Count what the server returns before debugging anything else:
 
-Your token is a classic API token without scopes. Holmes will show the toolset as `enabled` — Atlassian accepts the credential and serves its default tool set — but none of the Jira or Confluence tools are granted. Create a new token with **Create API token with scopes** and pick the scopes from the table above.
+| Tools returned | Meaning |
+|----------------|---------|
+| 3 (`TeamworkGraph` only) | Classic API token — no scopes at all |
+| 5 (`TeamworkGraph` + `atlassianUserInfo` + `getAccessibleAtlassianResources`) | Scoped token, but none of its scopes map to Rovo tools |
+| 14 | Scoped Jira token with `read:jira-work` and `search:jira-work` |
+
+**Only three `TeamworkGraph` tools appear**
+
+Your token is a classic API token without scopes. Holmes will show the toolset as `enabled` — Atlassian accepts the credential and serves its default tool set — but none of the Jira or Confluence tools are granted. Create a new token with **Create API token with scopes**.
 
 **`403 Forbidden ... requires a modern API token (API token with scopes). Legacy API tokens without scopes are not supported.`**
 
 Same cause as above. The credential is valid, the token type is not.
+
+**Five tools appear — the platform tools work, but no Jira or Confluence tools**
+
+The token is genuinely scoped (that is why `atlassianUserInfo` and `getAccessibleAtlassianResources` are there) but its scopes don't map to any Rovo tool. For Confluence this almost always means classic scopes were selected instead of the granular `read:page:confluence`-style ones. Scopes can't be edited after creation, so reissue the token.
+
+You can confirm which product a token is actually scoped for by calling the product gateway directly — a scope mismatch returns `401 Unauthorized; scope does not match`:
+
+```bash
+CLOUD_ID=<YOUR_CLOUD_ID>
+# Jira scopes
+curl -s -o /dev/null -w '%{http_code}\n' -u "<EMAIL>:<TOKEN>" \
+  "https://api.atlassian.com/ex/jira/$CLOUD_ID/rest/api/3/myself"
+# Confluence granular scopes
+curl -s -o /dev/null -w '%{http_code}\n' -u "<EMAIL>:<TOKEN>" \
+  "https://api.atlassian.com/ex/confluence/$CLOUD_ID/wiki/api/v2/spaces?limit=1"
+```
 
 **`401 Unauthorized`**
 
