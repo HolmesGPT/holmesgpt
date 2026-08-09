@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://holmesgpt.dev/dev/data-sources/builtin-toolsets/openshift/">
+        <link rel="canonical" href="https://holmesgpt.dev/dev/data-sources/builtin-toolsets/atlassian-rovo-mcp/">
       
       
-        <link rel="prev" href="../notion/">
+        <link rel="prev" href="../aks-node-health/">
       
       
-        <link rel="next" href="../database-postgresql/">
+        <link rel="next" href="../argocd/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>OpenShift - HolmesGPT Documentation</title>
+        <title>Atlassian Rovo (MCP) - HolmesGPT Documentation</title>
       
     
     
@@ -89,7 +89,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#openshift-toolsets" class="md-skip">
+        <a href="#atlassian-rovo-mcp" class="md-skip">
           Skip to content
         </a>
       
@@ -140,7 +140,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              OpenShift
+              Atlassian Rovo (MCP)
             
           </span>
         </div>
@@ -2025,10 +2025,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../atlassian-rovo-mcp/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Atlassian Rovo (MCP)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2044,6 +2071,142 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-your-admin-must-enable-api-token-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Your admin must enable API token authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-create-a-scoped-api-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Create a scoped API token
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-build-the-basic-auth-header-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build the Basic auth header value
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Available Tools
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-the-connection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing the Connection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-use-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Use Cases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional Resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -3173,37 +3336,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    OpenShift
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../openshift/" class="md-nav__link">
         
   
   
@@ -3219,226 +3355,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#core" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core ✓
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Core ✓">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#logs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Logs ✓
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Logs ✓">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prerequisites_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#configuration_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#live-metrics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Live Metrics
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Live Metrics">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prerequisites_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#configuration_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Security
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Security">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prerequisites_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#configuration_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -5683,18 +5599,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#core" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core ✓
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Core ✓">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5703,9 +5607,48 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-your-admin-must-enable-api-token-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Your admin must enable API token authentication
+      
+    </span>
+  </a>
+  
 </li>
         
           <li class="md-nav__item">
+  <a href="#2-create-a-scoped-api-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Create a scoped API token
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-build-the-basic-auth-header-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build the Basic auth header value
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5715,170 +5658,59 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#available-tools" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Capabilities
+        Available Tools
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#logs" class="md-nav__link">
+  <a href="#testing-the-connection" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Logs ✓
+        Testing the Connection
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Logs ✓">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prerequisites_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#configuration_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#live-metrics" class="md-nav__link">
+  <a href="#common-use-cases" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Live Metrics
+        Common Use Cases
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Live Metrics">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prerequisites_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#configuration_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
+  <a href="#troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Security
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Security">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prerequisites_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
+        Troubleshooting
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#configuration_3" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#additional-resources" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Configuration
+        Additional Resources
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#capabilities_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capabilities
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -5965,7 +5797,7 @@
 
 
   
-    <a href="https://github.com/HolmesGPT/holmesgpt/edit/master/docs/data-sources/builtin-toolsets/openshift.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/HolmesGPT/holmesgpt/edit/master/docs/data-sources/builtin-toolsets/atlassian-rovo-mcp.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -5974,269 +5806,489 @@
     
       
     
-    <a href="https://github.com/HolmesGPT/holmesgpt/raw/master/docs/data-sources/builtin-toolsets/openshift.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/HolmesGPT/holmesgpt/raw/master/docs/data-sources/builtin-toolsets/atlassian-rovo-mcp.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="openshift-toolsets">OpenShift Toolsets<a class="headerlink" href="#openshift-toolsets" title="Permanent link">&para;</a></h1>
-<h2 id="core">Core ✓<a class="headerlink" href="#core" title="Permanent link">&para;</a></h2>
-<div class="admonition info">
-<p class="admonition-title">Enabled by Default</p>
-<p>This toolset is enabled by default and should typically remain enabled.</p>
+<h1 id="atlassian-rovo-mcp">Atlassian Rovo (MCP)<a class="headerlink" href="#atlassian-rovo-mcp" title="Permanent link">&para;</a></h1>
+<p>The <a href="https://support.atlassian.com/atlassian-rovo-mcp-server/">Atlassian Rovo MCP Server</a> is hosted by Atlassian and gives Holmes access to Jira and Confluence Cloud. It lets Holmes search Jira issues for related incidents, read and comment on tickets, and pull runbooks out of Confluence during an investigation.</p>
+<p>Because Atlassian hosts the server, there is nothing to deploy in your cluster — Holmes connects directly to <code>https://mcp.atlassian.com/v1/mcp</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Two ways to authenticate</p>
+<p>This page covers <strong>API token</strong> authentication, which is the right choice for Holmes running in Kubernetes or any other non-interactive environment: the credential is static and no browser login is involved.</p>
+<p>If you want each user to authenticate with their own Atlassian account through a browser consent screen, use the OAuth 2.1 flow described in <a href="../../oauth-mcp-servers/">OAuth MCP Servers</a> instead.</p>
 </div>
-<p>By enabling this toolset, HolmesGPT will be able to describe and find OpenShift resources like projects, routes, deployment configs, build configs, and other OpenShift-specific resources using the <code>oc</code> command.</p>
-<h3 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>oc<span class="w"> </span>version<span class="w"> </span>--client
-</span></code></pre></div>
-<h3 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">holmes</span><span class="p">:</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">        </span><span class="nt">openshift/core</span><span class="p">:</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">            </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span></code></pre></div>
-<h3 id="capabilities">Capabilities<a class="headerlink" href="#capabilities" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Tool Name</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>oc_describe</td>
-<td>Run oc describe command on a specific resource</td>
-</tr>
-<tr>
-<td>oc_get_by_name</td>
-<td>Get details of a specific resource with labels</td>
-</tr>
-<tr>
-<td>oc_get_by_kind_in_namespace</td>
-<td>List all resources of a given type in a namespace</td>
-</tr>
-<tr>
-<td>oc_get_by_kind_in_cluster</td>
-<td>List all resources of a given type across the cluster</td>
-</tr>
-<tr>
-<td>oc_find_resource</td>
-<td>Search for resources matching a keyword</td>
-</tr>
-<tr>
-<td>oc_get_yaml</td>
-<td>Get YAML definition of a resource</td>
-</tr>
-<tr>
-<td>oc_events</td>
-<td>Get events for a specific resource</td>
-</tr>
-<tr>
-<td>oc_projects</td>
-<td>List all projects (namespaces) in the OpenShift cluster</td>
-</tr>
-<tr>
-<td>oc_project_current</td>
-<td>Show the current project (namespace) context</td>
-</tr>
-<tr>
-<td>oc_routes</td>
-<td>List all routes in a specific namespace or cluster-wide</td>
-</tr>
-<tr>
-<td>oc_route_describe</td>
-<td>Describe a specific route to see its configuration and status</td>
-</tr>
-<tr>
-<td>oc_imagestreams</td>
-<td>List image streams in a namespace or cluster-wide</td>
-</tr>
-<tr>
-<td>oc_deploymentconfigs</td>
-<td>List deployment configs in a namespace or cluster-wide</td>
-</tr>
-<tr>
-<td>oc_buildconfigs</td>
-<td>List build configs in a namespace or cluster-wide</td>
-</tr>
-<tr>
-<td>oc_builds</td>
-<td>List builds in a namespace or cluster-wide</td>
-</tr>
-<tr>
-<td>oc_build_logs</td>
-<td>Get logs from a specific build</td>
-</tr>
-<tr>
-<td>oc_adm_openshift_audit_logs</td>
-<td>Get OpenShift audit logs from a specified node</td>
-</tr>
-<tr>
-<td>oc_adm_openshift_audit_logs_with_filter</td>
-<td>Get OpenShift audit logs from a specified node with an applied filter</td>
-</tr>
-<tr>
-<td>openshift_jq_query</td>
-<td>Query OpenShift resources using jq filters</td>
-</tr>
-</tbody>
-</table>
-<h2 id="logs">Logs ✓<a class="headerlink" href="#logs" title="Permanent link">&para;</a></h2>
-<div class="admonition info">
-<p class="admonition-title">Enabled by Default</p>
-<p>This toolset is enabled by default. You do not need to configure it.</p>
-</div>
-<p>By enabling this toolset, HolmesGPT will be able to read OpenShift pod logs using the <code>oc</code> command.</p>
-<details class="info">
-<summary>Available Log Sources</summary>
-<p>Multiple logging toolsets can be enabled simultaneously. HolmesGPT will use the most appropriate source for each investigation.</p>
-<ul>
-<li><strong><a href="../kubernetes/">Kubernetes logs</a></strong> - Direct pod log access (enabled by default)</li>
-<li><strong><a href="../grafanaloki/">Loki</a></strong> - Centralized logs via Loki</li>
-<li><strong><a href="../elasticsearch/">Elasticsearch / OpenSearch</a></strong> - Logs from Elasticsearch/OpenSearch</li>
-<li><strong><a href="../coralogix-logs/">Coralogix</a></strong> - Logs via Coralogix platform</li>
-<li><strong><a href="../datadog/">DataDog</a></strong> - Logs from DataDog</li>
-</ul>
-</details>
-<h3 id="prerequisites_1">Prerequisites<a class="headerlink" href="#prerequisites_1" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>oc<span class="w"> </span>version<span class="w"> </span>--client
-</span></code></pre></div>
-<h3 id="configuration_1">Configuration<a class="headerlink" href="#configuration_1" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">holmes</span><span class="p">:</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">        </span><span class="nt">openshift/logs</span><span class="p">:</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">            </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span></code></pre></div>
-<h3 id="capabilities_1">Capabilities<a class="headerlink" href="#capabilities_1" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Tool Name</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>oc_logs</td>
-<td>Fetch logs from a specific pod</td>
-</tr>
-<tr>
-<td>oc_logs_all_containers</td>
-<td>Fetch logs from all containers in a pod</td>
-</tr>
-<tr>
-<td>oc_previous_logs</td>
-<td>Fetch previous logs from a pod</td>
-</tr>
-<tr>
-<td>oc_previous_logs_all_containers</td>
-<td>Fetch previous logs from all containers in a pod</td>
-</tr>
-<tr>
-<td>oc_container_logs</td>
-<td>Fetch logs from a specific container in a pod</td>
-</tr>
-<tr>
-<td>oc_container_previous_logs</td>
-<td>Fetch previous logs from a specific container in a pod</td>
-</tr>
-<tr>
-<td>oc_logs_grep</td>
-<td>Search for specific patterns in pod logs</td>
-</tr>
-<tr>
-<td>oc_logs_all_containers_grep</td>
-<td>Search for patterns in logs from all containers</td>
-</tr>
-</tbody>
-</table>
-<h2 id="live-metrics">Live Metrics<a class="headerlink" href="#live-metrics" title="Permanent link">&para;</a></h2>
-<p>This toolset retrieves real-time CPU and memory usage for pods and nodes using OpenShift commands.</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<h3 id="1-your-admin-must-enable-api-token-authentication">1. Your admin must enable API token authentication<a class="headerlink" href="#1-your-admin-must-enable-api-token-authentication" title="Permanent link">&para;</a></h3>
+<p>An Atlassian organization admin has to turn this on before any token will work:</p>
+<ol>
+<li>Go to <a href="https://admin.atlassian.com/">admin.atlassian.com</a> and select your organization</li>
+<li>Navigate to <strong>Rovo</strong> → <strong>Rovo MCP Server</strong> → <strong>Authentication</strong></li>
+<li>Enable authentication via API token</li>
+</ol>
+<h3 id="2-create-a-scoped-api-token">2. Create a scoped API token<a class="headerlink" href="#2-create-a-scoped-api-token" title="Permanent link">&para;</a></h3>
 <div class="admonition warning">
-<p class="admonition-title">Snapshot Data Only</p>
-<p>The oc top commands only show current snapshot data and cannot be used for generating graphs or historical analysis.</p>
+<p class="admonition-title">A classic API token authenticates but grants no tools</p>
+<p>The Rovo MCP Server requires an <strong>API token with scopes</strong>. This failure is easy to misread as success: a classic (unscoped) token authenticates fine, the MCP session initializes, and <code>holmes toolset list</code> reports the toolset as <code>enabled</code>. But Jira and Confluence tools are granted per scope, so a token with no scopes gets none of them — you are left with three <code>TeamworkGraph</code> tools and every Jira or Confluence tool returning <code>not found</code>.</p>
+<p>A classic token also still works against the Jira and Confluence REST APIs, so testing it with <code>curl</code> outside of Rovo will succeed and tell you nothing about whether Rovo will serve the tools. Check the tool list, not the connection status. See <a href="#troubleshooting">Troubleshooting</a>.</p>
 </div>
-<h3 id="prerequisites_2">Prerequisites<a class="headerlink" href="#prerequisites_2" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>oc<span class="w"> </span>adm<span class="w"> </span>top<span class="w"> </span>nodes
-</span></code></pre></div>
-<h3 id="configuration_2">Configuration<a class="headerlink" href="#configuration_2" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">holmes</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">        </span><span class="nt">openshift/live-metrics</span><span class="p">:</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">            </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span></code></pre></div>
-<h3 id="capabilities_2">Capabilities<a class="headerlink" href="#capabilities_2" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Go to <a href="https://id.atlassian.com/manage-profile/security/api-tokens">id.atlassian.com/manage-profile/security/api-tokens</a></li>
+<li>Click <strong>Create API token with scopes</strong> — <em>not</em> <strong>Create API token</strong></li>
+<li>Give it a label (e.g. "HolmesGPT") and an expiry (1–365 days; scoped tokens cannot be non-expiring)</li>
+<li>Select the app — <strong>Jira</strong> or <strong>Confluence</strong></li>
+<li>Select the scopes you need (see the table below)</li>
+<li><strong>Copy the token immediately</strong> — it won't be shown again</li>
+</ol>
+<div class="admonition warning">
+<p class="admonition-title">One token covers one app</p>
+<p>A scoped token targets a single app, so a Jira token grants no Confluence tools and vice versa. To give Holmes both, create two tokens and register two <code>mcp_servers</code> entries pointing at the same URL — see <a href="#configuration">Configuration</a>. Scopes also cannot be edited after creation; changing them means issuing a new token.</p>
+</div>
+<p>Tools are granted per scope, so only pick the ones you actually want Holmes to have:</p>
 <table>
 <thead>
 <tr>
-<th>Tool Name</th>
+<th>App</th>
+<th>Scope</th>
+<th>Unlocks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jira</td>
+<td><code>read:jira-work</code></td>
+<td>Reading issues, projects, transitions, and issue metadata</td>
+</tr>
+<tr>
+<td>Jira</td>
+<td><code>search:jira-work</code></td>
+<td>JQL search</td>
+</tr>
+<tr>
+<td>Jira</td>
+<td><code>write:jira-work</code></td>
+<td>Creating and editing issues, comments, worklogs, transitions</td>
+</tr>
+<tr>
+<td>Confluence</td>
+<td><code>read:page:confluence</code></td>
+<td>Reading page bodies and listing pages in a space</td>
+</tr>
+<tr>
+<td>Confluence</td>
+<td><code>read:space:confluence</code></td>
+<td>Listing spaces</td>
+</tr>
+<tr>
+<td>Confluence</td>
+<td><code>read:comment:confluence</code></td>
+<td>Reading page comments</td>
+</tr>
+<tr>
+<td>Confluence</td>
+<td><code>read:hierarchical-content:confluence</code></td>
+<td>Walking page descendants</td>
+</tr>
+<tr>
+<td>Confluence</td>
+<td><code>search:confluence</code></td>
+<td>CQL search</td>
+</tr>
+<tr>
+<td>Confluence</td>
+<td><code>write:page:confluence</code></td>
+<td>Creating and updating pages and comments</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition danger">
+<p class="admonition-title">Confluence: pick the granular scopes, not the classic ones</p>
+<p>The token creation screen offers Confluence scopes in two styles, and <strong>Rovo only accepts the granular ones</strong> — the <code>&lt;action&gt;:&lt;resource&gt;:confluence</code> names in the table above.</p>
+<p>Selecting the classic <code>read:confluence-content.all</code>-style scopes produces a token that looks fine but grants no Confluence tools in Rovo. It still authenticates, and it still works against the legacy <code>/wiki/rest/api/content</code> REST endpoint, which makes it easy to conclude the token is good. Jira is not affected — its scopes (<code>read:jira-work</code> and friends) are the classic-style names and are what Rovo expects.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Read-only is a good default</p>
+<p>For investigations, the read and search scopes are enough. Only add the <code>write:</code> scopes if you want Holmes to open tickets or post comments.</p>
+</div>
+<h3 id="3-build-the-basic-auth-header-value">3. Build the Basic auth header value<a class="headerlink" href="#3-build-the-basic-auth-header-value" title="Permanent link">&para;</a></h3>
+<p>The Rovo MCP Server expects HTTP Basic authentication with your Atlassian account email and the API token:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s:%s&#39;</span><span class="w"> </span><span class="s2">&quot;&lt;YOUR_ATLASSIAN_EMAIL&gt;&quot;</span><span class="w"> </span><span class="s2">&quot;&lt;YOUR_API_TOKEN&gt;&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span>
+</span></code></pre></div>
+<p>Keep the resulting base64 string — it becomes the <code>Authorization: Basic &lt;value&gt;</code> header below. Run this once per token if you created both a Jira and a Confluence token.</p>
+<div class="admonition note">
+<p class="admonition-title">Service accounts</p>
+<p>If your organization uses an Atlassian service account instead of a personal account, skip the base64 step and send the API key directly as <code>Authorization: Bearer &lt;YOUR_API_KEY&gt;</code>.</p>
+</div>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>Because a scoped token covers one app, register one <code>mcp_servers</code> entry per token. Both point at the same URL and differ only in the credential. If you only need Jira, drop the Confluence entry.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="configuration-holmes-cli" name="__tabbed_1" type="radio" /><input id="configuration-holmes-helm-chart" name="__tabbed_1" type="radio" /><input id="configuration-robusta-helm-chart" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="configuration-holmes-cli">Holmes CLI</label><label for="configuration-holmes-helm-chart">Holmes Helm Chart</label><label for="configuration-robusta-helm-chart">Robusta Helm Chart</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>Export one base64 credential per token:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ATLASSIAN_MCP_JIRA</span><span class="o">=</span><span class="k">$(</span><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s:%s&#39;</span><span class="w"> </span><span class="s2">&quot;&lt;YOUR_ATLASSIAN_EMAIL&gt;&quot;</span><span class="w"> </span><span class="s2">&quot;&lt;YOUR_JIRA_TOKEN&gt;&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span><span class="k">)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ATLASSIAN_MCP_CONFLUENCE</span><span class="o">=</span><span class="k">$(</span><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s:%s&#39;</span><span class="w"> </span><span class="s2">&quot;&lt;YOUR_ATLASSIAN_EMAIL&gt;&quot;</span><span class="w"> </span><span class="s2">&quot;&lt;YOUR_CONFLUENCE_TOKEN&gt;&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span><span class="k">)</span>
+</span></code></pre></div>
+<p>Add the MCP servers to <strong>~/.holmes/config.yaml</strong>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">mcp_servers</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">atlassian-jira</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Jira</span><span class="nv"> </span><span class="s">issues</span><span class="nv"> </span><span class="s">via</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Atlassian</span><span class="nv"> </span><span class="s">Rovo</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">server&quot;</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.atlassian.com/v1/mcp</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">      </span><span class="nt">headers</span><span class="p">:</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">        </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Basic</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">env.ATLASSIAN_MCP_JIRA</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">      </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://cdn.simpleicons.org/jira/0052CC&quot;</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="no">Use this to search Jira for tickets describing the same symptoms before</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">      </span><span class="no">concluding an investigation. Always pass the cloudId of the target site.</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span><span class="nt">atlassian-confluence</span><span class="p">:</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Confluence</span><span class="nv"> </span><span class="s">pages</span><span class="nv"> </span><span class="s">via</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Atlassian</span><span class="nv"> </span><span class="s">Rovo</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">server&quot;</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.atlassian.com/v1/mcp</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">      </span><span class="nt">headers</span><span class="p">:</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">        </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Basic</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">env.ATLASSIAN_MCP_CONFLUENCE</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">      </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://cdn.simpleicons.org/confluence/172B4D&quot;</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">      </span><span class="no">Use this to look up runbooks and architecture docs in Confluence.</span>
+</span></code></pre></div>
+<p>After making changes to your configuration, run:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
+</span></code></pre></div></p>
+</div>
+<div class="tabbed-block">
+<p>Create a secret holding one base64 credential per token:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>atlassian-mcp-credentials<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">jira</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s:%s&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_ATLASSIAN_EMAIL&gt;&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_JIRA_TOKEN&gt;&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">confluence</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s:%s&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_ATLASSIAN_EMAIL&gt;&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_CONFLUENCE_TOKEN&gt;&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>-n<span class="w"> </span>&lt;NAMESPACE&gt;
+</span></code></pre></div>
+<p>Then add the following to your <code>values.yaml</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ATLASSIAN_MCP_JIRA</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">      </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">atlassian-mcp-credentials</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jira</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ATLASSIAN_MCP_CONFLUENCE</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">      </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">atlassian-mcp-credentials</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">confluence</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="nt">mcp_servers</span><span class="p">:</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">  </span><span class="nt">atlassian-jira</span><span class="p">:</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Jira</span><span class="nv"> </span><span class="s">issues</span><span class="nv"> </span><span class="s">via</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Atlassian</span><span class="nv"> </span><span class="s">Rovo</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">server&quot;</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.atlassian.com/v1/mcp</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">      </span><span class="nt">headers</span><span class="p">:</span>
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">        </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Basic</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">env.ATLASSIAN_MCP_JIRA</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">      </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://cdn.simpleicons.org/jira/0052CC&quot;</span>
+</span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">    </span><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">      </span><span class="no">Use this to search Jira for tickets describing the same symptoms before</span>
+</span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">      </span><span class="no">concluding an investigation.</span>
+</span><span id="__span-5-25"><a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>
+</span><span id="__span-5-26"><a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="w">  </span><span class="nt">atlassian-confluence</span><span class="p">:</span>
+</span><span id="__span-5-27"><a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Confluence</span><span class="nv"> </span><span class="s">pages</span><span class="nv"> </span><span class="s">via</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Atlassian</span><span class="nv"> </span><span class="s">Rovo</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">server&quot;</span>
+</span><span id="__span-5-28"><a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-5-29"><a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-5-30"><a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a><span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.atlassian.com/v1/mcp</span>
+</span><span id="__span-5-31"><a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a><span class="w">      </span><span class="nt">headers</span><span class="p">:</span>
+</span><span id="__span-5-32"><a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a><span class="w">        </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Basic</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">env.ATLASSIAN_MCP_CONFLUENCE</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-5-33"><a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a><span class="w">      </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://cdn.simpleicons.org/confluence/172B4D&quot;</span>
+</span><span id="__span-5-34"><a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a><span class="w">    </span><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-5-35"><a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a><span class="w">      </span><span class="no">Use this to look up runbooks and architecture docs in Confluence.</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>--install<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Create a secret holding one base64 credential per token:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>atlassian-mcp-credentials<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">jira</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s:%s&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_ATLASSIAN_EMAIL&gt;&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_JIRA_TOKEN&gt;&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">confluence</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s:%s&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_ATLASSIAN_EMAIL&gt;&#39;</span><span class="w"> </span><span class="s1">&#39;&lt;YOUR_CONFLUENCE_TOKEN&gt;&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>-n<span class="w"> </span>&lt;NAMESPACE&gt;
+</span></code></pre></div>
+<p>Then add the following to your <code>generated_values.yaml</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">additionalEnvVars</span><span class="p">:</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ATLASSIAN_MCP_JIRA</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">      </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">        </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">atlassian-mcp-credentials</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">          </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jira</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ATLASSIAN_MCP_CONFLUENCE</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">      </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">        </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">atlassian-mcp-credentials</span>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">          </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">confluence</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">  </span><span class="nt">mcp_servers</span><span class="p">:</span>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">    </span><span class="nt">atlassian-jira</span><span class="p">:</span>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Jira</span><span class="nv"> </span><span class="s">issues</span><span class="nv"> </span><span class="s">via</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Atlassian</span><span class="nv"> </span><span class="s">Rovo</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">server&quot;</span>
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="w">        </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.atlassian.com/v1/mcp</span>
+</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="w">        </span><span class="nt">headers</span><span class="p">:</span>
+</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a><span class="w">          </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Basic</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">env.ATLASSIAN_MCP_JIRA</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a><span class="w">        </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://cdn.simpleicons.org/jira/0052CC&quot;</span>
+</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>
+</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a><span class="w">    </span><span class="nt">atlassian-confluence</span><span class="p">:</span>
+</span><span id="__span-8-25"><a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Confluence</span><span class="nv"> </span><span class="s">pages</span><span class="nv"> </span><span class="s">via</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">Atlassian</span><span class="nv"> </span><span class="s">Rovo</span><span class="nv"> </span><span class="s">MCP</span><span class="nv"> </span><span class="s">server&quot;</span>
+</span><span id="__span-8-26"><a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-8-27"><a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a><span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamable-http</span>
+</span><span id="__span-8-28"><a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a><span class="w">        </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.atlassian.com/v1/mcp</span>
+</span><span id="__span-8-29"><a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a><span class="w">        </span><span class="nt">headers</span><span class="p">:</span>
+</span><span id="__span-8-30"><a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a><span class="w">          </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Basic</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">env.ATLASSIAN_MCP_CONFLUENCE</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-8-31"><a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a><span class="w">        </span><span class="nt">icon_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://cdn.simpleicons.org/confluence/172B4D&quot;</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<p>The <code>{{ env.* }}</code> placeholders are resolved when Holmes loads its configuration, so the tokens themselves never have to appear in your values file or config file.</p>
+<h2 id="available-tools">Available Tools<a class="headerlink" href="#available-tools" title="Permanent link">&para;</a></h2>
+<p>The tools Atlassian exposes depend on the scopes attached to your token. Every scoped token also gets these two platform tools regardless of which app it targets, which is useful for confirming a token is live:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>oc_top_pods</td>
-<td>Get current CPU and memory usage for pods</td>
+<td><code>atlassianUserInfo</code></td>
+<td>Returns the authenticated account ID</td>
 </tr>
 <tr>
-<td>oc_top_nodes</td>
-<td>Get current CPU and memory usage for nodes</td>
+<td><code>getAccessibleAtlassianResources</code></td>
+<td>Lists the sites the token can reach, with their <code>cloudId</code></td>
 </tr>
 </tbody>
 </table>
-<h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
-<p>This toolset provides access to OpenShift security-related resources and configurations including Security Context Constraints (SCCs), role bindings, and service accounts.</p>
-<h3 id="prerequisites_3">Prerequisites<a class="headerlink" href="#prerequisites_3" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>oc<span class="w"> </span>version<span class="w"> </span>--client
-</span></code></pre></div>
-<h3 id="configuration_3">Configuration<a class="headerlink" href="#configuration_3" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">holmes</span><span class="p">:</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">        </span><span class="nt">openshift/security</span><span class="p">:</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">            </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span></code></pre></div>
-<h3 id="capabilities_3">Capabilities<a class="headerlink" href="#capabilities_3" title="Permanent link">&para;</a></h3>
+<p>Everything else is scope-dependent:</p>
 <table>
 <thead>
 <tr>
-<th>Tool Name</th>
+<th>Tool</th>
 <th>Description</th>
+<th>Scope</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>oc_scc</td>
-<td>List Security Context Constraints (SCCs) in the cluster</td>
+<td><code>getJiraIssue</code></td>
+<td>Get a Jira issue by key or ID</td>
+<td><code>read:jira-work</code></td>
 </tr>
 <tr>
-<td>oc_scc_describe</td>
-<td>Describe a specific Security Context Constraint</td>
+<td><code>getVisibleJiraProjects</code></td>
+<td>List projects the token can see</td>
+<td><code>read:jira-work</code></td>
 </tr>
 <tr>
-<td>oc_policy_who_can</td>
-<td>Check who can perform a specific action on a resource</td>
+<td><code>getTransitionsForJiraIssue</code></td>
+<td>List available workflow transitions</td>
+<td><code>read:jira-work</code></td>
 </tr>
 <tr>
-<td>oc_policy_can_i</td>
-<td>Check if the current user can perform a specific action</td>
+<td><code>getJiraIssueRemoteIssueLinks</code></td>
+<td>List remote links on an issue</td>
+<td><code>read:jira-work</code></td>
 </tr>
 <tr>
-<td>oc_serviceaccounts</td>
-<td>List service accounts in a namespace or cluster-wide</td>
+<td><code>getJiraProjectIssueTypesMetadata</code></td>
+<td>List issue types for a project</td>
+<td><code>read:jira-work</code></td>
 </tr>
 <tr>
-<td>oc_rolebindings</td>
-<td>List role bindings in a namespace or cluster-wide</td>
+<td><code>getJiraIssueTypeMetaWithFields</code></td>
+<td>Get create/edit field metadata for an issue type</td>
+<td><code>read:jira-work</code></td>
 </tr>
 <tr>
-<td>oc_clusterrolebindings</td>
-<td>List cluster role bindings</td>
+<td><code>getIssueLinkTypes</code></td>
+<td>List the available issue link types</td>
+<td><code>read:jira-work</code></td>
+</tr>
+<tr>
+<td><code>lookupJiraAccountId</code></td>
+<td>Resolve a user to an account ID</td>
+<td><code>read:jira-work</code></td>
+</tr>
+<tr>
+<td><code>searchJiraIssuesUsingJql</code></td>
+<td>Search issues with JQL</td>
+<td><code>search:jira-work</code></td>
+</tr>
+<tr>
+<td><code>createJiraIssue</code></td>
+<td>Create an issue</td>
+<td><code>write:jira-work</code></td>
+</tr>
+<tr>
+<td><code>editJiraIssue</code></td>
+<td>Edit an existing issue</td>
+<td><code>write:jira-work</code></td>
+</tr>
+<tr>
+<td><code>addCommentToJiraIssue</code></td>
+<td>Comment on an issue</td>
+<td><code>write:jira-work</code></td>
+</tr>
+<tr>
+<td><code>addWorklogToJiraIssue</code></td>
+<td>Log work against an issue</td>
+<td><code>write:jira-work</code></td>
+</tr>
+<tr>
+<td><code>transitionJiraIssue</code></td>
+<td>Move an issue through its workflow</td>
+<td><code>write:jira-work</code></td>
+</tr>
+<tr>
+<td><code>getConfluencePage</code></td>
+<td>Get a Confluence page and its body</td>
+<td><code>read:page:confluence</code></td>
+</tr>
+<tr>
+<td><code>getPagesInConfluenceSpace</code></td>
+<td>List pages in a space</td>
+<td><code>read:page:confluence</code></td>
+</tr>
+<tr>
+<td><code>getConfluencePageDescendants</code></td>
+<td>Walk a page's child pages</td>
+<td><code>read:hierarchical-content:confluence</code></td>
+</tr>
+<tr>
+<td><code>getConfluenceSpaces</code></td>
+<td>List spaces</td>
+<td><code>read:space:confluence</code></td>
+</tr>
+<tr>
+<td><code>getConfluencePageFooterComments</code></td>
+<td>Read footer comments on a page</td>
+<td><code>read:comment:confluence</code></td>
+</tr>
+<tr>
+<td><code>getConfluencePageInlineComments</code></td>
+<td>Read inline comments on a page</td>
+<td><code>read:comment:confluence</code></td>
+</tr>
+<tr>
+<td><code>getConfluenceCommentChildren</code></td>
+<td>Read replies to a comment</td>
+<td><code>read:comment:confluence</code></td>
+</tr>
+<tr>
+<td><code>searchConfluenceUsingCql</code></td>
+<td>Search Confluence with CQL</td>
+<td><code>search:confluence</code></td>
+</tr>
+<tr>
+<td><code>createConfluencePage</code></td>
+<td>Create a page</td>
+<td><code>write:page:confluence</code></td>
+</tr>
+<tr>
+<td><code>updateConfluencePage</code></td>
+<td>Update a page</td>
+<td><code>write:page:confluence</code></td>
+</tr>
+<tr>
+<td><code>createConfluenceFooterComment</code></td>
+<td>Add a footer comment to a page</td>
+<td><code>write:page:confluence</code></td>
+</tr>
+<tr>
+<td><code>createConfluenceInlineComment</code></td>
+<td>Add an inline comment to a page</td>
+<td><code>write:page:confluence</code></td>
 </tr>
 </tbody>
 </table>
+<p>Atlassian adds tools over time, so treat this as a snapshot rather than a contract — <code>holmes toolset list</code> and the server's own <code>tools/list</code> are the source of truth for what your token actually gets. See Atlassian's <a href="https://support.atlassian.com/atlassian-rovo-mcp-server/docs/supported-tools/">supported tools</a> reference for products beyond Jira and Confluence.</p>
+<p>Three <code>TeamworkGraph</code> tools (<code>getTeamworkGraphContext</code>, <code>getTeamworkGraphObject</code>, <code>addTeamworkGraphContext</code>) are also advertised to every client. They traverse relationships across Atlassian products and require their own scopes, so they will appear in your tool list even when they are not usable.</p>
+<div class="admonition note">
+<p class="admonition-title">Most tools need a cloudId</p>
+<p>Rovo tools are site-scoped and take a <code>cloudId</code> argument. Holmes can discover it by calling <code>getAccessibleAtlassianResources</code>, but putting it in <code>llm_instructions</code> saves a round trip. To look it up yourself, visit <code>https://&lt;your-site&gt;.atlassian.net/_edge/tenant_info</code>.</p>
+</div>
+<h2 id="testing-the-connection">Testing the Connection<a class="headerlink" href="#testing-the-connection" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>list
+</span></code></pre></div>
+<p>The entries should show as <code>enabled</code> — but note that <code>enabled</code> only means Holmes reached the server and authenticated. It does <strong>not</strong> mean the Jira or Confluence tools were granted. Confirm that separately:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;List the Jira projects I have access to&quot;</span>
+</span></code></pre></div>
+<p>If Holmes reports that it has no tool for this, or you see <code>Tool getVisibleJiraProjects not found</code>, your token is missing the scope — or is a classic token. Recheck the <a href="#prerequisites">prerequisites</a>.</p>
+<h2 id="common-use-cases">Common Use Cases<a class="headerlink" href="#common-use-cases" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Search Jira for open issues mentioning the checkout-api pod crashing&quot;</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Find the Confluence runbook for database failover and summarize the steps&quot;</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Open a Jira ticket in PROJ describing the OOMKills on the payments deployment&quot;</span>
+</span></code></pre></div>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<p>Which tools come back tells you what went wrong, so check the tool list before debugging anything else. The counts below were observed against Rovo at the time of writing and will drift as Atlassian ships tools — the pattern is what matters, not the exact number:</p>
+<table>
+<thead>
+<tr>
+<th>Tools returned</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TeamworkGraph</code> only (3)</td>
+<td>Classic API token — no scopes at all</td>
+</tr>
+<tr>
+<td><code>TeamworkGraph</code> plus <code>atlassianUserInfo</code> and <code>getAccessibleAtlassianResources</code> (5)</td>
+<td>Scoped token, but none of its scopes map to Rovo tools</td>
+</tr>
+<tr>
+<td>The above plus a block of <code>*Jira*</code> or <code>*Confluence*</code> tools (14 for Jira read + search)</td>
+<td>Working scoped token</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Only three <code>TeamworkGraph</code> tools appear</strong></p>
+<p>Your token is a classic API token without scopes. Holmes will show the toolset as <code>enabled</code> — Atlassian accepts the credential and serves its default tool set — but none of the Jira or Confluence tools are granted. Create a new token with <strong>Create API token with scopes</strong>.</p>
+<p><strong><code>403 Forbidden ... requires a modern API token (API token with scopes). Legacy API tokens without scopes are not supported.</code></strong></p>
+<p>Same cause as above. The credential is valid, the token type is not.</p>
+<p><strong>Five tools appear — the platform tools work, but no Jira or Confluence tools</strong></p>
+<p>The token is genuinely scoped (that is why <code>atlassianUserInfo</code> and <code>getAccessibleAtlassianResources</code> are there) but its scopes don't map to any Rovo tool. For Confluence this almost always means classic scopes were selected instead of the granular <code>read:page:confluence</code>-style ones. Scopes can't be edited after creation, so reissue the token.</p>
+<p>You can confirm which product a token is actually scoped for by calling the product gateway directly — a scope mismatch returns <code>401 Unauthorized; scope does not match</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nv">CLOUD_ID</span><span class="o">=</span>&lt;YOUR_CLOUD_ID&gt;
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="c1"># Jira scopes</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>curl<span class="w"> </span>-s<span class="w"> </span>-o<span class="w"> </span>/dev/null<span class="w"> </span>-w<span class="w"> </span><span class="s1">&#39;%{http_code}\n&#39;</span><span class="w"> </span>-u<span class="w"> </span><span class="s2">&quot;&lt;EMAIL&gt;:&lt;TOKEN&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span><span class="s2">&quot;https://api.atlassian.com/ex/jira/</span><span class="nv">$CLOUD_ID</span><span class="s2">/rest/api/3/myself&quot;</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="c1"># Confluence granular scopes</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>curl<span class="w"> </span>-s<span class="w"> </span>-o<span class="w"> </span>/dev/null<span class="w"> </span>-w<span class="w"> </span><span class="s1">&#39;%{http_code}\n&#39;</span><span class="w"> </span>-u<span class="w"> </span><span class="s2">&quot;&lt;EMAIL&gt;:&lt;TOKEN&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">  </span><span class="s2">&quot;https://api.atlassian.com/ex/confluence/</span><span class="nv">$CLOUD_ID</span><span class="s2">/wiki/api/v2/spaces?limit=1&quot;</span>
+</span></code></pre></div>
+<p>Note that the Confluence probe hits <code>/wiki/api/v2/spaces</code>, which specifically requires <code>read:space:confluence</code>. If you scoped the token more narrowly — say <code>read:page:confluence</code> and <code>search:confluence</code> only — this probe returns <code>401</code> even though the token is valid and Rovo will serve the page and search tools. Probe <code>/wiki/api/v2/pages?limit=1</code> instead in that case. These probes must go through <code>api.atlassian.com</code>; scoped tokens are rejected against <code>&lt;your-site&gt;.atlassian.net</code>.</p>
+<p><strong><code>401 Unauthorized</code></strong></p>
+<p>The email/token pair is wrong, the base64 encoding is malformed, or the token has been revoked. Re-run the <code>printf ... | base64 | tr -d '\n'</code> command — the <code>tr</code> is what strips the line wrapping that <code>base64</code> adds by default, and a header containing a newline will be rejected.</p>
+<p><strong>The toolset fails to load entirely</strong></p>
+<p>Confirm the org-level setting is on (<strong>Atlassian Administration</strong> → <strong>Rovo</strong> → <strong>Rovo MCP Server</strong> → <strong>Authentication</strong>) and that outbound traffic to <code>mcp.atlassian.com</code> is allowed from wherever Holmes runs.</p>
+<p><strong>A tool returns "not found"</strong></p>
+<p>That tool's scope isn't on your token. Tools are filtered by scope, so the server reports them as missing rather than as permission errors. If the missing tools are all from one product, you are probably hitting the one-app-per-token limit — check that you registered a second <code>mcp_servers</code> entry with that product's token.</p>
+<h2 id="additional-resources">Additional Resources<a class="headerlink" href="#additional-resources" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="https://support.atlassian.com/atlassian-rovo-mcp-server/">Atlassian Rovo MCP Server documentation</a></li>
+<li><a href="https://support.atlassian.com/atlassian-rovo-mcp-server/docs/configuring-authentication-via-api-token/">Configuring authentication via API token</a></li>
+<li><a href="https://support.atlassian.com/atlassian-rovo-mcp-server/docs/supported-tools/">Supported tools</a></li>
+<li><a href="https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/">Manage API tokens for your Atlassian account</a></li>
+<li><a href="../../oauth-mcp-servers/">OAuth MCP Servers in Holmes</a></li>
+</ul>
 
 
 
@@ -6274,7 +6326,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../notion/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Notion">
+          <a href="../aks-node-health/" class="md-footer__link md-footer__link--prev" aria-label="Previous: AKS Node Health">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -6284,20 +6336,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Notion
+                AKS Node Health
               </div>
             </div>
           </a>
         
         
           
-          <a href="../database-postgresql/" class="md-footer__link md-footer__link--next" aria-label="Next: PostgreSQL">
+          <a href="../argocd/" class="md-footer__link md-footer__link--next" aria-label="Next: ArgoCD">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                PostgreSQL
+                ArgoCD
               </div>
             </div>
             <div class="md-footer__button md-icon">
