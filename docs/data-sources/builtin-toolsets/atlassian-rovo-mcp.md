@@ -21,8 +21,10 @@ An Atlassian organization admin has to turn this on before any token will work:
 
 ### 2. Create a scoped API token
 
-!!! warning "Classic API tokens do not work"
-    The Rovo MCP Server requires an **API token with scopes**. A classic (unscoped) token authenticates successfully but exposes almost no tools — Jira and Confluence tools are granted per scope, so a token with no scopes gets none of them. See [Troubleshooting](#troubleshooting) for how this failure looks.
+!!! warning "A classic API token authenticates but grants no tools"
+    The Rovo MCP Server requires an **API token with scopes**. This failure is easy to misread as success: a classic (unscoped) token authenticates fine, the MCP session initializes, and `holmes toolset list` reports the toolset as `enabled`. But Jira and Confluence tools are granted per scope, so a token with no scopes gets none of them — you are left with three `TeamworkGraph` tools and every Jira or Confluence tool returning `not found`.
+
+    A classic token also still works against the Jira and Confluence REST APIs, so testing it with `curl` outside of Rovo will succeed and tell you nothing about whether Rovo will serve the tools. Check the tool list, not the connection status. See [Troubleshooting](#troubleshooting).
 
 1. Go to [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens)
 2. Click **Create API token with scopes** — *not* **Create API token**
@@ -248,11 +250,13 @@ See Atlassian's [supported tools](https://support.atlassian.com/atlassian-rovo-m
 holmes toolset list
 ```
 
-`atlassian-rovo` should show as `enabled`. Then check that the tools actually work:
+The entries should show as `enabled` — but note that `enabled` only means Holmes reached the server and authenticated. It does **not** mean the Jira or Confluence tools were granted. Confirm that separately:
 
 ```bash
 holmes ask "List the Jira projects I have access to"
 ```
+
+If Holmes reports that it has no tool for this, or you see `Tool getVisibleJiraProjects not found`, your token is missing the scope — or is a classic token. Recheck the [prerequisites](#prerequisites).
 
 ## Common Use Cases
 
