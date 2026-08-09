@@ -32,7 +32,7 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
       --from-literal=token='<PAT>'
     ```
 
-    For a public repo, omit the Secret and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
+    For a public repo, omit the Secret, delete the `GIT_PAT` entry from the `env:` block, and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
 
     **2. Add the init container, volume, and skill path to your Helm values:**
 
@@ -64,7 +64,7 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
         args:
           - |
             set -e
-            rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
+            rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
             git clone --depth 1 --branch "$GIT_BRANCH" \
               "https://oauth2:${GIT_PAT}@${GIT_REPO}" \
               /skills-repo
@@ -100,7 +100,7 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
       --from-literal=token='<PAT>'
     ```
 
-    For a public repo, omit the Secret and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
+    For a public repo, omit the Secret, delete the `GIT_PAT` entry from the `env:` block, and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
 
     **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
 
@@ -134,7 +134,7 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
           args:
             - |
               set -e
-              rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
+              rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
               git clone --depth 1 --branch "$GIT_BRANCH" \
                 "https://oauth2:${GIT_PAT}@${GIT_REPO}" \
                 /skills-repo
@@ -171,7 +171,7 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
 
 #### Using a GitHub App
 
-Instead of a Personal Access Token, authenticate with a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). The init container generates a JWT from the App's private key, exchanges it for a short-lived installation token (valid 1 hour), and clones with it — no long-lived credential ever reaches the pod.
+Instead of a Personal Access Token, authenticate with a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). The init container generates a JWT from the App's private key, exchanges it for a short-lived installation token (valid 1 hour), and clones with it. The App's private key is still mounted into the init container, but the credential used to reach your repo is the installation token, which expires after an hour — so a leaked clone URL or `.git/config` goes stale on its own, unlike a Personal Access Token.
 
 Create the App, generate a private key, and install it on your skills repo by following steps 1–4 in [GitHub MCP — Using a GitHub App](../data-sources/builtin-toolsets/github-mcp.md#using-a-github-app). For skills the App only needs the **Contents: Read-only** repository permission (plus Metadata, which GitHub adds automatically).
 
@@ -241,7 +241,7 @@ Create the App, generate a private key, and install it on your skills repo by fo
               exit 1
             fi
 
-            rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
+            rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
             git clone --depth 1 --branch "$GIT_BRANCH" \
               "https://x-access-token:${TOKEN}@${GIT_REPO}" \
               /skills-repo
@@ -335,7 +335,7 @@ Create the App, generate a private key, and install it on your skills repo by fo
                 exit 1
               fi
 
-              rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
+              rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
               git clone --depth 1 --branch "$GIT_BRANCH" \
                 "https://x-access-token:${TOKEN}@${GIT_REPO}" \
                 /skills-repo
@@ -366,9 +366,13 @@ Create the App, generate a private key, and install it on your skills repo by fo
     Mint a short-lived installation token from the App credentials and clone with it:
 
     ```bash
+    set -eu
+
     APP_ID=<YOUR_APP_ID>
     INSTALLATION_ID=<YOUR_INSTALLATION_ID>
     KEY_FILE=/path/to/private-key.pem
+    GIT_REPO=github.com/<org>/<repo>.git
+    GIT_BRANCH=main
 
     b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
@@ -383,7 +387,13 @@ Create the App, generate a private key, and install it on your skills repo by fo
       "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" \
       | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
 
-    git clone "https://x-access-token:${TOKEN}@github.com/<org>/<repo>.git"
+    if [ -z "$TOKEN" ]; then
+      echo "Failed to obtain a GitHub App installation token" >&2
+      exit 1
+    fi
+
+    git clone --depth 1 --branch "$GIT_BRANCH" \
+      "https://x-access-token:${TOKEN}@${GIT_REPO}"
     ```
 
     Then point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
