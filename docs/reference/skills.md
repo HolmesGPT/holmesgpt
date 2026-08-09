@@ -16,6 +16,10 @@ There are three ways to load custom skills, covered below. Within each, pick you
 
 Keep skills version-controlled in a Git repo so they can be reviewed, versioned, and shared across a team.
 
+For private repos there are two ways to authenticate: a fine-grained [Personal Access Token](#using-a-personal-access-token) (simplest) or a [GitHub App](#using-a-github-app) (short-lived auto-expiring tokens, not tied to a personal account).
+
+#### Using a Personal Access Token
+
 === "Holmes Helm Chart"
 
     Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
@@ -156,6 +160,222 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
     ```
 
     Run `git pull` in the clone whenever you want to pick up new or updated skills.
+
+#### Using a GitHub App
+
+Instead of a Personal Access Token, authenticate with a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). The init container generates a JWT from the App's private key, exchanges it for a short-lived installation token (valid 1 hour), and clones with it — no long-lived credential ever reaches the pod.
+
+Create the App, generate a private key, and install it on your skills repo by following steps 1–4 in [GitHub MCP — Using a GitHub App](../data-sources/builtin-toolsets/github-mcp.md#using-a-github-app). For skills the App only needs the **Contents: Read-only** repository permission (plus Metadata, which GitHub adds automatically).
+
+=== "Holmes Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container exchanges the GitHub App credentials for an installation token, pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with the GitHub App credentials:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      -n <holmes-namespace> \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem
+    ```
+
+    **2. Add the init container, volume, and skill path to your Helm values:**
+
+    ```yaml
+    additionalVolumes:
+      - name: skills-repo
+        emptyDir:
+          sizeLimit: 64Mi
+
+    additionalVolumeMounts:
+      - name: skills-repo
+        mountPath: /etc/holmes/skills-git
+        readOnly: true
+
+    initContainers:
+      - name: clone-skills
+        image: alpine:3.22
+        envFrom:
+          - secretRef:
+              name: holmes-github-app
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -e
+            apk add --no-cache git openssl curl >/dev/null
+
+            b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+            KEY_FILE=$(mktemp)
+            printf '%s' "$GITHUB_APP_PRIVATE_KEY" > "$KEY_FILE"
+
+            NOW=$(date +%s)
+            HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+            PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 540))" "$GITHUB_APP_ID" | b64url)
+            SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" -binary | b64url)
+            rm -f "$KEY_FILE"
+
+            TOKEN=$(curl -sf -X POST \
+              -H "Authorization: Bearer ${HEADER}.${PAYLOAD}.${SIGNATURE}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/app/installations/${GITHUB_APP_INSTALLATION_ID}/access_tokens" \
+              | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
+
+            if [ -z "$TOKEN" ]; then
+              echo "Failed to obtain a GitHub App installation token" >&2
+              exit 1
+            fi
+
+            rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
+            git clone --depth 1 --branch main \
+              "https://x-access-token:${TOKEN}@github.com/<org>/<repo>.git" \
+              /skills-repo
+        volumeMounts:
+          - name: skills-repo
+            mountPath: /skills-repo
+
+    customSkillPaths:
+      - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust:
+
+    - `--branch main` — branch you push skills to.
+    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    The init container installs `git`, `openssl`, and `curl` at startup, which requires egress to the Alpine package CDN. If your cluster restricts egress, build a small image with those packages preinstalled and drop the `apk add` line.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/<release>-holmes -n <holmes-namespace>
+    ```
+
+=== "Robusta Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container exchanges the GitHub App credentials for an installation token, pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with the GitHub App credentials:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      -n <robusta-namespace> \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem
+    ```
+
+    **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
+
+    ```yaml
+    enableHolmesGPT: true
+    holmes:
+      additionalVolumes:
+        - name: skills-repo
+          emptyDir:
+            sizeLimit: 64Mi
+
+      additionalVolumeMounts:
+        - name: skills-repo
+          mountPath: /etc/holmes/skills-git
+          readOnly: true
+
+      initContainers:
+        - name: clone-skills
+          image: alpine:3.22
+          envFrom:
+            - secretRef:
+                name: holmes-github-app
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              apk add --no-cache git openssl curl >/dev/null
+
+              b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+              KEY_FILE=$(mktemp)
+              printf '%s' "$GITHUB_APP_PRIVATE_KEY" > "$KEY_FILE"
+
+              NOW=$(date +%s)
+              HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+              PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 540))" "$GITHUB_APP_ID" | b64url)
+              SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" -binary | b64url)
+              rm -f "$KEY_FILE"
+
+              TOKEN=$(curl -sf -X POST \
+                -H "Authorization: Bearer ${HEADER}.${PAYLOAD}.${SIGNATURE}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/app/installations/${GITHUB_APP_INSTALLATION_ID}/access_tokens" \
+                | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
+
+              if [ -z "$TOKEN" ]; then
+                echo "Failed to obtain a GitHub App installation token" >&2
+                exit 1
+              fi
+
+              rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
+              git clone --depth 1 --branch main \
+                "https://x-access-token:${TOKEN}@github.com/<org>/<repo>.git" \
+                /skills-repo
+          volumeMounts:
+            - name: skills-repo
+              mountPath: /skills-repo
+
+      customSkillPaths:
+        - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust:
+
+    - `--branch main` — branch you push skills to.
+    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    The init container installs `git`, `openssl`, and `curl` at startup, which requires egress to the Alpine package CDN. If your cluster restricts egress, build a small image with those packages preinstalled and drop the `apk add` line.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/robusta-holmes -n <robusta-namespace>
+    ```
+
+=== "Holmes CLI"
+
+    Mint a short-lived installation token from the App credentials and clone with it:
+
+    ```bash
+    APP_ID=<YOUR_APP_ID>
+    INSTALLATION_ID=<YOUR_INSTALLATION_ID>
+    KEY_FILE=/path/to/private-key.pem
+
+    b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+    NOW=$(date +%s)
+    HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+    PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 540))" "$APP_ID" | b64url)
+    SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" -binary | b64url)
+
+    TOKEN=$(curl -sf -X POST \
+      -H "Authorization: Bearer ${HEADER}.${PAYLOAD}.${SIGNATURE}" \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" \
+      | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
+
+    git clone "https://x-access-token:${TOKEN}@github.com/<org>/<repo>.git"
+    ```
+
+    Then point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+
+    ```yaml
+    custom_skill_paths:
+      - /path/to/your-skills-clone/
+    ```
+
+    Installation tokens expire after 1 hour — re-run the token snippet and `git pull` with a fresh token whenever you want to pick up new or updated skills.
 
 ### From a Bitbucket Repository
 
