@@ -26,9 +26,13 @@ An Atlassian organization admin has to turn this on before any token will work:
 
 1. Go to [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens)
 2. Click **Create API token with scopes** — *not* **Create API token**
-3. Give it a label (e.g. "HolmesGPT") and an expiry
-4. Select the apps and scopes you need (see the table below)
-5. **Copy the token immediately** — it won't be shown again
+3. Give it a label (e.g. "HolmesGPT") and an expiry (1–365 days; scoped tokens cannot be non-expiring)
+4. Select the app — **Jira** or **Confluence**
+5. Select the scopes you need (see the table below)
+6. **Copy the token immediately** — it won't be shown again
+
+!!! warning "One token covers one app"
+    A scoped token targets a single app, so a Jira token grants no Confluence tools and vice versa. To give Holmes both, create two tokens and register two `mcp_servers` entries pointing at the same URL — see [Configuration](#configuration). Scopes also cannot be edited after creation; changing them means issuing a new token.
 
 Tools are granted per scope, so only pick the ones you actually want Holmes to have:
 
@@ -52,48 +56,62 @@ The Rovo MCP Server expects HTTP Basic authentication with your Atlassian accoun
 printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_API_TOKEN>" | base64 -w0
 ```
 
-Keep the resulting base64 string — it becomes the `Authorization: Basic <value>` header below.
+Keep the resulting base64 string — it becomes the `Authorization: Basic <value>` header below. Run this once per token if you created both a Jira and a Confluence token.
 
 !!! note "Service accounts"
     If your organization uses an Atlassian service account instead of a personal account, skip the base64 step and send the API key directly as `Authorization: Bearer <YOUR_API_KEY>`.
 
 ## Configuration
 
+Because a scoped token covers one app, register one `mcp_servers` entry per token. Both point at the same URL and differ only in the credential. If you only need Jira, drop the Confluence entry.
+
 === "Holmes CLI"
 
-    Export the base64 credential, then point Holmes at Atlassian's server:
+    Export one base64 credential per token:
 
     ```bash
-    export ATLASSIAN_MCP_BASIC=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_API_TOKEN>" | base64 -w0)
+    export ATLASSIAN_MCP_JIRA=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_JIRA_TOKEN>" | base64 -w0)
+    export ATLASSIAN_MCP_CONFLUENCE=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_CONFLUENCE_TOKEN>" | base64 -w0)
     ```
 
-    Add the MCP server to **~/.holmes/config.yaml**:
+    Add the MCP servers to **~/.holmes/config.yaml**:
 
     ```yaml
     mcp_servers:
-      atlassian-rovo:
-        description: "Atlassian Jira and Confluence via the Rovo MCP server"
+      atlassian-jira:
+        description: "Jira issues via the Atlassian Rovo MCP server"
         config:
           mode: streamable-http
           url: https://mcp.atlassian.com/v1/mcp
           headers:
-            Authorization: "Basic {{ env.ATLASSIAN_MCP_BASIC }}"
+            Authorization: "Basic {{ env.ATLASSIAN_MCP_JIRA }}"
           icon_url: "https://cdn.simpleicons.org/jira/0052CC"
         llm_instructions: |
-          Use the Atlassian Rovo MCP server to search Jira for tickets describing the same
-          symptoms before concluding an investigation, and to look up runbooks in Confluence.
-          Always pass the cloudId of the target site.
+          Use this to search Jira for tickets describing the same symptoms before
+          concluding an investigation. Always pass the cloudId of the target site.
+
+      atlassian-confluence:
+        description: "Confluence pages via the Atlassian Rovo MCP server"
+        config:
+          mode: streamable-http
+          url: https://mcp.atlassian.com/v1/mcp
+          headers:
+            Authorization: "Basic {{ env.ATLASSIAN_MCP_CONFLUENCE }}"
+          icon_url: "https://cdn.simpleicons.org/confluence/172B4D"
+        llm_instructions: |
+          Use this to look up runbooks and architecture docs in Confluence.
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
-    Create a secret with the base64 credential:
+    Create a secret holding one base64 credential per token:
 
     ```bash
     kubectl create secret generic atlassian-mcp-credentials \
-      --from-literal=basic-auth="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_API_TOKEN>' | base64 -w0)" \
+      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 -w0)" \
+      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 -w0)" \
       -n <NAMESPACE>
     ```
 
@@ -101,24 +119,40 @@ Keep the resulting base64 string — it becomes the `Authorization: Basic <value
 
     ```yaml
     additionalEnvVars:
-      - name: ATLASSIAN_MCP_BASIC
+      - name: ATLASSIAN_MCP_JIRA
         valueFrom:
           secretKeyRef:
             name: atlassian-mcp-credentials
-            key: basic-auth
+            key: jira
+      - name: ATLASSIAN_MCP_CONFLUENCE
+        valueFrom:
+          secretKeyRef:
+            name: atlassian-mcp-credentials
+            key: confluence
 
     mcp_servers:
-      atlassian-rovo:
-        description: "Atlassian Jira and Confluence via the Rovo MCP server"
+      atlassian-jira:
+        description: "Jira issues via the Atlassian Rovo MCP server"
         config:
           mode: streamable-http
           url: https://mcp.atlassian.com/v1/mcp
           headers:
-            Authorization: "Basic {{ env.ATLASSIAN_MCP_BASIC }}"
+            Authorization: "Basic {{ env.ATLASSIAN_MCP_JIRA }}"
           icon_url: "https://cdn.simpleicons.org/jira/0052CC"
         llm_instructions: |
-          Use the Atlassian Rovo MCP server to search Jira for tickets describing the same
-          symptoms before concluding an investigation, and to look up runbooks in Confluence.
+          Use this to search Jira for tickets describing the same symptoms before
+          concluding an investigation.
+
+      atlassian-confluence:
+        description: "Confluence pages via the Atlassian Rovo MCP server"
+        config:
+          mode: streamable-http
+          url: https://mcp.atlassian.com/v1/mcp
+          headers:
+            Authorization: "Basic {{ env.ATLASSIAN_MCP_CONFLUENCE }}"
+          icon_url: "https://cdn.simpleicons.org/confluence/172B4D"
+        llm_instructions: |
+          Use this to look up runbooks and architecture docs in Confluence.
     ```
 
     ```bash
@@ -127,11 +161,12 @@ Keep the resulting base64 string — it becomes the `Authorization: Basic <value
 
 === "Robusta Helm Chart"
 
-    Create a secret with the base64 credential:
+    Create a secret holding one base64 credential per token:
 
     ```bash
     kubectl create secret generic atlassian-mcp-credentials \
-      --from-literal=basic-auth="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_API_TOKEN>' | base64 -w0)" \
+      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 -w0)" \
+      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 -w0)" \
       -n <NAMESPACE>
     ```
 
@@ -140,28 +175,42 @@ Keep the resulting base64 string — it becomes the `Authorization: Basic <value
     ```yaml
     holmes:
       additionalEnvVars:
-        - name: ATLASSIAN_MCP_BASIC
+        - name: ATLASSIAN_MCP_JIRA
           valueFrom:
             secretKeyRef:
               name: atlassian-mcp-credentials
-              key: basic-auth
+              key: jira
+        - name: ATLASSIAN_MCP_CONFLUENCE
+          valueFrom:
+            secretKeyRef:
+              name: atlassian-mcp-credentials
+              key: confluence
 
       mcp_servers:
-        atlassian-rovo:
-          description: "Atlassian Jira and Confluence via the Rovo MCP server"
+        atlassian-jira:
+          description: "Jira issues via the Atlassian Rovo MCP server"
           config:
             mode: streamable-http
             url: https://mcp.atlassian.com/v1/mcp
             headers:
-              Authorization: "Basic {{ env.ATLASSIAN_MCP_BASIC }}"
+              Authorization: "Basic {{ env.ATLASSIAN_MCP_JIRA }}"
             icon_url: "https://cdn.simpleicons.org/jira/0052CC"
+
+        atlassian-confluence:
+          description: "Confluence pages via the Atlassian Rovo MCP server"
+          config:
+            mode: streamable-http
+            url: https://mcp.atlassian.com/v1/mcp
+            headers:
+              Authorization: "Basic {{ env.ATLASSIAN_MCP_CONFLUENCE }}"
+            icon_url: "https://cdn.simpleicons.org/confluence/172B4D"
     ```
 
     ```bash
     helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
-`{{ env.ATLASSIAN_MCP_BASIC }}` is resolved when Holmes loads its configuration, so the token itself never has to appear in your values file or config file.
+The `{{ env.* }}` placeholders are resolved when Holmes loads its configuration, so the tokens themselves never have to appear in your values file or config file.
 
 ## Available Tools
 
@@ -239,7 +288,7 @@ Confirm the org-level setting is on (**Atlassian Administration** → **Rovo** �
 
 **A tool returns "not found"**
 
-That tool's scope isn't on your token. Tools are filtered by scope, so the server reports them as missing rather than as permission errors.
+That tool's scope isn't on your token. Tools are filtered by scope, so the server reports them as missing rather than as permission errors. If the missing tools are all from one product, you are probably hitting the one-app-per-token limit — check that you registered a second `mcp_servers` entry with that product's token.
 
 ## Additional Resources
 
