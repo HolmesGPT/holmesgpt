@@ -89,11 +89,6 @@ sqlalchemy = "^2.0.46"
 pg8000 = "^1.31.5"
 pymysql = "^1.1.2"
 clickhouse-sqlalchemy = "^0.3.2"
-# python-tds + sqlalchemy-pytds replace pymssql: MIT-licensed and pure Python,
-# matching the toolset's pure-Python driver pattern (pg8000, PyMySQL). pymssql
-# is LGPL-2.1 with statically-bundled FreeTDS, which is not on the CNCF
-# third-party license allowlist. pyOpenSSL is required by pytds for
-# TLS-encrypted connections (mandatory on Azure SQL, default on SQL Server 2019+).
 python-tds = "^1.17"
 sqlalchemy-pytds = "^1.0.2"
 pyopenssl = ">=24.0.0"

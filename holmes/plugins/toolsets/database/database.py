@@ -283,10 +283,7 @@ class DatabaseConfig(ToolsetConfig):
         description=(
             "When True (default), verify SSL certificates for database connections. "
             "Set to False for self-signed certificates or development environments. "
-            "Required for some managed databases with custom certificates (e.g., RDS with custom CAs). "
-            "For SQL Server, True connects with TLS and certificate verification "
-            "(required by Azure SQL) while False disables TLS entirely "
-            "(use for servers with self-signed certificates)."
+            "Required for some managed databases with custom certificates (e.g., RDS with custom CAs)."
         ),
     )
 
