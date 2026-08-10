@@ -63,6 +63,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 <div class="grid cards" markdown>
 
+-   [:simple-jira:{ .lg .middle } **Atlassian Rovo (MCP)**](atlassian-rovo-mcp.md)
 -   [:simple-confluence:{ .lg .middle } **Confluence**](confluence.md)
 -   [:simple-confluence:{ .lg .middle } **Confluence (MCP)**](confluence-mcp.md)
 -   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)
