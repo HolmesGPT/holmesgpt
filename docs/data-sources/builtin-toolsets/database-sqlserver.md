@@ -25,15 +25,7 @@ GRANT VIEW DATABASE STATE TO holmes_readonly;
 GRANT VIEW DEFINITION TO holmes_readonly;
 ```
 
-**For Azure SQL Database:**
-```sql
--- Azure SQL creates user directly in database
-CREATE USER holmes_readonly WITH PASSWORD = 'Your_Secure_Password123!';
-
-ALTER ROLE db_datareader ADD MEMBER holmes_readonly;
-GRANT VIEW DATABASE STATE TO holmes_readonly;
-GRANT VIEW DEFINITION TO holmes_readonly;
-```
+For Azure SQL Database, see the [Azure SQL Database](#azure-sql-database) section below.
 
 ## Configuration
 
@@ -200,7 +192,18 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
 ## Azure SQL Database
 
-Azure SQL Database works with this toolset over SQL authentication:
+Azure SQL Database works with this toolset over SQL authentication. Create a contained database user (Azure SQL does not use server-level logins for this):
+
+```sql
+-- Run in the target database
+CREATE USER holmes_readonly WITH PASSWORD = 'Your_Secure_Password123!';
+
+ALTER ROLE db_datareader ADD MEMBER holmes_readonly;
+GRANT VIEW DATABASE STATE TO holmes_readonly;
+GRANT VIEW DEFINITION TO holmes_readonly;
+```
+
+Then configure the connection:
 
 ```yaml
 toolsets:
