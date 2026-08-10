@@ -492,23 +492,32 @@ class DatabaseToolset(Toolset):
 
     def _create_engine(self, url: str):
         connect_args: Dict[str, Any] = {}
+        # Match on the parsed URL scheme, not a substring of the whole URL: a
+        # username or password can contain another engine's name (e.g.
+        # postgresql://mssql_sync_user@host/db) and would otherwise pick the
+        # wrong driver's SSL arguments.
+        subtype = _detect_subtype(url)
 
-        if "mssql" in url or "pytds" in url:
+        if subtype is DatabaseSubtype.MSSQL:
             # pytds only enables TLS when a CA bundle is passed, and always
             # verifies the server certificate against it — there is no
             # encrypt-without-verification mode. verify_ssl=True therefore
             # means an encrypted, certificate-verified connection (Azure SQL
             # requires TLS); verify_ssl=False disables TLS entirely, which is
             # what servers with self-signed certificates need.
+            #
+            # certifi.where() is resolved per connection, so a private CA added
+            # at startup via the CERTIFICATE env var (holmes/utils/cert_utils.py)
+            # is picked up here without any toolset-level setting.
             if self.database_config.verify_ssl:
                 connect_args["cafile"] = certifi.where()
         elif not self.database_config.verify_ssl:
-            if "postgresql" in url:
+            if subtype is DatabaseSubtype.POSTGRESQL:
                 # pg8000 uses ssl_context parameter
                 connect_args["ssl_context"] = None
-            elif "mysql" in url or "pymysql" in url:
+            elif subtype in (DatabaseSubtype.MYSQL, DatabaseSubtype.MARIADB):
                 connect_args["ssl_disabled"] = True
-            elif "clickhouse" in url:
+            elif subtype is DatabaseSubtype.CLICKHOUSE:
                 connect_args["verify"] = False
 
         return sqlalchemy.create_engine(

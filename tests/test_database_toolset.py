@@ -195,6 +195,37 @@ class TestCreateEngineConnectArgs:
         )
         assert args == {}
 
+    def test_mssql_ca_bundle_resolved_per_connection(self, monkeypatch):
+        """A custom CA added at startup (CERTIFICATE env var) must be honored.
+
+        cert_utils patches certifi.where(), so resolving it per connection is
+        what lets a private-CA SQL Server work without a toolset-level setting.
+        """
+        monkeypatch.setattr(certifi, "where", lambda: "/tmp/custom_ca.pem")
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {"cafile": "/tmp/custom_ca.pem"}
+
+    @pytest.mark.parametrize("verify_ssl", [True, False])
+    def test_engine_name_in_credentials_does_not_pick_wrong_driver(
+        self, monkeypatch, verify_ssl
+    ):
+        """A username containing another engine's name must not route SSL args.
+
+        'mssql' appears in the username here, but this is a PostgreSQL URL and
+        must get pg8000's arguments, never pytds's cafile.
+        """
+        url = "postgresql+pg8000://mssql_sync_user:pw@pg.example.com:5432/analytics"
+        args = self._connect_args(monkeypatch, url, verify_ssl=verify_ssl)
+        assert "cafile" not in args
+        assert args == ({} if verify_ssl else {"ssl_context": None})
+
+    def test_mysql_credentials_containing_mssql(self, monkeypatch):
+        url = "mysql+pymysql://mssql_migrator:pw@mysql.example.com/db"
+        args = self._connect_args(monkeypatch, url, verify_ssl=False)
+        assert args == {"ssl_disabled": True}
+
 
 class TestSubtypeIcons:
     """Icon must match the resolved DB subtype, not be hardcoded (FRO-190)."""

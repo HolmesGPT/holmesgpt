@@ -78,6 +78,21 @@ For Azure SQL Database, see the [Azure SQL Database](#azure-sql-database) sectio
           verify_ssl: false  # self-signed certificate
     ```
 
+    **Servers with an internal or private CA:**
+
+    If your SQL Server's certificate is issued by a private CA, keep `verify_ssl: true` and add the CA to Holmes's trust store with the base64-encoded `certificate` Helm value (the `CERTIFICATE` environment variable). This keeps connections encrypted *and* verified, and applies to every Holmes integration, not just this toolset:
+
+    ```bash
+    base64 -w0 internal-ca.pem   # value for the setting below
+    ```
+
+    ```yaml
+    # values.yaml
+    certificate: "<base64-encoded CA certificate>"
+    ```
+
+    Servers that require encryption cannot be reached with `verify_ssl: false`, so this is the correct option for a private-CA deployment.
+
 === "Holmes Helm Chart"
 
     **Step 1: Create secret with credentials**
