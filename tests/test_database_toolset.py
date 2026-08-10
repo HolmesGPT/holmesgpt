@@ -152,6 +152,9 @@ class TestDatabaseToolset:
         assert toolset.enabled is False
 
 
+_CERTIFI_BUNDLE = certifi.where()
+
+
 class TestCreateEngineConnectArgs:
     """verify_ssl maps to the correct driver-specific connect_args."""
 
@@ -225,6 +228,37 @@ class TestCreateEngineConnectArgs:
         url = "mysql+pymysql://mssql_migrator:pw@mysql.example.com/db"
         args = self._connect_args(monkeypatch, url, verify_ssl=False)
         assert args == {"ssl_disabled": True}
+
+    # Full engine x verify_ssl matrix. Every supported engine is pinned here so
+    # a change to one driver's SSL handling cannot silently alter another's.
+    # URLs are post-_normalise_url, which is what _create_engine always receives.
+    @pytest.mark.parametrize(
+        "url,verify_ssl,expected",
+        [
+            # SQL Server: TLS only when verifying; certifi bundle enables it.
+            ("mssql+pytds://u:p@host/db", True, {"cafile": _CERTIFI_BUNDLE}),
+            ("mssql+pytds://u:p@host/db", False, {}),
+            # PostgreSQL: pg8000 disables verification via ssl_context=None.
+            ("postgresql+pg8000://u:p@host/db", True, {}),
+            ("postgresql+pg8000://u:p@host/db", False, {"ssl_context": None}),
+            # MySQL / MariaDB: both normalise to pymysql, which uses ssl_disabled.
+            ("mysql+pymysql://u:p@host/db", True, {}),
+            ("mysql+pymysql://u:p@host/db", False, {"ssl_disabled": True}),
+            ("mariadb://u:p@host/db", True, {}),
+            ("mariadb://u:p@host/db", False, {"ssl_disabled": True}),
+            # ClickHouse uses `verify`.
+            ("clickhouse://u:p@host/db", True, {}),
+            ("clickhouse://u:p@host/db", False, {"verify": False}),
+            # SQLite is a local file: no SSL arguments in either mode.
+            ("sqlite:///tmp/test.db", True, {}),
+            ("sqlite:///tmp/test.db", False, {}),
+            # An unrecognised engine must not inherit another driver's args.
+            ("oracle+cx_oracle://u:p@host/db", True, {}),
+            ("oracle+cx_oracle://u:p@host/db", False, {}),
+        ],
+    )
+    def test_ssl_args_matrix(self, monkeypatch, url, verify_ssl, expected):
+        assert self._connect_args(monkeypatch, url, verify_ssl) == expected
 
 
 class TestSubtypeIcons:
