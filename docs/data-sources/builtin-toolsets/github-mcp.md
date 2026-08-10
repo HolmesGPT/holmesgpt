@@ -293,7 +293,7 @@ Install the App on your organization or repositories:
 3. Choose **All repositories** or **Only select repositories**
 4. Click **Install**
 
-Note the **Installation ID** from the URL after installation: `https://github.com/settings/installations/<INSTALLATION_ID>`. See [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for more details.
+Note the **Installation ID** from the URL after installation: `https://github.com/settings/installations/<INSTALLATION_ID>` (on GitHub Enterprise Server, the same path on your own host). See [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for more details.
 
 To reach more than one organization from a single deployment, see [Multi-organization support (alpha)](#multi-organization-support-alpha).
 
@@ -440,7 +440,7 @@ Find the **App ID** on the App's settings page (under "About").
 
 #### Multi-organization support (alpha)
 
-A GitHub App installation token is scoped to one organization, so by default the server serves the single installation named by `GITHUB_APP_INSTALLATION_ID`.
+A GitHub App installation token is scoped to a single installation — one organization or user account — so by default the server serves the one installation named by `GITHUB_APP_INSTALLATION_ID`.
 
 Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment:
 
@@ -462,6 +462,13 @@ mcpAddons:
 
 !!! warning "Alpha"
     Multi-org routing is not covered by the stable release. Leave `multiOrg` unset to keep the single-organization image, which is unchanged.
+
+!!! note "Restart after editing the secret"
+    The pod only re-reads the secret on start, and the deployment's checksum tracks Helm values rather than secret contents. After adding or removing `GITHUB_APP_INSTALLATION_ID`, roll the pod so the change takes effect:
+
+    ```bash
+    kubectl rollout restart deployment/<RELEASE>-github-mcp-server -n <NAMESPACE>
+    ```
 
 !!! info "How token management works"
     The `github-app-mcp` image handles token management internally:
