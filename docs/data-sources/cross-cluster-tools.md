@@ -8,14 +8,12 @@ The mechanism is opt-in per toolset via the `expose_remotely` flag, and gated pe
 
 ## Two ways to use it
 
-Once a toolset is exposed remotely, its tools can be reached in two ways. Each is controlled by its **own, independent** account setting:
+Once a toolset is exposed remotely, its tools can be reached in two ways. Each is controlled by its **own, independent** account setting (both off by default):
 
-| Use case | Who calls the tools | Account setting | Default | Enable in the UI |
-|---|---|---|---|---|
-| **Multi-agent investigations** | Another Holmes agent, during an investigation | `multi_agent_investigation_enabled` | On | **Settings → Enable Multi Agent Investigations** |
-| **External MCP clients** | Any MCP client (Claude Code, Claude Desktop, …) via an API key | `expose_remote_tool_calls_externally` | Off | **Settings → Robusta MCP Server** |
-
-Multi-agent investigations are on for new accounts and can be turned off from the same setting. Accounts created before this default changed keep their existing (off) value until an admin turns it on.
+| Use case | Who calls the tools | Account setting | Enable in the UI |
+|---|---|---|---|
+| **Multi-agent investigations** | Another Holmes agent, during an investigation | `multi_agent_investigation_enabled` | **Settings → Enable Multi Agent Investigations** |
+| **External MCP clients** | Any MCP client (Claude Code, Claude Desktop, …) via an API key | `expose_remote_tool_calls_externally` | **Settings → Robusta MCP Server** |
 
 The two switches are independent — turning one on does not turn on the other.
 
