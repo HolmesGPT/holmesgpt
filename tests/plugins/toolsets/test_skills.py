@@ -75,7 +75,7 @@ def test_SkillsFetcher_one_liner():
 REMOTE_SKILL_UUID = "3e0f2f6a-9f0e-4d5f-8f7a-2b1c9d8e7f6a"
 
 
-def _mock_remote_dal(title="Erlang Debugging"):
+def _mock_remote_dal(title: str = "Erlang Debugging") -> Mock:
     dal = Mock()
     dal.enabled = True
     skill_content = Mock()
