@@ -941,6 +941,9 @@ def _is_azure_incompatible_schema(input_schema: dict) -> bool:
     if not required or not isinstance(required, list):
         return False
 
+    if not isinstance(properties, dict):
+        return True
+
     for key in required:
         if key not in properties:
             return True

@@ -865,6 +865,18 @@ class TestAzureIncompatibleSchema:
         }
         assert _is_azure_incompatible_schema(schema) is False
 
+    def test_null_properties_flagged(self):
+        """Test that schema with null properties is flagged as Azure-incompatible."""
+        from holmes.plugins.toolsets.mcp.toolset_mcp import _is_azure_incompatible_schema
+
+        # properties is null - should be treated as incompatible
+        schema = {
+            "type": "object",
+            "properties": None,
+            "required": ["args"],
+        }
+        assert _is_azure_incompatible_schema(schema) is True
+
     def test_azure_incompatible_tool_excluded_from_loading(self, monkeypatch, suppress_migration_warnings):
         """Test that Azure-incompatible tools are automatically excluded when loading."""
         mcp_toolset = RemoteMCPToolset(
