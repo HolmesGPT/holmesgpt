@@ -229,13 +229,6 @@ toolsets:
     llm_instructions: "Production Azure SQL database with application data"
 ```
 
-Keep `verify_ssl` at its default (`true`) — Azure SQL requires TLS.
-
-Two Azure-specific requirements:
-
-- **Firewall**: Azure SQL rejects all connections by default. Allow the outbound IP of the machine or cluster running Holmes in the server's Networking settings, or use a private endpoint reachable from the cluster.
-- **SQL authentication must be enabled** on the server. Servers configured for Microsoft Entra-only authentication (Azure AD-only, SQL logins disabled) are not supported — this toolset does not authenticate with Entra ID tokens.
-
 ## Configuration Options
 
 - **connection_url** (required): SQL Server connection URL
