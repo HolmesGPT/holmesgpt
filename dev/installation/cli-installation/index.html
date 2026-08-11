@@ -5796,7 +5796,7 @@
 <p>Choose your AI provider (see <a href="../../ai-providers/">all providers</a> for more options).</p>
 <div class="admonition tip">
 <p class="admonition-title">Which Model to Use</p>
-<p>We highly recommend using Sonnet 4.0 or Sonnet 4.5 as they give the best results by far. These models are available from Anthropic, AWS Bedrock, and Google Vertex. <a href="../../development/evaluations/">View Benchmarks.</a></p>
+<p>Model choice has a large impact on results. <a href="../../development/evaluations/latest-results/">View Benchmarks.</a></p>
 </div>
 <div class="admonition info">
 <p class="admonition-title">No Kubernetes Required</p>
@@ -5897,11 +5897,10 @@ See <a href="../../data-sources/builtin-toolsets/">data sources</a> for all supp
 </li>
 <li>
 <p><strong>Ask your first question</strong>:
-    <div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># Recommended: Use Sonnet 4.0 or Sonnet 4.5 for best results</span>
-</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what is wrong with the user-profile-import pod?&quot;</span><span class="w"> </span>--model<span class="o">=</span><span class="s2">&quot;bedrock/anthropic.claude-sonnet-4-20250514-v1:0&quot;</span>
-</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>
-</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="c1"># Or use another model</span>
-</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what is wrong with the user-profile-import pod?&quot;</span><span class="w"> </span>--model<span class="o">=</span><span class="s2">&quot;bedrock/&lt;your-model-name&gt;&quot;</span>
+    <div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what is wrong with the user-profile-import pod?&quot;</span><span class="w"> </span>--model<span class="o">=</span><span class="s2">&quot;bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0&quot;</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="c1"># Or use another model</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what is wrong with the user-profile-import pod?&quot;</span><span class="w"> </span>--model<span class="o">=</span><span class="s2">&quot;bedrock/&lt;your-model-name&gt;&quot;</span>
 </span></code></pre></div></p>
 </li>
 </ol>
