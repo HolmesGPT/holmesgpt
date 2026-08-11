@@ -186,6 +186,9 @@ Choose your AI provider (see [all providers](../ai-providers/index.md) for more 
 
     4. **Ask your first question**:
         ```bash
+        holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+        # Or use another model
         holmes ask "what is wrong with the user-profile-import pod?" --model="bedrock/<your-model-name>"
         ```
 
