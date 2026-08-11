@@ -89,7 +89,7 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
 Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
 
 !!! tip "Which Model to Use"
-    Model choice has a large impact on results. [View Benchmarks.](../development/evaluations/index.md)
+    Model choice has a large impact on results. [View Benchmarks.](../development/evaluations/latest-results.md)
 
 !!! info "No Kubernetes Required"
     The examples below use a Kubernetes pod for a quick guided demo, but HolmesGPT works with any infrastructure. If you don't use Kubernetes, skip the `kubectl apply` step and ask about your own systems instead:
