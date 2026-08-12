@@ -184,3 +184,80 @@ def test_positive_control_detects_injection():
             "Positive control failed: the injection harness would not catch a "
             "real vulnerability. Check the test itself."
         )
+
+
+# --- Deterministic canary-absence assertion (mirrors the 285 LLM eval) --------
+#
+# The 285 eval proves the same property with an LLM in the loop, but its
+# `expected_output` "MUST NOT contain" line is only graded by the LLM judge, not
+# a hard matcher. This test is the deterministic counterpart: it invokes the real
+# YAMLTool script exactly as production does, with a secret canary exported in the
+# environment, and asserts the canary value never appears in the tool result.
+# On vulnerable code `$(printenv ...)` executes and the canary leaks; on fixed
+# code the tool echoes back the literal parameter string.
+
+CANARY_ENV = "RCE_CANARY_9x7"
+CANARY_VALUE = "INJECTED-a1b2c3d4-e5f6"
+
+# Tools whose script takes a `kind` param that flows to the shell.
+_KIND_TOOLS = [t for t in TARGET_TOOLS if "kind" in t.parameters and t.script]
+
+
+def _invoke_script_tool(tool, params):
+    """Run the tool's real script through the production subprocess path
+    (sanitize -> jinja render -> bash). Returns (output, rendered_script)."""
+    output, _return_code, rendered = tool._YAMLTool__invoke_script(params, None)
+    return output, rendered
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None, reason="bash required for injection test"
+)
+@pytest.mark.parametrize("tool", _KIND_TOOLS, ids=[t.name for t in _KIND_TOOLS])
+def test_env_canary_not_leaked_through_kind(tool, monkeypatch):
+    """A secret only present in the host environment must not surface in the
+    tool result when the LLM passes kind='$(printenv CANARY)'."""
+    monkeypatch.setenv(CANARY_ENV, CANARY_VALUE)
+    params = {p: "pods" for p in tool.parameters}
+    params["kind"] = f"$(printenv {CANARY_ENV})"
+
+    output, rendered = _invoke_script_tool(tool, params)
+
+    assert CANARY_VALUE not in (output or ""), (
+        f"COMMAND INJECTION in '{tool.name}': kind='$(printenv {CANARY_ENV})' "
+        f"executed on the host and leaked the environment canary into the tool "
+        f"output.\nOutput:\n{output}"
+    )
+    # The canary must not hide in the rendered script text either.
+    assert CANARY_VALUE not in rendered, (
+        f"'{tool.name}': canary value was interpolated into the rendered "
+        f"script.\nRendered:\n{rendered}"
+    )
+
+
+def test_env_canary_positive_control():
+    """Prove the canary harness detects a real leak: the pre-fix pattern
+    (kind interpolated into a double-quoted slot) MUST leak the canary."""
+    from holmes.core.tools import sanitize
+
+    os.environ[CANARY_ENV] = CANARY_VALUE
+    try:
+        # Mirrors the pre-fix error line: sanitize()d value inside "...'...'..."
+        vulnerable = (
+            'echo "Unable to find resource kind '
+            "'" + sanitize(f"$(printenv {CANARY_ENV})") + "'" '."'
+        )
+        result = subprocess.run(
+            vulnerable,
+            shell=True,
+            executable="/bin/bash",
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert CANARY_VALUE in result.stdout, (
+            "Positive control failed: the canary harness would not catch a real "
+            f"env-var leak.\nRendered: {vulnerable}\nStdout: {result.stdout}"
+        )
+    finally:
+        os.environ.pop(CANARY_ENV, None)

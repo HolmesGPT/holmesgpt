@@ -44,7 +44,10 @@ toolsets:
           err_file=$(mktemp)
 
           # Get the API path for the resource kind using kubectl
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^${KIND} " | head -1)
+          # Match the resource name (first column) as an EXACT string, not a
+          # grep regex - otherwise a kind like '.*' or 'a|b' would match the
+          # wrong resource. awk compares $1 literally and stops at the first hit.
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
@@ -303,7 +306,10 @@ toolsets:
           err_file=$(mktemp)
 
           # Get the API path for the resource kind
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^${KIND} " | head -1)
+          # Match the resource name (first column) as an EXACT string, not a
+          # grep regex - otherwise a kind like '.*' or 'a|b' would match the
+          # wrong resource. awk compares $1 literally and stops at the first hit.
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
