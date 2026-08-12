@@ -24,6 +24,7 @@ import tempfile
 import pytest
 from jinja2 import Template
 
+from holmes.core.tools import sanitize
 from holmes.plugins.toolsets import load_toolsets_from_file
 
 KUBERNETES_YAML = os.path.join(
@@ -168,8 +169,6 @@ def test_positive_control_detects_injection():
     with tempfile.TemporaryDirectory() as workdir:
         marker_path = os.path.join(workdir, "PWNED_control")
         # Mirror the pre-fix vulnerable slot: shlex.quote'd value inside "..."
-        from holmes.core.tools import sanitize
-
         vulnerable = 'grep "^' + sanitize(f"$(touch {marker_path})") + ' " /dev/null'
         subprocess.run(
             vulnerable,
@@ -241,8 +240,6 @@ def test_env_canary_not_leaked_through_kind(tool, monkeypatch):
 def test_env_canary_positive_control(monkeypatch):
     """Prove the canary harness detects a real leak: the pre-fix pattern
     (kind interpolated into a double-quoted slot) MUST leak the canary."""
-    from holmes.core.tools import sanitize
-
     monkeypatch.setenv(CANARY_ENV, CANARY_VALUE)
     # Mirrors the pre-fix error line: sanitize()d value inside "...'...'..."
     vulnerable = (
