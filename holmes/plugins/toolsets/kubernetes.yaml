@@ -29,6 +29,13 @@ toolsets:
         script: |
           #!/bin/bash
 
+          # SECURITY: assign sanitized params to shell variables in an unquoted
+          # assignment slot, then reference them only as "$VAR". Never interpolate
+          # {{ param }} inside a quoted context - sanitize() (shlex.quote) wraps
+          # dangerous values in single quotes, which are literal (and command
+          # substitution stays active) inside a double-quoted or single-quoted slot.
+          KIND={{ kind }}
+
           # Collapse multi-line jq expressions (LLMs sometimes write multi-line jq)
           # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
           JQ_FILTER={{ jq_expr }}
@@ -37,12 +44,12 @@ toolsets:
           err_file=$(mktemp)
 
           # Get the API path for the resource kind using kubectl
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^${KIND} " | head -1)
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to find resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
           fi
@@ -55,7 +62,7 @@ toolsets:
           else
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Could not parse API info for '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
           fi
@@ -79,7 +86,7 @@ toolsets:
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to parse API info for resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
           fi
@@ -200,8 +207,13 @@ toolsets:
           Similarly, use .status.nodeInfo.architecture instead of .metadata.labels["kubernetes.io/arch"] when possible.
         script: |
           #!/bin/bash
+          # SECURITY: assign sanitized params to shell variables (unquoted slot),
+          # then reference them only as "$VAR" - never interpolate {{ param }}
+          # inside a quoted context. See kubernetes_jq_query for the rationale.
+          KIND={{ kind }}
+          CUSTOM_COLUMNS={{ columns }}
           err_file=$(mktemp)
-          output=$(kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}' 2>"$err_file")
+          output=$(kubectl get "$KIND" --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
           kubectl_exit=$?
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
@@ -222,7 +234,8 @@ toolsets:
           # Split header and data rows
           header=$(echo "$output" | head -1)
           {% if filter_pattern %}
-          data=$(echo "$output" | tail -n +2 | grep -E '{{ filter_pattern }}' || true)
+          FILTER_PATTERN={{ filter_pattern }}
+          data=$(echo "$output" | tail -n +2 | grep -E -- "$FILTER_PATTERN" || true)
           {% else %}
           data=$(echo "$output" | tail -n +2)
           {% endif %}
@@ -282,15 +295,20 @@ toolsets:
         script: |
           #!/bin/bash
 
+          # SECURITY: assign sanitized params to shell variables (unquoted slot),
+          # then reference them only as "$VAR" - never interpolate {{ param }}
+          # inside a quoted context. See kubernetes_jq_query for the rationale.
+          KIND={{ kind }}
+
           err_file=$(mktemp)
 
           # Get the API path for the resource kind
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^${KIND} " | head -1)
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to find resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
@@ -302,7 +320,7 @@ toolsets:
           else
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Could not parse API info for '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
@@ -325,7 +343,7 @@ toolsets:
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to parse API info for resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
@@ -458,7 +476,16 @@ toolsets:
     tools:
       - name: "get_prometheus_target"
         description: "Fetch the definition of a Prometheus target"
-        command: 'kubectl get --raw ''/api/v1/namespaces/{{prometheus_namespace}}/services/{{prometheus_service_name}}:9090/proxy/api/v1/targets'' | jq ''.data.activeTargets[] | select(.labels.job == "{{ target_name }}")'''
+        script: |
+          #!/bin/bash
+          # SECURITY: assign sanitized params to shell variables (unquoted slot),
+          # then reference them only as "$VAR". Pass target_name into jq via
+          # --arg so it is never interpolated into the jq program text.
+          PROM_NAMESPACE={{ prometheus_namespace }}
+          PROM_SERVICE={{ prometheus_service_name }}
+          TARGET_NAME={{ target_name }}
+          kubectl get --raw "/api/v1/namespaces/${PROM_NAMESPACE}/services/${PROM_SERVICE}:9090/proxy/api/v1/targets" \
+            | jq --arg target "$TARGET_NAME" '.data.activeTargets[] | select(.labels.job == $target)'
 
   kubernetes/krew-extras: # To make this work, install kube-lineage with krew
     description: "Fetches children/dependents and parents/dependencies resources using kube-lineage installed via `kubectl krew`"
