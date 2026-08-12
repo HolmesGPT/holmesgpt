@@ -235,29 +235,29 @@ def test_env_canary_not_leaked_through_kind(tool, monkeypatch):
     )
 
 
-def test_env_canary_positive_control():
+@pytest.mark.skipif(
+    shutil.which("bash") is None, reason="bash required for injection test"
+)
+def test_env_canary_positive_control(monkeypatch):
     """Prove the canary harness detects a real leak: the pre-fix pattern
     (kind interpolated into a double-quoted slot) MUST leak the canary."""
     from holmes.core.tools import sanitize
 
-    os.environ[CANARY_ENV] = CANARY_VALUE
-    try:
-        # Mirrors the pre-fix error line: sanitize()d value inside "...'...'..."
-        vulnerable = (
-            'echo "Unable to find resource kind '
-            "'" + sanitize(f"$(printenv {CANARY_ENV})") + "'" '."'
-        )
-        result = subprocess.run(
-            vulnerable,
-            shell=True,
-            executable="/bin/bash",
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        assert CANARY_VALUE in result.stdout, (
-            "Positive control failed: the canary harness would not catch a real "
-            f"env-var leak.\nRendered: {vulnerable}\nStdout: {result.stdout}"
-        )
-    finally:
-        os.environ.pop(CANARY_ENV, None)
+    monkeypatch.setenv(CANARY_ENV, CANARY_VALUE)
+    # Mirrors the pre-fix error line: sanitize()d value inside "...'...'..."
+    vulnerable = (
+        'echo "Unable to find resource kind '
+        "'" + sanitize(f"$(printenv {CANARY_ENV})") + "'" '."'
+    )
+    result = subprocess.run(
+        vulnerable,
+        shell=True,
+        executable="/bin/bash",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert CANARY_VALUE in result.stdout, (
+        "Positive control failed: the canary harness would not catch a real "
+        f"env-var leak.\nRendered: {vulnerable}\nStdout: {result.stdout}"
+    )
