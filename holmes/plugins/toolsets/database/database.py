@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 from urllib.parse import quote, unquote, urlparse
 
+import certifi
 import requests
 from pydantic import ConfigDict, Field, model_validator
 
@@ -77,7 +78,7 @@ _DATABASE_DRIVERS: Dict[str, DatabaseDriverInfo] = {
     "mysql": DatabaseDriverInfo(DatabaseSubtype.MYSQL, "mysql+pymysql"),
     "mariadb": DatabaseDriverInfo(DatabaseSubtype.MARIADB, "mysql+pymysql"),
     "sqlite": DatabaseDriverInfo(DatabaseSubtype.SQLITE, None),
-    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pymssql"),
+    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pytds"),
     "clickhouse": DatabaseDriverInfo(DatabaseSubtype.CLICKHOUSE, None),
 }
 
@@ -258,7 +259,7 @@ class DatabaseConfig(ToolsetConfig):
         description=(
             "SQLAlchemy-compatible database connection URL. "
             "Supported databases: PostgreSQL, MySQL/MariaDB, SQLite, SQL Server. "
-            "Pure-Python drivers are used automatically (pg8000, PyMySQL, pymssql)."
+            "Pure-Python drivers are used automatically (pg8000, PyMySQL, python-tds)."
         ),
         examples=[
             "postgresql://user:pass@host:5432/db",
@@ -490,18 +491,34 @@ class DatabaseToolset(Toolset):
                 )
 
     def _create_engine(self, url: str):
-        connect_args = {}
+        connect_args: Dict[str, Any] = {}
+        # Match on the parsed URL scheme, not a substring of the whole URL: a
+        # username or password can contain another engine's name (e.g.
+        # postgresql://mssql_sync_user@host/db) and would otherwise pick the
+        # wrong driver's SSL arguments.
+        subtype = _detect_subtype(url)
 
-        if not self.database_config.verify_ssl:
-            if "postgresql" in url:
+        if subtype is DatabaseSubtype.MSSQL:
+            # pytds only enables TLS when a CA bundle is passed, and always
+            # verifies the server certificate against it — there is no
+            # encrypt-without-verification mode. verify_ssl=True therefore
+            # means an encrypted, certificate-verified connection (Azure SQL
+            # requires TLS); verify_ssl=False disables TLS entirely, which is
+            # what servers with self-signed certificates need.
+            #
+            # certifi.where() is resolved per connection, so a private CA added
+            # at startup via the CERTIFICATE env var (holmes/utils/cert_utils.py)
+            # is picked up here without any toolset-level setting.
+            if self.database_config.verify_ssl:
+                connect_args["cafile"] = certifi.where()
+        elif not self.database_config.verify_ssl:
+            if subtype is DatabaseSubtype.POSTGRESQL:
                 # pg8000 uses ssl_context parameter
                 connect_args["ssl_context"] = None
-            elif "mysql" in url or "pymysql" in url:
+            elif subtype in (DatabaseSubtype.MYSQL, DatabaseSubtype.MARIADB):
                 connect_args["ssl_disabled"] = True
-            elif "clickhouse" in url:
+            elif subtype is DatabaseSubtype.CLICKHOUSE:
                 connect_args["verify"] = False
-            elif "mssql" in url or "pymssql" in url:
-                connect_args["TrustServerCertificate"] = "yes"
 
         return sqlalchemy.create_engine(
             url, pool_pre_ping=True, connect_args=connect_args

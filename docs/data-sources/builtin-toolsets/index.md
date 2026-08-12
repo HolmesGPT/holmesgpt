@@ -44,7 +44,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-postgresql:{ .lg .middle } **PostgreSQL**](database-postgresql.md)
 -   [:simple-sqlite:{ .lg .middle } **SQLite**](database-sqlite.md)
 -   [:material-database:{ .lg .middle } **SQL Server**](database-sqlserver.md)
--   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
+-   [:material-microsoft-azure:{ .lg .middle } **Azure SQL Database**](database-sqlserver.md#azure-sql-database)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB**](mongodb.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
 -   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
@@ -63,6 +63,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 <div class="grid cards" markdown>
 
+-   [:simple-jira:{ .lg .middle } **Atlassian Rovo (MCP)**](atlassian-rovo-mcp.md)
 -   [:simple-confluence:{ .lg .middle } **Confluence**](confluence.md)
 -   [:simple-confluence:{ .lg .middle } **Confluence (MCP)**](confluence-mcp.md)
 -   [:material-github:{ .lg .middle } **GitHub (MCP)**](github-mcp.md)

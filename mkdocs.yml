@@ -57,7 +57,6 @@ nav:
                 - "AWS (MCP)": data-sources/builtin-toolsets/aws.md
                 - "Azure (MCP)": data-sources/builtin-toolsets/azure-mcp.md
                 - "Azure Kubernetes Service": data-sources/builtin-toolsets/aks.md
-                - "Azure SQL Database": data-sources/builtin-toolsets/azure-sql.md
                 - "Bash": data-sources/builtin-toolsets/bash.md
                 - "Cilium": data-sources/builtin-toolsets/cilium.md
                 - "Confluence": data-sources/builtin-toolsets/confluence.md
