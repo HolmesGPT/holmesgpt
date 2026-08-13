@@ -74,6 +74,7 @@ toolsets:
   - **`auth`** (optional): Authentication configuration (see Authentication section)
 - **`verify_ssl`** (optional): Whether to verify SSL certificates (default: true)
 - **`timeout_seconds`** (optional): Request timeout in seconds (default: 30)
+- **`block_internal_ips`** (optional): Reject requests whose host resolves to an internal address (default: false — see [Redirects and internal addresses](#redirects-and-internal-addresses))
 
 ### Authentication
 
@@ -304,6 +305,36 @@ methods: ["GET", "POST"]  # Read and create
 methods: ["GET", "POST", "PUT", "DELETE"]  # Full access
 ```
 
+### Redirects and internal addresses
+
+The whitelist is enforced on **every hop**, not just the URL the LLM asks for. If a whitelisted host answers with a redirect, the redirect target must itself match the whitelist or the request is refused — so an open redirect on a trusted upstream cannot be used to reach cloud metadata (`169.254.169.254`), an in-cluster service, or localhost.
+
+Alongside that:
+
+- Credentials are dropped when a redirect crosses an origin (a different scheme, host **or** port). This covers `auth` of every type, including the header name you configure for `auth: {type: header}`, plus any `Authorization`/`Cookie` header supplied with the request.
+- A redirect target must also allow the method being used, per its own `methods` list.
+- Redirect chains are capped at 5 hops.
+- The same rules apply to `health_check_url`, except that a health check may redirect within its own origin (so it does not have to satisfy the endpoint's `paths` whitelist).
+
+`block_internal_ips` adds a second, optional layer: the host is resolved and the request is refused if any resolved address is loopback, link-local (including the cloud metadata endpoint), private, reserved, multicast or unspecified. When enabled, the connection is also pinned to the exact IP that was validated, so a DNS rebind between validation and connection cannot swap in an internal address.
+
+It defaults to **false** because whitelisted endpoints are very often in-cluster services:
+
+```yaml
+config:
+  endpoints:
+    - hosts: ["prometheus.monitoring.svc:9090"]   # internal by design
+```
+
+Enable it when every configured endpoint is a public host:
+
+```yaml
+config:
+  block_internal_ips: true
+  endpoints:
+    - hosts: ["https://api.example.com"]
+```
+
 ## LLM Instructions
 
 The `llm_instructions` field provides guidance to the LLM about how to use your API. Good instructions include:
@@ -374,3 +405,18 @@ llm_instructions: |
 - Ensure the HTTP method is in the allowed methods list
 - If a `hosts` entry includes a scheme (e.g. `https://...`), make sure the request uses the same scheme and either the scheme's default port or the port you specified — see [Host Patterns](#host-patterns)
 - Check HolmesGPT logs for the exact URL being blocked; the error message includes the request's scheme, host, port, and path
+
+### Refused Redirects
+
+**Problem**: `Refusing to follow redirect from ... to ...`
+
+The upstream answered with a redirect whose target is not in the whitelist. This is the SSRF guard working as intended — see [Redirects and internal addresses](#redirects-and-internal-addresses).
+
+**Solutions**:
+- If the redirect target is legitimate, add it to `hosts`/`paths` (and to `methods` if the redirect keeps a non-GET method)
+- Point the endpoint at the final URL so no redirect is needed
+- If the target is *not* something you expect the upstream to redirect to, treat it as a finding rather than a config problem
+
+**Problem**: `Refusing to request ...: host ... resolves to non-routable/internal address`
+
+`block_internal_ips` is enabled and the host resolves to an internal address. Set it to `false` if the endpoint is an in-cluster service.
