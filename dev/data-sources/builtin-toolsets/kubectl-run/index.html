@@ -5724,6 +5724,11 @@
 <li><strong>Commands</strong>: Only commands matching the regex patterns are allowed</li>
 </ol>
 <p>If no images are configured, all kubectl run commands are blocked.</p>
+<p>Additional safeguards:</p>
+<ul>
+<li><strong>Patterns are fully anchored.</strong> A command must match a pattern in its entirety (<code>re.fullmatch</code>), so a matching prefix cannot be followed by extra content. Write patterns to cover the whole command — e.g. <code>nslookup .*</code>, not just <code>nslookup</code>.</li>
+<li><strong>No shell.</strong> Commands run directly as an argument vector (<code>shell=False</code>), never through a host shell, so a loosely written pattern (e.g. one ending in <code>.*</code>) cannot be abused to run commands on the Holmes host. As a defense-in-depth check, command-combination and substitution tokens (<code>;</code>, <code>|</code>, <code>`</code>, <code>&lt;</code>, <code>&gt;</code>, newlines, <code>$(</code>, <code>${</code>, <code>&amp;&amp;</code>) are also rejected outright. Ordinary argument characters — including a lone <code>&amp;</code> in a URL query string such as <code>?a=1&amp;b=2</code> — are unaffected.</li>
+</ul>
 <h2 id="tools">Tools<a class="headerlink" href="#tools" title="Permanent link">&para;</a></h2>
 <h3 id="kubectl_run_image">kubectl_run_image<a class="headerlink" href="#kubectl_run_image" title="Permanent link">&para;</a></h3>
 <p>Runs a command in a temporary Kubernetes pod.</p>
