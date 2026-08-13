@@ -265,13 +265,6 @@ CONVERSATION_WORKER_REALTIME_ENABLED = load_bool(
 CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS", 60)
 )
-# How close to its `exp` the realtime JWT may get before we proactively
-# re-sign-in. Must stay comfortably above the refresh interval above so at
-# least one refresh tick lands inside the window; otherwise the token expires
-# unrefreshed and Supabase closes the socket with InvalidJWTToken.
-CONVERSATION_WORKER_AUTH_REFRESH_LEEWAY_SECONDS = float(
-    os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_LEEWAY_SECONDS", 300)
-)
 # Upper bound on how long a silently-dead realtime WebSocket can go undetected.
 # The realtime library can leave a stale connection in place when the server
 # closes the socket cleanly (ConnectionClosedOK) — _listen_task exits, no
