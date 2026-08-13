@@ -59,6 +59,9 @@ STUB_BINS = [
 
 
 def _load_yaml_tools():
+    """Discover every executable (command/script) tool across all built-in
+    YAML toolsets. Returns (tools, load_failures) so a YAML that stops parsing
+    is reported rather than silently dropped."""
     tools = []
     failures = []
     for f in YAML_FILES:
@@ -79,6 +82,7 @@ TOOL_IDS = [f"{fname}:{tool.name}" for fname, _ts, tool in ALL_TOOLS]
 
 
 def _template_of(tool):
+    """Return the tool's executed template (command takes precedence, else script)."""
     return tool.command if tool.command is not None else tool.script
 
 
@@ -138,6 +142,9 @@ def test_no_param_interpolated_inside_quotes(entry):
 # --- 2. Behavioural proof: nothing executes when a param carries a payload ---
 
 def _make_stub_bin(workdir):
+    """Create a bin dir of no-op stubs for every external CLI in STUB_BINS,
+    to be prepended to PATH so the behavioural test never hits a real
+    cluster/cloud/network. Returns the bin dir path."""
     bin_dir = os.path.join(workdir, "bin")
     os.makedirs(bin_dir, exist_ok=True)
     for name in STUB_BINS:
@@ -149,6 +156,8 @@ def _make_stub_bin(workdir):
 
 
 def _payloads(marker_cmd):
+    """Shell-injection payloads an LLM could smuggle through a parameter; each
+    runs marker_cmd if the value is not properly isolated from the shell."""
     return [
         f"$({marker_cmd})",
         f"`{marker_cmd}`",
@@ -161,6 +170,8 @@ def _payloads(marker_cmd):
 
 
 def _render(tool, params):
+    """Render a tool's template exactly as YAMLTool does at runtime: sanitize
+    params (shlex.quote via _build_context) -> expandvars -> jinja render."""
     context = tool._build_context(params)
     return Template(os.path.expandvars(_template_of(tool))).render(context)
 
@@ -170,6 +181,8 @@ def _render(tool, params):
 )
 @pytest.mark.parametrize("entry", ALL_TOOLS, ids=TOOL_IDS or ["none"])
 def test_no_command_substitution_executes(entry):
+    """Render each tool with an injection payload in every parameter and execute
+    it under /bin/bash; the marker file must never be created."""
     fname, ts_name, tool = entry
     param_names = list(tool.parameters.keys())
     if not param_names:
