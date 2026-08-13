@@ -293,7 +293,7 @@ def responses():
         rsps.add_passthru("https://www.google.com")
         rsps.add_passthru("https://www.burgergooglenetworkspam.co.uk")
         # example.com — stable public host for the internet-toolset SSRF eval
-        # (285_internet_fetch_public_url_allowed).
+        # (286_internet_fetch_public_url_allowed).
         rsps.add_passthru("https://www.example.com")
         rsps.add_passthru("http://www.example.com")
         rsps.add_passthru("https://example.com")
