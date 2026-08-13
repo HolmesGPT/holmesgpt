@@ -1,4 +1,4 @@
-"""Regression tests for SEC-INJ-001 (ROB-893): command injection -> host RCE
+"""Regression tests for ROB-893: command injection -> host RCE
 in the default kubernetes/core toolset.
 
 Root cause: tool parameters are sanitized with ``shlex.quote`` (see
@@ -157,7 +157,7 @@ def test_exact_report_poc_kind_param():
         rendered = _render_tool(jq_query, params)
         _run_rendered(rendered, workdir)
         assert not os.path.exists(marker_path), (
-            "SEC-INJ-001 regression: kind='$(...)' executed command "
+            "ROB-893 regression: kind='$(...)' executed command "
             f"substitution.\nRendered script:\n{rendered}"
         )
 
