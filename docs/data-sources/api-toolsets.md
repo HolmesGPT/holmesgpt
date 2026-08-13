@@ -311,7 +311,7 @@ The whitelist is enforced on **every hop**, not just the URL the LLM asks for. I
 
 Alongside that:
 
-- Credentials are dropped when a redirect crosses an origin (a different scheme, host **or** port). This covers `auth` of every type, including the header name you configure for `auth: {type: header}`, plus any `Authorization`/`Cookie` header supplied with the request.
+- Credentials are dropped when a redirect crosses an origin (a different scheme, host **or** port). Only `Accept`, `Accept-Encoding`, `Accept-Language`, `Content-Type` and `User-Agent` survive such a hop — everything else is dropped, including `auth` of every type, `default_headers`, `extra_headers`, and any header supplied with the request. This is an allowlist by design, so a header you add later cannot silently start leaking. Credentials are never *added* for a redirect target, only removed.
 - A redirect target must also allow the method being used, per its own `methods` list.
 - Redirect chains are capped at 5 hops.
 - The same rules apply to `health_check_url`, except that a health check may redirect within its own origin (so it does not have to satisfy the endpoint's `paths` whitelist).

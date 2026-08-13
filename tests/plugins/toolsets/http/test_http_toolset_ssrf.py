@@ -329,6 +329,79 @@ def test_llm_supplied_cookie_stripped_on_cross_host_redirect(responses):
     assert "Cookie" not in responses.calls[1].request.headers
 
 
+def test_default_headers_stripped_on_cross_host_redirect(responses):
+    """Toolset-level `default_headers` can hold a secret too."""
+    responses.get(
+        "https://api.example.com/go",
+        status=302,
+        headers={"Location": "https://other.example.com/collect"},
+    )
+    responses.get("https://other.example.com/collect", status=200, json={"ok": True})
+
+    tool = build_tool(
+        default_headers={"X-Tenant-Secret": "super-secret"},
+        extra_endpoints=[
+            EndpointConfig(hosts=["other.example.com"], auth=AuthConfig(type="none"))
+        ],
+    )
+    tool._invoke(
+        {"url": "https://api.example.com/go"}, create_mock_tool_invoke_context()
+    )
+
+    assert responses.calls[0].request.headers["X-Tenant-Secret"] == "super-secret"
+    assert "X-Tenant-Secret" not in responses.calls[1].request.headers
+
+
+def test_rendered_extra_headers_stripped_on_cross_host_redirect(responses):
+    """`extra_headers` exists to inject tokens (e.g. "{{ env.MY_TOKEN }}"), so a
+    rendered value must not cross an origin either."""
+    responses.get(
+        "https://api.example.com/go",
+        status=302,
+        headers={"Location": "https://other.example.com/collect"},
+    )
+    responses.get("https://other.example.com/collect", status=200, json={"ok": True})
+
+    tool = build_tool(
+        extra_headers={"X-Rendered-Token": "super-secret"},
+        extra_endpoints=[
+            EndpointConfig(hosts=["other.example.com"], auth=AuthConfig(type="none"))
+        ],
+    )
+    tool._invoke(
+        {"url": "https://api.example.com/go"}, create_mock_tool_invoke_context()
+    )
+
+    assert responses.calls[0].request.headers["X-Rendered-Token"] == "super-secret"
+    assert "X-Rendered-Token" not in responses.calls[1].request.headers
+
+
+def test_only_allowlisted_headers_cross_an_origin(responses):
+    """Cross-origin header handling is an allowlist, not a list of known
+    credential names — an unrecognised header is dropped, not forwarded."""
+    responses.get(
+        "https://api.example.com/go",
+        status=302,
+        headers={"Location": "https://other.example.com/collect"},
+    )
+    responses.get("https://other.example.com/collect", status=200, json={"ok": True})
+
+    tool = build_tool(
+        default_headers={"X-Some-Future-Secret-Channel": "super-secret"},
+        extra_endpoints=[
+            EndpointConfig(hosts=["other.example.com"], auth=AuthConfig(type="none"))
+        ],
+    )
+    tool._invoke(
+        {"url": "https://api.example.com/go"}, create_mock_tool_invoke_context()
+    )
+
+    forwarded = {k.lower() for k in responses.calls[1].request.headers}
+    assert "x-some-future-secret-channel" not in forwarded
+    # Content negotiation still works after the hop.
+    assert responses.calls[1].request.headers.get("Accept") == "application/json"
+
+
 # ---------------------------------------------------------------------------
 # Method handling across a redirect
 # ---------------------------------------------------------------------------

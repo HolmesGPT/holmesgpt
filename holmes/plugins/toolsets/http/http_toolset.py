@@ -56,16 +56,24 @@ REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 # Bound the manual redirect chain, mirroring requests' default.
 MAX_REDIRECTS = 5
 
-# Headers that carry credentials and must never survive a cross-origin redirect.
-# requests' own rebuild_auth() only strips 'Authorization' and only when the
-# HOSTNAME changes, so operator-configured header auth (e.g. X-API-Key) and
-# same-host/different-port hops would otherwise leak the credential.
-SENSITIVE_HEADERS = frozenset(
+# Only these headers survive a redirect that crosses an origin. Everything else
+# is operator- or model-supplied and must be assumed to carry a secret: `auth`
+# of every type, `default_headers`, the Jinja-rendered `extra_headers` (which
+# exist precisely to inject tokens, e.g. "{{ env.MY_TOKEN }}"), and any header
+# the model passed to the tool.
+#
+# This is an allowlist rather than a list of known credential header names so
+# that a new way to configure a secret header cannot silently start leaking.
+# requests' own rebuild_auth() is no help here: it strips only 'Authorization',
+# and only when the HOSTNAME changes, so header-type auth and
+# same-host/different-port hops would keep the credential.
+CROSS_ORIGIN_SAFE_HEADERS = frozenset(
     {
-        "authorization",
-        "cookie",
-        "proxy-authorization",
-        "x-api-key",
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "content-type",
+        "user-agent",
     }
 )
 
@@ -83,19 +91,13 @@ def _origin(url: str) -> Tuple[str, str, Optional[int]]:
     return scheme, (parsed.hostname or "").lower(), port
 
 
-def _strip_credentials(
-    headers: Dict[str, str], endpoint: Optional["EndpointConfig"]
-) -> Dict[str, str]:
-    """Drop credential-bearing headers before crossing an origin boundary.
+def _strip_credentials(headers: Dict[str, str]) -> Dict[str, str]:
+    """Keep only the headers that are safe to carry across an origin boundary.
 
-    In addition to the well-known credential headers, the header name the
-    matched endpoint configured for `auth: {type: header}` is dropped, since it
-    is a secret regardless of what the operator named it.
+    See CROSS_ORIGIN_SAFE_HEADERS — anything not on that list is dropped rather
+    than matched against a list of known credential names.
     """
-    drop = set(SENSITIVE_HEADERS)
-    if endpoint is not None and endpoint.auth.type == "header" and endpoint.auth.name:
-        drop.add(endpoint.auth.name.lower())
-    return {k: v for k, v in headers.items() if k.lower() not in drop}
+    return {k: v for k, v in headers.items() if k.lower() in CROSS_ORIGIN_SAFE_HEADERS}
 
 
 @dataclass(frozen=True)
@@ -504,7 +506,6 @@ class HttpToolset(Toolset):
                 "GET",
                 url,
                 request_kwargs,
-                endpoint=endpoint,
                 check_redirect_target=self._same_origin_hop(url),
             )
             if redirect_error or response is None:
@@ -701,7 +702,6 @@ class HttpToolset(Toolset):
         method: str,
         url: str,
         request_kwargs: Dict[str, Any],
-        endpoint: Optional["EndpointConfig"] = None,
         check_redirect_target: Optional[
             Callable[[str], Tuple[Optional["EndpointConfig"], Optional[str]]]
         ] = None,
@@ -709,16 +709,13 @@ class HttpToolset(Toolset):
         """Perform a request, following redirects only to URLs that pass
         `check_redirect_target` (the endpoint whitelist by default).
 
-        `endpoint` is the already-matched endpoint the initial URL belongs to;
-        it is used to know which credential header to strip on a cross-origin
-        hop. Returns (response, error) — when `error` is set the response is
-        never surfaced to the LLM.
+        Returns (response, error) — when `error` is set the response is never
+        surfaced to the LLM.
         """
         if check_redirect_target is None:
             check_redirect_target = self.match_endpoint
 
         current_url = url
-        current_endpoint = endpoint
         current_method = method
         kwargs = dict(request_kwargs)
 
@@ -765,13 +762,10 @@ class HttpToolset(Toolset):
                 )
 
             if _origin(current_url) != _origin(next_url):
-                kwargs["headers"] = _strip_credentials(
-                    kwargs.get("headers") or {}, current_endpoint
-                )
+                kwargs["headers"] = _strip_credentials(kwargs.get("headers") or {})
                 kwargs["auth"] = None
 
             current_url = next_url
-            current_endpoint = next_endpoint
             current_method = next_method
 
         return None, (
@@ -914,7 +908,7 @@ class HttpRequest(Tool, JsonFilterMixin):
                 request_kwargs["data"] = body
 
             response, redirect_error = self._toolset.request_with_validated_redirects(
-                method, url, request_kwargs, endpoint=endpoint
+                method, url, request_kwargs
             )
             if redirect_error or response is None:
                 return StructuredToolResult(
