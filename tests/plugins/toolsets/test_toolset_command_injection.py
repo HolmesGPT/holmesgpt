@@ -48,28 +48,33 @@ YAML_FILES = sorted(
 # never touch a real cluster / cloud / network. (Command substitution injected
 # into a parameter fires during shell expansion regardless of whether these
 # exist, so stubbing only prevents side effects - it never hides an injection.)
+# The list is validated to cover every external CLI actually invoked by a
+# built-in toolset command/script (coreutils are intentionally left real).
 STUB_BINS = [
     "kubectl", "oc", "az", "gcloud", "aws", "vela", "ig", "helm", "curl",
     "wget", "dig", "nslookup", "host", "tcpdump", "jq", "kube-lineage",
-    "kubectl-lineage", "docker", "nc", "ping", "psql", "mysql",
+    "kubectl-lineage", "docker", "nc", "ping", "psql", "mysql", "argocd",
+    "cilium", "hubble", "timeout",
 ]
 
 
 def _load_yaml_tools():
     tools = []
+    failures = []
     for f in YAML_FILES:
         try:
             toolsets = load_toolsets_from_file(f, strict_check=False)
-        except Exception:
+        except Exception as e:  # noqa: BLE001 - report the failure, don't hide it
+            failures.append((os.path.basename(f), repr(e)))
             continue
         for toolset in toolsets:
             for tool in getattr(toolset, "tools", None) or []:
                 if getattr(tool, "command", None) or getattr(tool, "script", None):
                     tools.append((os.path.basename(f), toolset.name, tool))
-    return tools
+    return tools, failures
 
 
-ALL_TOOLS = _load_yaml_tools()
+ALL_TOOLS, LOAD_FAILURES = _load_yaml_tools()
 TOOL_IDS = [f"{fname}:{tool.name}" for fname, _ts, tool in ALL_TOOLS]
 
 
@@ -206,6 +211,13 @@ def test_no_command_substitution_executes(entry):
                 )
         if tested == 0:
             pytest.skip("no renderable parameters to fuzz")
+
+
+def test_all_yaml_toolsets_load():
+    """A YAML that stops loading must fail loudly, not silently shrink the
+    coverage of the two guards above."""
+    assert YAML_FILES, "no toolset YAML files discovered"
+    assert not LOAD_FAILURES, f"toolset YAML files failed to load: {LOAD_FAILURES}"
 
 
 def test_discovered_at_least_the_known_toolsets():
