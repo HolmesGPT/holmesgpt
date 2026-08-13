@@ -177,6 +177,38 @@ class TestRemovedFromAllowlist:
             assert removed not in EXTENDED_ALLOW_LIST
 
 
+class TestDenyBeatsArgvApproval:
+    """A hardcoded-block / deny-list DENY on any segment must win over an argv
+    approval (the shell-expansion gate, or an exec/write vector in approval mode)
+    — the argv check must not short-circuit before segments are validated."""
+
+    @pytest.mark.parametrize(
+        "command,prefixes",
+        [
+            # sudo (hardcoded block) alongside a find with a shell-expansion arg
+            ("find . $(echo x); sudo id", ["find", "sudo"]),
+            ("sudo id; find . $(echo x)", ["sudo", "find"]),
+            ("find . $(echo x) && sudo reboot", ["find", "sudo"]),
+        ],
+    )
+    def test_hardcoded_block_beats_shell_expansion_approval(self, command, prefixes):
+        result = _validate(command, prefixes)
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.HARDCODED_BLOCK
+
+    def test_hardcoded_block_beats_approval_mode_vector(self, monkeypatch):
+        # Even in approval mode, a sudo segment must DENY, not become approvable.
+        monkeypatch.setenv("HOLMES_BASH_UNSAFE_ARGS_MODE", "approval")
+        result = _validate("echo hi > /tmp/f; sudo id", ["echo", "sudo"])
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.HARDCODED_BLOCK
+
+    def test_legit_shell_expansion_still_requires_approval(self):
+        # Regression guard: without a denied segment, the gate still applies.
+        result = _validate("find . $(echo '*.log')", ["find"])
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+
+
 class TestUnsafeArgsMode:
     """HOLMES_BASH_UNSAFE_ARGS_MODE selects deny (default) vs approval for the
     exec/write vectors. Neither mode auto-executes."""

@@ -688,14 +688,6 @@ def validate_command(
     segments = extractor.segments
     contains_compound_command = extractor.contains_compound_command
 
-    # Argv-level security check: deny code-exec/write primitives and output
-    # redirections that prefix matching cannot see. Non-overridable, so it runs
-    # before the allow-list check below (and applies to every command node,
-    # including those inside pipes/compound statements).
-    dangerous = check_dangerous_argv(extractor)
-    if dangerous:
-        return dangerous
-
     # Validate each segment against deny/allow lists
     unapproved_segments: List[str] = []
 
@@ -708,6 +700,16 @@ def validate_command(
 
         if result.status == ValidationStatus.APPROVAL_REQUIRED:
             unapproved_segments.append(segment)
+
+    # Argv-level security check: code-exec/write primitives and output
+    # redirections that prefix matching cannot see (applies to every command
+    # node, including those inside pipes/compound statements). Runs AFTER the
+    # per-segment loop so a hardcoded-block / deny-list DENY there is never
+    # pre-empted by an argv approval (e.g. the shell-expansion gate, or an
+    # exec/write vector in approval mode).
+    dangerous = check_dangerous_argv(extractor)
+    if dangerous:
+        return dangerous
 
     # Compound commands always require approval, even if all segments are allowed.
     # Only unapproved-segment approvals save prefixes to the allow list —
