@@ -1938,8 +1938,6 @@
       
         
       
-        
-      
     
     
     
@@ -2956,34 +2954,6 @@
     
   
     MariaDB
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../builtin-toolsets/mariadb-mcp/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MariaDB (MCP)
   
 
     
@@ -5763,11 +5733,6 @@
 <td>Specialized toolset</td>
 <td><a href="../builtin-toolsets/mongodb-atlas/">MongoDB Atlas</a></td>
 </tr>
-<tr>
-<td>MariaDB (MCP)</td>
-<td>MCP server</td>
-<td><a href="../builtin-toolsets/mariadb-mcp/">MariaDB MCP</a></td>
-</tr>
 </tbody>
 </table>
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
@@ -5864,12 +5829,7 @@
 <h2 id="specialized-database-toolsets">Specialized Database Toolsets<a class="headerlink" href="#specialized-database-toolsets" title="Permanent link">&para;</a></h2>
 <p>Some databases have dedicated toolsets with features beyond SQL queries:</p>
 <ul>
-<li>
-<p><strong><a href="../builtin-toolsets/mongodb-atlas/">MongoDB Atlas</a></strong> -- Connects to the Atlas Admin API to analyze logs, alerts, events, slow queries, and cluster metrics. This is a separate toolset (not <code>type: database</code>) since MongoDB uses a different query model.</p>
-</li>
-<li>
-<p><strong><a href="../builtin-toolsets/mariadb-mcp/">MariaDB MCP</a></strong> -- An MCP-based alternative for MariaDB that provides schema inspection and query capabilities through the MCP protocol.</p>
-</li>
+<li><strong><a href="../builtin-toolsets/mongodb-atlas/">MongoDB Atlas</a></strong> -- Connects to the Atlas Admin API to analyze logs, alerts, events, slow queries, and cluster metrics. This is a separate toolset (not <code>type: database</code>) since MongoDB uses a different query model.</li>
 </ul>
 <h2 id="common-use-cases">Common Use Cases<a class="headerlink" href="#common-use-cases" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>&quot;Why is this query slow on prod-postgres: SELECT * FROM orders WHERE status = &#39;pending&#39;&quot;

@@ -16,7 +16,7 @@
         <link rel="prev" href="../kubevela/">
       
       
-        <link rel="next" href="../mariadb-mcp/">
+        <link rel="next" href="../mongodb/">
       
       
         
@@ -1940,8 +1940,6 @@
       
         
       
-        
-      
     
     
     
@@ -3053,38 +3051,21 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#migrating-from-the-mariadb-mcp-addon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migrating from the MariaDB MCP addon
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../mariadb-mcp/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MariaDB (MCP)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -5570,6 +5551,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#migrating-from-the-mariadb-mcp-addon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migrating from the MariaDB MCP addon
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -5826,6 +5818,13 @@
 </span></code></pre></div>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>&quot;List tables by size&quot;
 </span></code></pre></div>
+<h2 id="migrating-from-the-mariadb-mcp-addon">Migrating from the MariaDB MCP addon<a class="headerlink" href="#migrating-from-the-mariadb-mcp-addon" title="Permanent link">&para;</a></h2>
+<p>Earlier versions shipped a separate MariaDB MCP server, enabled through
+<code>mcpAddons.mariadb</code> in the Helm chart. That addon has been removed and the chart no
+longer renders it, so leaving the old value in place gives you no MariaDB access at all.</p>
+<p>To migrate, remove the <code>mcpAddons.mariadb</code> block from your Helm values and configure
+this data source with your connection URL as shown above. The MCP server's read-only
+mode is replaced by the <code>read_only</code> option, which defaults to <code>true</code>.</p>
 
 
 
@@ -5880,13 +5879,13 @@
         
         
           
-          <a href="../mariadb-mcp/" class="md-footer__link md-footer__link--next" aria-label="Next: MariaDB (MCP)">
+          <a href="../mongodb/" class="md-footer__link md-footer__link--next" aria-label="Next: MongoDB">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                MariaDB (MCP)
+                MongoDB
               </div>
             </div>
             <div class="md-footer__button md-icon">
