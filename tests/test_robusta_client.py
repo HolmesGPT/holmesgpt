@@ -8,11 +8,8 @@ import responses
 from tenacity import wait_none
 
 import holmes.clients.robusta_client as robusta_client
-from holmes.clients.robusta_client import fetch_robusta_models
-from holmes.common.env_vars import (
-    FETCH_ROBUSTA_MODELS_ATTEMPTS,
-    ROBUSTA_API_ENDPOINT,
-)
+from holmes.clients.robusta_client import FETCH_MODELS_ATTEMPTS, fetch_robusta_models
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 
 MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2"
 MODELS_PAYLOAD = {
@@ -57,13 +54,13 @@ def test_recovers_from_transient_gateway_errors(mocked_responses):
 
 
 def test_gives_up_after_max_attempts(mocked_responses):
-    for _ in range(FETCH_ROBUSTA_MODELS_ATTEMPTS):
+    for _ in range(FETCH_MODELS_ATTEMPTS):
         mocked_responses.post(MODELS_URL, status=502)
 
     result = fetch_robusta_models("account-id", "token")
 
     assert result is None
-    assert len(mocked_responses.calls) == FETCH_ROBUSTA_MODELS_ATTEMPTS
+    assert len(mocked_responses.calls) == FETCH_MODELS_ATTEMPTS
 
 
 def test_does_not_retry_client_errors(mocked_responses):

@@ -49,7 +49,6 @@ STORE_PASSWORD = os.environ.get("STORE_PASSWORD", "")
 ROBUSTA_AI = load_bool("ROBUSTA_AI", None)
 LOAD_ALL_ROBUSTA_MODELS = load_bool("LOAD_ALL_ROBUSTA_MODELS", True)
 ROBUSTA_API_ENDPOINT = os.environ.get("ROBUSTA_API_ENDPOINT", "https://api.robusta.dev")
-FETCH_ROBUSTA_MODELS_ATTEMPTS = int(os.environ.get("FETCH_ROBUSTA_MODELS_ATTEMPTS", 5))
 
 LOG_PERFORMANCE = os.environ.get("LOG_PERFORMANCE", None)
 

@@ -12,10 +12,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from holmes.common.env_vars import (
-    FETCH_ROBUSTA_MODELS_ATTEMPTS,
-    ROBUSTA_API_ENDPOINT,
-)
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 
 HOLMES_GET_INFO_URL = f"{ROBUSTA_API_ENDPOINT}/api/holmes/get_info"
 TIMEOUT = 0.5
@@ -23,6 +20,7 @@ TIMEOUT = 0.5
 # 429/5xx (gateway blips, overload) heal on retry; 4xx (bad token, unknown
 # account) doesn't, and retrying it would only delay startup.
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+FETCH_MODELS_ATTEMPTS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +59,7 @@ def _is_retryable_fetch_error(exc: BaseException) -> bool:
 # served /healthz.
 @retry(
     retry=retry_if_exception(_is_retryable_fetch_error),
-    stop=stop_after_attempt(FETCH_ROBUSTA_MODELS_ATTEMPTS),
+    stop=stop_after_attempt(FETCH_MODELS_ATTEMPTS),
     wait=wait_exponential(min=2, max=10),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
