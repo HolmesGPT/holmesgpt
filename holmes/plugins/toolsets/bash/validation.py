@@ -26,10 +26,10 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     DEFAULT_DENY_LIST,
     EXTENDED_ALLOW_LIST,
 )
-from holmes.plugins.toolsets.bash.dangerous_args import (
-    ARGV_CHECKERS,
+from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
+from holmes.plugins.toolsets.bash.command_arg_rules import (
     dangerous_argv_reason,
-    is_benign_redirect_target,
+    is_argv_checked_command,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,9 +50,9 @@ logger = logging.getLogger(__name__)
 # allow lists (see default_lists.py); any use of them already requires approval,
 # so they need no argv rule here.
 #
-# The per-command argv detection itself (find/sort/uniq rules, the getopt-style
-# parser, and the redirect-target helper) lives in dangerous_args.py; this module
-# turns a reported reason into a DENY/APPROVAL verdict.
+# The per-command rules (find/sort/uniq) live in command_arg_rules.py and the
+# generic argv/target helpers in argv_utils.py; this module turns a reported
+# reason into a DENY/APPROVAL verdict.
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +297,7 @@ def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[Validat
     for argv, arg_is_dynamic in zip(
         extractor.command_argvs, extractor.command_arg_dynamic
     ):
-        if arg_is_dynamic and os.path.basename(argv[0]) in ARGV_CHECKERS:
+        if arg_is_dynamic and is_argv_checked_command(os.path.basename(argv[0])):
             return ValidationResult(
                 status=ValidationStatus.APPROVAL_REQUIRED,
                 message=(

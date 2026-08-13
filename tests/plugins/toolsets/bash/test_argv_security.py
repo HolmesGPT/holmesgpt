@@ -19,7 +19,7 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     CORE_ALLOW_LIST,
     EXTENDED_ALLOW_LIST,
 )
-from holmes.plugins.toolsets.bash.dangerous_args import _uniq_positional_args
+from holmes.plugins.toolsets.bash.command_arg_rules import _uniq_positional_args
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
     ValidationStatus,
@@ -240,7 +240,7 @@ class TestAllowListGuard:
     A new command can introduce argv-level write/exec vectors the checks in
     validation.py don't yet cover. If this test fails because you changed an
     allow list, review that command's dangerous arguments (see
-    dangerous_argv_reason in dangerous_args.py) and add coverage, THEN update the expected set below.
+    checkers in command_arg_rules.py) and add coverage, THEN update the expected set below.
 
     (For example, tar/gzip/zcat/zgrep are intentionally absent: they carry
     argument-level code-execution or argument-injection risk and were unused in
