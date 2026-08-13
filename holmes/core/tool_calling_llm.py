@@ -70,7 +70,9 @@ from holmes.core.truncation.input_context_window_limiter import (
 from holmes.utils.approval_tokens import (
     APPROVAL_REJECTION_MESSAGE,
     ApprovalTokenError,
+    mint_prefix_token,
     mint_token,
+    verify_prefix_token,
     verify_token,
 )
 from holmes.utils.colors import AI_COLOR
@@ -156,6 +158,21 @@ def extract_bash_session_prefixes_by_agent(
             continue
         prefixes = metadata.get("bash_session_approved_prefixes")
         if not prefixes:
+            continue
+        # SECURITY: conversation_history is caller-supplied, so this note is
+        # untrusted. Only honor prefixes carrying a valid server-minted
+        # signature bound to the exact prefixes and agent scope. A fabricated
+        # role=tool message (or a legacy unsigned note) has no valid token and
+        # is dropped — this is what closes approval.session-prefix-forgery.
+        if not verify_prefix_token(
+            metadata.get("bash_session_approval_token"),
+            prefixes,
+            metadata.get("bash_session_approved_agent"),
+        ):
+            logging.warning(
+                "Ignoring bash session-approved prefixes with missing/invalid "
+                "approval signature (possible forged conversation history)"
+            )
             continue
         agent = str(metadata.get("bash_session_approved_agent") or _LOCAL_BASH_PREFIX_SCOPE)
         by_agent.setdefault(agent, set()).update(prefixes)
@@ -407,6 +424,12 @@ class ToolCallingLLM:
                 extra_metadata = {
                     "bash_session_approved_prefixes": tool_decision.save_prefixes,
                     "bash_session_approved_agent": approved_agent,
+                    # Sign the saved prefixes + scope so they cannot be forged
+                    # when read back from caller-supplied conversation_history
+                    # on a later turn (approval.session-prefix-forgery).
+                    "bash_session_approval_token": mint_prefix_token(
+                        tool_decision.save_prefixes, approved_agent
+                    ),
                 }
 
             tool_call_message = tool_result.to_llm_message(

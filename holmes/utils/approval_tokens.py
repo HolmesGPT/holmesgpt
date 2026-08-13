@@ -113,3 +113,56 @@ def verify_token(
         raise ApprovalTokenError(
             "claims do not match tool_call_id / tool_name / args_hash"
         )
+
+
+# ── Session-approved bash prefixes ──────────────────────────────────────────
+#
+# When a user approves a bash command with "don't ask again", Holmes records
+# the approved command prefixes in a `tool_call_metadata=...` note inside the
+# tool result message. That note round-trips through the client and is read
+# back from `conversation_history` on later turns to skip re-approval.
+#
+# Because the history is caller-supplied, the note itself is untrusted: a
+# fabricated `role=tool` message can carry arbitrary `bash_session_approved_-
+# prefixes` and would otherwise be merged straight into the Bash allowlist
+# (approval.session-prefix-forgery). To close that, Holmes signs the prefix set
+# server-side at approval time and refuses any prefix note that does not carry
+# a matching signature. The signature binds the exact prefixes and the agent
+# scope, and expires with the same TTL as approval tokens.
+
+_PREFIX_TOKEN_TYPE = "bash_session_prefixes"
+
+
+def mint_prefix_token(prefixes: Optional[list], agent: Optional[str]) -> str:
+    """Sign a set of session-approved bash prefixes for one agent scope."""
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "typ": _PREFIX_TOKEN_TYPE,
+            "prefixes": sorted(prefixes or []),
+            "agent": agent or "",
+            "iat": now,
+            "exp": now + TOKEN_TTL_SECONDS,
+        },
+        SIGNING_KEY,
+        algorithm="HS256",
+    )
+
+
+def verify_prefix_token(
+    token: Optional[str], prefixes: Optional[list], agent: Optional[str]
+) -> bool:
+    """Return True iff `token` is a server-minted prefix token authorizing
+    exactly `prefixes` for `agent`. Never raises — an invalid, expired, or
+    absent token simply yields False so the caller drops the prefixes."""
+    if not token:
+        return False
+    try:
+        claims = jwt.decode(token, SIGNING_KEY, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        return False
+    return (
+        claims.get("typ") == _PREFIX_TOKEN_TYPE
+        and claims.get("agent", "") == (agent or "")
+        and claims.get("prefixes") == sorted(prefixes or [])
+    )
