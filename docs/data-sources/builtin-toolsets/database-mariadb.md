@@ -191,3 +191,13 @@ FLUSH PRIVILEGES;
 ```
 "List tables by size"
 ```
+
+## Migrating from the MariaDB MCP addon
+
+Earlier versions shipped a separate MariaDB MCP server, enabled through
+`mcpAddons.mariadb` in the Helm chart. That addon has been removed and the chart no
+longer renders it, so leaving the old value in place gives you no MariaDB access at all.
+
+To migrate, remove the `mcpAddons.mariadb` block from your Helm values and configure
+this data source with your connection URL as shown above. The MCP server's read-only
+mode is replaced by the `read_only` option, which defaults to `true`.
