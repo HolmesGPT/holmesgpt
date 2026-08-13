@@ -1,0 +1,17 @@
+# Only the internet toolset is enabled, so the model must use fetch_webpage
+# (not bash/curl or connectivity_check) to retrieve the page — exercising the
+# guarded scrape() path. The cluster/binary toolsets are disabled so this eval
+# needs no Kubernetes cluster.
+toolsets:
+  internet:
+    enabled: true
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false
+  connectivity_check:
+    enabled: false
