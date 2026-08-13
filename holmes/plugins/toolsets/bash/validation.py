@@ -374,6 +374,28 @@ def _dangerous_argv_reason(argv: List[str]) -> Optional[str]:
     return None
 
 
+def _unsafe_arg_result(reason: str, approve_unsafe: bool) -> ValidationResult:
+    """Block an exec/write vector: DENIED by default, or APPROVAL_REQUIRED when
+    HOLMES_BASH_APPROVE_UNSAFE_ARGS is set. Either way it never auto-executes."""
+    if approve_unsafe:
+        return ValidationResult(
+            status=ValidationStatus.APPROVAL_REQUIRED,
+            message=(
+                f"Command requires approval: {reason}. The bash toolset is "
+                "read-only, so this is not auto-executed."
+            ),
+            prefixes_needing_approval=[],
+        )
+    return ValidationResult(
+        status=ValidationStatus.DENIED,
+        deny_reason=DenyReason.DANGEROUS_ARGUMENT,
+        message=(
+            f"Command blocked for security reasons: {reason}. The bash toolset "
+            "is read-only; this is not auto-executed."
+        ),
+    )
+
+
 def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[ValidationResult]:
     """Argv-level and redirection security checks that prefix matching cannot see.
 
@@ -389,30 +411,30 @@ def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[Validat
     This inspects the parsed AST, so it applies to commands bashlex can parse.
     Commands bashlex cannot parse never reach here — validate_command routes them
     to APPROVAL_REQUIRED (human in the loop), so they are never auto-executed.
+
+    By default the exec/write vectors are DENIED (non-overridable). Setting
+    HOLMES_BASH_APPROVE_UNSAFE_ARGS=true relaxes them to APPROVAL_REQUIRED so a
+    human can approve a genuinely read-only use (e.g. `find … -exec grep …`).
+    Either way, nothing dangerous is auto-executed.
     """
-    # DENY checks first, across ALL segments, so a hard deny is never downgraded
-    # to approval by an earlier segment that merely contains a shell expansion.
+    approve_unsafe = load_bool("HOLMES_BASH_APPROVE_UNSAFE_ARGS", False)
+
+    # DENY (or, in approval mode, gate) checks first, across ALL segments, so a
+    # hard block is never downgraded by an earlier segment that merely contains a
+    # shell expansion.
     for argv in extractor.command_argvs:
         reason = _dangerous_argv_reason(argv)
         if reason:
-            return ValidationResult(
-                status=ValidationStatus.DENIED,
-                deny_reason=DenyReason.DANGEROUS_ARGUMENT,
-                message=(
-                    f"Command blocked for security reasons: {reason}. "
-                    "The bash toolset is read-only; this is not auto-executed."
-                ),
+            return _unsafe_arg_result(
+                f"{reason}",
+                approve_unsafe,
             )
 
     if extractor.write_redirect_targets:
         target = extractor.write_redirect_targets[0]
-        return ValidationResult(
-            status=ValidationStatus.DENIED,
-            deny_reason=DenyReason.DANGEROUS_ARGUMENT,
-            message=(
-                f"Command blocked for security reasons: output redirection to "
-                f"'{target}' is not permitted (the bash toolset is read-only)."
-            ),
+        return _unsafe_arg_result(
+            f"output redirection to '{target}' writes to the filesystem",
+            approve_unsafe,
         )
 
     # No hard deny. A runtime expansion ($(...), `...`, $VAR/${VAR}, <(...)) in an

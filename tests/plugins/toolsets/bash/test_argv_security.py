@@ -15,7 +15,10 @@ query that regenerates it and how to replay this check over it.
 import pytest
 
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
-from holmes.plugins.toolsets.bash.common.default_lists import EXTENDED_ALLOW_LIST
+from holmes.plugins.toolsets.bash.common.default_lists import (
+    CORE_ALLOW_LIST,
+    EXTENDED_ALLOW_LIST,
+)
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
     ValidationStatus,
@@ -172,6 +175,53 @@ class TestRemovedFromAllowlist:
     def test_removed_from_extended_list(self):
         for removed in ("tar -tf", "tar -tvf", "gzip -l", "zcat", "zgrep"):
             assert removed not in EXTENDED_ALLOW_LIST
+
+
+class TestApproveUnsafeArgsFlag:
+    """HOLMES_BASH_APPROVE_UNSAFE_ARGS relaxes the default hard-deny to approval."""
+
+    @pytest.mark.parametrize(
+        "command,prefixes",
+        [
+            ("find . -exec grep ERROR {} \\;", ["find"]),
+            ("sort -o /tmp/out in.txt", ["sort"]),
+            ("echo hi > /tmp/f", ["echo"]),
+        ],
+    )
+    def test_relaxes_deny_to_approval(self, command, prefixes, monkeypatch):
+        monkeypatch.setenv("HOLMES_BASH_APPROVE_UNSAFE_ARGS", "true")
+        assert _validate(command, prefixes).status == ValidationStatus.APPROVAL_REQUIRED
+
+    def test_default_is_hard_deny(self, monkeypatch):
+        monkeypatch.delenv("HOLMES_BASH_APPROVE_UNSAFE_ARGS", raising=False)
+        assert _validate("echo hi > /tmp/f", ["echo"]).status == ValidationStatus.DENIED
+
+
+class TestAllowListGuard:
+    """Trip-wire: any change to the builtin allow lists must be a deliberate act.
+
+    A new command can introduce argv-level write/exec vectors the checks in
+    validation.py don't yet cover. If this test fails because you changed an
+    allow list, review that command's dangerous arguments (see
+    _dangerous_argv_reason) and add coverage, THEN update the expected set below.
+    """
+
+    EXPECTED_CORE = {
+        "kubectl get", "kubectl describe", "kubectl logs", "kubectl top",
+        "kubectl explain", "kubectl api-resources", "kubectl config view",
+        "kubectl config current-context", "kubectl cluster-info", "kubectl version",
+        "kubectl auth can-i", "kubectl diff", "kubectl events",
+        "jq", "grep", "head", "tail", "sort", "uniq", "wc", "cut", "tr",
+        "id", "whoami", "hostname", "uname", "date", "which", "type", "echo",
+    }
+    EXPECTED_EXTENDED_ONLY = {"cat", "base64", "ls", "find", "stat", "du", "df"}
+
+    def test_core_allow_list_unchanged(self):
+        assert set(CORE_ALLOW_LIST) == self.EXPECTED_CORE
+
+    def test_extended_only_additions_unchanged(self):
+        extended_only = set(EXTENDED_ALLOW_LIST) - set(CORE_ALLOW_LIST)
+        assert extended_only == self.EXPECTED_EXTENDED_ONLY
 
 
 class TestRedirectTargets:
