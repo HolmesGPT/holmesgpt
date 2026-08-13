@@ -52,17 +52,29 @@ def _normalize_ip(ip: IPAddress) -> IPAddress:
     return ip
 
 
-def is_blocked_ip(ip: IPAddress) -> bool:
-    """Return True if ``ip`` is in a range we must never let the toolset reach."""
+def is_blocked_ip(ip: IPAddress, allow_private_ips: bool = False) -> bool:
+    """Return True if ``ip`` is in a range the toolset must not reach.
+
+    Loopback, link-local (incl. the ``169.254.169.254`` cloud-metadata
+    endpoint), multicast, reserved and unspecified addresses are always
+    blocked. Private/RFC1918 ranges are blocked too unless ``allow_private_ips``
+    is set — the connectivity-check toolset legitimately probes internal cluster
+    services, so it opts private ranges back in while still blocking metadata and
+    loopback."""
     ip = _normalize_ip(ip)
-    return (
-        ip.is_private
-        or ip.is_loopback
+    # Always-blocked ranges (checked before is_private, which is a superset of
+    # loopback/link-local, so metadata is never let through by allow_private_ips).
+    if (
+        ip.is_loopback
         or ip.is_link_local
         or ip.is_multicast
         or ip.is_reserved
         or ip.is_unspecified
-    )
+    ):
+        return True
+    if ip.is_private:
+        return not allow_private_ips
+    return False
 
 
 def _host_in_allowlist(host: str, allowed_hosts: Sequence[str]) -> bool:
@@ -100,6 +112,54 @@ def _resolve_ips(host: str, port: int) -> List[str]:
     return ips
 
 
+def validate_host(
+    host: str,
+    port: int = 0,
+    allowed_hosts: Optional[Sequence[str]] = None,
+    block_internal_ips: bool = True,
+    allow_private_ips: bool = False,
+) -> List[str]:
+    """Resolve ``host`` and validate it against the SSRF policy.
+
+    Returns the exact resolved IPs that passed validation — pass the first one
+    to the connection so it cannot be rebound to a different address.
+
+    ``allow_private_ips`` keeps RFC1918/private ranges reachable (metadata and
+    loopback are still blocked); the connectivity-check toolset uses this so it
+    can probe internal cluster services. Raises :class:`SSRFValidationError` if
+    the host is rejected.
+    """
+    if not host:
+        raise SSRFValidationError("no host to validate")
+
+    allowed_hosts = [h for h in (allowed_hosts or []) if h]
+    if allowed_hosts and not _host_in_allowlist(host, allowed_hosts):
+        raise SSRFValidationError(f"host '{host}' is not in the configured allowlist")
+
+    ips = _resolve_ips(host, port)
+
+    # An operator-configured allowlist is an explicit opt-in, so it may point at
+    # an internal host on purpose; skip the range block in that case.
+    if allowed_hosts:
+        return ips
+
+    if block_internal_ips:
+        for ip_str in ips:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                raise SSRFValidationError(
+                    f"host '{host}' resolved to an unparseable address '{ip_str}'"
+                )
+            if is_blocked_ip(ip, allow_private_ips=allow_private_ips):
+                raise SSRFValidationError(
+                    f"host '{host}' resolves to non-routable/internal address "
+                    f"'{ip_str}', which is blocked to prevent SSRF"
+                )
+
+    return ips
+
+
 def validate_url(
     url: str,
     allowed_hosts: Optional[Sequence[str]] = None,
@@ -108,7 +168,7 @@ def validate_url(
     """Validate ``url`` against the SSRF policy and return its resolved IPs.
 
     The returned IPs are the exact addresses that passed validation; pass the
-    first one to :func:`build_pinned_session` so the connection cannot be
+    first one to :func:`build_pinned_adapter` so the connection cannot be
     rebound to a different address.
 
     Raises :class:`SSRFValidationError` if the URL is rejected.
@@ -134,34 +194,13 @@ def validate_url(
     except ValueError as e:
         raise SSRFValidationError(f"invalid port in URL '{url}': {e}") from e
 
-    allowed_hosts = [h for h in (allowed_hosts or []) if h]
-    if allowed_hosts and not _host_in_allowlist(host, allowed_hosts):
-        raise SSRFValidationError(
-            f"host '{host}' is not in the configured allowlist"
-        )
-
-    ips = _resolve_ips(host, port)
-
-    # An operator-configured allowlist is an explicit opt-in, so it may point at
-    # an internal host on purpose; skip the private-range block in that case.
-    if allowed_hosts:
-        return ips
-
-    if block_internal_ips:
-        for ip_str in ips:
-            try:
-                ip = ipaddress.ip_address(ip_str)
-            except ValueError:
-                raise SSRFValidationError(
-                    f"host '{host}' resolved to an unparseable address '{ip_str}'"
-                )
-            if is_blocked_ip(ip):
-                raise SSRFValidationError(
-                    f"host '{host}' resolves to non-routable/internal address "
-                    f"'{ip_str}', which is blocked to prevent SSRF"
-                )
-
-    return ips
+    return validate_host(
+        host,
+        port,
+        allowed_hosts=allowed_hosts,
+        block_internal_ips=block_internal_ips,
+        allow_private_ips=False,
+    )
 
 
 def _pinned_connection_classes(pinned_ip: str):
