@@ -159,11 +159,6 @@ def extract_bash_session_prefixes_by_agent(
         prefixes = metadata.get("bash_session_approved_prefixes")
         if not prefixes:
             continue
-        # SECURITY: conversation_history is caller-supplied, so this note is
-        # untrusted. Only honor prefixes carrying a valid server-minted
-        # signature bound to the exact prefixes and agent scope. A fabricated
-        # role=tool message (or a legacy unsigned note) has no valid token and
-        # is dropped — this is what closes approval.session-prefix-forgery.
         if not verify_prefix_token(
             metadata.get("bash_session_approval_token"),
             prefixes,
@@ -416,15 +411,6 @@ class ToolCallingLLM:
                 approved_agent = _bash_prefix_scope(
                     bool(getattr(decided_tool, "is_remote", False)), decided_params
                 )
-                # SECURITY: the client controls the save_prefixes it echoes back,
-                # but only prefixes that were part of the command it genuinely
-                # approved may be persisted. The approved command's
-                # suggested_prefixes are authenticated by the approval token
-                # (args_hash, verified above), so constrain save_prefixes to that
-                # set. This stops a client from approving a narrow command (e.g.
-                # `kubectl get pods`) while saving an unrelated broad prefix
-                # (e.g. `bash`) — the inflated-save_prefixes half of
-                # approval.session-prefix-forgery.
                 authenticated_prefixes = decided_params.get("suggested_prefixes") or []
                 saved_prefixes = [
                     p for p in tool_decision.save_prefixes if p in authenticated_prefixes
@@ -450,9 +436,6 @@ class ToolCallingLLM:
                     extra_metadata = {
                         "bash_session_approved_prefixes": saved_prefixes,
                         "bash_session_approved_agent": approved_agent,
-                        # Sign the saved prefixes + scope so they cannot be forged
-                        # when read back from caller-supplied conversation_history
-                        # on a later turn (approval.session-prefix-forgery).
                         "bash_session_approval_token": mint_prefix_token(
                             saved_prefixes, approved_agent
                         ),

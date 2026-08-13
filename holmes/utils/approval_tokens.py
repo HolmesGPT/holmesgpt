@@ -115,21 +115,6 @@ def verify_token(
         )
 
 
-# ── Session-approved bash prefixes ──────────────────────────────────────────
-#
-# When a user approves a bash command with "don't ask again", Holmes records
-# the approved command prefixes in a `tool_call_metadata=...` note inside the
-# tool result message. That note round-trips through the client and is read
-# back from `conversation_history` on later turns to skip re-approval.
-#
-# Because the history is caller-supplied, the note itself is untrusted: a
-# fabricated `role=tool` message can carry arbitrary `bash_session_approved_-
-# prefixes` and would otherwise be merged straight into the Bash allowlist
-# (approval.session-prefix-forgery). To close that, Holmes signs the prefix set
-# server-side at approval time and refuses any prefix note that does not carry
-# a matching signature. The signature binds the exact prefixes and the agent
-# scope, and expires with the same TTL as approval tokens.
-
 _PREFIX_TOKEN_TYPE = "bash_session_prefixes"
 
 
