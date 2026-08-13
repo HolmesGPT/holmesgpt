@@ -108,6 +108,7 @@ class CommandSegmentExtractor(ast.nodevisitor):
         self.command = command
         self.segments: List[str] = []
         self.contains_compound_command: bool = False
+        self.contains_redirect: bool = False
 
     def visitcommand(self, node, *args, **kwargs):
         """Extract the command text for simple commands."""
@@ -118,17 +119,29 @@ class CommandSegmentExtractor(ast.nodevisitor):
         """Flag compound statements but continue traversal to extract inner segments."""
         self.contains_compound_command = True
 
+    def visitredirect(self, node, *args, **kwargs):
+        """Flag shell redirections (>, >>, 2>, &>, <, heredocs, etc.).
 
-def parse_command_segments(command: str) -> Tuple[List[str], bool]:
+        Prefix matching only inspects the START of a command segment, so a
+        redirect target appended to an allowed command (e.g. `echo x > /file`)
+        would otherwise be silently auto-allowed. Flagging redirects forces
+        approval, closing an arbitrary file write (output redirects) and an
+        arbitrary file read (input redirects) bypass of the allow list.
+        """
+        self.contains_redirect = True
+
+
+def parse_command_segments(command: str) -> Tuple[List[str], bool, bool]:
     """
     Parse a command into segments separated by |, &&, ||, ;, &.
 
     Uses bashlex AST visitor for proper shell parsing.
 
     Returns:
-        Tuple of (segments, contains_compound_command):
+        Tuple of (segments, contains_compound_command, contains_redirect):
         - segments: List of command segments extracted from the command
         - contains_compound_command: True if compound statements (for, while, if, etc.) were detected
+        - contains_redirect: True if any shell redirection (>, >>, 2>, &>, <, heredoc) was detected
 
     Raises:
         bashlex.errors.ParsingError: If bashlex cannot parse the command
@@ -138,7 +151,11 @@ def parse_command_segments(command: str) -> Tuple[List[str], bool]:
     extractor = CommandSegmentExtractor(command)
     for part in parts:
         extractor.visit(part)
-    return (extractor.segments, extractor.contains_compound_command)
+    return (
+        extractor.segments,
+        extractor.contains_compound_command,
+        extractor.contains_redirect,
+    )
 
 
 def check_hardcoded_blocks(segment: str) -> Optional[str]:
@@ -321,7 +338,9 @@ def validate_command(
 
     # Parse command into segments and detect compound statements
     try:
-        segments, contains_compound_command = parse_command_segments(command)
+        segments, contains_compound_command, contains_redirect = (
+            parse_command_segments(command)
+        )
     except (bashlex.errors.ParsingError, NotImplementedError):
         # Can't parse — do safety checks on raw string, then ask user to approve
         blocked = check_blocked_in_raw_command(command, HARDCODED_BLOCKS)
@@ -364,6 +383,17 @@ def validate_command(
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message="Contains compound statements (for/while/if/etc).",
+            prefixes_needing_approval=[],
+        )
+
+    # Shell redirections bypass prefix matching (which only checks the start of a
+    # segment), so an allowed command plus `> target` / `< target` would otherwise
+    # be auto-allowed as an arbitrary file write or read. Require one-time approval;
+    # never save these to the allow list.
+    if contains_redirect:
+        return ValidationResult(
+            status=ValidationStatus.APPROVAL_REQUIRED,
+            message="Contains a shell redirection (>, >>, 2>, &>, <, etc.) which requires approval.",
             prefixes_needing_approval=[],
         )
 

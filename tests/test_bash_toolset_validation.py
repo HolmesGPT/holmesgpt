@@ -132,43 +132,43 @@ class TestParseCommandSegments:
 
     def test_simple_command(self):
         """Test parsing a simple command."""
-        segments, has_compound = parse_command_segments("kubectl get pods")
+        segments, has_compound, _ = parse_command_segments("kubectl get pods")
         assert segments == ["kubectl get pods"]
         assert not has_compound
 
     def test_piped_command(self):
         """Test parsing a piped command."""
-        segments, has_compound = parse_command_segments("kubectl get pods | grep error")
+        segments, has_compound, _ = parse_command_segments("kubectl get pods | grep error")
         assert segments == ["kubectl get pods", "grep error"]
         assert not has_compound
 
     def test_multiple_pipes(self):
         """Test parsing multiple pipes."""
-        segments, has_compound = parse_command_segments("kubectl get pods | grep error | head -10")
+        segments, has_compound, _ = parse_command_segments("kubectl get pods | grep error | head -10")
         assert segments == ["kubectl get pods", "grep error", "head -10"]
         assert not has_compound
 
     def test_and_operator(self):
         """Test parsing && operator."""
-        segments, has_compound = parse_command_segments("mkdir test && cd test")
+        segments, has_compound, _ = parse_command_segments("mkdir test && cd test")
         assert segments == ["mkdir test", "cd test"]
         assert not has_compound
 
     def test_or_operator(self):
         """Test parsing || operator."""
-        segments, has_compound = parse_command_segments("test -f file.txt || touch file.txt")
+        segments, has_compound, _ = parse_command_segments("test -f file.txt || touch file.txt")
         assert segments == ["test -f file.txt", "touch file.txt"]
         assert not has_compound
 
     def test_semicolon_operator(self):
         """Test parsing ; operator."""
-        segments, has_compound = parse_command_segments("echo hello; echo world")
+        segments, has_compound, _ = parse_command_segments("echo hello; echo world")
         assert segments == ["echo hello", "echo world"]
         assert not has_compound
 
     def test_background_operator(self):
         """Test parsing & operator."""
-        segments, has_compound = parse_command_segments("sleep 10 & echo done")
+        segments, has_compound, _ = parse_command_segments("sleep 10 & echo done")
         assert segments == ["sleep 10", "echo done"]
         assert not has_compound
 
@@ -181,14 +181,14 @@ class TestParseCommandSegments:
 
     def test_for_loop_extracts_inner_segments(self):
         """For loop returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments('for i in 1 2 3; do echo "$i"; done')
+        segments, has_compound, _ = parse_command_segments('for i in 1 2 3; do echo "$i"; done')
         assert has_compound
         assert len(segments) > 0
         assert any("echo" in s for s in segments)
 
     def test_if_statement_extracts_inner_segments(self):
         """If statement returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments("if [ -f file ]; then cat file; fi")
+        segments, has_compound, _ = parse_command_segments("if [ -f file ]; then cat file; fi")
         assert has_compound
         assert len(segments) > 0
 
@@ -196,6 +196,32 @@ class TestParseCommandSegments:
         """Case statement (unsupported by bashlex) raises NotImplementedError."""
         with pytest.raises(NotImplementedError):
             parse_command_segments("case $x in 1) echo one;; 2) echo two;; esac")
+
+    def test_no_redirect_flag_for_plain_command(self):
+        """Commands without redirects have contains_redirect False."""
+        _, _, has_redirect = parse_command_segments("echo hello")
+        assert not has_redirect
+
+    def test_no_redirect_flag_for_pipe(self):
+        """A pipe is not a redirect (tool-result read flow uses pipes, not redirects)."""
+        _, _, has_redirect = parse_command_segments("cat /tmp/.holmes/x | jq '.field'")
+        assert not has_redirect
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo pwned > /root/authorized_keys",
+            "echo hi >> /tmp/x",
+            "echo hi 2> /tmp/z",
+            "echo hi &> /tmp/z",
+            "grep '' < /etc/shadow",
+            "kubectl get pods | grep err > /tmp/out",
+        ],
+    )
+    def test_redirect_flagged(self, command):
+        """Output and input redirections set contains_redirect."""
+        _, _, has_redirect = parse_command_segments(command)
+        assert has_redirect
 
 
 class TestCheckHardcodedBlocks:
@@ -572,6 +598,76 @@ class TestValidateCommand:
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         # Should only appear once in prefixes_needing_approval
         assert result.prefixes_needing_approval == ["custom-tool"]
+
+
+class TestRedirectValidation:
+    """Redirections must never be silently auto-allowed (ROB-895).
+
+    An allowed command plus a redirect target (e.g. `echo x > /file`) is an
+    arbitrary file write; an input redirect (e.g. `grep '' < /etc/shadow`) is an
+    arbitrary file read of the core allow list. Both must require approval and
+    must not be saved to the allow list.
+    """
+
+    @pytest.mark.parametrize(
+        "command,prefix",
+        [
+            ("echo pwned > /root/authorized_keys", "echo"),
+            ("echo pwned >> /root/.bashrc", "echo"),
+            ("echo hi 2> /tmp/z", "echo"),
+            ("echo hi &> /tmp/z", "echo"),
+            ("grep '' < /etc/shadow", "grep"),
+        ],
+    )
+    def test_redirect_with_allowed_command_requires_approval(self, command, prefix):
+        """A redirect on an otherwise-allowed command must require approval, not ALLOW."""
+        # core allowlist: echo and grep are both allowed prefixes
+        config = BashExecutorConfig(builtin_allowlist="core")
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(command, [prefix], allow_list, deny_list)
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        # One-time approval only — never persisted to the allow list.
+        assert result.prefixes_needing_approval == []
+
+    def test_redirect_in_pipe_requires_approval(self):
+        """A redirect anywhere in a pipeline forces approval."""
+        config = BashExecutorConfig(builtin_allowlist="core")
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "kubectl get pods | grep err > /tmp/out",
+            ["kubectl get", "grep"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED
+        assert result.prefixes_needing_approval == []
+
+    def test_denied_command_with_redirect_still_denied(self):
+        """A hardcoded block wins over the redirect approval path."""
+        config = BashExecutorConfig(builtin_allowlist="core")
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(
+            "sudo tee /etc/passwd > /tmp/x",
+            ["sudo"],
+            allow_list,
+            deny_list,
+        )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.HARDCODED_BLOCK
+
+    def test_piped_read_without_redirect_still_allowed(self):
+        """The tool-result read flow (cat | jq / cat | grep) uses pipes, not
+        redirects, and must remain auto-allowed after the redirect fix."""
+        config = BashExecutorConfig(
+            allow=["cat /tmp/.holmes"], builtin_allowlist="core"
+        )
+        allow_list, deny_list = get_effective_lists(config)
+        for command, prefixes in [
+            ("cat /tmp/.holmes/uuid/file.json | jq '.field'", ["cat /tmp/.holmes", "jq"]),
+            ("cat /tmp/.holmes/uuid/file.json | grep -oP 'pattern'", ["cat /tmp/.holmes", "grep"]),
+        ]:
+            result = validate_command(command, prefixes, allow_list, deny_list)
+            assert result.status == ValidationStatus.ALLOWED, command
 
 
 class TestValidationOrder:
