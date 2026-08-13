@@ -374,10 +374,10 @@ def _dangerous_argv_reason(argv: List[str]) -> Optional[str]:
     return None
 
 
-def _unsafe_arg_result(reason: str, approve_unsafe: bool) -> ValidationResult:
-    """Block an exec/write vector: DENIED by default, or APPROVAL_REQUIRED when
-    HOLMES_BASH_APPROVE_UNSAFE_ARGS is set. Either way it never auto-executes."""
-    if approve_unsafe:
+def _unsafe_arg_result(reason: str, approval_mode: bool) -> ValidationResult:
+    """Block an exec/write vector: DENIED by default, or (in approval mode)
+    APPROVAL_REQUIRED so a human can allow it. Either way it never auto-executes."""
+    if approval_mode:
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message=(
@@ -412,12 +412,19 @@ def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[Validat
     Commands bashlex cannot parse never reach here — validate_command routes them
     to APPROVAL_REQUIRED (human in the loop), so they are never auto-executed.
 
-    By default the exec/write vectors are DENIED (non-overridable). Setting
-    HOLMES_BASH_APPROVE_UNSAFE_ARGS=true relaxes them to APPROVAL_REQUIRED so a
-    human can approve a genuinely read-only use (e.g. `find … -exec grep …`).
-    Either way, nothing dangerous is auto-executed.
+    How the exec/write vectors are handled is set by HOLMES_BASH_UNSAFE_ARGS_MODE:
+      - "deny" (default): block them outright (they are never auto-executed and
+        cannot be approved);
+      - "approval": still not auto-executed, but a human may approve a genuinely
+        read-only use (e.g. `find … -exec grep …`).
+    Any other value falls back to "deny". This does NOT auto-run anything either
+    way — it only chooses between blocking and prompting a human.
     """
-    approve_unsafe = load_bool("HOLMES_BASH_APPROVE_UNSAFE_ARGS", False)
+    # Unknown/empty values fail safe to the strict "deny" behaviour.
+    approval_mode = (
+        os.environ.get("HOLMES_BASH_UNSAFE_ARGS_MODE", "deny").strip().lower()
+        == "approval"
+    )
 
     # DENY (or, in approval mode, gate) checks first, across ALL segments, so a
     # hard block is never downgraded by an earlier segment that merely contains a
@@ -425,16 +432,13 @@ def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[Validat
     for argv in extractor.command_argvs:
         reason = _dangerous_argv_reason(argv)
         if reason:
-            return _unsafe_arg_result(
-                f"{reason}",
-                approve_unsafe,
-            )
+            return _unsafe_arg_result(reason, approval_mode)
 
     if extractor.write_redirect_targets:
         target = extractor.write_redirect_targets[0]
         return _unsafe_arg_result(
             f"output redirection to '{target}' writes to the filesystem",
-            approve_unsafe,
+            approval_mode,
         )
 
     # No hard deny. A runtime expansion ($(...), `...`, $VAR/${VAR}, <(...)) in an

@@ -177,8 +177,9 @@ class TestRemovedFromAllowlist:
             assert removed not in EXTENDED_ALLOW_LIST
 
 
-class TestApproveUnsafeArgsFlag:
-    """HOLMES_BASH_APPROVE_UNSAFE_ARGS relaxes the default hard-deny to approval."""
+class TestUnsafeArgsMode:
+    """HOLMES_BASH_UNSAFE_ARGS_MODE selects deny (default) vs approval for the
+    exec/write vectors. Neither mode auto-executes."""
 
     @pytest.mark.parametrize(
         "command,prefixes",
@@ -188,12 +189,16 @@ class TestApproveUnsafeArgsFlag:
             ("echo hi > /tmp/f", ["echo"]),
         ],
     )
-    def test_relaxes_deny_to_approval(self, command, prefixes, monkeypatch):
-        monkeypatch.setenv("HOLMES_BASH_APPROVE_UNSAFE_ARGS", "true")
+    def test_approval_mode_relaxes_deny_to_approval(self, command, prefixes, monkeypatch):
+        monkeypatch.setenv("HOLMES_BASH_UNSAFE_ARGS_MODE", "approval")
         assert _validate(command, prefixes).status == ValidationStatus.APPROVAL_REQUIRED
 
     def test_default_is_hard_deny(self, monkeypatch):
-        monkeypatch.delenv("HOLMES_BASH_APPROVE_UNSAFE_ARGS", raising=False)
+        monkeypatch.delenv("HOLMES_BASH_UNSAFE_ARGS_MODE", raising=False)
+        assert _validate("echo hi > /tmp/f", ["echo"]).status == ValidationStatus.DENIED
+
+    def test_unknown_value_fails_safe_to_deny(self, monkeypatch):
+        monkeypatch.setenv("HOLMES_BASH_UNSAFE_ARGS_MODE", "yolo")
         assert _validate("echo hi > /tmp/f", ["echo"]).status == ValidationStatus.DENIED
 
 
