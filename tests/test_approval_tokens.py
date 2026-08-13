@@ -254,3 +254,22 @@ def test_prefix_token_rejects_wrong_token_type():
     token, and vice versa — the `typ` claim keeps the two kinds distinct."""
     approval = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
     assert approval_tokens.verify_prefix_token(approval, ["ls"], "") is False
+
+
+@pytest.mark.parametrize(
+    "bad_prefixes",
+    [123, True, "kubectl get", {"a": 1}, None, ["a", 1], [1, "a"]],
+)
+def test_prefix_token_verify_is_total_on_malformed_prefixes(bad_prefixes):
+    """verify_prefix_token processes caller-supplied JSON, so it must never
+    raise even when a VALID token is paired with a non-list / mixed prefixes
+    value — otherwise the extractor crashes (a DoS). It must fail closed."""
+    valid = approval_tokens.mint_prefix_token(["kubectl get"], "")
+    assert approval_tokens.verify_prefix_token(valid, bad_prefixes, "") is False
+
+
+@pytest.mark.parametrize("bad_agent", [123, {"a": 1}, ["x"]])
+def test_prefix_token_verify_is_total_on_malformed_agent(bad_agent):
+    """A malformed agent must fail closed, never raise."""
+    valid = approval_tokens.mint_prefix_token(["kubectl get"], "cluster-a")
+    assert approval_tokens.verify_prefix_token(valid, ["kubectl get"], bad_agent) is False

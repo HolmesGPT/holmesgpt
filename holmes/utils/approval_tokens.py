@@ -138,16 +138,21 @@ def verify_prefix_token(
     token: Optional[str], prefixes: Optional[list], agent: Optional[str]
 ) -> bool:
     """Return True iff `token` is a server-minted prefix token authorizing
-    exactly `prefixes` for `agent`. Never raises — an invalid, expired, or
-    absent token simply yields False so the caller drops the prefixes."""
-    if not token:
+    exactly `prefixes` for `agent`. Never raises — an invalid, expired, absent,
+    or malformed input simply yields False so the caller drops the prefixes.
+
+    `prefixes` and `agent` come from caller-supplied conversation history, so
+    they may be any JSON type; anything that is not a well-formed list of
+    prefixes fails closed rather than raising.
+    """
+    if not token or not isinstance(prefixes, list):
         return False
     try:
         claims = jwt.decode(token, SIGNING_KEY, algorithms=["HS256"])
-    except jwt.InvalidTokenError:
+        return (
+            claims.get("typ") == _PREFIX_TOKEN_TYPE
+            and claims.get("agent", "") == (agent or "")
+            and claims.get("prefixes") == sorted(prefixes)
+        )
+    except (jwt.InvalidTokenError, TypeError):
         return False
-    return (
-        claims.get("typ") == _PREFIX_TOKEN_TYPE
-        and claims.get("agent", "") == (agent or "")
-        and claims.get("prefixes") == sorted(prefixes or [])
-    )
