@@ -2372,6 +2372,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssrf-protection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSRF protection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -5533,6 +5550,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssrf-protection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSRF protection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -5707,7 +5741,28 @@
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="nt">toolsets</span><span class="p">:</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">        </span><span class="nt">connectivity_check</span><span class="p">:</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">            </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">            </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="c1"># optional</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">              </span><span class="nt">allowed_hosts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">      </span><span class="c1"># if set, only these hosts may be probed</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">              </span><span class="nt">block_internal_ips</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># block metadata/loopback/link-local targets</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">              </span><span class="nt">block_private_ips</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># also block private/RFC1918 (off: cluster IPs stay reachable)</span>
 </span></code></pre></div>
+<h3 id="ssrf-protection">SSRF protection<a class="headerlink" href="#ssrf-protection" title="Permanent link">&para;</a></h3>
+<p>The probe target (<code>host</code>) is chosen by the LLM, and that choice can be
+influenced by untrusted observability data (indirect prompt injection). Left
+unguarded, <code>tcp_check</code> is a blind internal-network scanner. The toolset
+therefore refuses the dangerous targets by default:</p>
+<ul>
+<li><strong>Cloud metadata / loopback are blocked.</strong> Requests to <code>169.254.0.0/16</code>
+  (incl. <code>169.254.169.254</code>), loopback, link-local, multicast, reserved and
+  unspecified addresses are rejected. The connection is made to the validated IP
+  so DNS rebinding cannot redirect the probe.</li>
+<li><strong>Private/cluster IPs stay reachable by default.</strong> Checking connectivity to
+  internal cluster services (RFC1918) is the tool's main purpose, so those are
+  allowed. Set <code>block_private_ips: true</code> to restrict the tool to public hosts.</li>
+<li><strong>Optional allowlist.</strong> When <code>allowed_hosts</code> is set, only those hosts (and
+  subdomains) may be probed, and they are exempt from the internal-IP block.</li>
+<li>Set <code>block_internal_ips: false</code> only in trusted, isolated environments.</li>
+</ul>
 <h2 id="capabilities">Capabilities<a class="headerlink" href="#capabilities" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
