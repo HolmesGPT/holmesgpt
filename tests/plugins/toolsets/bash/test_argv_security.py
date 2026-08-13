@@ -209,6 +209,10 @@ class TestAllowListGuard:
     validation.py don't yet cover. If this test fails because you changed an
     allow list, review that command's dangerous arguments (see
     _dangerous_argv_reason) and add coverage, THEN update the expected set below.
+
+    (For example, tar/gzip/zcat/zgrep are intentionally absent: they carry
+    argument-level code-execution or argument-injection risk and were unused in
+    practice; add them to the `allow` config if a deployment needs them.)
     """
 
     EXPECTED_CORE = {

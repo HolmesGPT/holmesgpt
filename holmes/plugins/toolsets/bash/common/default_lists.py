@@ -2,14 +2,12 @@
 Default allow/deny lists for bash toolset.
 
 Two tiers of default allow lists:
-- CORE_ALLOW_LIST: Intended to be safe everywhere (CLI and containers). Includes
-  kubectl read-only commands, JSON processing, text filtering, and system info.
-  These are primarily used on stdin/piped data; note that several (grep, head,
-  tail, sort, uniq, wc, cut, jq) can also read a file if given a path argument,
-  so this tier is not strictly filesystem-free.
-- EXTENDED_ALLOW_LIST: Adds filesystem access commands (cat, find, ls, etc.) that are
-  safe in containerized environments with minimal filesystems, but could expose
-  sensitive files on local machines (~/.ssh, ~/.aws, etc.).
+- CORE_ALLOW_LIST: read-only commands safe on the CLI and in containers —
+  kubectl read-only verbs, JSON/text processing, and system info. Mostly used on
+  piped input, though a few also read a file when given a path; none modify state.
+- EXTENDED_ALLOW_LIST: adds filesystem commands (cat, find, ls, etc.) — safe in
+  containers, but able to expose sensitive files on a local machine (~/.ssh,
+  ~/.aws, etc.).
 
 Argument-level primitives that would turn these commands into arbitrary code
 execution, file writes, or deletion (e.g. `find -exec`, `sort --compress-program`,
@@ -24,11 +22,8 @@ Controlled by `builtin_allowlist` config field:
 
 from typing import List
 
-# Core allow list - intended to be safe everywhere (CLI and containerized).
-# These commands are read-only (they never modify state). Most operate on
-# stdin/piped data, though several also accept a file-path argument (see the
-# module docstring); argument-level write/exec primitives are blocked in
-# validation.py regardless of tier.
+# Core allow list — read-only commands safe on the CLI and in containers.
+# See the module docstring for the file-read caveat.
 CORE_ALLOW_LIST: List[str] = [
     # Kubernetes read-only commands (RBAC-limited regardless of environment)
     "kubectl get",
@@ -70,12 +65,6 @@ CORE_ALLOW_LIST: List[str] = [
 # Extended allow list - adds filesystem access commands
 # Safe in containerized environments with minimal filesystems, but can expose
 # sensitive files on local machines (~/.ssh, ~/.aws, /etc/shadow, etc.)
-#
-# Archive/compression tools (tar, gzip, zcat, zgrep) are intentionally NOT
-# included: they were unused in practice and carry argument-level code-execution
-# risk (e.g. `tar --use-compress-program`/`--checkpoint-action`) or, for the
-# zgrep/zcat shell-script wrappers, a history of argument-injection issues.
-# Users who need them can add them explicitly via the `allow` config.
 EXTENDED_ALLOW_LIST: List[str] = CORE_ALLOW_LIST + [
     # File reading
     "cat",
