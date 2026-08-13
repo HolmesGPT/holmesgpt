@@ -23,15 +23,18 @@ import logging
 import os
 import ssl
 import threading
+import time
 import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
+import jwt
 import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
 
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS,
+    CONVERSATION_WORKER_AUTH_REFRESH_LEEWAY_SECONDS,
     CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS,
     CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
@@ -52,6 +55,29 @@ _RECONNECT_LOG_FULL_EVERY = 10
 # fires if that bound is bypassed (misconfig/regression), guaranteeing the
 # reconnect loop can never be stalled indefinitely by a hung auth call.
 _RECONNECT_SIGN_IN_TIMEOUT_SECONDS = 90
+
+
+def _jwt_expires_within(token: str, leeway_seconds: float) -> bool:
+    """True if ``token``'s ``exp`` claim is within ``leeway_seconds`` from now.
+
+    The signature is deliberately not verified: this is our own token and the
+    only claim we need is the expiry, which we use to decide *when* to refresh.
+    An unreadable token or one with no usable ``exp`` returns False — we leave
+    it alone and let the unhealthy→reconnect path handle it, rather than
+    re-signing-in on every tick against a token we can't reason about.
+    """
+    try:
+        claims = jwt.decode(
+            token,
+            options={"verify_signature": False, "verify_exp": False},
+        )
+    except Exception:
+        logging.debug("Could not decode realtime JWT to read exp", exc_info=True)
+        return False
+    exp = claims.get("exp")
+    if not isinstance(exp, (int, float)) or isinstance(exp, bool):
+        return False
+    return exp - time.time() <= leeway_seconds
 
 
 # ---- channel topic helpers ----
@@ -234,6 +260,10 @@ class RealtimeWorker:
         self._connected = False
         # Last JWT we pushed to the realtime client via set_auth.
         self._last_auth_jwt: Optional[str] = None
+        # Token we last attempted a proactive (near-expiry) re-sign-in for, so
+        # a sign_in that keeps handing back an expiring token is retried once
+        # rather than on every refresh tick.
+        self._proactive_refresh_attempted_for: Optional[str] = None
         # Set from the async loop to wake the sleep in _run() on stop().
         self._async_stop: Optional[asyncio.Event] = None
 
@@ -262,6 +292,7 @@ class RealtimeWorker:
         self._channel = None
         self._connected = False
         self._last_auth_jwt = None
+        self._proactive_refresh_attempted_for = None
         self._async_stop = None
         self._thread = threading.Thread(
             target=self._thread_entry,
@@ -328,7 +359,12 @@ class RealtimeWorker:
                 # own full teardown/reconnect on any failure signal.
                 unhealthy_reason = self._channel_unhealthy()
                 if unhealthy_reason is not None:
-                    logging.warning(
+                    # A single reconnect is routine (network blip, edge
+                    # recycling the socket) and self-healing, so it is not worth
+                    # a WARNING — only a reconnect that did not take last time
+                    # round (attempts > 0) says something is actually wrong.
+                    logging.log(
+                        logging.INFO if reconnect_attempts == 0 else logging.WARNING,
                         "Realtime channel unhealthy (%s), reconnecting",
                         unhealthy_reason,
                     )
@@ -475,6 +511,7 @@ class RealtimeWorker:
         self._client = None
         self._channel = None
         self._last_auth_jwt = None
+        self._proactive_refresh_attempted_for = None
         # Bound the re-sign-in (ROB-759): sign_in is a sync HTTP call whose
         # timeout depends on the DAL's httpx client config; a half-open
         # connection there would otherwise stall this reconnect loop for the
@@ -488,7 +525,31 @@ class RealtimeWorker:
         await self._connect_and_subscribe()
 
     async def _maybe_refresh_auth(self) -> None:
-        """Re-push the Supabase JWT to the realtime client if it rotated."""
+        """Keep the realtime client's JWT fresh.
+
+        Two paths:
+
+        * the token rotated elsewhere (a postgrest query hit PGRST301 and the
+          DAL re-signed in) → re-push the new one to the client;
+        * the token is within ``CONVERSATION_WORKER_AUTH_REFRESH_LEEWAY_SECONDS``
+          of its ``exp`` → proactively re-sign-in *before* it dies.
+
+        The second path exists because nothing else refreshes the JWT on a
+        realtime-only path. The DAL refreshes reactively, from
+        ``patch_postgrest_execute`` on a PGRST301/expired error, and an idle
+        worker issues no postgrest queries — so this method used to re-read the
+        same unexpired-when-cached token every tick, return early on
+        ``new_jwt == self._last_auth_jwt``, and let it lapse. Supabase then
+        closed the socket (``InvalidJWTToken: Token has expired N seconds ago``),
+        costing an hourly reconnect plus a window in which the token was already
+        dead and inbound broadcasts were dropped — only the claim poll's much
+        slower cadence caught the work.
+
+        A pathological token that comes back still-expiring is not retried in a
+        hot loop: ``_proactive_refresh_attempted_for`` bounds us to one attempt
+        per distinct token, leaving the unhealthy→``_full_reconnect`` path as the
+        safety net it already was.
+        """
         if not self._client:
             return
         try:
@@ -496,6 +557,27 @@ class RealtimeWorker:
             if session is None:
                 return
             new_jwt = session.access_token
+            if (
+                new_jwt
+                and new_jwt != self._proactive_refresh_attempted_for
+                and _jwt_expires_within(
+                    new_jwt, CONVERSATION_WORKER_AUTH_REFRESH_LEEWAY_SECONDS
+                )
+            ):
+                logging.info(
+                    "Realtime JWT expires within %ss, re-signing in to Supabase",
+                    CONVERSATION_WORKER_AUTH_REFRESH_LEEWAY_SECONDS,
+                )
+                self._proactive_refresh_attempted_for = new_jwt
+                # Same bounded-sign-in pattern as _full_reconnect (ROB-759):
+                # sign_in is a sync HTTP call, so a half-open connection there
+                # would otherwise stall this loop and stop health checks too.
+                await asyncio.wait_for(
+                    asyncio.to_thread(self.dal.sign_in),
+                    timeout=_RECONNECT_SIGN_IN_TIMEOUT_SECONDS,
+                )
+                session = self.dal.client.auth.get_session()  # type: ignore[attr-defined]
+                new_jwt = session.access_token if session is not None else None
             if not new_jwt or new_jwt == self._last_auth_jwt:
                 return
             await self._client.set_auth(new_jwt)

@@ -3,9 +3,11 @@ import asyncio
 import logging
 import os
 import ssl as _ssl
-from unittest.mock import MagicMock
+import time
+from unittest.mock import AsyncMock, MagicMock
 
 import certifi
+import jwt
 import pytest
 import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
@@ -15,6 +17,7 @@ from holmes.core.conversations_worker.realtime_manager import (
     _build_ssl_context,
     _install_realtime_log_filter_if_needed,
     _install_ssl_patch_if_needed,
+    _jwt_expires_within,
     _RealtimeConnectivityWarningFilter,
     broadcast_submit_topic,
     pg_changes_topic,
@@ -470,3 +473,183 @@ def test_full_reconnect_raises_subscribe_error(exc):
     m._connect_and_subscribe = boom_connect  # type: ignore[method-assign]
     with pytest.raises(type(exc)):
         asyncio.run(m._full_reconnect())
+
+
+# ---- _jwt_expires_within / proactive near-expiry refresh (ROB-4017) ----
+
+
+# Only the exp claim matters — _jwt_expires_within never verifies the signature.
+# Long enough to keep PyJWT's InsecureKeyLengthWarning out of the test output.
+_TEST_JWT_KEY = "x" * 32
+
+
+def _jwt_expiring_in(seconds: float) -> str:
+    """Mint a JWT whose exp is `seconds` from now."""
+    return jwt.encode(
+        {"exp": int(time.time() + seconds)}, _TEST_JWT_KEY, algorithm="HS256"
+    )
+
+
+def test_jwt_expires_within_detects_near_expiry():
+    assert _jwt_expires_within(_jwt_expiring_in(60), 300) is True
+    assert _jwt_expires_within(_jwt_expiring_in(-10), 300) is True  # already expired
+
+
+def test_jwt_expires_within_ignores_fresh_token():
+    assert _jwt_expires_within(_jwt_expiring_in(3600), 300) is False
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "not-a-jwt",
+        "",
+        jwt.encode({"sub": "no-exp-claim"}, _TEST_JWT_KEY, algorithm="HS256"),
+        jwt.encode({"exp": "not-a-number"}, _TEST_JWT_KEY, algorithm="HS256"),
+    ],
+)
+def test_jwt_expires_within_is_false_for_unreadable_tokens(token):
+    """An undecodable or exp-less token must not trigger a re-sign-in on every
+    tick — the unhealthy/reconnect path stays the safety net."""
+    assert _jwt_expires_within(token, 300) is False
+
+
+def _manager_with_session(token):
+    m = _make_manager()
+    m._client = MagicMock()
+    m._client.set_auth = AsyncMock()
+    session = MagicMock()
+    session.access_token = token
+    m.dal.client.auth.get_session = MagicMock(return_value=session)
+    return m
+
+
+def test_refresh_auth_re_signs_in_when_token_near_expiry():
+    """The bug: nothing refreshed the JWT on a realtime-only path, so the token
+    lapsed and Supabase closed the socket with InvalidJWTToken."""
+    expiring = _jwt_expiring_in(30)
+    fresh = _jwt_expiring_in(3600)
+    m = _manager_with_session(expiring)
+
+    def sign_in():
+        # Post-sign-in, get_session returns the rotated token.
+        rotated = MagicMock()
+        rotated.access_token = fresh
+        m.dal.client.auth.get_session = MagicMock(return_value=rotated)
+
+    m.dal.sign_in = MagicMock(side_effect=sign_in)
+
+    asyncio.run(m._maybe_refresh_auth())
+
+    m.dal.sign_in.assert_called_once()
+    m._client.set_auth.assert_awaited_once_with(fresh)
+    assert m._last_auth_jwt == fresh
+
+
+def test_refresh_auth_leaves_fresh_token_alone():
+    fresh = _jwt_expiring_in(3600)
+    m = _manager_with_session(fresh)
+    m.dal.sign_in = MagicMock()
+    m._last_auth_jwt = fresh
+
+    asyncio.run(m._maybe_refresh_auth())
+
+    m.dal.sign_in.assert_not_called()
+    m._client.set_auth.assert_not_awaited()
+
+
+def test_refresh_auth_still_pushes_externally_rotated_token():
+    """Pre-existing behaviour: a token rotated by the DAL's PGRST301 path is
+    re-pushed even though it is nowhere near expiry."""
+    fresh = _jwt_expiring_in(3600)
+    m = _manager_with_session(fresh)
+    m.dal.sign_in = MagicMock()
+    m._last_auth_jwt = "some-older-token"
+
+    asyncio.run(m._maybe_refresh_auth())
+
+    m.dal.sign_in.assert_not_called()
+    m._client.set_auth.assert_awaited_once_with(fresh)
+
+
+def test_refresh_auth_attempts_proactive_sign_in_once_per_token():
+    """A sign_in that keeps returning the same expiring token must not be
+    retried on every 60s tick."""
+    expiring = _jwt_expiring_in(30)
+    m = _manager_with_session(expiring)
+    m.dal.sign_in = MagicMock()  # no rotation — same token comes back
+
+    asyncio.run(m._maybe_refresh_auth())
+    asyncio.run(m._maybe_refresh_auth())
+    asyncio.run(m._maybe_refresh_auth())
+
+    m.dal.sign_in.assert_called_once()
+
+
+def test_refresh_auth_survives_sign_in_failure():
+    """A failing re-sign-in must not escape into the _run loop and kill the
+    thread; the reconnect path remains the fallback."""
+    m = _manager_with_session(_jwt_expiring_in(30))
+    m.dal.sign_in = MagicMock(side_effect=ConnectionError("network unreachable"))
+
+    asyncio.run(m._maybe_refresh_auth())  # must not raise
+
+    m._client.set_auth.assert_not_awaited()
+
+
+def test_refresh_auth_bounds_hanging_proactive_sign_in(monkeypatch):
+    """Same bound as _full_reconnect: a hanging sign_in must not stall the loop
+    (which would also stop health checks)."""
+    import holmes.core.conversations_worker.realtime_manager as rm
+
+    monkeypatch.setattr(rm, "_RECONNECT_SIGN_IN_TIMEOUT_SECONDS", 0.2)
+    m = _manager_with_session(_jwt_expiring_in(30))
+
+    def hang_forever():
+        time.sleep(5)
+
+    m.dal.sign_in = hang_forever
+
+    asyncio.run(m._maybe_refresh_auth())  # swallowed, not raised
+
+    m._client.set_auth.assert_not_awaited()
+
+
+# ---- reconnect log level (noise) ----
+
+
+def test_first_reconnect_logs_info_and_repeat_logs_warning(caplog):
+    """A single self-healing reconnect is routine; only a reconnect that did not
+    take last time round warrants a WARNING."""
+    async def _scenario():
+        m = _make_manager()  # channel is None → unhealthy on first check
+        m._async_stop = asyncio.Event()
+
+        attempts = []
+
+        async def fake_reconnect():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise ConnectionError("first connect fails")
+            m._async_stop.set()
+            m._stop_event.set()
+
+        m._full_reconnect = fake_reconnect  # type: ignore[method-assign]
+
+        import holmes.core.conversations_worker.realtime_manager as _rm
+        original = _rm.CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS
+        _rm.CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS = 0
+        try:
+            await asyncio.wait_for(m._run(), timeout=5.0)
+        finally:
+            _rm.CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS = original
+
+    with caplog.at_level(logging.INFO):
+        asyncio.run(_scenario())
+
+    unhealthy = [
+        r for r in caplog.records if "Realtime channel unhealthy" in r.getMessage()
+    ]
+    assert len(unhealthy) >= 2
+    assert unhealthy[0].levelno == logging.INFO
+    assert unhealthy[1].levelno == logging.WARNING
