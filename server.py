@@ -281,6 +281,15 @@ def _toolset_status_refresh_loop():
 
             time.sleep(sleep_time)
             try:
+                # Re-read the Robusta model catalog before publishing status, so
+                # the heartbeat advertises what the agent can serve right now:
+                # catalog changes reach a running agent, and an agent that
+                # booted without a catalog heals, without a pod restart.
+                if dal.enabled:
+                    config.llm_model_registry.refresh_robusta_models()
+            except Exception:
+                logging.error("Failed to refresh robusta models", exc_info=True)
+            try:
                 # Heartbeat: re-upsert HolmesStatus so updated_at signals
                 # liveness (platform-mcp filters remote-tool clusters on it),
                 # preserving the verified realtime flag. Skip when the DAL is

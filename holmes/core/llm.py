@@ -821,7 +821,7 @@ class LLMModelRegistry:
     def __init__(self, config: "Config", dal: SupabaseDal) -> None:
         self.config = config
         self._llms: dict[str, ModelEntry] = {}
-        self._default_robusta_model = None
+        self._default_robusta_model: Optional[str] = None
         self.dal = dal
         self._lock = threading.RLock()
 
@@ -950,23 +950,99 @@ class LLMModelRegistry:
                 self._load_default_robusta_config()
                 return
 
-            default_model = None
-            for model_name, model_data in robusta_models.models.items():
-                logging.info(f"Loading Robusta AI model: {model_name}")
-                self._llms[model_name] = self._create_robusta_model_entry(
-                    model_name=model_name, model_data=model_data
-                )
-                if model_data.is_default:
-                    default_model = model_name
-
-            if default_model:
-                logging.info(f"Setting default Robusta AI model to: {default_model}")
-                self._default_robusta_model: str = default_model  # type: ignore
+            logging.info(f"Loading Robusta AI models: {list(robusta_models.models)}")
+            self._install_robusta_models(robusta_models)
 
         except Exception:
             logging.exception("Failed to get all robusta models")
             # fallback to default behavior
             self._load_default_robusta_config()
+
+    def refresh_robusta_models(self) -> bool:
+        """Re-read the Robusta-hosted catalog into the running registry.
+
+        Startup is otherwise the only read, so an agent that lost that fetch
+        stays on the legacy fallback and later catalog edits never reach it
+        (ROB-795, ROB-707). A failed or empty fetch leaves the registry alone:
+        downgrading a healthy catalog on every relay blip would be worse than
+        briefly serving a stale list. Returns True when the registry changed.
+        """
+        with self._lock:
+            # Robusta AI is in play iff something Robusta-hosted is loaded -
+            # startup leaves either the catalog or the legacy fallback behind.
+            serves_robusta_models = any(
+                entry.is_robusta_model for entry in self._llms.values()
+            )
+
+        # cluster_name and LOAD_ALL_ROBUSTA_MODELS are what put an agent in
+        # legacy single-model mode at boot; refreshing must not promote it.
+        if not (
+            serves_robusta_models
+            and self.config.cluster_name
+            and LOAD_ALL_ROBUSTA_MODELS
+            and self.dal.enabled
+        ):
+            return False
+
+        try:
+            robusta_models = fetch_robusta_models(*self.dal.get_ai_credentials())
+        except Exception:
+            logging.exception("Failed to refresh Robusta AI models")
+            return False
+
+        if not robusta_models or not robusta_models.models:
+            logging.warning("Keeping the loaded models: the catalog came back empty.")
+            return False
+
+        with self._lock:
+            added, removed = self._install_robusta_models(robusta_models)
+            self._register_pricing_for_loaded_models()
+
+        if added or removed:
+            logging.info(
+                f"Refreshed Robusta AI models. added: {added}, removed: {removed}"
+            )
+        return bool(added or removed)
+
+    def _install_robusta_models(
+        self, robusta_models: RobustaModelsResponse
+    ) -> tuple[list[str], list[str]]:
+        """Make the Robusta-hosted entries exactly `robusta_models`, and point
+        the default at whichever one relay flagged. Returns (added, removed).
+
+        Only Robusta-hosted entries are replaced - models the user defined in
+        model_list.yaml or via MODEL aren't ours to touch. Callers holding
+        `_lock` (the refresh path) keep it; startup runs single-threaded before
+        the registry is shared.
+        """
+        incoming = set(robusta_models.models)
+        current = {n for n, entry in self._llms.items() if entry.is_robusta_model}
+
+        # Rebuilt rather than patched: whatever the catalog dropped is simply
+        # not carried over - the legacy `Robusta` entry among it, which is what
+        # heals an agent that booted without a catalog.
+        user_defined = {
+            name: entry
+            for name, entry in self._llms.items()
+            if not entry.is_robusta_model
+        }
+        hosted = {
+            name: self._create_robusta_model_entry(model_name=name, model_data=data)
+            for name, data in robusta_models.models.items()
+        }
+        self._llms = user_defined | hosted
+
+        # Relay flags exactly one model as the account's default.
+        defaults = [
+            name for name, data in robusta_models.models.items() if data.is_default
+        ]
+        if defaults:
+            self._default_robusta_model = defaults[0]
+        elif self._default_robusta_model not in self._llms:
+            # Nothing flagged and the previous default just left the catalog.
+            self._default_robusta_model = None
+
+        return sorted(incoming - current), sorted(current - incoming)
 
     def _load_default_robusta_config(self):
         if self._should_load_robusta_ai():
