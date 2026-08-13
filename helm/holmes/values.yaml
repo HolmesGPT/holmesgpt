@@ -292,44 +292,6 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
-  mariadb:
-    enabled: false
-
-    image: "mariadb-http-mcp-minimal:1.0.6"
-    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
-
-    config:
-      host: ""       # MariaDB host
-      port: "3306"   # MariaDB port
-      database: ""   # Database name
-      username: ""   # Username
-      password: ""   # Password
-      namespace: ""  # Kubernetes mcp server namespace
-
-      readOnlyMode: true
-      maxPoolSize: "5"
-      useSSL: true  # Use SSL for database connection
-
-    resources:
-      requests:
-        memory: "256Mi"
-        cpu: "250m"
-      limits:
-        memory: "512Mi"
-        cpu: "500m"
-
-
-    networkPolicy:
-      enabled: true  # Network policy to restrict access to MCP server (recommended)
-
-    # Custom LLM instructions (optional). Leave empty to use default instructions
-    llmInstructions: ""
-
-    annotations: {}
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-
   # Google Cloud Platform MCP addon - provides access to GCP services
   # Docker images and deployment scripts: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
   #

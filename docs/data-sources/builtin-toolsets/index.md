@@ -47,7 +47,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-microsoft-azure:{ .lg .middle } **Azure SQL Database**](database-sqlserver.md#azure-sql-database)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB**](mongodb.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
--   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
 
 </div>
 

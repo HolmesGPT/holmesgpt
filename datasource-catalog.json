@@ -87,18 +87,6 @@
       "backendToolsetNames": ["gcp_gcloud", "gcp_observability", "gcp_storage", "gcp-mcp", "gcp"]
     },
     {
-      "id": "mariadb-mcp",
-      "name": "MariaDB",
-      "description": "Query MariaDB performance data, deadlocks, and slow queries",
-      "categories": ["databases"],
-      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mariadb-icon.svg",
-      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/mariadb-mcp/?tab=robusta-helm-chart",
-      "configType": "native-mcp",
-      "helmPath": "holmes.mcpAddons.mariadb",
-      "minRobustaVersion": "0.29.2",
-      "backendToolsetNames": ["mariadb", "mariadb-mcp"]
-    },
-    {
       "id": "mongodb-atlas",
       "name": "MongoDB Atlas",
       "description": "Query MongoDB Atlas alerts, events, logs, and slow queries",
@@ -108,6 +96,16 @@
       "configType": "native",
       "backendToolsetNames": ["atlas_mongodb", "MongoDBAtlas", "mongodbatlas"],
       "supportsMultipleInstances": true
+    },
+    {
+      "id": "mariadb",
+      "name": "MariaDB",
+      "description": "Run read-only SQL queries against MariaDB",
+      "categories": ["databases"],
+      "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mariadb-icon.svg",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/database-mariadb/?tab=robusta-helm-chart",
+      "configType": "native-mcp",
+      "backendToolsetNames": ["mariadb"]
     },
     {
       "id": "mysql",
