@@ -416,21 +416,47 @@ class ToolCallingLLM:
                 approved_agent = _bash_prefix_scope(
                     bool(getattr(decided_tool, "is_remote", False)), decided_params
                 )
-                logging.info(
-                    "Saving bash session prefixes for future commands on scope '%s': %s",
-                    approved_agent or "local",
-                    tool_decision.save_prefixes,
-                )
-                extra_metadata = {
-                    "bash_session_approved_prefixes": tool_decision.save_prefixes,
-                    "bash_session_approved_agent": approved_agent,
-                    # Sign the saved prefixes + scope so they cannot be forged
-                    # when read back from caller-supplied conversation_history
-                    # on a later turn (approval.session-prefix-forgery).
-                    "bash_session_approval_token": mint_prefix_token(
-                        tool_decision.save_prefixes, approved_agent
-                    ),
-                }
+                # SECURITY: the client controls the save_prefixes it echoes back,
+                # but only prefixes that were part of the command it genuinely
+                # approved may be persisted. The approved command's
+                # suggested_prefixes are authenticated by the approval token
+                # (args_hash, verified above), so constrain save_prefixes to that
+                # set. This stops a client from approving a narrow command (e.g.
+                # `kubectl get pods`) while saving an unrelated broad prefix
+                # (e.g. `bash`) — the inflated-save_prefixes half of
+                # approval.session-prefix-forgery.
+                authenticated_prefixes = decided_params.get("suggested_prefixes") or []
+                saved_prefixes = [
+                    p for p in tool_decision.save_prefixes if p in authenticated_prefixes
+                ]
+                dropped_prefixes = [
+                    p
+                    for p in tool_decision.save_prefixes
+                    if p not in authenticated_prefixes
+                ]
+                if dropped_prefixes:
+                    logging.warning(
+                        "Refusing to persist bash prefixes absent from the approved "
+                        "command's suggested_prefixes (possible inflated "
+                        "save_prefixes): %s",
+                        dropped_prefixes,
+                    )
+                if saved_prefixes:
+                    logging.info(
+                        "Saving bash session prefixes for future commands on scope '%s': %s",
+                        approved_agent or "local",
+                        saved_prefixes,
+                    )
+                    extra_metadata = {
+                        "bash_session_approved_prefixes": saved_prefixes,
+                        "bash_session_approved_agent": approved_agent,
+                        # Sign the saved prefixes + scope so they cannot be forged
+                        # when read back from caller-supplied conversation_history
+                        # on a later turn (approval.session-prefix-forgery).
+                        "bash_session_approval_token": mint_prefix_token(
+                            saved_prefixes, approved_agent
+                        ),
+                    }
 
             tool_call_message = tool_result.to_llm_message(
                 extra_metadata=extra_metadata,

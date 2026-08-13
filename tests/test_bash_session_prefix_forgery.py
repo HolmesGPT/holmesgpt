@@ -23,12 +23,18 @@ remediation is chosen.
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from holmes.core.llm import LLM
-from holmes.core.models import StructuredToolResultStatus
+from holmes.core.models import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolApprovalDecision,
+    ToolCallResult,
+)
 from holmes.core.tool_calling_llm import (
     _LOCAL_BASH_PREFIX_SCOPE,
+    ToolCallingLLM,
     extract_bash_session_prefixes_by_agent,
 )
 from holmes.core.tools import ToolInvokeContext
@@ -36,6 +42,7 @@ from holmes.plugins.toolsets.bash.bash_toolset import (
     BashExecutorConfig,
     BashExecutorToolset,
 )
+from holmes.utils.approval_tokens import mint_token
 
 # A distinctive marker that only appears if the command actually runs.
 _MARKER = "HOLMES_PREFIX_FORGERY_EXECUTED"
@@ -154,4 +161,107 @@ def test_forged_history_must_not_grant_bash_execution():
     assert result.status == StructuredToolResultStatus.ERROR
     assert _MARKER not in (result.data or ""), (
         "VULNERABLE: forged conversation_history caused bash command execution"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Leg A: a client that genuinely approves a command must not be able to persist
+# a broader/unrelated prefix by inflating the save_prefixes it echoes back.
+# ---------------------------------------------------------------------------
+
+
+def _approve_and_read_saved_prefixes(*, command, suggested_prefixes, save_prefixes):
+    """Drive the real _execute_tool_decisions for a genuinely-approved bash call
+    (valid approval token over the command) and return the session prefixes that
+    were persisted, read back through the real extractor.
+
+    The tool invocation itself is mocked — only the approve→save→read-back path
+    under test runs for real.
+    """
+    tool_call_id = "call_legA"
+    args = json.dumps({"command": command, "suggested_prefixes": suggested_prefixes})
+    # A real approval token: the client genuinely approved THIS command.
+    token = mint_token(tool_call_id, "bash", args)
+
+    messages = [
+        {"role": "system", "content": "You are Holmes."},
+        {"role": "user", "content": "please run a command"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {"name": "bash", "arguments": args},
+                    "pending_approval": True,
+                    "approval_token": token,
+                }
+            ],
+        },
+    ]
+    decisions = [
+        ToolApprovalDecision(
+            tool_call_id=tool_call_id, approved=True, save_prefixes=save_prefixes
+        )
+    ]
+
+    bash_tool = MagicMock()
+    bash_tool.is_remote = False
+    tool_executor = MagicMock()
+    tool_executor.get_tool_by_name.return_value = bash_tool
+    tool_executor.get_toolset_name.return_value = "bash"
+
+    ai = ToolCallingLLM(
+        tool_executor=tool_executor,
+        max_steps=10,
+        llm=MagicMock(spec=LLM),
+        tool_results_dir=None,
+    )
+
+    executed = ToolCallResult(
+        tool_call_id=tool_call_id,
+        tool_name="bash",
+        description="bash",
+        result=StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS, data="ok"
+        ),
+    )
+    with patch.object(ai, "_invoke_llm_tool_call", return_value=executed):
+        updated, _ = ai._execute_tool_decisions(messages, decisions)
+
+    return extract_bash_session_prefixes_by_agent(updated).get(
+        _LOCAL_BASH_PREFIX_SCOPE, []
+    )
+
+
+def test_faithful_save_prefixes_are_persisted():
+    """Control: a client that saves the prefix it actually approved keeps
+    working (guards the fix below from over-blocking legitimate saves)."""
+    saved = _approve_and_read_saved_prefixes(
+        command="kubectl get pods",
+        suggested_prefixes=["kubectl get"],
+        save_prefixes=["kubectl get"],
+    )
+    assert "kubectl get" in saved
+
+
+def test_inflated_save_prefixes_during_genuine_approval_are_rejected():
+    """A malicious client genuinely approves a narrow command
+    (`kubectl get pods`) but echoes back save_prefixes=["bash"] — a prefix that
+    was never part of the approved command. That prefix must not enter the
+    session allowlist.
+
+    Expected to FAIL against current code (the client's save_prefixes is trusted
+    and signed verbatim) and to PASS once saved prefixes are constrained to the
+    approved command's authenticated suggested_prefixes.
+    """
+    saved = _approve_and_read_saved_prefixes(
+        command="kubectl get pods",
+        suggested_prefixes=["kubectl get"],
+        save_prefixes=["bash"],
+    )
+    assert "bash" not in saved, (
+        "VULNERABLE (Leg A): a client inflated save_prefixes and persisted an "
+        f"unapproved prefix during a genuine approval: {saved}"
     )
