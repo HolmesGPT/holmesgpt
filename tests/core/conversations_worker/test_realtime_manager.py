@@ -475,7 +475,7 @@ def test_full_reconnect_raises_subscribe_error(exc):
         asyncio.run(m._full_reconnect())
 
 
-# ---- _jwt_expires_within / proactive near-expiry refresh (ROB-4017) ----
+# ---- _jwt_expires_within / proactive near-expiry refresh ----
 
 
 # Only the exp claim matters — _jwt_expires_within never verifies the signature.
