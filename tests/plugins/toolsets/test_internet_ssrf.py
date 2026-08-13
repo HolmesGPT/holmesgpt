@@ -13,6 +13,7 @@ import socketserver
 import threading
 
 import pytest
+import requests
 
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -279,8 +280,6 @@ def test_pinned_adapter_connects_to_validated_ip(responses):
     try:
         # Let the real socket through (responses would otherwise intercept it).
         responses.add_passthru("http://internal.example.test")
-        import requests
-
         session = requests.Session()
         adapter = build_pinned_adapter("127.0.0.1")
         session.mount("http://", adapter)

@@ -241,21 +241,20 @@ class _PinnedIPAdapter(HTTPAdapter):
         class _PinnedHTTPSConnectionPool(HTTPSConnectionPool):
             ConnectionCls = pinned_https
 
-        class _PinnedPoolManager(PoolManager):
-            def _new_pool(self, scheme, host, port, request_context=None):
-                if scheme == "http":
-                    return _PinnedHTTPConnectionPool(
-                        host, port, **self.connection_pool_kw
-                    )
-                if scheme == "https":
-                    return _PinnedHTTPSConnectionPool(
-                        host, port, **self.connection_pool_kw
-                    )
-                return super()._new_pool(scheme, host, port, request_context)
-
-        self.poolmanager = _PinnedPoolManager(
+        pool_manager = PoolManager(
             num_pools=connections, maxsize=maxsize, block=block, **pool_kwargs
         )
+        # Swap in the pinned pool classes via pool_classes_by_scheme rather than
+        # overriding _new_pool, so urllib3's default _new_pool still threads
+        # request_context through — that carries the per-request TLS settings
+        # (cert_reqs / ca_certs / client cert) requests derives from verify=/cert=.
+        # (Set on the instance: PoolManager.__init__ assigns the module-level
+        # default to self.pool_classes_by_scheme, shadowing a class attribute.)
+        pool_manager.pool_classes_by_scheme = {
+            "http": _PinnedHTTPConnectionPool,
+            "https": _PinnedHTTPSConnectionPool,
+        }
+        self.poolmanager = pool_manager
 
 
 def build_pinned_adapter(pinned_ip: str) -> HTTPAdapter:

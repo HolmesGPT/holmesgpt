@@ -272,6 +272,12 @@ class FetchWebpage(Tool):
         # allowlisted hosts. Without an allowlist the model can point the tool
         # at an arbitrary host, so the headers (which may carry credentials)
         # must not be sent.
+        if additional_headers and not allowed_hosts:
+            logging.warning(
+                "Not sending configured additional_headers for %s: set "
+                "'allowed_hosts' to forward headers to specific hosts.",
+                url,
+            )
         if not allowed_hosts:
             additional_headers = {}
         content, mime_type = scrape(

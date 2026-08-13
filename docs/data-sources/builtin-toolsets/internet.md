@@ -39,6 +39,12 @@ guards every request:
   only when the host is in `allowed_hosts` (and are stripped on cross-host redirects), so
   configured credentials cannot leak to an arbitrary host the model picks.
 
+The internal-IP block always runs (the host is resolved and checked before any request is
+made). The connection *pin* additionally protects direct connections against DNS rebinding;
+when an outbound HTTP(S) proxy is configured, the proxy performs its own resolution, so the
+pin cannot apply to that hop — set `allowed_hosts` if you need to constrain what a proxied
+deployment can reach.
+
 ### Timeout Configuration
 
 By default, the internet toolset uses a 5-second timeout for webpage requests. If you need to increase the timeout for slower websites, you can set the `INTERNET_TOOLSET_TIMEOUT_SECONDS` environment variable:
