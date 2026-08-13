@@ -253,6 +253,84 @@ class TestBashApprovalInCompoundCommands:
         assert result is None
 
 
+class TestBashApprovalWithRedirects:
+    """Redirections must go through the approval flow (ROB-895), not auto-run."""
+
+    def test_output_redirect_requires_approval(self, bash_tool):
+        """`echo x > file` (arbitrary write) must require approval even though
+        'echo' is in the core allow list."""
+        context = _ctx()
+        result = bash_tool.requires_approval(
+            params={
+                "command": "echo pwned > /root/.ssh/authorized_keys",
+                "suggested_prefixes": ["echo"],
+            },
+            context=context,
+        )
+        assert result is not None, "Output redirect must require approval"
+        assert result.needs_approval is True
+        # One-time approval only — a redirect must never be persisted to the allow list.
+        assert result.prefixes_to_save == []
+
+    def test_input_redirect_requires_approval(self, bash_tool):
+        """`grep '' < /etc/shadow` (arbitrary read) must require approval."""
+        context = _ctx()
+        result = bash_tool.requires_approval(
+            params={
+                "command": "grep '' < /etc/shadow",
+                "suggested_prefixes": ["grep"],
+            },
+            context=context,
+        )
+        assert result is not None, "Input redirect must require approval"
+        assert result.needs_approval is True
+        assert result.prefixes_to_save == []
+
+    def test_redirect_executes_after_approval(self, bash_tool, monkeypatch):
+        """Once the user approves, the redirect command runs (validation skipped)."""
+        mock_execute = MagicMock()
+        mock_execute.return_value = MagicMock(
+            timed_out=False, stdout="", return_code=0, stderr=""
+        )
+        monkeypatch.setattr(
+            "holmes.plugins.toolsets.bash.bash_toolset.execute_bash_command",
+            mock_execute,
+        )
+        context = _ctx(user_approved=True)
+        result = bash_tool._invoke(
+            params={
+                "command": "echo hi > /tmp/holmes-test",
+                "suggested_prefixes": ["echo"],
+            },
+            context=context,
+        )
+        assert result.status in (
+            StructuredToolResultStatus.SUCCESS,
+            StructuredToolResultStatus.NO_DATA,
+        )
+        mock_execute.assert_called_once()
+
+    def test_piped_read_flow_not_treated_as_redirect(self, bash_tool):
+        """The tool-result read flow (`cat <file> | grep`) uses a pipe, not a
+        redirect, and must not be forced into the approval flow."""
+        toolset = BashExecutorToolset()
+        toolset.config = BashExecutorConfig(
+            allow=["cat /tmp/.holmes"],
+            deny=[],
+            builtin_allowlist="core",
+        )
+        tool = toolset.tools[0]
+        context = _ctx()
+        result = tool.requires_approval(
+            params={
+                "command": "cat /tmp/.holmes/uuid/file.json | grep -oP 'x'",
+                "suggested_prefixes": ["cat /tmp/.holmes", "grep"],
+            },
+            context=context,
+        )
+        assert result is None, "Piped reads must remain auto-allowed"
+
+
 class TestBashApprovalErrorCases:
     """Test error handling in bash approval flow."""
 
