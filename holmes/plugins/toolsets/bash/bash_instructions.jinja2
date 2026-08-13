@@ -11,7 +11,7 @@ Simple commands, pipes/chains of them, and environment variable references are a
 - Operations that can branch to read OR write → a longer prefix that pins the read-only branch: `kubectl config view` (not `kubectl config`, which could also `set`); `git remote -v` (not `git remote`).
 - Destructive/write operations → include the full target identification (action + resource type + name + namespace) but exclude parameter values: `kubectl delete pod my-pod -n default` → `kubectl delete pod my-pod -n default`; `kubectl scale deployment nginx -n prod --replicas=3` → `kubectl scale deployment nginx -n prod`.
 
-**Read-only only:** this toolset never modifies state. Writing to files is not allowed — do not redirect output to a file (`>`, `>>`); pipe to a filter or read the data directly instead. Command arguments that execute other programs or delete/modify files (e.g. `find -exec`/`-delete`) are blocked regardless of the command's prefix.
+**Read-only only:** this toolset is for reading state, not changing it. Output redirection to a file (`>`, `>>`) and command arguments that execute other programs or delete/modify files (e.g. `find -exec`/`-delete`) are never auto-approved on the strength of a command's prefix — by default they are denied outright, and even where an operator has relaxed that they still require an explicit user approval. Don't rely on them: pipe to a filter or read the data directly instead.
 
 ## Allowed Commands
 

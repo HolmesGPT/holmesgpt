@@ -31,6 +31,14 @@ from holmes.plugins.toolsets.bash.validation import (
 _ALLOW, _DENY = get_effective_lists(BashExecutorConfig(builtin_allowlist="extended"))
 
 
+@pytest.fixture(autouse=True)
+def _default_deny_env(monkeypatch):
+    """Most tests assert the default (deny) behavior; ensure the mode env var is
+    unset so an ambient HOLMES_BASH_UNSAFE_ARGS_MODE cannot mask a regression.
+    Tests that exercise approval mode set it explicitly and override this."""
+    monkeypatch.delenv("HOLMES_BASH_UNSAFE_ARGS_MODE", raising=False)
+
+
 def _validate(command: str, prefixes):
     return validate_command(command, prefixes, _ALLOW, _DENY)
 
@@ -247,15 +255,15 @@ class TestAllowListGuard:
     practice; add them to the `allow` config if a deployment needs them.)
     """
 
-    EXPECTED_CORE = {
+    EXPECTED_CORE = frozenset({
         "kubectl get", "kubectl describe", "kubectl logs", "kubectl top",
         "kubectl explain", "kubectl api-resources", "kubectl config view",
         "kubectl config current-context", "kubectl cluster-info", "kubectl version",
         "kubectl auth can-i", "kubectl diff", "kubectl events",
         "jq", "grep", "head", "tail", "sort", "uniq", "wc", "cut", "tr",
         "id", "whoami", "hostname", "uname", "date", "which", "type", "echo",
-    }
-    EXPECTED_EXTENDED_ONLY = {"cat", "base64", "ls", "find", "stat", "du", "df"}
+    })
+    EXPECTED_EXTENDED_ONLY = frozenset({"cat", "base64", "ls", "find", "stat", "du", "df"})
 
     def test_core_allow_list_unchanged(self):
         assert set(CORE_ALLOW_LIST) == self.EXPECTED_CORE

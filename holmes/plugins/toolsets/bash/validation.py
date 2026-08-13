@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import bashlex
 from bashlex import ast
@@ -65,7 +65,7 @@ DYNAMIC_WORD_PART_KINDS = frozenset(
 )
 
 
-def _word_node_has_dynamic_expansion(word_node) -> bool:
+def _word_node_has_dynamic_expansion(word_node: Any) -> bool:
     """True if a bashlex WordNode contains a runtime expansion sub-part."""
     return any(
         getattr(part, "kind", None) in DYNAMIC_WORD_PART_KINDS
@@ -295,7 +295,7 @@ def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[Validat
     # static checks above cannot see, so require explicit approval rather than
     # auto-allowing it.
     for argv, arg_is_dynamic in zip(
-        extractor.command_argvs, extractor.command_arg_dynamic
+        extractor.command_argvs, extractor.command_arg_dynamic, strict=True
     ):
         if arg_is_dynamic and is_argv_checked_command(os.path.basename(argv[0])):
             return ValidationResult(
