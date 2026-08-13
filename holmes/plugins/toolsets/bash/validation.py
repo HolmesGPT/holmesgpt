@@ -6,6 +6,7 @@ against allow/deny lists, with support for composed commands (pipes, &&, etc.).
 """
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -29,6 +30,97 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Argument-level (argv) security checks.
+#
+# Prefix matching validates only a command's *name*. Some allow-listed commands
+# accept arguments (or shell redirections) that turn a read-only tool into
+# arbitrary code execution, file writes, or deletion. These checks inspect the
+# parsed argv/redirections and DENY those primitives regardless of allow-list
+# membership or prior approval, so they are never auto-executed. (This operates
+# on the parsed AST; commands bashlex cannot parse are routed to approval by
+# validate_command and so are never auto-executed either.)
+#
+# Scope note: `tar`/`zcat`/`zgrep`/`gzip` are intentionally NOT in the builtin
+# allow lists (see default_lists.py); any use of them already requires approval,
+# so they need no argv rule here.
+# ---------------------------------------------------------------------------
+
+# `find` action primitives that execute commands or write/delete files. `find`
+# uses word-style primaries (no getopt clustering), so exact-token matching is
+# correct here.
+FIND_DANGEROUS_PRIMITIVES = frozenset(
+    {
+        "-exec",
+        "-execdir",
+        "-ok",
+        "-okdir",  # execute a command
+        "-delete",  # delete matched files
+        "-fprint",
+        "-fprint0",
+        "-fprintf",
+        "-fls",  # write to an arbitrary file
+    }
+)
+
+# getopt-style value-taking options, used to parse short-option clusters
+# correctly (so, e.g., the `o` in `sort -to` is read as `-t`'s value, not `-o`,
+# and the `2` in `uniq -f 2 in` is not counted as a positional).
+SORT_VALUE_SHORT_CHARS = frozenset("ktSTo")
+SORT_VALUE_LONG_OPTS = frozenset(
+    {
+        "--output",
+        "--compress-program",
+        "--buffer-size",
+        "--key",
+        "--field-separator",
+        "--temporary-directory",
+        "--batch-size",
+        "--files0-from",
+        "--random-source",
+    }
+)
+# `sort` options that write a file, or execute a program on spill. Long options
+# are matched by prefix-abbreviation (GNU getopt_long accepts `--out` for
+# `--output`); `-o` is the short output option.
+SORT_WRITE_LONG_OPTS = frozenset({"--output"})
+SORT_EXEC_LONG_OPTS = frozenset({"--compress-program"})
+
+UNIQ_VALUE_SHORT_CHARS = frozenset("fsw")
+UNIQ_VALUE_LONG_OPTS = frozenset({"--skip-fields", "--skip-chars", "--check-chars"})
+
+# Commands whose argv we inspect for dangerous flags/positionals.
+ARGV_CHECKED_COMMANDS = frozenset({"find", "sort", "uniq"})
+
+# Redirection / output targets that are not real files (writing to them is
+# benign): the null sink, the standard streams, the terminal, and fd aliases.
+BENIGN_REDIRECT_TARGETS = frozenset(
+    {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
+)
+
+
+def _is_benign_redirect_target(target: str) -> bool:
+    """A redirect/output target that is not a real file on disk."""
+    return target in BENIGN_REDIRECT_TARGETS or target.startswith("/dev/fd/")
+
+
+# bashlex word sub-part kinds that expand at shell runtime into text the static
+# argv check cannot see: `$(...)`/backticks, `$VAR`/`${VAR}`, and `<(...)`.
+# Detecting these from the AST (not the dequoted string) means a *quoted* literal
+# like '*$(x)*' — which the shell never expands — is correctly treated as inert.
+DYNAMIC_WORD_PART_KINDS = frozenset(
+    {"parameter", "commandsubstitution", "processsubstitution"}
+)
+
+
+def _word_node_has_dynamic_expansion(word_node) -> bool:
+    """True if a bashlex WordNode contains a runtime expansion sub-part."""
+    return any(
+        getattr(part, "kind", None) in DYNAMIC_WORD_PART_KINDS
+        for part in (getattr(word_node, "parts", None) or [])
+    )
+
+
 class ValidationStatus(Enum):
     """Result status for command validation."""
 
@@ -43,6 +135,7 @@ class DenyReason(Enum):
     HARDCODED_BLOCK = "hardcoded_block"
     DENY_LIST = "deny_list"
     PREFIX_NOT_IN_COMMAND = "fabricated_prefix"
+    DANGEROUS_ARGUMENT = "dangerous_argument"
 
 
 @dataclass
@@ -102,21 +195,61 @@ class CommandSegmentExtractor(ast.nodevisitor):
 
     Sets contains_compound_command flag when compound statements are encountered,
     but continues traversal to extract inner command segments.
+
+    Also collects, for argv-level security checks:
+    - command_argvs: the word list (argv) of every simple command node
+    - write_redirect_targets: targets of output redirections to a real file
     """
 
     def __init__(self, command: str):
         self.command = command
         self.segments: List[str] = []
         self.contains_compound_command: bool = False
+        self.command_argvs: List[List[str]] = []
+        # Parallel to command_argvs: True if any *argument* (not argv[0]) contains
+        # a runtime expansion, so the parsed argv may differ from what the shell runs.
+        self.command_arg_dynamic: List[bool] = []
+        self.write_redirect_targets: List[str] = []
 
     def visitcommand(self, node, *args, **kwargs):
         """Extract the command text for simple commands."""
         cmd_text = self.command[node.pos[0] : node.pos[1]].strip()
         self.segments.append(cmd_text)
+        word_parts = [part for part in node.parts if getattr(part, "kind", None) == "word"]
+        if word_parts:
+            self.command_argvs.append([part.word for part in word_parts])
+            self.command_arg_dynamic.append(
+                any(_word_node_has_dynamic_expansion(part) for part in word_parts[1:])
+            )
 
     def visitcompound(self, node, *args, **kwargs):
         """Flag compound statements but continue traversal to extract inner segments."""
         self.contains_compound_command = True
+
+    def visitredirect(self, node, input, type, output, heredoc):  # noqa: A002
+        """Record output redirections whose target is a real file.
+
+        A redirection writes to a file when its type contains '>' and its output
+        is a word (a path) rather than an integer (an fd, e.g. `2>&1`). Writes to
+        /dev/null, /dev/stdout and /dev/stderr are benign and ignored.
+        """
+        if type and ">" in type and hasattr(output, "word"):
+            target = output.word
+            if not _is_benign_redirect_target(target):
+                self.write_redirect_targets.append(target)
+
+
+def _build_extractor(command: str) -> CommandSegmentExtractor:
+    """Parse a command and run the segment/argv/redirect extractor over it.
+
+    Raises:
+        bashlex.errors.ParsingError: If bashlex cannot parse the command
+        NotImplementedError: If bashlex encounters unsupported syntax (e.g. case statements)
+    """
+    extractor = CommandSegmentExtractor(command)
+    for part in bashlex.parse(command):
+        extractor.visit(part)
+    return extractor
 
 
 def parse_command_segments(command: str) -> Tuple[List[str], bool]:
@@ -134,11 +267,173 @@ def parse_command_segments(command: str) -> Tuple[List[str], bool]:
         bashlex.errors.ParsingError: If bashlex cannot parse the command
         NotImplementedError: If bashlex encounters unsupported syntax (e.g. case statements)
     """
-    parts = bashlex.parse(command)
-    extractor = CommandSegmentExtractor(command)
-    for part in parts:
-        extractor.visit(part)
+    extractor = _build_extractor(command)
     return (extractor.segments, extractor.contains_compound_command)
+
+
+def _abbreviates(opt: str, targets: frozenset) -> bool:
+    """True if `opt` (e.g. '--out') is a non-empty prefix-abbreviation of any long
+    option in `targets`. GNU getopt_long accepts unambiguous abbreviations, so a
+    security check must treat `--out` as `--output`. Errs toward matching (safe):
+    an ambiguous abbreviation the real tool would reject is still flagged."""
+    return len(opt) > 2 and opt.startswith("--") and any(t.startswith(opt) for t in targets)
+
+
+def _parse_argv(
+    args: List[str],
+    value_short_chars: frozenset,
+    value_long_opts: frozenset,
+) -> Tuple[set, List[str]]:
+    """Minimal getopt-style parse of a command's arguments.
+
+    Models the two things a name-only check misses: short-option clustering
+    (`-ro` == `-r -o`) and options that consume the following token as their
+    value (`-f 2`, `--skip-fields 2`). It is only precise enough to tell an
+    option from a positional and to know which option letters are present — not
+    a full getopt implementation.
+
+    Args:
+        value_short_chars: single letters whose short option takes a value.
+        value_long_opts: `--name` long options that take a value as a separate token.
+
+    Returns:
+        (options_present, positionals) where options_present holds tokens like
+        '-o' / '--output' and positionals holds the non-option arguments.
+    """
+    options: set = set()
+    positionals: List[str] = []
+    i = 0
+    end_of_options = False
+    while i < len(args):
+        arg = args[i]
+        if end_of_options or arg == "-" or not arg.startswith("-"):
+            positionals.append(arg)  # '-' (stdin) counts as a positional
+            i += 1
+            continue
+        if arg == "--":
+            end_of_options = True
+            i += 1
+            continue
+        if arg.startswith("--"):
+            name = arg.split("=", 1)[0]
+            options.add(name)
+            # A required-value long option consumes the next token unless the
+            # value was given inline as --name=value. Match by abbreviation.
+            i += 2 if ("=" not in arg and _abbreviates(name, value_long_opts)) else 1
+            continue
+        # Short-option cluster, e.g. -c, -cf, -ro, -ofile.
+        consumes_next = False
+        for pos in range(1, len(arg)):
+            options.add("-" + arg[pos])
+            if arg[pos] in value_short_chars:
+                # The value is the rest of this token if present, else the next
+                # token. Either way the cluster ends here.
+                consumes_next = pos == len(arg) - 1
+                break
+        i += 2 if consumes_next else 1
+    return options, positionals
+
+
+def _uniq_positional_args(args: List[str]) -> List[str]:
+    """Return the positional (non-option) arguments of a `uniq` invocation."""
+    _, positionals = _parse_argv(args, UNIQ_VALUE_SHORT_CHARS, UNIQ_VALUE_LONG_OPTS)
+    return positionals
+
+
+def _dangerous_argv_reason(argv: List[str]) -> Optional[str]:
+    """Return a human-readable reason if argv uses a code-exec/write/delete
+    primitive, else None. Matching is scoped to the command's basename so, e.g.,
+    `sort -o` is caught but `kubectl get -o wide` is not."""
+    if not argv:
+        return None
+    command = os.path.basename(argv[0])
+    args = argv[1:]
+
+    if command == "find":
+        for arg in args:
+            if arg in FIND_DANGEROUS_PRIMITIVES:
+                return f"'find' argument '{arg}' can execute commands or write/delete files"
+    elif command == "sort":
+        options, _ = _parse_argv(args, SORT_VALUE_SHORT_CHARS, SORT_VALUE_LONG_OPTS)
+        long_opts = [opt for opt in options if opt.startswith("--")]
+        if any(_abbreviates(opt, SORT_EXEC_LONG_OPTS) for opt in long_opts):
+            return "'sort --compress-program' can execute an arbitrary program"
+        if "-o" in options or any(
+            _abbreviates(opt, SORT_WRITE_LONG_OPTS) for opt in long_opts
+        ):
+            return "'sort' output-file option writes to the filesystem"
+    elif command == "uniq":
+        # `uniq [OPTION]... [INPUT [OUTPUT]]` — a 2nd positional is an output file,
+        # unless it is a standard stream / '-' (stdout), which is not a real file.
+        positionals = _uniq_positional_args(args)
+        if len(positionals) >= 2 and not (
+            positionals[1] == "-" or _is_benign_redirect_target(positionals[1])
+        ):
+            return "'uniq' output-file argument writes to the filesystem"
+
+    return None
+
+
+def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[ValidationResult]:
+    """Argv-level and redirection security checks that prefix matching cannot see.
+
+    Returns:
+        - DENIED if any command segment uses a dangerous argument primitive or
+          writes to a real file via output redirection (checked first, so a hard
+          deny is never downgraded to approval);
+        - APPROVAL_REQUIRED if an argv-checked command (find/sort/uniq) builds an
+          argument via shell expansion, whose runtime value we cannot inspect
+          statically and which could smuggle a blocked primitive;
+        - None otherwise.
+
+    This inspects the parsed AST, so it applies to commands bashlex can parse.
+    Commands bashlex cannot parse never reach here — validate_command routes them
+    to APPROVAL_REQUIRED (human in the loop), so they are never auto-executed.
+    """
+    # DENY checks first, across ALL segments, so a hard deny is never downgraded
+    # to approval by an earlier segment that merely contains a shell expansion.
+    for argv in extractor.command_argvs:
+        reason = _dangerous_argv_reason(argv)
+        if reason:
+            return ValidationResult(
+                status=ValidationStatus.DENIED,
+                deny_reason=DenyReason.DANGEROUS_ARGUMENT,
+                message=(
+                    f"Command blocked for security reasons: {reason}. "
+                    "The bash toolset is read-only; this is not auto-executed."
+                ),
+            )
+
+    if extractor.write_redirect_targets:
+        target = extractor.write_redirect_targets[0]
+        return ValidationResult(
+            status=ValidationStatus.DENIED,
+            deny_reason=DenyReason.DANGEROUS_ARGUMENT,
+            message=(
+                f"Command blocked for security reasons: output redirection to "
+                f"'{target}' is not permitted (the bash toolset is read-only)."
+            ),
+        )
+
+    # No hard deny. A runtime expansion ($(...), `...`, $VAR/${VAR}, <(...)) in an
+    # argv-checked command's arguments can expand into a blocked primitive that the
+    # static checks above cannot see, so require explicit approval rather than
+    # auto-allowing it.
+    for argv, arg_is_dynamic in zip(
+        extractor.command_argvs, extractor.command_arg_dynamic
+    ):
+        if arg_is_dynamic and os.path.basename(argv[0]) in ARGV_CHECKED_COMMANDS:
+            return ValidationResult(
+                status=ValidationStatus.APPROVAL_REQUIRED,
+                message=(
+                    f"'{os.path.basename(argv[0])}' builds an argument via shell "
+                    "expansion, which cannot be verified as read-only and requires "
+                    "approval."
+                ),
+                prefixes_needing_approval=[],
+            )
+
+    return None
 
 
 def check_hardcoded_blocks(segment: str) -> Optional[str]:
@@ -321,7 +616,7 @@ def validate_command(
 
     # Parse command into segments and detect compound statements
     try:
-        segments, contains_compound_command = parse_command_segments(command)
+        extractor = _build_extractor(command)
     except (bashlex.errors.ParsingError, NotImplementedError):
         # Can't parse — do safety checks on raw string, then ask user to approve
         blocked = check_blocked_in_raw_command(command, HARDCODED_BLOCKS)
@@ -343,6 +638,17 @@ def validate_command(
             message="Command contains complex syntax which requires approval.",
             prefixes_needing_approval=[],
         )
+
+    segments = extractor.segments
+    contains_compound_command = extractor.contains_compound_command
+
+    # Argv-level security check: deny code-exec/write primitives and output
+    # redirections that prefix matching cannot see. Non-overridable, so it runs
+    # before the allow-list check below (and applies to every command node,
+    # including those inside pipes/compound statements).
+    dangerous = check_dangerous_argv(extractor)
+    if dangerous:
+        return dangerous
 
     # Validate each segment against deny/allow lists
     unapproved_segments: List[str] = []
