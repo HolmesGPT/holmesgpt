@@ -218,10 +218,34 @@ class TestParseCommandSegments:
             "kubectl get pods | grep err > /tmp/out",
         ],
     )
-    def test_redirect_flagged(self, command):
-        """Output and input redirections set contains_redirect."""
+    def test_redirect_to_real_file_flagged(self, command):
+        """Output and input redirections to a real file set contains_redirect."""
         _, _, has_redirect = parse_command_segments(command)
         assert has_redirect
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # fd duplication / merge / close — no file target
+            "echo hi 2>&1",
+            "echo hi >&2",
+            "echo hi 1>&2",
+            "echo hi 2>&-",
+            "kubectl get pods | grep err 2>&1",
+            # harmless device sinks the LLM uses constantly
+            "kubectl get pods 2>/dev/null",
+            "ls >/dev/null 2>&1",
+            "echo hi > /dev/null",
+            "tee /dev/stderr",
+            # here-string / heredoc feed inline text, not a file
+            "grep x <<< 'inline text'",
+        ],
+    )
+    def test_benign_redirect_not_flagged(self, command):
+        """fd-duplication, /dev/null-family sinks, and heredocs must NOT be flagged,
+        so common benign shell idioms stay auto-allowed."""
+        _, _, has_redirect = parse_command_segments(command)
+        assert not has_redirect
 
 
 class TestCheckHardcodedBlocks:
@@ -668,6 +692,23 @@ class TestRedirectValidation:
         ]:
             result = validate_command(command, prefixes, allow_list, deny_list)
             assert result.status == ValidationStatus.ALLOWED, command
+
+    @pytest.mark.parametrize(
+        "command,prefixes",
+        [
+            # stderr suppression / stream merge — the LLM uses these constantly
+            ("kubectl get pods 2>/dev/null", ["kubectl get"]),
+            ("kubectl get pods 2>&1 | grep error", ["kubectl get", "grep"]),
+            ("kubectl get pods 2>/dev/null | grep error", ["kubectl get", "grep"]),
+            ("echo done > /dev/null", ["echo"]),
+        ],
+    )
+    def test_benign_stream_redirects_still_allowed(self, command, prefixes):
+        """fd-duplication and /dev/null sinks must not force approval."""
+        config = BashExecutorConfig(builtin_allowlist="core")
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(command, prefixes, allow_list, deny_list)
+        assert result.status == ValidationStatus.ALLOWED, command
 
 
 class TestValidationOrder:

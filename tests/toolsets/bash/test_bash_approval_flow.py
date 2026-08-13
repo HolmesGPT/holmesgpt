@@ -310,6 +310,20 @@ class TestBashApprovalWithRedirects:
         )
         mock_execute.assert_called_once()
 
+    def test_stderr_suppression_not_treated_as_redirect(self, bash_tool):
+        """`2>/dev/null` and `2>&1` are benign stream plumbing the LLM uses
+        constantly — they must not be forced into the approval flow."""
+        context = _ctx()
+        for command, prefixes in [
+            ("kubectl get pods 2>/dev/null", ["kubectl get"]),
+            ("kubectl get pods 2>&1", ["kubectl get"]),
+        ]:
+            result = bash_tool.requires_approval(
+                params={"command": command, "suggested_prefixes": prefixes},
+                context=context,
+            )
+            assert result is None, f"{command} should stay auto-allowed"
+
     def test_piped_read_flow_not_treated_as_redirect(self, bash_tool):
         """The tool-result read flow (`cat <file> | grep`) uses a pipe, not a
         redirect, and must not be forced into the approval flow."""

@@ -28,6 +28,17 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
 
 logger = logging.getLogger(__name__)
 
+# Redirect targets that touch no real file, so they never require approval.
+# These keep common, benign LLM idioms auto-allowed (e.g. `2>/dev/null`).
+_SAFE_REDIRECT_TARGETS = {
+    "/dev/null",
+    "/dev/stdout",
+    "/dev/stderr",
+    "/dev/stdin",
+}
+# Heredoc / here-string redirect operators feed inline text, not a file.
+_HEREDOC_REDIRECT_TYPES = {"<<", "<<-", "<<<"}
+
 
 class ValidationStatus(Enum):
     """Result status for command validation."""
@@ -120,14 +131,34 @@ class CommandSegmentExtractor(ast.nodevisitor):
         self.contains_compound_command = True
 
     def visitredirect(self, node, *args, **kwargs):
-        """Flag shell redirections (>, >>, 2>, &>, <, heredocs, etc.).
+        """Flag redirections whose target is a real filesystem path.
 
         Prefix matching only inspects the START of a command segment, so a
         redirect target appended to an allowed command (e.g. `echo x > /file`)
-        would otherwise be silently auto-allowed. Flagging redirects forces
-        approval, closing an arbitrary file write (output redirects) and an
-        arbitrary file read (input redirects) bypass of the allow list.
+        would otherwise be silently auto-allowed. Flagging such redirects forces
+        approval, closing an arbitrary file write (`>`, `>>`, `&>`) and an
+        arbitrary file read (`<`) bypass of the allow list.
+
+        Redirections that touch no real file are intentionally NOT flagged, so
+        the common, benign shell idioms the LLM relies on stay auto-allowed:
+        - file-descriptor duplication/close (`2>&1`, `>&2`, `2>&-`): the target
+          is an fd number or '-', not a WordNode.
+        - harmless device sinks (`2>/dev/null`, `>/dev/stdout`, ...).
+        - heredocs / here-strings (`<<EOF`, `<<<`): inline text, not a file.
         """
+        redirect_type = getattr(node, "type", "")
+        if redirect_type in _HEREDOC_REDIRECT_TYPES:
+            return
+
+        output = getattr(node, "output", None)
+        # fd duplication/close — output is an int fd or '-', never a WordNode.
+        if not isinstance(output, ast.node):
+            return
+
+        target = (getattr(output, "word", "") or "").strip()
+        if target in _SAFE_REDIRECT_TARGETS:
+            return
+
         self.contains_redirect = True
 
 
@@ -386,14 +417,15 @@ def validate_command(
             prefixes_needing_approval=[],
         )
 
-    # Shell redirections bypass prefix matching (which only checks the start of a
-    # segment), so an allowed command plus `> target` / `< target` would otherwise
-    # be auto-allowed as an arbitrary file write or read. Require one-time approval;
-    # never save these to the allow list.
+    # A redirect to/from a real file bypasses prefix matching (which only checks
+    # the start of a segment), so an allowed command plus `> file` / `< file`
+    # would otherwise be auto-allowed as an arbitrary file write or read. Require
+    # one-time approval; never save these to the allow list. (Benign redirects
+    # like `2>/dev/null` and `2>&1` are not flagged — see visitredirect.)
     if contains_redirect:
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
-            message="Contains a shell redirection (>, >>, 2>, &>, <, etc.) which requires approval.",
+            message="Redirects to or from a file (>, >>, &>, <) which requires approval.",
             prefixes_needing_approval=[],
         )
 
