@@ -89,9 +89,6 @@ SORT_EXEC_LONG_OPTS = frozenset({"--compress-program"})
 UNIQ_VALUE_SHORT_CHARS = frozenset("fsw")
 UNIQ_VALUE_LONG_OPTS = frozenset({"--skip-fields", "--skip-chars", "--check-chars"})
 
-# Commands whose argv we inspect for dangerous flags/positionals.
-ARGV_CHECKED_COMMANDS = frozenset({"find", "sort", "uniq"})
-
 # Redirection / output targets that are not real files (writing to them is
 # benign): the null sink, the standard streams, the terminal, and fd aliases.
 BENIGN_REDIRECT_TARGETS = frozenset(
@@ -334,44 +331,67 @@ def _parse_argv(
     return options, positionals
 
 
+# --- Per-command argv checkers -------------------------------------------------
+# Each takes a command's arguments (argv without argv[0]) and returns a
+# human-readable reason if it uses a code-exec/write/delete primitive, else None.
+# One command per function so each rule can be reviewed and unit-tested in
+# isolation; they are dispatched by basename via _ARGV_CHECKERS below. To cover a
+# new command, add a checker and one registry entry (and a case to the allow-list
+# guard test).
+
+
+def _find_dangerous_reason(args: List[str]) -> Optional[str]:
+    """`find` action primitives (-exec/-delete/-fprint…) run commands or write files."""
+    for arg in args:
+        if arg in FIND_DANGEROUS_PRIMITIVES:
+            return f"'find' argument '{arg}' can execute commands or write/delete files"
+    return None
+
+
+def _sort_dangerous_reason(args: List[str]) -> Optional[str]:
+    """`sort --compress-program` runs a program; `sort -o`/`--output` writes a file."""
+    options, _ = _parse_argv(args, SORT_VALUE_SHORT_CHARS, SORT_VALUE_LONG_OPTS)
+    long_opts = [opt for opt in options if opt.startswith("--")]
+    if any(_abbreviates(opt, SORT_EXEC_LONG_OPTS) for opt in long_opts):
+        return "'sort --compress-program' can execute an arbitrary program"
+    if "-o" in options or any(_abbreviates(opt, SORT_WRITE_LONG_OPTS) for opt in long_opts):
+        return "'sort' output-file option writes to the filesystem"
+    return None
+
+
+def _uniq_dangerous_reason(args: List[str]) -> Optional[str]:
+    """`uniq [OPTION]... [INPUT [OUTPUT]]` — a 2nd positional is an output file,
+    unless it is a standard stream / '-' (stdout), which is not a real file."""
+    positionals = _uniq_positional_args(args)
+    if len(positionals) >= 2 and not (
+        positionals[1] == "-" or _is_benign_redirect_target(positionals[1])
+    ):
+        return "'uniq' output-file argument writes to the filesystem"
+    return None
+
+
 def _uniq_positional_args(args: List[str]) -> List[str]:
     """Return the positional (non-option) arguments of a `uniq` invocation."""
     _, positionals = _parse_argv(args, UNIQ_VALUE_SHORT_CHARS, UNIQ_VALUE_LONG_OPTS)
     return positionals
 
 
+# Command basename -> checker. Only these commands have argv-level rules.
+_ARGV_CHECKERS = {
+    "find": _find_dangerous_reason,
+    "sort": _sort_dangerous_reason,
+    "uniq": _uniq_dangerous_reason,
+}
+
+
 def _dangerous_argv_reason(argv: List[str]) -> Optional[str]:
     """Return a human-readable reason if argv uses a code-exec/write/delete
-    primitive, else None. Matching is scoped to the command's basename so, e.g.,
+    primitive, else None. Dispatch is scoped to the command's basename so, e.g.,
     `sort -o` is caught but `kubectl get -o wide` is not."""
     if not argv:
         return None
-    command = os.path.basename(argv[0])
-    args = argv[1:]
-
-    if command == "find":
-        for arg in args:
-            if arg in FIND_DANGEROUS_PRIMITIVES:
-                return f"'find' argument '{arg}' can execute commands or write/delete files"
-    elif command == "sort":
-        options, _ = _parse_argv(args, SORT_VALUE_SHORT_CHARS, SORT_VALUE_LONG_OPTS)
-        long_opts = [opt for opt in options if opt.startswith("--")]
-        if any(_abbreviates(opt, SORT_EXEC_LONG_OPTS) for opt in long_opts):
-            return "'sort --compress-program' can execute an arbitrary program"
-        if "-o" in options or any(
-            _abbreviates(opt, SORT_WRITE_LONG_OPTS) for opt in long_opts
-        ):
-            return "'sort' output-file option writes to the filesystem"
-    elif command == "uniq":
-        # `uniq [OPTION]... [INPUT [OUTPUT]]` — a 2nd positional is an output file,
-        # unless it is a standard stream / '-' (stdout), which is not a real file.
-        positionals = _uniq_positional_args(args)
-        if len(positionals) >= 2 and not (
-            positionals[1] == "-" or _is_benign_redirect_target(positionals[1])
-        ):
-            return "'uniq' output-file argument writes to the filesystem"
-
-    return None
+    checker = _ARGV_CHECKERS.get(os.path.basename(argv[0]))
+    return checker(argv[1:]) if checker else None
 
 
 def _unsafe_arg_result(reason: str, approval_mode: bool) -> ValidationResult:
@@ -448,7 +468,7 @@ def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[Validat
     for argv, arg_is_dynamic in zip(
         extractor.command_argvs, extractor.command_arg_dynamic
     ):
-        if arg_is_dynamic and os.path.basename(argv[0]) in ARGV_CHECKED_COMMANDS:
+        if arg_is_dynamic and os.path.basename(argv[0]) in _ARGV_CHECKERS:
             return ValidationResult(
                 status=ValidationStatus.APPROVAL_REQUIRED,
                 message=(
