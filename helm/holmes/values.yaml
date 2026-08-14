@@ -695,9 +695,28 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.1.0"
+    image: "kubernetes-remediation-mcp:1.2.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
+
+    # Bearer-token authentication for the server's HTTP endpoint. Without it,
+    # any pod that can reach the port gets the full tool surface (including
+    # cluster mutations) with the remediation ServiceAccount's RBAC, bypassing
+    # Holmes's human-approval gate. The chart generates a random per-release
+    # token Secret and wires both the server and Holmes automatically; the
+    # token is preserved across `helm upgrade` (rotate by deleting the Secret
+    # and upgrading again).
+    # Requires server image >= 1.2.0; when running an older pinned image, the
+    # extra env/header are ignored and behavior is unchanged (unauthenticated).
+    auth:
+      enabled: true
+      # Explicit token value. Set this (or existingSecret) when rendering
+      # without cluster access (`helm template`, ArgoCD), where the generated
+      # token cannot be looked up and would change on every render.
+      token: ""
+      # Name of a pre-existing Secret with the token under the key "token".
+      # When set, the chart creates no Secret and uses this one on both sides.
+      existingSecret: ""
 
     serviceAccount:
       create: true
