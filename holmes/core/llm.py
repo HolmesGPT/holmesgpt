@@ -1090,9 +1090,14 @@ class LLMModelRegistry:
                     display_logger.info(f"Using selected model: {model_key}")
                     return model_params.model_copy()
 
-                if model_key.startswith("Robusta/"):
-                    logging.warning("Resyncing Registry and Robusta models.")
-                    self._init_models()
+                # The catalog may have gained this model since it was last read.
+                # Any name is worth a look: a customer's models carry their own
+                # prefix, so keying on `Robusta/` left exactly those unable to
+                # recover. Unlike _init_models, refreshing never rebuilds from
+                # the model file and never falls back to the legacy entry, so a
+                # fetch that fails here cannot cost us the models we do have.
+                logging.warning(f"Model {model_key} is not loaded; refreshing.")
+                if self.refresh_robusta_models():
                     model_params = self._llms.get(model_key)
                     if model_params:
                         display_logger.info(f"Using selected model: {model_key}")

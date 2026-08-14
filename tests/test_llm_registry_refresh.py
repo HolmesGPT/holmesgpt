@@ -146,6 +146,44 @@ def test_keeps_user_defined_models(build_registry):
     assert set(registry.models) == {"my-azure-gpt4", "Robusta/gpt-5"}
 
 
+def test_unknown_model_lookup_keeps_the_catalog_when_the_fetch_fails(build_registry):
+    """Asking for a model the agent doesn't have must not cost it the ones it does.
+
+    `get_model_params` re-syncs on an unknown `Robusta/` name, and that re-sync
+    used to rebuild the registry from scratch: if the fetch failed mid-request,
+    the whole catalog was replaced by the legacy fallback - ROB-795, triggered
+    by a single click.
+    """
+    registry = build_registry(
+        _catalog("Robusta/opus-4-6", "Robusta/gpt-5", default="Robusta/opus-4-6")
+    )
+
+    with patch("holmes.core.llm.fetch_robusta_models", return_value=None):
+        registry.get_model_params("Robusta/retired-model")
+
+    assert set(registry.models) == {"Robusta/opus-4-6", "Robusta/gpt-5"}
+    assert registry.default_robusta_model == "Robusta/opus-4-6"
+
+
+def test_unknown_custom_named_model_is_found_after_a_resync(build_registry):
+    """A model added to the catalog after boot must become usable without a
+    pod restart - including one whose name carries no `Robusta/` prefix, which
+    is every model on a customer with a private catalog (ROB-707)."""
+    registry = build_registry(
+        _catalog("Playtika-sonnet-4-5", default="Playtika-sonnet-4-5")
+    )
+
+    with patch(
+        "holmes.core.llm.fetch_robusta_models",
+        return_value=_catalog(
+            "Playtika-sonnet-4-5", "Playtika-sonnet-5", default="Playtika-sonnet-4-5"
+        ),
+    ):
+        entry = registry.get_model_params("Playtika-sonnet-5")
+
+    assert entry.name == "Playtika-sonnet-5"
+
+
 def test_unchanged_catalog_reports_no_change(build_registry):
     registry = build_registry(_catalog("Robusta/opus-4-6", default="Robusta/opus-4-6"))
 
