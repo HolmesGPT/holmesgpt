@@ -38,6 +38,16 @@ podAnnotations: {}
 commonLabels: {}
 commonAnnotations: {}
 
+# Scope the Holmes Deployment/Service selectors and MCP-server NetworkPolicy
+# podSelectors to this Helm release by adding
+# app.kubernetes.io/instance: <release-name> alongside app: holmes.
+# Enable when running multiple Holmes releases in one namespace, so each
+# Service only selects its own release's pods (issue #2337).
+# NOTE: the Deployment selector is immutable. Existing releases that upgrade
+# with this flag enabled must delete and reinstall the Deployment (or use
+# --force), because the selector cannot be changed in place.
+releaseScopedSelectors: false
+
 replicas: 1
 imagePullPolicy: IfNotPresent
 

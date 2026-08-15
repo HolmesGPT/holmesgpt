@@ -8,7 +8,7 @@ metadata:
   name: {{ .Release.Name }}-holmes
   namespace: {{ .Release.Namespace }}
   labels:
-    app: holmes
+    {{- include "holmes.selectorLabels" . | nindent 4 }}
     {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- with (include "holmes.commonAnnotations" .) }}
   annotations:
@@ -25,11 +25,11 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      app: holmes
+      {{- include "holmes.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: holmes
+        {{- include "holmes.selectorLabels" . | nindent 8 }}
         {{- include "holmes.commonLabels" . | nindent 8 }}
       annotations:
         {{- with (include "holmes.commonAnnotations" .) }}
@@ -274,7 +274,7 @@ spec:
             optional: true
         - name: custom-toolsets-configmap
           configMap:
-            name: custom-toolsets-configmap
+            name: {{ .Release.Name }}-toolsets
             optional: true
         {{- if .Values.customSkills }}
         - name: holmes-skills
@@ -304,7 +304,7 @@ metadata:
   {{- end }}
 spec:
   selector:
-    app: holmes
+    {{- include "holmes.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       protocol: TCP

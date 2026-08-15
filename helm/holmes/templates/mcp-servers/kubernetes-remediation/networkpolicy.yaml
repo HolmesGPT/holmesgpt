@@ -29,7 +29,7 @@ spec:
   - from:
     - podSelector:
         matchLabels:
-          app: holmes
+          {{- include "holmes.selectorLabels" . | nindent 10 }}
       namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: {{ .Release.Namespace }}
