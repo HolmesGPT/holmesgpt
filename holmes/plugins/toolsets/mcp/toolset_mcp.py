@@ -125,7 +125,7 @@ class MCPMode(str, Enum):
 # Well-known, read-only "who am I" tools used to verify MCP authentication when
 # no health_check_tool is explicitly configured. MCP servers commonly expose an
 # authenticated-identity endpoint (e.g. GitHub's get_me, GitLab's
-# get_current_user). Calling one with empty arguments is a side-effect-free way
+# whoami). Calling one with empty arguments is a side-effect-free way
 # to confirm credentials (such as an API token) are actually valid, since
 # list_tools succeeds even with a bad token. Order reflects matching priority.
 DEFAULT_HEALTH_CHECK_TOOLS: List[str] = [

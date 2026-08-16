@@ -61,6 +61,7 @@ class CompactionInsufficientError(Exception):
     """Raised when conversation compaction was not sufficient to fit the context window."""
 
     def __init__(self, message: str, events: list[StreamMessage], compaction_usage: Optional[RequestStats] = None):
+        """Store the failure message plus the stream events and usage gathered so far."""
         super().__init__(message)
         self.events = events
         self.compaction_usage = compaction_usage
@@ -81,6 +82,7 @@ class ContextWindowLimiterOutput(BaseModel):
 def compact_if_necessary(
     llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]]
 ) -> ContextWindowLimiterOutput:
+    """Compact the conversation history when it approaches the context-window threshold."""
     t0 = time.monotonic()
     events = []
     metadata = {}
@@ -94,7 +96,7 @@ def compact_if_necessary(
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
         num_messages_before = len(messages)
         compaction_result = compact_conversation_history(
-            original_conversation_history=messages, llm=llm
+            original_conversation_history=messages, llm=llm, tools=tools
         )
         compaction_usage = compaction_result.usage
         compacted_tokens = llm.count_tokens(compaction_result.messages_after_compaction, tools=tools)
@@ -108,13 +110,7 @@ def compact_if_necessary(
             logging.info(compaction_message)
             conversation_history_compacted = True
 
-            # Extract the LLM-generated summary from the compacted messages
-            # Structure is: [system_prompt?, last_user_prompt?, assistant_summary, continuation_marker]
-            compaction_summary = None
-            for msg in compaction_result.messages_after_compaction:
-                if msg.get("role") == "assistant":
-                    compaction_summary = msg.get("content")
-                    break
+            compaction_summary = compaction_result.summary
 
             compaction_stats: dict = {
                 "initial_tokens": initial_tokens.total_tokens,
@@ -124,13 +120,22 @@ def compact_if_necessary(
                 "num_messages_after": num_messages_after,
                 "max_context_size": max_context_size,
                 "threshold_pct": get_context_window_compaction_threshold_pct(),
+                # Whether the cache-friendly primary summarization request was
+                # abandoned for the flattened/no-tools fallback (which cannot
+                # reuse the agentic prompt cache). Key for diagnosing zero
+                # cached_tokens on the compaction call from event data alone.
+                "fallback_used": compaction_result.fallback_used,
             }
+            if compaction_result.fallback_reason:
+                compaction_stats["fallback_reason"] = compaction_result.fallback_reason
             if compaction_usage:
                 compaction_stats["compaction_cost"] = {
                     "total_cost": compaction_usage.total_cost,
                     "prompt_tokens": compaction_usage.prompt_tokens,
                     "completion_tokens": compaction_usage.completion_tokens,
                     "total_tokens": compaction_usage.total_tokens,
+                    "cached_tokens": compaction_usage.cached_tokens,
+                    "cache_creation_tokens": compaction_usage.cache_creation_tokens,
                 }
 
             events.append(
