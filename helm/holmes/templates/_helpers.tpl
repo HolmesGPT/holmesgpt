@@ -44,6 +44,41 @@ false
 {{- end -}}
 
 {{/*
+Whether API-key authentication is enabled ("true"/"false"). Defaults to true.
+Uses hasKey rather than `default` because `false | default true` yields true.
+*/}}
+{{- define "holmes.authEnabled" -}}
+{{- $auth := .Values.auth | default dict -}}
+{{- if hasKey $auth "enabled" -}}
+{{- $auth.enabled -}}
+{{- else -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the Secret holding the Holmes API key (HOLMES_API_KEY).
+Honors auth.existingApiKeySecret, else the chart-managed secret.
+*/}}
+{{- define "holmes.apiKeySecretName" -}}
+{{- $auth := .Values.auth | default dict -}}
+{{- $auth.existingApiKeySecret | default (printf "%s-holmes-api-key" .Release.Name) -}}
+{{- end -}}
+
+{{/*
+Checksum of the stable API-key inputs, used as a pod annotation so every
+consumer (holmes, operator, robusta-runner) rolls together when the key
+configuration changes. The generated random key can't be hashed here (each
+template invocation of randAlphaNum yields a new value); it only changes on
+first install (pods are new anyway) or under `helm template` without an
+explicit key — a mode where users must set auth.apiKey/existingApiKeySecret.
+*/}}
+{{- define "holmes.apiKeyChecksum" -}}
+{{- $auth := .Values.auth | default dict -}}
+{{- list (include "holmes.authEnabled" .) ($auth.apiKey | default "") ($auth.existingApiKeySecret | default "") | toYaml | sha256sum -}}
+{{- end -}}
+
+{{/*
 Common annotations to apply to all objects created by this chart.
 Usage: {{- include "holmes.commonAnnotations" . | nindent 4 }}
 */}}

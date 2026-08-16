@@ -1,9 +1,10 @@
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from starlette.datastructures import URL
 
-from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
+from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key, validate_auth_config
 
 TEST_API_KEY = "test-secret-key-12345"
 
@@ -107,6 +108,54 @@ class TestAuthEnabled:
     def test_get_endpoint_with_key(self):
         response = self.client.get("/api/model", headers={"X-API-Key": TEST_API_KEY})
         assert response.status_code == 200
+
+
+class TestFailClosedStartup:
+    """Regression for ROB-989 (CWE-306): the server must refuse to serve a
+    privileged, unauthenticated API on a non-loopback address.
+
+    Starting the server without HOLMES_API_KEY either refuses to bind
+    non-loopback or requires an explicit unsafe opt-out; loopback binds and
+    keyed configurations remain allowed.
+    """
+
+    def test_no_key_non_loopback_refuses(self):
+        with pytest.raises(ValueError, match="Refusing to start"):
+            validate_auth_config(
+                api_key="", host="0.0.0.0", unsafe_allow_unauthenticated=False
+            )
+
+    def test_no_key_public_ip_refuses(self):
+        with pytest.raises(ValueError, match="Refusing to start"):
+            validate_auth_config(
+                api_key="", host="10.0.0.7", unsafe_allow_unauthenticated=False
+            )
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "LOCALHOST"])
+    def test_no_key_loopback_allowed(self, host):
+        validate_auth_config(
+            api_key="", host=host, unsafe_allow_unauthenticated=False
+        )
+
+    def test_no_key_unsafe_flag_allowed(self):
+        validate_auth_config(
+            api_key="", host="0.0.0.0", unsafe_allow_unauthenticated=True
+        )
+
+    def test_key_set_non_loopback_allowed(self):
+        validate_auth_config(
+            api_key=TEST_API_KEY, host="0.0.0.0", unsafe_allow_unauthenticated=False
+        )
+
+    def test_error_message_lists_remediations(self):
+        with pytest.raises(ValueError) as excinfo:
+            validate_auth_config(
+                api_key="", host="0.0.0.0", unsafe_allow_unauthenticated=False
+            )
+        message = str(excinfo.value)
+        assert "HOLMES_API_KEY" in message
+        assert "HOLMES_HOST=127.0.0.1" in message
+        assert "HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED" in message
 
 
 class TestAuthBypassRegression:

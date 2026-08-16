@@ -10,6 +10,25 @@ enableJsonLogsFormat: false
 # safely reference .Values.global.* when Holmes is installed standalone.
 global: {}
 
+# API-key authentication for the Holmes HTTP API (all endpoints except
+# /healthz and /readyz). Callers must send the key as an X-API-Key header or
+# Authorization Bearer token.
+auth:
+  # When true (default), HOLMES_API_KEY is injected into the Holmes server and
+  # the operator from a Secret named <release>-holmes-api-key. When false, the
+  # server runs with HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED=true — anyone who can
+  # reach the Service can execute Holmes's infrastructure tools; only disable
+  # auth if the network already restricts access to trusted callers.
+  enabled: true
+  # Explicit API key. Leave empty to auto-generate one on first install (the
+  # generated key is reused on helm upgrades via lookup). NOTE: `helm template`
+  # based tooling (e.g. ArgoCD) cannot use lookup and would regenerate the key
+  # on every render — such setups must set apiKey or existingApiKeySecret.
+  apiKey: ""
+  # Name of a pre-existing Secret containing the API key under the key
+  # "apiKey". When set, the chart does not create its own Secret.
+  existingApiKeySecret: ""
+
 # Serve the Holmes API over HTTPS directly from the pod (in-app TLS, no ingress/proxy).
 # When enabled you must provide your own TLS secret via secretName (e.g. issued by
 # cert-manager or created manually); the chart does not generate a self-signed cert.

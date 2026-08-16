@@ -5,7 +5,13 @@ The HolmesGPT API provides endpoints for conversational troubleshooting. This do
 
 ## Authentication
 
-API authentication is optional. When the `HOLMES_API_KEY` environment variable is set, all endpoints (except `/healthz` and `/readyz`) require authentication.
+API authentication is required by default: the server refuses to start on a non-loopback address unless the `HOLMES_API_KEY` environment variable is set (or `HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED=true` explicitly opts out). When `HOLMES_API_KEY` is set, all endpoints (except `/healthz` and `/readyz`) require authentication.
+
+When deployed with the official Helm chart, a key is generated automatically on first install and stored in the `<release>-holmes-api-key` Secret:
+
+```bash
+kubectl get secret <release>-holmes-api-key -o jsonpath='{.data.apiKey}' | base64 -d
+```
 
 **Generating a key:**
 ```bash

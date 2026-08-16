@@ -59,7 +59,7 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 ## Server Security
 
 ### HOLMES_API_KEY
-**Default:** not set (authentication disabled)
+**Default:** not set
 
 When set, all API requests must include this key via either:
 
@@ -67,6 +67,12 @@ When set, all API requests must include this key via either:
 - `Authorization: Bearer <key>` header
 
 Health check endpoints (`/healthz`, `/readyz`) are always exempt.
+
+The server **fails closed**: if `HOLMES_API_KEY` is not set and `HOLMES_HOST`
+is not a loopback address, the server refuses to start (see
+[HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED](#holmes_unsafe_allow_unauthenticated)
+for the explicit opt-out). The official Helm chart generates and injects a
+key automatically — see the `auth` section in the chart's `values.yaml`.
 
 **Generating a key:**
 ```bash
@@ -87,6 +93,32 @@ export HOLMES_API_KEY=my-secret-key-here
 docker run -d \
   -e HOLMES_API_KEY=your-generated-key \
   ...
+```
+
+### HOLMES_HOST
+**Default:** `0.0.0.0`
+
+Address the API server binds to. Binding to a loopback address
+(`127.0.0.1`, `::1`, or `localhost`) allows running without `HOLMES_API_KEY`,
+since only local processes can reach the server.
+
+**Example:**
+```bash
+export HOLMES_HOST=127.0.0.1
+```
+
+### HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED
+**Default:** `false`
+
+Explicit opt-out from the fail-closed startup check. When `true`, the server
+starts without `HOLMES_API_KEY` even on a non-loopback address. Anyone who can
+reach the server can then invoke chat and check endpoints, which execute
+Holmes's infrastructure tools — only set this when the network already
+restricts access to trusted callers.
+
+**Example:**
+```bash
+export HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED=true
 ```
 
 ### HOLMES_APPROVAL_SIGNING_KEY

@@ -28,10 +28,12 @@ spec:
         app.kubernetes.io/name: holmes-operator
         app.kubernetes.io/instance: {{ .Release.Name }}
         {{- include "holmes.commonLabels" . | nindent 8 }}
-      {{- with (include "holmes.commonAnnotations" .) }}
       annotations:
+        {{- with (include "holmes.commonAnnotations" .) }}
         {{- . | nindent 8 }}
-      {{- end }}
+        {{- end }}
+        # rolls all API-key consumers together when the auth configuration changes
+        checksum/holmes-api-key: {{ include "holmes.apiKeyChecksum" . }}
     spec:
       serviceAccountName: {{ .Release.Name }}-operator
       securityContext:
@@ -49,6 +51,13 @@ spec:
         env:
         - name: HOLMES_API_URL
           value: {{ .Values.operator.holmesApiUrl | default (printf "http://%s-holmes:80" .Release.Name) }}
+        {{- if eq (include "holmes.authEnabled" .) "true" }}
+        - name: HOLMES_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "holmes.apiKeySecretName" . }}
+              key: apiKey
+        {{- end }}
         - name: HOLMES_API_TIMEOUT
           value: {{ .Values.operator.holmesApiTimeout | default 300 | quote }}
         - name: LOG_LEVEL
