@@ -125,9 +125,6 @@ data:
     {{- end }}
     {{- end }}
     {{- if .Values.mcpAddons.gitlabMcp.enabled }}
-    {{- /* health_check_tool: @zereight/mcp-gitlab's identity tool is `whoami`
-           (present in all versions 2.1.11-2.1.47, including read-only mode).
-           It must exist in the mcpGitlabVersion pinned in values.yaml. */}}
     {{- $gitlabMcpServers := dict "gitlab" (dict
         "description" "GitLab MCP Server - access projects, merge requests, issues, pipelines, and code. Debug CI failures, search code, and create MRs."
         "config" (dict
