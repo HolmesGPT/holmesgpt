@@ -3863,6 +3863,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#redirects-and-internal-addresses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redirects and internal addresses
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3929,6 +3940,17 @@
     <span class="md-ellipsis">
       
         Access Denied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refused-redirects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refused Redirects
       
     </span>
   </a>
@@ -5995,6 +6017,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#redirects-and-internal-addresses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redirects and internal addresses
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6061,6 +6094,17 @@
     <span class="md-ellipsis">
       
         Access Denied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refused-redirects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refused Redirects
       
     </span>
   </a>
@@ -6217,6 +6261,7 @@
 <li><strong><code>auth</code></strong> (optional): Authentication configuration (see Authentication section)</li>
 <li><strong><code>verify_ssl</code></strong> (optional): Whether to verify SSL certificates (default: true)</li>
 <li><strong><code>timeout_seconds</code></strong> (optional): Request timeout in seconds (default: 30)</li>
+<li><strong><code>block_internal_ips</code></strong> (optional): Reject requests whose host resolves to an internal address (default: false — see <a href="#redirects-and-internal-addresses">Redirects and internal addresses</a>)</li>
 </ul>
 <h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
 <p>Authentication is optional. If your API doesn't require authentication, omit the <code>auth</code> field.</p>
@@ -6441,26 +6486,47 @@
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nt">methods</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;GET&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;POST&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Read and create</span>
 </span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nt">methods</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;GET&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;POST&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;PUT&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;DELETE&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Full access</span>
 </span></code></pre></div>
+<h3 id="redirects-and-internal-addresses">Redirects and internal addresses<a class="headerlink" href="#redirects-and-internal-addresses" title="Permanent link">&para;</a></h3>
+<p>The whitelist is enforced on <strong>every hop</strong>, not just the URL the LLM asks for. If a whitelisted host answers with a redirect, the redirect target must itself match the whitelist or the request is refused — so an open redirect on a trusted upstream cannot be used to reach cloud metadata (<code>169.254.169.254</code>), an in-cluster service, or localhost.</p>
+<p>Alongside that:</p>
+<ul>
+<li>Credentials are dropped when a redirect crosses an origin (a different scheme, host <strong>or</strong> port). Only <code>Accept</code>, <code>Accept-Encoding</code>, <code>Accept-Language</code>, <code>Content-Type</code> and <code>User-Agent</code> survive such a hop — everything else is dropped, including <code>auth</code> of every type, <code>default_headers</code>, <code>extra_headers</code>, and any header supplied with the request. This is an allowlist by design, so a header you add later cannot silently start leaking. Credentials are never <em>added</em> for a redirect target, only removed.</li>
+<li>A redirect target must also allow the method being used, per its own <code>methods</code> list.</li>
+<li>Redirect chains are capped at 5 hops.</li>
+<li>The same rules apply to <code>health_check_url</code>, except that a health check may redirect within its own origin (so it does not have to satisfy the endpoint's <code>paths</code> whitelist).</li>
+</ul>
+<p><code>block_internal_ips</code> adds a second, optional layer: the host is resolved and the request is refused if any resolved address is loopback, link-local (including the cloud metadata endpoint), private, reserved, multicast or unspecified. When enabled, the connection is also pinned to the exact IP that was validated, so a DNS rebind between validation and connection cannot swap in an internal address.</p>
+<p>It defaults to <strong>false</strong> because whitelisted endpoints are very often in-cluster services:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">endpoints</span><span class="p">:</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;prometheus.monitoring.svc:9090&quot;</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># internal by design</span>
+</span></code></pre></div>
+<p>Enable it when every configured endpoint is a public host:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">block_internal_ips</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="nt">endpoints</span><span class="p">:</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;https://api.example.com&quot;</span><span class="p p-Indicator">]</span>
+</span></code></pre></div>
 <h2 id="llm-instructions">LLM Instructions<a class="headerlink" href="#llm-instructions" title="Permanent link">&para;</a></h2>
 <p>The <code>llm_instructions</code> field provides guidance to the LLM about how to use your API. Good instructions include:</p>
 <p><strong>The base URL:</strong>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="no">The base URL is: {{ env.API_BASE_URL }}</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="no">The base URL is: {{ env.API_BASE_URL }}</span>
 </span></code></pre></div></p>
 <p><strong>Available endpoints and their purpose:</strong>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="no">Common endpoints:</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="no">- GET /api/users/{id} - Get user information</span>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span><span class="no">- GET /api/search?q={query} - Search resources</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="no">Common endpoints:</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="no">- GET /api/users/{id} - Get user information</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span><span class="no">- GET /api/search?q={query} - Search resources</span>
 </span></code></pre></div></p>
 <p><strong>API-specific guidance:</strong>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="no">When searching, use CQL syntax: space=MYSPACE AND type=page</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="no">Always include the expand parameter to get full page content.</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="no">When searching, use CQL syntax: space=MYSPACE AND type=page</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span><span class="no">Always include the expand parameter to get full page content.</span>
 </span></code></pre></div></p>
 <p><strong>Authentication details</strong> (if needed by the LLM):
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="no">Authentication is handled automatically using the configured credentials.</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="no">Authentication is handled automatically using the configured credentials.</span>
 </span></code></pre></div></p>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="authentication-errors">Authentication Errors<a class="headerlink" href="#authentication-errors" title="Permanent link">&para;</a></h3>
@@ -6489,6 +6555,15 @@
 - Ensure the HTTP method is in the allowed methods list
 - If a <code>hosts</code> entry includes a scheme (e.g. <code>https://...</code>), make sure the request uses the same scheme and either the scheme's default port or the port you specified — see <a href="#host-patterns">Host Patterns</a>
 - Check HolmesGPT logs for the exact URL being blocked; the error message includes the request's scheme, host, port, and path</p>
+<h3 id="refused-redirects">Refused Redirects<a class="headerlink" href="#refused-redirects" title="Permanent link">&para;</a></h3>
+<p><strong>Problem</strong>: <code>Refusing to follow redirect from ... to ...</code></p>
+<p>The upstream answered with a redirect whose target is not in the whitelist. This is the SSRF guard working as intended — see <a href="#redirects-and-internal-addresses">Redirects and internal addresses</a>.</p>
+<p><strong>Solutions</strong>:
+- If the redirect target is legitimate, add it to <code>hosts</code>/<code>paths</code> (and to <code>methods</code> if the redirect keeps a non-GET method)
+- Point the endpoint at the final URL so no redirect is needed
+- If the target is <em>not</em> something you expect the upstream to redirect to, treat it as a finding rather than a config problem</p>
+<p><strong>Problem</strong>: <code>Refusing to request ...: host ... resolves to non-routable/internal address</code></p>
+<p><code>block_internal_ips</code> is enabled and the host resolves to an internal address. Set it to <code>false</code> if the endpoint is an in-cluster service.</p>
 
 
 
