@@ -668,11 +668,9 @@ class SupabaseDal:
     ) -> Optional[List[RobustaSkillInstruction]]:
         """List the given END USER's personal skills.
 
-        Reads through the get_personal_skills RPC rather than selecting HolmesRunbooks
-        directly. Personal rows are owner-only under RLS (user_id = auth.uid()), and Holmes
-        authenticates as its own account-member service user, so a plain table select would
-        match zero rows and personal skills would silently never load. The RPC is
-        SECURITY DEFINER and guarded on the caller being a member of the account.
+        A plain table select: the RLS SELECT policy lets a row through for its owner OR for
+        the account's API-role user, and Holmes signs in as an AccountUsers row with
+        role = 'API'. Same mechanism the Conversations policies use.
 
         `user_id` MUST be the end user's id from the request -- never self.user_id, which is
         Holmes's own service identity and identical on every request.
@@ -681,10 +679,14 @@ class SupabaseDal:
             return None
 
         try:
-            res = self.client.rpc(
-                "get_personal_skills",
-                {"_account_id": self.account_id, "_user_id": user_id},
-            ).execute()
+            res = (
+                self.client.table(RUNBOOKS_TABLE)
+                .select("runbook_id, subject_name, symptoms, clusters, enabled")
+                .eq("account_id", self.account_id)
+                .eq("user_id", user_id)
+                .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)
+                .execute()
+            )
             if not res.data:
                 return None
 
@@ -728,22 +730,23 @@ class SupabaseDal:
     ) -> Optional[RobustaSkillInstruction]:
         """Fetch one personal skill's body for the given END USER.
 
-        Scoped by user_id so one user cannot fetch another user's personal skill content.
-        Goes through the SECURITY DEFINER RPC for the same reason as
-        get_personal_skill_catalog.
+        Scoped by user_id so one user cannot fetch another user's personal skill content --
+        the RLS policy admits Holmes for every personal row in the account, so this filter is
+        what keeps one user's fetch from reaching another's skill.
         """
         if not self.enabled or not user_id:
             return None
 
         try:
-            res = self.client.rpc(
-                "get_personal_skill_content",
-                {
-                    "_account_id": self.account_id,
-                    "_user_id": user_id,
-                    "_runbook_id": skill_id,
-                },
-            ).execute()
+            res = (
+                self.client.table(RUNBOOKS_TABLE)
+                .select("runbook_id, subject_name, symptoms, runbook, enabled")
+                .eq("account_id", self.account_id)
+                .eq("user_id", user_id)
+                .eq("runbook_id", skill_id)
+                .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)
+                .execute()
+            )
             if not res.data:
                 return None
 
