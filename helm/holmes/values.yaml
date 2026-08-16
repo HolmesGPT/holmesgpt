@@ -554,7 +554,10 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
-    mcpGitlabVersion: "2.1.11"
+    # If you override this, make sure the pinned version still exposes the
+    # health-check tool configured in toolset-config.yaml (currently `whoami`),
+    # or the Holmes health check will fail with "tool not found".
+    mcpGitlabVersion: "2.1.46"
 
     auth:
       # K8s secret holding the GitLab Personal Access Token.

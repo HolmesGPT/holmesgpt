@@ -125,13 +125,16 @@ data:
     {{- end }}
     {{- end }}
     {{- if .Values.mcpAddons.gitlabMcp.enabled }}
+    {{- /* health_check_tool: @zereight/mcp-gitlab's identity tool is `whoami`
+           (present in all versions 2.1.11-2.1.47, including read-only mode).
+           It must exist in the mcpGitlabVersion pinned in values.yaml. */}}
     {{- $gitlabMcpServers := dict "gitlab" (dict
         "description" "GitLab MCP Server - access projects, merge requests, issues, pipelines, and code. Debug CI failures, search code, and create MRs."
         "config" (dict
           "url" (printf "http://%s-gitlab-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
           "mode" "sse"
           "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/gitlab.svg"
-          "health_check_tool" "get_current_user"
+          "health_check_tool" "whoami"
         )
         "llm_instructions" (include "holmes.gitlabMcp.llmInstructions" . | trim)
       )
