@@ -34,7 +34,7 @@ on:
         required: false
         default: '1'
       is_pr_trusted:
-        description: 'Allow running on fork PRs (use with caution - grants fork code access to secrets)'
+        description: 'Allow running on fork PRs (grants fork code access to every repository secret). You must not be the PR author or the fork owner - review the diff, or ask another maintainer to dispatch it.'
         required: false
         default: 'false'
         type: boolean
@@ -52,14 +52,29 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/list')
     steps:
+      # No ref: on an issue_comment event this is the base repo's default branch,
+      # so the authorization helpers below come from trusted code, never from a PR.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Check permissions and fork status
         uses: actions/github-script@v7
         with:
           script: |
-            // Check commenter has write access
-            const association = context.payload.comment.author_association;
-            if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
-              core.setFailed(`Permission denied: ${association} cannot use /list (requires OWNER, MEMBER, or COLLABORATOR)`);
+            const { authorizeCommand } = require('./.github/scripts/eval-authorization.js');
+
+            // SECURITY: ask the API for the commenter's real permission level.
+            // author_association must not be used here — it reports COLLABORATOR
+            // for outside collaborators holding only read or triage access.
+            const decision = await authorizeCommand({
+              github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              actor: context.payload.comment.user.login,
+              command: '/list'
+            });
+            if (!decision.authorized) {
+              core.setFailed(decision.reason);
               return;
             }
 
@@ -81,9 +96,6 @@ jobs:
               core.setFailed('Fork PRs cannot use /list command');
               return;
             }
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Post eval list
         uses: actions/github-script@v7
@@ -134,16 +146,48 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      # SECURITY: this checkout comes first and is never skipped, so every
+      # authorization decision below — and the composite action that builds the
+      # environment — is read from the base repository rather than from the pull
+      # request. PR code lands in a sibling ./code/ directory so neither can
+      # overwrite the other.
+      - name: Checkout trusted helpers from base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref || 'master' }}
+          sparse-checkout: |
+            .github/scripts
+            .github/actions
+          path: .trusted
+
       - name: Handle /eval comment
         id: eval-comment
         if: github.event_name == 'issue_comment'
         uses: actions/github-script@v7
         with:
           script: |
-            // Check commenter has write access
-            const association = context.payload.comment.author_association;
-            if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
-              core.setFailed(`Permission denied: ${association} cannot trigger /eval (requires OWNER, MEMBER, or COLLABORATOR)`);
+            const {
+              authorizeCommand, parseTrustedDirective, authorizeForkRun
+            } = require('./.trusted/.github/scripts/eval-authorization.js');
+
+            const actor = context.payload.comment.user.login;
+            const commandName = context.payload.comment.body.trim().toLowerCase().startsWith('/rerun')
+              ? '/rerun'
+              : '/eval';
+
+            // SECURITY: ask the API for the commenter's real permission level.
+            // author_association must not be used here — it reports COLLABORATOR
+            // for outside collaborators holding only read or triage access, which
+            // would let them run fork code against the full repository secret set.
+            const decision = await authorizeCommand({
+              github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              actor,
+              command: commandName
+            });
+            if (!decision.authorized) {
+              core.setFailed(decision.reason);
               return;
             }
 
@@ -156,28 +200,39 @@ jobs:
 
             let body = context.payload.comment.body;
 
-            // SECURITY: Check for trusted flag on fork PRs
-            // Treat orphaned PRs (deleted head repo) as forks
+            // SECURITY: releasing a fork's code to run with secrets takes two people.
+            // Treat orphaned PRs (deleted head repo) as forks.
             const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
             if (isFork) {
-              // Check if trusted: true is in the comment (parsed early, before checkout)
-              const trustedMatch = body.match(/^trusted\s*:\s*true\s*$/im);
-              const isTrusted = trustedMatch !== null;
+              // The trust directive is read from THIS comment, before any checkout.
+              // Resolving it from an older /eval comment (as /rerun does for its
+              // parameters) would let anyone replay a maintainer's past approval.
+              const trusted = parseTrustedDirective(body);
+              const release = authorizeForkRun({
+                actor,
+                prAuthor: pr.data.user && pr.data.user.login,
+                headRepoOwner: pr.data.head.repo && pr.data.head.repo.owner && pr.data.head.repo.owner.login,
+                headSha: pr.data.head.sha,
+                trusted: trusted && trusted.value,
+                command: commandName
+              });
 
-              if (!isTrusted) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  body: '⚠️ `/eval` and `/rerun` on fork PRs require explicit trust confirmation.\n\n' +
-                        'Running evals grants the fork code access to secrets. If you\'ve reviewed the code, add `trusted: true`:\n\n' +
-                        '```\n/eval\ntrusted: true\ntags: regression\n```\n\n' +
-                        'Or use `workflow_dispatch` with `is_pr_trusted: true` from the Actions UI.'
-                });
-                core.setFailed('Fork PRs require trusted: true to run /eval or /rerun');
+              if (!release.authorized) {
+                if (release.comment) {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.issue.number,
+                    body: release.comment
+                  });
+                }
+                core.setFailed(release.reason);
                 return;
               }
-              core.warning(`Running /eval on trusted fork PR #${context.issue.number} - fork code will have access to secrets`);
+              core.warning(
+                `Running ${commandName} on fork PR #${context.issue.number} at ${pr.data.head.sha}, ` +
+                `released by @${actor} (PR author: @${pr.data.user.login}) - fork code will have access to secrets`
+              );
             }
             let lastEvalCommentId = null;
             const isRerunCommand = body.trim().toLowerCase().startsWith('/rerun');
@@ -245,8 +300,6 @@ jobs:
               content: 'eyes'
             });
 
-      # SECURITY: Checkout to sibling directories so neither can overwrite the other.
-      # PR code goes to ./code/, trusted helpers go to ./.trusted/
       - name: Checkout PR code
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
         uses: actions/checkout@v4
@@ -267,14 +320,6 @@ jobs:
           git checkout "origin/$TARGET_BRANCH" -- . ':!tests/'
         env:
           TARGET_BRANCH: ${{ steps.eval-comment.outputs.branch }}
-
-      - name: Checkout trusted helpers from base branch
-        if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.ref || 'master' }}
-          sparse-checkout: .github/scripts
-          path: .trusted
 
       - name: Determine eval parameters
         if: github.event_name != 'issue_comment' || steps.eval-comment.outcome == 'success'
@@ -425,8 +470,12 @@ jobs:
                 }
               }
 
-              // SECURITY: Check if this is a fork PR and block unless explicitly trusted
+              // SECURITY: Check if this is a fork PR and block unless explicitly trusted.
+              // workflow_dispatch already requires write access to the repository, so
+              // the permission half of the gate is enforced by GitHub. The two-party
+              // half is not, and applies here exactly as it does to /eval comments.
               if (prNumber) {
+                const { authorizeForkRun } = require('./.trusted/.github/scripts/eval-authorization.js');
                 const pr = await github.rest.pulls.get({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -434,15 +483,28 @@ jobs:
                 });
                 // Treat orphaned PRs (deleted head repo) as forks
                 const isFork = !pr.data.head.repo || pr.data.head.repo.full_name !== pr.data.base.repo.full_name;
-                if (isFork && !isPrTrusted) {
-                  core.setFailed(
-                    `Fork PR #${prNumber} detected. Manual workflow_dispatch on fork PRs requires ` +
-                    `is_pr_trusted=true (grants fork code access to secrets).`
+                if (isFork) {
+                  const release = authorizeForkRun({
+                    actor: context.actor,
+                    prAuthor: pr.data.user && pr.data.user.login,
+                    headRepoOwner: pr.data.head.repo && pr.data.head.repo.owner && pr.data.head.repo.owner.login,
+                    headSha: pr.data.head.sha,
+                    trusted: isPrTrusted ? 'true' : null,
+                    command: 'workflow_dispatch'
+                  });
+                  if (!release.authorized) {
+                    core.setFailed(
+                      release.code === 'missing_trust'
+                        ? `Fork PR #${prNumber} detected. Manual workflow_dispatch on fork PRs requires ` +
+                          `is_pr_trusted=true (grants fork code access to secrets).`
+                        : release.reason
+                    );
+                    return;
+                  }
+                  core.warning(
+                    `Running on fork PR #${prNumber} at ${pr.data.head.sha}, released by ` +
+                    `@${context.actor} (PR author: @${pr.data.user.login}) - fork code will have access to secrets`
                   );
-                  return;
-                }
-                if (isFork && isPrTrusted) {
-                  core.warning(`Running on trusted fork PR #${prNumber} - fork code will have access to secrets`);
                 }
               }
             } else {
@@ -929,9 +991,15 @@ jobs:
           echo $! > /tmp/kind-setup-pid
           echo "KIND cluster setup started in background (PID: $(cat /tmp/kind-setup-pid))"
 
+      # SECURITY: the composite action is loaded from the trusted base-branch
+      # checkout, never from ./code/. A fork can edit .github/actions/ in its own
+      # tree, and a reviewer skimming a "just some test fixtures" diff would not
+      # be looking there — but the action runs before pytest, with every secret
+      # already in the job. The action installs and runs the PR's dependencies
+      # from ./code/, which is the exposure the trust gate above is protecting.
       - name: Setup HolmesGPT environment
         if: steps.check-tests.outputs.should-run == 'true'
-        uses: ./code/.github/actions/setup-holmes-env
+        uses: ./.trusted/.github/actions/setup-holmes-env
         with:
           python-version: '3.12'
           install-kubectl: 'true'
