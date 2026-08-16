@@ -37,14 +37,24 @@ class SkillsFetcher(Tool):
         if skill_catalog:
             available_skills = skill_catalog.list_available_skills()
 
-        skill_list = ", ".join([f'"{s}"' for s in available_skills])
+        # Deliberately advertises NO id list. This toolset is built once and cached across
+        # requests and users, so any list baked in here is wrong in both directions: it omits
+        # the requesting user's personal skills, and it still contains skills the per-request
+        # catalog filtered out (hierarchy collision losers, other alerts' skills). Naming the
+        # authoritative source instead keeps the two from diverging -- an earlier
+        # "Must be one of: <list>" made the model refuse personal skills it could plainly see.
+        skill_id_description = (
+            "The skill_id: either a UUID or a skill name. Use the ids from the Skill Catalog"
+            " section of your instructions -- that catalog is built per request and is the"
+            " authoritative list, including the current user's personal skills."
+        )
 
         super().__init__(
             name="fetch_skill",
             description="Get skill content by skill link. Use this to get troubleshooting steps for incidents",
             parameters={
                 "skill_id": ToolParameter(
-                    description=f"The skill_id: either a UUID or a skill name. Must be one of: {skill_list}",
+                    description=skill_id_description,
                     type="string",
                     required=True,
                 ),
@@ -67,10 +77,7 @@ class SkillsFetcher(Tool):
                 params=params,
             )
 
-        # The end user for this request. This toolset is built ONCE and cached across
-        # requests and users (the executor cache key ignores account/user), so per-user
-        # personal skills must never be baked into self._skill_catalog or the parameter
-        # description. They are resolved here instead, per invocation.
+        # Resolved per invocation, not baked into the cached toolset -- see __init__.
         user_id = (context.request_context or {}).get("user_id")
 
         # Look up in skill catalog by name — remote skills have empty content
@@ -81,9 +88,8 @@ class SkillsFetcher(Tool):
         elif skill:
             return self._format_skill_result(skill, params)
 
-        # Not in the cached catalog. A personal skill is the expected case here: its id only
-        # ever appears in the per-request prompt catalog, never in this cached one. Try the
-        # user-scoped lookup first so one user can never read another's personal skill.
+        # Not in the cached catalog -- the expected case for a personal skill. User-scoped
+        # lookup goes first so one user can never read another's.
         personal_miss: Optional[str] = None
         if user_id and self._dal and self._dal.enabled:
             personal_result, personal_miss = self._get_personal_skill(
@@ -95,9 +101,7 @@ class SkillsFetcher(Tool):
         # Fallback: try Supabase for UUID-style IDs not in catalog
         if self._dal and self._dal.enabled:
             result = self._get_robusta_skill(skill_id, params)
-            # Say that a user-scoped lookup also ran and why it missed, otherwise the only
-            # feedback is "not found in remote storage" and the personal path is invisible
-            # when debugging.
+            # Report the personal miss too, or that path is invisible when debugging.
             if result.status == StructuredToolResultStatus.ERROR and personal_miss:
                 result.error = f"{result.error} {personal_miss}"
             return result
@@ -167,11 +171,9 @@ class SkillsFetcher(Tool):
     ) -> tuple[Optional[StructuredToolResult], Optional[str]]:
         """Fetch a personal skill scoped to this end user.
 
-        Returns (result, miss_reason). The result is None when the id is not one of that
-        user's personal skills, so the caller can fall through to the global lookup -- a
-        miss is the normal case for a global skill id. miss_reason carries why, including
-        the underlying API error text, so a failed lookup is not invisible in the error the
-        LLM finally sees.
+        Returns (result, miss_reason). A None result means "not this user's skill" -- the
+        normal case for a global id -- so the caller falls through. miss_reason carries why,
+        so a failed lookup is not invisible in the error the LLM sees.
         """
         if not self._dal:
             return None, None

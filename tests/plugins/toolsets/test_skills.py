@@ -115,11 +115,76 @@ def test_SkillsFetcher_resolves_personal_skill_for_requesting_user():
     )
     fetcher = SkillsFetcher(SkillsToolset(), skill_catalog=None, dal=dal)
 
+    # The invariant this whole design rests on: the id is NOT in the declared list, because
+    # that list is baked into a description shared by every user.
+    assert "uuid-a" not in fetcher.available_skills
+
     result = fetcher._invoke({"skill_id": "uuid-a"}, context=_context_for_user("user-a"))
 
     assert result.status == StructuredToolResultStatus.SUCCESS
     assert "Step A" in result.data
     assert ("uuid-a", "user-a") in dal.calls
+
+
+class TestSkillIdParameterDescription:
+    """The declared id list omits personal skills, so it must not claim to be closed.
+
+    A model that reads the parameter description as a hard contract will refuse to fetch a
+    personal skill it can see in the prompt catalog -- observed in production as "the skill
+    ID ... is not in my available skill list to fetch directly" -- even though _invoke would
+    have resolved it. These tests pin the wording that caused that.
+    """
+
+    @staticmethod
+    def _description(catalog):
+        fetcher = SkillsFetcher(SkillsToolset(), skill_catalog=catalog, dal=None)
+        return fetcher.parameters["skill_id"].description
+
+    def _catalog(self, *names):
+        return SkillCatalog(
+            skills=[
+                Skill(
+                    name=n,
+                    description="d",
+                    content="c",
+                    source=SkillSource.REMOTE,
+                    display_name=n,
+                )
+                for n in names
+            ]
+        )
+
+    def test_advertises_no_id_list_at_all(self):
+        """No ids may appear here, however they are phrased.
+
+        This description is cached across requests and users, so a baked-in list is wrong in
+        both directions: it omits the requesting user's personal skills, and it retains
+        skills the per-request catalog filtered out (hierarchy losers, other alerts'). Any
+        id in this string is a claim the cached toolset cannot back.
+        """
+        description = self._description(self._catalog("uuid-global", "uuid-other"))
+
+        assert "uuid-global" not in description
+        assert "uuid-other" not in description
+        assert "Must be one of" not in description
+        assert "Known ids include" not in description
+
+    def test_is_identical_whatever_the_cached_catalog_holds(self):
+        """Nothing catalog-dependent leaks in, so the cached description cannot go stale."""
+        variants = {
+            self._description(None),
+            self._description(SkillCatalog(skills=[])),
+            self._description(self._catalog("uuid-global")),
+            self._description(self._catalog("a", "b", "c")),
+        }
+
+        assert len(variants) == 1
+
+    def test_points_the_model_at_the_prompt_catalog(self):
+        description = self._description(self._catalog("uuid-global"))
+
+        assert "Skill Catalog" in description
+        assert "personal" in description
 
 
 def test_SkillsFetcher_does_not_leak_personal_skill_across_users():

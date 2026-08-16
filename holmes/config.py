@@ -333,26 +333,28 @@ class Config(RobustaBaseConfig):
         return Config.get_robusta_global_config_value("cluster_name")
 
     def get_skill_catalog(
-        self, user_id: Optional[str] = None
+        self, user_id: Optional[str] = None, alert_name: Optional[str] = None
     ) -> Optional[SkillCatalog]:
         """Build the per-request skill catalog that feeds the system prompt.
 
-        This is rebuilt on every request, so it is where the personal tier and the
-        name-collision hierarchy are applied. `user_id` must be the END USER's id from the
-        request; when absent (alert triage, triggered workflows, scheduled prompts) no
-        personal skills are loaded.
+        Rebuilt every request, so this is where the personal tier and the collision hierarchy
+        are applied. `user_id` must be the END USER's id; absent (alert triage, triggered
+        workflows, scheduled prompts) no personal skills load.
 
-        Note the fetch_skill tool's own id list is NOT built here -- that toolset is
-        constructed once and cached across requests and users, so per-user skills must
-        never be baked into it (see SkillsFetcher, which resolves personal skills at
-        invoke time from the request's user_id instead).
+        The fetch_skill tool's own id list is NOT built here -- that toolset is cached across
+        requests and users, so per-user skills must never be baked into it. SkillsFetcher
+        resolves them at invoke time instead.
         """
-        hierarchy = self.dal.get_skill_hierarchy_config() if self.dal else None
+        # `self.dal` is a lazily-constructing property, so no truthiness guard: the
+        # not-configured case is handled inside get_skill_hierarchy_config, which is
+        # TTL-cached and so adds no round trip per turn.
+        hierarchy = self.dal.get_skill_hierarchy_config()
         return load_skill_catalog(
             dal=self.dal,
             custom_skill_paths=self.custom_skill_paths,
             user_id=user_id,
             hierarchy=hierarchy,
+            alert_name=alert_name,
         )
 
     # ── Unified factory methods ──

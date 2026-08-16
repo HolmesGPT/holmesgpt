@@ -479,6 +479,80 @@ class TestPersonalSkills:
             == ""
         )
 
+    def test_empty_instruction_list_yields_empty_string_not_bracket_literal(
+        self, skills_dal
+    ):
+        """`instructions: []` must be "" for the same reason None must not become "None".
+
+        str([]) == "[]" is truthy, so returning it would suppress the caller's
+        `instruction or pretty()` fallback and hand the LLM "[]" as the skill body.
+        """
+        assert (
+            skills_dal._extract_skill_instruction({"runbook": {"instructions": []}}, "x")
+            == ""
+        )
+
+    @pytest.mark.parametrize(
+        "instructions",
+        [
+            [{"step": 1}],                # used to return the dict itself
+            [["a", "b"]],                 # used to return the inner list
+            [{"a": 1}, {"b": 2}],         # used to raise TypeError out of the join
+            ["ok", {"step": 2}],          # mixed: one good element is not enough
+            [None],
+            [7],
+        ],
+    )
+    def test_instruction_list_of_non_strings_yields_empty_string(
+        self, skills_dal, instructions
+    ):
+        """This function is typed `-> str`, and every path must honour that.
+
+        jsonb has no shape constraint, so `instructions` can hold non-strings. Returning the
+        element itself broke the contract (RobustaSkillInstruction.instruction is typed str,
+        so it then failed validation), and the multi-element join raised TypeError. Either way
+        the skill became unfetchable. "" is correct because it lets the caller's
+        `instruction or pretty()` fallback render the row instead.
+        """
+        result = skills_dal._extract_skill_instruction(
+            {"runbook": {"instructions": instructions}}, "x"
+        )
+
+        assert result == ""
+
+    def test_instruction_list_of_non_strings_does_not_log_the_body(
+        self, skills_dal, caplog
+    ):
+        """Personal skill bodies are private -- log element types, never contents."""
+        skills_dal._extract_skill_instruction(
+            {"runbook": {"instructions": [{"private": "SECRET-STEP-DO-NOT-LOG"}]}}, "x"
+        )
+
+        assert "SECRET-STEP-DO-NOT-LOG" not in caplog.text
+        assert "dict" in caplog.text
+
+    @pytest.mark.parametrize("shape", [[], ["a"], "str", 7])
+    def test_non_dict_runbook_yields_empty_string_rather_than_raising(
+        self, skills_dal, shape
+    ):
+        """`runbook` is jsonb with no shape constraint, so it can hold a list or scalar.
+
+        `.get` on those raises AttributeError, which the caller converts into a silently
+        dropped skill.
+        """
+        assert skills_dal._extract_skill_instruction({"runbook": shape}, "x") == ""
+
+    def test_unexpected_instruction_type_is_not_logged_verbatim(
+        self, skills_dal, caplog
+    ):
+        """Personal skill bodies are private and must never reach shared logs."""
+        secret = {"private": "SECRET-BODY-DO-NOT-LOG"}
+
+        skills_dal._extract_skill_instruction({"runbook": {"instructions": secret}}, "x")
+
+        assert "SECRET-BODY-DO-NOT-LOG" not in caplog.text
+        assert "dict" in caplog.text
+
     def test_one_malformed_row_does_not_drop_the_whole_tier(self, skills_dal):
         """A row missing a required field must cost only that row.
 
@@ -525,6 +599,24 @@ class TestPersonalSkills:
 
         assert result.instruction == "only step"
 
+    def test_content_of_an_alert_only_skill_is_fetchable(self, skills_dal):
+        """An alert-only personal skill has NULL symptoms, and its body must still load.
+
+        `symptom` on the model defaults to "" but is typed `str`, so the default only applies
+        when the field is OMITTED -- passing an explicit None raises ValidationError. That
+        exception is swallowed here and the caller sees None, i.e. "not one of this user's
+        skills", so the skill is offered in the prompt and can never be fetched.
+        """
+        _stub_personal_query(
+            skills_dal, data=[self._row(symptoms=None, alerts=["KubePodCrashLooping"])]
+        )
+
+        result = skills_dal.get_personal_skill_content("uuid-1", "end-user-1")
+
+        assert result is not None
+        assert result.symptom == ""
+        assert result.instruction == "step one"
+
     def test_content_missing_returns_none(self, skills_dal):
         _stub_personal_query(skills_dal, data=[])
 
@@ -554,6 +646,18 @@ class TestSkillHierarchyConfig:
 
         assert config.enabled is False
         assert config.order == ["global", "custom", "personal"]
+
+    @pytest.mark.parametrize("raw", ["false", "true", 0, 1, "", "no", None])
+    def test_non_boolean_enabled_is_treated_as_false(self, skills_dal, raw):
+        """bool("false") is True.
+
+        This jsonb is written by hand-run SQL, so the JSON *string* "false" is a realistic
+        mistake -- and coercing it would silently turn the hierarchy ON and start
+        suppressing skills that used to run.
+        """
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": raw})
+
+        assert skills_dal.get_skill_hierarchy_config().enabled is False
 
     def test_reads_enabled_and_order(self, skills_dal):
         self._settings(
@@ -717,3 +821,29 @@ class TestGlobalSkillCatalog:
         result = skills_dal.get_skill_catalog()
 
         assert {r.id for r in result} == {"here", "all-clusters"}
+
+    def test_content_of_an_alert_only_skill_is_fetchable(self, skills_dal):
+        """An alert-only global skill has NULL symptoms, and its body must still load.
+
+        The catalog read now keeps alert-only skills (they are matched by `alerts` instead of
+        symptoms), so the LLM is offered them. `symptom` is typed `str` with a "" default, so
+        the default applies only when the field is OMITTED -- an explicit None raises
+        ValidationError. Unlike the catalog read, this method has no try/except, so the error
+        surfaces to the LLM as "Failed to fetch skill with UUID ...".
+        """
+        self._rows(
+            skills_dal,
+            [
+                self._row(
+                    symptoms=None,
+                    alerts=["KubePodCrashLooping"],
+                    runbook={"instructions": ["step one"]},
+                )
+            ],
+        )
+
+        result = skills_dal.get_skill_content("uuid-1")
+
+        assert result is not None
+        assert result.symptom == ""
+        assert result.instruction == "step one"

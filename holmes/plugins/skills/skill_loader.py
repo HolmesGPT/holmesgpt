@@ -60,11 +60,24 @@ class Skill(BaseModel):
     content: str
     source: SkillSource
     source_path: Optional[str] = None
-    # Human-readable name used for cross-tier collision detection. Remote and personal
-    # skills carry a UUID in `name` (that is the id the LLM must pass to fetch_skill),
-    # so their human name has to be tracked separately. Filesystem skills leave this
-    # unset because `name` already IS the human name.
+    # Human name, for collision detection. Remote and personal skills carry a UUID in `name`
+    # (the id fetch_skill needs), so their human name is tracked separately; filesystem
+    # skills leave this unset because `name` already IS the human name.
     display_name: Optional[str] = None
+    # GroupedIssues.aggregation_key values this skill is scoped to. Empty means all alerts,
+    # as `clusters = null` means all clusters. Filesystem skills never set it.
+    alerts: List[str] = []
+
+    def applies_to_alert(self, alert_name: Optional[str]) -> bool:
+        """Whether this skill may run for the given alert.
+
+        Unscoped skills always apply. With NO alert context (chat, CLI) nothing is filtered:
+        scoped skills stay on offer, with their alert names in the description so the model
+        can judge relevance itself.
+        """
+        if not self.alerts or alert_name is None:
+            return True
+        return alert_name in self.alerts
 
     def collision_key(self) -> str:
         return normalize_skill_name(self.display_name or self.name)
@@ -202,6 +215,12 @@ def map_robusta_instruction_to_skill(
     description = instr.title
     if instr.symptom:
         description = f"{instr.title} — {instr.symptom}"
+    # Surface the alert scoping in the description too. The deterministic filter only applies
+    # when there IS an alert context, so in chat this is the only signal the model has that a
+    # skill is alert-specific -- and for an alert-only skill (no symptoms) it is the ONLY
+    # description content beyond the title.
+    if instr.alerts:
+        description = f"{description} (applies to alerts: {', '.join(instr.alerts)})"
 
     return Skill(
         name=instr.id,
@@ -210,19 +229,23 @@ def map_robusta_instruction_to_skill(
         source=source,
         source_path=instr.id,
         display_name=instr.title,
+        alerts=instr.alerts,
     )
 
 
 def _resolve_name_collisions(skills: List[Skill], order: List[str]) -> List[Skill]:
     """Keep only the highest-priority skill per normalized human name.
 
-    Resolution is deterministic and happens here in Python, not in the prompt: losers are
-    dropped before anything reaches the model, so a shadowed duplicate can never be
-    fetched. BUILTIN is always lowest priority and is not part of `order`.
+    Deterministic and resolved in Python rather than left to the prompt, so losers are not
+    offered to the model. BUILTIN is always lowest and is not part of `order`.
 
-    Callers MUST filter skills (cluster/agent scoping) BEFORE calling this, so that a
-    higher-tier skill which does not apply to this request cannot suppress an applicable
-    lower-tier one.
+    NOT an access control. This shapes the per-request prompt catalog only; the cached
+    fetch_skill toolset is built without a hierarchy, so a loser's id stays resolvable if the
+    model supplies it from somewhere else. Treat this as ranking what gets advertised, not as
+    a guarantee that a shadowed skill can never run.
+
+    Callers MUST apply cluster/agent/alert filtering BEFORE this, so a higher-tier skill that
+    does not apply cannot suppress an applicable lower-tier one.
     """
     rank_by_source: dict[SkillSource, int] = {}
     for index, tier in enumerate(order):
@@ -234,10 +257,9 @@ def _resolve_name_collisions(skills: List[Skill], order: List[str]) -> List[Skil
             continue
         rank_by_source.setdefault(source, index)
 
-    # Anything not named in the order sorts below everything named, and BUILTIN sorts below
-    # even that. Ranking every unlisted source equally would break the documented "builtin is
-    # always lowest" contract under a partial order: with order=["global"], a personal and a
-    # builtin skill would tie and insertion order would decide the winner.
+    # Unlisted sources sort below everything named, and BUILTIN below even those. Ranking all
+    # unlisted equally would tie personal against builtin under order=["global"], letting
+    # insertion order decide.
     unlisted = len(order) + 1
     builtin = unlisted + 1
 
@@ -274,20 +296,24 @@ def load_skill_catalog(
     custom_skill_paths: Optional[List[Union[str, Path]]] = None,
     user_id: Optional[str] = None,
     hierarchy: Optional[SkillHierarchyConfig] = None,
+    alert_name: Optional[str] = None,
 ) -> Optional[SkillCatalog]:
     """Load skills from all sources and merge into a single catalog.
 
-    Filesystem skills (builtin, then user) are keyed by name, so a user skill still
-    overrides a builtin of the same name. Remote (global) and personal skills are keyed
-    by UUID and so never collide by name on their own.
+    Filesystem skills (builtin, then user) are keyed by name, so a user skill overrides a
+    same-named builtin. Remote and personal skills are keyed by UUID.
 
-    `user_id` must be the END USER's id from the request. Personal skills are loaded only
-    when it is present, which keeps them out of every server-initiated flow (alert triage,
-    triggered workflows, scheduled prompts). Never pass SupabaseDal.user_id here -- that is
-    Holmes's own service identity and would leak an identity into unattended runs.
+    `user_id` must be the END USER's id from the request -- personal skills load only when it
+    is present, keeping them out of server-initiated flows (alert triage, triggered
+    workflows, scheduled prompts). Never pass SupabaseDal.user_id: that is Holmes's own
+    service identity and would leak an identity into unattended runs.
 
-    `hierarchy` controls cross-tier name-collision resolution. When it is None or disabled
-    (the default) no cross-tier dedup happens at all, which is exactly today's behaviour.
+    `hierarchy` controls cross-tier collision resolution; None or disabled (the default)
+    means no dedup at all.
+
+    `alert_name` is the firing alert's GroupedIssues.aggregation_key, set only for alert
+    investigations. Present, it drops skills scoped to other alerts; absent (chat, CLI)
+    nothing is filtered.
     """
     skills_by_name: dict[str, Skill] = {}
 
@@ -357,6 +383,11 @@ def load_skill_catalog(
         return None
 
     skills = list(skills_by_name.values())
+
+    # BEFORE the hierarchy dedup, like the DAL's cluster filter: a higher-tier skill scoped to
+    # a different alert must not suppress an applicable lower-tier one.
+    if alert_name is not None:
+        skills = [s for s in skills if s.applies_to_alert(alert_name)]
 
     # Cross-tier name-collision resolution. Runs AFTER the per-tier cluster/agent filtering
     # done by the DAL, so only skills that actually apply to this request compete.

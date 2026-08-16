@@ -22,7 +22,7 @@ from postgrest._sync.request_builder import SyncQueryRequestBuilder
 from postgrest.base_request_builder import QueryArgs
 from postgrest.exceptions import APIError as PGAPIError
 from postgrest.types import ReturnMethod
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from supabase import create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
@@ -280,14 +280,22 @@ class SupabaseDal:
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
-        # The skill hierarchy config is read on every chat request (it feeds the per-request
-        # prompt catalog), but it is per-account and changes rarely, so cache it briefly
-        # rather than adding a blocking AccountSettings round trip to every turn. A short TTL
-        # keeps a flag flip taking effect without a restart.
-        self.skill_hierarchy_cache = TTLCache(
-            maxsize=1,
-            ttl=int(os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")),
-        )
+        # Read on every chat request but per-account and rarely changed, so cache it briefly
+        # instead of adding an AccountSettings round trip per turn. Parsed defensively: this
+        # runs in __init__, so a bad env var must not stop Holmes from starting.
+        raw_ttl = os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")
+        try:
+            hierarchy_ttl = int(raw_ttl)
+            if hierarchy_ttl <= 0:
+                raise ValueError(f"must be positive, got {hierarchy_ttl}")
+        except ValueError as e:
+            logging.warning(
+                "Invalid SKILL_HIERARCHY_CACHE_TTL_SEC=%r (%s); falling back to 60s",
+                raw_ttl,
+                e,
+            )
+            hierarchy_ttl = 60
+        self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
         self.lock = threading.Lock()
 
     def patch_postgrest_execute(self):
@@ -591,21 +599,26 @@ class SupabaseDal:
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
                 clusters = row.get("clusters")
-                if not symptom:
-                    logging.warning("Skipping skill with empty symptom: %s", id)
+                alerts = row.get("alerts") or []
+                # Alerts are a valid alternative to symptoms (the UI enforces "either"), so
+                # requiring symptoms here discarded every alert-only skill.
+                if not symptom and not alerts:
+                    logging.warning(
+                        "Skipping skill with neither symptom nor alerts: %s", id
+                    )
                     continue
                 # Filter by cluster: null means all clusters, otherwise check membership
                 if clusters is not None and self.cluster not in clusters:
                     continue
-                # Validate per row. id and title are required on the model, so a row with a
-                # null runbook_id or subject_name raises -- and if that reached the outer
-                # handler the account would silently lose EVERY global skill, not just the
-                # malformed one.
+                # Per row, so one malformed row costs that skill rather than the whole
+                # catalog. ValidationError only -- a broader catch would hide real bugs.
                 try:
                     instructions.append(
-                        RobustaSkillInstruction(id=id, symptom=symptom, title=title)
+                        RobustaSkillInstruction(
+                            id=id, symptom=symptom or "", title=title, alerts=alerts
+                        )
                     )
-                except Exception:
+                except ValidationError:
                     logging.warning(
                         "Skipping malformed skill row: runbook_id=%s", id
                     )
@@ -632,7 +645,10 @@ class SupabaseDal:
         row = res.data[0]
         return RobustaSkillInstruction(
             id=row.get("runbook_id"),
-            symptom=row.get("symptoms"),
+            # `or ""` -- an alert-only skill has NULL symptoms, and `symptom` is typed `str`,
+            # so its "" default applies only when OMITTED; an explicit None fails validation
+            # and the skill becomes unfetchable despite being offered to the LLM.
+            symptom=row.get("symptoms") or "",
             instruction=self._extract_skill_instruction(row, skill_id),
             title=row.get("subject_name"),
         )
@@ -642,24 +658,54 @@ class SupabaseDal:
         """Normalize the runbook.instructions jsonb into a single string.
 
         Returns "" when there is nothing to extract, NOT str(None). Callers fall back with
-        `instruction or pretty()`, and the string "None" is truthy -- it would suppress the
-        fallback and hand the LLM the literal text "None" as the skill body.
+        `instruction or pretty()`, and "None" is truthy -- it would suppress the fallback and
+        hand the LLM the literal text "None" as the skill body.
         """
-        raw_instruction = (row.get("runbook") or {}).get("instructions")
+        runbook = row.get("runbook")
+        if runbook is not None and not isinstance(runbook, dict):
+            # jsonb has no shape constraint, so this can be a list or scalar. `.get` on those
+            # raises, and the caller turns any exception into a silently dropped skill.
+            logging.error(
+                "Unexpected runbook shape for skill_id=%s: %s",
+                skill_id,
+                type(runbook).__name__,
+            )
+            return ""
+        raw_instruction = (runbook or {}).get("instructions")
         if raw_instruction is None:
             return ""
         # TODO: remove in the future when we migrate the table data
-        if isinstance(raw_instruction, list) and len(raw_instruction) == 1:
-            return raw_instruction[0]
-        elif isinstance(raw_instruction, list) and len(raw_instruction) > 1:
-            # not currently used, but will be used in the future
-            return "\n - ".join(raw_instruction)
+        if isinstance(raw_instruction, list):
+            # An empty list must return "" for the same reason str(None) must not become
+            # "None": callers fall back with `instruction or pretty()`, and str([]) == "[]"
+            # is truthy, which would suppress the fallback and hand the LLM "[]" as a body.
+            if not raw_instruction:
+                return ""
+            # Elements must all be strings before either fast path. jsonb has no shape
+            # constraint, so a list of dicts is possible -- and it used to return the dict
+            # itself (breaking this function's `-> str` contract, then failing validation in
+            # RobustaSkillInstruction) or raise TypeError out of the join. Both left the
+            # skill unfetchable. Fall through to "" instead, so pretty() renders the row.
+            if all(isinstance(item, str) for item in raw_instruction):
+                if len(raw_instruction) == 1:
+                    return raw_instruction[0]
+                # not currently used, but will be used in the future
+                return "\n - ".join(raw_instruction)
+            logging.error(
+                "Unexpected skill instruction element types for skill_id=%s: %s",
+                skill_id,
+                sorted({type(item).__name__ for item in raw_instruction}),
+            )
+            return ""
         elif isinstance(raw_instruction, str):
             # not supported by the current UI, but will be supported in the future
             return raw_instruction
-        # in case the format is unexpected, convert to string
+        # in case the format is unexpected, convert to string. Log the TYPE only -- personal
+        # skill bodies are private to their owner and must not be written to shared logs.
         logging.error(
-            f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
+            "Unexpected skill instruction format for skill_id=%s: %s",
+            skill_id,
+            type(raw_instruction).__name__,
         )
         return str(raw_instruction)
 
@@ -672,8 +718,8 @@ class SupabaseDal:
         the account's API-role user, and Holmes signs in as an AccountUsers row with
         role = 'API'. Same mechanism the Conversations policies use.
 
-        `user_id` MUST be the end user's id from the request -- never self.user_id, which is
-        Holmes's own service identity and identical on every request.
+        `user_id` MUST come from the request -- never self.user_id, which is Holmes's own
+        service identity and identical on every request.
         """
         if not self.enabled or not user_id:
             return None
@@ -696,16 +742,17 @@ class SupabaseDal:
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
                 clusters = row.get("clusters")
+                alerts = row.get("alerts") or []
                 if not row.get("enabled", True):
                     continue
-                if not symptom:
+                # See get_skill_catalog: alerts are a valid alternative to symptoms.
+                if not symptom and not alerts:
                     logging.warning(
-                        "Skipping personal skill with empty symptom: %s", id
+                        "Skipping personal skill with neither symptom nor alerts: %s", id
                     )
                     continue
-                # Filter by cluster: null means all clusters, otherwise check membership.
-                # This must happen before any hierarchy dedup so that a skill scoped to a
-                # different cluster cannot suppress an applicable one.
+                # Cluster filter (null = all). Must precede hierarchy dedup, so a skill
+                # scoped to another cluster cannot suppress an applicable one.
                 if clusters is not None and self.cluster not in clusters:
                     continue
                 # Validate per row. id and title are required on the model, so a row with a
@@ -714,9 +761,13 @@ class SupabaseDal:
                 # malformed one. Skip the bad row instead.
                 try:
                     instructions.append(
-                        RobustaSkillInstruction(id=id, symptom=symptom, title=title)
+                        RobustaSkillInstruction(
+                            id=id, symptom=symptom or "", title=title, alerts=alerts
+                        )
                     )
-                except Exception:
+                # See get_skill_catalog: only ValidationError, so a real bug in this loop
+                # surfaces instead of being logged as malformed data.
+                except ValidationError:
                     logging.warning(
                         "Skipping malformed personal skill row: runbook_id=%s", id
                     )
@@ -753,7 +804,11 @@ class SupabaseDal:
             row = res.data[0] if isinstance(res.data, list) else res.data
             return RobustaSkillInstruction(
                 id=row.get("runbook_id"),
-                symptom=row.get("symptoms"),
+                # See get_skill_content: an alert-only skill has NULL symptoms and an
+                # explicit None fails validation. Here the ValidationError would be
+                # swallowed by the handler below and the caller would read the result as
+                # "not one of this user's skills", falling through to the global lookup.
+                symptom=row.get("symptoms") or "",
                 instruction=self._extract_skill_instruction(row, skill_id),
                 title=row.get("subject_name"),
             )
@@ -790,7 +845,17 @@ class SupabaseDal:
                 return default
 
             settings = res.data[0].get("settings") or {}
-            enabled = bool(settings.get("skill_name_hierarchy_enabled", False))
+            raw_enabled = settings.get("skill_name_hierarchy_enabled", False)
+            if isinstance(raw_enabled, bool):
+                enabled = raw_enabled
+            else:
+                # Written by hand-run SQL, so the string "false" is a realistic mistake --
+                # and bool("false") is True, which would silently enable suppression.
+                logging.warning(
+                    "Ignoring non-boolean skill_name_hierarchy_enabled=%r; treating as false",
+                    raw_enabled,
+                )
+                enabled = False
             order = settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
             if not isinstance(order, list) or not all(
                 isinstance(tier, str) for tier in order
