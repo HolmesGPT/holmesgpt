@@ -727,7 +727,10 @@ class SupabaseDal:
         try:
             res = (
                 self.client.table(RUNBOOKS_TABLE)
-                .select("runbook_id, subject_name, symptoms, clusters, enabled")
+                # Must name every column the loop below reads. `alerts` is load-bearing:
+                # without it the "neither symptom nor alerts" guard drops alert-only skills
+                # outright, and every surviving skill loads as "applies to all alerts".
+                .select("runbook_id, subject_name, symptoms, alerts, clusters, enabled")
                 .eq("account_id", self.account_id)
                 .eq("user_id", user_id)
                 .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)

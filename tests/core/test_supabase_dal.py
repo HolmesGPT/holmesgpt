@@ -411,6 +411,46 @@ class TestPersonalSkills:
         # The SECURITY DEFINER RPC is gone; the API-role RLS branch replaced it.
         skills_dal.client.rpc.assert_not_called()
 
+    def test_selects_every_column_the_parsing_loop_reads(self, skills_dal):
+        """An explicit column list must name everything the loop below consumes.
+
+        No stub can catch this: `_row()` hands back a full row, so a column missing from
+        the SELECT still appears in the fixture and every other test stays green. In
+        production `row.get()` just returns None for it. `alerts` is the one that hurts --
+        the loop skips any skill with neither symptom nor alerts, so an alert-only personal
+        skill would be dropped entirely, which is the bug this PR set out to fix for the
+        global tier.
+        """
+        _stub_personal_query(skills_dal, data=[self._row()])
+
+        skills_dal.get_personal_skill_catalog("end-user-1")
+
+        selected = {
+            col.strip()
+            for col in skills_dal.client.table.return_value.select.call_args[0][0].split(",")
+        }
+        assert {
+            "runbook_id",
+            "subject_name",
+            "symptoms",
+            "alerts",
+            "clusters",
+            "enabled",
+        } <= selected
+
+    def test_alert_only_skill_survives_the_catalog_read(self, skills_dal):
+        """Scoped by `alerts` INSTEAD of symptoms -- the UI validates "either"."""
+        _stub_personal_query(
+            skills_dal,
+            data=[self._row(symptoms=None, alerts=["KubePodCrashLooping"])],
+        )
+
+        result = skills_dal.get_personal_skill_catalog("end-user-1")
+
+        assert result is not None and len(result) == 1
+        assert result[0].alerts == ["KubePodCrashLooping"]
+        assert result[0].symptom == ""
+
     def test_parses_rows_into_instructions(self, skills_dal):
         _stub_personal_query(skills_dal, data=[self._row(runbook_id="uuid-9", subject_name="Disk full")])
 
