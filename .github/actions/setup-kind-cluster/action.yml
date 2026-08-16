@@ -24,6 +24,10 @@ runs:
 
     - name: Create KIND cluster
       shell: bash
+      env:
+        # Read action inputs via env (not inline ${{ }}) so a caller passing a
+        # crafted value cannot have it parsed as shell.
+        CLUSTER_NAME: ${{ inputs.cluster-name }}
       run: |
         cat <<EOF > kind-config.yaml
         kind: Cluster
@@ -54,10 +58,10 @@ runs:
         EOF
 
         # Create cluster without waiting for full readiness (CNI needed first)
-        kind create cluster --name ${{ inputs.cluster-name }} --config kind-config.yaml
+        kind create cluster --name "$CLUSTER_NAME" --config kind-config.yaml
 
         # Configure kubectl
-        kubectl cluster-info --context kind-${{ inputs.cluster-name }}
+        kubectl cluster-info --context "kind-$CLUSTER_NAME"
 
     - name: Install Calico CNI
       shell: bash
