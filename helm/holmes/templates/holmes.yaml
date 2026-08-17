@@ -296,7 +296,7 @@ metadata:
   name: {{ .Release.Name }}-holmes
   namespace: {{ .Release.Namespace }}
   labels:
-    app: holmes
+    {{- include "holmes.selectorLabels" . | nindent 4 }}
     {{- include "holmes.commonLabels" . | nindent 4 }}
   {{- with (include "holmes.commonAnnotations" .) }}
   annotations:
