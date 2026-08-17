@@ -77,6 +77,39 @@ _SATURATION_LOG_AFTER_SECONDS = 60.0
 #    repeats at most this often.
 _STUCK_WARN_RATE_LIMIT_SECONDS = 300.0
 
+# Shutdown handling. When the pod is asked to stop (SIGTERM from a rollout,
+# node drain, scale-down), whatever conversations we are mid-turn on are never
+# going to finish: the executor is not drained, the threads are daemons, and
+# nothing else picks the row back up (the claim RPCs only take 'pending').
+# Before this, the row simply stayed 'running' with our now-dead assignee until
+# the pg_cron stale sweep retired it hours later — a spinner in the UI the whole
+# time. We now retire them ourselves: an error event carrying the reason below,
+# then status 'timeout'.
+SHUTDOWN_REASON = "Holmes Restarted"
+SHUTDOWN_ERROR_DESCRIPTION = (
+    f"{SHUTDOWN_REASON} — this request was interrupted before it finished. "
+    "Ask again to retry."
+)
+# Distinct from the generic 5000 so this is greppable and the FE can special-case
+# it later; unmapped codes render `description` as-is today.
+SHUTDOWN_ERROR_CODE = 5205
+
+
+class _ActiveTask:
+    """An in-flight conversation: the task itself plus when it took its slot.
+
+    ``started`` is ``time.monotonic()`` and feeds the saturation/stuck-slot
+    logging; ``task`` is kept so the shutdown path can address the row (it
+    needs conversation_id + request_sequence, which the dict key alone no
+    longer suffices for once we have to write to the DB).
+    """
+
+    __slots__ = ("task", "started")
+
+    def __init__(self, task: "ConversationTask", started: float):
+        self.task = task
+        self.started = started
+
 
 
 class ConversationWorker:
@@ -116,7 +149,7 @@ class ConversationWorker:
         # conversation are counted separately for capacity. The value is the
         # monotonic start time, so the claim loop can report how long each
         # in-flight task has been holding a slot (ROB-759).
-        self._active_conversation_ids: Dict[Any, float] = {}
+        self._active_conversation_ids: Dict[Any, _ActiveTask] = {}
         self._active_lock = threading.Lock()
 
         # Saturation-transition logging state (ROB-759). _saturated_since is
@@ -249,6 +282,19 @@ class ConversationWorker:
         self._running = False
         self._notify_event.set()
         self._realtime_verify_stop.set()
+        # Retire whatever we're mid-turn on before tearing the pool down. Must
+        # happen while the rows still carry our assignee and 'running' status —
+        # both RPCs guard on that. Flipping the status also makes any straggler
+        # write from the in-flight thread fail with MISMATCH, which the
+        # publisher already handles as ConversationReassignedError, so the
+        # abandoned turn unwinds quietly instead of racing us.
+        try:
+            self._timeout_active_conversations()
+        except Exception:
+            logging.exception(
+                "Failed to retire in-flight conversations during shutdown",
+                exc_info=True,
+            )
         try:
             self._tool_call_worker.stop()
         except Exception:
@@ -489,8 +535,8 @@ class ConversationWorker:
             self._saturation_logged = True
             with self._active_lock:
                 ages = sorted(
-                    (round(now - started, 1), key)
-                    for key, started in self._active_conversation_ids.items()
+                    (round(now - entry.started, 1), key)
+                    for key, entry in self._active_conversation_ids.items()
                 )
             logging.info(
                 "Conversation claim capacity saturated for %.0fs: all %d slots "
@@ -507,9 +553,10 @@ class ConversationWorker:
         ):
             with self._active_lock:
                 stuck = sorted(
-                    (round(now - started, 1), key)
-                    for key, started in self._active_conversation_ids.items()
-                    if now - started >= CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
+                    (round(now - entry.started, 1), key)
+                    for key, entry in self._active_conversation_ids.items()
+                    if now - entry.started
+                    >= CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
                 )
             if stuck:
                 self._last_stuck_warn = now
@@ -596,7 +643,9 @@ class ConversationWorker:
             if not self._running or self._executor is None:
                 return
             with self._active_lock:
-                self._active_conversation_ids[task.active_key] = time.monotonic()
+                self._active_conversation_ids[task.active_key] = _ActiveTask(
+                    task, time.monotonic()
+                )
             try:
                 self._executor.submit(self._process_conversation_safe, task)
             except RuntimeError:
@@ -643,6 +692,7 @@ class ConversationWorker:
         description: str,
         error_code: int = 5000,
         raw_error: Optional[str] = None,
+        reason: Optional[str] = None,
     ) -> None:
         """Post an error event to ConversationEvents so subscribers can see the failure reason."""
         data: Dict[str, Any] = {
@@ -651,6 +701,11 @@ class ConversationWorker:
             "msg": description,
             "success": False,
         }
+        # Short machine-readable cause (e.g. "Holmes Restarted") alongside the
+        # human-readable description the UI renders. Kept separate so a caller
+        # can group/filter on it without parsing prose.
+        if reason is not None:
+            data["reason"] = reason
         # Full upstream error, included only for Robusta-AI (relay) models where
         # the error originates from our own backend and is safe to surface.
         if raw_error is not None:
@@ -697,6 +752,90 @@ class ConversationWorker:
                 task.conversation_id,
                 exc_info=True,
             )
+
+    # ---- shutdown ----
+
+    def _timeout_active_conversations(self) -> None:
+        """Mark every conversation this worker is still processing as timed out.
+
+        Called from ``stop()`` — i.e. on a graceful shutdown (SIGTERM from a
+        rollout / drain), not on SIGKILL or an OOM kill, where nothing of ours
+        runs and the pg_cron stale sweep remains the backstop.
+
+        Each row gets an error event carrying ``reason="Holmes Restarted"``
+        first (post_conversation_events requires status='running', so the order
+        matters) and is then transitioned to 'timeout'.
+        """
+        with self._active_lock:
+            entries = list(self._active_conversation_ids.values())
+        if not entries:
+            return
+
+        logging.info(
+            "Shutdown: marking %d in-flight conversation(s) as timed out (%s)",
+            len(entries),
+            SHUTDOWN_REASON,
+        )
+        for entry in entries:
+            task = entry.task
+            try:
+                self._post_error_event(
+                    task,
+                    SHUTDOWN_ERROR_DESCRIPTION,
+                    error_code=SHUTDOWN_ERROR_CODE,
+                    reason=SHUTDOWN_REASON,
+                )
+                self._timeout_conversation(task)
+            except Exception:
+                logging.warning(
+                    "Failed to time out conversation %s on shutdown",
+                    task.conversation_id,
+                    exc_info=True,
+                )
+
+    def _timeout_conversation(self, task: ConversationTask) -> None:
+        """Transition one conversation to 'timeout', falling back to 'failed'.
+
+        'timeout' as a *target* status needs robusta-storage migration
+        20260817121606. Cloud databases are migrated by hand with no pipeline,
+        so a Holmes release can legitimately reach an environment whose
+        update_conversation_status still rejects it ("Invalid status: timeout").
+        In that case we fall back to 'failed', which every version accepts —
+        the conversation is still terminal, still carries the "Holmes Restarted"
+        error event, and stays followup-able. Once the migration is applied the
+        first call succeeds and this branch goes cold.
+        """
+        try:
+            if self.dal.update_conversation_status(
+                conversation_id=task.conversation_id,
+                request_sequence=task.request_sequence,
+                assignee=self.holmes_id,
+                status=ConversationStatus.TIMEOUT.value,
+            ):
+                return
+        except ConversationReassignedError:
+            # The turn finished (or was stopped/retried) while we were shutting
+            # down — whoever owns the row now has already set its status.
+            return
+
+        # The DAL swallows non-mismatch RPC errors and returns False, so this
+        # covers both "Invalid status: timeout" from an un-migrated database
+        # and a transient Supabase failure. Either way, try the status every
+        # version accepts rather than leave the row 'running'.
+        logging.info(
+            "Could not set conversation %s to 'timeout'; falling back to "
+            "'failed'",
+            task.conversation_id,
+        )
+        try:
+            self.dal.update_conversation_status(
+                conversation_id=task.conversation_id,
+                request_sequence=task.request_sequence,
+                assignee=self.holmes_id,
+                status=ConversationStatus.FAILED.value,
+            )
+        except ConversationReassignedError:
+            return
 
     # ---- per-conversation processing ----
 

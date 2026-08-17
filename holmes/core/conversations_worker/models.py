@@ -13,11 +13,25 @@ class ConversationStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     STOPPED = "stopped"
+    # Written by the pg_cron stale sweep, and by the worker itself for
+    # conversations still in flight when Holmes shuts down.
+    TIMEOUT = "timeout"
 
     @classmethod
     def updatable_values(cls) -> tuple:
-        """Statuses accepted by ``update_conversation_status`` (QUEUED kept for compat)."""
-        return (cls.QUEUED.value, cls.RUNNING.value, cls.COMPLETED.value, cls.FAILED.value)
+        """Statuses accepted by ``update_conversation_status`` (QUEUED kept for compat).
+
+        TIMEOUT requires robusta-storage migration 20260817121606; against an
+        older database the RPC rejects it and the worker falls back to FAILED
+        (see ConversationWorker._timeout_conversation).
+        """
+        return (
+            cls.QUEUED.value,
+            cls.RUNNING.value,
+            cls.COMPLETED.value,
+            cls.FAILED.value,
+            cls.TIMEOUT.value,
+        )
 
 
 class RemoteToolCallStatus(str, Enum):
