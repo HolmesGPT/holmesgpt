@@ -15,28 +15,57 @@ holmes:
         connectivity_check:
             enabled: true
             config: # optional
-              allowed_hosts: []      # if set, only these hosts may be probed
-              block_internal_ips: true  # block metadata/loopback/link-local targets
-              block_private_ips: false  # also block private/RFC1918 (off: cluster IPs stay reachable)
+              # Internal destinations must be named here before they can be probed.
+              # Accepts hostnames (matching subdomains), bare IPs, and CIDRs.
+              allowed_hosts:
+                - prometheus.monitoring.svc
+                - 10.96.0.0/12
+              block_internal_ips: true   # enforce the destination policy
+              block_private_ips: false   # true = refuse private even if allowlisted
+              max_probes: 60             # probes per window (0 disables)
+              probe_window_seconds: 60
 ```
+
+!!! warning "Probing internal addresses requires configuration"
+    Private/RFC1918 destinations are refused unless you list them in
+    `allowed_hosts`. If you use `tcp_check` against in-cluster services, add
+    them (or their CIDR) to `allowed_hosts` — otherwise the probe is refused
+    with a message naming this setting.
 
 ### SSRF protection
 
 The probe target (`host`) is chosen by the LLM, and that choice can be
-influenced by untrusted observability data (indirect prompt injection). Left
-unguarded, `tcp_check` is a blind internal-network scanner. The toolset
-therefore refuses the dangerous targets by default:
+influenced by untrusted observability data (indirect prompt injection).
+`tcp_check` returns distinguishable open / refused / filtered outcomes, which is
+all that is needed to enumerate hosts and ports — so left unguarded it is a
+blind internal-network scanner sitting inside your trust boundary. The toolset
+therefore applies this policy:
 
 - **Cloud metadata / loopback are blocked.** Requests to `169.254.0.0/16`
   (incl. `169.254.169.254`), loopback, link-local, multicast, reserved and
   unspecified addresses are rejected. The connection is made to the validated IP
   so DNS rebinding cannot redirect the probe.
-- **Private/cluster IPs stay reachable by default.** Checking connectivity to
-  internal cluster services (RFC1918) is the tool's main purpose, so those are
-  allowed. Set `block_private_ips: true` to restrict the tool to public hosts.
-- **Optional allowlist.** When `allowed_hosts` is set, only those hosts (and
-  subdomains) may be probed, and they are exempt from the internal-IP block.
-- Set `block_internal_ips: false` only in trusted, isolated environments.
+- **Private/cluster destinations must be named.** RFC1918 and other private
+  addresses are refused unless they match `allowed_hosts`. Probing internal
+  services is the tool's legitimate purpose, so the operator names the ones that
+  matter rather than the whole range being open. Entries may be hostnames
+  (`db.internal` also matches `primary.db.internal`), bare IPs, or CIDRs
+  (`10.96.0.0/12`).
+- **An allowlist is exhaustive.** Once `allowed_hosts` is non-empty, public
+  destinations outside it are refused too, and listed destinations are exempt
+  from the internal-IP block so you can deliberately target a specific endpoint.
+- **Public destinations stay reachable with no configuration**, so ordinary
+  external connectivity checks work out of the box.
+- **Probes are rate limited** to `max_probes` per `probe_window_seconds` so a
+  broad allowlist cannot be swept quickly. The counter is per Holmes process and
+  shared across concurrent investigations, so keep it above normal use; set
+  `max_probes: 0` to disable.
+- **Every probe is logged** — allowed and refused alike — so scanning is visible
+  in the Holmes logs.
+- `block_private_ips: true` refuses private destinations outright, even
+  allowlisted ones.
+- Set `block_internal_ips: false` only in trusted, isolated environments: it
+  removes every range check and restores unrestricted probing.
 
 ## Capabilities
 
