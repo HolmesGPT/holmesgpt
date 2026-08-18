@@ -811,47 +811,24 @@ class ConversationWorker:
                 )
 
     def _timeout_conversation(self, task: ConversationTask) -> None:
-        """Transition one conversation to 'timeout', falling back to 'failed'.
+        """Transition one conversation to 'timeout'.
 
         'timeout' as a *target* status needs robusta-storage migration
-        20260817121606. Cloud databases are migrated by hand with no pipeline,
-        so a Holmes release can legitimately reach an environment whose
-        update_conversation_status still rejects it ("Invalid status: timeout").
-        In that case we fall back to 'failed', which every version accepts —
-        the conversation is still terminal, still carries the "Holmes Restarted"
-        error event, and stays followup-able. Once the migration is applied the
-        first call succeeds and this branch goes cold.
+        20260817121606, which is applied before this ships (see that
+        migration's DEPLOY ORDER note). Against a database that predates it the
+        RPC rejects the status, the DAL logs the error and returns False, and
+        the row is left to the pg_cron stale sweep exactly as it was before.
         """
-        try:
-            if self.dal.update_conversation_status(
-                conversation_id=task.conversation_id,
-                request_sequence=task.request_sequence,
-                assignee=self.holmes_id,
-                status=ConversationStatus.TIMEOUT.value,
-            ):
-                return
-        except ConversationReassignedError:
-            # The turn finished (or was stopped/retried) while we were shutting
-            # down — whoever owns the row now has already set its status.
-            return
-
-        # The DAL swallows non-mismatch RPC errors and returns False, so this
-        # covers both "Invalid status: timeout" from an un-migrated database
-        # and a transient Supabase failure. Either way, try the status every
-        # version accepts rather than leave the row 'running'.
-        logging.info(
-            "Could not set conversation %s to 'timeout'; falling back to "
-            "'failed'",
-            task.conversation_id,
-        )
         try:
             self.dal.update_conversation_status(
                 conversation_id=task.conversation_id,
                 request_sequence=task.request_sequence,
                 assignee=self.holmes_id,
-                status=ConversationStatus.FAILED.value,
+                status=ConversationStatus.TIMEOUT.value,
             )
         except ConversationReassignedError:
+            # The turn finished (or was stopped/retried) while we were shutting
+            # down — whoever owns the row now has already set its status.
             return
 
     # ---- per-conversation processing ----

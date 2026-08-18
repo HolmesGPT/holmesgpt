@@ -1001,17 +1001,17 @@ def test_timeout_active_conversations_noop_when_idle():
     w.dal.update_conversation_status.assert_not_called()
 
 
-def test_timeout_conversation_falls_back_to_failed_on_old_database():
-    """An un-migrated database rejects 'timeout' as a target status; the
-    conversation must still end up terminal rather than stuck 'running'."""
+def test_timeout_conversation_writes_timeout_only():
+    """One status write, no second-guessing: a database that rejects 'timeout'
+    leaves the row to the pg_cron stale sweep (the migration ships first)."""
     w = _bare_worker()
     task = _active(w, "c1", 1)
-    w.dal.update_conversation_status = MagicMock(side_effect=[False, True])
+    w.dal.update_conversation_status = MagicMock(return_value=False)
 
     w._timeout_conversation(task)
 
     statuses = [c.kwargs["status"] for c in w.dal.update_conversation_status.call_args_list]
-    assert statuses == ["timeout", "failed"]
+    assert statuses == ["timeout"]
 
 
 def test_timeout_conversation_stops_when_row_was_reassigned():

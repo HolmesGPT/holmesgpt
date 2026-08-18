@@ -21,9 +21,8 @@ class ConversationStatus(str, Enum):
     def updatable_values(cls) -> tuple:
         """Statuses accepted by ``update_conversation_status`` (QUEUED kept for compat).
 
-        TIMEOUT requires robusta-storage migration 20260817121606; against an
-        older database the RPC rejects it and the worker falls back to FAILED
-        (see ConversationWorker._timeout_conversation).
+        TIMEOUT requires robusta-storage migration 20260817121606, which is
+        applied before this ships.
         """
         return (
             cls.QUEUED.value,
