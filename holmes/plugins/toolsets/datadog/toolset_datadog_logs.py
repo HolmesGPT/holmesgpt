@@ -21,6 +21,10 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     execute_datadog_http_request,
     get_headers,
 )
+from holmes.plugins.toolsets.datadog.datadog_scope import (
+    apply_scope_to_search_query,
+    no_data_suffix,
+)
 from holmes.plugins.toolsets.datadog.datadog_models import (
     DatadogLogsConfig,
 )
@@ -90,7 +94,7 @@ class DatadogLogsToolset(Toolset):
                 "filter": {
                     "from": "now-1m",
                     "to": "now",
-                    "query": "*",
+                    "query": apply_scope_to_search_query(self.dd_config.scope, "*"),
                     "indexes": self.dd_config.indexes,
                 },
                 "page": {"limit": 1},
@@ -227,7 +231,9 @@ class GetLogs(Tool):
             storage = self.toolset.dd_config.storage_tier
             payload = {
                 "filter": {
-                    "query": params.get("query", "*"),
+                    "query": apply_scope_to_search_query(
+                        self.toolset.dd_config.scope, params.get("query")
+                    ),
                     "from": str(from_time_ms),
                     "to": str(to_time_ms),
                     "storage_tier": storage,
@@ -252,6 +258,21 @@ class GetLogs(Tool):
 
             if self.toolset.dd_config.compact_logs and response.get("data"):
                 response["data"] = format_logs(response["data"])
+
+            scope = self.toolset.dd_config.scope
+            if scope is not None and not response.get("data"):
+                # Say why it is empty. Otherwise an out-of-scope service reads to
+                # the model as a healthy one.
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.NO_DATA,
+                    error=(
+                        "No logs matched.\n"
+                        f"Query sent to Datadog: {payload['filter']['query']}"
+                        + no_data_suffix(scope)
+                    ),
+                    params=params,
+                    url=generate_datadog_logs_url(self.toolset.dd_config, payload),
+                )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,

@@ -36,6 +36,11 @@ DEFAULT_STORAGE_TIER = DataDogStorageTier.INDEXES
 class DatadogMetricsConfig(DatadogBaseConfig):
     """Configuration for Datadog metrics toolset."""
 
+    # `scope` is a nested object, which doesn't render as a frontend form input,
+    # and it is an admin-level security control rather than a per-user setting.
+    # The runtime still accepts it via raw YAML.
+    _hidden_fields: ClassVar[List[str]] = ["scope"]
+
     default_limit: int = Field(
         default=DEFAULT_METRICS_LIMIT,
         description="Default maximum number of results to return when a limit is not explicitly provided",
@@ -47,7 +52,7 @@ class DatadogTracesConfig(DatadogBaseConfig):
 
     # Hide list-typed advanced fields from the frontend form and example YAML.
     # The runtime still accepts them via raw YAML for users who need to override.
-    _hidden_fields: ClassVar[List[str]] = ["indexes"]
+    _hidden_fields: ClassVar[List[str]] = ["indexes", "scope"]
 
     indexes: list[str] = Field(
         default_factory=lambda: ["*"],
@@ -62,7 +67,7 @@ class DatadogLogsConfig(DatadogBaseConfig):
     # Hide the `indexes` list from the frontend form and example YAML
     # because complex list types don't render as form inputs. Runtime still
     # accepts it via raw YAML for advanced users.
-    _hidden_fields: ClassVar[List[str]] = ["indexes"]
+    _hidden_fields: ClassVar[List[str]] = ["indexes", "scope"]
 
     indexes: list[str] = Field(
         default_factory=lambda: ["*"],
@@ -121,6 +126,8 @@ class DatadogLogsConfig(DatadogBaseConfig):
 class DatadogGeneralConfig(DatadogBaseConfig):
     """Configuration for general-purpose Datadog toolset."""
 
+    _hidden_fields: ClassVar[List[str]] = ["scope"]
+
     max_response_size: int = Field(
         default=MAX_RESPONSE_SIZE,
         description="Maximum size (in bytes) of API responses returned by the toolset",
@@ -129,3 +136,22 @@ class DatadogGeneralConfig(DatadogBaseConfig):
         default=False,
         description="If true, allows calling endpoints not in the whitelist (still filtered for safety/read-only)",
     )
+
+    @model_validator(mode="after")
+    def _reject_scope_with_custom_endpoints(self) -> "DatadogGeneralConfig":
+        """
+        `scope` and `allow_custom_endpoints` are a contradiction.
+
+        Scoping exists to keep Holmes inside one environment; allowing arbitrary
+        endpoints hands it a way straight back out. Fail at config validation
+        rather than silently letting one option defeat the other.
+        """
+        if self.scope is not None and self.allow_custom_endpoints:
+            raise ValueError(
+                "datadog/general cannot set both 'scope' and 'allow_custom_endpoints: "
+                "true' — allowing arbitrary endpoints defeats the scope. Remove one of "
+                "them. Note that datadog/general does not support scoping at all and "
+                "must be disabled when a scope is configured; see "
+                "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/#restricting-holmes-to-a-single-environment"
+            )
+        return self

@@ -12,6 +12,7 @@ from requests.structures import CaseInsensitiveDict  # type: ignore
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_incrementing
 from tenacity.wait import wait_base
 
+from holmes.plugins.toolsets.datadog.datadog_scope import DatadogScopeConfig
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 START_RETRY_DELAY = (
@@ -136,6 +137,18 @@ class DatadogBaseConfig(ToolsetConfig):
         default=60,
         title="Timeout",
         description="HTTP request timeout in seconds",
+    )
+    scope: Optional[DatadogScopeConfig] = Field(
+        default=None,
+        title="Environment Scope",
+        description=(
+            "Restricts every Datadog toolset to data carrying the given tags, e.g. "
+            "{'tags': {'env': 'staging'}}. Left unset (the default) the toolsets "
+            "behave exactly as before. This is defence in depth: the actual security "
+            "boundary is a Datadog role restriction query on the credential Holmes "
+            "uses. See "
+            "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/#restricting-holmes-to-a-single-environment"
+        ),
     )
 
 
