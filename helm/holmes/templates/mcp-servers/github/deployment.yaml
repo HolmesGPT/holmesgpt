@@ -82,7 +82,7 @@ spec:
       containers:
       - name: github-mcp
         {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
-        image: "{{ .Values.mcpAddons.github.auth.githubApp.registry }}/{{ .Values.mcpAddons.github.auth.githubApp.image }}"
+        image: "{{ .Values.mcpAddons.github.auth.githubApp.registry }}/{{ if .Values.mcpAddons.github.auth.githubApp.multiOrg }}{{ .Values.mcpAddons.github.auth.githubApp.multiOrgImage }}{{ else }}{{ .Values.mcpAddons.github.auth.githubApp.image }}{{ end }}"
         {{- else }}
         image: "{{ .Values.mcpAddons.github.registry }}/{{ .Values.mcpAddons.github.image }}"
         {{- end }}
@@ -92,6 +92,10 @@ spec:
           name: http
           protocol: TCP
         {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
+        {{- /* multiOrg runs the 2.0.0 image, whose entrypoint is self-contained:
+             a token-routing proxy on 8000 in front of github-mcp-server http.
+             The stable image still needs supergateway args. */}}
+        {{- if not .Values.mcpAddons.github.auth.githubApp.multiOrg }}
         args:
           - "--stdio"
           - "python3 /app/wrapper.py"
@@ -99,6 +103,7 @@ spec:
           - "8000"
           - "--outputTransport"
           - "streamableHttp"
+        {{- end }}
         {{- else }}
         # PAT path: native HTTP mode of github-mcp-server (v1.4.0+).
         # Auth is per-request via Authorization: Bearer, set by Holmes (see toolset-config.yaml + holmes.yaml).
@@ -124,11 +129,16 @@ spec:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_ID
+        {{- /* Required normally; under multiOrg it may be omitted from the
+             secret to auto-discover installations, or kept to pin one. */}}
         - name: GITHUB_APP_INSTALLATION_ID
           valueFrom:
             secretKeyRef:
               name: {{ .Values.mcpAddons.github.auth.githubApp.secretName }}
               key: GITHUB_APP_INSTALLATION_ID
+              {{- if .Values.mcpAddons.github.auth.githubApp.multiOrg }}
+              optional: true
+              {{- end }}
         - name: GITHUB_APP_PRIVATE_KEY
           valueFrom:
             secretKeyRef:
@@ -162,6 +172,22 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
+        {{- if and .Values.mcpAddons.github.auth.githubApp.secretName .Values.mcpAddons.github.auth.githubApp.multiOrg }}
+        {{- /* The multi-org proxy serves /healthz (process up) and /readyz
+             (at least one GitHub App installation discovered). */}}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        {{- else }}
         readinessProbe:
           tcpSocket:
             port: 8000
@@ -172,6 +198,7 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
+        {{- end }}
         {{- if .Values.mcpAddons.github.config.customCACert.enabled }}
         volumeMounts:
         - name: ca-cert

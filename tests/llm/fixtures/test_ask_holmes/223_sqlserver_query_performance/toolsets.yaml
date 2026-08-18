@@ -3,4 +3,7 @@ toolsets:
     type: database
     enabled: true
     config:
-      connection_url: "mssql+pymssql://sa:HolmesTest123!@localhost:10223/testdb"
+      connection_url: "mssql+pytds://sa:HolmesTest123!@localhost:10223/testdb"
+      # The in-cluster SQL Server uses a self-generated certificate; pytds has
+      # no encrypt-without-verification mode, so disable TLS.
+      verify_ssl: false

@@ -149,6 +149,8 @@ spec:
         env:
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
+          - name: ENABLE_JSON_LOGS_FORMAT
+            value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
           - name: SENTRY_DSN

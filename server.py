@@ -12,6 +12,7 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 import json
 import logging
 import ssl
+import sys
 import threading
 import time
 from datetime import datetime
@@ -34,6 +35,7 @@ from holmes.common.env_vars import (
     DEVELOPMENT_MODE,
     ENABLE_CONNECTION_KEEPALIVE,
     ENABLE_CONVERSATION_WORKER,
+    ENABLE_JSON_LOGS_FORMAT,
     ENABLE_TELEMETRY,
     ENABLED_SCHEDULED_PROMPTS,
     HOLMES_HOST,
@@ -74,7 +76,13 @@ from holmes.utils.holmes_status import (
 )
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
-from holmes.utils.log import EndpointFilter
+from holmes.utils.log import (
+    EndpointFilter,
+    JSON_LOG_DATEFMT,
+    JSON_LOG_FMT,
+    JSON_LOG_RENAME_FIELDS,
+    build_json_formatter,
+)
 from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
@@ -82,7 +90,7 @@ from holmes.core.tools_utils.frontend_tools import (
     FrontendToolCollisionError,
     inject_frontend_tools,
 )
-from holmes.core.tracing import TracingFactory
+from holmes.core.tracing import TracingFactory, langfuse_trace_attributes
 from holmes.core.usage_recorder import (
     build_chat_recorder_state,
     record_error,
@@ -99,13 +107,21 @@ def init_logging():
     uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
 
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
-    logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
-    logging_datefmt = "%Y-%m-%d %H:%M:%S"
 
-    print("setting up colored logging")
-    colorlog.basicConfig(
-        format=logging_format, level=logging_level, datefmt=logging_datefmt
-    )
+    if ENABLE_JSON_LOGS_FORMAT:
+        # JSON logs (one object per line) are easier for log scrapers like
+        # Filebeat to index, search, and filter. Avoid printing anything to
+        # stdout here so the JSON stream is not corrupted by a plain-text line.
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(build_json_formatter())
+        logging.basicConfig(handlers=[handler], level=logging_level, force=True)
+    else:
+        logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
+        logging_datefmt = "%Y-%m-%d %H:%M:%S"
+
+        colorlog.basicConfig(
+            format=logging_format, level=logging_level, datefmt=logging_datefmt
+        )
     logging.getLogger().setLevel(logging_level)
 
     httpx_logger = logging.getLogger("httpx")
@@ -606,9 +622,19 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.stream:
             # Create root investigation span for streaming (same as non-streaming)
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
-            trace_span.log(metadata={
+            trace_span.log(input=chat_request.ask, metadata={
                 "holmesgpt.investigation.question": chat_request.ask[:1024],
                 "holmesgpt.investigation.stream": True,
+                **langfuse_trace_attributes(
+                    chat_request.ask,
+                    user_id=chat_request.user_id,
+                    user_email=chat_request.user_email,
+                    account_id=dal.account_id,
+                    session_id=chat_request.conversation_id,
+                    cluster_id=config.cluster_name,
+                    model=chat_request.model or config.model,
+                    request_source=chat_request.request_source,
+                ),
             })
             otel_metrics = TracingFactory.get_metrics()
             if otel_metrics:
@@ -652,8 +678,18 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span = server_tracer.start_trace(
                         "holmesgpt.investigation",
                     )
-                    trace_span.log(metadata={
+                    trace_span.log(input=chat_request.ask, metadata={
                         "holmesgpt.investigation.question": chat_request.ask[:1024],
+                        **langfuse_trace_attributes(
+                            chat_request.ask,
+                            user_id=chat_request.user_id,
+                            user_email=chat_request.user_email,
+                            account_id=dal.account_id,
+                            session_id=chat_request.conversation_id,
+                            cluster_id=config.cluster_name,
+                            model=chat_request.model or config.model,
+                            request_source=chat_request.request_source,
+                        ),
                     })
 
                 _inv_start = time.time()
@@ -919,12 +955,23 @@ def main():
 
     # Configure uvicorn logging
     log_config = uvicorn.config.LOGGING_CONFIG
-    log_config["formatters"]["access"]["fmt"] = (
-        "%(asctime)s %(levelname)-8s %(message)s"
-    )
-    log_config["formatters"]["default"]["fmt"] = (
-        "%(asctime)s %(levelname)-8s %(message)s"
-    )
+    if ENABLE_JSON_LOGS_FORMAT:
+        # Emit uvicorn's own access/error lines as JSON too, so the whole pod's
+        # stdout is one consistent JSON stream for log scrapers.
+        for formatter_name in ("default", "access"):
+            log_config["formatters"][formatter_name] = {
+                "()": "pythonjsonlogger.json.JsonFormatter",
+                "fmt": JSON_LOG_FMT,
+                "datefmt": JSON_LOG_DATEFMT,
+                "rename_fields": JSON_LOG_RENAME_FIELDS,
+            }
+    else:
+        log_config["formatters"]["access"]["fmt"] = (
+            "%(asctime)s %(levelname)-8s %(message)s"
+        )
+        log_config["formatters"]["default"]["fmt"] = (
+            "%(asctime)s %(levelname)-8s %(message)s"
+        )
 
     # Sync before server start
     sync_before_server_start()

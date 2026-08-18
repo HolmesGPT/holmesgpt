@@ -3,8 +3,19 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, ClassVar, Dict, FrozenSet, List, Literal, Optional, Tuple, Type
-from urllib.parse import urlparse
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    FrozenSet,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+)
+from urllib.parse import urljoin, urlparse
 
 import requests  # type: ignore
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
@@ -20,6 +31,11 @@ from holmes.core.tools import (
     Toolset,
     ToolsetType,
 )
+from holmes.plugins.toolsets.internet.ssrf import (
+    SSRFValidationError,
+    build_pinned_adapter,
+    validate_url,
+)
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -29,6 +45,59 @@ logger = logging.getLogger(__name__)
 ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 SUPPORTED_SCHEMES = ("http", "https")
 SCHEME_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+# Redirects are never followed blindly: the whitelist is enforced against the
+# ORIGINAL url only, so an allowed host that can be made to emit a 30x (open
+# redirect, attacker-controlled path/param, compromised upstream) would
+# otherwise pivot the request to cloud metadata or an in-cluster service. Every
+# hop is re-validated against match_endpoint() instead.
+REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+
+# Bound the manual redirect chain, mirroring requests' default.
+MAX_REDIRECTS = 5
+
+# Only these headers survive a redirect that crosses an origin. Everything else
+# is operator- or model-supplied and must be assumed to carry a secret: `auth`
+# of every type, `default_headers`, the Jinja-rendered `extra_headers` (which
+# exist precisely to inject tokens, e.g. "{{ env.MY_TOKEN }}"), and any header
+# the model passed to the tool.
+#
+# This is an allowlist rather than a list of known credential header names so
+# that a new way to configure a secret header cannot silently start leaking.
+# requests' own rebuild_auth() is no help here: it strips only 'Authorization',
+# and only when the HOSTNAME changes, so header-type auth and
+# same-host/different-port hops would keep the credential.
+CROSS_ORIGIN_SAFE_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "content-type",
+        "user-agent",
+    }
+)
+
+
+def _origin(url: str) -> Tuple[str, str, Optional[int]]:
+    """(scheme, host, effective port) — the origin a credential is scoped to."""
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port is None:
+        port = SCHEME_DEFAULT_PORTS.get(scheme)
+    return scheme, (parsed.hostname or "").lower(), port
+
+
+def _strip_credentials(headers: Dict[str, str]) -> Dict[str, str]:
+    """Keep only the headers that are safe to carry across an origin boundary.
+
+    See CROSS_ORIGIN_SAFE_HEADERS — anything not on that list is dropped rather
+    than matched against a list of known credential names.
+    """
+    return {k: v for k, v in headers.items() if k.lower() in CROSS_ORIGIN_SAFE_HEADERS}
 
 
 @dataclass(frozen=True)
@@ -242,6 +311,15 @@ class HttpToolsetConfig(ToolsetConfig):
         default=None,
         description="Path to client private key file for mTLS. If not set, the cert file is assumed to contain both cert and key.",
     )
+    block_internal_ips: bool = Field(
+        default=False,
+        description="Reject requests whose host resolves to a loopback, link-local "
+        "(incl. 169.254.169.254 cloud metadata), private or reserved address, and pin "
+        "the connection to the validated IP to defeat DNS rebinding. Defaults to False "
+        "because whitelisted endpoints are commonly in-cluster services "
+        "(e.g. http://prometheus.monitoring.svc:9090). Enable it when every configured "
+        "endpoint is a public host.",
+    )
 
 
 class HttpToolset(Toolset):
@@ -419,7 +497,24 @@ class HttpToolset(Toolset):
             if cert:
                 request_kwargs["cert"] = cert
 
-            response = requests.get(url, **request_kwargs)
+            # The health-check URL is operator-configured, but it can still be
+            # open-redirected, which would replay the endpoint's credentials
+            # elsewhere. It is allowed to sit outside the endpoint's `paths`
+            # whitelist, so hops are constrained to its own origin rather than
+            # to match_endpoint().
+            response, redirect_error = self.request_with_validated_redirects(
+                "GET",
+                url,
+                request_kwargs,
+                check_redirect_target=self._same_origin_hop(url),
+            )
+            if redirect_error or response is None:
+                return (
+                    False,
+                    f"Health check failed for endpoint {endpoint_index} ({url}): "
+                    f"{redirect_error or 'request refused'}\n"
+                    f"To troubleshoot, run: {curl_cmd}",
+                )
 
             if response.ok:
                 logger.info(f"Health check passed for endpoint {endpoint_index}: {url}")
@@ -561,6 +656,122 @@ class HttpToolset(Toolset):
                 return HTTPDigestAuth(endpoint.auth.username, endpoint.auth.password)
         return None
 
+    def _send(
+        self, method: str, url: str, request_kwargs: Dict[str, Any]
+    ) -> requests.Response:
+        """Send a single hop, never following redirects itself.
+
+        When `block_internal_ips` is enabled the host is resolved and validated
+        first and the socket is pinned to that exact IP, so a DNS rebind between
+        validation and connection cannot swap in an internal address.
+        """
+        kwargs = dict(request_kwargs)
+        kwargs["allow_redirects"] = False
+
+        if not (self._http_config and self._http_config.block_internal_ips):
+            return requests.request(method, url, **kwargs)
+
+        pinned_ip = validate_url(url, block_internal_ips=True)[0]
+        session = requests.Session()
+        adapter = build_pinned_adapter(pinned_ip)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        try:
+            return session.request(method, url, **kwargs)
+        finally:
+            session.close()
+
+    def _same_origin_hop(
+        self, origin_url: str
+    ) -> Callable[[str], Tuple[Optional["EndpointConfig"], Optional[str]]]:
+        """Hop validator that only permits redirects staying on the same origin.
+
+        Used for health checks, whose configured URL is allowed to sit outside
+        the endpoint's `paths` whitelist.
+        """
+
+        def check(next_url: str) -> Tuple[Optional["EndpointConfig"], Optional[str]]:
+            if _origin(next_url) != _origin(origin_url):
+                return None, "redirect leaves the origin of the configured URL"
+            return None, None
+
+        return check
+
+    def request_with_validated_redirects(
+        self,
+        method: str,
+        url: str,
+        request_kwargs: Dict[str, Any],
+        check_redirect_target: Optional[
+            Callable[[str], Tuple[Optional["EndpointConfig"], Optional[str]]]
+        ] = None,
+    ) -> Tuple[Optional[requests.Response], Optional[str]]:
+        """Perform a request, following redirects only to URLs that pass
+        `check_redirect_target` (the endpoint whitelist by default).
+
+        Returns (response, error) — when `error` is set the response is never
+        surfaced to the LLM.
+        """
+        if check_redirect_target is None:
+            check_redirect_target = self.match_endpoint
+
+        current_url = url
+        current_method = method
+        kwargs = dict(request_kwargs)
+
+        for _ in range(MAX_REDIRECTS + 1):
+            try:
+                response = self._send(current_method, current_url, kwargs)
+            except SSRFValidationError as e:
+                return None, f"Refusing to request {current_url}: {e}"
+
+            if response.status_code not in REDIRECT_STATUS_CODES:
+                return response, None
+
+            location = response.headers.get("location")
+            if not location:
+                # A 3xx with no Location is not a redirect we can follow; treat
+                # it as the final response.
+                return response, None
+
+            next_url = urljoin(current_url, location)
+            next_endpoint, next_error = check_redirect_target(next_url)
+            if next_error:
+                return None, (
+                    f"Refusing to follow redirect from {current_url} to {next_url}: "
+                    f"{next_error}"
+                )
+
+            # 301/302/303 downgrade a non-idempotent method to GET (browser and
+            # requests behaviour); 307/308 preserve method and body.
+            next_method = current_method
+            if response.status_code in (301, 302, 303) and current_method not in (
+                "GET",
+                "HEAD",
+            ):
+                next_method = "GET"
+                kwargs.pop("data", None)
+
+            if next_endpoint is not None and not self.is_method_allowed(
+                next_method, next_endpoint
+            ):
+                return None, (
+                    f"Refusing to follow redirect from {current_url} to {next_url}: "
+                    f"method {next_method} not allowed for the redirect target. "
+                    f"Allowed methods: {next_endpoint.get_methods()}"
+                )
+
+            if _origin(current_url) != _origin(next_url):
+                kwargs["headers"] = _strip_credentials(kwargs.get("headers") or {})
+                kwargs["auth"] = None
+
+            current_url = next_url
+            current_method = next_method
+
+        return None, (
+            f"Refusing to follow more than {MAX_REDIRECTS} redirects starting at {url}"
+        )
+
     def get_client_cert(self) -> Optional[Any]:
         if not self._http_config or not self._http_config.client_cert_path:
             return None
@@ -696,7 +907,16 @@ class HttpRequest(Tool, JsonFilterMixin):
             if method in ("POST", "PUT", "PATCH") and body:
                 request_kwargs["data"] = body
 
-            response = requests.request(method, url, **request_kwargs)
+            response, redirect_error = self._toolset.request_with_validated_redirects(
+                method, url, request_kwargs
+            )
+            if redirect_error or response is None:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=redirect_error or "Request refused",
+                    params=params,
+                    url=url,
+                )
 
             try:
                 data = response.json()

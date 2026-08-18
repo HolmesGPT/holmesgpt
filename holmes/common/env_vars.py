@@ -63,6 +63,10 @@ AZURE_COGNITIVE_SERVICES_SCOPE = os.environ.get(
 
 ENABLE_TELEMETRY = load_bool("ENABLE_TELEMETRY", False)
 DEVELOPMENT_MODE = load_bool("DEVELOPMENT_MODE", False)
+# When true, logs are emitted as JSON (one object per line) instead of the
+# default colored text format. Useful for log scrapers like Filebeat. Matches
+# the toggle used by the Robusta runner and relay. Defaults to false.
+ENABLE_JSON_LOGS_FORMAT = load_bool("ENABLE_JSON_LOGS_FORMAT", False)
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.0"))
 
@@ -216,6 +220,13 @@ HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
 ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
 CONVERSATION_WORKER_MAX_CONCURRENT = int(
     os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
+)
+# An in-flight conversation holding its executor slot longer than this is
+# considered stuck and triggers a WARNING while claiming is blocked at full
+# capacity (ROB-759). Long-running conversations are legitimate, so the
+# default is deliberately generous; local/dev stacks set it much lower.
+CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS", 1800)
 )
 
 # Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
