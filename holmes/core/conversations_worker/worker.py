@@ -93,6 +93,13 @@ SHUTDOWN_ERROR_DESCRIPTION = (
 # Distinct from the generic 5000 so this is greppable and the FE can special-case
 # it later; unmapped codes render `description` as-is today.
 SHUTDOWN_ERROR_CODE = 5205
+# Wall-clock budget for the whole retirement sweep. It is sequential and each
+# row costs up to two DAL calls, each retrying 3 times with backoff, so a slow
+# or unreachable Supabase could otherwise eat the container's termination grace
+# period and earn us a SIGKILL — leaving the remaining rows 'running', the very
+# thing this is here to prevent. Rows we don't reach fall back to the pg_cron
+# stale sweep, exactly as they did before.
+SHUTDOWN_RETIRE_BUDGET_SECONDS = 10.0
 
 
 class _ActiveTask:
@@ -109,7 +116,6 @@ class _ActiveTask:
     def __init__(self, task: "ConversationTask", started: float):
         self.task = task
         self.started = started
-
 
 
 class ConversationWorker:
@@ -764,7 +770,9 @@ class ConversationWorker:
 
         Each row gets an error event carrying ``reason="Holmes Restarted"``
         first (post_conversation_events requires status='running', so the order
-        matters) and is then transitioned to 'timeout'.
+        matters) and is then transitioned to 'timeout'. The sweep is bounded by
+        ``SHUTDOWN_RETIRE_BUDGET_SECONDS`` so a slow Supabase cannot hold the
+        process past its termination grace period.
         """
         with self._active_lock:
             entries = list(self._active_conversation_ids.values())
@@ -776,7 +784,16 @@ class ConversationWorker:
             len(entries),
             SHUTDOWN_REASON,
         )
-        for entry in entries:
+        deadline = time.monotonic() + SHUTDOWN_RETIRE_BUDGET_SECONDS
+        for index, entry in enumerate(entries):
+            if time.monotonic() >= deadline:
+                logging.warning(
+                    "Shutdown retirement budget (%.0fs) exhausted; leaving %d "
+                    "conversation(s) to the stale sweep",
+                    SHUTDOWN_RETIRE_BUDGET_SECONDS,
+                    len(entries) - index,
+                )
+                break
             task = entry.task
             try:
                 self._post_error_event(

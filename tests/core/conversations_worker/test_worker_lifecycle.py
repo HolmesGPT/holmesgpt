@@ -10,7 +10,12 @@ from holmes.core.conversations_worker.models import (
     ConversationReassignedError,
     ConversationTask,
 )
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.worker import (
+    SHUTDOWN_ERROR_CODE,
+    SHUTDOWN_REASON,
+    ConversationWorker,
+    _ActiveTask,
+)
 
 
 def _bare_worker():
@@ -39,8 +44,6 @@ def _bare_worker():
 
 def _slot(started: float, conversation_id="c-slot", request_sequence=1):
     """An occupied executor slot, as _dispatch records it."""
-    from holmes.core.conversations_worker.worker import _ActiveTask
-
     task = ConversationTask(
         conversation_id=conversation_id,
         account_id="a1",
@@ -937,8 +940,6 @@ def test_realtime_verify_loop_surfaces_non_transient_exception(caplog):
 
 def _active(w, conversation_id="c1", request_sequence=1):
     """Register an in-flight conversation the way _dispatch does."""
-    from holmes.core.conversations_worker.worker import _ActiveTask
-
     task = ConversationTask(
         conversation_id=conversation_id,
         account_id="a1",
@@ -951,11 +952,6 @@ def _active(w, conversation_id="c1", request_sequence=1):
 
 
 def test_timeout_active_conversations_posts_reason_then_sets_timeout():
-    from holmes.core.conversations_worker.worker import (
-        SHUTDOWN_ERROR_CODE,
-        SHUTDOWN_REASON,
-    )
-
     w = _bare_worker()
     _active(w, "c1", 2)
 
@@ -1075,3 +1071,30 @@ def test_stop_survives_a_failing_retirement():
 
     assert w._running is False
     w._tool_call_worker.stop.assert_called_once()
+
+
+def test_timeout_active_conversations_stops_at_the_budget(caplog):
+    """A slow Supabase must not hold the process past its grace period — the
+    sweep gives up and leaves the rest to the pg_cron stale sweep."""
+    from itertools import chain, repeat
+
+    w = _bare_worker()
+    _active(w, "c1", 1)
+    _active(w, "c2", 1)
+    _active(w, "c3", 1)
+
+    # Clock jumps past the budget once the first row has been retired.
+    clock = chain([0.0, 0.0], repeat(1_000.0))
+    with patch(
+        "holmes.core.conversations_worker.worker.time.monotonic",
+        lambda: next(clock),
+    ):
+        with caplog.at_level(logging.WARNING, logger="root"):
+            w._timeout_active_conversations()
+
+    assert w.dal.update_conversation_status.call_count == 1
+    assert any(
+        "budget" in r.getMessage() and "2 conversation(s)" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+    )
