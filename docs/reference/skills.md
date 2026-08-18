@@ -16,6 +16,10 @@ There are three ways to load custom skills, covered below. Within each, pick you
 
 Keep skills version-controlled in a Git repo so they can be reviewed, versioned, and shared across a team.
 
+For private repos there are two ways to authenticate: a fine-grained [Personal Access Token](#using-a-personal-access-token) (simplest) or a [GitHub App](#using-a-github-app) (short-lived auto-expiring tokens, not tied to a personal account).
+
+#### Using a Personal Access Token
+
 === "Holmes Helm Chart"
 
     Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
@@ -28,7 +32,7 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
       --from-literal=token='<PAT>'
     ```
 
-    For a public repo, omit the Secret and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
+    For a public repo, omit the Secret, delete the `GIT_PAT` entry from the `env:` block, and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
 
     **2. Add the init container, volume, and skill path to your Helm values:**
 
@@ -52,13 +56,17 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
               secretKeyRef:
                 name: holmes-skills-git-credentials
                 key: token
+          - name: GIT_REPO
+            value: github.com/<org>/<repo>.git
+          - name: GIT_BRANCH
+            value: main
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -e
-            rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
-            git clone --depth 1 --branch main \
-              "https://oauth2:${GIT_PAT}@github.com/<org>/<repo>.git" \
+            rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+            git clone --depth 1 --branch "$GIT_BRANCH" \
+              "https://oauth2:${GIT_PAT}@${GIT_REPO}" \
               /skills-repo
         volumeMounts:
           - name: skills-repo
@@ -68,10 +76,10 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
       - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
     ```
 
-    Adjust:
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
 
-    - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
     - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
 
     **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
@@ -92,7 +100,7 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
       --from-literal=token='<PAT>'
     ```
 
-    For a public repo, omit the Secret and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
+    For a public repo, omit the Secret, delete the `GIT_PAT` entry from the `env:` block, and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
 
     **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
 
@@ -118,13 +126,403 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
                 secretKeyRef:
                   name: holmes-skills-git-credentials
                   key: token
+            - name: GIT_REPO
+              value: github.com/<org>/<repo>.git
+            - name: GIT_BRANCH
+              value: main
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -e
-              rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
+              rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+              git clone --depth 1 --branch "$GIT_BRANCH" \
+                "https://oauth2:${GIT_PAT}@${GIT_REPO}" \
+                /skills-repo
+          volumeMounts:
+            - name: skills-repo
+              mountPath: /skills-repo
+
+      customSkillPaths:
+        - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
+
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/robusta-holmes -n <robusta-namespace>
+    ```
+
+=== "Holmes CLI"
+
+    Clone the repo to your machine and point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+
+    ```yaml
+    custom_skill_paths:
+      - /path/to/your-skills-clone/
+    ```
+
+    Run `git pull` in the clone whenever you want to pick up new or updated skills.
+
+#### Using a GitHub App
+
+Instead of a Personal Access Token, authenticate with a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). The init container generates a JWT from the App's private key, exchanges it for a short-lived installation token (valid 1 hour), and clones with it. The App's private key is still mounted into the init container, but the credential used to reach your repo is the installation token, which expires after an hour — so a leaked clone URL or `.git/config` goes stale on its own, unlike a Personal Access Token.
+
+Create the App, generate a private key, and install it on your skills repo by following steps 1–4 in [GitHub MCP — Using a GitHub App](../data-sources/builtin-toolsets/github-mcp.md#using-a-github-app). For skills the App only needs the **Contents: Read-only** repository permission (plus Metadata, which GitHub adds automatically).
+
+=== "Holmes Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container exchanges the GitHub App credentials for an installation token, pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with the GitHub App credentials:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      -n <holmes-namespace> \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem
+    ```
+
+    **2. Add the init container, volume, and skill path to your Helm values:**
+
+    ```yaml
+    additionalVolumes:
+      - name: skills-repo
+        emptyDir:
+          sizeLimit: 64Mi
+
+    additionalVolumeMounts:
+      - name: skills-repo
+        mountPath: /etc/holmes/skills-git
+        readOnly: true
+
+    initContainers:
+      - name: clone-skills
+        image: alpine:3.22
+        envFrom:
+          - secretRef:
+              name: holmes-github-app
+        env:
+          - name: GIT_REPO
+            value: github.com/<org>/<repo>.git
+          - name: GIT_BRANCH
+            value: main
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -e
+            apk add --no-cache git openssl curl >/dev/null
+
+            b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+            KEY_FILE=$(mktemp)
+            printf '%s' "$GITHUB_APP_PRIVATE_KEY" > "$KEY_FILE"
+
+            NOW=$(date +%s)
+            HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+            PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 540))" "$GITHUB_APP_ID" | b64url)
+            SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" -binary | b64url)
+            rm -f "$KEY_FILE"
+
+            TOKEN=$(curl -sf -X POST \
+              -H "Authorization: Bearer ${HEADER}.${PAYLOAD}.${SIGNATURE}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/app/installations/${GITHUB_APP_INSTALLATION_ID}/access_tokens" \
+              | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
+
+            if [ -z "$TOKEN" ]; then
+              echo "Failed to obtain a GitHub App installation token" >&2
+              exit 1
+            fi
+
+            rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+            git clone --depth 1 --branch "$GIT_BRANCH" \
+              "https://x-access-token:${TOKEN}@${GIT_REPO}" \
+              /skills-repo
+        volumeMounts:
+          - name: skills-repo
+            mountPath: /skills-repo
+
+    customSkillPaths:
+      - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
+
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    The init container installs `git`, `openssl`, and `curl` at startup, which requires egress to the Alpine package CDN. If your cluster restricts egress, build a small image with those packages preinstalled and drop the `apk add` line.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/<release>-holmes -n <holmes-namespace>
+    ```
+
+=== "Robusta Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container exchanges the GitHub App credentials for an installation token, pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with the GitHub App credentials:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      -n <robusta-namespace> \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem
+    ```
+
+    **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
+
+    ```yaml
+    enableHolmesGPT: true
+    holmes:
+      additionalVolumes:
+        - name: skills-repo
+          emptyDir:
+            sizeLimit: 64Mi
+
+      additionalVolumeMounts:
+        - name: skills-repo
+          mountPath: /etc/holmes/skills-git
+          readOnly: true
+
+      initContainers:
+        - name: clone-skills
+          image: alpine:3.22
+          envFrom:
+            - secretRef:
+                name: holmes-github-app
+          env:
+            - name: GIT_REPO
+              value: github.com/<org>/<repo>.git
+            - name: GIT_BRANCH
+              value: main
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              apk add --no-cache git openssl curl >/dev/null
+
+              b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+              KEY_FILE=$(mktemp)
+              printf '%s' "$GITHUB_APP_PRIVATE_KEY" > "$KEY_FILE"
+
+              NOW=$(date +%s)
+              HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+              PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 540))" "$GITHUB_APP_ID" | b64url)
+              SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" -binary | b64url)
+              rm -f "$KEY_FILE"
+
+              TOKEN=$(curl -sf -X POST \
+                -H "Authorization: Bearer ${HEADER}.${PAYLOAD}.${SIGNATURE}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/app/installations/${GITHUB_APP_INSTALLATION_ID}/access_tokens" \
+                | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
+
+              if [ -z "$TOKEN" ]; then
+                echo "Failed to obtain a GitHub App installation token" >&2
+                exit 1
+              fi
+
+              rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+              git clone --depth 1 --branch "$GIT_BRANCH" \
+                "https://x-access-token:${TOKEN}@${GIT_REPO}" \
+                /skills-repo
+          volumeMounts:
+            - name: skills-repo
+              mountPath: /skills-repo
+
+      customSkillPaths:
+        - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust — everything install-specific lives in the `env:` block, so the script body can be copied verbatim:
+
+    - `GIT_REPO` — your repo, without the scheme (for example `github.com/acme/holmes-skills.git`).
+    - `GIT_BRANCH` — branch you push skills to. Check your repo's actual default: GitHub creates new repos with `main`, but older repos are often still `master`, and the clone fails outright on a wrong branch name.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    The init container installs `git`, `openssl`, and `curl` at startup, which requires egress to the Alpine package CDN. If your cluster restricts egress, build a small image with those packages preinstalled and drop the `apk add` line.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/robusta-holmes -n <robusta-namespace>
+    ```
+
+=== "Holmes CLI"
+
+    Mint a short-lived installation token from the App credentials and clone with it:
+
+    ```bash
+    set -eu
+
+    APP_ID=<YOUR_APP_ID>
+    INSTALLATION_ID=<YOUR_INSTALLATION_ID>
+    KEY_FILE=/path/to/private-key.pem
+    GIT_REPO=github.com/<org>/<repo>.git
+    GIT_BRANCH=main
+
+    b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+    NOW=$(date +%s)
+    HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+    PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 540))" "$APP_ID" | b64url)
+    SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" -binary | b64url)
+
+    TOKEN=$(curl -sf -X POST \
+      -H "Authorization: Bearer ${HEADER}.${PAYLOAD}.${SIGNATURE}" \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" \
+      | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
+
+    if [ -z "$TOKEN" ]; then
+      echo "Failed to obtain a GitHub App installation token" >&2
+      exit 1
+    fi
+
+    git clone --depth 1 --branch "$GIT_BRANCH" \
+      "https://x-access-token:${TOKEN}@${GIT_REPO}"
+    ```
+
+    Then point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+
+    ```yaml
+    custom_skill_paths:
+      - /path/to/your-skills-clone/
+    ```
+
+    Installation tokens expire after 1 hour — re-run the token snippet and `git pull` with a fresh token whenever you want to pick up new or updated skills.
+
+### From a Bitbucket Repository
+
+Same pattern as GitHub — only the credentials and clone URL differ. Bitbucket uses a [Repository Access Token](https://support.atlassian.com/bitbucket-cloud/docs/repository-access-tokens/) with the `x-token-auth` username.
+
+=== "Holmes Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with a Bitbucket Repository Access Token.** Create the token under *Repository settings → Access tokens* with the `Repositories: Read` scope:
+
+    ```bash
+    kubectl create secret generic holmes-skills-git-credentials \
+      -n <holmes-namespace> \
+      --from-literal=token='<repository-access-token>'
+    ```
+
+    For a public repo, omit the Secret, remove the `GIT_TOKEN` `env` block from the init container below, and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL.
+
+    **2. Add the init container, volume, and skill path to your Helm values:**
+
+    ```yaml
+    additionalVolumes:
+      - name: skills-repo
+        emptyDir:
+          sizeLimit: 64Mi
+
+    additionalVolumeMounts:
+      - name: skills-repo
+        mountPath: /etc/holmes/skills-git
+        readOnly: true
+
+    initContainers:
+      - name: clone-skills
+        image: alpine/git:2.45.2
+        env:
+          - name: GIT_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: holmes-skills-git-credentials
+                key: token
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+
+            rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+
+            git clone --depth 1 --branch main \
+              "https://x-token-auth:${GIT_TOKEN}@bitbucket.org/<workspace>/<repo>.git" \
+              /skills-repo
+        volumeMounts:
+          - name: skills-repo
+            mountPath: /skills-repo
+
+    customSkillPaths:
+      - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    ```
+
+    Adjust:
+
+    - `--branch main` — branch you push skills to.
+    - `https://bitbucket.org/<workspace>/<repo>.git` — your repo URL.
+    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
+
+    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
+
+    ```bash
+    kubectl rollout restart deploy/<release>-holmes -n <holmes-namespace>
+    ```
+
+=== "Robusta Helm Chart"
+
+    Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+
+    **1. Create a Secret with a Bitbucket Repository Access Token.** Create the token under *Repository settings → Access tokens* with the `Repositories: Read` scope:
+
+    ```bash
+    kubectl create secret generic holmes-skills-git-credentials \
+      -n <robusta-namespace> \
+      --from-literal=token='<repository-access-token>'
+    ```
+
+    For a public repo, omit the Secret, remove the `GIT_TOKEN` `env` block from the init container below, and drop the `x-token-auth:${GIT_TOKEN}@` segment from the clone URL.
+
+    **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
+
+    ```yaml
+    enableHolmesGPT: true
+
+    holmes:
+      additionalVolumes:
+        - name: skills-repo
+          emptyDir:
+            sizeLimit: 64Mi
+
+      additionalVolumeMounts:
+        - name: skills-repo
+          mountPath: /etc/holmes/skills-git
+          readOnly: true
+
+      initContainers:
+        - name: clone-skills
+          image: alpine/git:2.45.2
+          env:
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-skills-git-credentials
+                  key: token
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              rm -rf /skills-repo/* /skills-repo/.[!.]* /skills-repo/..?* 2>/dev/null || true
+
               git clone --depth 1 --branch main \
-                "https://oauth2:${GIT_PAT}@github.com/<org>/<repo>.git" \
+                "https://x-token-auth:${GIT_TOKEN}@bitbucket.org/<workspace>/<repo>.git" \
                 /skills-repo
           volumeMounts:
             - name: skills-repo
@@ -137,7 +535,7 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
     Adjust:
 
     - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
+    - `https://bitbucket.org/<workspace>/<repo>.git` — your repo URL.
     - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
 
     **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
@@ -148,7 +546,15 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
 
 === "Holmes CLI"
 
-    Clone the repo to your machine and point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+    Clone the repo to your machine. For a private repo, authenticate with a Repository Access Token (`Repositories: Read` scope):
+
+    ```bash
+    git clone "https://x-token-auth:<repository-access-token>@bitbucket.org/<workspace>/<repo>.git"
+    ```
+
+    For a public repo, drop the `x-token-auth:<repository-access-token>@` segment.
+
+    Then point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
 
     ```yaml
     custom_skill_paths:

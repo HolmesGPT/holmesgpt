@@ -25,15 +25,7 @@ GRANT VIEW DATABASE STATE TO holmes_readonly;
 GRANT VIEW DEFINITION TO holmes_readonly;
 ```
 
-**For Azure SQL Database:**
-```sql
--- Azure SQL creates user directly in database
-CREATE USER holmes_readonly WITH PASSWORD = 'Your_Secure_Password123!';
-
-ALTER ROLE db_datareader ADD MEMBER holmes_readonly;
-GRANT VIEW DATABASE STATE TO holmes_readonly;
-GRANT VIEW DEFINITION TO holmes_readonly;
-```
+For Azure SQL Database, see the [Azure SQL Database](#azure-sql-database) section below.
 
 ## Configuration
 
@@ -46,13 +38,13 @@ GRANT VIEW DEFINITION TO holmes_readonly;
       sqlserver-prod:
         type: database
         config:
-          connection_url: "mssql+pymssql://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
+          connection_url: "mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
         llm_instructions: "Production SQL Server database with application data"
 
       sqlserver-analytics:
         type: database
         config:
-          connection_url: "mssql+pymssql://analyst:pass@analytics-sql.internal:1433/analytics"
+          connection_url: "mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics"
         llm_instructions: "Analytics SQL Server for reporting and BI"
     ```
 
@@ -68,13 +60,38 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
     **Connection URL format:**
     ```
-    mssql+pymssql://[username]:[password]@[host]:[port]/[database]
+    mssql+pytds://[username]:[password]@[host]:[port]/[database]
     ```
 
-    **With encryption:**
+    Plain `mssql://` URLs and legacy `mssql+pymssql://` URLs are automatically rewritten to use the `pytds` driver.
+
+    **TLS encryption:**
+
+    Encryption is controlled by the `verify_ssl` option (default: `true`). When `true`, connections use TLS with certificate verification — this is what Azure SQL and other TLS-enforcing servers need. Set it to `false` for servers with self-signed certificates, which disables TLS entirely:
+
     ```yaml
-    connection_url: "mssql+pymssql://user:pass@server:1433/db?encrypt=true"
+    toolsets:
+      sqlserver-dev:
+        type: database
+        config:
+          connection_url: "mssql+pytds://user:pass@server:1433/db"
+          verify_ssl: false  # self-signed certificate
     ```
+
+    **Servers with an internal or private CA:**
+
+    If your SQL Server's certificate is issued by a private CA, keep `verify_ssl: true` and add the CA to Holmes's trust store with the base64-encoded `certificate` Helm value (the `CERTIFICATE` environment variable). This keeps connections encrypted *and* verified, and applies to every Holmes integration, not just this toolset:
+
+    ```bash
+    base64 -w0 internal-ca.pem   # value for the setting below
+    ```
+
+    ```yaml
+    # values.yaml
+    certificate: "<base64-encoded CA certificate>"
+    ```
+
+    Servers that require encryption cannot be reached with `verify_ssl: false`, so this is the correct option for a private-CA deployment.
 
 === "Holmes Helm Chart"
 
@@ -82,7 +99,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
     ```bash
     kubectl create secret generic sqlserver-credentials \
-      --from-literal=url='mssql+pymssql://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
+      --from-literal=url='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
       -n holmes
     ```
 
@@ -137,7 +154,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
     ```bash
     kubectl create secret generic sqlserver-credentials \
-      --from-literal=url='mssql+pymssql://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
+      --from-literal=url='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
       -n default
     ```
 
@@ -188,11 +205,35 @@ GRANT VIEW DEFINITION TO holmes_readonly;
             connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
     ```
 
+## Azure SQL Database
+
+Azure SQL Database works with this toolset over SQL authentication. Create a contained database user (Azure SQL does not use server-level logins for this):
+
+```sql
+-- Run in the target database
+CREATE USER holmes_readonly WITH PASSWORD = 'Your_Secure_Password123!';
+
+ALTER ROLE db_datareader ADD MEMBER holmes_readonly;
+GRANT VIEW DATABASE STATE TO holmes_readonly;
+GRANT VIEW DEFINITION TO holmes_readonly;
+```
+
+Then configure the connection:
+
+```yaml
+toolsets:
+  azure-sql-prod:
+    type: database
+    config:
+      connection_url: "mssql+pytds://holmes_readonly:Your_Secure_Password123!@yourserver.database.windows.net:1433/mydb"
+    llm_instructions: "Production Azure SQL database with application data"
+```
+
 ## Configuration Options
 
 - **connection_url** (required): SQL Server connection URL
 - **read_only** (default: `true`): Only allow SELECT/SHOW/DESCRIBE/EXPLAIN/WITH statements
-- **verify_ssl** (default: `true`): Verify SSL certificates
+- **verify_ssl** (default: `true`): Connect with TLS and certificate verification (required by Azure SQL). Set to `false` to disable TLS for servers with self-signed certificates
 - **max_rows** (default: `200`): Maximum rows to return (1-10000)
 - **llm_instructions**: Context about this database
 

@@ -14,7 +14,29 @@ holmes:
     toolsets:
         connectivity_check:
             enabled: true
+            config: # optional
+              allowed_hosts: []      # if set, only these hosts may be probed
+              block_internal_ips: true  # block metadata/loopback/link-local targets
+              block_private_ips: false  # also block private/RFC1918 (off: cluster IPs stay reachable)
 ```
+
+### SSRF protection
+
+The probe target (`host`) is chosen by the LLM, and that choice can be
+influenced by untrusted observability data (indirect prompt injection). Left
+unguarded, `tcp_check` is a blind internal-network scanner. The toolset
+therefore refuses the dangerous targets by default:
+
+- **Cloud metadata / loopback are blocked.** Requests to `169.254.0.0/16`
+  (incl. `169.254.169.254`), loopback, link-local, multicast, reserved and
+  unspecified addresses are rejected. The connection is made to the validated IP
+  so DNS rebinding cannot redirect the probe.
+- **Private/cluster IPs stay reachable by default.** Checking connectivity to
+  internal cluster services (RFC1918) is the tool's main purpose, so those are
+  allowed. Set `block_private_ips: true` to restrict the tool to public hosts.
+- **Optional allowlist.** When `allowed_hosts` is set, only those hosts (and
+  subdomains) may be probed, and they are exempt from the internal-IP block.
+- Set `block_internal_ips: false` only in trusted, isolated environments.
 
 ## Capabilities
 
