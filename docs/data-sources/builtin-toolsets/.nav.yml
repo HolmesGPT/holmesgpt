@@ -1,11 +1,11 @@
 nav:
   - index.md
   - AKS Node Health: aks-node-health.md
+  - Atlassian Rovo (MCP): atlassian-rovo-mcp.md
   - ArgoCD: argocd.md
   - AWS (MCP): aws.md
   - Azure (MCP): azure-mcp.md
   - Azure Kubernetes Service: aks.md
-  - Azure SQL Database: azure-sql.md
   - Bash: bash.md
   - Cilium: cilium.md
   - ClickHouse: database-clickhouse.md
@@ -35,7 +35,6 @@ nav:
   - Kubernetes Remediation (MCP): kubernetes-remediation-mcp.md
   - KubeVela: kubevela.md
   - MariaDB: database-mariadb.md
-  - MariaDB (MCP): mariadb-mcp.md
   - MongoDB: mongodb.md
   - MongoDB Atlas: mongodb-atlas.md
   - MySQL: database-mysql.md

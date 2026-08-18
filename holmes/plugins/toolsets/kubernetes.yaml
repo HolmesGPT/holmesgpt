@@ -18,17 +18,23 @@ toolsets:
         user_description: "jq query: kubectl get {{kind}} | jq '{{jq_expr}}'"
         description: >
           Use kubectl to get json for all resources of a specific kind and filter with jq.
-          More memory-efficient than bash for large queries - uses Kubernetes API pagination
-          to process resources in batches of 500, avoiding context window overflow.
-          Returns a JSON object with keys: "total_items_processed" (number of resources examined),
-          "matches_found" (number of results), "results" (array of matching resources), and
-          "stderr" (any error output from kubectl, or null).
-          IMPORTANT: The 'kind' parameter must be the plural form of the resource type
-          (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
+          Prefer over bash for large queries - paginates via the Kubernetes API so large
+          clusters don't overflow context.
+          Returns a JSON object with keys: "total_items_processed", "matches_found",
+          "results" (array of matching resources), and "stderr" (error output or null).
+          The 'kind' parameter must be the plural form of the resource type
+          (e.g., "pods" not "pod", "jobs" not "job").
           Do not worry about escaping the jq_expr - it will be done by the system.
           Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
         script: |
           #!/bin/bash
+
+          # SECURITY: assign sanitized params to shell variables in an unquoted
+          # assignment slot, then reference them only as "$VAR". Never interpolate
+          # {{ param }} inside a quoted context - sanitize() (shlex.quote) wraps
+          # dangerous values in single quotes, which are literal (and command
+          # substitution stays active) inside a double-quoted or single-quoted slot.
+          KIND={{ kind }}
 
           # Collapse multi-line jq expressions (LLMs sometimes write multi-line jq)
           # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
@@ -38,12 +44,15 @@ toolsets:
           err_file=$(mktemp)
 
           # Get the API path for the resource kind using kubectl
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
+          # Match the resource name (first column) as an EXACT string, not a
+          # grep regex - otherwise a kind like '.*' or 'a|b' would match the
+          # wrong resource. awk compares $1 literally and stops at the first hit.
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to find resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
           fi
@@ -56,7 +65,7 @@ toolsets:
           else
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Could not parse API info for '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
           fi
@@ -80,7 +89,7 @@ toolsets:
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to parse API info for resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
             exit 0
           fi
@@ -187,18 +196,11 @@ toolsets:
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
           Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
-          "rows" (array of data rows), and "stderr" (any error output, or null).
-          Memory-efficient way to query large clusters - only requested fields are transmitted.
+          "rows" (array of data rows), and "stderr" (error output or null).
+          Only requested fields are transmitted, so it works well on large clusters.
           Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
-
-          Optional filtering parameter:
-          - filter_pattern: Pattern to match in any column (supports grep regex)
-
-          Examples:
-          - Basic fields: NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName
-          - Filter by status: filter_pattern="Running"
-          - Nested fields: CREATED:.metadata.creationTimestamp,IMAGE:.spec.containers[0].image
-          - Array fields: LABELS:.metadata.labels,PORTS:.spec.ports[*].port
+          e.g. NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[0].image
+          Optional filter_pattern matches any column (grep regex), e.g. filter_pattern="Running".
 
           LIMITATIONS - not allowed characters in columns: ' / ; and newline.
           Label keys containing dots or slashes (e.g. kubernetes.io/arch, app.kubernetes.io/name)
@@ -208,8 +210,13 @@ toolsets:
           Similarly, use .status.nodeInfo.architecture instead of .metadata.labels["kubernetes.io/arch"] when possible.
         script: |
           #!/bin/bash
+          # SECURITY: assign sanitized params to shell variables (unquoted slot),
+          # then reference them only as "$VAR" - never interpolate {{ param }}
+          # inside a quoted context. See kubernetes_jq_query for the rationale.
+          KIND={{ kind }}
+          CUSTOM_COLUMNS={{ columns }}
           err_file=$(mktemp)
-          output=$(kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}' 2>"$err_file")
+          output=$(kubectl get "$KIND" --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
           kubectl_exit=$?
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
@@ -230,7 +237,8 @@ toolsets:
           # Split header and data rows
           header=$(echo "$output" | head -1)
           {% if filter_pattern %}
-          data=$(echo "$output" | tail -n +2 | grep -E '{{ filter_pattern }}' || true)
+          FILTER_PATTERN={{ filter_pattern }}
+          data=$(echo "$output" | tail -n +2 | grep -E -- "$FILTER_PATTERN" || true)
           {% else %}
           data=$(echo "$output" | tail -n +2)
           {% endif %}
@@ -279,27 +287,34 @@ toolsets:
         description: >
           Use kubectl to apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.
-          More memory-efficient than bash for large queries - uses Kubernetes API pagination
-          to process resources in batches of 500, avoiding context window overflow.
+          Prefer over bash for large queries - paginates via the Kubernetes API so large
+          clusters don't overflow context.
           Returns a JSON object with keys: "total_items_processed", "matches_found" (number of matches),
-          "preview" (first 10 results truncated to 200 chars), and "stderr" (any error output, or null).
-          IMPORTANT: The 'kind' parameter must be the plural form of the resource type
-          (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
-          Use select() to filter objects before extracting properties, e.g. .items[] | select(.metadata.namespace == "test-1") | .metadata.name
-          Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give.
-          e.g. give an expression like .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
+          "preview" (first 10 results truncated to 200 chars), and "stderr" (error output or null).
+          The 'kind' parameter must be the plural form of the resource type ("pods" not "pod").
+          Use select() to filter objects before extracting properties; do not worry about escaping
+          the jq_expr - it will be done by the system.
+          e.g. .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
         script: |
           #!/bin/bash
+
+          # SECURITY: assign sanitized params to shell variables (unquoted slot),
+          # then reference them only as "$VAR" - never interpolate {{ param }}
+          # inside a quoted context. See kubernetes_jq_query for the rationale.
+          KIND={{ kind }}
 
           err_file=$(mktemp)
 
           # Get the API path for the resource kind
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | grep "^{{ kind }} " | head -1)
+          # Match the resource name (first column) as an EXACT string, not a
+          # grep regex - otherwise a kind like '.*' or 'a|b' would match the
+          # wrong resource. awk compares $1 literally and stops at the first hit.
+          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to find resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to find resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
@@ -311,7 +326,7 @@ toolsets:
           else
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Could not parse API info for '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Could not parse API info for '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
@@ -334,7 +349,7 @@ toolsets:
           if [ -z "$API_VERSION" ] || [ -z "$RESOURCE_NAME" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
-            jq -n --arg stderr "Unable to parse API info for resource kind '{{ kind }}'. $err_content" \
+            jq -n --arg stderr "Unable to parse API info for resource kind '${KIND}'. $err_content" \
               '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
             exit 0
           fi
@@ -467,7 +482,16 @@ toolsets:
     tools:
       - name: "get_prometheus_target"
         description: "Fetch the definition of a Prometheus target"
-        command: 'kubectl get --raw ''/api/v1/namespaces/{{prometheus_namespace}}/services/{{prometheus_service_name}}:9090/proxy/api/v1/targets'' | jq ''.data.activeTargets[] | select(.labels.job == "{{ target_name }}")'''
+        script: |
+          #!/bin/bash
+          # SECURITY: assign sanitized params to shell variables (unquoted slot),
+          # then reference them only as "$VAR". Pass target_name into jq via
+          # --arg so it is never interpolated into the jq program text.
+          PROM_NAMESPACE={{ prometheus_namespace }}
+          PROM_SERVICE={{ prometheus_service_name }}
+          TARGET_NAME={{ target_name }}
+          kubectl get --raw "/api/v1/namespaces/${PROM_NAMESPACE}/services/${PROM_SERVICE}:9090/proxy/api/v1/targets" \
+            | jq --arg target "$TARGET_NAME" '.data.activeTargets[] | select(.labels.job == $target)'
 
   kubernetes/krew-extras: # To make this work, install kube-lineage with krew
     description: "Fetches children/dependents and parents/dependencies resources using kube-lineage installed via `kubectl krew`"

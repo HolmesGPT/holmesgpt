@@ -9,6 +9,8 @@ import threading
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+from urllib.request import getproxies, proxy_bypass
 from uuid import uuid4
 
 import httpx
@@ -51,7 +53,6 @@ from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
-from holmes.utils.krr_utils import calculate_krr_savings
 
 if TYPE_CHECKING:
     # Forward reference only — `usage_recorder` already TYPE_CHECKING-imports
@@ -63,8 +64,6 @@ SUPABASE_TIMEOUT_SECONDS = int(os.getenv("SUPABASE_TIMEOUT_SECONDS", 60))
 
 # Maximum total rows to fetch from KRR scans, regardless of number of clusters
 # This prevents unbounded fetches when querying many clusters
-MAX_KRR_TOTAL_FETCH_ROWS = 2000
-
 ISSUES_TABLE = "Issues"
 GROUPED_ISSUES_TABLE = "GroupedIssues"
 EVIDENCE_TABLE = "Evidence"
@@ -100,11 +99,6 @@ def pre_select_patched(*args, **kwargs):
 
 
 supabase_request_builder.pre_select = pre_select_patched
-
-
-class FindingType(str, Enum):
-    ISSUE = "issue"
-    CONFIGURATION_CHANGE = "configuration_change"
 
 
 class RunStatus(str, Enum):
@@ -255,7 +249,15 @@ class SupabaseDal:
         # verify/http2 go on the transport (httpx ignores them on the client once a
         # custom transport is supplied); timeout/follow_redirects stay on the client
         # (supabase ignores postgrest_client_timeout once an httpx_client is given).
-        transport = SupabaseRetryTransport(http2=False, verify=verify)
+        # httpx skips env proxies when given a custom transport; resolve it here
+        # so proxied clusters still reach Supabase.
+        parsed = urlparse(self.url)
+        proxy = None
+        if parsed.hostname:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            if not proxy_bypass(f"{parsed.hostname}:{port}"):
+                proxy = getproxies().get(parsed.scheme)
+        transport = SupabaseRetryTransport(http2=False, verify=verify, proxy=proxy)
         httpx_client = httpx.Client(
             transport=transport,
             timeout=SUPABASE_TIMEOUT_SECONDS,
@@ -433,221 +435,6 @@ class SupabaseDal:
                 )
                 raise SupabaseConnectionException(e, self.url) from e
             raise
-
-    def get_resource_recommendation(
-        self,
-        limit: int = 10,
-        sort_by: str = "cpu_total",
-        namespace: Optional[str] = None,
-        name_pattern: Optional[str] = None,
-        kind: Optional[str] = None,
-        container: Optional[str] = None,
-        clusters: Optional[List[str]] = None,
-    ) -> Optional[List[Dict]]:
-        """
-        Fetch top N resource recommendations with optional filters and sorting.
-
-        Args:
-            limit: Maximum number of recommendations to return (default: 10)
-            sort_by: Field to sort by potential savings. Options:
-                - "cpu_total": Total CPU savings (requests + limits)
-                - "memory_total": Total memory savings (requests + limits)
-                - "cpu_requests": CPU requests savings
-                - "memory_requests": Memory requests savings
-                - "cpu_limits": CPU limits savings
-                - "memory_limits": Memory limits savings
-                - "priority": Use the priority field from the scan
-            namespace: Filter by Kubernetes namespace (exact match)
-            name_pattern: Filter by workload name (supports SQL LIKE pattern, e.g., '%app%')
-            kind: Filter by Kubernetes resource kind (e.g., Deployment, StatefulSet, DaemonSet, Job)
-            container: Filter by container name (exact match)
-            clusters: List of cluster names to query. If None, queries current cluster only.
-                      Use ["*"] to query all clusters in the account.
-
-        Returns:
-            List of recommendations sorted by the specified metric
-        """
-        if not self.enabled:
-            return []
-
-        # Determine which clusters to query
-        if clusters is None:
-            target_clusters = [self.cluster]
-        elif clusters == ["*"]:
-            target_clusters = None  # Will query all via single request
-        else:
-            target_clusters = clusters
-
-        # Step 1: Fetch scan metadata for all target clusters in one query
-        meta_query = (
-            self.client.table(SCANS_META_TABLE)
-            .select("cluster_id, scan_id")
-            .eq("account_id", self.account_id)
-            .eq("latest", True)
-        )
-        if target_clusters is not None:
-            meta_query = meta_query.in_("cluster_id", target_clusters)
-
-        scans_meta_response = meta_query.execute()
-
-        if not scans_meta_response.data:
-            logging.warning("No scan metadata found for KRR")
-            return None
-
-        # Build cluster_id -> scan_id mapping
-        cluster_scan_pairs: List[Tuple[str, str]] = [
-            (row["cluster_id"], row["scan_id"]) for row in scans_meta_response.data
-        ]
-
-        if not cluster_scan_pairs:
-            return None
-
-        # Step 2: Fetch results using OR filter for (cluster_id, scan_id) pairs
-        # PostgREST syntax: or=(and(cluster_id.eq.X,scan_id.eq.Y),and(...))
-        or_conditions = ",".join(
-            f"and(cluster_id.eq.{cluster_id},scan_id.eq.{scan_id})"
-            for cluster_id, scan_id in cluster_scan_pairs
-        )
-
-        query = (
-            self.client.table(SCANS_RESULTS_TABLE)
-            .select("*")
-            .eq("account_id", self.account_id)
-            .or_(or_conditions)
-        )
-
-        if namespace:
-            query = query.eq("namespace", namespace)
-        if name_pattern:
-            query = query.like("name", name_pattern)
-        if kind:
-            query = query.eq("kind", kind)
-        if container:
-            query = query.eq("container", container)
-
-        # For priority sorting, we can use DB ordering and limit
-        if sort_by == "priority":
-            query = query.order("priority", desc=True).limit(limit)
-            results_response = query.execute()
-            return results_response.data if results_response.data else None
-
-        # For other sort modes, fetch up to limit per cluster then sort in Python
-        # Cap total fetch to prevent unbounded queries with many clusters
-        total_fetch = min(limit * len(cluster_scan_pairs), MAX_KRR_TOTAL_FETCH_ROWS)
-        query = query.limit(total_fetch)
-        results_response = query.execute()
-
-        if not results_response.data:
-            return None
-
-        all_results = results_response.data
-
-        if len(all_results) <= 1:
-            return all_results
-
-        # Sort by calculated savings (descending)
-        results_with_savings = [
-            (result, calculate_krr_savings(result, sort_by)) for result in all_results
-        ]
-        results_with_savings.sort(key=lambda x: x[1], reverse=True)
-
-        return [result for result, _ in results_with_savings[:limit]]
-
-    def get_issues_metadata(
-        self,
-        start_datetime: str,
-        end_datetime: str,
-        limit: int = 100,
-        workload: Optional[str] = None,
-        ns: Optional[str] = None,
-        clusters: Optional[List[str]] = None,
-        include_external: bool = True,
-        finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
-    ) -> Optional[List[Dict]]:
-        """
-        Fetch issues/changes metadata with multi-cluster support.
-
-        Args:
-            start_datetime: Start time boundary in RFC3339 format
-            end_datetime: End time boundary in RFC3339 format
-            limit: Maximum number of results to return
-            workload: Filter by workload name (exact match)
-            ns: Filter by namespace (exact match)
-            clusters: List of cluster names to query. If None, queries current cluster only.
-                      Use ["*"] to query all clusters in the account.
-            include_external: If True, also include external changes (not associated with
-                             any k8s cluster, e.g., LaunchDarkly changes). Default True.
-            finding_type: Type of finding to fetch (CONFIGURATION_CHANGE or ISSUE)
-
-        Returns:
-            List of issues/changes metadata or None if no data found
-        """
-        if not self.enabled:
-            return []
-
-        try:
-            base_select = (
-                "id",
-                "title",
-                "subject_name",
-                "subject_namespace",
-                "subject_type",
-                "description",
-                "starts_at",
-                "ends_at",
-                "cluster",
-            )
-
-            # Build the list of clusters to query (single query using IN filter)
-            if clusters == ["*"]:
-                # Query all clusters - if include_external, no cluster filter needed
-                # Otherwise exclude "external"
-                query = (
-                    self.client.table(ISSUES_TABLE)
-                    .select(*base_select)
-                    .eq("account_id", self.account_id)
-                    .gte("creation_date", start_datetime)
-                    .lte("creation_date", end_datetime)
-                    .eq("finding_type", finding_type.value)
-                )
-                if not include_external:
-                    query = query.neq("cluster", "external")
-            else:
-                # Build cluster list for IN filter
-                target_clusters = clusters if clusters else [self.cluster]
-                if include_external:
-                    target_clusters = target_clusters + ["external"]
-
-                query = (
-                    self.client.table(ISSUES_TABLE)
-                    .select(*base_select)
-                    .eq("account_id", self.account_id)
-                    .in_("cluster", target_clusters)
-                    .gte("creation_date", start_datetime)
-                    .lte("creation_date", end_datetime)
-                    .eq("finding_type", finding_type.value)
-                )
-
-            # Apply workload/namespace filters (only affect non-external results,
-            # but external rows won't match these anyway as they lack k8s context)
-            if workload:
-                query = query.eq("subject_name", workload)
-            if ns:
-                query = query.eq("subject_namespace", ns)
-
-            # Order by starts_at descending and apply limit in DB
-            query = query.order("starts_at", desc=True).limit(limit)
-
-            res = query.execute()
-
-            if not res.data:
-                return None
-
-            return res.data
-
-        except Exception:
-            logging.exception("Supabase error while retrieving change data")
-            return None
 
     def unzip_evidence_file(self, data):
         try:
@@ -1219,16 +1006,20 @@ class SupabaseDal:
         )
         return None
 
-    def claim_conversations(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_conversations(
+        self, holmes_id: str, limit: int
+    ) -> List[Dict]:
         """
-        Atomically claim all pending conversations for this cluster.
-        Returns a list of claimed Conversation rows (status='queued', assignee=holmes_id).
+        Claim up to ``limit`` pending conversations (oldest first), landing them
+        directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
+        nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        # Retry transient infrastructure errors (Supabase proxy DNS/cache
-        # overflows, 5xx gateways) so a hiccup doesn't skip a poll cycle.
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
             retry=retry_if_exception_type(Exception),
             stop=stop_after_attempt(3),
@@ -1237,11 +1028,12 @@ class SupabaseDal:
         )
         def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_conversations",
+                "claim_n_pending_conversations",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1259,22 +1051,32 @@ class SupabaseDal:
             )
             return []
 
-    def claim_tool_calls(self, holmes_id: str) -> List[Dict]:
+    def claim_n_pending_tool_calls(self, holmes_id: str, limit: int) -> List[Dict]:
         """
-        Atomically claim all pending remote tool calls targeting this cluster.
-        Returns claimed RemoteToolCalls rows (status='queued', assignee=holmes_id).
-        Stale pending rows (>5 minutes) are swept to 'timeout' server-side.
+        Claim up to ``limit`` pending remote tool calls (oldest first), landing
+        them directly in 'running' ('queued' is deprecated). ``limit`` <= 0
+        claims nothing. Returns the claimed rows (assignee=holmes_id).
         """
         if not self.enabled:
             return []
+        if limit <= 0:
+            return []
 
-        try:
+        # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
+        @retry(
+            retry=retry_if_exception_type(Exception),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _claim_with_retry() -> List[Dict]:
             res = self.client.rpc(
-                "claim_tool_calls",
+                "claim_n_pending_tool_calls",
                 {
                     "_account_id": self.account_id,
                     "_cluster_id": self.cluster,
                     "_assignee": holmes_id,
+                    "_limit": limit,
                 },
             ).execute()
             if not res.data:
@@ -1282,8 +1084,14 @@ class SupabaseDal:
             if isinstance(res.data, list):
                 return res.data
             return [res.data]
+
+        try:
+            return _claim_with_retry()
         except Exception:
-            logging.exception("Supabase error while claiming tool calls", exc_info=True)
+            logging.exception(
+                "Supabase error while claiming tool calls (after retries)",
+                exc_info=True,
+            )
             return []
 
     def post_remote_tool_call_result(

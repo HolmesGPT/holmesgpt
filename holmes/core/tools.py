@@ -293,10 +293,6 @@ class Tool(ABC, BaseModel):
         description="The URL of the icon for the tool, if None will get toolset icon",
     )
     transformers: Optional[List[Transformer]] = None
-    restricted: bool = Field(
-        default=False,
-        description="If True, tool requires skill authorization or restricted_tools=true to use",
-    )
 
     # Private attribute to store initialized transformer instances for performance
     _transformer_instances: Optional[List["BaseTransformer"]] = PrivateAttr(
@@ -401,18 +397,6 @@ class Tool(ABC, BaseModel):
         )
         return transformed_result
 
-    def _is_restricted(self) -> bool:
-        if self.restricted:
-            return True
-
-        toolset = getattr(self, "toolset", None)
-        if toolset:
-            for pattern in getattr(toolset, "restricted_tools", []):
-                if fnmatch.fnmatch(self.name, pattern):
-                    return True
-
-        return False
-
     def _get_approval_requirement(
         self, params: Dict, context: ToolInvokeContext
     ) -> Optional[ApprovalRequirement]:
@@ -426,11 +410,13 @@ class Tool(ABC, BaseModel):
         if not toolset:
             return None
 
+        # Match the real name, not the collision-namespaced exposed name.
+        real_name = getattr(self, "mcp_tool_name", "") or self.name
         for pattern in getattr(toolset, "approval_required_tools", []):
-            if fnmatch.fnmatch(self.name, pattern):
+            if fnmatch.fnmatch(real_name, pattern):
                 return ApprovalRequirement(
                     needs_approval=True,
-                    reason=f"Tool '{self.name}' matches approval pattern '{pattern}'",
+                    reason=f"Tool '{real_name}' matches approval pattern '{pattern}'",
                 )
         return None
 
@@ -758,10 +744,6 @@ class Toolset(BaseModel):
     llm_instructions: Optional[str] = None
     transformers: Optional[List[Transformer]] = None
 
-    restricted_tools: List[str] = Field(
-        default_factory=list,
-        description="Tool names/patterns that require skill authorization (use '*' for all tools)",
-    )
     approval_required_tools: List[str] = Field(
         default_factory=list,
         description="Tool names/patterns that require user approval before execution (use '*' for all tools)",
@@ -842,6 +824,20 @@ class Toolset(BaseModel):
             if value in (None, [], {}, ""):
                 continue
             setattr(self, field, value)
+
+    @model_validator(mode="before")
+    def warn_on_removed_restricted_tools(cls, values):
+        # Backwards compatibility: the restricted_tools mechanism was removed.
+        # Ignore the deprecated key (rather than hard-failing old configs) and
+        # warn so users migrate to approval_required_tools.
+        if isinstance(values, dict) and "restricted_tools" in values:
+            values.pop("restricted_tools", None)
+            logging.warning(
+                "Config field 'restricted_tools' has been removed and is now "
+                "ignored. Tool approval is controlled solely by "
+                "'approval_required_tools'."
+            )
+        return values
 
     @model_validator(mode="before")
     def preprocess_tools(cls, values):
@@ -1187,7 +1183,6 @@ class ToolsetYamlFromConfig(Toolset):
     config: Optional[Any] = None
     url: Optional[str] = None  # MCP toolset
 
-    restricted_tools: List[str] = Field(default_factory=list)
     approval_required_tools: List[str] = Field(default_factory=list)
 
 

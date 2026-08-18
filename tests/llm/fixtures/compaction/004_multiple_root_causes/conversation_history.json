@@ -334,7 +334,7 @@
         "type": "function",
         "function": {
           "name": "run_bash_command",
-          "arguments": "{\"command\": \"kubectl logs api-gateway-5d8f7b9c6-j4k8n -n production | grep -i 'traffic\\|campaign\\|load' | head -10\"}"
+          "arguments": "{\"command\": \"kubectl logs api-gateway-5d8f7b9c6-j4k8n -n production | grep -i 'traffic\\\\|campaign\\\\|load' | head -10\"}"
         }
       }
     ]

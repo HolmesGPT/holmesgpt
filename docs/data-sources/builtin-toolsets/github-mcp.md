@@ -7,7 +7,7 @@ The GitHub MCP server provides access to GitHub repositories, pull requests, iss
 Holmes supports two authentication methods for GitHub. Both deploy a self-hosted MCP server pod in your cluster that wraps the [official GitHub MCP server](https://github.com/github/github-mcp-server):
 
 - **Personal Access Token (PAT)**: Uses the standard `github-mcp` image. The PAT is passed directly to the MCP server.
-- **GitHub App**: Uses the `github-app-mcp` image which automatically generates and refreshes short-lived installation tokens from GitHub App credentials.
+- **GitHub App**: Uses the `github-app-mcp` image which automatically generates and caches short-lived installation tokens from GitHub App credentials. One App installed on several organizations can be served from a single deployment via [multi-organization support (alpha)](#multi-organization-support-alpha).
 
 Both methods support GitHub.com and GitHub Enterprise Server.
 
@@ -262,7 +262,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ### Using a GitHub App
 
-Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This deploys the `github-app-mcp` image which wraps the official GitHub MCP server with automatic installation token generation and refresh.
+Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This deploys the `github-app-mcp` image which wraps the official GitHub MCP server with automatic installation token generation and caching — including support for a single App installed on **multiple organizations** (see "Multi-organization support" below).
 
 **Step 1: Create a GitHub App**
 
@@ -293,7 +293,9 @@ Install the App on your organization or repositories:
 3. Choose **All repositories** or **Only select repositories**
 4. Click **Install**
 
-Note the **Installation ID** from the URL after installation: `https://github.com/settings/installations/<INSTALLATION_ID>`. See [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for more details.
+Note the **Installation ID** from the URL after installation: `https://github.com/settings/installations/<INSTALLATION_ID>` (on GitHub Enterprise Server, the same path on your own host). See [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for more details.
+
+To reach more than one organization from a single deployment, see [Multi-organization support (alpha)](#multi-organization-support-alpha).
 
 **Step 4: Note the App ID**
 
@@ -337,7 +339,8 @@ Find the **App ID** on the App's settings page (under "About").
         spec:
           containers:
           - name: github-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.0
+            # For multi-org (alpha) use github-app-mcp:2.0.0 and drop the args below
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.7
             ports:
             - containerPort: 8000
             args:
@@ -399,7 +402,7 @@ Find the **App ID** on the App's settings page (under "About").
             secretName: "holmes-github-app"
     ```
 
-    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and auto-refreshes installation tokens internally. The token refresh interval defaults to 30 minutes.
+    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
 
     ```bash
     helm upgrade --install holmes robusta/holmes -f values.yaml
@@ -429,19 +432,51 @@ Find the **App ID** on the App's settings page (under "About").
               secretName: "holmes-github-app"
     ```
 
-    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and auto-refreshes installation tokens internally.
+    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
 
     ```bash
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
-!!! info "How token refresh works"
+#### Multi-organization support (alpha)
+
+A GitHub App installation token is scoped to a single installation — one organization or user account — so by default the server serves the one installation named by `GITHUB_APP_INSTALLATION_ID`.
+
+Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment:
+
+```yaml
+mcpAddons:
+  github:
+    enabled: true
+    auth:
+      githubApp:
+        secretName: "holmes-github-app"
+        multiOrg: true    # alpha
+```
+
+- Install the same App on every organization or user account Holmes should reach, and omit `GITHUB_APP_INSTALLATION_ID` from the secret.
+- The server discovers all installations at startup, and re-checks whenever a request names an organization it hasn't seen, so installing the App on a new organization requires no restart or config change.
+- Each tool call is routed to the right organization's credentials based on the `owner`/`org` it targets.
+- Requests that don't name an owner — and owners the App isn't installed on — use the first discovered installation.
+- Keeping `GITHUB_APP_INSTALLATION_ID` in the secret pins the server to that one installation even with `multiOrg: true`.
+
+!!! warning "Alpha"
+    Multi-org routing is not covered by the stable release. Leave `multiOrg` unset to keep the single-organization image, which is unchanged.
+
+!!! note "Restart after editing the secret"
+    The pod only re-reads the secret on start, and the deployment's checksum tracks Helm values rather than secret contents. After adding or removing `GITHUB_APP_INSTALLATION_ID`, roll the pod so the change takes effect:
+
+    ```bash
+    kubectl rollout restart deployment/<RELEASE>-github-mcp-server -n <NAMESPACE>
+    ```
+
+!!! info "How token management works"
     The `github-app-mcp` image handles token management internally:
 
-    1. At startup, generates a JWT signed with the private key
-    2. Exchanges it for a short-lived GitHub installation token
-    3. Sets the token as `GITHUB_PERSONAL_ACCESS_TOKEN` for the underlying MCP server
-    4. A background thread refreshes the token every 30 minutes
+    1. Generates a JWT signed with the App's private key
+    2. Exchanges it for a short-lived (1 hour) installation token, on demand
+    3. Injects the token into each request to the underlying MCP server
+    4. Caches each token and mints a fresh one when it is within 5 minutes of expiry
 
 ## Available Tools
 

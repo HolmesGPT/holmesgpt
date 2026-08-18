@@ -348,6 +348,7 @@ class LLM:
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one LLM completion request."""
         pass
 
 
@@ -655,6 +656,7 @@ class DefaultLLM(LLM):
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one litellm completion request with the model's configured args."""
         tools_args = {}
         allowed_openai_params = None
 

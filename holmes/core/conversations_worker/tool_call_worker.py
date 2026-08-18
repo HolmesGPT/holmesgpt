@@ -4,9 +4,10 @@ Remote tool-call worker — executes cross-cluster tool calls.
 A Holmes instance in another cluster (the caller) asked relay's platform-mcp
 to run a tool here. platform-mcp created a row in the "RemoteToolCalls" table
 and broadcast a 'pending_tool_calls' event on holmes:submit:{account}:{cluster}.
-This worker claims such rows (claim_tool_calls RPC), runs exactly one tool per
-row — no LLM loop — and writes tool_response + terminal status in one atomic
-UPDATE (post_remote_tool_call_result RPC).
+This worker claims such rows (claim_n_pending_tool_calls RPC — only as many as
+it has free pool slots), runs exactly one tool per row — no LLM loop — and
+writes tool_response + terminal status in one atomic UPDATE
+(post_remote_tool_call_result RPC).
 
 Tool calls run in their own thread pool (TOOL_CALLER_MAX_CONCURRENT) so they
 never compete with user chats for the conversation worker's pool.
@@ -16,6 +17,7 @@ Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 
 import base64
 import gzip
+import json
 import logging
 import threading
 import time
@@ -111,6 +113,12 @@ def serialize_tool_response(
     return payload
 
 
+# Saturation must persist continuously this long before the INFO line fires
+# (mirrors worker.py's _SATURATION_LOG_AFTER_SECONDS; kept local to avoid a
+# circular import — worker.py imports this module).
+_SATURATION_LOG_AFTER_SECONDS = 60.0
+
+
 class ToolCallWorker:
     """Claims and executes remote tool calls for this cluster.
 
@@ -130,6 +138,20 @@ class ToolCallWorker:
         self._pool: Optional[ThreadPoolExecutor] = None
         self._llm = None  # lazily created; used only for in-tool token counting
         self._realtime_connected = lambda: False
+
+        # Count of tool calls currently submitted to / running in the pool, so
+        # we only claim as many new rows as we have free capacity. Surplus
+        # rows stay 'pending' for the next poll or another Holmes instance.
+        self._active_lock = threading.Lock()
+        self._active_count = 0
+        # Saturation-transition logging (ROB-759): claiming used to be
+        # skipped silently at full capacity, which looks identical to a dead
+        # claim loop. Same debounced enter/exit scheme as ConversationWorker
+        # (see _note_saturation there): the INFO fires only after 60s of
+        # CONTINUOUS saturation, so backlog churn (free→refill per completed
+        # call) never flickers.
+        self._saturated_since: Optional[float] = None
+        self._saturation_logged = False
 
     # ---- lifecycle ----
 
@@ -189,21 +211,63 @@ class ToolCallWorker:
                 logging.exception("Error in ToolCallWorker claim loop", exc_info=True)
 
     def _try_claim_and_dispatch(self) -> None:
-        claimed = self.dal.claim_tool_calls(self.holmes_id)
-        if not claimed:
+        # Claim only as many tool calls as we have free pool slots. Surplus
+        # rows stay 'pending' so another Holmes instance can claim them and so
+        # we never hold more than TOOL_CALLER_MAX_CONCURRENT claimed + running.
+        # As running tool calls finish, _execute_safe wakes this loop to
+        # re-claim.
+        with self._active_lock:
+            free = TOOL_CALLER_MAX_CONCURRENT - self._active_count
+        if free <= 0:
+            now = time.monotonic()
+            if self._saturated_since is None:
+                self._saturated_since = now
+            elif (
+                not self._saturation_logged
+                and now - self._saturated_since >= _SATURATION_LOG_AFTER_SECONDS
+            ):
+                self._saturation_logged = True
+                logging.info(
+                    "ToolCallWorker claim capacity saturated for %.0fs: all %d "
+                    "slots in use; pending tool calls will not be claimed "
+                    "until one finishes.",
+                    now - self._saturated_since,
+                    TOOL_CALLER_MAX_CONCURRENT,
+                )
             return
-        logging.info("ToolCallWorker: claimed %d tool call(s)", len(claimed))
+        if self._saturation_logged:
+            logging.info(
+                "ToolCallWorker claim capacity available again (free=%d) "
+                "after %.0fs saturated",
+                free,
+                time.monotonic() - (self._saturated_since or 0.0),
+            )
+        self._saturated_since = None
+        self._saturation_logged = False
+        # Check pool/running BEFORE claiming so we never claim rows we won't
+        # submit; once claimed we dispatch every row (no mid-loop _running
+        # check) so a racing stop() can't strand claimed rows until timeout.
         pool = self._pool
         if pool is None or not self._running:
             return
+        claimed = self.dal.claim_n_pending_tool_calls(self.holmes_id, free)
+        if not claimed:
+            return
+        logging.info(
+            "ToolCallWorker: claimed %d tool call(s) (free slots=%d)",
+            len(claimed),
+            free,
+        )
         for row in claimed:
-            if not self._running:
-                return
+            with self._active_lock:
+                self._active_count += 1
             try:
                 pool.submit(self._execute_safe, row)
             except RuntimeError:
                 # Pool shut down between the claim and here (stop() raced).
-                # The row stays 'queued' and relay times it out → 'stopped'.
+                # The row stays 'running' and relay times it out → 'stopped'.
+                with self._active_lock:
+                    self._active_count -= 1
                 logging.warning(
                     "ToolCallWorker: pool shut down; dropping claimed row %s",
                     row.get("id"),
@@ -215,27 +279,35 @@ class ToolCallWorker:
     def _execute_safe(self, row: Dict[str, Any]) -> None:
         row_id = row.get("id")
         try:
-            response = self._execute(row)
-            status = RemoteToolCallStatus.COMPLETED
-        except Exception as e:
-            logging.exception(
-                "ToolCallWorker: unexpected failure executing %s", row_id
+            try:
+                response = self._execute(row)
+                status = RemoteToolCallStatus.COMPLETED
+            except Exception as e:
+                logging.exception(
+                    "ToolCallWorker: unexpected failure executing %s", row_id
+                )
+                response = _error_response(f"executor failure: {e}")
+                status = RemoteToolCallStatus.FAILED
+
+            ok = self.dal.post_remote_tool_call_result(
+                tool_call_id=row_id,
+                assignee=self.holmes_id,
+                status=status.value,
+                tool_response=response,
             )
-            response = _error_response(f"executor failure: {e}")
-            status = RemoteToolCallStatus.FAILED
-        ok = self.dal.post_remote_tool_call_result(
-            tool_call_id=row_id,
-            assignee=self.holmes_id,
-            status=status.value,
-            tool_response=response,
-        )
-        if not ok:
-            # Row was reassigned or stopped (relay timed out) — log and drop.
-            logging.warning(
-                "ToolCallWorker: result for %s rejected (stale assignee or "
-                "terminal row); dropping",
-                row_id,
-            )
+            if not ok:
+                # Row was reassigned or stopped (relay timed out) — log and drop.
+                logging.warning(
+                    "ToolCallWorker: result for %s rejected (stale assignee or "
+                    "terminal row); dropping",
+                    row_id,
+                )
+        finally:
+            # A pool slot is now free — drop the in-flight count and wake the
+            # claim loop so it re-claims any surplus 'pending' tool calls.
+            with self._active_lock:
+                self._active_count -= 1
+            self._notify_event.set()
 
     def _execute(self, row: Dict[str, Any]) -> Dict[str, Any]:
         tool_request = row.get("tool_request") or {}
@@ -270,8 +342,6 @@ class ToolCallWorker:
             return _error_response(
                 f"toolset '{toolset.name}' is not exposed for remote execution"
             )
-        if tool._is_restricted():
-            return _error_response(f"tool '{tool_name}' is restricted")
 
         # Instance resolution: given -> must be exposed; omitted with exactly
         # one exposed instance -> default; omitted with several -> error.
@@ -297,35 +367,48 @@ class ToolCallWorker:
                 f"tool '{tool_name}' does not support instances on this cluster"
             )
 
-        # 3. Pre-approved mode only — no approval round-trip.
+        tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
+        user_approved = bool(metadata.get("remote_tool_approved"))
+        session_approved_prefixes = tool_request.get("session_approved_prefixes") or []
+
+        # 4. Tool invocation context.
         context = ToolInvokeContext(
             tool_number=None,
-            user_approved=False,
+            user_approved=user_approved,
             llm=self._get_llm(),
             max_token_count=int(tool_request.get("max_token_count")),
-            tool_call_id=str(tool_request.get("tool_call_id") or row.get("id") or ""),
+            tool_call_id=tool_call_id,
             tool_name=tool_name,
-            session_approved_prefixes=[],
+            session_approved_prefixes=session_approved_prefixes,
             request_context={"user_id": row.get("user_id")},
         )
-        approval = tool._get_approval_requirement(tool_params, context)
-        if approval and approval.needs_approval:
-            return _error_response(
-                "command/tool requires approval; approvals are not supported "
-                f"for remote execution ({approval.reason})"
-            )
 
         started = time.monotonic()
         result = tool.invoke(tool_params, context)
         elapsed = time.monotonic() - started
 
+        # 5. Handle approval-required status.
         if result.status == StructuredToolResultStatus.APPROVAL_REQUIRED:
-            return _error_response(
-                "command/tool requires approval; approvals are not supported "
-                "for remote execution"
-            )
+            if user_approved:
+                return _error_response(
+                    "tool still requires approval after user approval "
+                    "(internal error); refusing to re-request to avoid a loop",
+                    invocation=result.invocation,
+                )
+            return {
+                "status": StructuredToolResultStatus.APPROVAL_REQUIRED.value,
+                "data": None,
+                "compressed": False,
+                "data_gz_b64": None,
+                "error": result.error,
+                "return_code": result.return_code,
+                "invocation": result.invocation,
+                "elapsed_seconds": round(elapsed, 3),
+                "executor_holmes_version": get_version(),
+                "approval_params": tool_params,
+            }
 
-        # 4. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
+        # 6. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
         result.images = None
         return serialize_tool_response(result, elapsed)
 

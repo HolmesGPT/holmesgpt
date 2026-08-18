@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import random
 import re
+import shlex
 import string
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import sentry_sdk
 
@@ -24,7 +25,7 @@ from holmes.core.tools import (
     Toolset,
 )
 from holmes.plugins.toolsets.bash.bash_toolset import bash_result_to_structured
-from holmes.plugins.toolsets.bash.common.bash import execute_bash_command
+from holmes.plugins.toolsets.bash.common.bash import execute_argv_command
 from holmes.plugins.toolsets.kubectl_run.config import KubectlRunConfig
 from holmes.plugins.toolsets.kubectl_run.validation import validate_image_and_commands
 from holmes.plugins.toolsets.utils import get_param_or_raise
@@ -72,11 +73,31 @@ class KubectlRunImageCommand(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _build_kubectl_command(self, params: dict, pod_name: str) -> str:
-        namespace = params.get("namespace", "default")
+    def _build_kubectl_argv(self, params: dict, pod_name: str) -> List[str]:
+        """
+        Build the kubectl invocation as an argv list (for shell=False execution).
+
+        The container command is split with shlex into discrete arguments and placed
+        after ``--``, so it is delivered to the pod as an argv vector and is never
+        interpreted by a host shell. Raises ValueError if the command cannot be
+        parsed (e.g. unbalanced quotes).
+        """
+        namespace = params.get("namespace") or "default"
         image = get_param_or_raise(params, "image")
         command_str = get_param_or_raise(params, "command")
-        return f"kubectl run {pod_name} --image={image} --namespace={namespace} --rm --attach --restart=Never -i -- {command_str}"
+        return [
+            "kubectl",
+            "run",
+            pod_name,
+            f"--image={image}",
+            f"--namespace={namespace}",
+            "--rm",
+            "--attach",
+            "--restart=Never",
+            "-i",
+            "--",
+            *shlex.split(command_str),
+        ]
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         timeout = params.get("timeout", 60)
@@ -121,20 +142,41 @@ class KubectlRunImageCommand(Tool):
             "holmesgpt-debug-pod-"
             + "".join(random.choices(string.ascii_letters, k=8)).lower()
         )
-        full_kubectl_command = self._build_kubectl_command(params, pod_name)
         try:
-            result = execute_bash_command(cmd=full_kubectl_command, timeout=timeout)
+            argv = self._build_kubectl_argv(params, pod_name)
+        except ValueError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=f"Error: could not parse command '{command_str}': {e}",
+                params=params,
+            )
+
+        display_command = shlex.join(argv)
+        try:
+            # shell=False: the container command is passed as an argv vector and is
+            # never interpreted by a host shell.
+            result = execute_argv_command(argv=argv, timeout=timeout)
         except FileNotFoundError:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error="Error: Bash executable not found. Ensure /bin/bash is available.",
+                error="Error: kubectl executable not found. Ensure kubectl is installed and on PATH.",
                 params=params,
-                invocation=full_kubectl_command,
+                invocation=display_command,
             )
-        return bash_result_to_structured(result, full_kubectl_command, timeout, params)
+        return bash_result_to_structured(result, display_command, timeout, params)
 
     def get_parameterized_one_liner(self, params: Dict[str, Any]) -> str:
-        return self._build_kubectl_command(params, "<pod_name>")
+        try:
+            return shlex.join(self._build_kubectl_argv(params, "<pod_name>"))
+        except ValueError:
+            # Fall back to a readable rendering if the command can't be parsed.
+            image = params.get("image", "")
+            namespace = params.get("namespace") or "default"
+            command_str = params.get("command", "")
+            return (
+                f"kubectl run <pod_name> --image={image} --namespace={namespace} "
+                f"--rm --attach --restart=Never -i -- {command_str}"
+            )
 
 
 class KubectlRunToolset(Toolset):

@@ -47,6 +47,35 @@ Edit `docker-compose.yaml` to configure your setup:
 
     If your kubeconfig points to `127.0.0.1` or `localhost` (common with Docker Desktop, minikube, kind), the container automatically rewrites the Kubernetes API server address to `host.docker.internal` on startup so the cluster is reachable. Remote clusters (EKS, GKE, AKS, etc.) are not affected.
 
+### Serve the API over HTTPS
+
+The server serves HTTPS directly when you point it at a certificate and key — no reverse proxy needed. Mount the certificates and set the `HOLMES_SSL_*` environment variables on the service:
+
+```yaml
+services:
+  holmes:
+    # ...
+    volumes:
+      - ./certs:/certs:ro
+    environment:
+      - HOLMES_SSL_CERTFILE=/certs/tls.crt
+      - HOLMES_SSL_KEYFILE=/certs/tls.key
+      # - HOLMES_SSL_KEYFILE_PASSWORD=changeit   # optional, for an encrypted key
+      # - HOLMES_SSL_CA_CERTS=/certs/ca.crt       # optional, enables mTLS
+```
+
+Then verify over HTTPS (use `-k` for a self-signed/private-CA certificate):
+
+```bash
+curl -k https://localhost:5050/healthz
+```
+
+See [`HOLMES_SSL_*`](../reference/environment-variables.md#api-server-https-holmes_ssl_) for the full variable reference.
+
+!!! note
+
+    Setting only one of `HOLMES_SSL_CERTFILE` / `HOLMES_SSL_KEYFILE`, or pointing at a missing file, makes the server **fail to start** rather than silently serving HTTP. The certificate is read once at startup and not hot-reloaded — restart the container after rotating it. If you add a Compose `healthcheck`, it must use `https:// --insecure` once TLS is enabled.
+
 ## API Reference
 
 See the [HTTP API Reference](../reference/http-api.md) for full documentation on available endpoints, request/response formats, and usage examples.

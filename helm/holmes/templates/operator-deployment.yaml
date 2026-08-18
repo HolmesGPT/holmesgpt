@@ -53,6 +53,8 @@ spec:
           value: {{ .Values.operator.holmesApiTimeout | default 300 | quote }}
         - name: LOG_LEVEL
           value: {{ .Values.operator.logLevel | default "INFO" }}
+        - name: ENABLE_JSON_LOGS_FORMAT
+          value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
         - name: MAX_HISTORY_ITEMS
           value: {{ .Values.operator.maxHistoryItems | default 10 | quote }}
         - name: CLEANUP_COMPLETED_CHECKS

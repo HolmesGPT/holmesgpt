@@ -134,6 +134,7 @@ class OAuthCallbackRequest(BaseModel):
     redirect_uri: str
     client_id: Optional[str] = None
     client_secret: Optional[str] = None  # Required by some IdPs (e.g. Supabase) that don't support public clients
+    resource: Optional[str] = None  # RFC 8707 resource indicator (canonical MCP server URL)
     user_id: Optional[str] = None
 
 
@@ -229,7 +230,8 @@ class ChatRequestBaseModel(BaseModel):
         default=None,
         description=(
             "FE-supplied UI flow label, free-form. Examples: 'freeform', "
-            "'followup_logs', 'alert_investigation', 'resource_chat'."
+            "'followup_logs', 'manual_investigation', 'resource_chat'. "
+            "Taxonomy: relay repo, relay/pkg/model/conversation_request_type.py."
         ),
     )
     source_ref: Optional[str] = Field(
