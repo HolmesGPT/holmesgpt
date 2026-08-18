@@ -23,7 +23,7 @@ holmes:
               block_internal_ips: true   # enforce the destination policy
               block_private_ips: false   # true = refuse private even if allowlisted
               max_probes: 60             # probes per window (0 disables)
-              probe_window_seconds: 60
+              probe_window_seconds: 60   # must be > 0
 ```
 
 !!! warning "Probing internal addresses requires configuration"
@@ -63,9 +63,10 @@ therefore applies this policy:
 - **Every probe is logged** — allowed and refused alike — so scanning is visible
   in the Holmes logs.
 - `block_private_ips: true` refuses private destinations outright, even
-  allowlisted ones.
+  allowlisted ones, and independently of `block_internal_ips`.
 - Set `block_internal_ips: false` only in trusted, isolated environments: it
-  removes every range check and restores unrestricted probing.
+  removes the metadata/loopback and allowlist-for-private checks, leaving only
+  `block_private_ips` (if set) between the model and any address.
 
 ## Capabilities
 

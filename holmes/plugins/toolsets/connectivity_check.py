@@ -194,42 +194,49 @@ class TcpCheckTool(Tool):
                 "allowlist"
             )
 
-        if config.block_internal_ips:
+        # Resolved addresses are deliberately never echoed in a refusal: doing so
+        # would answer "what does this internal name resolve to?" for free. They
+        # go to the audit log instead.
+        #
+        # block_private_ips is the stricter, independent switch — it refuses
+        # private destinations outright, so it is enforced even when
+        # block_internal_ips is off.
+        if config.block_private_ips or config.block_internal_ips:
             for ip_str in resolved_ips:
                 try:
                     ip = ipaddress.ip_address(ip_str)
                 except ValueError:
-                    return refuse(f"unparseable resolved address '{ip_str}'")
+                    return refuse("a resolved address could not be parsed")
+
+                if ip.is_private and config.block_private_ips:
+                    return refuse(
+                        "destination is a private/internal address and "
+                        "block_private_ips is set"
+                    )
+
+                if not config.block_internal_ips:
+                    continue
 
                 # Cloud metadata / loopback / link-local / multicast / reserved:
                 # blocked unless the operator named this destination.
                 if not allowlisted and is_blocked_ip(ip, allow_private_ips=True):
                     return refuse(
-                        f"host resolves to non-routable/internal address "
-                        f"'{ip_str}', which is blocked to prevent SSRF"
+                        "host resolves to a non-routable/internal address, "
+                        "which is blocked to prevent SSRF"
                     )
 
-                if ip.is_private:
-                    if config.block_private_ips:
-                        return refuse(
-                            "destination is a private/internal address and "
-                            "block_private_ips is set"
-                        )
-                    # ROB-1114: private ranges are the network this tool sits
-                    # inside, so leaving them open to a model-chosen host/port
-                    # is a blind internal port scanner. Probing internal
-                    # services is the tool's purpose, so the fix is to require
-                    # the operator to name them rather than to block the range.
-                    if not allowlisted:
-                        # The resolved address is deliberately not echoed back:
-                        # doing so would answer "what does this internal name
-                        # resolve to?" for free. It is in the audit log instead.
-                        return refuse(
-                            "destination is a private/internal address. Such "
-                            "destinations must be listed in the "
-                            "connectivity_check 'allowed_hosts' setting "
-                            "(hostname, IP or CIDR) before they can be probed"
-                        )
+                # ROB-1114: private ranges are the network this tool sits
+                # inside, so leaving them open to a model-chosen host/port is a
+                # blind internal port scanner. Probing internal services is the
+                # tool's purpose, so the fix is to require the operator to name
+                # them rather than to block the range.
+                if ip.is_private and not allowlisted:
+                    return refuse(
+                        "destination is a private/internal address. Such "
+                        "destinations must be listed in the "
+                        "connectivity_check 'allowed_hosts' setting "
+                        "(hostname, IP or CIDR) before they can be probed"
+                    )
 
         allowed, limit_reason = self.toolset.consume_probe_budget()
         if not allowed:
@@ -285,9 +292,9 @@ class ConnectivityCheckConfig(ToolsetConfig):
             "Enforce the destination policy: cloud-metadata (169.254.0.0/16), "
             "loopback, link-local, multicast and reserved targets are refused, "
             "and private/RFC1918 targets are refused unless listed in "
-            "allowed_hosts. Disabling this removes every range check and lets "
-            "the model probe any address — only do so in trusted, isolated "
-            "environments."
+            "allowed_hosts. Disabling this removes those range checks and lets "
+            "the model probe any address (except what block_private_ips still "
+            "refuses) — only do so in trusted, isolated environments."
         ),
     )
     block_private_ips: bool = Field(
@@ -295,13 +302,14 @@ class ConnectivityCheckConfig(ToolsetConfig):
         title="Block private IPs",
         description=(
             "Refuse private/RFC1918 destinations outright, even ones listed in "
-            "allowed_hosts. Off by default because probing named internal "
-            "services is the tool's main purpose; enable to restrict the tool "
-            "to public hosts only."
+            "allowed_hosts and even when block_internal_ips is off. Off by "
+            "default because probing named internal services is the tool's "
+            "main purpose; enable to restrict the tool to public hosts only."
         ),
     )
     max_probes: int = Field(
         default=60,
+        ge=0,
         title="Max probes per window",
         description=(
             "Cap on allowed probes within probe_window_seconds, to bound "
@@ -312,8 +320,13 @@ class ConnectivityCheckConfig(ToolsetConfig):
     )
     probe_window_seconds: float = Field(
         default=60.0,
+        gt=0,
         title="Probe rate-limit window",
-        description="Length of the sliding window used by max_probes, in seconds.",
+        description=(
+            "Length of the sliding window used by max_probes, in seconds. Must "
+            "be positive: a zero-length window would expire every probe "
+            "immediately and silently disable the limit."
+        ),
     )
 
 
@@ -370,7 +383,9 @@ class ConnectivityCheckToolset(Toolset):
             return True, ""
 
         now = time.monotonic()
-        window = max(config.probe_window_seconds, 0.0)
+        # Validation pins this above zero; a zero-length window would evict
+        # every entry on the next call and silently disable the limit.
+        window = config.probe_window_seconds
         with self._probe_lock:
             while self._probe_times and now - self._probe_times[0] >= window:
                 self._probe_times.popleft()

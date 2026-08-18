@@ -7,6 +7,7 @@ import pytest
 
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.plugins.toolsets import connectivity_check
 from holmes.plugins.toolsets.connectivity_check import (
     PROBE_AUDIT_PREFIX,
     ConnectivityCheckToolset,
@@ -116,6 +117,24 @@ def _private_dns(monkeypatch, ip="10.0.0.5"):
     monkeypatch.setattr(ssrf.socket, "getaddrinfo", fake_getaddrinfo)
 
 
+def _stub_probe(monkeypatch):
+    """Replace the socket probe and record what it was asked to connect to.
+
+    Tests that assert a probe was *authorized* must not reach the network: a
+    transport error to an unroutable test address looks identical to a policy
+    refusal if you only assert on the absence of refusal text. Recording the
+    call makes "the policy let this through, and to this address" observable.
+    """
+    calls = []
+
+    def fake_tcp_check(host, port, timeout):
+        calls.append((host, port, timeout))
+        return {"ok": True}
+
+    monkeypatch.setattr(connectivity_check, "tcp_check", fake_tcp_check)
+    return calls
+
+
 # ---------------------------------------------------------------------------
 # ROB-1114: private destinations require an explicit allowlist
 #
@@ -174,6 +193,20 @@ def test_refusal_does_not_leak_the_resolved_internal_address(monkeypatch):
     assert "allowed_hosts" in result.data["error"]
 
 
+def test_metadata_refusal_does_not_leak_the_resolved_address(monkeypatch):
+    """Same rule on the metadata/loopback path: a hostname that resolves into a
+    blocked range must not have that address handed back."""
+    _private_dns(monkeypatch, "169.254.169.254")
+    tool = _build_tool()
+    result = tool.invoke(
+        {"host": "metadata.internal", "port": 80, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is False
+    assert "169.254.169.254" not in result.data["error"]
+    assert "non-routable/internal address" in result.data["error"]
+
+
 def test_tcp_check_allows_private_target_named_by_hostname(monkeypatch):
     """An allowlisted internal service still succeeds."""
     server_socket, port, stop_event, thread = start_tcp_server()
@@ -199,12 +232,14 @@ def test_tcp_check_allows_private_target_named_by_cidr(monkeypatch):
     """CIDR entries let an operator name a whole internal range (e.g. the
     cluster service network) without listing every host."""
     _private_dns(monkeypatch, "10.96.1.20")
+    probes = _stub_probe(monkeypatch)
     tool = _build_tool({"allowed_hosts": ["10.96.0.0/12"]})
     result = tool.invoke(
         {"host": "svc.cluster.local", "port": 9, "timeout": 0.1},
         create_mock_tool_invoke_context(),
     )
-    assert "Refusing to connect" not in str(result.data)
+    assert result.data["ok"] is True
+    assert probes == [("10.96.1.20", 9, 0.1)]
 
 
 def test_cidr_allowlist_does_not_cover_other_private_ranges(monkeypatch):
@@ -241,23 +276,42 @@ def test_public_destination_still_allowed_by_default(monkeypatch):
         return [(2, 1, 6, "", ("93.184.216.34", port))]
 
     monkeypatch.setattr(ssrf.socket, "getaddrinfo", fake_getaddrinfo)
+    probes = _stub_probe(monkeypatch)
     tool = _build_tool()
     result = tool.invoke(
         {"host": "example.com", "port": 443, "timeout": 0.1},
         create_mock_tool_invoke_context(),
     )
-    assert "Refusing to connect" not in str(result.data)
+    assert result.data["ok"] is True
+    assert probes == [("93.184.216.34", 443, 0.1)]
 
 
 def test_block_internal_ips_false_restores_unrestricted_probing(monkeypatch):
     """The documented escape hatch for trusted isolated environments."""
     _private_dns(monkeypatch, "10.0.0.5")
+    probes = _stub_probe(monkeypatch)
     tool = _build_tool({"block_internal_ips": False})
     result = tool.invoke(
         {"host": "internal.svc", "port": 9, "timeout": 0.1},
         create_mock_tool_invoke_context(),
     )
-    assert "Refusing to connect" not in str(result.data)
+    assert result.data["ok"] is True
+    assert probes == [("10.0.0.5", 9, 0.1)]
+
+
+def test_block_private_ips_applies_when_block_internal_ips_is_off(monkeypatch):
+    """block_private_ips refuses private destinations outright, so turning off
+    block_internal_ips must not silently disable it too."""
+    _private_dns(monkeypatch, "10.0.0.5")
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool({"block_internal_ips": False, "block_private_ips": True})
+    result = tool.invoke(
+        {"host": "internal.svc", "port": 9, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is False
+    assert "block_private_ips is set" in result.data["error"]
+    assert probes == []
 
 
 def test_block_private_ips_overrides_allowlist(monkeypatch):
@@ -277,6 +331,7 @@ def test_block_private_ips_overrides_allowlist(monkeypatch):
 def test_probe_rate_limit_bounds_sweeping(monkeypatch):
     """A wide allowlist must not be sweepable without limit."""
     _private_dns(monkeypatch, "10.96.1.20")
+    _stub_probe(monkeypatch)
     tool = _build_tool({"allowed_hosts": ["10.96.0.0/12"], "max_probes": 3})
     outcomes = []
     for _ in range(5):
@@ -288,8 +343,44 @@ def test_probe_rate_limit_bounds_sweeping(monkeypatch):
     assert outcomes == [False, False, False, True, True]
 
 
+def test_probe_rate_limit_window_expiry_restores_capacity(monkeypatch):
+    """The limit is a sliding window, not a lifetime cap: once the window has
+    passed, legitimate use gets its budget back."""
+    _private_dns(monkeypatch, "10.96.1.20")
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool(
+        {
+            "allowed_hosts": ["10.96.0.0/12"],
+            "max_probes": 2,
+            "probe_window_seconds": 30,
+        }
+    )
+
+    clock = [1000.0]
+    monkeypatch.setattr(connectivity_check.time, "monotonic", lambda: clock[0])
+
+    def probe():
+        result = tool.invoke(
+            {"host": "svc.cluster.local", "port": 9, "timeout": 0.05},
+            create_mock_tool_invoke_context(),
+        )
+        return "rate limit" in str(result.data.get("error", ""))
+
+    assert [probe(), probe(), probe()] == [False, False, True]
+
+    # Still inside the window: no capacity yet.
+    clock[0] += 29
+    assert probe() is True
+
+    # Window has now passed for the first two probes.
+    clock[0] += 2
+    assert [probe(), probe(), probe()] == [False, False, True]
+    assert len(probes) == 4
+
+
 def test_probe_rate_limit_can_be_disabled(monkeypatch):
     _private_dns(monkeypatch, "10.96.1.20")
+    _stub_probe(monkeypatch)
     tool = _build_tool({"allowed_hosts": ["10.96.0.0/12"], "max_probes": 0})
     for _ in range(5):
         result = tool.invoke(
@@ -299,9 +390,28 @@ def test_probe_rate_limit_can_be_disabled(monkeypatch):
         assert "rate limit" not in str(result.data.get("error", ""))
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"probe_window_seconds": 0},
+        {"probe_window_seconds": -1},
+        {"max_probes": -1},
+    ],
+)
+def test_nonpositive_rate_limit_settings_are_rejected(config):
+    """A zero-length window (or a negative cap) would evict every entry on the
+    next call and silently disable the limit — fail loudly at config time
+    instead of pretending to rate limit."""
+    toolset = ConnectivityCheckToolset()
+    ok, err = toolset.prerequisites_callable(config)
+    assert ok is False
+    assert "Invalid connectivity_check configuration" in err
+
+
 def test_every_probe_attempt_is_audit_logged(monkeypatch, caplog):
     """Allowed and refused probes are both recorded, so scanning is visible."""
     _private_dns(monkeypatch, "10.96.1.20")
+    _stub_probe(monkeypatch)
     tool = _build_tool({"allowed_hosts": ["10.96.0.0/12"]})
     with caplog.at_level(logging.INFO):
         tool.invoke(
