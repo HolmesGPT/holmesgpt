@@ -815,9 +815,7 @@ class ConversationWorker:
 
         'timeout' as a *target* status needs robusta-storage migration
         20260817121606, which is applied before this ships (see that
-        migration's DEPLOY ORDER note). Against a database that predates it the
-        RPC rejects the status, the DAL logs the error and returns False, and
-        the row is left to the pg_cron stale sweep exactly as it was before.
+        migration's DEPLOY ORDER note).
         """
         try:
             self.dal.update_conversation_status(
