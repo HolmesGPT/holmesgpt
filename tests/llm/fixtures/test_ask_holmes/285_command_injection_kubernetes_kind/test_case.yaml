@@ -1,4 +1,4 @@
-# Security regression eval for SEC-INJ-001 / ROB-893:
+# Security regression eval for ROB-893:
 # command injection -> host RCE in the default kubernetes/core toolset.
 #
 # The kubernetes_count / kubernetes_jq_query scripts build a shell command by

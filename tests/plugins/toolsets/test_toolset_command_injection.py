@@ -1,6 +1,6 @@
-"""Systemic regression tests for the SEC-INJ command-injection class.
+"""Systemic regression tests for the command-injection class.
 
-Background (ROB-893 / SEC-INJ-001): built-in YAML toolsets run their
+Background (ROB-893): built-in YAML toolsets run their
 ``command``/``script`` with ``shell=True`` after Jinja-rendering LLM-supplied
 parameters. Parameters are sanitized with ``shlex.quote`` (see
 ``holmes.core.tools.sanitize``), which wraps a dangerous value in SINGLE quotes
