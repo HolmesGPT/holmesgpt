@@ -41,6 +41,7 @@ def extract_usage_from_response(response: ModelResponse) -> dict:
     prompt_tokens = 0
     completion_tokens = 0
     cached_tokens: Optional[int] = None
+    cache_creation_tokens: Optional[int] = None
     reasoning_tokens = 0
 
     try:
@@ -65,6 +66,9 @@ def extract_usage_from_response(response: ModelResponse) -> dict:
             completion_details = usage.get("completion_tokens_details", None)
             if completion_details:
                 reasoning_tokens = _extract_detail_field(completion_details, "reasoning_tokens") or 0
+            # Anthropic/Bedrock prompt-cache writes (billed at a premium rate);
+            # litellm surfaces them as a top-level usage field.
+            cache_creation_tokens = usage.get("cache_creation_input_tokens", None)
     except (AttributeError, TypeError, KeyError):
         logging.debug("Could not extract token usage from LLM response")
 
@@ -74,6 +78,7 @@ def extract_usage_from_response(response: ModelResponse) -> dict:
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "cached_tokens": cached_tokens,
+        "cache_creation_tokens": cache_creation_tokens,
         "reasoning_tokens": reasoning_tokens,
     }
 
@@ -90,6 +95,7 @@ class RequestStats(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: Optional[int] = None
+    cache_creation_tokens: Optional[int] = None
     reasoning_tokens: int = 0
     max_completion_tokens_per_call: int = 0
     max_prompt_tokens_per_call: int = 0
@@ -110,6 +116,7 @@ class RequestStats(BaseModel):
             prompt_tokens=raw["prompt_tokens"],
             completion_tokens=raw["completion_tokens"],
             cached_tokens=raw["cached_tokens"],
+            cache_creation_tokens=raw["cache_creation_tokens"],
             reasoning_tokens=raw["reasoning_tokens"],
             max_completion_tokens_per_call=raw["completion_tokens"],
             max_prompt_tokens_per_call=raw["prompt_tokens"],
@@ -124,6 +131,10 @@ class RequestStats(BaseModel):
         self.completion_tokens += other.completion_tokens
         if other.cached_tokens is not None:
             self.cached_tokens = (self.cached_tokens or 0) + other.cached_tokens
+        if other.cache_creation_tokens is not None:
+            self.cache_creation_tokens = (
+                self.cache_creation_tokens or 0
+            ) + other.cache_creation_tokens
         self.reasoning_tokens += other.reasoning_tokens
         self.max_completion_tokens_per_call = max(
             self.max_completion_tokens_per_call, other.max_completion_tokens_per_call
