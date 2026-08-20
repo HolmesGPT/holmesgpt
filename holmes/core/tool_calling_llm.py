@@ -65,6 +65,7 @@ from holmes.core.tracing import (
 from holmes.core.truncation.input_context_window_limiter import (
     CompactionInsufficientError,
     check_compaction_needed,
+    compact_before_tool_result_if_needed,
     compact_if_necessary,
 )
 from holmes.utils.approval_tokens import (
@@ -1460,7 +1461,14 @@ class ToolCallingLLM:
                     else:
                         tool_calls.append(tool_result_dict)
                         all_tool_calls.append(tool_result_dict)
-                        messages.append(tool_call_result.to_llm_message())
+                        tool_message = tool_call_result.to_llm_message()
+                        messages, tool_compaction_usage = compact_before_tool_result_if_needed(
+                            self.llm, messages, tool_message, tools
+                        )
+                        if tool_compaction_usage.total_tokens > 0:
+                            tool_compaction_usage.num_compactions = 1
+                            stats += tool_compaction_usage
+                        messages.append(tool_message)
 
                         yield StreamMessage(
                             event=StreamEvents.TOOL_RESULT,

@@ -37,7 +37,7 @@ COMPACTION_SUMMARY_SUFFIX = (
 ROLLING_SUMMARY_PREAMBLE = (
     "Summary of the earlier portion of the conversation (already compacted):"
 )
-MAX_PARTIAL_COMPACTIONS = 2
+MAX_PARTIAL_COMPACTIONS = 3
 
 
 def strip_system_prompt(
@@ -132,63 +132,9 @@ def _take_prefix_within_budget(
     return prefix, []
 
 
-def _partially_compact(
-    conversation_history: list[dict],
-    llm: LLM,
-    tools: Optional[list[dict[str, Any]]],
-    instructions_message: dict,
-    input_budget: int,
-) -> tuple[list[dict], RequestStats, Optional[str]]:
-    """Compact prefix subsets of an oversized history until it fits the budget."""
-    usage = RequestStats()
-    history = conversation_history
-    rounds = 0
-    while llm.count_tokens(messages=history, tools=tools).total_tokens > input_budget:  # type: ignore
-        if rounds == MAX_PARTIAL_COMPACTIONS:
-            total = llm.count_tokens(messages=history, tools=tools).total_tokens  # type: ignore
-            return (
-                conversation_history,
-                usage,
-                f"history still exceeds the summarization input budget "
-                f"({total} > {input_budget}) after {MAX_PARTIAL_COMPACTIONS} partial compactions",
-            )
-        rounds += 1
-        rest, system_message = strip_system_prompt(history)
-        prefix, remaining = _take_prefix_within_budget(
-            _group_message_units(rest), llm, input_budget
-        )
-        logging.info(
-            f"Compaction: partial compaction round {rounds}: "
-            f"summarizing the first {len(prefix)} of {len(rest)} messages"
-        )
-        flattened_prefix = _flatten_tool_messages_for_compaction(prefix)
-        try:
-            response = llm.completion(
-                messages=flattened_prefix + [instructions_message], drop_params=True
-            )  # type: ignore
-        except Exception as e:
-            return (
-                conversation_history,
-                usage,
-                f"partial compaction round {rounds} failed: {e}",
-            )
-        usage += RequestStats.from_response(response)
-        summary = _extract_text_content(_get_response_message(response)).strip()
-        if not summary:
-            return (
-                conversation_history,
-                usage,
-                f"partial compaction round {rounds} returned no text",
-            )
-        summary_message = {
-            "role": "user",
-            "content": f"{ROLLING_SUMMARY_PREAMBLE}\n\n{summary}",
-        }
-        history = ([system_message] if system_message else []) + [
-            summary_message,
-            *remaining,
-        ]
-    return history, usage, None
+def _with_system(system_prompt_message: Optional[dict], messages: list[dict]) -> list[dict]:
+    """Prepend the system prompt message when there is one."""
+    return ([system_prompt_message] if system_prompt_message else []) + messages
 
 
 def _append_text_to_content(content: Any, text: str) -> Any:
@@ -344,25 +290,54 @@ def compact_conversation_history(
     instructions_message = {"role": "user", "content": compaction_instructions}
     compaction_usage = RequestStats()
 
+    # Oversized history: compact a prefix that fits, roll its summary forward,
+    # and re-check — each round reuses this same function on the prefix.
     input_budget = context_window - instruction_tokens - maximum_output_token
-    total_tokens = llm.count_tokens(messages=conversation_history, tools=tools).total_tokens  # type: ignore
-    if total_tokens > input_budget:
-        logging.info(
-            f"Compaction: conversation ({total_tokens} tokens) exceeds the summarization "
-            f"input budget ({input_budget}); running partial compaction first"
+    overhead_tokens = llm.count_tokens(
+        messages=[system_prompt_message] if system_prompt_message else [], tools=tools
+    ).total_tokens
+    partial_rounds = 0
+    while llm.count_tokens(messages=conversation_history, tools=tools).total_tokens > input_budget:  # type: ignore
+        rest, _ = strip_system_prompt(conversation_history)
+        prefix, remaining = _take_prefix_within_budget(
+            _group_message_units(rest), llm, input_budget - overhead_tokens
         )
-        conversation_history, partial_usage, partial_failure = _partially_compact(
-            conversation_history, llm, tools, instructions_message, input_budget
-        )
-        compaction_usage += partial_usage
-        if partial_failure:
-            logging.error(f"Failed to compact conversation history: {partial_failure}")
+        if partial_rounds == MAX_PARTIAL_COMPACTIONS or not remaining:
+            failure_reason = (
+                f"conversation still exceeds the summarization input budget "
+                f"after {partial_rounds} partial compactions"
+            )
+            logging.error(f"Failed to compact conversation history: {failure_reason}")
             return CompactionResult(
                 messages_after_compaction=original_conversation_history,
                 usage=compaction_usage,
                 fallback_used=True,
-                fallback_reason=partial_failure,
+                fallback_reason=failure_reason,
             )
+        partial_rounds += 1
+        logging.info(
+            f"Compaction: partial compaction round {partial_rounds}: "
+            f"compacting the first {len(prefix)} of {len(rest)} messages"
+        )
+        prefix_result = compact_conversation_history(
+            _with_system(system_prompt_message, prefix), llm, tools
+        )
+        if prefix_result.usage:
+            compaction_usage += prefix_result.usage
+        if not prefix_result.summary:
+            return CompactionResult(
+                messages_after_compaction=original_conversation_history,
+                usage=compaction_usage,
+                fallback_used=True,
+                fallback_reason=f"partial compaction round {partial_rounds} failed: {prefix_result.fallback_reason}",
+            )
+        summary_message = {
+            "role": "user",
+            "content": f"{ROLLING_SUMMARY_PREAMBLE}\n\n{prefix_result.summary}",
+        }
+        conversation_history = _with_system(
+            system_prompt_message, [summary_message, *remaining]
+        )
 
     response_message = None
     fallback_reason: Optional[str] = None

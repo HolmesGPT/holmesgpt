@@ -15,6 +15,9 @@ from holmes.core.truncation.compaction import (
     _take_prefix_within_budget,
     compact_conversation_history,
 )
+from holmes.core.truncation.input_context_window_limiter import (
+    compact_before_tool_result_if_needed,
+)
 
 CONVERSATION_HISTORY_FILE_PATH = (
     Path(__file__).parent / "conversation_history_for_compaction.json"
@@ -678,10 +681,12 @@ def test_compaction_partially_compacts_oversized_history():
     # Each round rolls the previous summary forward
     assert any("PARTIAL SUMMARY 1" in str(m.get("content")) for m in llm.calls[1]["messages"])
     assert any("PARTIAL SUMMARY 2" in str(m.get("content")) for m in llm.calls[2]["messages"])
-    # Partial calls are flattened (no tool blocks); pairs never split mid-unit
-    for call in llm.calls[:2]:
-        assert all(m.get("role") != "tool" for m in call["messages"])
-        assert not any(m.get("tool_calls") for m in call["messages"])
+    # Tool pairs are never split mid-unit: every tool call keeps its result
+    for call in llm.calls:
+        sent_messages = call["messages"]
+        for position, message in enumerate(sent_messages):
+            if message.get("tool_calls"):
+                assert sent_messages[position + 1]["role"] == "tool"
     # Original history not mutated (token_count cache aside)
     for msg, orig in zip(history, original):
         assert msg["content"] == orig["content"]
@@ -689,29 +694,31 @@ def test_compaction_partially_compacts_oversized_history():
 
 def test_compaction_gives_up_after_max_partial_rounds():
     llm = TokenCountingFakeLLM(
-        [_make_response(content="S1"), _make_response(content="S2")],
+        [_make_response(content=f"S{i}") for i in range(1, 4)],
         context_window=2000,
         max_output=100,
     )
     history = [
         {"role": "system", "content": "sys prompt"},
         {"role": "user", "content": "q"},
-        *[m for i in range(6) for m in _tool_unit(i, 3200)],
+        *[m for i in range(8) for m in _tool_unit(i, 3200)],
     ]
     result = compact_conversation_history(
         original_conversation_history=history, llm=llm  # type: ignore
     )
 
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
     assert result.messages_after_compaction == history
     assert result.summary is None
     assert result.fallback_used is True
-    assert "after 2 partial compactions" in result.fallback_reason
+    assert "after 3 partial compactions" in result.fallback_reason
 
 
 def test_compaction_partial_round_failure_returns_original_history():
     llm = TokenCountingFakeLLM(
-        [RuntimeError("529 overloaded")], context_window=2000, max_output=100
+        [RuntimeError("529 overloaded"), RuntimeError("529 overloaded")],
+        context_window=2000,
+        max_output=100,
     )
     history = [
         {"role": "user", "content": "q"},
@@ -724,6 +731,65 @@ def test_compaction_partial_round_failure_returns_original_history():
     assert result.messages_after_compaction == history
     assert result.fallback_used is True
     assert "529 overloaded" in result.fallback_reason
+
+
+def _pending_tool_call_messages() -> list[dict]:
+    return [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "q"},
+        *_tool_unit(1, 3200),
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c9",
+                    "type": "function",
+                    "function": {"name": "kubectl_get", "arguments": "{}"},
+                }
+            ],
+        },
+    ]
+
+
+def test_tool_result_append_triggers_compaction_and_keeps_pending_pair():
+    llm = TokenCountingFakeLLM(
+        [_make_response(content="HEAD SUMMARY")], context_window=2000, max_output=100
+    )
+    tool_message = {"role": "tool", "tool_call_id": "c9", "content": "y" * 6000}
+    messages, usage = compact_before_tool_result_if_needed(
+        llm, _pending_tool_call_messages(), tool_message, None  # type: ignore
+    )
+
+    assert len(llm.calls) == 1
+    assert messages[-1].get("tool_calls")
+    assert any("HEAD SUMMARY" in str(m.get("content")) for m in messages)
+    assert tool_message["content"] == "y" * 6000
+
+
+def test_tool_result_too_large_is_replaced_with_error():
+    llm = TokenCountingFakeLLM(
+        [_make_response(content="HEAD SUMMARY")], context_window=2000, max_output=100
+    )
+    tool_message = {"role": "tool", "tool_call_id": "c9", "content": "y" * 12000}
+    compact_before_tool_result_if_needed(
+        llm, _pending_tool_call_messages(), tool_message, None  # type: ignore
+    )
+
+    assert "Tool result too large for the context window" in tool_message["content"]
+
+
+def test_tool_result_append_under_threshold_is_untouched():
+    llm = TokenCountingFakeLLM([], context_window=100000)
+    original_messages = _pending_tool_call_messages()
+    tool_message = {"role": "tool", "tool_call_id": "c9", "content": "small"}
+    messages, usage = compact_before_tool_result_if_needed(
+        llm, original_messages, tool_message, None  # type: ignore
+    )
+
+    assert messages == original_messages
+    assert llm.calls == []
+    assert tool_message["content"] == "small"
 
 
 def test_compaction_small_history_needs_no_partial_rounds():

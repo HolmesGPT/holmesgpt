@@ -57,6 +57,59 @@ def check_compaction_needed(
     return None
 
 
+def compact_before_tool_result_if_needed(
+    llm: "LLM",
+    messages: list[dict],
+    tool_message: dict,
+    tools: Optional[list[dict[str, Any]]],
+) -> tuple[list[dict], RequestStats]:
+    """Compact pre-tool-call history when appending a tool result would cross the threshold."""
+    usage = RequestStats()
+    max_context_size = llm.get_context_window_size()
+    maximum_output_token = llm.get_maximum_output_token()
+    threshold = max_context_size * get_context_window_compaction_threshold_pct() / 100
+
+    def tokens_with_result() -> int:
+        return llm.count_tokens(messages=messages + [tool_message], tools=tools).total_tokens  # type: ignore
+
+    if (
+        not ENABLE_CONVERSATION_HISTORY_COMPACTION
+        or tokens_with_result() + maximum_output_token <= threshold
+    ):
+        return messages, usage
+
+    pending_index = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if messages[index].get("role") == "assistant" and messages[index].get("tool_calls")
+        ),
+        None,
+    )
+    if pending_index is not None and pending_index > 1:
+        # Compact everything before the pending tool calls; keep them paired with their results
+        head, tail = messages[:pending_index], messages[pending_index:]
+        compaction_result = compact_conversation_history(head, llm, tools)
+        if compaction_result.usage:
+            usage += compaction_result.usage
+        if compaction_result.summary:
+            messages = compaction_result.messages_after_compaction + tail
+            logging.info("Compacted conversation history before appending a tool result")
+
+    total_tokens = tokens_with_result()
+    if total_tokens + maximum_output_token > max_context_size:
+        logging.warning(
+            f"Tool result too large for the context window ({total_tokens} tokens); discarded"
+        )
+        tool_message["content"] = (
+            f"Tool result too large for the context window ({total_tokens} tokens + "
+            f"{maximum_output_token} max output > {max_context_size}): result discarded. "
+            f"Re-run the tool with narrower parameters."
+        )
+        tool_message.pop("token_count", None)
+    return messages, usage
+
+
 class CompactionInsufficientError(Exception):
     """Raised when conversation compaction was not sufficient to fit the context window."""
 
