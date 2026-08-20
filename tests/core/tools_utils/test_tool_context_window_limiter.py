@@ -106,6 +106,56 @@ class TestPreventOverlyBigToolResponse:
             assert "too large to return" in success_tool_call_result.result.error
             assert "3000/2048 tokens" in success_tool_call_result.result.error
 
+    def test_oversized_error_result_is_capped(self, mock_llm):
+        """Regression: oversized non-SUCCESS results must be capped too."""
+        error_result = ToolCallResult(
+            tool_call_id="test-id-2",
+            tool_name="test_tool",
+            description="Test tool description",
+            result=StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, data="x" * 100000
+            ),
+        )
+        mock_llm.get_max_token_count_for_single_tool.return_value = 2048
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=30000,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        spill_oversized_tool_result(error_result, mock_llm)
+
+        assert error_result.result.data is None
+        assert "too large to return" in error_result.result.error
+
+    def test_small_error_result_untouched(self, mock_llm):
+        """Small error results keep their error message verbatim."""
+        error_result = ToolCallResult(
+            tool_call_id="test-id-3",
+            tool_name="test_tool",
+            description="Test tool description",
+            result=StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR, error="connection refused"
+            ),
+        )
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=100,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        spill_oversized_tool_result(error_result, mock_llm)
+
+        assert error_result.result.error == "connection refused"
+
     def test_token_calculation_accuracy(self, mock_llm, success_tool_call_result):
         """Test that token calculations are accurate."""
         with patch(

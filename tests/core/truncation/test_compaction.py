@@ -555,3 +555,99 @@ def test_compaction_returns_original_history_when_both_attempts_unusable():
     assert len(llm.calls) == 2
     assert result.summary is None
     assert result.messages_after_compaction == history
+
+
+# --- Unit tests for partial compaction of histories larger than the window ---
+
+
+class TokenCountingFakeLLM(RecordingFakeLLM):
+    """Fake LLM counting ~1 token per 4 chars, caching like DefaultLLM."""
+
+    def __init__(self, responses, context_window=2000, max_output=100):
+        super().__init__(responses)
+        self.context_window = context_window
+        self.max_output = max_output
+
+    def count_tokens(self, messages, tools=None):
+        for m in messages:
+            if m.get("token_count") is None:
+                m["token_count"] = _text_length(m.get("content")) // 4
+        return type("Usage", (), {"total_tokens": sum(m["token_count"] for m in messages)})
+
+    def get_context_window_size(self):
+        return self.context_window
+
+    def get_maximum_output_token(self):
+        return self.max_output
+
+
+def _text_length(content):
+    if isinstance(content, list):
+        return sum(len(b.get("text", "")) for b in content if isinstance(b, dict))
+    return len(content or "")
+
+
+def _tool_unit(unit_id, size):
+    call = {"id": f"c{unit_id}", "type": "function", "function": {"name": "kubectl_get", "arguments": "{}"}}
+    return [
+        {"role": "assistant", "content": None, "tool_calls": [call]},
+        {"role": "tool", "tool_call_id": f"c{unit_id}", "content": "x" * size},
+    ]
+
+
+def test_partial_compaction_handles_history_larger_than_context_window():
+    llm = TokenCountingFakeLLM(
+        [_make_response(content=f"S{i}") for i in range(1, 11)],
+        context_window=8000,
+        max_output=400,
+    )
+    history = [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "why is my pod crashing?"},
+        *[m for i in range(12) for m in _tool_unit(i, 3200)],  # ~800 tokens each
+    ]
+
+    result = compact_conversation_history(
+        original_conversation_history=history, llm=llm  # type: ignore
+    )
+
+    assert result.summary == f"S{len(llm.calls)}"
+    assert len(llm.calls) >= 2
+    for call in llm.calls:
+        sent = llm.count_tokens(messages=list(call["messages"])).total_tokens
+        assert sent + llm.max_output <= llm.context_window
+        for position, message in enumerate(call["messages"]):
+            if message.get("tool_calls"):  # pairs never split
+                assert call["messages"][position + 1]["role"] == "tool"
+
+
+def test_partial_compaction_split_is_token_aware():
+    """Skewed sizes: the first prefix must carry real tokens, not just messages."""
+    llm = TokenCountingFakeLLM(
+        [_make_response(content=f"S{i}") for i in range(1, 11)],
+        context_window=8000,
+        max_output=400,
+    )
+    history = [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "q"},
+        *[m for i in range(5) for m in _tool_unit(i, 40)],  # 5 tiny units
+        *[m for i in range(5, 10) for m in _tool_unit(i, 6400)],  # 5 huge units
+    ]
+
+    result = compact_conversation_history(
+        original_conversation_history=history, llm=llm  # type: ignore
+    )
+
+    assert result.summary == f"S{len(llm.calls)}"
+    first_call_tokens = llm.count_tokens(messages=list(llm.calls[0]["messages"])).total_tokens
+    assert first_call_tokens >= llm.context_window // 2
+
+
+def test_small_history_compacts_in_a_single_call():
+    llm = TokenCountingFakeLLM([_make_response(content="THE SUMMARY")], context_window=100000)
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(), llm=llm  # type: ignore
+    )
+    assert result.summary == "THE SUMMARY"
+    assert len(llm.calls) == 1

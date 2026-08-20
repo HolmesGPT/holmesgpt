@@ -193,6 +193,37 @@ def _extract_text_content(message: Any) -> str:
     return ""
 
 
+def _partially_compact(
+    messages: list[dict], llm: LLM, tools: Optional[list[dict[str, Any]]]
+) -> CompactionResult:
+    """Compact the first ~half-window of tokens, then the rest with its summary."""
+    llm.count_tokens(messages=messages)  # populate the token_count cache
+    target = llm.get_context_window_size() // 2
+    half, accumulated = 0, 0
+    while half < len(messages) and (accumulated < target or half < 4):
+        accumulated += messages[half].get("token_count") or 0
+        half += 1
+    while half < len(messages) and messages[half].get("role") == "tool":
+        half += 1  # never split a tool call from its results
+    if half >= len(messages):
+        return CompactionResult(
+            messages_after_compaction=messages,
+            fallback_used=True,
+            fallback_reason="conversation history cannot be split for partial compaction",
+        )
+    first = compact_conversation_history(messages[:half], llm, tools)
+    if not first.summary:
+        return CompactionResult(
+            messages_after_compaction=messages,
+            usage=first.usage,
+            fallback_used=True,
+            fallback_reason=first.fallback_reason,
+        )
+    return compact_conversation_history(
+        first.messages_after_compaction + messages[half:], llm, tools
+    )
+
+
 def compact_conversation_history(
     original_conversation_history: list[dict],
     llm: LLM,
@@ -250,6 +281,10 @@ def compact_conversation_history(
             f"(conversation would overflow: {total_tokens} + {instruction_tokens} + {maximum_output_token} > {context_window})"
         )
         conversation_history = _strip_images_for_compaction(conversation_history)
+
+    total_tokens = llm.count_tokens(messages=conversation_history, tools=tools).total_tokens  # type: ignore
+    if total_tokens + instruction_tokens + maximum_output_token > context_window:
+        return _partially_compact(conversation_history, llm, tools)
 
     instructions_message = {"role": "user", "content": compaction_instructions}
     compaction_usage = RequestStats()

@@ -47,8 +47,6 @@ def spill_oversized_tool_result(
     max_tokens_allowed = llm.get_max_token_count_for_single_tool()
     logging.debug(f"spill_oversized_tool_result: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)")
 
-    if tool_call_result.result.status != StructuredToolResultStatus.SUCCESS:
-        return messages_token
     if messages_token <= max_tokens_allowed:
         return messages_token
 
