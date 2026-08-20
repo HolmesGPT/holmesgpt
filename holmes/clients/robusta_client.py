@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 import requests  # type: ignore
 from pydantic import BaseModel, ConfigDict
 from tenacity import (
-    before_sleep_log,
+    RetryCallState,
     retry,
     retry_if_exception,
     stop_after_attempt,
@@ -52,6 +52,21 @@ def _is_retryable_fetch_error(exc: BaseException) -> bool:
     )
 
 
+def _log_fetch_retry(retry_state: RetryCallState) -> None:
+    # Only the first attempt's failure is loud - repeating the same warning
+    # for every attempt in a 5-attempt burst adds noise without new
+    # information (review feedback on ROB-795).
+    level = logging.WARNING if retry_state.attempt_number == 1 else logging.DEBUG
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    logger.log(
+        level,
+        "Fetching Robusta models failed (attempt %d/%d): %s; retrying",
+        retry_state.attempt_number,
+        FETCH_MODELS_ATTEMPTS,
+        exc,
+    )
+
+
 # The model list is fetched once, at startup: losing that single request to a
 # transient relay/gateway blip degrades the agent to the legacy single-model
 # fallback for the pod's whole life (ROB-795). Retries stay bounded because
@@ -60,8 +75,8 @@ def _is_retryable_fetch_error(exc: BaseException) -> bool:
 @retry(
     retry=retry_if_exception(_is_retryable_fetch_error),
     stop=stop_after_attempt(FETCH_MODELS_ATTEMPTS),
-    wait=wait_exponential(min=2, max=10),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
+    wait=wait_exponential(multiplier=2, min=2, max=10),
+    before_sleep=_log_fetch_retry,
     reraise=True,
 )
 def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
@@ -75,12 +90,13 @@ def _request_robusta_models(account_id: str, token: str) -> RobustaModelsRespons
 
 
 def fetch_robusta_models(
-    account_id: str, token: str
+    account_id: str, token: str, log_failure: bool = True
 ) -> Optional[RobustaModelsResponse]:
     try:
         return _request_robusta_models(account_id, token)
     except Exception:
-        logging.exception("Failed to fetch robusta models for account")
+        if log_failure:
+            logging.exception("Failed to fetch robusta models for account")
         return None
 
 

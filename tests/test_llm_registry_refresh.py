@@ -195,6 +195,39 @@ def test_unchanged_catalog_reports_no_change(build_registry):
     assert set(registry.models) == {"Robusta/opus-4-6"}
 
 
+def test_default_only_change_is_reported_as_a_change(build_registry):
+    """Same model names, new default: the registry did change (CodeRabbit ROB-795)."""
+    registry = build_registry(
+        _catalog("Robusta/opus-4-6", "Robusta/gpt-5", default="Robusta/opus-4-6")
+    )
+
+    changed = _refresh_with(
+        registry, _catalog("Robusta/opus-4-6", "Robusta/gpt-5", default="Robusta/gpt-5")
+    )
+
+    assert changed
+    assert registry.default_robusta_model == "Robusta/gpt-5"
+
+
+def test_repeated_failures_log_only_the_first_and_every_nth(build_registry):
+    """An outage that outlives several 300s refresh cycles must not log the
+    same failure every cycle (review feedback on ROB-795)."""
+    registry = build_registry(_catalog("Robusta/opus-4-6", default="Robusta/opus-4-6"))
+
+    log_failure_calls = []
+    with patch(
+        "holmes.core.llm.fetch_robusta_models",
+        side_effect=lambda *a, **kw: log_failure_calls.append(kw["log_failure"])
+        or None,
+    ):
+        for _ in range(6):
+            assert not registry.refresh_robusta_models()
+
+    # 1st failure logs; 2nd-5th are suppressed; the 6th (one full interval
+    # later) logs again.
+    assert log_failure_calls == [True, False, False, False, False, True]
+
+
 def test_skipped_when_robusta_ai_is_disabled(build_registry):
     registry = build_registry(
         None,

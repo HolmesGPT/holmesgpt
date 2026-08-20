@@ -161,6 +161,12 @@ def get_context_window_compaction_threshold_pct() -> int:
 
 ROBUSTA_AI_MODEL_NAME = "Robusta"
 
+# Refreshes run every TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS (default 300s); an
+# extended relay outage would otherwise log a failure every cycle. Only the
+# first failure and every Nth one after it get a full log line (review
+# feedback on ROB-795).
+ROBUSTA_REFRESH_FAILURE_LOG_EVERY = 5
+
 
 def _is_gemini_route(litellm_model_name: str) -> bool:
     """True if the model goes through Google's Gemini GenerateContent API.
@@ -824,6 +830,7 @@ class LLMModelRegistry:
         self._default_robusta_model: Optional[str] = None
         self.dal = dal
         self._lock = threading.RLock()
+        self._robusta_refresh_failures = 0
 
         self._init_models()
 
@@ -966,6 +973,11 @@ class LLMModelRegistry:
         (ROB-795, ROB-707). A failed or empty fetch leaves the registry alone:
         downgrading a healthy catalog on every relay blip would be worse than
         briefly serving a stale list. Returns True when the registry changed.
+
+        Failures are logged on the first occurrence and every
+        `ROBUSTA_REFRESH_FAILURE_LOG_EVERY`th one after that - an outage that
+        outlives several refresh cycles would otherwise log the same failure
+        every cycle.
         """
         with self._lock:
             # Robusta AI is in play iff something Robusta-hosted is loaded -
@@ -984,25 +996,44 @@ class LLMModelRegistry:
         ):
             return False
 
+        log_this_failure = (
+            self._robusta_refresh_failures == 0
+            or self._robusta_refresh_failures % ROBUSTA_REFRESH_FAILURE_LOG_EVERY == 0
+        )
+
         try:
-            robusta_models = fetch_robusta_models(*self.dal.get_ai_credentials())
+            robusta_models = fetch_robusta_models(
+                *self.dal.get_ai_credentials(), log_failure=log_this_failure
+            )
         except Exception:
-            logging.exception("Failed to refresh Robusta AI models")
+            self._robusta_refresh_failures += 1
+            if log_this_failure:
+                logging.exception("Failed to refresh Robusta AI models")
             return False
 
         if not robusta_models or not robusta_models.models:
-            logging.warning("Keeping the loaded models: the catalog came back empty.")
+            self._robusta_refresh_failures += 1
+            if log_this_failure:
+                logging.warning(
+                    "Keeping the loaded models: the catalog came back empty."
+                )
             return False
 
+        self._robusta_refresh_failures = 0
+
         with self._lock:
+            previous_default = self._default_robusta_model
             added, removed = self._install_robusta_models(robusta_models)
             self._register_pricing_for_loaded_models()
 
-        if added or removed:
+        changed = bool(added or removed) or (
+            self._default_robusta_model != previous_default
+        )
+        if changed:
             logging.info(
                 f"Refreshed Robusta AI models. added: {added}, removed: {removed}"
             )
-        return bool(added or removed)
+        return changed
 
     def _install_robusta_models(
         self, robusta_models: RobustaModelsResponse

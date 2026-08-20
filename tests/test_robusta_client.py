@@ -80,3 +80,13 @@ def test_retries_connection_errors(mocked_responses):
 
     assert result is not None
     assert len(mocked_responses.calls) == 2
+
+
+def test_retries_timeouts(mocked_responses):
+    mocked_responses.post(MODELS_URL, body=requests.exceptions.Timeout())
+    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+
+    result = fetch_robusta_models("account-id", "token")
+
+    assert result is not None
+    assert len(mocked_responses.calls) == 2
