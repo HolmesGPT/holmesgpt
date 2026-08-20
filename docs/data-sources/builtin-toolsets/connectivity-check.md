@@ -20,6 +20,7 @@ holmes:
               allowed_hosts:
                 - prometheus.monitoring.svc
                 - 10.96.0.0/12
+              allow_all_hosts: false     # true = skip the allowlist requirement
               block_internal_ips: true   # enforce the destination policy
               block_private_ips: false   # true = refuse private even if allowlisted
               max_probes: 60             # probes per window (0 disables)
@@ -31,6 +32,11 @@ holmes:
     `allowed_hosts`. If you use `tcp_check` against in-cluster services, add
     them (or their CIDR) to `allowed_hosts` — otherwise the probe is refused
     with a message naming this setting.
+
+    If you'd rather not maintain an allowlist, set `allow_all_hosts: true` (or
+    the `HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS` environment variable) to
+    probe any internal destination at your own risk. Holmes logs a warning at
+    startup while it is on. Cloud-metadata and loopback stay blocked either way.
 
 ### SSRF protection
 
@@ -62,6 +68,13 @@ therefore applies this policy:
   `max_probes: 0` to disable.
 - **Every probe is logged** — allowed and refused alike — so scanning is visible
   in the Holmes logs.
+- **`allow_all_hosts: true` waives the allowlist requirement** for deployments
+  that don't want to maintain one: private/internal destinations become
+  probeable again, at your own risk, and a warning is logged at startup. It can
+  also be set with the `HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS` environment
+  variable, so no config change is needed. Cloud-metadata, loopback and
+  link-local stay blocked, and `block_private_ips: true` still overrides it. If
+  `allowed_hosts` is also set, `allow_all_hosts` wins (and says so in the log).
 - `block_private_ips: true` refuses private destinations outright, even
   allowlisted ones, and independently of `block_internal_ips`.
 - Set `block_internal_ips: false` only in trusted, isolated environments: it

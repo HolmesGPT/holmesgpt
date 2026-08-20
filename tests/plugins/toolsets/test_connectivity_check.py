@@ -299,6 +299,124 @@ def test_block_internal_ips_false_restores_unrestricted_probing(monkeypatch):
     assert probes == [("10.0.0.5", 9, 0.1)]
 
 
+# ---------------------------------------------------------------------------
+# allow_all_hosts: the opt-out for deployments that don't want to build an
+# allowlist. It waives the *allowlist requirement* only — cloud metadata and
+# loopback stay blocked, and block_private_ips still wins.
+# ---------------------------------------------------------------------------
+
+
+def test_allow_all_hosts_permits_private_target_without_allowlist(monkeypatch):
+    _private_dns(monkeypatch, "10.0.0.5")
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool({"allow_all_hosts": True})
+    result = tool.invoke(
+        {"host": "internal.svc", "port": 9, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is True
+    assert probes == [("10.0.0.5", 9, 0.1)]
+
+
+def test_allow_all_hosts_can_be_set_by_env_var(monkeypatch):
+    """The point of the env var is that no config file has to change."""
+    _private_dns(monkeypatch, "10.0.0.5")
+    probes = _stub_probe(monkeypatch)
+    monkeypatch.setenv(connectivity_check.ALLOW_ALL_HOSTS_ENV_VAR, "true")
+    tool = _build_tool()
+    result = tool.invoke(
+        {"host": "internal.svc", "port": 9, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is True
+    assert probes == [("10.0.0.5", 9, 0.1)]
+
+
+@pytest.mark.parametrize("value", ["", "false", "0", "no", "maybe"])
+def test_allow_all_hosts_env_var_fails_safe(monkeypatch, value):
+    """Anything but an explicit truthy value leaves the guard on."""
+    monkeypatch.setenv(connectivity_check.ALLOW_ALL_HOSTS_ENV_VAR, value)
+    tool = _build_tool()
+    result = tool.invoke(
+        {"host": "10.0.0.1", "port": 9, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is False
+    assert "allowed_hosts" in result.data["error"]
+
+
+def test_allow_all_hosts_still_blocks_metadata_and_loopback(monkeypatch):
+    """The escape hatch is for the operator's own network, not for the cloud
+    credential endpoint — that stays behind block_internal_ips."""
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool({"allow_all_hosts": True})
+    for host in ["169.254.169.254", "127.0.0.1", "::1"]:
+        result = tool.invoke(
+            {"host": host, "port": 80, "timeout": 0.1},
+            create_mock_tool_invoke_context(),
+        )
+        assert result.data["ok"] is False, host
+        assert "Refusing to connect" in result.data["error"], host
+    assert probes == []
+
+
+def test_allow_all_hosts_does_not_beat_block_private_ips(monkeypatch):
+    """block_private_ips is the 'public hosts only' switch and stays absolute."""
+    _private_dns(monkeypatch, "10.0.0.5")
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool({"allow_all_hosts": True, "block_private_ips": True})
+    result = tool.invoke(
+        {"host": "internal.svc", "port": 9, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is False
+    assert "block_private_ips is set" in result.data["error"]
+    assert probes == []
+
+
+def test_allow_all_hosts_overrides_a_configured_allowlist(monkeypatch):
+    """Setting both is contradictory; allow_all_hosts wins (and is warned about
+    at startup) rather than the allowlist silently half-applying."""
+    _private_dns(monkeypatch, "192.168.4.4")
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool(
+        {"allow_all_hosts": True, "allowed_hosts": ["10.96.0.0/12"]}
+    )
+    result = tool.invoke(
+        {"host": "elsewhere.internal", "port": 9, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is True
+    assert probes == [("192.168.4.4", 9, 0.1)]
+
+
+def test_allow_all_hosts_warns_at_startup(caplog):
+    """Avi's requirement: if you turn the guard off, it says so out loud."""
+    toolset = ConnectivityCheckToolset()
+    with caplog.at_level(logging.WARNING):
+        ok, _ = toolset.prerequisites_callable({"allow_all_hosts": True})
+    assert ok
+    assert any(
+        "allow_all_hosts is ON" in r.message for r in caplog.records
+    ), caplog.text
+
+    # No allowlist configured, so no override warning; with one, both fire.
+    caplog.clear()
+    toolset = ConnectivityCheckToolset()
+    with caplog.at_level(logging.WARNING):
+        toolset.prerequisites_callable(
+            {"allow_all_hosts": True, "allowed_hosts": ["10.96.0.0/12"]}
+        )
+    assert any("overrides it" in r.message for r in caplog.records), caplog.text
+
+
+def test_no_warning_when_allow_all_hosts_is_off(caplog):
+    toolset = ConnectivityCheckToolset()
+    with caplog.at_level(logging.WARNING):
+        toolset.prerequisites_callable({"allowed_hosts": ["10.96.0.0/12"]})
+    assert not any("allow_all_hosts" in r.message for r in caplog.records)
+
+
 def test_block_private_ips_applies_when_block_internal_ips_is_off(monkeypatch):
     """block_private_ips refuses private destinations outright, so turning off
     block_internal_ips must not silently disable it too."""

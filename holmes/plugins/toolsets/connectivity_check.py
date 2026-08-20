@@ -1,5 +1,6 @@
 import ipaddress
 import logging
+import os
 import socket
 import threading
 import time
@@ -39,6 +40,21 @@ UserAgentMode = Literal["none", "browser"]
 # needed to enumerate a network, so each attempt is recorded whether or not it
 # is allowed — scanning should never be invisible.
 PROBE_AUDIT_PREFIX = "connectivity_check probe"
+
+# Escape hatch for deployments that don't want to build an allowlist: set this
+# to opt back into probing any private/internal destination. Metadata and
+# loopback stay blocked — see ALLOW_ALL_HOSTS_ENV_VAR in the config field below.
+ALLOW_ALL_HOSTS_ENV_VAR = "HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS"
+
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def _allow_all_hosts_from_env() -> bool:
+    """Default for allow_all_hosts, so it can be flipped without editing config.
+
+    Anything other than an explicit truthy value fails safe to False.
+    """
+    return os.environ.get(ALLOW_ALL_HOSTS_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
 def _parse_allowlist(
@@ -185,7 +201,11 @@ class TcpCheckTool(Tool):
         # destination from the internal-IP block.
         allowlist = config.allowed_hosts
         allowlisted = _destination_allowed(host, resolved_ips, allowlist)
-        if allowlist and not allowlisted:
+        # The operator has waived the allowlist requirement. This authorizes
+        # private/internal destinations only — it never unblocks cloud metadata
+        # or loopback, which is what block_internal_ips: false is for.
+        authorized = allowlisted or config.allow_all_hosts
+        if allowlist and not authorized:
             # Deliberately does not echo the allowlist: its contents are the
             # operator's internal service names, which is exactly the sort of
             # recon an injected prompt would like handed back.
@@ -230,7 +250,7 @@ class TcpCheckTool(Tool):
                 # blind internal port scanner. Probing internal services is the
                 # tool's purpose, so the fix is to require the operator to name
                 # them rather than to block the range.
-                if ip.is_private and not allowlisted:
+                if ip.is_private and not authorized:
                     return refuse(
                         "destination is a private/internal address. Such "
                         "destinations must be listed in the "
@@ -244,11 +264,12 @@ class TcpCheckTool(Tool):
 
         target_ip = resolved_ips[0]
         logging.info(
-            "%s ALLOWED %s:%s (resolved %s)",
+            "%s ALLOWED %s:%s (resolved %s)%s",
             PROBE_AUDIT_PREFIX,
             host,
             port_int,
             target_ip,
+            " [allow_all_hosts]" if config.allow_all_hosts else "",
         )
         result = tcp_check(
             host=target_ip,
@@ -283,6 +304,20 @@ class ConnectivityCheckConfig(ToolsetConfig):
             "deliberately target a specific endpoint. When non-empty, this is "
             "also an exhaustive allowlist: public destinations outside it are "
             "refused as well."
+        ),
+    )
+    allow_all_hosts: bool = Field(
+        default_factory=_allow_all_hosts_from_env,
+        title="Allow all hosts (no allowlist required)",
+        description=(
+            "Opt out of the allowlist requirement so private/internal "
+            "destinations can be probed without naming them, at your own risk: "
+            "the model then chooses freely among your internal addresses, and "
+            "tcp_check's open/refused/filtered outcomes make that a network "
+            "scanner. Cloud-metadata, loopback and link-local targets stay "
+            f"blocked. Also settable via the {ALLOW_ALL_HOSTS_ENV_VAR} "
+            "environment variable, so no config change is needed. A warning is "
+            "logged at startup whenever it is on."
         ),
     )
     block_internal_ips: bool = Field(
@@ -363,6 +398,26 @@ class ConnectivityCheckToolset(Toolset):
             self.connectivity_config = ConnectivityCheckConfig(**(config or {}))
         except Exception as e:
             return False, f"Invalid {self.name} configuration: {e}"
+
+        if self.connectivity_config.allow_all_hosts:
+            logging.warning(
+                "%s: allow_all_hosts is ON — tcp_check may probe ANY private/"
+                "internal address the model picks, and its open/refused/filtered "
+                "outcomes make that a usable network scanner if an investigation "
+                "reads attacker-controlled text. Cloud-metadata and loopback are "
+                "still blocked. Prefer listing the destinations you actually need "
+                "in allowed_hosts. (Set via config or %s.)",
+                self.name,
+                ALLOW_ALL_HOSTS_ENV_VAR,
+            )
+            if self.connectivity_config.allowed_hosts:
+                logging.warning(
+                    "%s: allowed_hosts is configured but allow_all_hosts "
+                    "overrides it — every destination is permitted, not just "
+                    "the listed ones. Turn off allow_all_hosts to enforce the "
+                    "allowlist.",
+                    self.name,
+                )
         return True, ""
 
     @property
