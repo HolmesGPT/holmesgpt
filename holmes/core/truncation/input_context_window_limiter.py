@@ -57,6 +57,48 @@ def check_compaction_needed(
     return None
 
 
+def needs_to_be_compacted(
+    llm: "LLM", messages: list[dict], tools: Optional[list[dict[str, Any]]]
+) -> bool:
+    """True when the conversation is above the compaction threshold."""
+    tokens = llm.count_tokens(messages=messages, tools=tools).total_tokens  # type: ignore
+    return (tokens + llm.get_maximum_output_token()) > (
+        llm.get_context_window_size() * get_context_window_compaction_threshold_pct() / 100
+    )
+
+
+def compact_before_tool_result_if_needed(
+    llm: "LLM",
+    messages: list[dict],
+    tool_message: dict,
+    tools: Optional[list[dict[str, Any]]],
+) -> tuple[list[dict], RequestStats]:
+    """Compact history before appending a tool result that crosses the threshold."""
+    usage = RequestStats()
+    if not ENABLE_CONVERSATION_HISTORY_COMPACTION or not needs_to_be_compacted(
+        llm, messages + [tool_message], tools
+    ):
+        return messages, usage
+    pending = next(
+        (i for i in reversed(range(len(messages))) if messages[i].get("tool_calls")), 0
+    )
+    if pending > 1:  # compact only what precedes the in-flight tool calls
+        result = compact_conversation_history(messages[:pending], llm, tools)
+        if result.summary:
+            messages = result.messages_after_compaction + messages[pending:]
+        if result.usage:
+            usage += result.usage
+    total = llm.count_tokens(messages=messages + [tool_message], tools=tools).total_tokens  # type: ignore
+    if total + llm.get_maximum_output_token() > llm.get_context_window_size():
+        logging.warning(f"Tool result too large for the context window ({total} tokens); discarded")
+        tool_message["content"] = (
+            f"Tool result too large for the context window ({total} tokens total): result discarded. "
+            f"Re-run the tool with narrower parameters."
+        )
+        tool_message.pop("token_count", None)
+    return messages, usage
+
+
 class CompactionInsufficientError(Exception):
     """Raised when conversation compaction was not sufficient to fit the context window."""
 

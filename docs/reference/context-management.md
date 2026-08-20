@@ -32,6 +32,8 @@ They run at different points in the pipeline and serve different purposes.
 
 - Checks if `(total_tokens + max_output_tokens) > (context_window_size * threshold_pct / 100)`.
 - If so, sends the conversation history to the LLM with a compaction prompt, asking it to produce a concise summary.
+- The same threshold check also runs before each tool result is appended (`compact_before_tool_result_if_needed`), compacting the history up to the pending tool calls so it can never outgrow the window within one iteration; a result that still cannot fit the window is replaced with a "tool result too large" error.
+- A history that no longer fits the window itself (stored before this check existed, or continued on a smaller-window model) is compacted in two halves recursively (`_partially_compact`).
 - Replaces the old messages with: system prompt + compacted summary + last user message.
 - Tracks compaction cost in `RequestStats`.
 
