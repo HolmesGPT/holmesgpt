@@ -7,9 +7,12 @@ from litellm.types.utils import Choices, Message, ModelResponse
 
 from holmes.core.llm import DefaultLLM
 from holmes.core.truncation.compaction import (
+    COMPACTION_TRUNCATION_NOTICE,
     _count_image_tokens_in_messages,
     _flatten_tool_messages_for_compaction,
+    _halve_message_content,
     _strip_images_for_compaction,
+    _truncate_messages_for_compaction,
     compact_conversation_history,
 )
 
@@ -541,6 +544,161 @@ def test_compaction_summary_never_stores_thinking_blocks():
     assert "thinking_blocks" not in summary_message
     assert "reasoning_content" not in summary_message
     assert "SIG==" not in json.dumps(result.messages_after_compaction)
+
+
+# --- Unit tests for compaction-input truncation (no network) ---
+# Regression for the "prompt is too long" failure: when the history overshoots
+# the model's context window (e.g. several large parallel tool results in one
+# iteration), the summarization request itself exceeded the window and
+# compaction was guaranteed to fail, killing the turn.
+
+
+class TokenCountingFakeLLM(RecordingFakeLLM):
+    """Fake LLM that counts ~1 token per 4 chars and caches like DefaultLLM."""
+
+    def __init__(self, responses, context_window=2000, max_output=100):
+        """Store canned responses plus a configurable context window."""
+        super().__init__(responses)
+        self.context_window = context_window
+        self.max_output = max_output
+
+    def count_tokens(self, messages, tools=None):
+        """Sum len(text)//4 per message, caching under "token_count"."""
+        total = 0
+        for message in messages:
+            cached = message.get("token_count")
+            if cached is None:
+                cached = _message_text_length(message) // 4
+                message["token_count"] = cached
+            total += cached
+
+        class Usage:
+            total_tokens = total
+
+        return Usage()
+
+    def get_context_window_size(self):
+        """Return the configured context window size."""
+        return self.context_window
+
+    def get_maximum_output_token(self):
+        """Return the configured maximum output token count."""
+        return self.max_output
+
+
+def _message_text_length(message):
+    """Total text length of a message's content (str or block list)."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        return sum(
+            len(b.get("text", ""))
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    return 0
+
+
+def test_halve_message_content_string():
+    message = {"role": "tool", "content": "x" * 2000, "token_count": 500}
+    assert _halve_message_content(message) is True
+    assert message["content"].startswith("x" * 1000)
+    assert COMPACTION_TRUNCATION_NOTICE in message["content"]
+    assert "token_count" not in message
+
+
+def test_halve_message_content_block_list():
+    message = {
+        "role": "tool",
+        "content": [
+            {"type": "text", "text": "y" * 2000},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ],
+    }
+    assert _halve_message_content(message) is True
+    assert message["content"][0]["text"].startswith("y" * 1000)
+    assert COMPACTION_TRUNCATION_NOTICE in message["content"][0]["text"]
+    assert message["content"][1]["type"] == "image_url"
+
+
+def test_halve_message_content_too_small_to_shrink():
+    message = {"role": "user", "content": "short"}
+    assert _halve_message_content(message) is False
+    assert message["content"] == "short"
+
+
+def test_truncate_messages_fits_budget_without_mutating_originals():
+    llm = TokenCountingFakeLLM([])
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "question"},
+        {"role": "tool", "tool_call_id": "c1", "content": "A" * 40000},
+        {"role": "tool", "tool_call_id": "c2", "content": "B" * 40000},
+    ]
+    truncated = _truncate_messages_for_compaction(messages, llm, None, input_budget=5000)
+
+    assert llm.count_tokens(messages=truncated).total_tokens <= 5000
+    # Originals untouched
+    assert messages[2]["content"] == "A" * 40000
+    assert messages[3]["content"] == "B" * 40000
+    # Small messages untouched, big ones carry the notice
+    assert truncated[0]["content"] == "sys"
+    assert truncated[1]["content"] == "question"
+    assert COMPACTION_TRUNCATION_NOTICE in truncated[2]["content"]
+    assert COMPACTION_TRUNCATION_NOTICE in truncated[3]["content"]
+
+
+def test_truncate_messages_stops_when_nothing_left_to_shrink():
+    llm = TokenCountingFakeLLM([])
+    messages = [{"role": "user", "content": "tiny"}]
+    truncated = _truncate_messages_for_compaction(messages, llm, None, input_budget=0)
+    assert truncated[0]["content"] == "tiny"
+
+
+def test_compaction_truncates_oversized_history_before_summarization():
+    """A history larger than the context window is truncated so the
+    summarization request fits, instead of failing with "prompt is too long"."""
+    llm = TokenCountingFakeLLM(
+        [_make_response(content="THE SUMMARY")], context_window=2000, max_output=100
+    )
+    history = [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "why is my pod crashing?"},
+        {"role": "tool", "tool_call_id": "c1", "content": "A" * 20000},  # ~5000 tokens
+        {"role": "tool", "tool_call_id": "c2", "content": "B" * 20000},  # ~5000 tokens
+    ]
+    original = json.loads(json.dumps(history))
+
+    result = compact_conversation_history(
+        original_conversation_history=history, llm=llm  # type: ignore
+    )
+
+    assert result.summary == "THE SUMMARY"
+    summarization_messages = llm.calls[0]["messages"]
+    sent_tokens = llm.count_tokens(messages=list(summarization_messages)).total_tokens
+    assert sent_tokens + llm.max_output <= llm.context_window
+    assert any(
+        COMPACTION_TRUNCATION_NOTICE in str(m.get("content"))
+        for m in summarization_messages
+    )
+    # Original history not mutated by truncation (token_count cache aside)
+    for msg, orig in zip(history, original):
+        assert msg["content"] == orig["content"]
+
+
+def test_compaction_small_history_is_not_truncated():
+    llm = TokenCountingFakeLLM(
+        [_make_response(content="THE SUMMARY")], context_window=100000
+    )
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(), llm=llm  # type: ignore
+    )
+    assert result.summary == "THE SUMMARY"
+    assert not any(
+        COMPACTION_TRUNCATION_NOTICE in str(m.get("content"))
+        for m in llm.calls[0]["messages"]
+    )
 
 
 def test_compaction_returns_original_history_when_both_attempts_unusable():

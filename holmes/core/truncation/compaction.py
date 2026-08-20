@@ -34,6 +34,11 @@ COMPACTION_SUMMARY_SUFFIX = (
     "Continue the conversation from where it left off, using the summary above as "
     "established context."
 )
+COMPACTION_TRUNCATION_NOTICE = (
+    "[... truncated to fit the compaction context window ...]"
+)
+MIN_MESSAGE_CHARS_FOR_TRUNCATION = 500
+MAX_TRUNCATION_PASSES = 100
 
 
 def strip_system_prompt(
@@ -99,6 +104,66 @@ def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
         new_msg.pop("token_count", None)
         stripped.append(new_msg)
     return stripped
+
+
+def _halve_text(text: str) -> Optional[str]:
+    """Halve a text snippet, or return None when it is too small to shrink."""
+    if len(text) <= MIN_MESSAGE_CHARS_FOR_TRUNCATION:
+        return None
+    return f"{text[: len(text) // 2]}\n{COMPACTION_TRUNCATION_NOTICE}"
+
+
+def _halve_message_content(message: dict) -> bool:
+    """Halve the text content of a message in place; False when nothing shrank."""
+    content = message.get("content")
+    if isinstance(content, str):
+        halved = _halve_text(content)
+        if halved is None:
+            return False
+        message["content"] = halved
+    elif isinstance(content, list):
+        shrank = False
+        new_content = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                halved = _halve_text(block.get("text") or "")
+                if halved is not None:
+                    block = {**block, "text": halved}
+                    shrank = True
+            new_content.append(block)
+        if not shrank:
+            return False
+        message["content"] = new_content
+    else:
+        return False
+    message.pop("token_count", None)
+    return True
+
+
+def _truncate_messages_for_compaction(
+    messages: list[dict],
+    llm: LLM,
+    tools: Optional[list[dict[str, Any]]],
+    input_budget: int,
+) -> list[dict]:
+    """Halve the largest message repeatedly until the summarization input fits.
+
+    Without this, a conversation that overshoots the model's context window
+    (e.g. several large parallel tool results landing in one iteration) makes
+    the summarization request itself exceed the window, so compaction — the
+    only recovery mechanism — is guaranteed to fail with "prompt is too long"
+    and the whole turn dies. The truncated copy is only used as summarizer
+    input; the original messages are never modified.
+    """
+    truncated = [dict(m) for m in messages]
+    for _ in range(MAX_TRUNCATION_PASSES):
+        if llm.count_tokens(messages=truncated, tools=tools).total_tokens <= input_budget:
+            break
+        # count_tokens caches per-message counts under "token_count"
+        largest = max(truncated, key=lambda m: m.get("token_count") or 0)
+        if not _halve_message_content(largest):
+            break
+    return truncated
 
 
 def _append_text_to_content(content: Any, text: str) -> Any:
@@ -250,6 +315,17 @@ def compact_conversation_history(
             f"(conversation would overflow: {total_tokens} + {instruction_tokens} + {maximum_output_token} > {context_window})"
         )
         conversation_history = _strip_images_for_compaction(conversation_history)
+
+    input_budget = context_window - instruction_tokens - maximum_output_token
+    total_tokens = llm.count_tokens(messages=conversation_history, tools=tools).total_tokens  # type: ignore
+    if total_tokens > input_budget:
+        logging.info(
+            f"Compaction: conversation ({total_tokens} tokens) exceeds the summarization "
+            f"input budget ({input_budget}); truncating largest messages to fit"
+        )
+        conversation_history = _truncate_messages_for_compaction(
+            conversation_history, llm, tools, input_budget
+        )
 
     instructions_message = {"role": "user", "content": compaction_instructions}
     compaction_usage = RequestStats()

@@ -32,6 +32,7 @@ They run at different points in the pipeline and serve different purposes.
 
 - Checks if `(total_tokens + max_output_tokens) > (context_window_size * threshold_pct / 100)`.
 - If so, sends the conversation history to the LLM with a compaction prompt, asking it to produce a concise summary.
+- If the history itself no longer fits the model's context window (e.g. several large parallel tool results landed in one iteration), the largest messages are truncated in the summarization input first, so the compaction request cannot fail with "prompt is too long". The truncation only affects the summarizer's input — the summary replaces the history either way.
 - Replaces the old messages with: system prompt + compacted summary + last user message.
 - Tracks compaction cost in `RequestStats`.
 
