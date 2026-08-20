@@ -34,11 +34,10 @@ COMPACTION_SUMMARY_SUFFIX = (
     "Continue the conversation from where it left off, using the summary above as "
     "established context."
 )
-COMPACTION_TRUNCATION_NOTICE = (
-    "[... truncated to fit the compaction context window ...]"
+ROLLING_SUMMARY_PREAMBLE = (
+    "Summary of the earlier portion of the conversation (already compacted):"
 )
-MIN_MESSAGE_CHARS_FOR_TRUNCATION = 500
-MAX_TRUNCATION_PASSES = 100
+MAX_PARTIAL_COMPACTIONS = 2
 
 
 def strip_system_prompt(
@@ -106,56 +105,90 @@ def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
     return stripped
 
 
-def _halve_text(text: str) -> Optional[str]:
-    """Halve a text snippet, or return None when it is too small to shrink."""
-    if len(text) <= MIN_MESSAGE_CHARS_FOR_TRUNCATION:
-        return None
-    return f"{text[: len(text) // 2]}\n{COMPACTION_TRUNCATION_NOTICE}"
+def _group_message_units(messages: list[dict]) -> list[list[dict]]:
+    """Group each message with its tool results so pairs are never split."""
+    units: list[list[dict]] = []
+    for message in messages:
+        if message.get("role") == "tool" and units:
+            units[-1].append(message)
+        else:
+            units.append([message])
+    return units
 
 
-def _halve_message_content(message: dict) -> bool:
-    """Halve the text content of a message in place; False when nothing shrank."""
-    content = message.get("content")
-    if isinstance(content, str):
-        halved = _halve_text(content)
-        if halved is None:
-            return False
-        message["content"] = halved
-    elif isinstance(content, list):
-        shrank = False
-        new_content = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                halved = _halve_text(block.get("text") or "")
-                if halved is not None:
-                    block = {**block, "text": halved}
-                    shrank = True
-            new_content.append(block)
-        if not shrank:
-            return False
-        message["content"] = new_content
-    else:
-        return False
-    message.pop("token_count", None)
-    return True
+def _take_prefix_within_budget(
+    units: list[list[dict]], llm: LLM, budget: int
+) -> tuple[list[dict], list[dict]]:
+    """Split units into (prefix fitting the budget, remaining messages)."""
+    prefix: list[dict] = []
+    prefix_tokens = 0
+    for index, unit in enumerate(units):
+        unit_tokens = llm.count_tokens(messages=unit).total_tokens
+        if prefix and prefix_tokens + unit_tokens > budget:
+            remaining = [message for unit in units[index:] for message in unit]
+            return prefix, remaining
+        prefix.extend(unit)
+        prefix_tokens += unit_tokens
+    return prefix, []
 
 
-def _truncate_messages_for_compaction(
-    messages: list[dict],
+def _partially_compact(
+    conversation_history: list[dict],
     llm: LLM,
     tools: Optional[list[dict[str, Any]]],
+    instructions_message: dict,
     input_budget: int,
-) -> list[dict]:
-    """Halve the largest message on copies until the summarization input fits."""
-    truncated = [dict(m) for m in messages]
-    for _ in range(MAX_TRUNCATION_PASSES):
-        if llm.count_tokens(messages=truncated, tools=tools).total_tokens <= input_budget:
-            break
-        # count_tokens caches per-message counts under "token_count"
-        largest = max(truncated, key=lambda m: m.get("token_count") or 0)
-        if not _halve_message_content(largest):
-            break
-    return truncated
+) -> tuple[list[dict], RequestStats, Optional[str]]:
+    """Compact prefix subsets of an oversized history until it fits the budget."""
+    usage = RequestStats()
+    history = conversation_history
+    rounds = 0
+    while llm.count_tokens(messages=history, tools=tools).total_tokens > input_budget:  # type: ignore
+        if rounds == MAX_PARTIAL_COMPACTIONS:
+            total = llm.count_tokens(messages=history, tools=tools).total_tokens  # type: ignore
+            return (
+                conversation_history,
+                usage,
+                f"history still exceeds the summarization input budget "
+                f"({total} > {input_budget}) after {MAX_PARTIAL_COMPACTIONS} partial compactions",
+            )
+        rounds += 1
+        rest, system_message = strip_system_prompt(history)
+        prefix, remaining = _take_prefix_within_budget(
+            _group_message_units(rest), llm, input_budget
+        )
+        logging.info(
+            f"Compaction: partial compaction round {rounds}: "
+            f"summarizing the first {len(prefix)} of {len(rest)} messages"
+        )
+        flattened_prefix = _flatten_tool_messages_for_compaction(prefix)
+        try:
+            response = llm.completion(
+                messages=flattened_prefix + [instructions_message], drop_params=True
+            )  # type: ignore
+        except Exception as e:
+            return (
+                conversation_history,
+                usage,
+                f"partial compaction round {rounds} failed: {e}",
+            )
+        usage += RequestStats.from_response(response)
+        summary = _extract_text_content(_get_response_message(response)).strip()
+        if not summary:
+            return (
+                conversation_history,
+                usage,
+                f"partial compaction round {rounds} returned no text",
+            )
+        summary_message = {
+            "role": "user",
+            "content": f"{ROLLING_SUMMARY_PREAMBLE}\n\n{summary}",
+        }
+        history = ([system_message] if system_message else []) + [
+            summary_message,
+            *remaining,
+        ]
+    return history, usage, None
 
 
 def _append_text_to_content(content: Any, text: str) -> Any:
@@ -308,19 +341,28 @@ def compact_conversation_history(
         )
         conversation_history = _strip_images_for_compaction(conversation_history)
 
+    instructions_message = {"role": "user", "content": compaction_instructions}
+    compaction_usage = RequestStats()
+
     input_budget = context_window - instruction_tokens - maximum_output_token
     total_tokens = llm.count_tokens(messages=conversation_history, tools=tools).total_tokens  # type: ignore
     if total_tokens > input_budget:
         logging.info(
             f"Compaction: conversation ({total_tokens} tokens) exceeds the summarization "
-            f"input budget ({input_budget}); truncating largest messages to fit"
+            f"input budget ({input_budget}); running partial compaction first"
         )
-        conversation_history = _truncate_messages_for_compaction(
-            conversation_history, llm, tools, input_budget
+        conversation_history, partial_usage, partial_failure = _partially_compact(
+            conversation_history, llm, tools, instructions_message, input_budget
         )
-
-    instructions_message = {"role": "user", "content": compaction_instructions}
-    compaction_usage = RequestStats()
+        compaction_usage += partial_usage
+        if partial_failure:
+            logging.error(f"Failed to compact conversation history: {partial_failure}")
+            return CompactionResult(
+                messages_after_compaction=original_conversation_history,
+                usage=compaction_usage,
+                fallback_used=True,
+                fallback_reason=partial_failure,
+            )
 
     response_message = None
     fallback_reason: Optional[str] = None
