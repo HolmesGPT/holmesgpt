@@ -90,3 +90,13 @@ def test_retries_timeouts(mocked_responses):
 
     assert result is not None
     assert len(mocked_responses.calls) == 2
+
+
+def test_retries_rate_limiting(mocked_responses):
+    mocked_responses.post(MODELS_URL, status=429)
+    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+
+    result = fetch_robusta_models("account-id", "token")
+
+    assert result is not None
+    assert len(mocked_responses.calls) == 2

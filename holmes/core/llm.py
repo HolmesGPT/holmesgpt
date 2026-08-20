@@ -831,6 +831,12 @@ class LLMModelRegistry:
         self.dal = dal
         self._lock = threading.RLock()
         self._robusta_refresh_failures = 0
+        # Not an RLock: refresh_robusta_models() only ever tries to acquire
+        # this non-blockingly, so a second overlapping refresh (the periodic
+        # loop and a get_model_params() resync can race) backs off instead of
+        # installing a response that may be older than the one already in
+        # flight (CodeRabbit review on ROB-795).
+        self._robusta_refresh_lock = threading.Lock()
 
         self._init_models()
 
@@ -978,6 +984,14 @@ class LLMModelRegistry:
         `ROBUSTA_REFRESH_FAILURE_LOG_EVERY`th one after that - an outage that
         outlives several refresh cycles would otherwise log the same failure
         every cycle.
+
+        At most one refresh actually fetches+installs at a time: the periodic
+        refresh loop and a get_model_params() resync can overlap, and the
+        fetch runs outside `_lock` (it's a network call), so a naive
+        implementation could let an older response install after a newer one
+        and silently revert the catalog. An overlapping call backs off
+        (returns False) rather than waiting, so it can never block behind
+        someone else's network fetch.
         """
         with self._lock:
             # Robusta AI is in play iff something Robusta-hosted is loaded -
@@ -996,44 +1010,50 @@ class LLMModelRegistry:
         ):
             return False
 
-        log_this_failure = (
-            self._robusta_refresh_failures == 0
-            or self._robusta_refresh_failures % ROBUSTA_REFRESH_FAILURE_LOG_EVERY == 0
-        )
-
+        if not self._robusta_refresh_lock.acquire(blocking=False):
+            return False
         try:
-            robusta_models = fetch_robusta_models(
-                *self.dal.get_ai_credentials(), log_failure=log_this_failure
+            log_this_failure = (
+                self._robusta_refresh_failures == 0
+                or self._robusta_refresh_failures % ROBUSTA_REFRESH_FAILURE_LOG_EVERY
+                == 0
             )
-        except Exception:
-            self._robusta_refresh_failures += 1
-            if log_this_failure:
-                logging.exception("Failed to refresh Robusta AI models")
-            return False
 
-        if not robusta_models or not robusta_models.models:
-            self._robusta_refresh_failures += 1
-            if log_this_failure:
-                logging.warning(
-                    "Keeping the loaded models: the catalog came back empty."
+            try:
+                robusta_models = fetch_robusta_models(
+                    *self.dal.get_ai_credentials(), log_failure=log_this_failure
                 )
-            return False
+            except Exception:
+                self._robusta_refresh_failures += 1
+                if log_this_failure:
+                    logging.exception("Failed to refresh Robusta AI models")
+                return False
 
-        self._robusta_refresh_failures = 0
+            if not robusta_models or not robusta_models.models:
+                self._robusta_refresh_failures += 1
+                if log_this_failure:
+                    logging.warning(
+                        "Keeping the loaded models: the catalog came back empty."
+                    )
+                return False
 
-        with self._lock:
-            previous_default = self._default_robusta_model
-            added, removed = self._install_robusta_models(robusta_models)
-            self._register_pricing_for_loaded_models()
+            self._robusta_refresh_failures = 0
 
-        changed = bool(added or removed) or (
-            self._default_robusta_model != previous_default
-        )
-        if changed:
-            logging.info(
-                f"Refreshed Robusta AI models. added: {added}, removed: {removed}"
+            with self._lock:
+                previous_default = self._default_robusta_model
+                added, removed = self._install_robusta_models(robusta_models)
+                self._register_pricing_for_loaded_models()
+
+            changed = bool(added or removed) or (
+                self._default_robusta_model != previous_default
             )
-        return changed
+            if changed:
+                logging.info(
+                    f"Refreshed Robusta AI models. added: {added}, removed: {removed}"
+                )
+            return changed
+        finally:
+            self._robusta_refresh_lock.release()
 
     def _install_robusta_models(
         self, robusta_models: RobustaModelsResponse

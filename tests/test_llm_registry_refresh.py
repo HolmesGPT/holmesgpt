@@ -7,6 +7,7 @@ downgrading a healthy registry when a refresh fails.
 """
 
 import json
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -226,6 +227,49 @@ def test_repeated_failures_log_only_the_first_and_every_nth(build_registry):
     # 1st failure logs; 2nd-5th are suppressed; the 6th (one full interval
     # later) logs again.
     assert log_failure_calls == [True, False, False, False, False, True]
+
+
+def test_concurrent_refreshes_do_not_race(build_registry):
+    """The periodic refresh loop and a get_model_params() resync can overlap.
+    The fetch runs outside any lock (it's a network call), so a second
+    refresh that starts while the first is still fetching must back off
+    instead of racing to install - otherwise a slower, older response could
+    install after a newer one and silently revert the catalog (CodeRabbit
+    review on ROB-795)."""
+    registry = build_registry(_catalog("Robusta/opus-4-6", default="Robusta/opus-4-6"))
+
+    first_fetch_started = threading.Event()
+    release_first_fetch = threading.Event()
+
+    def slow_fetch(*args, **kwargs):
+        first_fetch_started.set()
+        assert release_first_fetch.wait(timeout=2)
+        return _catalog("Robusta/first", default="Robusta/first")
+
+    results = {}
+
+    def run_first():
+        with patch("holmes.core.llm.fetch_robusta_models", side_effect=slow_fetch):
+            results["first"] = registry.refresh_robusta_models()
+
+    thread = threading.Thread(target=run_first)
+    thread.start()
+    assert first_fetch_started.wait(timeout=2)
+
+    # The first refresh is still mid-fetch (blocked on release_first_fetch);
+    # a second refresh attempted right now must not run concurrently.
+    with patch(
+        "holmes.core.llm.fetch_robusta_models",
+        return_value=_catalog("Robusta/second", default="Robusta/second"),
+    ):
+        results["second"] = registry.refresh_robusta_models()
+
+    release_first_fetch.set()
+    thread.join(timeout=2)
+
+    assert results["second"] is False
+    assert results["first"] is True
+    assert set(registry.models) == {"Robusta/first"}
 
 
 def test_skipped_when_robusta_ai_is_disabled(build_registry):
