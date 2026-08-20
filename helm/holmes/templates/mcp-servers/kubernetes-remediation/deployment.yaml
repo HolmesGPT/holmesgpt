@@ -19,7 +19,7 @@ metadata:
 data:
   KUBECTL_ALLOWED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowedCommands | quote }}
   KUBECTL_DANGEROUS_FLAGS: {{ .Values.mcpAddons.kubernetesRemediation.config.dangerousFlags | quote }}
-  KUBECTL_PREAPPROVED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.preapprovedCommands | quote }}
+  KUBECTL_PREAPPROVED_EXEC_BINARIES: {{ .Values.mcpAddons.kubernetesRemediation.config.preapprovedExecBinaries | quote }}
   KUBECTL_DIAGNOSTIC_IMAGES: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticImages | quote }}
   KUBECTL_FILE_READ_ALLOWED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadAllowedPaths | quote }}
   KUBECTL_FILE_READ_DENIED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadDeniedPaths | quote }}
@@ -104,11 +104,11 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: KUBECTL_TIMEOUT
-        - name: KUBECTL_PREAPPROVED_COMMANDS
+        - name: KUBECTL_PREAPPROVED_EXEC_BINARIES
           valueFrom:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
-              key: KUBECTL_PREAPPROVED_COMMANDS
+              key: KUBECTL_PREAPPROVED_EXEC_BINARIES
         - name: KUBECTL_DIAGNOSTIC_IMAGES
           valueFrom:
             configMapKeyRef:

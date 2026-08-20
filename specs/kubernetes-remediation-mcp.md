@@ -30,7 +30,7 @@ not of its arguments.
 | Tool | Mutating | Approval | Enforced where |
 |---|---|---|---|
 | `read_file_from_container` | No | **Auto** | server path policy |
-| `run_preapproved_kubectl_command` | No | **Auto** | server command allowlist |
+| `run_preapproved_kubectl_exec_command` | No | **Auto** | server binary allowlist |
 | `run_preapproved_diagnostic_image` | No (data-gathering pod) | **Auto** | server image allowlist |
 | `get_remediation_mcp_config` | No | **Auto** | — |
 | `run_kubectl_command` | Yes | **Human approval** | HolmesGPT `approval_required_tools` + server guards |
@@ -63,11 +63,16 @@ This keeps the agent generic and puts the security-sensitive logic in one place
 - `namespace`/`pod`/`container` are validated as identifiers — shell metacharacters
   rejected **and** a leading `-` rejected (flag-injection guard, see §6.1).
 
-**`run_preapproved_kubectl_command(args)`**
-- The joined command is glob-matched against `KUBECTL_PREAPPROVED_COMMANDS`
-  (default: `exec * -- ps*`, `top*`, `df*`, `ls*`, `netstat*`, `ss*`). Deliberately
-  excludes `cat` (use `read_file_from_container`) and `env` (leaks secrets).
-- Still applies the dangerous-flag blocklist and shell-char rejection (defense in depth).
+**`run_preapproved_kubectl_exec_command(pod, command, namespace="default", container=None)`**
+- `pod`/`namespace`/`container` are separate identifier-validated parameters; the
+  server builds `kubectl exec <pod> -n <ns> [-c <c>] -- <command>` itself and owns
+  the single `--` boundary, so a caller cannot smuggle a second command or a fake
+  separator (this is what closed the earlier joined-glob bypass).
+- `command[0]` must be an **exact** match against `KUBECTL_PREAPPROVED_EXEC_BINARIES`
+  (default: `ps,top,df,ls,netstat,ss`). Deliberately excludes `cat`
+  (use `read_file_from_container`) and `env` (leaks secrets). Exact match also blocks
+  lookalikes such as `psql`.
+- Shell-char rejection is applied to the command (defense in depth; `shell=False`).
 
 **`run_preapproved_diagnostic_image(image, namespace, command=None, name=None)`**
 - `image` is matched on **repository** against `KUBECTL_DIAGNOSTIC_IMAGES`
@@ -101,7 +106,7 @@ of HolmesGPT approval):
 |---|---|---|
 | `KUBECTL_ALLOWED_COMMANDS` | see above | Hard verb allowlist for the fallback |
 | `KUBECTL_DANGEROUS_FLAGS` | see above | Blocked flags |
-| `KUBECTL_PREAPPROVED_COMMANDS` | 6 read-only exec patterns | Auto-approved command allowlist |
+| `KUBECTL_PREAPPROVED_EXEC_BINARIES` | `ps,top,df,ls,netstat,ss` | Auto-approved in-container binary allowlist |
 | `KUBECTL_DIAGNOSTIC_IMAGES` | 3 pinned images | Auto-approved image allowlist |
 | `KUBECTL_FILE_READ_ALLOWED_PATHS` | `/` | Read allow roots |
 | `KUBECTL_FILE_READ_DENIED_PATHS` | secret/token mounts | Configurable read denylist |
@@ -202,7 +207,7 @@ throttled.
 
 - **`pods/exec` is granted and reachable from an auto-approved path.** `pods/exec`
   cluster-wide is a known privilege-escalation verb; `read_file_from_container` and
-  `run_preapproved_kubectl_command` are constrained exec, but exec-into-container is
+  `run_preapproved_kubectl_exec_command` are constrained exec, but exec-into-container is
   inherently powerful. `ps` output (auto-approved) can include secrets passed as
   process CLI args. This is an accepted product trade-off: deep diagnostics without
   a human prompt. The denylist/symlink/`/proc` hardening reduces, but does not
@@ -307,8 +312,8 @@ the no-approval tools before the gated one).
 1. **Auto-approved tools first** (no harness change needed; they don't prompt):
    - [ ] `read_file_from_container`: model reads a named file and reports a unique
      injected value (hallucination-proof), and is refused on a secret/`/proc` path.
-   - [ ] `run_preapproved_kubectl_command`: model runs `ps`/`df`-style diagnostics
-     and reports a discoverable fact; non-allowlisted command is refused.
+   - [ ] `run_preapproved_kubectl_exec_command`: model runs `ps`/`df`-style diagnostics
+     and reports a discoverable fact; non-allowlisted binary is refused.
    - [ ] `run_preapproved_diagnostic_image`: model launches `nicolaka/netshoot` to probe
      DNS/HTTP and reports the result; non-allowlisted image is refused.
    - [ ] Tool-selection: model uses the **built-in** k8s tools for `get`/`describe`/
