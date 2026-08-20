@@ -103,13 +103,18 @@ of HolmesGPT approval):
 | `KUBECTL_DANGEROUS_FLAGS` | see above | Blocked flags |
 | `KUBECTL_PREAPPROVED_COMMANDS` | 6 read-only exec patterns | Auto-approved command allowlist |
 | `KUBECTL_DIAGNOSTIC_IMAGES` | 3 pinned images | Auto-approved image allowlist |
+| `KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED` | `true` | Master switch for the diagnostic target policy (§6.4) |
+| `KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS` | `false` | Permit probes to non-cluster targets |
+| `KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES` | `.svc,.svc.cluster.local,.cluster.local` | Suffixes counted as cluster-internal |
 | `KUBECTL_FILE_READ_ALLOWED_PATHS` | `/` | Read allow roots |
 | `KUBECTL_FILE_READ_DENIED_PATHS` | secret/token mounts | Configurable read denylist |
 | `KUBECTL_ALLOW_ARBITRARY_COMMANDS` | `true` | Enable the gated fallback |
 | `KUBECTL_TIMEOUT` | `60` | Per-command timeout (s) |
 
 In addition, `/proc`, `/sys`, `/dev` are **hard-denied in code** (not operator-removable) —
-see §6.2.
+see §6.2. The cloud-metadata/link-local ranges are hard-denied for diagnostic-pod
+targets on the same basis, overridable only by turning the whole target policy off —
+see §6.4.
 
 ### 3.4 RBAC & NetworkPolicy
 
@@ -146,7 +151,7 @@ Net core change is a deletion plus config plumbing.
 ## 5. Helm chart (`helm/holmes/.../kubernetes-remediation/`)
 
 `mcpAddons.kubernetesRemediation`: opt-in (`enabled: false`) but plug-and-play once
-enabled. Image `1.1.0`. Chart renders the scoped ClusterRole when
+enabled. Image `1.2.0`. Chart renders the scoped ClusterRole when
 `serviceAccount.clusterRole` is empty (bring-your-own otherwise), the ingress-only
 NetworkPolicy (on by default), the ConfigMap/env wiring for all the new config keys,
 and `approval_required_tools: ["run_kubectl_command"]` in `toolset-config.yaml`. The
@@ -198,7 +203,66 @@ memory limit + requests. It deliberately does **not** drop capabilities, force
 non-root, or set a CPU limit — so `tcpdump`/`ping` keep their caps and `iperf` isn't
 throttled.
 
-### 6.4 Residual risks (accepted, documented)
+The overrides also pin `hostNetwork`/`hostPID`/`hostIPC` to `false` and stamp the pod
+with `robusta.dev/diagnostic-pod: "true"`. Both exist for §6.4: a host-networked pod is
+exempt from NetworkPolicy, and the label is what the egress policy selects on.
+
+### 6.4 Diagnostic-pod targets were unrestricted (fixed — ROB-910)
+
+The image allowlist constrains *what runs*; it said nothing about *where the probe
+points*. Since the allowlisted images are network-probing tools (`curl`/`dig`/`wget`)
+and the tool is **auto-approved**, the probe target was the real security boundary and
+it was wide open. Shell-char rejection does not help: `:` `/` `.` `?` `=` are all legal,
+so a URL passes untouched.
+
+Prompt-injected content in the cluster (a pod log, an annotation, an alert body) could
+therefore steer an auto-approved probe at `169.254.169.254` and have the instance
+credentials returned to the agent, or POST cluster data to an external collector — with
+no approval prompt, because this tool legitimately never asks for one.
+`automountServiceAccountToken: false` (§6.3) does not cover it: IMDSv1, GCP and Azure
+metadata need no pod credential.
+
+Two layers now constrain the target.
+
+**Layer 1 — `validate_diagnostic_command`, before any pod is created:**
+
+- **Hard-denied, not operator-tunable** (same basis as `/proc` in §6.2):
+  `169.254.0.0/16` (IMDS + ECS task metadata), `127.0.0.0/8`, `0.0.0.0/8`,
+  `100.100.100.200` (Alibaba), `192.0.0.192` (Oracle), `::1`, `fe80::/10`,
+  `fd00:ec2::254`, and the metadata hostnames. Matched in **every IPv4 spelling
+  `inet_aton` accepts** (decimal `2852039166`, hex `0xA9FEA9FE`, octal, 2-/3-part) and
+  as IPv4-mapped IPv6, with URL userinfo stripped first so
+  `http://harmless.example.com@169.254.169.254/` is judged on the real host.
+- **Denied unless `KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS=true`:** non-cluster
+  targets. This is the half that closes exfiltration. *Every* token is inspected, not
+  just the URL, so `-x http://collector` / `--proxy=socks5://…` and `dig @server` are
+  covered — those change where the connection actually goes.
+- **Always denied:** explicit redirect-following (`curl -L`, bundled `-fsSL`), which
+  hands target selection to the responding server.
+
+**Layer 2 — an egress NetworkPolicy** on the diagnostic pod
+(`diagnostic-pod-networkpolicy.yaml` in the server repo, selecting the label from §6.3),
+allowing cluster DNS + RFC1918 only.
+
+**Neither layer is sufficient alone.** Layer 1 cannot see a DNS name that only resolves
+to a metadata address *inside* the pod (wildcard DNS such as `169.254.169.254.nip.io`),
+nor `wget`'s follow-redirects-by-default, which has no flag to key on — layer 2 contains
+those. Layer 2 is namespaced (so it must be applied to every namespace diagnostics run
+in), inert on a non-enforcing CNI, and cannot give the model a reason it can act on —
+layer 1 does that, and Holmes self-corrects from the refusal text.
+
+Cluster-internal means a bare service name, a configured suffix
+(`KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES`), or an RFC1918 address.
+Namespace-qualified shortcuts (`kubernetes.default`) are deliberately *not* internal —
+by shape they are indistinguishable from `evil.com` — and the refusal tells the caller
+to use the FQDN.
+
+`KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED=false` disables layer 1 entirely, including
+the hard denials, for environments the policy misjudges. It restores the pre-fix
+exposure and is logged loudly at startup and per call; the image allowlist, shell-char
+rejection and flag-injection guard are unaffected.
+
+### 6.5 Residual risks (accepted, documented)
 
 - **`pods/exec` is granted and reachable from an auto-approved path.** `pods/exec`
   cluster-wide is a known privilege-escalation verb; `read_file_from_container` and
@@ -218,7 +282,7 @@ throttled.
   in which case the approval boundary can be bypassed by anything that can reach the
   pod; enforce a NetworkPolicy-capable CNI (or add host/firewall-level restrictions)
   where this matters; (2) operators should monitor for direct calls to
-  `run_kubectl_command` that don't originate from HolmesGPT (see §6.6) as a
+  `run_kubectl_command` that don't originate from HolmesGPT (see §6.7) as a
   detection for both misconfiguration and bypass.
     - *Which CNIs enforce NetworkPolicy:* Calico, Cilium, Antrea, and Weave Net
       enforce `NetworkPolicy` out of the box; plain Flannel does **not** without an
@@ -240,14 +304,14 @@ throttled.
   `ResourceQuota`/`LimitRange` is an operator-side deployment control available
   today; the server-side concurrency cap is a follow-up enhancement.*
 
-### 6.5 Things that are correct by construction
+### 6.6 Things that are correct by construction
 
 - Path traversal: `posixpath.normpath` + residue check rejects `..` escapes.
 - Prefix matching: `_path_is_under` uses `root.rstrip("/") + "/"`, so
   `/var/run/secrets-public` doesn't match `/var/run/secrets`.
 - Deny-wins-ties: hard-denied → configured-deny → allow, in that order.
 
-### 6.6 Audit logging — current state and recommendations
+### 6.7 Audit logging — current state and recommendations
 
 For a tool that can mutate the cluster, an audit trail matters (incident
 investigation, compliance, anomaly detection). What exists today, and where the
@@ -271,7 +335,7 @@ gaps are:
   logging, enable Kubernetes API audit logging for the SA, retain per your
   compliance window, and alert on anomalous patterns (bursts of
   `run_preapproved_diagnostic_image`, repeated policy-deny `WARNING`s, or any direct
-  `run_kubectl_command` not correlated with a HolmesGPT approval — see §6.4).
+  `run_kubectl_command` not correlated with a HolmesGPT approval — see §6.5).
 
 ---
 

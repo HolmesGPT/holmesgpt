@@ -28,7 +28,9 @@ def test_values_drop_restricted_tools_and_map_approval():
 def test_values_defaults_are_plug_and_play():
     v = _values()
     assert v["enabled"] is False  # opt-in
-    assert v["image"] == "kubernetes-remediation-mcp:1.1.0"
+    # 1.2.0 carries the diagnostic-pod target policy (ROB-910); the config keys
+    # asserted below only take effect on that version or newer.
+    assert v["image"] == "kubernetes-remediation-mcp:1.2.0"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
@@ -42,6 +44,15 @@ def test_values_defaults_are_plug_and_play():
         assert key in v["config"], key
     # Old run_image image allowlist is gone
     assert "allowedImages" not in v["config"]
+
+
+def test_values_default_to_the_restrictive_diagnostic_target_policy():
+    """The diagnostic target policy must ship on, and in-cluster-only, so a fresh
+    install is not exposed to the ROB-910 SSRF/exfiltration path."""
+    cfg = _values()["config"]
+    assert cfg["diagnosticTargetPolicyEnabled"] is True
+    assert cfg["diagnosticAllowExternalTargets"] is False
+    assert cfg["diagnosticInternalDnsSuffixes"] == ".svc,.svc.cluster.local,.cluster.local"
 
 
 def test_rbac_template_is_scoped_not_cluster_admin():
@@ -71,6 +82,34 @@ def test_deployment_binding_has_no_cluster_admin_default():
     ):
         assert key in text, key
     assert "KUBECTL_ALLOWED_IMAGES" not in text
+
+
+def test_deployment_wires_diagnostic_target_policy_env():
+    """Each target-policy key must appear twice: once in the ConfigMap data and
+    once as a container env entry. A key present only in the ConfigMap is
+    silently ignored by the server."""
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    for key in (
+        "KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED",
+        "KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS",
+        "KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES",
+    ):
+        assert text.count(key) >= 2, f"{key} not wired through both ConfigMap and env"
+
+
+def test_deployment_configmap_keys_all_reach_the_container():
+    """Every KUBECTL_* key defined in the ConfigMap block must also be referenced
+    as an env var, so a newly added value cannot be dropped on the floor."""
+    import re
+
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    defined = set(re.findall(r"^  (KUBECTL_[A-Z_]+):", text, re.MULTILINE))
+    referenced = set(re.findall(r"key: (KUBECTL_[A-Z_]+)", text))
+    assert defined, "no ConfigMap keys found — did the template layout change?"
+    assert defined == referenced, (
+        f"ConfigMap/env mismatch: only in ConfigMap={defined - referenced}, "
+        f"only in env={referenced - defined}"
+    )
 
 
 def test_networkpolicy_is_ingress_only_and_scoped():

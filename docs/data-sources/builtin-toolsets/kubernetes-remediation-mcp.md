@@ -19,7 +19,7 @@ It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md)
 |------|----------|----------|--------------|
 | `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
 | `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
-| `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. |
+| `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. Probe targets are restricted to in-cluster destinations; cloud metadata is always refused ([details](#diagnostic-pod-target-policy)). |
 | `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
 | `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
 
@@ -124,7 +124,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           serviceAccountName: k8s-remediation-mcp-sa
           containers:
           - name: k8s-remediation-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.1.0
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.2.0
             imagePullPolicy: IfNotPresent
             ports:
             - containerPort: 8000
@@ -135,6 +135,13 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
               value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
             - name: KUBECTL_TIMEOUT
               value: "60"
+            # Diagnostic-pod target policy (see "Diagnostic-pod target policy"
+            # below). These are the defaults; both are shown because they are
+            # the two you are most likely to need to change.
+            - name: KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS
+              value: "false"
+            - name: KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES
+              value: ".svc,.svc.cluster.local,.cluster.local"
             resources:
               requests:
                 memory: "64Mi"
@@ -240,6 +247,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
 | **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
 | **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
+| **Diagnostic target policy** | `run_preapproved_diagnostic_image` probes are restricted to in-cluster targets, and cloud-metadata/link-local addresses are always refused — see [Diagnostic-pod target policy](#diagnostic-pod-target-policy) |
 | **Verb allowlist** | `run_kubectl_command` only accepts an allowlisted set of verbs |
 | **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token`, `--as` are always blocked |
 | **Shell injection protection** | Shell metacharacters are rejected; `shell=False` |
@@ -247,6 +255,79 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | **Scoped RBAC** | Least-privilege ClusterRole — no `cluster-admin`, no `secrets` |
 | **NetworkPolicy** | Ingress-only, locked to Holmes pods |
 | **Command timeout** | Commands are killed after a configurable timeout (default: 60s) |
+
+## Diagnostic-pod target policy
+
+!!! warning "Requires MCP server image 1.2.0 or newer"
+
+    The `config` keys in this section are read by the MCP server, not by Holmes.
+    On an older image they are passed through and ignored, and probe targets are
+    unrestricted. The Helm chart pins 1.2.0 by default.
+
+`run_preapproved_diagnostic_image` is auto-approved, and the images it launches
+are network-probing tools (`curl`, `dig`, `wget`, `tcpdump`). The image allowlist
+controls *what runs* but not *where the probe points* — so without a target
+policy, prompt-injected content in your cluster (a pod log, an annotation, an
+alert description) could steer an auto-approved probe at the cloud metadata
+service and have the response handed back to Holmes, or POST cluster data to an
+external collector. No approval prompt would appear, because this tool
+legitimately never asks for one.
+
+Two layers constrain the target:
+
+**1. Target validation in the server**, before any pod is created:
+
+- **Always refused, and not configurable:** cloud metadata and
+  link-local/loopback destinations — `169.254.0.0/16` (AWS/Azure/OpenStack IMDS
+  and ECS task metadata), `127.0.0.0/8`, `0.0.0.0/8`, `100.100.100.200`
+  (Alibaba), `192.0.0.192` (Oracle), `::1`, `fe80::/10`, `fd00:ec2::254`, plus
+  metadata hostnames like `metadata.google.internal`. Recognised in every IPv4
+  spelling (decimal, hex, octal, short forms) and as IPv4-mapped IPv6.
+- **Refused unless you opt in:** targets outside the cluster
+  (`diagnosticAllowExternalTargets`).
+- **Always refused:** redirect-following (`curl -L`), which would let the
+  responding server choose the real target.
+
+**2. An egress NetworkPolicy** on the diagnostic pod, which is the CNI-enforced
+backstop for anything validation cannot see — a DNS name that only resolves to a
+metadata address inside the pod, or `wget` following a redirect it was never told
+to follow. The server labels every diagnostic pod `robusta.dev/diagnostic-pod: "true"`
+and pins `hostNetwork: false` so the policy applies.
+
+!!! important "The NetworkPolicy is not installed by this chart"
+
+    Apply
+    [`diagnostic-pod-networkpolicy.yaml`](https://github.com/robusta-dev/holmes-mcp-integrations/blob/master/servers/kubernetes-remediation/diagnostic-pod-networkpolicy.yaml)
+    to **every namespace** Holmes may run diagnostics in — NetworkPolicy is
+    namespaced, and the namespace comes from the caller. Namespaces without it
+    fall back to target validation alone. It is also inert on a CNI that does not
+    enforce NetworkPolicy.
+
+### If a legitimate probe is refused
+
+Refusals name the rule and the fix, and Holmes will usually correct itself. The
+most common case is a namespace-qualified short name: `kubernetes.default` is
+refused because by shape it is indistinguishable from an external domain — use
+the FQDN `kubernetes.default.svc.cluster.local`.
+
+Otherwise, in order of preference:
+
+1. **Custom cluster domain** → set `diagnosticInternalDnsSuffixes`.
+2. **Legitimate external probing** (egress checks, reaching a known external API)
+   → set `diagnosticAllowExternalTargets: true`. Metadata and link-local stay refused.
+3. **A one-off that genuinely needs a restricted target** → use
+   `run_kubectl_command`, which asks a human first.
+4. **Last resort** → `diagnosticTargetPolicyEnabled: false`.
+
+!!! danger "`diagnosticTargetPolicyEnabled: false` disables all target checks"
+
+    This includes the cloud-metadata ranges that are otherwise not configurable,
+    and restores the pre-1.2.0 behaviour: an auto-approved probe can be pointed
+    at the metadata service and its response returned to Holmes. The server logs
+    a warning at startup and on every call while it is off. Apply the egress
+    NetworkPolicy first if you set this, since it becomes your only remaining
+    control. The image allowlist, shell-metacharacter rejection and
+    flag-injection guard are unaffected.
 
 ## Configuration Reference
 
@@ -256,6 +337,9 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | `dangerousFlags` | `--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid` | Blocked flags |
 | `preapprovedCommands` | `exec * -- ps*,...,exec * -- ss*` | `run_preapproved_kubectl_command` allowlist |
 | `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist |
+| `diagnosticTargetPolicyEnabled` | `true` | master switch for the [target policy](#diagnostic-pod-target-policy); `false` disables **all** target checks |
+| `diagnosticAllowExternalTargets` | `false` | allow diagnostic probes to reach hosts outside the cluster |
+| `diagnosticInternalDnsSuffixes` | `.svc,.svc.cluster.local,.cluster.local` | DNS suffixes counted as cluster-internal (set for a custom cluster domain) |
 | `fileReadAllowedPaths` | `/` | `read_file_from_container` allow roots |
 | `fileReadDeniedPaths` | `/var/run/secrets/,/run/secrets/,...` | secret-mount denylist |
 | `allowArbitraryKubectlCommands` | `true` | enable the approval-gated fallback |
