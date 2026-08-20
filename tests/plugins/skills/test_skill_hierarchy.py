@@ -59,7 +59,7 @@ def test_personal_skills_loaded_for_requesting_user(tmp_path):
     personal = _by_source(catalog, SkillSource.PERSONAL)
     assert [s.name for s in personal] == ["uuid-a"]
     # name stays the UUID (that is what fetch_skill needs); human name is separate
-    assert personal[0].display_name == "my skill"
+    assert personal[0].title == "my skill"
 
 
 def test_personal_skills_scoped_to_that_user(tmp_path):
@@ -344,35 +344,35 @@ class TestNormalizeSkillName:
 
 class TestSkillCollisionKey:
     @staticmethod
-    def _skill(name, display_name=None):
+    def _skill(name, title=None):
         return Skill(
             name=name,
             description="d",
             content="c",
             source=SkillSource.REMOTE,
-            display_name=display_name,
+            title=title,
         )
 
-    def test_prefers_display_name(self):
+    def test_prefers_title(self):
         """Remote and personal skills carry a UUID in `name`, so comparing `name` would
-        never detect a collision -- the human name lives in display_name."""
+        never detect a collision -- the human name lives in title."""
         skill = self._skill("2c4e4549-a6f4-25b3-c845-ddb4a6f425b3", "My Skill")
 
         assert skill.collision_key() == "my-skill"
 
-    def test_falls_back_to_name_when_display_name_is_none(self):
-        """Filesystem skills leave display_name unset because `name` IS the human name."""
+    def test_falls_back_to_name_when_title_is_none(self):
+        """Filesystem skills leave title unset because `name` IS the human name."""
         assert self._skill("My Skill").collision_key() == "my-skill"
 
-    def test_falls_back_to_name_when_display_name_is_empty(self):
-        """`display_name or name` -- "" is falsy, so an empty title falls back to `name`
+    def test_falls_back_to_name_when_title_is_empty(self):
+        """`title or name` -- "" is falsy, so an empty title falls back to `name`
         rather than collapsing every such skill onto a shared "" key, which would make
         them all collide with each other."""
-        skill = self._skill("real-name", display_name="")
+        skill = self._skill("real-name", title="")
 
         assert skill.collision_key() == "real-name"
 
-    def test_display_name_is_normalized_too(self):
+    def test_title_is_normalized_too(self):
         assert self._skill("uuid", "  My_Skill  ").collision_key() == "my-skill"
 
 

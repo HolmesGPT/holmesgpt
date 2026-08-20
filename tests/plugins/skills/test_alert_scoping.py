@@ -31,7 +31,7 @@ def _dal(global_skills=None, personal_skills=None):
 
 
 def _names(catalog):
-    return sorted(s.display_name or s.name for s in (catalog.skills if catalog else []))
+    return sorted(s.title or s.name for s in (catalog.skills if catalog else []))
 
 
 class TestAppliesToAlert:

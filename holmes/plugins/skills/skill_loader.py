@@ -60,10 +60,10 @@ class Skill(BaseModel):
     content: str
     source: SkillSource
     source_path: Optional[str] = None
-    # Human name, for collision detection. Remote and personal skills carry a UUID in `name`
-    # (the id fetch_skill needs), so their human name is tracked separately; filesystem
-    # skills leave this unset because `name` already IS the human name.
-    display_name: Optional[str] = None
+    # Human-readable title for skills whose name is an opaque id (remote and personal skills
+    # are named by their HolmesRunbooks UUID); None when the name is already readable
+    # (filesystem skills). Doubles as the key for cross-tier collision detection.
+    title: Optional[str] = None
     # GroupedIssues.aggregation_key values this skill is scoped to. Empty means all alerts,
     # as `clusters = null` means all clusters. Filesystem skills never set it.
     alerts: List[str] = []
@@ -80,7 +80,7 @@ class Skill(BaseModel):
         return alert_name in self.alerts
 
     def collision_key(self) -> str:
-        return normalize_skill_name(self.display_name or self.name)
+        return normalize_skill_name(self.title or self.name)
 
     def to_prompt_string(self) -> str:
         return f"{self.name} | description: {self.description}"
@@ -143,9 +143,13 @@ def parse_skill_file(path: Path, source: SkillSource = SkillSource.USER) -> Skil
             frontmatter_str = parts[1]
             content = parts[2].strip()
         else:
-            raise ValueError(f"Invalid SKILL.md format in {path}: missing closing '---'")
+            raise ValueError(
+                f"Invalid SKILL.md format in {path}: missing closing '---'"
+            )
     else:
-        raise ValueError(f"SKILL.md file {path} must start with '---' (YAML frontmatter)")
+        raise ValueError(
+            f"SKILL.md file {path} must start with '---' (YAML frontmatter)"
+        )
 
     frontmatter = yaml.safe_load(frontmatter_str) or {}
 
@@ -154,7 +158,9 @@ def parse_skill_file(path: Path, source: SkillSource = SkillSource.USER) -> Skil
 
     description = frontmatter.get("description")
     if not description:
-        raise ValueError(f"SKILL.md file {path} is missing required 'description' field in frontmatter")
+        raise ValueError(
+            f"SKILL.md file {path} is missing required 'description' field in frontmatter"
+        )
 
     return Skill(
         name=name,
@@ -210,7 +216,7 @@ def map_robusta_instruction_to_skill(
     """Convert a Supabase RobustaSkillInstruction into a Skill.
 
     `name` stays the runbook UUID because that is the id the LLM passes to fetch_skill.
-    The human name is kept in display_name so cross-tier collisions can be detected.
+    The human name is kept in `title` so cross-tier collisions can be detected.
     """
     description = instr.title
     if instr.symptom:
@@ -228,7 +234,7 @@ def map_robusta_instruction_to_skill(
         content=instr.instruction or "",
         source=source,
         source_path=instr.id,
-        display_name=instr.title,
+        title=instr.title,
         alerts=instr.alerts,
     )
 
@@ -347,7 +353,9 @@ def load_skill_catalog(
                 except Exception as e:
                     logging.error(f"Failed to parse skill file {path}: {e}")
             else:
-                logging.warning(f"Skill path is not a directory or SKILL.md file: {path}")
+                logging.warning(
+                    f"Skill path is not a directory or SKILL.md file: {path}"
+                )
 
     # 3. Load remote (global) skills from Supabase
     if dal:

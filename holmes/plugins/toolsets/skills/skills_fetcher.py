@@ -126,6 +126,11 @@ class SkillsFetcher(Tool):
         return None
 
     def _format_skill_result(self, skill: Skill, params: dict) -> StructuredToolResult:
+        if skill.title:
+            # Surface the human-readable title next to the LLM's skill_id so
+            # consumers (e.g. relay's skills-used Slack footer) can display it
+            # instead of the opaque runbook UUID remote skills are fetched by.
+            params = {**params, "skill_title": skill.title}
         wrapped_content = textwrap.dedent(f"""\
             <skill>
             {skill.content}
@@ -194,7 +199,7 @@ class SkillsFetcher(Tool):
             description=description,
             content=skill_content.instruction or skill_content.pretty(),
             source=SkillSource.PERSONAL,
-            display_name=skill_content.title,
+            title=skill_content.title,
         )
         return self._format_skill_result(skill, params), None
 
@@ -212,6 +217,7 @@ class SkillsFetcher(Tool):
                         description=description,
                         content=skill_content.instruction or skill_content.pretty(),
                         source=SkillSource.REMOTE,
+                        title=skill_content.title,
                     )
                     return self._format_skill_result(skill, params)
                 else:
@@ -240,8 +246,10 @@ class SkillsFetcher(Tool):
             )
 
     def get_parameterized_one_liner(self, params) -> str:
-        path: str = params.get("skill_id", "")
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Skill {path}"
+        skill_id: str = params.get("skill_id", "")
+        skill = self._find_skill(skill_id)
+        label = skill.title if skill and skill.title else skill_id
+        return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Skill {label}"
 
 
 class SkillsToolset(Toolset):

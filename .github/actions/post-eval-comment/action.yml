@@ -23,6 +23,13 @@ runs:
   steps:
     - name: Post or update PR comment
       uses: actions/github-script@v7
+      env:
+        # Read action inputs via env (not inline ${{ }}) so a caller passing a
+        # value containing a quote or backtick cannot break out of the JS
+        # string literal it would otherwise be pasted into.
+        REPORT_FILE: ${{ inputs.report-file }}
+        COMMENT_IDENTIFIER: ${{ inputs.comment-identifier }}
+        DELETE_PREVIOUS: ${{ inputs.delete-previous }}
       with:
         retries: 3
         github-token: ${{ inputs.github-token }}
@@ -37,7 +44,7 @@ runs:
             }
 
             // Read the report file
-            const reportPath = '${{ inputs.report-file }}';
+            const reportPath = process.env.REPORT_FILE;
             if (!fs.existsSync(reportPath)) {
               console.log(`Report file not found: ${reportPath}`);
               return;
@@ -56,7 +63,7 @@ runs:
               }
             );
 
-            const commentIdentifier = '${{ inputs.comment-identifier }}';
+            const commentIdentifier = process.env.COMMENT_IDENTIFIER;
             const botComments = allComments.filter(comment =>
               comment.user.type === 'Bot' &&
               comment.body.includes(commentIdentifier)
@@ -71,7 +78,7 @@ runs:
             });
 
             // Delete old comments if requested
-            if ('${{ inputs.delete-previous }}' === 'true' && botComments.length > 0) {
+            if (process.env.DELETE_PREVIOUS === 'true' && botComments.length > 0) {
               for (const comment of botComments) {
                 await github.rest.issues.deleteComment({
                   owner: context.repo.owner,
