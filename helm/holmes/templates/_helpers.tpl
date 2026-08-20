@@ -54,6 +54,20 @@ Usage: {{- include "holmes.commonAnnotations" . | nindent 4 }}
 {{- end }}
 
 {{/*
+Selector labels for the Holmes Deployment/Service.
+Adds a release-scoped instance label when releaseScopedSelectors is enabled,
+so multiple Holmes releases can coexist in one namespace without their
+Services selecting each other's pods (see issue #2337).
+Usage: {{- include "holmes.selectorLabels" . | nindent 8 }}
+*/}}
+{{- define "holmes.selectorLabels" -}}
+app: holmes
+{{- if .Values.releaseScopedSelectors }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end }}
+
+{{/*
 Common labels to apply to all objects created by this chart.
 Reserved keys used in selector.matchLabels are rejected to prevent
 Deployment reconciliation failures caused by label divergence.

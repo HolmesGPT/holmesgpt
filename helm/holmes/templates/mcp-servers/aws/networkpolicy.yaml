@@ -28,7 +28,7 @@ spec:
   - from:
     - podSelector:
         matchLabels:
-          app: holmes
+          {{- include "holmes.selectorLabels" . | nindent 10 }}
     ports:
     - protocol: TCP
       port: 8000

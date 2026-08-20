@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: custom-toolsets-configmap
+  name: {{ .Release.Name }}-toolsets
   namespace: {{ .Release.Namespace }}
   {{- with (include "holmes.commonLabels" .) }}
   labels:
