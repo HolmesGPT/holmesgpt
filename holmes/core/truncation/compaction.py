@@ -146,15 +146,7 @@ def _truncate_messages_for_compaction(
     tools: Optional[list[dict[str, Any]]],
     input_budget: int,
 ) -> list[dict]:
-    """Halve the largest message repeatedly until the summarization input fits.
-
-    Without this, a conversation that overshoots the model's context window
-    (e.g. several large parallel tool results landing in one iteration) makes
-    the summarization request itself exceed the window, so compaction — the
-    only recovery mechanism — is guaranteed to fail with "prompt is too long"
-    and the whole turn dies. The truncated copy is only used as summarizer
-    input; the original messages are never modified.
-    """
+    """Halve the largest message on copies until the summarization input fits."""
     truncated = [dict(m) for m in messages]
     for _ in range(MAX_TRUNCATION_PASSES):
         if llm.count_tokens(messages=truncated, tools=tools).total_tokens <= input_budget:
