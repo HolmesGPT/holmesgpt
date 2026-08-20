@@ -42,6 +42,10 @@ from rich.table import Table
 
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
+from holmes.core.request_scoped_k8s import (
+    build_request_scoped_env,
+    cleanup_kubeconfig,
+)
 from holmes.core.transformers import (
     Transformer,
     TransformerError,
@@ -590,14 +594,23 @@ class YAMLTool(Tool, BaseModel):
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        if self.command is not None:
-            raw_output, return_code, invocation = self.__invoke_command(
-                params, context.request_context
-            )
-        else:
-            raw_output, return_code, invocation = self.__invoke_script(
-                params, context.request_context
-            )
+        # The kubeconfig backing these credentials holds a raw user token, so it
+        # must be deleted as soon as the subprocess exits. No-op (None) unless
+        # request-scoped auth is enabled.
+        env_overrides, kubeconfig_path = build_request_scoped_env(
+            context.request_context
+        )
+        try:
+            if self.command is not None:
+                raw_output, return_code, invocation = self.__invoke_command(
+                    params, context.request_context, env=env_overrides
+                )
+            else:
+                raw_output, return_code, invocation = self.__invoke_script(
+                    params, context.request_context, env=env_overrides
+                )
+        finally:
+            cleanup_kubeconfig(kubeconfig_path)
 
         error = (
             None
@@ -619,18 +632,20 @@ class YAMLTool(Tool, BaseModel):
         self,
         params: dict,
         request_context: Optional[Dict[str, Any]] = None,
+        env: Optional[Dict[str, str]] = None,
     ) -> Tuple[str, int, str]:
         context = self._build_context(params, request_context)
         command = os.path.expandvars(self.command)  # type: ignore
         template = Template(command)  # type: ignore
         rendered_command = template.render(context)
-        output, return_code = self.__execute_subprocess(rendered_command)
+        output, return_code = self.__execute_subprocess(rendered_command, env=env)
         return output, return_code, rendered_command
 
     def __invoke_script(
         self,
         params: dict,
         request_context: Optional[Dict[str, Any]] = None,
+        env: Optional[Dict[str, str]] = None,
     ) -> Tuple[str, int, str]:
         context = self._build_context(params, request_context)
         script = os.path.expandvars(self.script)  # type: ignore
@@ -645,7 +660,7 @@ class YAMLTool(Tool, BaseModel):
         subprocess.run(["chmod", "+x", temp_script_path], check=True)
 
         try:
-            output, return_code = self.__execute_subprocess(temp_script_path)
+            output, return_code = self.__execute_subprocess(temp_script_path, env=env)
         finally:
             try:
                 os.remove(temp_script_path)
@@ -653,10 +668,19 @@ class YAMLTool(Tool, BaseModel):
                 pass
         return output, return_code, rendered_script
 
-    def __execute_subprocess(self, cmd: str) -> Tuple[str, int]:
+    def __execute_subprocess(
+        self, cmd: str, env: Optional[Dict[str, str]] = None
+    ) -> Tuple[str, int]:
         try:
             logger.debug(f"Running `{cmd}`")
             protected_cmd = get_ulimit_prefix() + cmd
+
+            # Overlay onto a *copy* of os.environ so concurrent invocations
+            # cannot observe each other's credentials.
+            subprocess_env = None
+            if env:
+                subprocess_env = os.environ.copy()
+                subprocess_env.update(env)
 
             result = subprocess.run(
                 protected_cmd,
@@ -667,6 +691,7 @@ class YAMLTool(Tool, BaseModel):
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                env=subprocess_env,
             )
 
             output = result.stdout.strip()

@@ -98,10 +98,28 @@ def agui_chat_health(request: Request):
     return JSONResponse(content="ok")
 
 
+def _build_agui_request_context(request: Request) -> dict:
+    """Capture per-request headers so the caller's identity can reach tool
+    execution (used for per-user Kubernetes RBAC).
+
+    Unlike the main server's ``extract_passthrough_headers``, which blocks
+    ``Authorization`` by default, the AG-UI server is the per-user entrypoint and
+    must forward identity headers; only cookies are dropped.
+    """
+    blocked = {"cookie", "set-cookie"}
+    headers = {
+        name: value
+        for name, value in request.headers.items()
+        if name.lower() not in blocked
+    }
+    return {"headers": headers}
+
+
 @app.post("/api/agui/chat")
 def agui_chat(input_data: RunAgentInput, request: Request):
     accept_header = request.headers.get("accept", "")
     encoder = EventEncoder(accept=accept_header)
+    request_context = _build_agui_request_context(request)
 
     logging.debug(f"AG-UI context: {input_data.context}")
     logging.debug(f"AG-UI state: {input_data.state}")
@@ -164,6 +182,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     type(ctx).__name__,
                     e,
                 )
+            if agui_user_id:
+                # Consumed by the MCP OAuth token manager to scope stored tokens.
+                request_context["user_id"] = agui_user_id
             ai_model = getattr(ai.llm, "model", None) or chat_request.model or "unknown"
             ai_provider = resolve_provider(ai_model)
             recorder_state = UsageRecorderState(
@@ -183,6 +204,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 ai.call_stream(
                     msgs=message_history,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
+                    request_context=request_context,
                 ),
                 recorder_state,
             )

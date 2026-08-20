@@ -345,6 +345,64 @@ export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-int
 
 See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
 
+### HOLMES_K8S_AUTH_MODE
+**Default:** `"service_account"`
+
+Controls which credentials the built-in `kubernetes` toolset uses for `kubectl`.
+
+- `service_account` (default) — use the pod's ServiceAccount / ambient kubeconfig. Every user shares Holmes' identity.
+- `request_token` — build a short-lived kubeconfig **per tool invocation** from the caller's token, so the API server enforces that user's RBAC.
+
+`request_token` is intended for multi-user front-ends (e.g. the Headlamp
+ai-assistant plugin) sitting behind an OIDC proxy. It only takes effect when a
+token is actually present on the request; otherwise Holmes falls back to the
+existing behaviour.
+
+**Example:**
+```bash
+export HOLMES_K8S_AUTH_MODE="request_token"
+```
+
+### HOLMES_K8S_REQUEST_TOKEN_HEADERS
+**Default:** `"X-Auth-Request-Id-Token,Authorization"`
+
+Ordered, comma-separated list of headers to read the user's token from when
+`HOLMES_K8S_AUTH_MODE=request_token`. The first non-empty match wins, and a
+leading `Bearer` prefix and following whitespace are stripped. `oauth2-proxy` injects
+`X-Auth-Request-Id-Token`; a plain reverse proxy forwards `Authorization`.
+
+**Example:**
+```bash
+export HOLMES_K8S_REQUEST_TOKEN_HEADERS="X-Forwarded-Access-Token"
+```
+
+### HOLMES_K8S_API_SERVER
+**Default:** derived from `KUBERNETES_SERVICE_HOST`/`KUBERNETES_SERVICE_PORT`, falling back to `https://kubernetes.default.svc`
+
+API server URL written into the generated per-request kubeconfig. Must be an
+absolute `https://` URL; any other value is ignored (with an error logged) and
+the in-cluster endpoint is used instead, so the user's token is never sent in
+cleartext.
+
+### HOLMES_K8S_CA_CERT
+**Default:** `"/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"`
+
+Path to the cluster CA bundle used to verify the API server. When Holmes runs
+with no ServiceAccount token mounted, mount the `kube-root-ca.crt` ConfigMap and
+point this at it. If the file is missing, `kubectl` falls back to the system
+trust store.
+
+### HOLMES_K8S_INSECURE_SKIP_TLS_VERIFY
+**Default:** `false`
+
+Set to `true` to write `insecure-skip-tls-verify` into the generated kubeconfig
+when no CA bundle is available.
+
+!!! warning
+    This disables API server certificate verification and exposes the user's
+    token to interception. Prefer mounting `kube-root-ca.crt` and setting
+    `HOLMES_K8S_CA_CERT`.
+
 ## Data Source Configuration
 
 ### Prometheus
