@@ -1,10 +1,10 @@
-# Infrastructure for eval 283: quote-service with a cache-key bug that
+# Infrastructure for eval 289: quote-service with a cache-key bug that
 # causes constant tariff-matrix recomputation -> CPU pegged at its limit
 # -> CFS throttling. Promtail ships the app's JSON logs to the shared
 # Loki. A GitLab-mimicking MCP server serves the same source files the
 # quote-service pod runs (both mount the quote-service-src Secret).
 #
-# Apply with: kubectl apply -f deployment.yaml -n app-283
+# Apply with: kubectl apply -f deployment.yaml -n app-289
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -25,7 +25,7 @@ data:
               - localhost
             labels:
               job: quote-service
-              namespace: app-283
+              namespace: app-289
               app: quote-service
               __path__: /var/log/*.log
         pipeline_stages:

@@ -663,12 +663,12 @@ Budget accordingly when looping.
 - CPU limit enforcement — pods' CFS quotas are never applied in the sandbox k3s
   (`cpu.cfs_quota_us` stays `-1`), so real CPU throttling cannot occur and cAdvisor
   exposes NO `container_cpu_cfs_*` metrics (usage metrics are fine). Evals that
-  assert on real throttling (e.g. 283) need a stand-in exporter feeding those
+  assert on real throttling (e.g. 289) need a stand-in exporter feeding those
   series to the Prometheus service in the sandbox; on real clusters they work as-is
 - `pip install` inside cluster pods — the sandbox MITMs pypi.org with its internal
   CA, so pip fails TLS verification. Workaround: create a ConfigMap from
   `/root/.ccr/ca-bundle.crt`, mount it into the container, and set
-  `PIP_CERT=/path/to/ca.crt` (used for eval 254/283-style init containers that
+  `PIP_CERT=/path/to/ca.crt` (used for eval 254/289-style init containers that
   pip-install the `mcp` package)
 
 **Caveats and gotchas (things that DO work but with strings attached):**

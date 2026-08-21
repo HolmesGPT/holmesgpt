@@ -10,7 +10,7 @@ toolsets:
   grafana/loki:
     enabled: true
     config:
-      api_url: http://localhost:10283
+      api_url: http://localhost:10289
       api_key: ""
 
   # Port-forwarded to the cluster's kube-prometheus-stack, which scrapes
@@ -18,7 +18,7 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: http://localhost:11283
+      prometheus_url: http://localhost:11289
       fetch_metadata_with_series_api: true
       fetch_labels_with_labels_api: false
       tool_calls_return_data: true
@@ -29,4 +29,4 @@ toolsets:
     description: "Read-only GitLab access for the logistics platform — list projects, browse repository trees, read source files and commit history"
     config:
       mode: streamable-http
-      url: http://localhost:12283
+      url: http://localhost:12289

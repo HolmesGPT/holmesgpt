@@ -1,4 +1,4 @@
-# Eval 283: high CPU throttling caused by a bug in the application code.
+# eval 289: high CPU throttling caused by a bug in the application code.
 #
 # Scenario: the quote-service pod (CPU limit 200m) is slow and Prometheus
 # fires CPUThrottlingHigh. The cause is a cache-key mismatch introduced by
@@ -42,7 +42,7 @@
 #     MITMs pypi.org; mount /root/.ccr/ca-bundle.crt into the gitlab-mcp
 #     init container and set PIP_CERT to work around it.
 
-user_prompt: "Prometheus fired the CPUThrottlingHigh alert for the quote-service pod in namespace app-283, and customers report that shipping quotes now take many seconds to load. Find the root cause of the high CPU usage. Be specific about exactly what is wrong and what needs to be fixed."
+user_prompt: "Prometheus fired the CPUThrottlingHigh alert for the quote-service pod in namespace app-289, and customers report that shipping quotes now take many seconds to load. Find the root cause of the high CPU usage. Be specific about exactly what is wrong and what needs to be fixed."
 
 expected_output:
   - The root cause is a cache-key mismatch in tariff_engine.py of the quote-service source code (logistics/quote-service repo); tariff matrices are stored in the cache under a key formatted with "->" (ORIGIN->DEST) but looked up with a key formatted with ":" (ORIGIN:DEST, built by _cache_key), so cache lookups never hit.
@@ -62,22 +62,22 @@ tags:
 setup_timeout: 900
 
 port_forwards:
-  - namespace: app-283
+  - namespace: app-289
     service: loki
-    local_port: 10283
+    local_port: 10289
     remote_port: 3100
   - namespace: default
     service: robusta-kube-prometheus-st-prometheus
-    local_port: 11283
+    local_port: 11289
     remote_port: 9090
-  - namespace: app-283
+  - namespace: app-289
     service: gitlab-mcp
-    local_port: 12283
+    local_port: 12289
     remote_port: 8000
 
 before_test: |
   set -e
-  NAMESPACE="app-283"
+  NAMESPACE="app-289"
 
   # This test assumes kube-prometheus-stack already runs in the cluster
   # (same prerequisite as eval 159) — it provides the real cAdvisor
@@ -193,4 +193,4 @@ before_test: |
   echo "=== Setup complete ==="
 
 after_test: |
-  kubectl delete namespace app-283 --wait=false --ignore-not-found
+  kubectl delete namespace app-289 --wait=false --ignore-not-found
