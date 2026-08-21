@@ -185,7 +185,10 @@ spec:
         command:
         - sh
         - -c
-        - pip install --target=/app/deps "mcp[cli]>=1.25.0"
+        # Bounded to 1.x: mcp 2.0 removed the mcp.server.fastmcp module the
+        # server imports, so an unbounded constraint breaks the pod on the
+        # SDK's next major release.
+        - pip install --target=/app/deps "mcp[cli]>=1.25.0,<2"
         volumeMounts:
         - name: python-deps
           mountPath: /app/deps
