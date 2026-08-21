@@ -13,8 +13,8 @@ toolsets:
         command: "fly status -a {{ app }}"
 
       - name: "fly_logs_recent"
-        description: "Fetch recent logs for a Fly app without tailing (bounded, safe for investigation)"
-        command: "fly logs -a {{ app }} --no-tail"
+        description: "Fetch recent logs for a Fly app without tailing, capped to the last 500 lines to avoid unbounded output during a noisy incident"
+        command: "fly logs -a {{ app }} --no-tail | tail -n 500"
 
       - name: "fly_machine_list"
         description: "List all machines for a Fly app, including state and restart counts"

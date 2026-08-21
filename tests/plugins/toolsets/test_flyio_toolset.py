@@ -60,6 +60,15 @@ def test_flyio_toolset_prerequisite_is_fly_version():
     assert toolset.prerequisites[0].command == "fly version"
 
 
+def test_flyio_logs_recent_output_is_bounded():
+    """fly logs --no-tail has no built-in line limit -- a noisy incident
+    could return unbounded output. Pin that the command caps it, per
+    CodeRabbit review feedback on this PR."""
+    toolset = _find_flyio_toolset()
+    tool = next(t for t in toolset.tools if t.name == "fly_logs_recent")
+    assert "tail -n" in tool.command
+
+
 def test_flyio_secrets_list_never_exposes_values():
     """fly_secrets_list must only ever be able to list secret NAMES -- `fly
     secrets list` never prints values, unlike e.g. `fly secrets unset` or a
