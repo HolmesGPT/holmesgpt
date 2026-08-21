@@ -33,7 +33,37 @@ TEST_CASES_FOLDER = Path(
 
 
 def get_compaction_test_cases():
+    """Load the compaction eval test cases from the fixtures folder."""
     return get_test_cases(TEST_CASES_FOLDER)
+
+
+def build_tools_from_history(conversation_history: list[dict]) -> list[dict]:
+    """Build a tools list from the tool calls present in a conversation history.
+
+    Mirrors production: the agentic loop passes its toolset to compaction, and the
+    summarization request keeps the same tools attached (see ROB-424).
+    """
+    tool_names: list[str] = []
+    for msg in conversation_history:
+        for tc in msg.get("tool_calls") or []:
+            name = tc.get("function", {}).get("name")
+            if name and name not in tool_names:
+                tool_names.append(name)
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": f"Tool {name}",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": True,
+                },
+            },
+        }
+        for name in tool_names
+    ]
 
 
 @pytest.mark.llm
@@ -91,26 +121,31 @@ def test_compaction(
                 )
             )
 
-            # Perform compaction
+            # Perform compaction. Attach tools derived from the history's tool
+            # calls, like the agentic loop does in production (ROB-424).
+            tools = build_tools_from_history(conversation_history)
             with tracer.start_trace(
                 "Compaction", span_type=SpanType.TASK
             ) as compaction_span:
                 compaction_result = compact_conversation_history(
-                    conversation_history, llm
+                    conversation_history, llm, tools=tools or None
                 )
                 compacted_history = compaction_result.messages_after_compaction
 
-            # Extract the summary from compacted history
-            # The compacted history should have: [optional system], [optional last user prompt], [summary message], [continuation message]
-            summary_content = None
-            for msg in compacted_history:
-                if msg.get("role") == "assistant":
-                    summary_content = msg.get("content", "")
-                    break
+            summary_content = compaction_result.summary
 
             if not summary_content:
-                pytest.fail(
-                    "Compaction did not produce an assistant message with summary"
+                pytest.fail("Compaction did not produce a summary")
+
+            # The compacted history must contain no assistant message (the summary
+            # is stored as a user message) and no non-leading system message —
+            # both shapes break Bedrock-translating gateways (ROB-425/ROB-665).
+            for i, msg in enumerate(compacted_history):
+                assert msg.get("role") != "assistant", (
+                    "Compacted history must not contain an assistant message"
+                )
+                assert i == 0 or msg.get("role") != "system", (
+                    "Compacted history must not contain a non-leading system message"
                 )
 
             compacted_tokens = llm.count_tokens(messages=compacted_history)

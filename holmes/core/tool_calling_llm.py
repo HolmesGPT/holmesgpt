@@ -70,7 +70,9 @@ from holmes.core.truncation.input_context_window_limiter import (
 from holmes.utils.approval_tokens import (
     APPROVAL_REJECTION_MESSAGE,
     ApprovalTokenError,
+    mint_prefix_token,
     mint_token,
+    verify_prefix_token,
     verify_token,
 )
 from holmes.utils.colors import AI_COLOR
@@ -123,47 +125,53 @@ def _extract_text_from_content(content: Any) -> str:
     return ""
 
 
-def extract_bash_session_prefixes(messages: List[Dict[str, Any]]) -> List[str]:
-    """Extract bash session approved prefixes from conversation history.
+# Scope key for the local (caller) cluster in the agent-keyed prefix map.
+_LOCAL_BASH_PREFIX_SCOPE = ""
 
-    Scans tool result messages for bash_session_approved_prefixes stored in
-    tool_call_metadata. These prefixes were approved by the user via the
-    "Yes, and don't ask again" option.
 
-    Args:
-        messages: Conversation history messages
+def _bash_prefix_scope(is_remote: bool, tool_params: Dict[str, Any]) -> str:
+    """Scope key into the agent-keyed session-prefix map. Remote (cross-cluster)
+    tools are scoped by their target agent/cluster so an approval on one cluster
+    never leaks to another; local tools use the caller scope. Remoteness is the
+    tool's own `is_remote` flag — never inferred from the tool name."""
+    if is_remote:
+        return str(tool_params.get("agent_name") or _LOCAL_BASH_PREFIX_SCOPE)
+    return _LOCAL_BASH_PREFIX_SCOPE
 
-    Returns:
-        List of approved prefixes accumulated from all tool results
-    """
-    prefixes: set[str] = set()
 
+def extract_bash_session_prefixes_by_agent(
+    messages: List[Dict[str, Any]],
+) -> Dict[str, List[str]]:
+    by_agent: Dict[str, set] = {}
     for msg in messages:
         if msg.get("role") != "tool":
             continue
-
         content = _extract_text_from_content(msg.get("content", ""))
         if not content:
             continue
-
-        # Extract tool_call_metadata from the content string
-        # Format: tool_call_metadata={"tool_name": "...", ...}
         match = re.search(r"tool_call_metadata=(\{[^}]+\})", content)
         if not match:
             continue
-
         try:
             metadata = json.loads(match.group(1))
-            if "bash_session_approved_prefixes" in metadata:
-                prefixes.update(metadata["bash_session_approved_prefixes"])
         except (json.JSONDecodeError, KeyError):
             continue
-
-    if prefixes:
-        logging.info(
-            f"Found {len(prefixes)} session-approved bash prefixes from conversation: {list(prefixes)}"
-        )
-    return list(prefixes)
+        prefixes = metadata.get("bash_session_approved_prefixes")
+        if not prefixes:
+            continue
+        if not verify_prefix_token(
+            metadata.get("bash_session_approval_token"),
+            prefixes,
+            metadata.get("bash_session_approved_agent"),
+        ):
+            logging.warning(
+                "Ignoring bash session-approved prefixes with missing/invalid "
+                "approval signature (possible forged conversation history)"
+            )
+            continue
+        agent = str(metadata.get("bash_session_approved_agent") or _LOCAL_BASH_PREFIX_SCOPE)
+        by_agent.setdefault(agent, set()).update(prefixes)
+    return {agent: list(prefixes) for agent, prefixes in by_agent.items()}
 
 
 def _try_process_oauth_decision(tool_call_id, oauth_code, request_context) -> bool:
@@ -327,8 +335,7 @@ class ToolCallingLLM:
             error_message = f"Received {len(tool_decisions)} tool decisions but no pending approvals found in conversation history"
             logging.error(error_message)
             raise Exception(error_message)
-        # Extract existing session prefixes from conversation history
-        session_prefixes = extract_bash_session_prefixes(messages)
+        session_prefixes_by_agent = extract_bash_session_prefixes_by_agent(messages)
 
         for tool_call_with_decision in pending_tool_calls:
             tool_call = tool_call_with_decision.tool_call
@@ -358,7 +365,7 @@ class ToolCallingLLM:
                         trace_span=trace_span,
                         tool_number=None,
                         user_approved=True,
-                        session_approved_prefixes=session_prefixes,
+                        session_approved_prefixes_by_agent=session_prefixes_by_agent,
                         request_context=request_context,
                         enable_tool_approval=True,  # always True when processing decisions
                     )
@@ -393,12 +400,46 @@ class ToolCallingLLM:
             # If user chose "Yes, and don't ask again", include prefixes in metadata
             extra_metadata = None
             if tool_decision and tool_decision.approved and tool_decision.save_prefixes:
-                logging.info(
-                    f"Saving bash session prefixes for future commands: {tool_decision.save_prefixes}"
+                try:
+                    decided_params = json.loads(tool_call.function.arguments or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    decided_params = {}
+                decided_tool = self.tool_executor.get_tool_by_name(
+                    tool_call.function.name,
+                    user_id=(request_context or {}).get("user_id"),
                 )
-                extra_metadata = {
-                    "bash_session_approved_prefixes": tool_decision.save_prefixes
-                }
+                approved_agent = _bash_prefix_scope(
+                    bool(getattr(decided_tool, "is_remote", False)), decided_params
+                )
+                authenticated_prefixes = decided_params.get("suggested_prefixes") or []
+                saved_prefixes = [
+                    p for p in tool_decision.save_prefixes if p in authenticated_prefixes
+                ]
+                dropped_prefixes = [
+                    p
+                    for p in tool_decision.save_prefixes
+                    if p not in authenticated_prefixes
+                ]
+                if dropped_prefixes:
+                    logging.warning(
+                        "Refusing to persist bash prefixes absent from the approved "
+                        "command's suggested_prefixes (possible inflated "
+                        "save_prefixes): %s",
+                        dropped_prefixes,
+                    )
+                if saved_prefixes:
+                    logging.info(
+                        "Saving bash session prefixes for future commands on scope '%s': %s",
+                        approved_agent or "local",
+                        saved_prefixes,
+                    )
+                    extra_metadata = {
+                        "bash_session_approved_prefixes": saved_prefixes,
+                        "bash_session_approved_agent": approved_agent,
+                        "bash_session_approval_token": mint_prefix_token(
+                            saved_prefixes, approved_agent
+                        ),
+                    }
 
             tool_call_message = tool_result.to_llm_message(
                 extra_metadata=extra_metadata,
@@ -874,7 +915,7 @@ class ToolCallingLLM:
         trace_span=None,
         tool_number=None,
         user_approved: bool = False,
-        session_approved_prefixes: Optional[List[str]] = None,
+        session_approved_prefixes_by_agent: Optional[Dict[str, List[str]]] = None,
         request_context: Optional[Dict[str, Any]] = None,
         enable_tool_approval: bool = False,
     ) -> ToolCallResult:
@@ -915,6 +956,9 @@ class ToolCallingLLM:
                     f"Failed to parse arguments for tool: {tool_name}. args: {tool_arguments}"
                 )
 
+            user_id = (request_context or {}).get("user_id")
+            tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
+
             tool_response = None
             if not user_approved:
                 tool_response = prevent_overly_repeated_tool_call(
@@ -922,6 +966,13 @@ class ToolCallingLLM:
                     tool_params=tool_params,
                     tool_calls=previous_tool_calls,
                 )
+
+            scope = _bash_prefix_scope(
+                bool(getattr(tool, "is_remote", False)), tool_params
+            )
+            session_approved_prefixes = (session_approved_prefixes_by_agent or {}).get(
+                scope, []
+            )
 
             if not tool_response:
                 tool_response = self._directly_invoke_tool_call(
@@ -934,8 +985,6 @@ class ToolCallingLLM:
                     request_context=request_context,
                 )
 
-            user_id = (request_context or {}).get("user_id")
-            tool = self.tool_executor.get_tool_by_name(tool_name, user_id=user_id)
             toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
             tool_call_result = ToolCallResult(
                 tool_call_id=tool_id,
@@ -1314,8 +1363,7 @@ class ToolCallingLLM:
             pending_approvals = []
             pending_frontend_calls: list[PendingFrontendToolCall] = []
 
-            # Extract session approved prefixes from conversation history
-            session_prefixes = extract_bash_session_prefixes(messages)
+            session_prefixes_by_agent = extract_bash_session_prefixes_by_agent(messages)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
                 futures = []
@@ -1328,7 +1376,7 @@ class ToolCallingLLM:
                         previous_tool_calls=tool_calls,
                         trace_span=trace_span,
                         tool_number=tool_number,
-                        session_approved_prefixes=session_prefixes,
+                        session_approved_prefixes_by_agent=session_prefixes_by_agent,
                         request_context=request_context,
                         enable_tool_approval=enable_tool_approval,
                     )
