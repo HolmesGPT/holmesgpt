@@ -8,6 +8,7 @@ from cache in well under a millisecond.
 
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -43,7 +44,7 @@ def setup_logging() -> None:
 
 
 class QuoteHandler(BaseHTTPRequestHandler):
-    def log_message(self, format: str, *args) -> None:
+    def log_message(self, message_format: str, *args) -> None:
         # Access logging is done in do_GET with timings; silence the default.
         pass
 
@@ -71,6 +72,9 @@ class QuoteHandler(BaseHTTPRequestHandler):
             weight_kg = float(params.get("weight_kg", ["1"])[0])
         except ValueError:
             self._send(400, {"error": "weight_kg must be a number"})
+            return
+        if not math.isfinite(weight_kg) or weight_kg <= 0:
+            self._send(400, {"error": "weight_kg must be a positive finite number"})
             return
         if len(origin) != 3 or len(dest) != 3:
             self._send(400, {"error": "origin and dest must be 3-letter codes"})

@@ -129,6 +129,28 @@ def _project_files(project_id: int) -> Optional[dict[str, str]]:
     return None
 
 
+def _validate_ref(project_id: int, ref: str) -> Optional[dict[str, Any]]:
+    """Only the default branch (and its HEAD commit) is mirrored.
+
+    Returning main's content labelled with an arbitrary caller-provided ref
+    would misrepresent history, so any other ref gets an explicit error.
+    """
+    commits = COMMITS.get(project_id, [])
+    allowed = {"main"}
+    if commits:
+        allowed.add(commits[0]["id"])
+        allowed.add(commits[0]["short_id"])
+    if ref not in allowed:
+        return {
+            "error": (
+                f"Ref '{ref}' is not available: this read-only gateway only "
+                "mirrors the default branch 'main' at its current HEAD"
+            ),
+            "available_refs": sorted(allowed),
+        }
+    return None
+
+
 def create_server() -> FastMCP:
     app = FastMCP(
         name="GitLab MCP Server",
@@ -158,8 +180,11 @@ def create_server() -> FastMCP:
         if files is None:
             return {
                 "error": f"Project {project_id} not found",
-                "available_projects": [p["id"] for p in PROJECTS],
+                "available_projects": [project["id"] for project in PROJECTS],
             }
+        ref_error = _validate_ref(project_id, ref)
+        if ref_error is not None:
+            return ref_error
         return {
             "project_id": project_id,
             "ref": ref,
@@ -181,8 +206,11 @@ def create_server() -> FastMCP:
         if files is None:
             return {
                 "error": f"Project {project_id} not found",
-                "available_projects": [p["id"] for p in PROJECTS],
+                "available_projects": [project["id"] for project in PROJECTS],
             }
+        ref_error = _validate_ref(project_id, ref)
+        if ref_error is not None:
+            return ref_error
         if file_path not in files:
             return {
                 "error": f"File '{file_path}' not found in project {project_id} at ref '{ref}'",
@@ -207,8 +235,11 @@ def create_server() -> FastMCP:
         if commits is None:
             return {
                 "error": f"Project {project_id} not found",
-                "available_projects": [p["id"] for p in PROJECTS],
+                "available_projects": [project["id"] for project in PROJECTS],
             }
+        ref_error = _validate_ref(project_id, ref)
+        if ref_error is not None:
+            return ref_error
         return {"project_id": project_id, "ref": ref, "commits": commits}
 
     return app
