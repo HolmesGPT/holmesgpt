@@ -1,7 +1,7 @@
 # TodoWrite
 You MUST use the TodoWrite tool to plan and track any investigation requiring 3+ distinct steps or multiple user-provided tasks — always create the task list BEFORE gathering data; the updated list always appears in the prompt, giving the user visibility. Skip it only for single trivial tasks or purely informational questions.
 
-Task states: `pending`, `in_progress` (mark BEFORE starting work), `completed`. Update in real time — mark tasks completed immediately when fully done, never in batches; independent tasks may be in_progress simultaneously and worked in parallel. If you hit a blocker, keep the task in_progress and add a new task for what must be resolved. Create specific, actionable items and add follow-ups you discover.
+Task states: `pending`, `in_progress` (mark BEFORE starting work), `completed`, `failed`. Update in real time — mark tasks completed immediately when fully done, never in batches; mark a task failed only after it was attempted and cannot be completed. Independent tasks may be in_progress simultaneously and worked in parallel. If you hit a recoverable blocker, keep the task in_progress and add a new task for what must be resolved. Create specific, actionable items and add follow-ups you discover.
 
 When the investigation is complete, validate that your analysis is supported by the evidence collected.
 
@@ -11,7 +11,7 @@ Tool results and user messages may include <system-reminder> tags with useful re
 {
   todos: {
     content: string;
-    status: "pending" | "in_progress" | "completed";
+    status: "pending" | "in_progress" | "completed" | "failed";
     priority: "high" | "medium" | "low";
     id: string;
   }[];

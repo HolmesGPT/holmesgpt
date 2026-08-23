@@ -15,6 +15,7 @@ def format_tasks(tasks: List[Task]) -> str:
         TaskStatus.PENDING: 0,
         TaskStatus.IN_PROGRESS: 1,
         TaskStatus.COMPLETED: 2,
+        TaskStatus.FAILED: 3,
     }
 
     sorted_tasks = sorted(
@@ -28,10 +29,15 @@ def format_tasks(tasks: List[Task]) -> str:
     pending_count = sum(1 for t in tasks if t.status == TaskStatus.PENDING)
     progress_count = sum(1 for t in tasks if t.status == TaskStatus.IN_PROGRESS)
     completed_count = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
+    failed_count = sum(1 for t in tasks if t.status == TaskStatus.FAILED)
 
-    lines.append(
-        f"**Task Status**: {completed_count} completed, {progress_count} in progress, {pending_count} pending"
+    status_summary = (
+        f"**Task Status**: {completed_count} completed, {progress_count} in progress, "
+        f"{pending_count} pending"
     )
+    if failed_count:
+        status_summary += f", {failed_count} failed"
+    lines.append(status_summary)
     lines.append("")
 
     for task in sorted_tasks:
@@ -39,13 +45,16 @@ def format_tasks(tasks: List[Task]) -> str:
             TaskStatus.PENDING: "[ ]",
             TaskStatus.IN_PROGRESS: "[~]",
             TaskStatus.COMPLETED: "[✓]",
+            TaskStatus.FAILED: "[✗]",
         }.get(task.status, "[?]")
 
         lines.append(f"{status_indicator} [{task.id}] {task.content}")
 
     lines.append("")
     lines.append(
-        "**Instructions**: Use TodoWrite tool to update task status as you work. Mark tasks as 'in_progress' when starting, 'completed' when finished."
+        "**Instructions**: Use TodoWrite tool to update task status as you work. "
+        "Mark tasks as 'in_progress' when starting, 'completed' when finished, "
+        "or 'failed' when they cannot be completed."
     )
 
     return "\n".join(lines)

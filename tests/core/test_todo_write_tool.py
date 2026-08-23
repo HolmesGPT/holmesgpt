@@ -66,6 +66,27 @@ class TestTodoWriteTool:
         # Should include pretty printed TodoList
         assert "Test task" in result.data
 
+    def test_todo_write_tool_formats_failed_tasks(self):
+        """Failed tasks are counted and rendered as a known terminal state."""
+        tool = TodoWriteTool()
+        params = {
+            "todos": [
+                {"id": "1", "content": "Check pod status", "status": "completed"},
+                {"id": "2", "content": "Query metrics", "status": "failed"},
+                {"id": "3", "content": "Analyze logs", "status": "pending"},
+            ]
+        }
+
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert (
+            "**Task Status**: 1 completed, 0 in progress, 1 pending, 1 failed"
+            in result.data
+        )
+        assert "[✗] [2] Query metrics" in result.data
+        assert "[?] [2] Query metrics" not in result.data
+
     def test_todo_write_tool_invalid_enum_values(self):
         """Test TodoWriteTool handles invalid enum values gracefully."""
         tool = TodoWriteTool()
@@ -102,6 +123,7 @@ class TestTodoWriteTool:
         assert TaskStatus.PENDING == "pending"
         assert TaskStatus.IN_PROGRESS == "in_progress"
         assert TaskStatus.COMPLETED == "completed"
+        assert TaskStatus.FAILED == "failed"
 
     def test_openai_format(self):
         """Test that the tool generates correct OpenAI format."""
