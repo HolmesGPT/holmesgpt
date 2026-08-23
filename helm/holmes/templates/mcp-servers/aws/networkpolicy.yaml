@@ -24,11 +24,16 @@ spec:
   policyTypes:
   - Ingress
   ingress:
-  # Allow traffic only from Holmes pods
+  # Allow traffic only from Holmes pods (app: holmes) in the release namespace.
+  # podSelector + namespaceSelector in the same `from` element are AND-ed, which
+  # keeps this working when the MCP server runs in its own namespace.
   - from:
     - podSelector:
         matchLabels:
           app: holmes
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Release.Namespace }}
     ports:
     - protocol: TCP
       port: 8000
