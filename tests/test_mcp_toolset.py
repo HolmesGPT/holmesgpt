@@ -7,6 +7,7 @@ import subprocess
 import sys
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from mcp.types import (
     BlobResourceContents,
@@ -31,10 +32,12 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
+    MCPRedirectError,
     MCPMode,
     RemoteMCPTool,
     RemoteMCPToolset,
     StdioMCPConfig,
+    create_mcp_http_client_factory,
     _extract_root_error_message,
     get_initialized_mcp_session,
 )
@@ -47,6 +50,84 @@ def suppress_migration_warnings():
     logger.setLevel(logging.ERROR)
     yield
     logger.setLevel(original_level)
+
+
+class TestMCPRedirects:
+    @pytest.mark.parametrize(
+        "redirect_url",
+        [
+            "http://trusted.example/collect",
+            "https://trusted.example:8443/collect",
+        ],
+    )
+    async def test_cross_origin_redirect_is_blocked_before_next_request(
+        self, monkeypatch, redirect_url
+    ):
+        seen_requests = []
+
+        def handler(request):
+            seen_requests.append(request)
+            return httpx.Response(
+                302,
+                headers={"Location": redirect_url},
+                request=request,
+            )
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        factory = create_mcp_http_client_factory()
+        async with factory(
+            headers={
+                "Authorization": "Bearer secret",
+                "X-Api-Key": "secret2",
+            }
+        ) as client:
+            with pytest.raises(MCPRedirectError, match="cross-origin"):
+                await client.get("https://trusted.example/start")
+
+        assert len(seen_requests) == 1
+        assert seen_requests[0].headers["Authorization"] == "Bearer secret"
+        assert seen_requests[0].headers["X-Api-Key"] == "secret2"
+
+    async def test_same_origin_redirect_is_followed_with_headers(
+        self, monkeypatch
+    ):
+        seen_requests = []
+
+        def handler(request):
+            seen_requests.append(request)
+            if len(seen_requests) == 1:
+                return httpx.Response(
+                    302,
+                    headers={"Location": "/next"},
+                    request=request,
+                )
+            return httpx.Response(200, text="ok", request=request)
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        factory = create_mcp_http_client_factory()
+        async with factory(
+            headers={"Authorization": "Bearer secret", "X-Api-Key": "secret2"}
+        ) as client:
+            response = await client.get("https://trusted.example/start")
+
+        assert response.status_code == 200
+        assert len(seen_requests) == 2
+        assert seen_requests[1].headers["Authorization"] == "Bearer secret"
+        assert seen_requests[1].headers["X-Api-Key"] == "secret2"
 
 
 class TestToolParameter:

@@ -11,8 +11,6 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, TextIO, Tuple, Type, Union
-from urllib.parse import urlparse
-
 import httpx
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
@@ -78,6 +76,42 @@ def _extract_root_error_message(exc: Exception) -> str:
     return str(current)
 
 
+class MCPRedirectError(httpx.HTTPError):
+    """Raised when an MCP endpoint redirects to a different origin."""
+
+
+def _url_origin(url: httpx.URL) -> tuple[str, str, int | None]:
+    """Return the effective HTTP origin for a URL.
+
+    ``httpx.URL.port`` is ``None`` for the default port, so normalize it before
+    comparing origins. This prevents a redirect from ``https://host`` to
+    ``https://host:8443`` from being treated as same-origin.
+    """
+    default_ports = {"http": 80, "https": 443}
+    return url.scheme, url.host, url.port or default_ports.get(url.scheme)
+
+
+async def _reject_cross_origin_redirect(response: httpx.Response) -> None:
+    """Reject an MCP redirect before HTTPX sends the next request.
+
+    MCP headers can contain OAuth tokens or arbitrary API keys. HTTPX removes
+    ``Authorization`` on a cross-origin redirect, but preserves custom headers;
+    fail closed for the whole origin so no configured credential can reach an
+    unexpected server.
+    """
+    if not response.has_redirect_location:
+        return
+
+    target = response.request.url.join(response.headers["location"])
+    source_origin = _url_origin(response.request.url)
+    target_origin = _url_origin(target)
+    if source_origin != target_origin:
+        raise MCPRedirectError(
+            "Refusing to follow cross-origin MCP redirect: "
+            f"{source_origin!r} -> {target_origin!r}"
+        )
+
+
 # Lock per MCP server URL to serialize calls to the same server
 _server_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
@@ -94,6 +128,7 @@ def create_mcp_http_client_factory(verify_ssl: bool = True):
         kwargs: Dict[str, Any] = {
             "follow_redirects": True,
             "verify": verify_ssl,
+            "event_hooks": {"response": [_reject_cross_origin_redirect]},
         }
         if timeout is None:
             kwargs["timeout"] = httpx.Timeout(SSE_READ_TIMEOUT)
