@@ -569,7 +569,7 @@ class RemoteMCPTool(Tool):
     ) -> StructuredToolResult:
         is_remote = self.is_remote
         call_params = params
-        if user_approved:
+        if is_remote and user_approved:
             call_params = {**call_params, REMOTE_TOOL_APPROVED_PARAM: True}
         if is_remote and session_approved_prefixes:
             call_params = {
