@@ -138,6 +138,10 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
 After installation, test the service with a simple API call:
 
 ```bash
+# Fetch the API key the chart generated on install
+# (all endpoints except /healthz and /readyz require it)
+HOLMES_API_KEY=$(kubectl get secret holmesgpt-holmes-api-key -o jsonpath='{.data.apiKey}' | base64 -d)
+
 # Port forward to access the service locally
 # Note: Service name is {release-name}-holmes
 kubectl port-forward svc/holmesgpt-holmes 8080:80
@@ -148,13 +152,17 @@ kubectl port-forward svc/holmesgpt-holmes 8080:80
 # Test with a basic question using a model name from your modelList
 curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: $HOLMES_API_KEY" \
   -d '{"ask": "list pods in namespace default?", "model": "gpt-4.1"}'
 
 # Using a different model from your modelList
 curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: $HOLMES_API_KEY" \
   -d '{"ask": "list pods in namespace default?", "model": "claude-sonnet"}'
 ```
+
+The chart generates the API key automatically and reuses it across `helm upgrade`. To supply your own key set `auth.apiKey` (or `auth.existingApiKeySecret` to reference a pre-existing Secret with an `apiKey` key — required for GitOps tools like ArgoCD that render with `helm template` and would otherwise regenerate the key on every sync).
 
 > **Note**: Responses may take some time when HolmesGPT needs to gather large amounts of data to answer your question. Streaming APIs are coming soon to stream results.
 

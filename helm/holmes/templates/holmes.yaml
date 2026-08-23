@@ -40,6 +40,8 @@ spec:
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills | toYaml | sha256sum }}
+        # rolls all API-key consumers together when the auth configuration changes
+        checksum/holmes-api-key: {{ include "holmes.apiKeyChecksum" . }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
@@ -147,6 +149,18 @@ spec:
           timeoutSeconds: 3
           failureThreshold: 3
         env:
+          {{- if eq (include "holmes.authEnabled" .) "true" }}
+          - name: HOLMES_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "holmes.apiKeySecretName" . }}
+                key: apiKey
+          {{- else }}
+          # auth.enabled=false: the server refuses to start unauthenticated on a
+          # non-loopback address unless this explicit opt-out is set.
+          - name: HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED
+            value: "true"
+          {{- end }}
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
           - name: ENABLE_JSON_LOGS_FORMAT

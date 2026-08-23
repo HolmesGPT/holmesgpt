@@ -44,6 +44,7 @@ from holmes.common.env_vars import (
     HOLMES_SSL_CERTFILE,
     HOLMES_SSL_KEYFILE,
     HOLMES_SSL_KEYFILE_PASSWORD,
+    HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED,
     LOG_PERFORMANCE,
     MCP_RETRY_BACKOFF_SCHEDULE,
     SENTRY_DSN,
@@ -75,7 +76,7 @@ from holmes.utils.holmes_status import (
     update_holmes_status_in_db,
 )
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
+from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key, validate_auth_config
 from holmes.utils.log import (
     EndpointFilter,
     JSON_LOG_DATEFMT,
@@ -948,6 +949,18 @@ def build_ssl_kwargs() -> dict:
 
 def main():
     """Holmes AI Server entry point"""
+    # Fail closed (CWE-306): serving privileged endpoints beyond loopback
+    # requires an API key or an explicit unsafe opt-out.
+    try:
+        validate_auth_config(
+            api_key=HOLMES_API_KEY,
+            host=HOLMES_HOST,
+            unsafe_allow_unauthenticated=HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED,
+        )
+    except ValueError as e:
+        logging.error(str(e))
+        sys.exit(1)
+
     # Resolve TLS config up front so a misconfiguration fails fast, before the
     # (potentially slow) pre-start sync below.
     ssl_kwargs = build_ssl_kwargs()

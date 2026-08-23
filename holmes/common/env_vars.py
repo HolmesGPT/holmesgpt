@@ -31,6 +31,13 @@ ENABLED_BY_DEFAULT_TOOLSETS = os.environ.get(
 )
 HOLMES_HOST = os.environ.get("HOLMES_HOST", "0.0.0.0")
 HOLMES_PORT = int(os.environ.get("HOLMES_PORT", 5050))
+# Escape hatch for the fail-closed server default: serving on a non-loopback
+# address without HOLMES_API_KEY exposes privileged, tool-executing endpoints
+# to anyone who can reach the socket, so the server refuses to start unless
+# this is explicitly set to true.
+HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED = load_bool(
+    "HOLMES_UNSAFE_ALLOW_UNAUTHENTICATED", False
+)
 # TLS: when both certfile and keyfile are set, the API server serves HTTPS instead
 # of HTTP. HOLMES_SSL_CA_CERTS additionally enables mTLS (client-cert verification).
 HOLMES_SSL_CERTFILE = os.environ.get("HOLMES_SSL_CERTFILE", "")
