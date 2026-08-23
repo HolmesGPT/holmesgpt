@@ -60,6 +60,7 @@ therefore applies this policy:
 - **An allowlist is exhaustive.** Once `allowed_hosts` is non-empty, public
   destinations outside it are refused too, and listed destinations are exempt
   from the internal-IP block so you can deliberately target a specific endpoint.
+  That exemption applies only while `allow_all_hosts` is off (see below).
 - **Public destinations stay reachable with no configuration**, so ordinary
   external connectivity checks work out of the box.
 - **Probes are rate limited** to `max_probes` per `probe_window_seconds` so a
@@ -74,7 +75,12 @@ therefore applies this policy:
   also be set with the `HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS` environment
   variable, so no config change is needed. Cloud-metadata, loopback and
   link-local stay blocked, and `block_private_ips: true` still overrides it. If
-  `allowed_hosts` is also set, `allow_all_hosts` wins (and says so in the log).
+  `allowed_hosts` is also set, `allow_all_hosts` wins (and says so in the log):
+  the entries are ignored **entirely** — they neither restrict destinations nor
+  exempt one from the metadata/loopback block, so an entry like
+  `169.254.0.0/16` cannot reopen the metadata range through this flag. To
+  deliberately target a protected address, leave `allow_all_hosts` off and name
+  it in `allowed_hosts`.
 - `block_private_ips: true` refuses private destinations outright, even
   allowlisted ones, and independently of `block_internal_ips`.
 - Set `block_internal_ips: false` only in trusted, isolated environments: it

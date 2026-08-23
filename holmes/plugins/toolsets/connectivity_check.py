@@ -200,7 +200,13 @@ class TcpCheckTool(Tool):
         # the private-range requirement below and, as documented, exempts the
         # destination from the internal-IP block.
         allowlist = config.allowed_hosts
-        allowlisted = _destination_allowed(host, resolved_ips, allowlist)
+        # allow_all_hosts overrides the allowlist *entirely*: while it is on,
+        # entries neither restrict nor exempt. Letting them keep their exemption
+        # would mean an entry like '169.254.0.0/16' still opened the metadata
+        # range, breaking the guarantee that allow_all_hosts never unblocks it.
+        allowlisted = not config.allow_all_hosts and _destination_allowed(
+            host, resolved_ips, allowlist
+        )
         # The operator has waived the allowlist requirement. This authorizes
         # private/internal destinations only — it never unblocks cloud metadata
         # or loopback, which is what block_internal_ips: false is for.
@@ -315,7 +321,9 @@ class ConnectivityCheckConfig(ToolsetConfig):
             "the model then chooses freely among your internal addresses, and "
             "tcp_check's open/refused/filtered outcomes make that a network "
             "scanner. Cloud-metadata, loopback and link-local targets stay "
-            f"blocked. Also settable via the {ALLOW_ALL_HOSTS_ENV_VAR} "
+            "blocked. Any allowed_hosts entries are ignored entirely while "
+            "this is on — they neither restrict nor exempt. Also settable via "
+            f"the {ALLOW_ALL_HOSTS_ENV_VAR} "
             "environment variable, so no config change is needed. A warning is "
             "logged at startup whenever it is on."
         ),
@@ -413,9 +421,10 @@ class ConnectivityCheckToolset(Toolset):
             if self.connectivity_config.allowed_hosts:
                 logging.warning(
                     "%s: allowed_hosts is configured but allow_all_hosts "
-                    "overrides it — every destination is permitted, not just "
-                    "the listed ones. Turn off allow_all_hosts to enforce the "
-                    "allowlist.",
+                    "overrides it — the entries are ignored entirely. They no "
+                    "longer restrict destinations, and they no longer exempt "
+                    "one from the cloud-metadata/loopback block either. Turn "
+                    "off allow_all_hosts to enforce the allowlist.",
                     self.name,
                 )
         return True, ""

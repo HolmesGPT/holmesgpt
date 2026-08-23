@@ -374,6 +374,47 @@ def test_allow_all_hosts_does_not_beat_block_private_ips(monkeypatch):
     assert probes == []
 
 
+@pytest.mark.parametrize(
+    "entry,host",
+    [
+        ("169.254.0.0/16", "169.254.169.254"),
+        ("169.254.169.254", "169.254.169.254"),
+        ("127.0.0.0/8", "127.0.0.1"),
+        ("::1", "::1"),
+        ("fe80::/10", "fe80::1"),
+    ],
+)
+def test_allow_all_hosts_ignores_an_allowlist_exemption_for_protected_ranges(
+    monkeypatch, entry, host
+):
+    """An allowlist entry normally exempts its destination from the
+    metadata/loopback block. That exemption must not survive allow_all_hosts —
+    otherwise a '169.254.0.0/16' entry quietly reopens the metadata endpoint,
+    which is exactly what allow_all_hosts promises never to do."""
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool({"allow_all_hosts": True, "allowed_hosts": [entry]})
+    result = tool.invoke(
+        {"host": host, "port": 80, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is False
+    assert "Refusing to connect" in result.data["error"]
+    assert probes == []
+
+
+def test_allowlist_exemption_still_works_without_allow_all_hosts(monkeypatch):
+    """The counterpart: with allow_all_hosts off, deliberately naming a
+    protected address still works — that's the documented way to target one."""
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool({"allowed_hosts": ["169.254.169.254"]})
+    result = tool.invoke(
+        {"host": "169.254.169.254", "port": 80, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is True
+    assert probes == [("169.254.169.254", 80, 0.1)]
+
+
 def test_allow_all_hosts_overrides_a_configured_allowlist(monkeypatch):
     """Setting both is contradictory; allow_all_hosts wins (and is warned about
     at startup) rather than the allowlist silently half-applying."""
