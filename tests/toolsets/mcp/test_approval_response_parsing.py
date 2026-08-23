@@ -208,6 +208,47 @@ async def test_invoke_forwards_user_approved_as_reserved_arg():
         assert REMOTE_TOOL_APPROVED_PARAM not in session.call_tool.call_args.args[1]
 
 
+@pytest.mark.asyncio
+async def test_invoke_never_sends_reserved_arg_to_local_mcp_server():
+    """Only relay pops the reserved approval arg. A local (non-remote) MCP
+    server gets the call verbatim, so an approved re-invocation must NOT
+    inject it — servers with strict signatures (e.g. kubernetes-remediation's
+    run_kubectl_command) reject unexpected keyword arguments."""
+    from holmes.plugins.toolsets.mcp.toolset_mcp import REMOTE_TOOL_APPROVED_PARAM
+
+    tool = RemoteMCPTool(
+        name="run_kubectl_command",
+        mcp_tool_name="run_kubectl_command",
+        description="Gated kubectl",
+        parameters={},
+        toolset=MagicMock(spec=RemoteMCPToolset),
+        is_remote=False,
+    )
+
+    ok = {"status": "success", "data": "ok"}
+    block = MagicMock(type="text", text=json.dumps(ok))
+    result_obj = MagicMock(content=[block], isError=False)
+
+    session = AsyncMock()
+    session.call_tool = AsyncMock(return_value=result_obj)
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+
+    with patch(
+        "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
+    ) as get_session:
+        get_session.return_value = session
+
+        await tool._invoke_async(
+            params={"args": ["scale", "deploy/x", "--replicas=2"]},
+            request_context=None,
+            user_approved=True,
+        )
+        sent_args = session.call_tool.call_args.args[1]
+        assert REMOTE_TOOL_APPROVED_PARAM not in sent_args
+        assert sent_args == {"args": ["scale", "deploy/x", "--replicas=2"]}
+
+
 def test_remote_one_liner_names_target_cluster():
     """The approval description surfaced to the UI must name the target cluster
     for remote tools (mirrors the Slack prompt), and must hide the routing/
