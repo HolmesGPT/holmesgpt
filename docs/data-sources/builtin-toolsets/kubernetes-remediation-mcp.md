@@ -19,7 +19,7 @@ It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md)
 |------|----------|----------|--------------|
 | `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
 | `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
-| `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. Probe targets are restricted to in-cluster destinations; cloud metadata is always refused ([details](#diagnostic-pod-target-policy)). |
+| `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. By default probe targets are restricted to in-cluster destinations, and cloud metadata is refused for as long as the target policy is enabled ([details](#diagnostic-pod-target-policy)). |
 | `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
 | `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
 
@@ -247,7 +247,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
 | **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
 | **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
-| **Diagnostic target policy** | `run_preapproved_diagnostic_image` probes are restricted to in-cluster targets, and cloud-metadata/link-local addresses are always refused — see [Diagnostic-pod target policy](#diagnostic-pod-target-policy) |
+| **Diagnostic target policy** | With the defaults, `run_preapproved_diagnostic_image` probes are restricted to in-cluster targets; cloud-metadata/link-local addresses are refused and cannot be re-enabled by config while the policy is on. `diagnosticAllowExternalTargets: true` permits external targets, and `diagnosticTargetPolicyEnabled: false` removes the whole layer — see [Diagnostic-pod target policy](#diagnostic-pod-target-policy) |
 | **Verb allowlist** | `run_kubectl_command` only accepts an allowlisted set of verbs |
 | **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token`, `--as` are always blocked |
 | **Shell injection protection** | Shell metacharacters are rejected; `shell=False` |
@@ -296,12 +296,72 @@ and pins `hostNetwork: false` so the policy applies.
 
 !!! important "The NetworkPolicy is not installed by this chart"
 
-    Apply
-    [`diagnostic-pod-networkpolicy.yaml`](https://github.com/robusta-dev/holmes-mcp-integrations/blob/master/servers/kubernetes-remediation/diagnostic-pod-networkpolicy.yaml)
-    to **every namespace** Holmes may run diagnostics in — NetworkPolicy is
-    namespaced, and the namespace comes from the caller. Namespaces without it
-    fall back to target validation alone. It is also inert on a CNI that does not
-    enforce NetworkPolicy.
+    Apply it yourself to **every namespace** Holmes may run diagnostics in —
+    NetworkPolicy is namespaced, and the namespace comes from the caller.
+    Namespaces without it fall back to target validation alone. It is also inert
+    on a CNI that does not enforce NetworkPolicy.
+
+    Note this is a *different* policy from the ingress-only one the chart already
+    renders for the MCP server itself: that one selects the server pod
+    (`app: kubernetes-remediation-mcp`) and restricts inbound traffic, whereas
+    this one selects the short-lived diagnostic pods and restricts their egress.
+
+Save this as `diagnostic-pod-networkpolicy.yaml` and apply it with
+`kubectl apply -f diagnostic-pod-networkpolicy.yaml -n <namespace>`. It ships
+alongside the MCP server, at
+[`servers/kubernetes-remediation/`](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/kubernetes-remediation)
+in `holmes-mcp-integrations`, which is the canonical copy if the two ever drift.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubernetes-remediation-diagnostic-pod-egress
+  labels:
+    app: kubernetes-remediation-mcp
+spec:
+  # The MCP server stamps this label on every diagnostic pod it creates, and
+  # pins hostNetwork:false (a host-networked pod is exempt from NetworkPolicy).
+  podSelector:
+    matchLabels:
+      robusta.dev/diagnostic-pod: "true"
+  policyTypes:
+    - Egress
+  egress:
+    # Cluster DNS, so service names still resolve. Port-only rule: kube-dns sits
+    # in kube-system, which a namespaceSelector cannot match without a label that
+    # is not guaranteed to be present.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # In-cluster (RFC1918) destinations only. An egress policy denies whatever it
+    # does not allow, so cloud metadata (169.254.0.0/16), loopback (127.0.0.0/8),
+    # 0.0.0.0/8, 100.100.100.200 (Alibaba), 192.0.0.192 (Oracle) and the public
+    # internet are all denied by omission — none of them fall inside these blocks.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+```
+
+If you set `diagnosticAllowExternalTargets: true`, widen the `ipBlock` to
+`0.0.0.0/0` but add the denied ranges back as `except` entries — this policy
+should never be looser than the server-side checks it backs up.
+
+Verify your CNI actually enforces it before relying on it:
+
+```bash
+kubectl run np-test --rm -i --restart=Never -n <namespace> \
+  --image=curlimages/curl:8.11.1 \
+  --overrides='{"metadata":{"labels":{"robusta.dev/diagnostic-pod":"true"}}}' \
+  -- curl -s -m 5 http://169.254.169.254/    # must time out, not answer
+```
 
 ### If a legitimate probe is refused
 

@@ -112,6 +112,47 @@ def test_deployment_configmap_keys_all_reach_the_container():
     )
 
 
+def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
+    """The docs page carries the diagnostic-pod egress NetworkPolicy inline, because
+    the chart does not install it (NetworkPolicy is namespaced and the namespace
+    comes from the caller). Operators copy-paste it, so assert it stays parseable
+    and actually restrictive: egress-only, selecting the label the server stamps,
+    and never widened to 0.0.0.0/0 without the denied ranges carved back out."""
+    import re
+
+    doc = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "data-sources"
+        / "builtin-toolsets"
+        / "kubernetes-remediation-mcp.md"
+    ).read_text()
+
+    blocks = [
+        b
+        for b in re.findall(r"```yaml\n(.*?)```", doc, re.S)
+        if "kubernetes-remediation-diagnostic-pod-egress" in b
+    ]
+    assert len(blocks) == 1, f"expected exactly one inlined policy, found {len(blocks)}"
+
+    policy = yaml.safe_load(blocks[0])
+    assert policy["kind"] == "NetworkPolicy"
+    assert policy["spec"]["policyTypes"] == ["Egress"]
+    assert policy["spec"]["podSelector"]["matchLabels"] == {
+        "robusta.dev/diagnostic-pod": "true"
+    }
+
+    cidrs = [
+        block["ipBlock"]["cidr"]
+        for rule in policy["spec"]["egress"]
+        for block in rule.get("to", [])
+        if "ipBlock" in block
+    ]
+    assert cidrs, "egress policy allows no destinations at all"
+    # RFC1918 only. 169.254.0.0/16, 127.0.0.0/8 etc. must be denied by omission.
+    assert set(cidrs) == {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, cidrs
+
+
 def test_networkpolicy_is_ingress_only_and_scoped():
     text = (TEMPLATE_DIR / "networkpolicy.yaml").read_text()
     assert "Ingress" in text

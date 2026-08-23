@@ -240,9 +240,23 @@ Two layers now constrain the target.
 - **Always denied:** explicit redirect-following (`curl -L`, bundled `-fsSL`), which
   hands target selection to the responding server.
 
-**Layer 2 — an egress NetworkPolicy** on the diagnostic pod
-(`diagnostic-pod-networkpolicy.yaml` in the server repo, selecting the label from §6.3),
+**Layer 2 — an egress NetworkPolicy** on the diagnostic pod:
+`diagnostic-pod-networkpolicy.yaml`, added by holmes-mcp-integrations#39 next to the
+server manifests, selecting the `robusta.dev/diagnostic-pod` label from §6.3 and
 allowing cluster DNS + RFC1918 only.
+
+This is **not** the same object as the pre-existing `networkpolicy.yaml` in that
+directory (also rendered by the chart as
+`templates/mcp-servers/kubernetes-remediation/networkpolicy.yaml`). That one is
+`policyTypes: [Ingress]` and selects the *server* pod
+(`app: kubernetes-remediation-mcp`) to restrict who may call the MCP server; it says
+nothing about diagnostic-pod egress and cannot substitute for this layer. Two policies,
+two different pod selectors, opposite directions.
+
+Neither is installed by the Helm chart for diagnostic pods — NetworkPolicy is
+namespaced and `run_preapproved_diagnostic_image` takes the namespace from the caller,
+so the operator applies the egress policy per namespace. The docs page carries the
+manifest inline for that reason.
 
 **Neither layer is sufficient alone.** Layer 1 cannot see a DNS name that only resolves
 to a metadata address *inside* the pod (wildcard DNS such as `169.254.169.254.nip.io`),
