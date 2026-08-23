@@ -402,6 +402,31 @@ def test_allow_all_hosts_ignores_an_allowlist_exemption_for_protected_ranges(
     assert probes == []
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"block_internal_ips": False},
+        {"block_internal_ips": False, "allow_all_hosts": True},
+    ],
+)
+def test_allow_all_hosts_neither_causes_nor_countermands_block_internal_ips(
+    monkeypatch, config
+):
+    """`block_internal_ips: false` is the documented 'no range checks' switch and
+    is what makes metadata reachable — with or without allow_all_hosts, as these
+    two cases show. allow_all_hosts is therefore not the cause, and it must not
+    silently re-impose a block the operator explicitly turned off: a permissive
+    flag that quietly narrows another setting is its own kind of surprise."""
+    probes = _stub_probe(monkeypatch)
+    tool = _build_tool(config)
+    result = tool.invoke(
+        {"host": "169.254.169.254", "port": 80, "timeout": 0.1},
+        create_mock_tool_invoke_context(),
+    )
+    assert result.data["ok"] is True, config
+    assert probes == [("169.254.169.254", 80, 0.1)], config
+
+
 def test_allowlist_exemption_still_works_without_allow_all_hosts(monkeypatch):
     """The counterpart: with allow_all_hosts off, deliberately naming a
     protected address still works — that's the documented way to target one."""

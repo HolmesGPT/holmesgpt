@@ -73,8 +73,11 @@ therefore applies this policy:
   that don't want to maintain one: private/internal destinations become
   probeable again, at your own risk, and a warning is logged at startup. It can
   also be set with the `HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS` environment
-  variable, so no config change is needed. Cloud-metadata, loopback and
-  link-local stay blocked, and `block_private_ips: true` still overrides it. If
+  variable, so no config change is needed. It never unblocks cloud-metadata,
+  loopback or link-local — only `block_internal_ips: false` does that, and it
+  does so independently of this setting, so a deployment that sets both gets
+  the unrestricted behaviour of `block_internal_ips: false`.
+  `block_private_ips: true` still overrides it. If
   `allowed_hosts` is also set, `allow_all_hosts` wins (and says so in the log):
   the entries are ignored **entirely** — they neither restrict destinations nor
   exempt one from the metadata/loopback block, so an entry like

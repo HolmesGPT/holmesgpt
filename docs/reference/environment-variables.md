@@ -356,7 +356,11 @@ outcomes make that a usable network scanner if an investigation reads
 attacker-controlled text. A warning is logged at startup while it is on.
 
 Cloud-metadata (`169.254.169.254`), loopback and link-local targets remain
-blocked, and `block_private_ips: true` still overrides this. While it is on, any
+blocked — this variable never unblocks them. The one setting that does is
+`block_internal_ips: false`, which removes those checks independently of this
+variable; a deployment that sets both gets the unrestricted behaviour of
+`block_internal_ips: false`. `block_private_ips: true` still overrides this.
+While it is on, any
 configured `allowed_hosts` entries are ignored entirely — they neither restrict
 destinations nor exempt one from the metadata/loopback block. Equivalent to
 setting `allow_all_hosts: true` in the toolset config.
