@@ -31,6 +31,10 @@ class Skill(BaseModel):
     content: str
     source: SkillSource
     source_path: Optional[str] = None
+    # Human-readable title for skills whose name is an opaque id (remote
+    # skills are named by their HolmesRunbooks UUID); None when the name is
+    # already readable (local skills).
+    title: Optional[str] = None
 
     def to_prompt_string(self) -> str:
         return f"{self.name} | description: {self.description}"
@@ -83,9 +87,13 @@ def parse_skill_file(path: Path, source: SkillSource = SkillSource.USER) -> Skil
             frontmatter_str = parts[1]
             content = parts[2].strip()
         else:
-            raise ValueError(f"Invalid SKILL.md format in {path}: missing closing '---'")
+            raise ValueError(
+                f"Invalid SKILL.md format in {path}: missing closing '---'"
+            )
     else:
-        raise ValueError(f"SKILL.md file {path} must start with '---' (YAML frontmatter)")
+        raise ValueError(
+            f"SKILL.md file {path} must start with '---' (YAML frontmatter)"
+        )
 
     frontmatter = yaml.safe_load(frontmatter_str) or {}
 
@@ -94,7 +102,9 @@ def parse_skill_file(path: Path, source: SkillSource = SkillSource.USER) -> Skil
 
     description = frontmatter.get("description")
     if not description:
-        raise ValueError(f"SKILL.md file {path} is missing required 'description' field in frontmatter")
+        raise ValueError(
+            f"SKILL.md file {path} is missing required 'description' field in frontmatter"
+        )
 
     return Skill(
         name=name,
@@ -157,6 +167,7 @@ def map_robusta_instruction_to_skill(
         content=instr.instruction or "",
         source=SkillSource.REMOTE,
         source_path=instr.id,
+        title=instr.title,
     )
 
 
@@ -200,7 +211,9 @@ def load_skill_catalog(
                 except Exception as e:
                     logging.error(f"Failed to parse skill file {path}: {e}")
             else:
-                logging.warning(f"Skill path is not a directory or SKILL.md file: {path}")
+                logging.warning(
+                    f"Skill path is not a directory or SKILL.md file: {path}"
+                )
 
     # 3. Load remote skills from Supabase (overrides all)
     if dal:

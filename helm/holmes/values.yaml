@@ -735,6 +735,25 @@ mcpAddons:
       preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
       # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
       diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+
+      # ---- Diagnostic-pod target policy (server >= 1.2.0) ----
+      # run_preapproved_diagnostic_image is auto-approved and its images are
+      # network-probing tools, so the probe TARGET is the security boundary.
+      # Without this policy, prompt-injected agent output could point curl at the
+      # cloud metadata service and read instance credentials back, or POST cluster
+      # data to an external collector, with no human in the loop.
+      #
+      # Master switch. false disables ALL target checks, including the
+      # cloud-metadata/link-local ranges, and restores that behaviour. Prefer the
+      # two narrower knobs below; only disable if neither fits your environment.
+      diagnosticTargetPolicyEnabled: true
+      # Allow probes to reach hosts outside the cluster. false keeps probes
+      # in-cluster so an auto-approved probe cannot ship data to an external host.
+      # Cloud-metadata and link-local stay denied either way.
+      diagnosticAllowExternalTargets: false
+      # DNS suffixes counted as cluster-internal. Set this if you run a custom
+      # cluster domain (e.g. ".svc,.svc.mycorp.internal").
+      diagnosticInternalDnsSuffixes: ".svc,.svc.cluster.local,.cluster.local"
       # read_file_from_container path policy (allow roots minus secret/token mounts)
       fileReadAllowedPaths: "/"
       fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
