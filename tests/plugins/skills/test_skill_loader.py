@@ -1,20 +1,16 @@
 import os
 from pathlib import Path
 
+from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.plugins.skills.skill_loader import (
     SkillSource,
     load_skill_catalog,
+    map_robusta_instruction_to_skill,
     scan_skill_directory,
 )
 
 
-SKILL_BODY = (
-    "---\n"
-    "description: Test skill {name}\n"
-    "---\n"
-    "## Goal\n"
-    "Test\n"
-)
+SKILL_BODY = "---\n" "description: Test skill {name}\n" "---\n" "## Goal\n" "Test\n"
 
 
 def _write_skill(dir_path: Path, name: str) -> None:
@@ -135,3 +131,36 @@ def test_load_skill_catalog_later_path_overrides_earlier(tmp_path: Path):
     assert len(shared) == 1
     assert shared[0].source_path is not None
     assert str(path_b) in shared[0].source_path
+
+
+def test_map_robusta_instruction_to_skill_carries_title() -> None:
+    """Remote skills keep the UUID as their name but carry the human-readable
+    title so chat surfaces can display it (see SkillsFetcher._format_skill_result)."""
+    instr = RobustaSkillInstruction(
+        id="3e0f2f6a-9f0e-4d5f-8f7a-2b1c9d8e7f6a",
+        title="Erlang Debugging",
+        symptom="BEAM VM crashes",
+        instruction="## Steps\n1. Check BEAM memory",
+    )
+
+    skill = map_robusta_instruction_to_skill(instr)
+
+    assert skill.title == "Erlang Debugging"
+    assert skill.name == instr.id
+    assert skill.source == SkillSource.REMOTE
+    assert skill.description == "Erlang Debugging — BEAM VM crashes"
+    assert skill.content == instr.instruction
+
+
+def test_map_robusta_instruction_without_symptom_keeps_title() -> None:
+    instr = RobustaSkillInstruction(
+        id="3e0f2f6a-9f0e-4d5f-8f7a-2b1c9d8e7f6a",
+        title="Erlang Debugging",
+        symptom="",
+        instruction="## Steps",
+    )
+
+    skill = map_robusta_instruction_to_skill(instr)
+
+    assert skill.title == "Erlang Debugging"
+    assert skill.description == "Erlang Debugging"

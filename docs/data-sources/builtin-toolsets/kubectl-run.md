@@ -54,6 +54,11 @@ For security, you must explicitly whitelist:
 
 If no images are configured, all kubectl run commands are blocked.
 
+Additional safeguards:
+
+- **Patterns are fully anchored.** A command must match a pattern in its entirety (`re.fullmatch`), so a matching prefix cannot be followed by extra content. Write patterns to cover the whole command — e.g. `nslookup .*`, not just `nslookup`.
+- **No shell.** Commands run directly as an argument vector (`shell=False`), never through a host shell, so a loosely written pattern (e.g. one ending in `.*`) cannot be abused to run commands on the Holmes host. As a defense-in-depth check, command-combination and substitution tokens (`;`, `|`, `` ` ``, `<`, `>`, newlines, `$(`, `${`, `&&`) are also rejected outright. Ordinary argument characters — including a lone `&` in a URL query string such as `?a=1&b=2` — are unaffected.
+
 ## Tools
 
 ### kubectl_run_image

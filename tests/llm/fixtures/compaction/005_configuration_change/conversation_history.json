@@ -286,7 +286,7 @@
         "type": "function",
         "function": {
           "name": "run_bash_command",
-          "arguments": "{\"command\": \"kubectl get deployment auth-service -n production -o yaml | grep -i 'commit\\|version\\|image:' | head -5\"}"
+          "arguments": "{\"command\": \"kubectl get deployment auth-service -n production -o yaml | grep -i 'commit\\\\|version\\\\|image:' | head -5\"}"
         }
       }
     ]
