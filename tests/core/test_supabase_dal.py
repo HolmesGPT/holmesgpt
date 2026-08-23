@@ -628,6 +628,7 @@ class TestPersonalSkills:
             "user_id": "end-user-1",
             "runbook_id": "uuid-1",
             "subject_type": "PersonalRunbookCatalog",
+            "enabled": True,
         }
 
     def test_content_normalizes_instructions_list(self, skills_dal):
@@ -656,6 +657,28 @@ class TestPersonalSkills:
         assert result is not None
         assert result.symptom == ""
         assert result.instruction == "step one"
+
+    def test_content_read_excludes_disabled_skills(self, skills_dal):
+        """A disabled skill must not be fetchable by id.
+
+        Both catalog reads already honour `enabled`, so a disabled skill is never offered --
+        but the body stayed retrievable for anyone holding the id, which matters more now
+        that the tool description no longer constrains what ids the model may pass.
+
+        Asserted on the FILTER, not the response: the stub returns whatever row it is given
+        regardless of the query, so a missing filter is invisible in the returned data.
+        """
+        q = _stub_personal_query(skills_dal, data=[self._row()])
+
+        skills_dal.get_personal_skill_content("uuid-1", "end-user-1")
+
+        assert _eq_filters(q) == {
+            "account_id": "acct-1",
+            "user_id": "end-user-1",
+            "runbook_id": "uuid-1",
+            "subject_type": "PersonalRunbookCatalog",
+            "enabled": True,
+        }
 
     def test_content_missing_returns_none(self, skills_dal):
         _stub_personal_query(skills_dal, data=[])
@@ -827,10 +850,14 @@ class TestGlobalSkillCatalog:
         return row
 
     def _rows(self, skills_dal, rows):
-        chain = (
-            skills_dal.client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value
-        )
-        chain.execute.return_value = Mock(data=rows)
+        """Depth-agnostic stub: every builder method returns the same mock, so adding a
+        filter to the query under test does not break every test in this class."""
+        q = MagicMock()
+        for method in ("select", "eq", "neq", "in_", "order", "limit", "is_"):
+            getattr(q, method).return_value = q
+        q.execute.return_value = Mock(data=rows)
+        skills_dal.client.table.return_value = q
+        return q
 
     def test_one_malformed_row_does_not_drop_the_whole_catalog(self, skills_dal):
         self._rows(
@@ -887,3 +914,12 @@ class TestGlobalSkillCatalog:
         assert result is not None
         assert result.symptom == ""
         assert result.instruction == "step one"
+
+    def test_content_read_excludes_disabled_skills(self, skills_dal):
+        """Same hole as the personal content read, and this one did not even select
+        `enabled`. NULL counts as disabled here, matching both catalog reads."""
+        q = self._rows(skills_dal, [self._row()])
+
+        skills_dal.get_skill_content("uuid-1")
+
+        assert _eq_filters(q)["enabled"] is True

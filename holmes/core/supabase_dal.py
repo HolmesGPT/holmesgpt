@@ -637,6 +637,10 @@ class SupabaseDal:
             .eq("account_id", self.account_id)
             .eq("subject_type", "RunbookCatalog")
             .eq("runbook_id", skill_id)
+            # Both catalog reads already skip disabled skills, so one was never offered to
+            # the model -- but its body stayed fetchable by id. NULL counts as disabled,
+            # matching what both catalogs do today.
+            .eq("enabled", True)
             .execute()
         )
         if not res.data or len(res.data) != 1:
@@ -799,6 +803,8 @@ class SupabaseDal:
                 .eq("user_id", user_id)
                 .eq("runbook_id", skill_id)
                 .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)
+                # See get_skill_content: a disabled skill must not be fetchable by id.
+                .eq("enabled", True)
                 .execute()
             )
             if not res.data:
