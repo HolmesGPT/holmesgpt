@@ -36,7 +36,9 @@ holmes:
     If you'd rather not maintain an allowlist, set `allow_all_hosts: true` (or
     the `HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS` environment variable) to
     probe any internal destination at your own risk. Holmes logs a warning at
-    startup while it is on. Cloud-metadata and loopback stay blocked either way.
+    startup while it is on. It does not unblock cloud-metadata or loopback —
+    see [SSRF protection](#ssrf-protection) for how it interacts with
+    `block_internal_ips` and `block_private_ips`.
 
 ### SSRF protection
 
