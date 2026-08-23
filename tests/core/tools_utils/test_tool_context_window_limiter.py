@@ -12,6 +12,18 @@ from holmes.core.tools_utils.tool_context_window_limiter import (
 )
 
 
+def _usage(total_tokens):
+    return ContextWindowUsage(
+        total_tokens=total_tokens,
+        system_tokens=0,
+        tools_to_call_tokens=0,
+        tools_tokens=0,
+        user_tokens=0,
+        assistant_tokens=0,
+        other_tokens=0,
+    )
+
+
 class TestPreventOverlyBigToolResponse:
     @pytest.fixture
     def mock_llm(self):
@@ -117,44 +129,12 @@ class TestPreventOverlyBigToolResponse:
             ),
         )
         mock_llm.get_max_token_count_for_single_tool.return_value = 2048
-        mock_llm.count_tokens.return_value = ContextWindowUsage(
-            total_tokens=30000,
-            system_tokens=0,
-            tools_to_call_tokens=0,
-            tools_tokens=0,
-            user_tokens=0,
-            assistant_tokens=0,
-            other_tokens=0,
-        )
+        mock_llm.count_tokens.return_value = _usage(30000)
 
         spill_oversized_tool_result(error_result, mock_llm)
 
         assert error_result.result.data is None
         assert "too large to return" in error_result.result.error
-
-    def test_small_error_result_untouched(self, mock_llm):
-        """Small error results keep their error message verbatim."""
-        error_result = ToolCallResult(
-            tool_call_id="test-id-3",
-            tool_name="test_tool",
-            description="Test tool description",
-            result=StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR, error="connection refused"
-            ),
-        )
-        mock_llm.count_tokens.return_value = ContextWindowUsage(
-            total_tokens=100,
-            system_tokens=0,
-            tools_to_call_tokens=0,
-            tools_tokens=0,
-            user_tokens=0,
-            assistant_tokens=0,
-            other_tokens=0,
-        )
-
-        spill_oversized_tool_result(error_result, mock_llm)
-
-        assert error_result.result.error == "connection refused"
 
     def test_token_calculation_accuracy(self, mock_llm, success_tool_call_result):
         """Test that token calculations are accurate."""
@@ -334,6 +314,34 @@ class TestPreventOverlyBigToolResponse:
         img_files = list(tmp_path.glob("*.png"))
         assert len(img_files) == 1
         assert img_files[0].read_bytes() == pixel_bytes
+
+    def test_error_result_spills_with_short_inline_preview(self, mock_llm, tmp_path):
+        """Oversized error results keep ~500 chars inline; the file has the rest."""
+        payload = "conflict details " * 5000
+        tcr = ToolCallResult(
+            tool_call_id="call-err-1",
+            tool_name="update_tool",
+            description="desc",
+            result=StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="the record changed while you were investigating",
+                data=payload,
+            ),
+        )
+        mock_llm.get_max_token_count_for_single_tool.return_value = 2048
+        mock_llm.count_tokens.return_value = _usage(20000)
+
+        spill_oversized_tool_result(tcr, mock_llm, tool_results_dir=tmp_path)
+
+        assert tcr.result.status == StructuredToolResultStatus.ERROR
+        assert tcr.result.error is None
+        # Inline preview leads with the error text and is capped at ~500 chars
+        assert "the record changed while you were investigating" in tcr.result.data
+        assert len(tcr.result.data) < 1200
+        # The file holds the full error + payload
+        saved = next(tmp_path.iterdir()).read_text()
+        assert saved.startswith("the record changed while you were investigating")
+        assert payload in saved
 
     def test_spill_to_disk_without_images(self, mock_llm, tmp_path):
         """When result exceeds limit without images, no image references in pointer."""
