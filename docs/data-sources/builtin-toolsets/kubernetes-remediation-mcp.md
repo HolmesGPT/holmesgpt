@@ -328,10 +328,17 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # Cluster DNS, so service names still resolve. Port-only rule: kube-dns sits
-    # in kube-system, which a namespaceSelector cannot match without a label that
-    # is not guaranteed to be present.
-    - ports:
+    # Cluster DNS, so service names still resolve. Scoped with `to:` — a rule
+    # carrying only `ports` would match ALL destinations on port 53, turning DNS
+    # into an exfiltration channel out of the cluster.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
@@ -341,6 +348,8 @@ spec:
     # does not allow, so cloud metadata (169.254.0.0/16), loopback (127.0.0.0/8),
     # 0.0.0.0/8, 100.100.100.200 (Alibaba), 192.0.0.192 (Oracle) and the public
     # internet are all denied by omission — none of them fall inside these blocks.
+    # Also covers DNS sent to the kube-dns Service ClusterIP on CNIs that evaluate
+    # policy before kube-proxy's DNAT.
     - to:
         - ipBlock:
             cidr: 10.0.0.0/8
@@ -349,6 +358,12 @@ spec:
         - ipBlock:
             cidr: 192.168.0.0/16
 ```
+
+Two things to check against your cluster: `kubernetes.io/metadata.name` is set on
+every namespace automatically from Kubernetes 1.21, and CoreDNS carries
+`k8s-app: kube-dns` on both kubeadm and k3s — adjust the selector if your DNS
+provider differs. And if your **Service CIDR is outside RFC1918**, add it as an
+`ipBlock` or in-cluster resolution will break.
 
 If you set `diagnosticAllowExternalTargets: true`, widen the `ipBlock` to
 `0.0.0.0/0` but add the denied ranges back as `except` entries — this policy

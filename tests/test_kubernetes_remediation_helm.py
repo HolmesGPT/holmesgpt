@@ -6,6 +6,7 @@ the scoped ClusterRole (no cluster-admin) is rendered, the NetworkPolicy is on,
 the new config env vars are wired, and approval maps to run_kubectl_command.
 """
 
+import re
 from pathlib import Path
 
 import yaml
@@ -118,8 +119,6 @@ def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
     comes from the caller). Operators copy-paste it, so assert it stays parseable
     and actually restrictive: egress-only, selecting the label the server stamps,
     and never widened to 0.0.0.0/0 without the denied ranges carved back out."""
-    import re
-
     doc = (
         Path(__file__).resolve().parents[1]
         / "docs"
@@ -142,15 +141,44 @@ def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
         "robusta.dev/diagnostic-pod": "true"
     }
 
+    rules = policy["spec"]["egress"]
+    assert rules, "egress policy allows no destinations at all"
+
+    # EVERY rule must be scoped by `to`. A rule carrying only `ports` matches all
+    # destinations on those ports — that is how an "allow cluster DNS" rule
+    # silently becomes "allow exfiltration over port 53 to any resolver".
+    for i, rule in enumerate(rules):
+        assert rule.get("to"), (
+            f"egress rule {i} has no `to`, so it matches every destination on "
+            f"{rule.get('ports', 'all ports')}"
+        )
+
+    # Only approved peer kinds, and only approved CIDRs.
+    for i, rule in enumerate(rules):
+        for peer in rule["to"]:
+            assert set(peer) <= {"ipBlock", "namespaceSelector", "podSelector"}, (
+                f"egress rule {i} has an unexpected peer kind: {sorted(peer)}"
+            )
+
     cidrs = [
-        block["ipBlock"]["cidr"]
-        for rule in policy["spec"]["egress"]
-        for block in rule.get("to", [])
-        if "ipBlock" in block
+        peer["ipBlock"]["cidr"]
+        for rule in rules
+        for peer in rule["to"]
+        if "ipBlock" in peer
     ]
-    assert cidrs, "egress policy allows no destinations at all"
     # RFC1918 only. 169.254.0.0/16, 127.0.0.0/8 etc. must be denied by omission.
     assert set(cidrs) == {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, cidrs
+
+    # The DNS rule must be pinned to kube-dns rather than left open.
+    dns_rules = [
+        r
+        for r in rules
+        if any(p.get("port") == 53 for p in r.get("ports", []))
+    ]
+    assert len(dns_rules) == 1, "expected exactly one port-53 egress rule"
+    assert any(
+        "podSelector" in peer or "ipBlock" in peer for peer in dns_rules[0]["to"]
+    ), "the DNS rule must name its destination"
 
 
 def test_networkpolicy_is_ingress_only_and_scoped():
