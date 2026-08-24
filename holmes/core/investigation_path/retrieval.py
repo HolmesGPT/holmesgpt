@@ -36,24 +36,43 @@ class AbstainReason(str, Enum):
 
 
 class RetrievalPolicy(BaseModel):
-    """Every knob that decides whether to answer, and how confidently."""
+    """Every knob that decides whether to answer, and how confidently.
+
+    The bounds are load-bearing, not decoration. This is the surface a
+    contributor sweeps when exploring the recall/precision tradeoff, and an
+    out-of-range value does not announce itself: a similarity floor above 1.0
+    abstains on everything and a candidate cap of 0 finds nothing, both of
+    which report as a policy result rather than as the typo they are.
+    `full_support_matches=0` is the one that fails loudly, dividing by zero
+    when confidence is computed.
+    """
 
     min_symptom_similarity: float = Field(
-        default=0.35, description="Symptom overlap below this is treated as no match at all."
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="Symptom overlap below this is treated as no match at all.",
     )
     max_candidates: int = Field(
-        default=5, description="How many ranked candidates to consider before filtering by cause."
+        default=5,
+        gt=0,
+        description="How many ranked candidates to consider before filtering by cause.",
     )
     min_matches: int = Field(
         default=2,
+        ge=1,
         description="Answering on a single past incident overfits to it, so require at least this many.",
     )
     min_root_cause_agreement: float = Field(
         default=0.6,
+        ge=0.0,
+        le=1.0,
         description="Share of candidates that must agree on the root cause before answering.",
     )
     full_support_matches: int = Field(
-        default=3, description="Match count at which the support term of confidence reaches 1.0."
+        default=3,
+        gt=0,
+        description="Match count at which the support term of confidence reaches 1.0.",
     )
     signature_level: SignatureLevel = SignatureLevel.FINE
 

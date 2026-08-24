@@ -47,11 +47,22 @@ _NAME_TOKEN_RE = re.compile(r"[^a-z0-9]+")
 
 
 class SuggestionPolicy(BaseModel):
+    """What survives the filters and gets shown.
+
+    Bounded for the same reason as `RetrievalPolicy`: a ratio above 1.0 or a
+    cap of 0 silently suppresses every suggestion, which scores as perfect
+    precision and zero recall rather than as the misconfiguration it is.
+    """
+
     min_support: int = Field(
-        default=1, description="Matched incidents that must have run a check before it is suggested."
+        default=1,
+        ge=1,
+        description="Matched incidents that must have run a check before it is suggested.",
     )
     min_support_ratio: float = Field(
         default=0.6,
+        ge=0.0,
+        le=1.0,
         description=(
             "Share of matched incidents that must have run a check. A check only one "
             "incident out of three ran is that incident's particular circumstance, not "
@@ -59,10 +70,15 @@ class SuggestionPolicy(BaseModel):
         ),
     )
     min_confidence: float = Field(
-        default=0.15, description="Suggestions below this confidence are dropped rather than shown."
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Suggestions below this confidence are dropped rather than shown.",
     )
     max_suggestions: int = Field(
-        default=5, description="Cap on suggestions per report, to bound the reading cost."
+        default=5,
+        gt=0,
+        description="Cap on suggestions per report, to bound the reading cost.",
     )
     signature_level: SignatureLevel = SignatureLevel.FINE
 

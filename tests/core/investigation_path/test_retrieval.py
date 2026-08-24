@@ -1,6 +1,7 @@
 """Retrieval: symptom ranking, root-cause separation, and every abstention path."""
 
 import pytest
+from pydantic import ValidationError
 
 from holmes.core.investigation_path.retrieval import (
     AbstainReason,
@@ -142,3 +143,56 @@ class TestAnswering:
         pool = [incident("A", ["redis", "crash", "pod"]), incident("B", ["redis", "crash", "pod"])]
         strict = retrieve(["redis", "crash"], pool, RetrievalPolicy(min_symptom_similarity=0.95))
         assert strict.abstained
+
+
+class TestPolicyValidation:
+    """A bad knob has to fail where it is set, not where it is used.
+
+    These are the values a sweep produces by accident. Most do not crash; they
+    quietly turn the benchmark into a measurement of nothing, which is the
+    failure this guards against.
+    """
+
+    def test_a_zero_support_denominator_is_refused(self):
+        """It divides into the confidence score."""
+        with pytest.raises(ValidationError):
+            RetrievalPolicy(full_support_matches=0)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"full_support_matches": 0},
+            {"full_support_matches": -3},
+            {"max_candidates": 0},
+            {"max_candidates": -1},
+            {"min_matches": 0},
+            {"min_matches": -5},
+            {"min_symptom_similarity": -0.1},
+            {"min_symptom_similarity": 1.5},
+            {"min_root_cause_agreement": -2.0},
+            {"min_root_cause_agreement": 1.01},
+        ],
+    )
+    def test_out_of_range_retrieval_knobs_are_refused(self, kwargs):
+        with pytest.raises(ValidationError):
+            RetrievalPolicy(**kwargs)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"min_symptom_similarity": 0.0},
+            {"min_symptom_similarity": 1.0},
+            {"max_candidates": 1},
+            {"min_matches": 1},
+            {"min_root_cause_agreement": 0.0},
+            {"full_support_matches": 1},
+        ],
+    )
+    def test_the_edges_of_the_range_are_still_usable(self, kwargs):
+        """Bounds must not outlaw a legitimate sweep endpoint."""
+        assert RetrievalPolicy(**kwargs) is not None
+
+    def test_the_default_policy_satisfies_its_own_bounds(self):
+        assert RetrievalPolicy() == RetrievalPolicy.model_validate(
+            RetrievalPolicy().model_dump()
+        )

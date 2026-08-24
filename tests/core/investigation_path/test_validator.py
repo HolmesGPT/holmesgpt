@@ -1,6 +1,7 @@
 """Suggestions: what gets surfaced, with what provenance, and how it reads."""
 
 import pytest
+from pydantic import ValidationError
 
 from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.retrieval import RetrievalPolicy, retrieve
@@ -308,3 +309,49 @@ class TestRendering:
         )
         assert report.is_empty
         assert report.to_markdown() == ""
+
+
+class TestPolicyValidation:
+    """An out-of-range filter suppresses every suggestion in silence.
+
+    That scores as perfect precision with zero recall - a plausible-looking
+    result that is really a typo - so the bounds are enforced at construction.
+    """
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"min_support": 0},
+            {"min_support": -1},
+            {"max_suggestions": 0},
+            {"max_suggestions": -1},
+            {"min_support_ratio": -0.1},
+            {"min_support_ratio": 1.5},
+            {"min_confidence": -1.0},
+            {"min_confidence": 1.01},
+        ],
+    )
+    def test_out_of_range_suggestion_knobs_are_refused(self, kwargs):
+        with pytest.raises(ValidationError):
+            SuggestionPolicy(**kwargs)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"min_support_ratio": 0.0},
+            {"min_support_ratio": 1.0},
+            {"min_confidence": 0.0},
+            {"min_confidence": 1.0},
+            {"min_support": 1},
+            {"max_suggestions": 1},
+        ],
+    )
+    def test_the_edges_of_the_range_are_still_usable(self, kwargs):
+        assert SuggestionPolicy(**kwargs) is not None
+
+    def test_the_calibration_sweep_policy_is_still_constructible(self):
+        """`build_calibration_samples` deliberately turns every filter off; the
+        bounds must not make that unreachable."""
+        assert SuggestionPolicy(
+            min_support=1, min_support_ratio=0.0, min_confidence=0.0, max_suggestions=1000
+        ) is not None
