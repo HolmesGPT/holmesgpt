@@ -194,7 +194,18 @@ def fit_platt(
     fewer than two samples, only one class present, or no variation in the raw
     score. Claiming calibration on any of those would just restate the training
     prior while looking like a measurement.
+
+    Raises `ValueError` on a score/label length mismatch. That is a caller bug
+    rather than a property of the data, so it is not folded into the unfitted
+    cases above - returning a model would hide it.
     """
+    if len(raw_scores) != len(labels):
+        raise ValueError(
+            f"Got {len(raw_scores)} raw scores and {len(labels)} labels. "
+            "These are zipped during the fit, so a mismatch either drops samples "
+            "silently or indexes out of range in cross-validation."
+        )
+
     n = len(raw_scores)
     positives = sum(1 for label in labels if label)
     if n < 2 or positives == 0 or positives == n:

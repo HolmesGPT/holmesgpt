@@ -91,6 +91,35 @@ class TestRefusingToFit:
         assert not fit_calibration([]).fitted
 
 
+class TestMismatchedInput:
+    """Scores and labels are zipped during the fit, so a length mismatch is
+    silent corruption rather than an error. It is a caller bug, so it raises
+    instead of returning an unfitted model, which would hide it.
+    """
+
+    def test_more_scores_than_labels_raises(self):
+        """Previously an IndexError from deep inside cross-validation."""
+        with pytest.raises(ValueError, match="raw scores and"):
+            fit_platt([0.1 * i for i in range(10)], [True, False] * 3)
+
+    def test_more_labels_than_scores_raises(self):
+        """Previously returned a model claiming 7 positives out of 6 samples."""
+        with pytest.raises(ValueError, match="raw scores and"):
+            fit_platt([0.1 * i for i in range(6)], [True] * 7 + [False] * 3)
+
+    def test_the_error_names_both_lengths(self):
+        """A bare 'length mismatch' leaves the caller guessing which is wrong."""
+        with pytest.raises(ValueError, match=r"3 raw scores and 2 labels"):
+            fit_platt([0.1, 0.5, 0.9], [True, False])
+
+    def test_empty_and_empty_is_still_an_unfitted_model_not_an_error(self):
+        """Equal lengths, just no data. That is a data condition, not a bug."""
+        assert not fit_platt([], []).fitted
+
+    def test_matching_lengths_are_unaffected(self):
+        assert fit_platt(*separable_sample()).fitted
+
+
 class TestSmallSampleSafety:
     def test_a_tiny_separable_sample_does_not_claim_near_certainty(self):
         """Target smoothing exists so four examples cannot buy 99% confidence."""
