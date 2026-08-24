@@ -6,16 +6,36 @@ to fit when there is no signal, and does not quietly become over-confident on a
 small sample.
 """
 
+import ast
+import pathlib
+
 import pytest
 
 from holmes.core.investigation_path.calibration import (
-    CalibrationModel,
     build_calibration_samples,
     fit_calibration,
     fit_platt,
 )
+from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.corpus import load_corpus
 from holmes.core.investigation_path.metrics import expected_calibration_error
+
+PACKAGE_DIR = pathlib.Path(__file__).parents[3] / "holmes" / "core" / "investigation_path"
+
+
+def import_graph():
+    """Which modules in the package import which, read from the source."""
+    graph = {}
+    for path in sorted(PACKAGE_DIR.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        deps = set()
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if "investigation_path" in node.module:
+                    deps.add(node.module.rsplit(".", 1)[-1])
+        graph[path.stem] = deps
+    return graph
 
 
 def separable_sample(n=60):
@@ -89,6 +109,61 @@ class TestRefusingToFit:
 
     def test_no_samples_gives_an_unfitted_model(self):
         assert not fit_calibration([]).fitted
+
+
+class TestModuleLayout:
+    """`validator` applies a calibration model; `calibration` needs `validator`
+    to fit one. Holding both in one module made that a cycle, worked around by
+    importing inside a function - against the repo rule that imports live at
+    module scope. `calibration_model` exists to break it properly.
+    """
+
+    def test_the_package_has_no_import_cycle(self):
+        graph = import_graph()
+        colour = dict.fromkeys(graph, "white")
+        stack = []
+
+        def visit(module):
+            colour[module] = "grey"
+            stack.append(module)
+            for dep in sorted(graph.get(module, ())):
+                if dep not in graph:
+                    continue
+                if colour[dep] == "grey":
+                    return stack[stack.index(dep):] + [dep]
+                if colour[dep] == "white":
+                    found = visit(dep)
+                    if found:
+                        return found
+            colour[module] = "black"
+            stack.pop()
+            return None
+
+        for module in sorted(graph):
+            if colour[module] == "white":
+                cycle = visit(module)
+                assert cycle is None, "import cycle: " + " -> ".join(cycle)
+
+    def test_the_applied_model_depends_on_nothing_in_the_package(self):
+        """It is imported by both sides of the old cycle, so it has to stay a leaf."""
+        assert import_graph()["calibration_model"] == set()
+
+    def test_the_fitting_side_imports_the_validator_at_module_scope(self):
+        """The whole point of the split. A lazy import here would mean the cycle
+        was hidden rather than removed."""
+        assert "validator" in import_graph()["calibration"]
+
+    def test_no_module_imports_inside_a_function(self):
+        for path in sorted(PACKAGE_DIR.glob("*.py")):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for inner in ast.walk(node):
+                    if isinstance(inner, (ast.Import, ast.ImportFrom)):
+                        raise AssertionError(
+                            f"{path.name}:{inner.lineno} imports inside {node.name}()"
+                        )
 
 
 class TestMismatchedInput:

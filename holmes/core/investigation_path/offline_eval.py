@@ -20,7 +20,8 @@ import time
 from pathlib import Path
 from typing import List, Optional, Sequence, Set, Tuple
 
-from holmes.core.investigation_path.calibration import CalibrationModel, fit_calibration
+from holmes.core.investigation_path.calibration import fit_calibration
+from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.corpus import corpus_bytes_per_incident, load_corpus
 from holmes.core.investigation_path.metrics import CaseOutcome, EvalMetrics, score_cases
 from holmes.core.investigation_path.reporting import (

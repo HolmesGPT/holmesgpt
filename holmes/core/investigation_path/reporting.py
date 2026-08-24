@@ -22,7 +22,7 @@ correctness number that is measuring something else entirely.
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from holmes.core.investigation_path.calibration import CalibrationModel
+from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.metrics import CaseOutcome, EvalMetrics
 from holmes.core.tracing import SpanType, TracingFactory, get_experiment_name
 

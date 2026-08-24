@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from holmes.core.investigation_path.calibration import CalibrationModel
+from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.metrics import CaseOutcome, score_cases
 from holmes.core.investigation_path.offline_eval import main, run_offline_eval
 from holmes.core.investigation_path.reporting import (

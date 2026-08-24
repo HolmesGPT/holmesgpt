@@ -39,7 +39,7 @@ set `S`, or abstains.
 """
 
 import math
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -145,6 +145,16 @@ class EvalMetrics(BaseModel):
         return "\n".join(lines)
 
 
+def _require_same_length(confidences: Sequence[float], correct: Sequence[bool]) -> None:
+    """Both scorers zip their inputs, so a mismatch silently drops the tail."""
+    if len(confidences) != len(correct):
+        raise ValueError(
+            f"Got {len(confidences)} confidences and {len(correct)} outcomes. "
+            "These are zipped, so a mismatch would score only the shorter prefix "
+            "and report the result as if it covered everything."
+        )
+
+
 def _percentile(values: Sequence[float], fraction: float) -> float:
     """Nearest-rank percentile.
 
@@ -165,25 +175,37 @@ def expected_calibration_error(
     correct: Sequence[bool],
     bins: int = DEFAULT_CALIBRATION_BINS,
 ) -> float:
-    """Mean gap between stated confidence and observed correctness, weighted by bin size."""
+    """Mean gap between stated confidence and observed correctness, weighted by bin size.
+
+    Each bin is compared against the **mean confidence of the values in it**,
+    not the bin's midpoint. Using the midpoint discards the very quantity being
+    measured: every value in a bin collapses to the same stated confidence, so
+    the reported error is capped at half a bin width however wrong the
+    confidence actually was. Ten correct suggestions at 0.91 scored 0.05 that
+    way instead of 0.09, and ten wrong ones at 0.901 scored 0.95 instead of
+    0.901.
+    """
+    _require_same_length(confidences, correct)
     if not confidences:
         return 0.0
-    buckets: Dict[int, List[int]] = {}
+
+    buckets: Dict[int, List[Tuple[float, bool]]] = {}
     for confidence, is_correct in zip(confidences, correct):
         index = min(bins - 1, max(0, int(confidence * bins)))
-        buckets.setdefault(index, []).append(1 if is_correct else 0)
+        buckets.setdefault(index, []).append((confidence, is_correct))
 
     total = len(confidences)
     error = 0.0
-    for index, outcomes in buckets.items():
-        observed = sum(outcomes) / len(outcomes)
-        stated = (index + 0.5) / bins
+    for outcomes in buckets.values():
+        observed = sum(1 for _, is_correct in outcomes if is_correct) / len(outcomes)
+        stated = sum(confidence for confidence, _ in outcomes) / len(outcomes)
         error += (len(outcomes) / total) * abs(observed - stated)
     return error
 
 
 def brier_score(confidences: Sequence[float], correct: Sequence[bool]) -> float:
     """Mean squared error between stated confidence and the 0/1 outcome."""
+    _require_same_length(confidences, correct)
     if not confidences:
         return 0.0
     return sum(

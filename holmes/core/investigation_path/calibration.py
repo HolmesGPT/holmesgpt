@@ -2,9 +2,9 @@
 
 The raw score is a product of four terms below 1 (symptom similarity, root-cause
 agreement, match support, and per-check support). Multiplying them orders
-suggestions sensibly but drags the magnitude far below the real hit rate: on the
-first benchmark run it read about 0.32 for suggestions that turned out correct
-every single time, an expected calibration error of 0.50. A number like that is
+suggestions sensibly but drags the magnitude far below the real hit rate: it
+reads about 0.32 for suggestions that turn out correct every single time, an
+expected calibration error of 0.354 on the current corpus. A number like that is
 worse than no number, because a responder reads "32%" and discounts a check that
 is almost certainly worth running.
 
@@ -45,7 +45,10 @@ import math
 import random
 from typing import List, Optional, Sequence, Tuple
 
-from pydantic import BaseModel, Field
+from holmes.core.investigation_path.calibration_model import CalibrationModel, sigmoid
+from holmes.core.investigation_path.retrieval import RetrievalPolicy, retrieve
+from holmes.core.investigation_path.schema import IncidentRecord, SignatureLevel
+from holmes.core.investigation_path.validator import SuggestionPolicy, validate_path
 
 # Penalty strengths tried during cross-validation, on standardized inputs.
 L2_GRID = (0.01, 0.03, 0.1, 0.3, 1.0, 3.0)
@@ -54,42 +57,6 @@ DEFAULT_ITERATIONS = 3000
 DEFAULT_LEARNING_RATE = 0.5
 # Keeps log-loss finite when a fold predicts an outcome with near-certainty.
 _LOG_LOSS_EPSILON = 1e-12
-
-
-class CalibrationModel(BaseModel):
-    """A fitted logistic map from raw evidence score to probability."""
-
-    slope: float = 1.0
-    intercept: float = 0.0
-    mean: float = Field(default=0.0, description="Training mean, used to standardize the input.")
-    std: float = Field(default=1.0, description="Training standard deviation of the input.")
-    l2: float = Field(default=0.0, description="Penalty strength chosen by cross-validation.")
-    samples: int = Field(default=0, description="Leave-one-out examples the fit was built from.")
-    positives: int = Field(default=0, description="How many of those were genuinely missing checks.")
-    fitted: bool = False
-
-    def apply(self, raw_confidence: float) -> float:
-        """Map a raw score to a probability. Identity until the model is fitted."""
-        if not self.fitted:
-            return raw_confidence
-        standardized = (raw_confidence - self.mean) / self.std
-        return _sigmoid(self.slope * standardized + self.intercept)
-
-    def describe(self) -> str:
-        if not self.fitted:
-            return "uncalibrated (raw evidence score passed through unchanged)"
-        return (
-            f"platt(slope={self.slope:.2f}, intercept={self.intercept:.2f}, l2={self.l2:g}) "
-            f"fitted on {self.samples} leave-one-out samples, {self.positives} positive"
-        )
-
-
-def _sigmoid(x: float) -> float:
-    if x >= 0:
-        return 1.0 / (1.0 + math.exp(-x))
-    # Rearranged for negative inputs so exp() cannot overflow.
-    exp_x = math.exp(x)
-    return exp_x / (1.0 + exp_x)
 
 
 def _descend(
@@ -106,7 +73,7 @@ def _descend(
         slope_gradient = 0.0
         intercept_gradient = 0.0
         for value, target in zip(standardized, targets):
-            error = _sigmoid(slope * value + intercept) - target
+            error = sigmoid(slope * value + intercept) - target
             slope_gradient += error * value
             intercept_gradient += error
         slope -= learning_rate * (slope_gradient / n + l2 * slope)
@@ -170,7 +137,7 @@ def _select_l2(
                 iterations,
                 learning_rate,
             )
-            predictions = [_sigmoid(slope * standardized[i] + intercept) for i in test]
+            predictions = [sigmoid(slope * standardized[i] + intercept) for i in test]
             losses.append(_log_loss(predictions, [labels[i] for i in test]))
         if losses:
             mean_loss = sum(losses) / len(losses)
@@ -236,9 +203,9 @@ def fit_platt(
 
 
 def build_calibration_samples(
-    pool: Sequence["IncidentRecord"],  # noqa: F821 - imported lazily below
-    retrieval_policy: Optional["RetrievalPolicy"] = None,  # noqa: F821
-    signature_level: Optional["SignatureLevel"] = None,  # noqa: F821
+    pool: Sequence[IncidentRecord],
+    retrieval_policy: Optional[RetrievalPolicy] = None,
+    signature_level: Optional[SignatureLevel] = None,
 ) -> List[Tuple[float, bool]]:
     """Generate (raw score, was-correct) pairs by leave-one-out over the pool.
 
@@ -251,10 +218,6 @@ def build_calibration_samples(
     is precisely what should learn how much a weakly supported check is worth -
     so it needs to see the low-scoring, usually-wrong examples too.
     """
-    from holmes.core.investigation_path.retrieval import RetrievalPolicy, retrieve
-    from holmes.core.investigation_path.schema import SignatureLevel
-    from holmes.core.investigation_path.validator import SuggestionPolicy, validate_path
-
     retrieval_policy = retrieval_policy or RetrievalPolicy()
     level = signature_level or retrieval_policy.signature_level
     unfiltered = SuggestionPolicy(
@@ -297,9 +260,9 @@ def build_calibration_samples(
 
 
 def fit_calibration(
-    pool: Sequence["IncidentRecord"],  # noqa: F821
-    retrieval_policy: Optional["RetrievalPolicy"] = None,  # noqa: F821
-    signature_level: Optional["SignatureLevel"] = None,  # noqa: F821
+    pool: Sequence[IncidentRecord],
+    retrieval_policy: Optional[RetrievalPolicy] = None,
+    signature_level: Optional[SignatureLevel] = None,
 ) -> CalibrationModel:
     """Fit a calibration model from the retrieval pool alone."""
     samples = build_calibration_samples(pool, retrieval_policy, signature_level)

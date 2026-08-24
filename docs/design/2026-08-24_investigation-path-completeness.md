@@ -48,6 +48,15 @@ anyone look at the service topology at all". `FINE` adds the entity name and
 asks "did anyone look at `service/redis`". Both are scored, because they trade
 recall against precision differently.
 
+**One check has to parse to one entity however it was typed.** `deployment/x`
+and `deployment x` are the same check, and a sub-verb is not a kind:
+`kubectl rollout history deployment/x` targets `deployment/x`, not a resource
+of kind `history`. Getting this wrong does not look like a parsing bug when the
+benchmark reports it — it looks like the engineer skipped a check they actually
+ran. That failure mode is invisible in today's numbers because the corpus is
+hand-written normalized YAML that never goes through command parsing, so it is
+pinned by tests in `test_normalize.py` instead.
+
 ### What is deliberately not stored
 
 - **Tool output.** `StructuredToolResult.data` is never read.
@@ -153,9 +162,9 @@ largest source of false positives on the first benchmark run.
 
 The raw evidence score is a product of four terms below 1 (symptom similarity,
 root-cause agreement, match support, per-check support). It orders suggestions
-sensibly but its magnitude is meaningless: on the first run it read about 0.32
-for suggestions that turned out correct every single time, an expected
-calibration error of 0.50. A number like that is worse than no number, because a
+sensibly but its magnitude is meaningless: it reads about 0.32 for suggestions
+that turn out correct every single time, an expected calibration error of 0.354
+on the current corpus. A number like that is worse than no number, because a
 responder reads "32%" and discounts a check that is almost certainly worth
 running.
 
@@ -213,7 +222,11 @@ with ground-truth missing set `M` (weighted) and suggestion set `S`:
   Precision hides this: 80% over 25 suggestions is far worse than 80% over 4.
 - **Abstention rate** — with a breakdown by reason.
 - **Expected calibration error / Brier score** — whether the confidence attached
-  to a suggestion means anything. This is the check a raw top-k similarity score
+  to a suggestion means anything. ECE bins suggestions by confidence and compares
+  each bin's hit rate against the **mean stated confidence in that bin**, not the
+  bin's midpoint; the midpoint form collapses every value in a bin to one number
+  and caps the reported error at half a bin width however wrong the confidence
+  was. This is the check a raw top-k similarity score
   cannot pass on its own.
 - **Latency** — p50/p95 per validation.
 - **Storage cost** — mean serialized bytes per stored record.
@@ -314,7 +327,7 @@ weighted path recall        0.69
 suggestion precision        1.00
   ... weighted              1.00
 false positives per answer  0.00
-expected calibration error  0.050
+expected calibration error  0.010
 brier score                 0.000
 latency p50 (ms)            0.05
 latency p95 (ms)            0.12
@@ -324,7 +337,7 @@ llm tokens                  0
 
 calibration: platt(slope=2.20, intercept=0.35, l2=0.01)
              fitted on 80 leave-one-out samples, 44 positive
-  calibration error before: 0.350   after: 0.050
+  calibration error before: 0.354   after: 0.010
   brier before:             0.136   after: 0.000
 ```
 
@@ -334,7 +347,7 @@ Read honestly, on five held-out cases:
   Getting there took two fixes, both of which came out of the benchmark rather
   than out of review: the support-ratio filter, and refusing to name objects the
   investigation has never seen.
-- **Confidence now means something.** Calibration error fell from 0.350 to 0.050
+- **Confidence now means something.** Calibration error fell from 0.354 to 0.010
   out-of-sample.
 - **It is free.** Tens of microseconds, no tokens, ~1.4 KB per stored incident.
 - **It misses a third of what was skipped.** Coverage is 0.69 against 1.00

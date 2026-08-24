@@ -142,6 +142,46 @@ class TestCalibration:
         assert expected_calibration_error([], []) == 0.0
         assert brier_score([], []) == 0.0
 
+    def test_the_gap_is_measured_from_the_stated_confidence_not_the_bin_midpoint(self):
+        """0.95 and 0.25 above are bin midpoints, so they pass either way.
+
+        Binning by midpoint collapses every value in a bin to the same stated
+        confidence, which caps the reported error at half a bin width however
+        wrong the confidence was. 0.91 is in the same bin as 0.95 but is a
+        different claim.
+        """
+        assert expected_calibration_error([0.91] * 10, [True] * 10) == pytest.approx(0.09)
+
+    def test_a_near_perfect_claim_that_holds_scores_near_zero(self):
+        """Midpoint binning floored this at 0.05 - the same score as 0.95."""
+        assert expected_calibration_error([0.999] * 10, [True] * 10) == pytest.approx(0.001)
+
+    def test_a_confident_claim_that_fails_is_charged_in_full(self):
+        """Midpoint binning inflated this to 0.95."""
+        assert expected_calibration_error([0.901] * 10, [False] * 10) == pytest.approx(0.901)
+
+    def test_two_different_claims_in_one_bin_score_differently(self):
+        """The direct statement of the bug: these share bin 9."""
+        low = expected_calibration_error([0.90] * 10, [True] * 10)
+        high = expected_calibration_error([0.99] * 10, [True] * 10)
+        assert low > high
+
+    def test_a_bin_averages_the_confidences_inside_it(self):
+        """Half at 0.90 and half at 1.00, all correct: mean stated 0.95, gap 0.05."""
+        confidences = [0.90] * 5 + [1.0] * 5
+        assert expected_calibration_error(confidences, [True] * 10) == pytest.approx(0.05)
+
+    def test_perfect_confidence_that_always_holds_is_exactly_zero(self):
+        assert expected_calibration_error([1.0] * 10, [True] * 10) == 0.0
+
+    def test_mismatched_lengths_raise_rather_than_scoring_a_prefix(self):
+        with pytest.raises(ValueError, match="confidences and"):
+            expected_calibration_error([0.9, 0.8, 0.7], [True, False])
+
+    def test_brier_rejects_mismatched_lengths_too(self):
+        with pytest.raises(ValueError, match="confidences and"):
+            brier_score([0.9, 0.8, 0.7], [True, False])
+
     def test_brier_rewards_confident_correctness(self):
         assert brier_score([1.0, 1.0], [True, True]) == 0.0
         assert brier_score([0.0, 0.0], [True, True]) == 1.0

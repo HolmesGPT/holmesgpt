@@ -11,7 +11,8 @@ The pieces are:
 - `normalize`   - executed tool calls -> canonical path events (with redaction)
 - `retrieval`   - find similar resolved incidents, or abstain
 - `validator`   - turn retrieved incidents into missing-check suggestions
-- `calibration` - make the reported confidence mean what it says
+- `calibration_model` - the fitted map from raw score to probability
+- `calibration` - how that map is fitted, by leave-one-out over the pool
 - `metrics`     - how a retrieval policy is scored offline
 - `corpus`      - load the fixture corpus from disk
 - `offline_eval`- run a policy over the held-out set and score it
@@ -22,11 +23,8 @@ The pieces are:
 the package `__init__` makes the module load twice under `-m`.
 """
 
-from holmes.core.investigation_path.calibration import (
-    CalibrationModel,
-    fit_calibration,
-    fit_platt,
-)
+from holmes.core.investigation_path.calibration import fit_calibration, fit_platt
+from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.corpus import load_corpus
 from holmes.core.investigation_path.metrics import (
     CaseOutcome,

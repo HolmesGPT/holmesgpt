@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Sequence, Set
 
 from pydantic import BaseModel, Field
 
-from holmes.core.investigation_path.calibration import CalibrationModel
+from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.retrieval import RetrievalResult
 from holmes.core.investigation_path.schema import (
     SUBJECT_TOKEN,

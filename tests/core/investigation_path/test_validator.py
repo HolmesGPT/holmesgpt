@@ -2,7 +2,7 @@
 
 import pytest
 
-from holmes.core.investigation_path.calibration import CalibrationModel
+from holmes.core.investigation_path.calibration_model import CalibrationModel
 from holmes.core.investigation_path.retrieval import RetrievalPolicy, retrieve
 from holmes.core.investigation_path.schema import (
     EntityRef,

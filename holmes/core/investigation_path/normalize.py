@@ -30,8 +30,10 @@ from holmes.core.investigation_path.schema import (
 )
 
 # A shell command is reduced to at most this many words. Enough to keep
-# "kubectl get service redis", short enough to leave flags and pipelines out.
-MAX_COMMAND_WORDS = 4
+# "kubectl rollout history deployment catalog-service" - the longest shape that
+# still names a single resource - and short enough to leave flags and pipelines
+# out. Anything past the resource name is argument noise.
+MAX_COMMAND_WORDS = 5
 
 # ---------------------------------------------------------------------------
 # Parameter allow-lists. Anything outside these is never read.
@@ -115,6 +117,14 @@ _RESOURCE_ALIASES = {
 
 # Kinds that describe how components connect rather than a single workload.
 _TOPOLOGY_KINDS = frozenset({"service", "endpoints", "ingress", "networkpolicy"})
+
+# Verbs that take a sub-verb before the resource, as in
+# `kubectl rollout history deployment/catalog-service`. Without this the
+# sub-verb is read as the kind and the whole target ends up in the name.
+_COMMAND_SUB_VERBS = {
+    "rollout": frozenset({"history", "status", "undo", "restart", "pause", "resume"}),
+    "auth": frozenset({"can-i"}),
+}
 
 _PROMQL_KEYWORDS = frozenset(
     {
@@ -275,18 +285,52 @@ def _command_words(command: str) -> List[str]:
     return words
 
 
+def split_resource_target(token: str) -> Tuple[Optional[str], Optional[str]]:
+    """Split kubectl's `kind/name` shorthand into its two parts.
+
+    `deployment/catalog-service` and `deployment catalog-service` are the same
+    check, so they have to produce the same entity. Returns `(None, None)` for
+    anything that is not that shape, including a bare name and a path-like
+    argument such as `-f ./manifests/app.yaml`.
+    """
+    kind, separator, name = token.partition("/")
+    if not separator or not kind or not name or "/" in name:
+        return None, None
+    normalized_kind = normalize_resource_kind(kind)
+    if normalized_kind not in _RESOURCE_ALIASES.values():
+        return None, None
+    return normalized_kind, normalize_resource_name(name)
+
+
 def _entity_from_command_words(words: Sequence[str]) -> EntityRef:
-    """Read `<binary> <verb> [<kind>] [<name>]` out of a normalized command."""
+    """Read `<binary> <verb> [<sub-verb>] [<kind>] [<name>]` out of a command."""
     if len(words) < 3:
         return EntityRef()
-    kind = normalize_resource_kind(words[2])
-    name = normalize_resource_name(words[3]) if len(words) > 3 else None
-    # `kubectl logs my-pod` names a pod without saying so.
-    if kind not in _RESOURCE_ALIASES.values() and len(words) == 3:
-        if words[1] in ("logs", "log"):
-            return EntityRef(kind="pod", name=normalize_resource_name(words[2]))
-        return EntityRef(name=normalize_resource_name(words[2]))
-    return EntityRef(kind=kind or None, name=name or None)
+
+    verb = words[1]
+    rest = list(words[2:])
+
+    # `rollout history deploy/x`: the sub-verb sits where the kind would be, so
+    # the resource is one word further along than usual.
+    sub_verbs = _COMMAND_SUB_VERBS.get(verb)
+    if sub_verbs and rest[0] in sub_verbs:
+        rest = rest[1:]
+    if not rest:
+        return EntityRef()
+
+    kind, name = split_resource_target(rest[0])
+    if kind:
+        return EntityRef(kind=kind, name=name)
+
+    kind = normalize_resource_kind(rest[0])
+    if kind in _RESOURCE_ALIASES.values():
+        name = normalize_resource_name(rest[1]) if len(rest) > 1 else None
+        return EntityRef(kind=kind, name=name or None)
+
+    # A bare name. `kubectl logs my-pod` names a pod without saying so.
+    if verb in ("logs", "log"):
+        return EntityRef(kind="pod", name=normalize_resource_name(rest[0]))
+    return EntityRef(name=normalize_resource_name(rest[0]))
 
 
 def _metric_from_query(query: str) -> Optional[str]:
