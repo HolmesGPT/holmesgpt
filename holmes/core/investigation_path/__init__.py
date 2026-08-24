@@ -15,6 +15,7 @@ The pieces are:
 - `metrics`     - how a retrieval policy is scored offline
 - `corpus`      - load the fixture corpus from disk
 - `offline_eval`- run a policy over the held-out set and score it
+- `reporting`   - publish a run through the existing eval/Braintrust pipeline
 
 `offline_eval` is deliberately not re-exported here: it is run as a script
 (`python -m holmes.core.investigation_path.offline_eval`), and importing it from
@@ -36,6 +37,11 @@ from holmes.core.investigation_path.normalize import (
     normalize_resource_kind,
     normalize_resource_name,
     path_from_tool_calls,
+)
+from holmes.core.investigation_path.reporting import (
+    benchmark_experiment_name,
+    benchmark_markdown,
+    log_benchmark_to_braintrust,
 )
 from holmes.core.investigation_path.retrieval import (
     RetrievalPolicy,
@@ -89,9 +95,12 @@ __all__ = [
     "SuggestionPolicy",
     "TimeWindow",
     "ValidationReport",
+    "benchmark_experiment_name",
+    "benchmark_markdown",
     "fit_calibration",
     "fit_platt",
     "load_corpus",
+    "log_benchmark_to_braintrust",
     "normalize_resource_kind",
     "normalize_resource_name",
     "path_from_tool_calls",

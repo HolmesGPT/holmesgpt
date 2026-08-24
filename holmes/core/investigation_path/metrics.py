@@ -65,6 +65,26 @@ class CaseOutcome(BaseModel):
     def false_positives(self) -> List[str]:
         return [s for s in self.suggested if s not in self.missing_weights]
 
+    @property
+    def missing_weight(self) -> float:
+        """Total weight of the checks this investigation actually skipped."""
+        return sum(self.missing_weights.values())
+
+    @property
+    def recovered_weight(self) -> float:
+        """Weight of the skipped checks the policy surfaced."""
+        return sum(self.missing_weights[s] for s in self.true_positives)
+
+    @property
+    def weighted_recall(self) -> float:
+        """Share of this incident's missing weight that the policy found."""
+        return _safe_divide(self.recovered_weight, self.missing_weight)
+
+    @property
+    def precision(self) -> float:
+        """Share of this incident's suggestions that were genuinely missing."""
+        return _safe_divide(len(self.true_positives), len(self.suggested))
+
 
 class EvalMetrics(BaseModel):
     """Scores for one retrieval policy over one held-out set."""
@@ -184,8 +204,8 @@ def score_cases(cases: Sequence[CaseOutcome], bytes_per_incident: float = 0.0) -
     abstain_reasons: Dict[str, int] = {}
 
     for case in cases:
-        case_missing_weight = sum(case.missing_weights.values())
-        case_recovered = sum(case.missing_weights[s] for s in case.true_positives)
+        case_missing_weight = case.missing_weight
+        case_recovered = case.recovered_weight
 
         total_missing_weight += case_missing_weight
         recovered_weight += case_recovered

@@ -13,7 +13,9 @@ historical path teaches every future investigation to repeat it. So the first
 question is not "does it work" but "how would we know".
 
 Three artifacts answer that: a **path schema**, a **corpus**, and a **metrics
-definition** with a runnable offline eval.
+definition** with a runnable offline eval. The eval reports through the existing
+eval/Braintrust pipeline (section 5), so the policy builds a tracked history
+before anything user-facing depends on it.
 
 ## 1. Canonical path event
 
@@ -217,6 +219,45 @@ with ground-truth missing set `M` (weighted) and suggestion set `S`:
 ```bash
 poetry run python -m holmes.core.investigation_path.offline_eval
 ```
+
+## 5. Where the benchmark lives
+
+The review asked for this to be established in the existing eval/Braintrust
+pipeline rather than coupled to the product, so it is wired in at two points and
+neither of them is runtime code.
+
+**Every pull request.** The baseline below is asserted in
+`tests/core/investigation_path/test_corpus_and_offline_eval.py`, which carries no
+`llm` marker and so runs in `build-and-test.yaml` under `pytest -m "not llm"`. No
+API key, no cluster, about two seconds. A change to retrieval that moves recall
+or precision fails there.
+
+**Eval runs.** `.github/workflows/eval-regression.yaml` runs the benchmark after
+the LLM evals and appends its report to the `evals_report.md` comment, so a
+policy change is visible in the same place a model change is. The same step logs
+the run to Braintrust via `reporting.py`:
+
+```bash
+poetry run python -m holmes.core.investigation_path.offline_eval \
+  --braintrust --markdown path_benchmark.md
+```
+
+Three deliberate choices there:
+
+- **Its own experiment**, `{EXPERIMENT_ID}-investigation-path`. Sharing the
+  ask_holmes experiment would average deterministic scores into a model-scored
+  correctness number that is measuring something else.
+- **Costs are metadata, not scores.** Latency, bytes and LLM calls are logged as
+  metadata because Braintrust averages scores across rows, and a mean latency
+  reported as a score reads like a quality number.
+- **An abstention scores zero recall and is not scored for precision at all.** It
+  made no claim, so charging it a precision of 0 would be a lie about it. Each
+  row logs `answered` alongside, so the two cannot be read apart.
+
+Reporting cannot change a result and cannot fail a build: without
+`BRAINTRUST_API_KEY` the tracer is a no-op and the numbers are identical, and the
+CI step is `continue-on-error` because it reports on a policy nothing ships
+against yet.
 
 ## Current baseline
 

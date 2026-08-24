@@ -10,8 +10,12 @@ shows up as a cost regression rather than a silent one.
 Run it directly to print a report:
 
     poetry run python -m holmes.core.investigation_path.offline_eval
+
+`--markdown` and `--braintrust` publish the same run through the existing eval
+reporting pipeline; see `reporting.py`.
 """
 
+import argparse
 import time
 from pathlib import Path
 from typing import List, Optional, Sequence, Set, Tuple
@@ -19,6 +23,10 @@ from typing import List, Optional, Sequence, Set, Tuple
 from holmes.core.investigation_path.calibration import CalibrationModel, fit_calibration
 from holmes.core.investigation_path.corpus import corpus_bytes_per_incident, load_corpus
 from holmes.core.investigation_path.metrics import CaseOutcome, EvalMetrics, score_cases
+from holmes.core.investigation_path.reporting import (
+    benchmark_markdown,
+    log_benchmark_to_braintrust,
+)
 from holmes.core.investigation_path.retrieval import RetrievalPolicy, retrieve
 from holmes.core.investigation_path.schema import (
     IncidentRecord,
@@ -129,9 +137,35 @@ def render_case_detail(outcomes: Sequence[CaseOutcome]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m holmes.core.investigation_path.offline_eval",
+        description="Score the path-completeness retrieval policy offline.",
+    )
+    parser.add_argument(
+        "--markdown",
+        metavar="PATH",
+        help="Write a pull-request-ready report to PATH.",
+    )
+    parser.add_argument(
+        "--braintrust",
+        action="store_true",
+        help="Log the run to Braintrust. No-op without BRAINTRUST_API_KEY.",
+    )
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    args = build_arg_parser().parse_args(argv)
+
     raw_metrics, _, _ = run_offline_eval(calibrate=False)
     metrics, outcomes, calibration = run_offline_eval(calibrate=True)
+
+    experiment_url = (
+        log_benchmark_to_braintrust(metrics, outcomes, calibration)
+        if args.braintrust
+        else None
+    )
 
     print("Investigation path completeness - offline eval")
     print("=" * 46)
@@ -148,6 +182,18 @@ def main() -> None:
     )
     print()
     print(render_case_detail(outcomes))
+
+    if experiment_url:
+        print()
+        print(f"braintrust: {experiment_url}")
+
+    if args.markdown:
+        report = benchmark_markdown(
+            metrics, outcomes, calibration, raw_metrics, experiment_url
+        )
+        Path(args.markdown).write_text(report, encoding="utf-8")
+        print()
+        print(f"wrote {args.markdown}")
 
 
 if __name__ == "__main__":
