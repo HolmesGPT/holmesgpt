@@ -23,6 +23,26 @@ from holmes.core.investigation_path.metrics import expected_calibration_error
 PACKAGE_DIR = pathlib.Path(__file__).parents[3] / "holmes" / "core" / "investigation_path"
 
 
+TESTS_DIR = pathlib.Path(__file__).parent
+
+
+def function_scope_imports(directory):
+    """Every import sitting inside a function, reported as file:line.
+
+    Collected rather than raised on the first hit so a contributor who added
+    several sees all of them in one run.
+    """
+    offenders = []
+    for path in sorted(directory.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for inner in ast.walk(node):
+                if isinstance(inner, (ast.Import, ast.ImportFrom)):
+                    offenders.append(f"{path.name}:{inner.lineno} inside {node.name}()")
+    return sorted(set(offenders))
+
+
 def import_graph():
     """Which modules in the package import which, read from the source."""
     graph = {}
@@ -154,16 +174,13 @@ class TestModuleLayout:
         assert "validator" in import_graph()["calibration"]
 
     def test_no_module_imports_inside_a_function(self):
-        for path in sorted(PACKAGE_DIR.glob("*.py")):
-            tree = ast.parse(path.read_text())
-            for node in ast.walk(tree):
-                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    continue
-                for inner in ast.walk(node):
-                    if isinstance(inner, (ast.Import, ast.ImportFrom)):
-                        raise AssertionError(
-                            f"{path.name}:{inner.lineno} imports inside {node.name}()"
-                        )
+        assert function_scope_imports(PACKAGE_DIR) == []
+
+    def test_no_test_imports_inside_a_function(self):
+        """The rule covers the tests too, and this is where it drifted first: a
+        one-line local import is the path of least resistance when adding a
+        case, and nothing complained until review did."""
+        assert function_scope_imports(TESTS_DIR) == []
 
 
 class TestMismatchedInput:

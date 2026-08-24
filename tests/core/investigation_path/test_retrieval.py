@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from holmes.core.investigation_path.retrieval import (
     AbstainReason,
     RetrievalPolicy,
+    RetrievalResult,
     retrieve,
     symptom_similarity,
 )
@@ -80,8 +81,6 @@ class TestAbstention:
 
     def test_every_abstention_has_a_readable_reason(self):
         for reason in AbstainReason:
-            from holmes.core.investigation_path.retrieval import RetrievalResult
-
             result = RetrievalResult(abstained=True, abstain_reason=reason)
             assert result.explain_abstention()
 

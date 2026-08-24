@@ -9,12 +9,14 @@ from holmes.core.investigation_path.normalize import (
     normalize_resource_kind,
     normalize_resource_name,
     path_from_tool_calls,
+    split_resource_target,
 )
 from holmes.core.investigation_path.schema import (
     ErrorClass,
     OutcomeStatus,
     QueryIntent,
     SignatureLevel,
+    signature_of,
 )
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
@@ -160,8 +162,6 @@ class TestIntentInference:
         assert event.intent == intent
 
     def test_same_check_through_two_toolsets_shares_a_signature(self):
-        from holmes.core.investigation_path.schema import signature_of
-
         via_bash = event_from_tool_call(
             tool_call("run_bash_command", {"command": "kubectl logs api-7d9f8b6c5-x2k9p"}), 0
         )
@@ -198,8 +198,6 @@ class TestCommandTargets:
         """INC-012 stores `config_history:deployment:<subject>`. Parsing the
         command to `config_history:history:deployment/catalog-service` made the
         benchmark score an executed check as missing."""
-        from holmes.core.investigation_path.schema import signature_of
-
         event = event_from_tool_call(
             tool_call(
                 "run_bash_command",
@@ -221,16 +219,12 @@ class TestCommandTargets:
         ],
     )
     def test_the_slash_form_and_the_spaced_form_are_one_check(self, slashed, spaced):
-        from holmes.core.investigation_path.schema import signature_of
-
         a = event_from_tool_call(tool_call("run_bash_command", {"command": slashed}), 0)
         b = event_from_tool_call(tool_call("run_bash_command", {"command": spaced}), 1)
         assert signature_of(a) == signature_of(b)
 
     def test_an_unknown_kind_before_a_slash_is_not_treated_as_a_target(self):
         """Otherwise a path argument would be parsed as a resource."""
-        from holmes.core.investigation_path.normalize import split_resource_target
-
         assert split_resource_target("./manifests/app.yaml") == (None, None)
         assert split_resource_target("notakind/thing") == (None, None)
         assert split_resource_target("plainname") == (None, None)
