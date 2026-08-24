@@ -163,12 +163,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     raw_metrics, _, _ = run_offline_eval(calibrate=False)
     metrics, outcomes, calibration = run_offline_eval(calibrate=True)
 
-    experiment_url = (
-        log_benchmark_to_braintrust(metrics, outcomes, calibration)
-        if args.braintrust
-        else None
-    )
-
+    # Local output first. Uploading to a remote service before printing the
+    # numbers means an outage there loses the numbers too, and the CI step is
+    # `continue-on-error` - the build would stay green with the benchmark
+    # silently missing from the pull request comment.
     print("Investigation path completeness - offline eval")
     print("=" * 46)
     print(metrics.render())
@@ -185,6 +183,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     print()
     print(render_case_detail(outcomes))
 
+    experiment_url = (
+        log_benchmark_to_braintrust(metrics, outcomes, calibration)
+        if args.braintrust
+        else None
+    )
     if experiment_url:
         print()
         print(f"braintrust: {experiment_url}")

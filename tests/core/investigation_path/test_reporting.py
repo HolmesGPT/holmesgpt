@@ -220,6 +220,36 @@ class TestBraintrustLogging:
         ):
             assert log_benchmark_to_braintrust(score_cases([ANSWERED]), [ANSWERED]) is None
 
+    def test_an_outage_starting_the_experiment_is_survivable(self):
+        """`braintrust.init` does network I/O, so it is the likeliest thing to
+        raise - and it runs before any span exists to fail on."""
+        tracer = FakeTracer()
+        tracer.start_experiment = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("braintrust.init: connection reset")
+        )
+        with patch(
+            "holmes.core.investigation_path.reporting.TracingFactory.create_tracer",
+            return_value=tracer,
+        ):
+            assert log_benchmark_to_braintrust(score_cases([ANSWERED]), [ANSWERED]) is None
+
+    def test_an_outage_building_the_tracer_is_survivable(self):
+        with patch(
+            "holmes.core.investigation_path.reporting.TracingFactory.create_tracer",
+            side_effect=RuntimeError("no braintrust package"),
+        ):
+            assert log_benchmark_to_braintrust(score_cases([ANSWERED]), [ANSWERED]) is None
+
+    def test_a_failure_reading_back_the_url_is_survivable(self):
+        """The run is already logged by then; losing the link is not a failure."""
+        tracer = FakeTracer()
+        tracer.get_trace_url = lambda: (_ for _ in ()).throw(RuntimeError("no session"))
+        with patch(
+            "holmes.core.investigation_path.reporting.TracingFactory.create_tracer",
+            return_value=tracer,
+        ):
+            assert log_benchmark_to_braintrust(score_cases([ANSWERED]), [ANSWERED]) is None
+
 
 class TestMarkdown:
     @pytest.fixture(scope="class")
@@ -288,6 +318,24 @@ class TestCli:
         monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
         main(["--braintrust", "--markdown", str(tmp_path / "r.md")])
         assert "braintrust:" not in capsys.readouterr().out
+
+    def test_a_braintrust_outage_still_leaves_the_numbers_behind(self, capsys, tmp_path):
+        """The failure that matters is silent loss, not the traceback.
+
+        Braintrust is logged before the results are printed and before the
+        markdown is written, so an exception there takes the whole report with
+        it. In CI the step is `continue-on-error`, so the build would stay
+        green while the benchmark section vanished from the PR comment.
+        """
+        target = tmp_path / "report.md"
+        with patch(
+            "holmes.core.investigation_path.reporting.TracingFactory.create_tracer",
+            side_effect=RuntimeError("braintrust is down"),
+        ):
+            main(["--braintrust", "--markdown", str(target)])
+
+        assert "weighted path recall" in capsys.readouterr().out
+        assert "Investigation path completeness benchmark" in target.read_text()
 
     def test_reporting_cannot_change_the_result(self, tmp_path):
         """The CLI must not be a second, drifting implementation of the eval.

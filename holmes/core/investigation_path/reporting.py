@@ -120,21 +120,28 @@ def log_benchmark_to_braintrust(
     Returns None when tracing is unavailable, which is the normal case locally.
     Failures here are logged and swallowed: a reporting outage must not turn a
     passing benchmark into a red build.
-    """
-    tracer = TracingFactory.create_tracer("braintrust")
-    experiment = tracer.start_experiment(
-        experiment_name=benchmark_experiment_name(experiment_name),
-        additional_metadata={
-            "benchmark": BENCHMARK_SUFFIX,
-            "issue": "2046",
-            **summary_metadata(metrics, calibration),
-        },
-    )
-    if experiment is None:
-        logging.debug("Braintrust not configured; investigation path benchmark not logged")
-        return None
 
+    Building the tracer and starting the experiment are inside the guard, not
+    before it. `start_experiment` calls `braintrust.init`, which does network
+    I/O, so it is the likeliest step to raise and the earliest - there is no
+    span yet for the failure to surface on.
+    """
     try:
+        tracer = TracingFactory.create_tracer("braintrust")
+        experiment = tracer.start_experiment(
+            experiment_name=benchmark_experiment_name(experiment_name),
+            additional_metadata={
+                "benchmark": BENCHMARK_SUFFIX,
+                "issue": "2046",
+                **summary_metadata(metrics, calibration),
+            },
+        )
+        if experiment is None:
+            logging.debug(
+                "Braintrust not configured; investigation path benchmark not logged"
+            )
+            return None
+
         for outcome in outcomes:
             with tracer.start_trace(
                 name=f"path-completeness[{outcome.incident_id}]", span_type=SpanType.EVAL
