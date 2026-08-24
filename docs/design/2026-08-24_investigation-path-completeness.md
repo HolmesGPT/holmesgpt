@@ -268,7 +268,11 @@ Four properties are deliberate:
   they happened, so a responder can go and read them instead of trusting the
   tool.
 - **Rationale.** The human-written reason the check mattered in those incidents,
-  carried through from the corpus rather than generated.
+  carried through from the corpus rather than generated. One rationale is shown
+  against a support fraction covering several incidents, which is a known
+  rough edge: the same check can be run for different reasons. In the example
+  above INC-002 ran `endpoints/redis` to *eliminate* a selector problem, not as
+  the evidence the shown rationale describes.
 - **Support, shown as a fraction.** `3/3` is a different claim from `1/3`, and
   collapsing both into one confidence number hides that.
 - **Advisory wording, and a cap.** "not required steps — skip any that do not
@@ -331,12 +335,12 @@ expected calibration error  0.010
 brier score                 0.000
 latency p50 (ms)            0.05
 latency p95 (ms)            0.12
-bytes per incident          1451
+bytes per incident          1483
 llm calls                   0
 llm tokens                  0
 
-calibration: platt(slope=2.20, intercept=0.35, l2=0.01)
-             fitted on 80 leave-one-out samples, 44 positive
+calibration: platt(slope=2.30, intercept=-0.17, l2=0.01)
+             fitted on 93 leave-one-out samples, 44 positive
   calibration error before: 0.354   after: 0.010
   brier before:             0.136   after: 0.000
 ```
@@ -346,7 +350,10 @@ Read honestly, on five held-out cases:
 - **Nothing it says is wrong.** Precision 1.00, zero false positives per answer.
   Getting there took two fixes, both of which came out of the benchmark rather
   than out of review: the support-ratio filter, and refusing to name objects the
-  investigation has never seen.
+  investigation has never seen. A third filter, the confidence floor, turns out
+  to clear the same false positives independently — so precision 1.00 is held up
+  by more than one mechanism, and a test pins each in isolation rather than
+  letting whichever runs first take the credit.
 - **Confidence now means something.** Calibration error fell from 0.354 to 0.010
   out-of-sample.
 - **It is free.** Tens of microseconds, no tokens, ~1.4 KB per stored incident.

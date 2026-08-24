@@ -3,6 +3,8 @@
 import pytest
 
 from holmes.core.investigation_path.normalize import (
+    _KNOWN_KINDS,
+    _TOPOLOGY_KINDS,
     classify_error,
     event_from_tool_call,
     looks_like_instance_id,
@@ -222,6 +224,27 @@ class TestCommandTargets:
         a = event_from_tool_call(tool_call("run_bash_command", {"command": slashed}), 0)
         b = event_from_tool_call(tool_call("run_bash_command", {"command": spaced}), 1)
         assert signature_of(a) == signature_of(b)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "kubectl get networkpolicy/redis",
+            "kubectl get networkpolicy redis",
+            "kubectl get netpol/redis",
+            "kubectl describe networkpolicy redis",
+        ],
+    )
+    def test_a_kind_with_no_abbreviation_is_still_a_kind(self, command):
+        """`networkpolicy` had no alias, and the parser took the known-kind set
+        from the alias table, so every form above lost the name entirely."""
+        event = event_from_tool_call(tool_call("run_bash_command", {"command": command}), 0)
+        assert event.entity.kind == "networkpolicy"
+        assert event.entity.name == "redis"
+
+    def test_every_topology_kind_is_a_kind_the_parser_knows(self):
+        """The schema treats these as topology; the parser has to agree, or a
+        reference step can name a kind no command can ever match."""
+        assert _TOPOLOGY_KINDS <= _KNOWN_KINDS
 
     def test_an_unknown_kind_before_a_slash_is_not_treated_as_a_target(self):
         """Otherwise a path argument would be parsed as a resource."""

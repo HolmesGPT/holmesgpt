@@ -106,6 +106,8 @@ _RESOURCE_ALIASES = {
     "persistentvolumes": "persistentvolume",
     "pvc": "persistentvolumeclaim",
     "persistentvolumeclaims": "persistentvolumeclaim",
+    "netpol": "networkpolicy",
+    "networkpolicies": "networkpolicy",
     "rs": "replicaset",
     "replicasets": "replicaset",
     "secrets": "secret",
@@ -117,6 +119,12 @@ _RESOURCE_ALIASES = {
 
 # Kinds that describe how components connect rather than a single workload.
 _TOPOLOGY_KINDS = frozenset({"service", "endpoints", "ingress", "networkpolicy"})
+
+# Every kind the command parser will recognize. Deriving this from the alias
+# table alone silently excludes any canonical kind that happens to have no
+# abbreviation, which reads as "not a kind at all" and sends the name into the
+# entity as if it were a resource name.
+_KNOWN_KINDS = frozenset(_RESOURCE_ALIASES.values()) | _TOPOLOGY_KINDS
 
 # Verbs that take a sub-verb before the resource, as in
 # `kubectl rollout history deployment/catalog-service`. Without this the
@@ -297,7 +305,7 @@ def split_resource_target(token: str) -> Tuple[Optional[str], Optional[str]]:
     if not separator or not kind or not name or "/" in name:
         return None, None
     normalized_kind = normalize_resource_kind(kind)
-    if normalized_kind not in _RESOURCE_ALIASES.values():
+    if normalized_kind not in _KNOWN_KINDS:
         return None, None
     return normalized_kind, normalize_resource_name(name)
 
@@ -323,7 +331,7 @@ def _entity_from_command_words(words: Sequence[str]) -> EntityRef:
         return EntityRef(kind=kind, name=name)
 
     kind = normalize_resource_kind(rest[0])
-    if kind in _RESOURCE_ALIASES.values():
+    if kind in _KNOWN_KINDS:
         name = normalize_resource_name(rest[1]) if len(rest) > 1 else None
         return EntityRef(kind=kind, name=name or None)
 

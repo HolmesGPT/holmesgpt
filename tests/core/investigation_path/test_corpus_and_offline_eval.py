@@ -18,10 +18,11 @@ from holmes.core.investigation_path.corpus import (
     corpus_bytes_per_incident,
     load_corpus,
 )
+from holmes.core.investigation_path.normalize import _KNOWN_KINDS
 from holmes.core.investigation_path.offline_eval import run_offline_eval
 from holmes.core.investigation_path.retrieval import RetrievalPolicy
 from holmes.core.investigation_path.schema import SUBJECT_TOKEN, SignatureLevel
-from holmes.core.investigation_path.validator import SuggestionPolicy
+from holmes.core.investigation_path.validator import GENERIC_ENTITY_KINDS, SuggestionPolicy
 
 KNOWN_ROOT_CAUSES = {
     "dependency_unreachable",
@@ -139,6 +140,36 @@ class TestCorpus:
                 assert label not in pool_counts
             else:
                 assert pool_counts[label] >= 3, f"{record.incident_id} can never be answered"
+
+    def test_an_empty_endpoints_claim_matches_the_stated_cause(self, records):
+        """The corpus is the ground truth, so a wrong rationale is not cosmetic.
+
+        A NetworkPolicy is enforced by the CNI: it blocks traffic while the
+        Service and its endpoints stay healthy. INC-002 claimed empty endpoints
+        as the evidence for exactly that cause, contradicting its own summary,
+        which would teach retrieval that reading endpoints identifies a blocked
+        network path.
+        """
+        for record in records:
+            summary = record.root_cause.summary.lower()
+            if "networkpolicy" not in summary:
+                continue
+            for step in record.reference_path:
+                if step.entity.kind != "endpoints":
+                    continue
+                assert "empty endpoints is the direct evidence" not in step.rationale.lower(), (
+                    f"{record.incident_id}: a NetworkPolicy leaves endpoints populated"
+                )
+
+    def test_every_referenced_kind_is_one_the_command_parser_knows(self, records):
+        """A reference step naming a kind the parser cannot produce can never be
+        matched by a real tool call, so it would score as permanently skipped."""
+        for record in records:
+            for step in record.reference_path:
+                kind = step.entity.kind
+                if not kind or kind in GENERIC_ENTITY_KINDS:
+                    continue
+                assert kind in _KNOWN_KINDS, f"{record.incident_id}: unknown kind {kind!r}"
 
     def test_storage_cost_is_measured(self, records):
         assert corpus_bytes_per_incident(records) > 0
@@ -271,12 +302,41 @@ class TestPolicyTradeoffs:
         assert strict.suggestion_precision >= lenient.suggestion_precision
         assert strict.false_positive_burden <= lenient.false_positive_burden
 
-    def test_the_support_ratio_filter_is_what_removes_the_false_positives(self):
+    def test_the_support_ratio_filter_removes_false_positives_on_its_own(self):
+        """Isolated from the confidence floor, which also clears these.
+
+        Comparing against the default policy conflated the two: a weakly
+        supported check is also a low-confidence one, so whichever filter runs
+        first gets the credit, and the assertion passed without showing that
+        the support ratio does anything. Holding `min_confidence` at zero
+        leaves the support ratio as the only thing that can change the result.
+        """
+        unfiltered = dict(min_confidence=0.0, max_suggestions=20)
         without, _, _ = run_offline_eval(
-            suggestion_policy=SuggestionPolicy(min_support_ratio=0.0)
+            suggestion_policy=SuggestionPolicy(min_support_ratio=0.0, **unfiltered),
+            calibrate=False,
         )
-        with_filter, _, _ = run_offline_eval()
+        with_filter, _, _ = run_offline_eval(
+            suggestion_policy=SuggestionPolicy(min_support_ratio=0.6, **unfiltered),
+            calibrate=False,
+        )
         assert without.false_positive_burden > with_filter.false_positive_burden
+        assert with_filter.suggestion_precision > without.suggestion_precision
+
+    def test_a_false_positive_is_still_reachable(self):
+        """Precision of 1.00 has to be an achievement, not an impossibility.
+
+        If no policy setting could produce a wrong suggestion, the corpus would
+        no longer be able to measure precision at all and the headline number
+        would be vacuous.
+        """
+        loose, _, _ = run_offline_eval(
+            suggestion_policy=SuggestionPolicy(
+                min_support_ratio=0.0, min_confidence=0.0, max_suggestions=20
+            ),
+            calibrate=False,
+        )
+        assert loose.suggestion_precision < 1.0
 
     def test_raising_the_similarity_floor_raises_abstention(self):
         base, _, _ = run_offline_eval()

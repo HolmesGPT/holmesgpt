@@ -20,8 +20,8 @@ root_cause:
   label: dependency_unreachable
   summary: >-
     A NetworkPolicy rollout dropped traffic from the checkout namespace to
-    Redis. The Service resolved and Redis was healthy, but no client could
-    open a connection.
+    Redis. The Service resolved, Redis was healthy and its endpoints stayed
+    populated, but no client could open a connection.
 
 reference_path:
   - intent: logs
@@ -38,11 +38,18 @@ reference_path:
     rationale: A healthy dependency pod does not prove the Service still selects it.
   - intent: topology
     entity: {kind: endpoints, name: redis}
+    weight: 0.7
+    rationale: >-
+      Endpoints were populated, which is what ruled out a selector problem and
+      moved the investigation to the network layer. It is a necessary
+      elimination here, not the evidence that identifies the cause.
+  - intent: topology
+    entity: {kind: networkpolicy, name: redis}
     weight: 1.0
     rationale: >-
-      Empty endpoints is the direct evidence that traffic cannot reach the
-      dependency, and is the check that separates this cause from a slow
-      dependency.
+      A NetworkPolicy is enforced by the CNI and leaves the Service and its
+      endpoints looking healthy, so reading the policies that select the
+      dependency is the only check that names this cause.
   - intent: metrics
     entity: {kind: metric, name: redis_connected_clients}
     weight: 0.6
