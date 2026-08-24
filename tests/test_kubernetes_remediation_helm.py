@@ -6,6 +6,7 @@ the scoped ClusterRole (no cluster-admin) is rendered, the NetworkPolicy is on,
 the new config env vars are wired, and approval maps to run_kubectl_command.
 """
 
+import re
 from pathlib import Path
 
 import yaml
@@ -28,7 +29,9 @@ def test_values_drop_restricted_tools_and_map_approval():
 def test_values_defaults_are_plug_and_play():
     v = _values()
     assert v["enabled"] is False  # opt-in
-    assert v["image"] == "kubernetes-remediation-mcp:1.1.0"
+    # 1.2.0 carries the diagnostic-pod target policy (ROB-910); the config keys
+    # asserted below only take effect on that version or newer.
+    assert v["image"] == "kubernetes-remediation-mcp:1.2.0"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
@@ -42,6 +45,15 @@ def test_values_defaults_are_plug_and_play():
         assert key in v["config"], key
     # Old run_image image allowlist is gone
     assert "allowedImages" not in v["config"]
+
+
+def test_values_default_to_the_restrictive_diagnostic_target_policy():
+    """The diagnostic target policy must ship on, and in-cluster-only, so a fresh
+    install is not exposed to the ROB-910 SSRF/exfiltration path."""
+    cfg = _values()["config"]
+    assert cfg["diagnosticTargetPolicyEnabled"] is True
+    assert cfg["diagnosticAllowExternalTargets"] is False
+    assert cfg["diagnosticInternalDnsSuffixes"] == ".svc,.svc.cluster.local,.cluster.local"
 
 
 def test_rbac_template_is_scoped_not_cluster_admin():
@@ -71,6 +83,102 @@ def test_deployment_binding_has_no_cluster_admin_default():
     ):
         assert key in text, key
     assert "KUBECTL_ALLOWED_IMAGES" not in text
+
+
+def test_deployment_wires_diagnostic_target_policy_env():
+    """Each target-policy key must appear twice: once in the ConfigMap data and
+    once as a container env entry. A key present only in the ConfigMap is
+    silently ignored by the server."""
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    for key in (
+        "KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED",
+        "KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS",
+        "KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES",
+    ):
+        assert text.count(key) >= 2, f"{key} not wired through both ConfigMap and env"
+
+
+def test_deployment_configmap_keys_all_reach_the_container():
+    """Every KUBECTL_* key defined in the ConfigMap block must also be referenced
+    as an env var, so a newly added value cannot be dropped on the floor."""
+    import re
+
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    defined = set(re.findall(r"^  (KUBECTL_[A-Z_]+):", text, re.MULTILINE))
+    referenced = set(re.findall(r"key: (KUBECTL_[A-Z_]+)", text))
+    assert defined, "no ConfigMap keys found — did the template layout change?"
+    assert defined == referenced, (
+        f"ConfigMap/env mismatch: only in ConfigMap={defined - referenced}, "
+        f"only in env={referenced - defined}"
+    )
+
+
+def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
+    """The docs page carries the diagnostic-pod egress NetworkPolicy inline, because
+    the chart does not install it (NetworkPolicy is namespaced and the namespace
+    comes from the caller). Operators copy-paste it, so assert it stays parseable
+    and actually restrictive: egress-only, selecting the label the server stamps,
+    and never widened to 0.0.0.0/0 without the denied ranges carved back out."""
+    doc = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "data-sources"
+        / "builtin-toolsets"
+        / "kubernetes-remediation-mcp.md"
+    ).read_text()
+
+    blocks = [
+        b
+        for b in re.findall(r"```yaml\n(.*?)```", doc, re.S)
+        if "kubernetes-remediation-diagnostic-pod-egress" in b
+    ]
+    assert len(blocks) == 1, f"expected exactly one inlined policy, found {len(blocks)}"
+
+    policy = yaml.safe_load(blocks[0])
+    assert policy["kind"] == "NetworkPolicy"
+    assert policy["spec"]["policyTypes"] == ["Egress"]
+    assert policy["spec"]["podSelector"]["matchLabels"] == {
+        "robusta.dev/diagnostic-pod": "true"
+    }
+
+    rules = policy["spec"]["egress"]
+    assert rules, "egress policy allows no destinations at all"
+
+    # EVERY rule must be scoped by `to`. A rule carrying only `ports` matches all
+    # destinations on those ports — that is how an "allow cluster DNS" rule
+    # silently becomes "allow exfiltration over port 53 to any resolver".
+    for i, rule in enumerate(rules):
+        assert rule.get("to"), (
+            f"egress rule {i} has no `to`, so it matches every destination on "
+            f"{rule.get('ports', 'all ports')}"
+        )
+
+    # Only approved peer kinds, and only approved CIDRs.
+    for i, rule in enumerate(rules):
+        for peer in rule["to"]:
+            assert set(peer) <= {"ipBlock", "namespaceSelector", "podSelector"}, (
+                f"egress rule {i} has an unexpected peer kind: {sorted(peer)}"
+            )
+
+    cidrs = [
+        peer["ipBlock"]["cidr"]
+        for rule in rules
+        for peer in rule["to"]
+        if "ipBlock" in peer
+    ]
+    # RFC1918 only. 169.254.0.0/16, 127.0.0.0/8 etc. must be denied by omission.
+    assert set(cidrs) == {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, cidrs
+
+    # The DNS rule must be pinned to kube-dns rather than left open.
+    dns_rules = [
+        r
+        for r in rules
+        if any(p.get("port") == 53 for p in r.get("ports", []))
+    ]
+    assert len(dns_rules) == 1, "expected exactly one port-53 egress rule"
+    assert any(
+        "podSelector" in peer or "ipBlock" in peer for peer in dns_rules[0]["to"]
+    ), "the DNS rule must name its destination"
 
 
 def test_networkpolicy_is_ingress_only_and_scoped():

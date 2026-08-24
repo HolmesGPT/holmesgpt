@@ -1054,6 +1054,52 @@ class ConversationWorker:
                             return text
         return None
 
+    def _resolve_alert_name(
+        self, task: ConversationTask, chat_request: ChatRequest
+    ) -> Optional[str]:
+        """The firing alert's ``GroupedIssues.aggregation_key``, for alert flows only.
+
+        Returned only for alert conversations, so ordinary chat keeps being offered every
+        skill (alert-scoped ones included, with their alert names in the description).
+
+        BOTH id fields are needed: triage names the GroupedIssue in ``metadata.finding_id``
+        and sets no ``source_ref``, while the FE's alert-investigation flow uses
+        ``source_ref``. Wiring only ``source_ref`` leaves triage silently unfiltered.
+
+        `request_type` comes from the Conversations metadata first -- relay persists
+        'alert_investigation' there, while ChatRequest.request_type carries a different,
+        backend-set taxonomy ('user_chat', 'scheduled_prompt', …).
+        """
+        meta = task.metadata or {}
+        markers = {
+            meta.get("request_type"),
+            meta.get("request_source"),
+            chat_request.request_type,
+            chat_request.request_source,
+        }
+        if "alert_investigation" not in markers:
+            return None
+
+        issue_id = (
+            meta.get("finding_id") or chat_request.source_ref or meta.get("source_ref")
+        )
+        if not issue_id:
+            logging.debug(
+                "Alert investigation %s carries no finding_id/source_ref; "
+                "alert-scoped skills will not be filtered.",
+                task.conversation_id,
+            )
+            return None
+
+        try:
+            issue = self.dal.get_issue_data(str(issue_id))
+        except Exception:
+            logging.warning(
+                "Could not resolve issue %s for alert-scoped skills", issue_id
+            )
+            return None
+        return (issue or {}).get("aggregation_key") or None
+
     def _run_chat_and_publish(
         self,
         task: ConversationTask,
@@ -1070,7 +1116,13 @@ class ConversationWorker:
             trace_type=os.environ.get("HOLMES_TRACE_BACKEND")
         )
 
-        skills = self.config.get_skill_catalog()
+        # chat_request.user_id is the already-resolved "user Holmes may act on behalf of" --
+        # the same value the per-user OAuth resolver keys on, so a conversation that opted out
+        # via metadata.oauth_enabled = false loads no personal skills either.
+        skills = self.config.get_skill_catalog(
+            user_id=chat_request.user_id,
+            alert_name=self._resolve_alert_name(task, chat_request),
+        )
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
