@@ -38,9 +38,14 @@ incidents are a smoke test, not evidence.
 A holdout incident must never appear in the pool, and the two must not describe
 the same underlying event.
 
-Keep **at least three incidents per root cause** in the pool. Leave-one-out
+A root cause needs **at least three pool incidents** to be usable. Leave-one-out
 calibration removes one and needs two left for retrieval to answer at all, so a
-cause with only two members contributes nothing to the fit.
+cause with fewer contributes nothing and can never be answered on.
+
+Today only `dependency_unreachable` (4), `oom_kill` (3) and `config_regression`
+(3) clear that bar. `image_pull_failure` and `node_disk_pressure` have one each
+and are dead weight — the most useful thing anyone can add to this corpus is two
+more incidents for each of those.
 
 The held-out set must include cases the method gets **wrong**. `HOLD-005` is
 there for that reason: it matches the cache incidents on both symptoms and root

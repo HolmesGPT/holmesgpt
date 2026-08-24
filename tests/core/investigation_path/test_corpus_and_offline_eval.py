@@ -7,6 +7,7 @@ running this offline before wiring anything into an investigation.
 """
 
 import re
+from collections import Counter
 
 import pytest
 import yaml
@@ -115,6 +116,29 @@ class TestCorpus:
         pool = {r.incident_id for r in load_corpus(split="corpus")}
         holdout = {r.incident_id for r in load_corpus(split="holdout")}
         assert not (pool & holdout)
+
+    def test_root_cause_coverage_is_recorded_accurately(self):
+        """Pins the real spread, so prose about it cannot drift out of date.
+
+        A cause needs three pool members to be usable: leave-one-out removes one
+        and retrieval needs two left to answer. Two causes do not clear that bar,
+        and the docs must keep saying so until someone adds incidents.
+        """
+        counts = Counter(r.root_cause.label for r in load_corpus(split="corpus"))
+        usable = {label for label, count in counts.items() if count >= 3}
+        assert usable == {"dependency_unreachable", "oom_kill", "config_regression"}
+        assert counts["image_pull_failure"] == 1
+        assert counts["node_disk_pressure"] == 1
+
+    def test_every_answerable_holdout_cause_is_represented_in_the_pool(self):
+        pool_counts = Counter(r.root_cause.label for r in load_corpus(split="corpus"))
+        for record in load_corpus(split="holdout"):
+            label = record.root_cause.label
+            # HOLD-004 is deliberately a cause the pool has never seen.
+            if label == "certificate_expired":
+                assert label not in pool_counts
+            else:
+                assert pool_counts[label] >= 3, f"{record.incident_id} can never be answered"
 
     def test_storage_cost_is_measured(self, records):
         assert corpus_bytes_per_incident(records) > 0

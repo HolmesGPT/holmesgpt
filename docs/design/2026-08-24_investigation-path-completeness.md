@@ -104,9 +104,22 @@ investigation made, which is the exact failure this design is trying to avoid.
 concrete and the metrics runnable. It is far too small to justify shipping
 anything.
 
-Each root cause has at least three pool members, which is a requirement of the
-calibration fit rather than a nicety: leave-one-out removes one incident and
-retrieval needs two remaining to answer at all.
+A root cause needs at least three pool members to be usable at all: leave-one-out
+removes one incident and retrieval needs two remaining to answer. Three of the
+five causes currently clear that bar:
+
+| root cause | pool incidents | usable |
+|---|---|---|
+| `dependency_unreachable` | 4 | yes |
+| `oom_kill` | 3 | yes |
+| `config_regression` | 3 | yes |
+| `image_pull_failure` | 1 | **no** |
+| `node_disk_pressure` | 1 | **no** |
+
+The last two are dead weight today. They can never be answered on, and they
+contribute nothing to the calibration fit. They are kept because the schema and
+the vocabulary should cover more than the three causes that happen to be
+populated — but no result in this document is evidence about them.
 
 ### Similar symptoms vs. same root cause
 
