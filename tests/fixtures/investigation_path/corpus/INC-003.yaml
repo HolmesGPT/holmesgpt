@@ -17,10 +17,11 @@ symptoms:
   - latency
 
 root_cause:
-  label: dependency_unreachable
+  label: connection_pool_exhausted
   summary: >-
     A slow query held pool connections open until the pool was empty. The
-    database was reachable, but the workload behaved as if it were not.
+    database was reachable throughout; the workload only behaved as if it were
+    not, which is why the label is not dependency_unreachable.
 
 reference_path:
   - intent: logs

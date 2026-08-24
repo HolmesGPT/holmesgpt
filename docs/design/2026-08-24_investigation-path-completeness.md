@@ -117,20 +117,30 @@ anything.
 
 A root cause needs at least three pool members to be usable at all: leave-one-out
 removes one incident and retrieval needs two remaining to answer. Three of the
-five causes currently clear that bar:
+six causes currently clear that bar:
 
 | root cause | pool incidents | usable |
 |---|---|---|
-| `dependency_unreachable` | 4 | yes |
+| `dependency_unreachable` | 3 | yes |
 | `oom_kill` | 3 | yes |
 | `config_regression` | 3 | yes |
+| `connection_pool_exhausted` | 1 | **no** |
 | `image_pull_failure` | 1 | **no** |
 | `node_disk_pressure` | 1 | **no** |
 
-The last two are dead weight today. They can never be answered on, and they
+The last three are dead weight today. They can never be answered on, and they
 contribute nothing to the calibration fit. They are kept because the schema and
 the vocabulary should cover more than the three causes that happen to be
 populated — but no result in this document is evidence about them.
+
+`connection_pool_exhausted` exists because INC-003 was originally labelled
+`dependency_unreachable` while its own summary said the database stayed
+reachable. Retrieval collapses candidates to one root cause and measures
+agreement on the label, so a saturation incident filed under a reachability
+label is a source of false agreement — it never surfaced here only because its
+symptoms are too far from anything held out to be retrieved at all. The
+usable-cause count is what pays for the correction: `dependency_unreachable`
+drops from four pool incidents to three, which is the minimum that still works.
 
 ### Similar symptoms vs. same root cause
 
@@ -335,7 +345,7 @@ expected calibration error  0.010
 brier score                 0.000
 latency p50 (ms)            0.05
 latency p95 (ms)            0.12
-bytes per incident          1483
+bytes per incident          1489
 llm calls                   0
 llm tokens                  0
 

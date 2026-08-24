@@ -26,6 +26,7 @@ from holmes.core.investigation_path.validator import GENERIC_ENTITY_KINDS, Sugge
 
 KNOWN_ROOT_CAUSES = {
     "dependency_unreachable",
+    "connection_pool_exhausted",
     "oom_kill",
     "image_pull_failure",
     "node_disk_pressure",
@@ -160,6 +161,20 @@ class TestCorpus:
                 assert "empty endpoints is the direct evidence" not in step.rationale.lower(), (
                     f"{record.incident_id}: a NetworkPolicy leaves endpoints populated"
                 )
+
+    def test_nothing_is_filed_as_unreachable_that_says_it_was_reachable(self, records):
+        """Retrieval collapses candidates to one root cause and scores agreement
+        on the label, so a saturation incident filed under a reachability label
+        is a source of false agreement. INC-003 was exactly that: a drained
+        connection pool whose own summary said the database stayed reachable.
+        """
+        for record in records:
+            if record.root_cause.label != "dependency_unreachable":
+                continue
+            summary = record.root_cause.summary.lower()
+            assert "was reachable" not in summary and "stayed reachable" not in summary, (
+                f"{record.incident_id}: labelled unreachable but says it was reachable"
+            )
 
     def test_every_referenced_kind_is_one_the_command_parser_knows(self, records):
         """A reference step naming a kind the parser cannot produce can never be

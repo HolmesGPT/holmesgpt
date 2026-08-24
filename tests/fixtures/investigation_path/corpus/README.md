@@ -50,12 +50,18 @@ A root cause needs **at least three pool incidents** to be usable. Leave-one-out
 calibration removes one and needs two left for retrieval to answer at all, so a
 cause with fewer contributes nothing and can never be answered on.
 
-Today only `dependency_unreachable` (4), `oom_kill` (3) and `config_regression`
-(3) clear that bar. Note that the four `dependency_unreachable` incidents are
-four *different* mechanisms — a selector edit, a NetworkPolicy, a wrong port and
-a drained connection pool — which share a label but not a reference path. `image_pull_failure` and `node_disk_pressure` have one each
-and are dead weight — the most useful thing anyone can add to this corpus is two
-more incidents for each of those.
+Today only `dependency_unreachable` (3), `oom_kill` (3) and `config_regression`
+(3) clear that bar. `connection_pool_exhausted`, `image_pull_failure` and
+`node_disk_pressure` have one each and are dead weight — the most useful thing
+anyone can add to this corpus is two more incidents for each of those.
+
+The three `dependency_unreachable` incidents are three *different* mechanisms —
+a selector edit, a NetworkPolicy and a wrong port name — which share a label but
+not a reference path. What they do share is that traffic genuinely could not
+reach the dependency. That is the whole content of the label, and it is the test
+for whether a new record belongs under it: INC-003 was filed here while its own
+summary said the database stayed reachable, which is a different failure wearing
+the same symptoms.
 
 The held-out set must include cases the method gets **wrong**. `HOLD-005` is
 there for that reason: it matches the cache incidents on both symptoms and root
@@ -67,6 +73,7 @@ the method handles cannot measure precision or calibration at all.
 | label | meaning |
 |---|---|
 | `dependency_unreachable` | The workload could not reach a service it depends on |
+| `connection_pool_exhausted` | The dependency was reachable, but the client had no free connection |
 | `oom_kill` | A container exceeded its memory limit and was killed |
 | `image_pull_failure` | The container image could not be pulled |
 | `node_disk_pressure` | A node ran out of disk and evicted workloads |
