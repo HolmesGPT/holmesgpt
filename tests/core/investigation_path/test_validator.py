@@ -2,6 +2,7 @@
 
 import pytest
 
+from holmes.core.investigation_path.calibration import CalibrationModel
 from holmes.core.investigation_path.retrieval import RetrievalPolicy, retrieve
 from holmes.core.investigation_path.schema import (
     EntityRef,
@@ -254,6 +255,46 @@ class TestRendering:
     def test_the_report_names_the_shared_root_cause(self, retrieval):
         markdown = validate_path([], retrieval, subject="orders-service").to_markdown()
         assert "dependency_unreachable" in markdown
+
+    def test_an_uncalibrated_score_is_never_shown_as_a_percentage(self, retrieval):
+        """The raw score is a product of terms below 1, so it reads far below the
+        real hit rate. Printing it teaches responders to ignore the block."""
+        markdown = validate_path([], retrieval, subject="orders-service").to_markdown()
+        assert "Confidence" not in markdown
+
+    def test_a_calibrated_score_is_shown(self, retrieval):
+        """It is computed either way; not showing it wastes the calibration."""
+        report = validate_path(
+            [],
+            retrieval,
+            subject="orders-service",
+            calibration=CalibrationModel(slope=2.2, intercept=0.35, fitted=True),
+        )
+        assert "Confidence" in report.to_markdown()
+        assert all(s.calibrated for s in report.suggestions)
+
+    def test_an_unfitted_model_counts_as_uncalibrated(self, retrieval):
+        """`fit_calibration` returns an unfitted model when the pool is too small,
+        and that must not silently start printing percentages."""
+        report = validate_path(
+            [],
+            retrieval,
+            subject="orders-service",
+            calibration=CalibrationModel(fitted=False),
+        )
+        assert not any(s.calibrated for s in report.suggestions)
+        assert "Confidence" not in report.to_markdown()
+
+    def test_the_shown_percentage_is_the_calibrated_one(self, retrieval):
+        report = validate_path(
+            [],
+            retrieval,
+            subject="orders-service",
+            calibration=CalibrationModel(slope=2.2, intercept=0.35, fitted=True),
+        )
+        top = report.suggestions[0]
+        assert top.confidence != top.raw_confidence
+        assert f"Confidence {top.confidence:.0%}" in report.to_markdown()
 
     def test_nothing_missing_renders_nothing(self, retrieval):
         report = validate_path(

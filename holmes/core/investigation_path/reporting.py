@@ -68,6 +68,7 @@ def case_metadata(outcome: CaseOutcome) -> Dict[str, Any]:
         "confidence": {k: round(v, 4) for k, v in outcome.suggestion_confidence.items()},
         "latency_ms": round(outcome.latency_ms, 3),
         "llm_calls": outcome.llm_calls,
+        "llm_tokens": outcome.llm_tokens,
     }
 
 
@@ -100,6 +101,7 @@ def summary_metadata(
         "latency_p95_ms": round(metrics.latency_p95_ms, 3),
         "bytes_per_incident": round(metrics.bytes_per_incident, 1),
         "llm_calls": metrics.llm_calls,
+        "llm_tokens": metrics.llm_tokens,
     }
     if calibration is not None:
         metadata["calibration"] = calibration.describe()
@@ -181,7 +183,7 @@ def _summary_rows(metrics: EvalMetrics) -> List[Tuple[str, str]]:
         ("Brier score", f"{metrics.brier_score:.3f}"),
         ("Latency p50 / p95 (ms)", f"{metrics.latency_p50_ms:.1f} / {metrics.latency_p95_ms:.1f}"),
         ("Bytes per stored incident", f"{metrics.bytes_per_incident:.0f}"),
-        ("LLM calls", f"{metrics.llm_calls}"),
+        ("LLM calls / tokens", f"{metrics.llm_calls} / {metrics.llm_tokens}"),
     ]
 
 

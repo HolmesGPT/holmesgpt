@@ -75,6 +75,7 @@ def evaluate_case(
         suggestion_confidence={s.signature: s.confidence for s in report.suggestions},
         latency_ms=latency_ms,
         llm_calls=0,
+        llm_tokens=0,
     )
 
 

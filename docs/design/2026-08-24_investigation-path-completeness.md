@@ -14,7 +14,7 @@ question is not "does it work" but "how would we know".
 
 Three artifacts answer that: a **path schema**, a **corpus**, and a **metrics
 definition** with a runnable offline eval. The eval reports through the existing
-eval/Braintrust pipeline (section 5), so the policy builds a tracked history
+eval/Braintrust pipeline (section 6), so the policy builds a tracked history
 before anything user-facing depends on it.
 
 ## 1. Canonical path event
@@ -190,6 +190,12 @@ there are fewer than two samples, only one class present, or no variation in the
 score. Each of those would restate the training prior while looking like a
 measurement.
 
+Because that fallback is silent, every `Suggestion` carries a `calibrated` flag,
+and the rendered block states a percentage **only** when it is set. An
+uncalibrated score is still returned, because it ranks correctly — it is just
+never shown to a human as a probability, which is the failure mode the 0.32
+example above describes.
+
 ## 4. Metrics
 
 Defined in `holmes/core/investigation_path/metrics.py`. For a held-out incident
@@ -211,8 +217,11 @@ with ground-truth missing set `M` (weighted) and suggestion set `S`:
   cannot pass on its own.
 - **Latency** — p50/p95 per validation.
 - **Storage cost** — mean serialized bytes per stored record.
-- **LLM calls** — expected to be 0, tracked so a future model call shows up as a
-  cost regression rather than silently.
+- **Token cost and LLM calls** — both expected to be 0, and both measured rather
+  than one inferred from the other. A change routing this path through a model
+  moves them together; a change that reuses tokens the investigation already
+  spent moves only the token count, and that is the cost that would otherwise be
+  invisible.
 
 ### Running it
 
@@ -220,7 +229,42 @@ with ground-truth missing set `M` (weighted) and suggestion set `S`:
 poetry run python -m holmes.core.investigation_path.offline_eval
 ```
 
-## 5. Where the benchmark lives
+## 5. What a suggestion looks like
+
+`ValidationReport.to_markdown()` defines the output shape. It is written and
+tested but **not wired to any user-facing surface**, so it is a proposal, not a
+behaviour. A rendered block:
+
+```markdown
+## Investigation path check
+
+Resolved incidents with the same root cause (`dependency_unreachable`) also ran
+the checks below. These are suggestions from past evidence, not required steps -
+skip any that do not apply here.
+
+- **topology endpoints/redis** — Empty endpoints is the direct evidence that
+  traffic cannot reach the dependency, and is the check that separates this
+  cause from a slow dependency.
+  Seen in 3/3 similar resolved incidents: INC-001 (2026-01-14),
+  INC-009 (2026-05-18), INC-002 (2026-02-03). Confidence 97%
+```
+
+Four properties are deliberate:
+
+- **Provenance.** Every suggestion names the incidents it came from and when
+  they happened, so a responder can go and read them instead of trusting the
+  tool.
+- **Rationale.** The human-written reason the check mattered in those incidents,
+  carried through from the corpus rather than generated.
+- **Support, shown as a fraction.** `3/3` is a different claim from `1/3`, and
+  collapsing both into one confidence number hides that.
+- **Advisory wording, and a cap.** "not required steps — skip any that do not
+  apply here", with at most five suggestions. A checklist would push every
+  investigation towards whatever was investigated first, which is the
+  confirmation-bias risk in the original issue; an unbounded list is skipped
+  entirely, which is the same outcome as saying nothing.
+
+## 6. Where the benchmark lives
 
 The review asked for this to be established in the existing eval/Braintrust
 pipeline rather than coupled to the product, so it is wired in at two points and
@@ -276,6 +320,7 @@ latency p50 (ms)            0.05
 latency p95 (ms)            0.12
 bytes per incident          1451
 llm calls                   0
+llm tokens                  0
 
 calibration: platt(slope=2.20, intercept=0.35, l2=0.01)
              fitted on 80 leave-one-out samples, 44 positive

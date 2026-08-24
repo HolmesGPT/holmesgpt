@@ -191,6 +191,17 @@ class TestOfflineEvalBaseline:
         metrics, _, _ = result
         assert metrics.llm_calls == 0
 
+    def test_no_tokens_are_spent(self, result):
+        """Tracked separately from llm_calls: a change that reuses tokens the
+        investigation already spent would move this and not that."""
+        metrics, _, _ = result
+        assert metrics.llm_tokens == 0
+
+    def test_token_cost_is_reported_not_merely_implied(self, result):
+        """The reviewer asked for token cost. Zero has to be a measured zero."""
+        metrics, _, _ = result
+        assert "llm tokens" in metrics.render()
+
     def test_validation_is_fast_enough_to_be_free(self, result):
         metrics, _, _ = result
         assert metrics.latency_p95_ms < 50

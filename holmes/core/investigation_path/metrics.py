@@ -31,8 +31,11 @@ set `S`, or abstains.
   correct. This is the check that a raw similarity score cannot pass by itself.
 - **Latency** - p50/p95 wall clock per validation.
 - **Storage cost** - mean serialized bytes per stored incident record.
-- **LLM calls** - expected to be 0. Tracked so that a future change which
-  quietly adds a model call to this path shows up as a cost regression.
+- **Token cost / LLM calls** - both expected to be 0, and both tracked rather
+  than one inferred from the other. A change that routes this path through a
+  model would move them together, but a change that reuses tokens already spent
+  by the investigation would move only the token count, and that is exactly the
+  cost that would otherwise be invisible.
 """
 
 import math
@@ -56,6 +59,10 @@ class CaseOutcome(BaseModel):
     suggestion_confidence: Dict[str, float] = Field(default_factory=dict)
     latency_ms: float = 0.0
     llm_calls: int = 0
+    llm_tokens: int = Field(
+        default=0,
+        description="Tokens spent producing this suggestion set, prompt and completion.",
+    )
 
     @property
     def true_positives(self) -> List[str]:
@@ -107,6 +114,7 @@ class EvalMetrics(BaseModel):
     latency_p95_ms: float
     bytes_per_incident: float
     llm_calls: int
+    llm_tokens: int = 0
 
     def render(self) -> str:
         """Plain-text report, so an eval run can be diffed between policies."""
@@ -125,6 +133,7 @@ class EvalMetrics(BaseModel):
             ("latency p95 (ms)", f"{self.latency_p95_ms:.2f}"),
             ("bytes per incident", f"{self.bytes_per_incident:.0f}"),
             ("llm calls", f"{self.llm_calls}"),
+            ("llm tokens", f"{self.llm_tokens}"),
         ]
         width = max(len(label) for label, _ in rows)
         lines = [f"{label.ljust(width)}  {value}" for label, value in rows]
@@ -248,6 +257,7 @@ def score_cases(cases: Sequence[CaseOutcome], bytes_per_incident: float = 0.0) -
         latency_p95_ms=_percentile([case.latency_ms for case in cases], 0.95),
         bytes_per_incident=bytes_per_incident,
         llm_calls=sum(case.llm_calls for case in cases),
+        llm_tokens=sum(case.llm_tokens for case in cases),
     )
 
 

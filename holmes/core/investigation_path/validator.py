@@ -1,12 +1,16 @@
 """Turn retrieved incidents into auditable missing-check suggestions.
 
 A suggestion is only useful if a responder can decide, in a few seconds,
-whether to act on it. So every suggestion carries three things beyond the check
+whether to act on it. So every suggestion carries four things beyond the check
 itself:
 
 - **provenance** - which resolved incident it came from, and when
 - **rationale** - the human-written reason that check mattered there
 - **support** - how many of the matched incidents ran it, out of how many
+- **confidence** - stated as a probability *only* when a fitted calibration
+  model produced it. Uncalibrated, the score is a product of terms below 1: it
+  ranks correctly but reads far below the real hit rate, and showing it as a
+  percentage would train responders to ignore the whole block.
 
 The wording is advisory throughout. One historical path is evidence, not a plan,
 and presenting it as a required checklist would push every investigation towards
@@ -87,6 +91,14 @@ class Suggestion(BaseModel):
         description="Calibrated probability that this check is genuinely missing, "
         "when a calibration model is supplied. Equals raw_confidence otherwise."
     )
+    calibrated: bool = Field(
+        default=False,
+        description=(
+            "Whether `confidence` came from a fitted calibration model. False means "
+            "it is a raw evidence score that orders suggestions correctly but is not "
+            "a probability, and must not be rendered to a user as a percentage."
+        ),
+    )
     provenance: List[Provenance] = Field(default_factory=list)
 
     def describe(self, subject: Optional[str] = None) -> str:
@@ -133,10 +145,16 @@ class ValidationReport(BaseModel):
             sources = ", ".join(
                 f"{p.incident_id} ({p.occurred_at})" for p in suggestion.provenance
             )
-            lines.append(
+            evidence = (
                 f"  Seen in {suggestion.support}/{suggestion.out_of} similar resolved "
                 f"incidents: {sources}"
             )
+            # Only a calibrated score is stated as a probability. The raw score is
+            # a product of terms below 1, so printing it as a percentage would
+            # understate the real hit rate and teach responders to ignore it.
+            if suggestion.calibrated:
+                evidence += f". Confidence {suggestion.confidence:.0%}"
+            lines.append(evidence)
         return "\n".join(lines)
 
 
@@ -253,6 +271,7 @@ def validate_path(
             continue
         best = max(steps, key=lambda step: step.weight)
         raw_confidence = retrieval.confidence * (support / out_of)
+        is_calibrated = calibration is not None and calibration.fitted
         confidence = calibration.apply(raw_confidence) if calibration else raw_confidence
         if confidence < policy.min_confidence:
             continue
@@ -267,6 +286,7 @@ def validate_path(
                 out_of=out_of,
                 raw_confidence=raw_confidence,
                 confidence=confidence,
+                calibrated=is_calibrated,
                 provenance=provenance_by_signature[signature],
             )
         )
