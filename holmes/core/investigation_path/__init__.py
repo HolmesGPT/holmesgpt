@@ -7,14 +7,25 @@ product behavior changes.
 
 The pieces are:
 
-- `schema`     - the redacted canonical path event and the corpus record format
-- `normalize`  - executed tool calls -> canonical path events (with redaction)
-- `retrieval`  - find similar resolved incidents, or abstain
-- `validator`  - turn retrieved incidents into missing-check suggestions
-- `metrics`    - how a retrieval policy is scored offline
-- `corpus`     - load the fixture corpus from disk
+- `schema`      - the redacted canonical path event and the corpus record format
+- `normalize`   - executed tool calls -> canonical path events (with redaction)
+- `retrieval`   - find similar resolved incidents, or abstain
+- `validator`   - turn retrieved incidents into missing-check suggestions
+- `calibration` - make the reported confidence mean what it says
+- `metrics`     - how a retrieval policy is scored offline
+- `corpus`      - load the fixture corpus from disk
+- `offline_eval`- run a policy over the held-out set and score it
+
+`offline_eval` is deliberately not re-exported here: it is run as a script
+(`python -m holmes.core.investigation_path.offline_eval`), and importing it from
+the package `__init__` makes the module load twice under `-m`.
 """
 
+from holmes.core.investigation_path.calibration import (
+    CalibrationModel,
+    fit_calibration,
+    fit_platt,
+)
 from holmes.core.investigation_path.corpus import load_corpus
 from holmes.core.investigation_path.metrics import (
     CaseOutcome,
@@ -50,12 +61,14 @@ from holmes.core.investigation_path.schema import (
 from holmes.core.investigation_path.validator import (
     Provenance,
     Suggestion,
+    SuggestionPolicy,
     ValidationReport,
     validate_path,
 )
 
 __all__ = [
     "SUBJECT_TOKEN",
+    "CalibrationModel",
     "CaseOutcome",
     "EntityRef",
     "EvalMetrics",
@@ -73,8 +86,11 @@ __all__ = [
     "ScoredIncident",
     "SignatureLevel",
     "Suggestion",
+    "SuggestionPolicy",
     "TimeWindow",
     "ValidationReport",
+    "fit_calibration",
+    "fit_platt",
     "load_corpus",
     "normalize_resource_kind",
     "normalize_resource_name",

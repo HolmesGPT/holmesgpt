@@ -38,6 +38,10 @@ def incident(incident_id, symptoms, reference_path, root_cause="dependency_unrea
 
 SYMPTOMS = ["redis", "crash", "pod", "restart"]
 
+# Turns off the support-ratio filter, for tests that need to see the minority
+# suggestions the default policy is designed to remove.
+PERMISSIVE = SuggestionPolicy(min_support_ratio=0.0)
+
 
 @pytest.fixture
 def retrieval():
@@ -75,14 +79,14 @@ class TestSuggestions:
         assert "topology:endpoints:redis" in [s.signature for s in report.suggestions]
 
     def test_support_counts_how_many_incidents_ran_the_check(self, retrieval):
-        report = validate_path([], retrieval)
+        report = validate_path([], retrieval, PERMISSIVE)
         by_signature = {s.signature: s for s in report.suggestions}
         assert by_signature["topology:endpoints:redis"].support == 2
         assert by_signature["topology:service:redis"].support == 1
         assert by_signature["topology:endpoints:redis"].out_of == 2
 
     def test_more_important_and_better_supported_checks_come_first(self, retrieval):
-        report = validate_path([], retrieval)
+        report = validate_path([], retrieval, PERMISSIVE)
         ranking = [s.weight * s.support for s in report.suggestions]
         assert ranking == sorted(ranking, reverse=True)
         assert report.suggestions[-1].signature == "metrics:metric:redis_memory_used_bytes"
@@ -101,7 +105,7 @@ class TestSuggestions:
         assert all(s.rationale for s in report.suggestions)
 
     def test_confidence_scales_with_support(self, retrieval):
-        report = validate_path([], retrieval)
+        report = validate_path([], retrieval, PERMISSIVE)
         by_signature = {s.signature: s for s in report.suggestions}
         assert by_signature["topology:endpoints:redis"].confidence > (
             by_signature["topology:service:redis"].confidence
@@ -111,6 +115,34 @@ class TestSuggestions:
         report = validate_path([], retrieval, SuggestionPolicy(min_support=2))
         assert "topology:service:redis" not in [s.signature for s in report.suggestions]
         assert "topology:endpoints:redis" in [s.signature for s in report.suggestions]
+
+
+class TestSupportRatioFilter:
+    """A check only one incident out of several ran is that incident's own
+    circumstance, not a property of the root cause. Suggesting it anyway was the
+    single largest source of false positives on the benchmark."""
+
+    def test_minority_checks_are_dropped_by_default(self, retrieval):
+        signatures = [s.signature for s in validate_path([], retrieval).suggestions]
+        assert "topology:service:redis" not in signatures
+        assert "metrics:metric:redis_memory_used_bytes" not in signatures
+
+    def test_unanimous_checks_survive(self, retrieval):
+        signatures = [s.signature for s in validate_path([], retrieval).suggestions]
+        assert "topology:endpoints:redis" in signatures
+        assert "logs:pod:<subject>" in signatures
+
+    def test_the_ratio_is_measured_against_the_match_count(self):
+        # Two of three is 0.67, which clears the default 0.6 floor.
+        pool = [
+            incident("INC-001", SYMPTOMS, [step(QueryIntent.LOGS, "pod", "api")]),
+            incident("INC-002", SYMPTOMS, [step(QueryIntent.LOGS, "pod", "api")]),
+            incident("INC-003", SYMPTOMS, [step(QueryIntent.EVENTS, "pod", "api")]),
+        ]
+        report = validate_path([], retrieve(SYMPTOMS, pool))
+        signatures = [s.signature for s in report.suggestions]
+        assert "logs:pod:api" in signatures
+        assert "events:pod:api" not in signatures
 
     def test_suggestion_count_is_capped(self, retrieval):
         report = validate_path([], retrieval, SuggestionPolicy(max_suggestions=1))
@@ -127,6 +159,67 @@ class TestSuggestions:
         ]
         report = validate_path([], retrieve(SYMPTOMS, pool))
         assert report.suggestions[0].support == 2
+
+
+class TestEntityTransfer:
+    """Two incidents can share symptoms and a root cause while depending on
+    completely different services. Suggesting the other incident's dependency by
+    name sends a responder to something that does not exist here."""
+
+    @pytest.fixture
+    def redis_retrieval(self):
+        path = [
+            step(QueryIntent.LOGS, "pod", "<subject>"),
+            step(QueryIntent.TOPOLOGY, "service", "redis"),
+            step(QueryIntent.TOPOLOGY, "endpoints", "redis"),
+            step(QueryIntent.METRICS, "metric", "redis_connected_clients"),
+            step(QueryIntent.RESOURCE_USAGE, "metric", "container_memory_working_set_bytes"),
+        ]
+        pool = [incident("INC-001", SYMPTOMS, path), incident("INC-002", SYMPTOMS, path)]
+        return retrieve(SYMPTOMS, pool)
+
+    def test_an_object_the_investigation_never_saw_is_not_suggested(self, redis_retrieval):
+        report = validate_path([], redis_retrieval, known_entities={"queue-worker"})
+        signatures = [s.signature for s in report.suggestions]
+        assert "topology:service:redis" not in signatures
+        assert "topology:endpoints:redis" not in signatures
+
+    def test_an_object_the_investigation_did_see_is_still_suggested(self, redis_retrieval):
+        report = validate_path([], redis_retrieval, known_entities={"redis"})
+        assert "topology:service:redis" in [s.signature for s in report.suggestions]
+
+    def test_a_metric_named_after_a_foreign_object_is_not_suggested(self, redis_retrieval):
+        """`redis_connected_clients` is a metric, but only where Redis exists."""
+        report = validate_path([], redis_retrieval, known_entities={"queue-worker"})
+        assert "metrics:metric:redis_connected_clients" not in [
+            s.signature for s in report.suggestions
+        ]
+
+    def test_a_genuinely_generic_metric_still_transfers(self, redis_retrieval):
+        report = validate_path([], redis_retrieval, known_entities={"queue-worker"})
+        assert "resource_usage:metric:container_memory_working_set_bytes" in [
+            s.signature for s in report.suggestions
+        ]
+
+    def test_subject_relative_checks_always_transfer(self, redis_retrieval):
+        report = validate_path([], redis_retrieval, known_entities={"queue-worker"})
+        assert "logs:pod:<subject>" in [s.signature for s in report.suggestions]
+
+    def test_token_matching_does_not_reject_on_a_substring(self):
+        """A pod named `mem` must not veto `node_memory_MemAvailable_bytes`."""
+        path = [
+            step(QueryIntent.DESCRIBE, "pod", "mem"),
+            step(QueryIntent.METRICS, "metric", "node_memory_MemAvailable_bytes"),
+        ]
+        pool = [incident("INC-001", SYMPTOMS, path), incident("INC-002", SYMPTOMS, path)]
+        report = validate_path([], retrieve(SYMPTOMS, pool), known_entities={"other"})
+        signatures = [s.signature for s in report.suggestions]
+        assert "metrics:metric:node_memory_MemAvailable_bytes" in signatures
+        assert "describe:pod:mem" not in signatures
+
+    def test_callers_that_cannot_supply_known_entities_are_not_filtered(self, redis_retrieval):
+        report = validate_path([], redis_retrieval, known_entities=None)
+        assert "topology:service:redis" in [s.signature for s in report.suggestions]
 
 
 class TestAbstainedReports:

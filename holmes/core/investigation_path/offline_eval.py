@@ -14,13 +14,23 @@ Run it directly to print a report:
 
 import time
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Set, Tuple
 
+from holmes.core.investigation_path.calibration import CalibrationModel, fit_calibration
 from holmes.core.investigation_path.corpus import corpus_bytes_per_incident, load_corpus
 from holmes.core.investigation_path.metrics import CaseOutcome, EvalMetrics, score_cases
 from holmes.core.investigation_path.retrieval import RetrievalPolicy, retrieve
-from holmes.core.investigation_path.schema import IncidentRecord, SignatureLevel
+from holmes.core.investigation_path.schema import (
+    IncidentRecord,
+    ReferenceStep,
+    SignatureLevel,
+)
 from holmes.core.investigation_path.validator import SuggestionPolicy, validate_path
+
+
+def entities_seen_in(steps: Sequence[ReferenceStep]) -> Set[str]:
+    """Object names an investigation has actually looked at."""
+    return {step.entity.name for step in steps if step.entity.name}
 
 
 def evaluate_case(
@@ -29,6 +39,7 @@ def evaluate_case(
     retrieval_policy: RetrievalPolicy,
     suggestion_policy: SuggestionPolicy,
     level: SignatureLevel = SignatureLevel.FINE,
+    calibration: Optional[CalibrationModel] = None,
 ) -> CaseOutcome:
     """Score one held-out incident against the retrieval pool."""
     missing_weights = {
@@ -42,6 +53,8 @@ def evaluate_case(
         retrieval=retrieval,
         policy=suggestion_policy,
         subject=case.subject,
+        calibration=calibration,
+        known_entities=entities_seen_in(case.observed_path),
     )
     latency_ms = (time.perf_counter() - started) * 1000
 
@@ -61,8 +74,14 @@ def run_offline_eval(
     corpus_dir: Optional[Path] = None,
     retrieval_policy: Optional[RetrievalPolicy] = None,
     suggestion_policy: Optional[SuggestionPolicy] = None,
-) -> Tuple[EvalMetrics, List[CaseOutcome]]:
-    """Score a policy over every held-out incident. Returns metrics and per-case detail."""
+    calibrate: bool = True,
+) -> Tuple[EvalMetrics, List[CaseOutcome], CalibrationModel]:
+    """Score a policy over every held-out incident.
+
+    The calibration model is fitted on the retrieval pool by leave-one-out and
+    only then applied to the held-out cases, so the calibration error reported
+    here is out-of-sample. Pass `calibrate=False` to measure the raw score.
+    """
     retrieval_policy = retrieval_policy or RetrievalPolicy()
     suggestion_policy = suggestion_policy or SuggestionPolicy()
 
@@ -73,6 +92,12 @@ def run_offline_eval(
     if not holdout:
         raise ValueError("Held-out set is empty; nothing to evaluate")
 
+    calibration = (
+        fit_calibration(pool, retrieval_policy, retrieval_policy.signature_level)
+        if calibrate
+        else CalibrationModel(fitted=False)
+    )
+
     outcomes = [
         evaluate_case(
             case,
@@ -80,11 +105,12 @@ def run_offline_eval(
             retrieval_policy,
             suggestion_policy,
             retrieval_policy.signature_level,
+            calibration,
         )
         for case in holdout
     ]
     metrics = score_cases(outcomes, bytes_per_incident=corpus_bytes_per_incident(pool))
-    return metrics, outcomes
+    return metrics, outcomes, calibration
 
 
 def render_case_detail(outcomes: Sequence[CaseOutcome]) -> str:
@@ -104,10 +130,22 @@ def render_case_detail(outcomes: Sequence[CaseOutcome]) -> str:
 
 
 def main() -> None:
-    metrics, outcomes = run_offline_eval()
+    raw_metrics, _, _ = run_offline_eval(calibrate=False)
+    metrics, outcomes, calibration = run_offline_eval(calibrate=True)
+
     print("Investigation path completeness - offline eval")
     print("=" * 46)
     print(metrics.render())
+    print()
+    print(f"calibration: {calibration.describe()}")
+    print(
+        f"  calibration error before: {raw_metrics.expected_calibration_error:.3f}"
+        f"  after: {metrics.expected_calibration_error:.3f}"
+    )
+    print(
+        f"  brier before: {raw_metrics.brier_score:.3f}"
+        f"  after: {metrics.brier_score:.3f}"
+    )
     print()
     print(render_case_detail(outcomes))
 

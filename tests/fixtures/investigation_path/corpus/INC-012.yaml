@@ -1,11 +1,9 @@
-# Held-out case: should ANSWER. Three corpus incidents share this root cause,
-# and the observed investigation read the logs but never checked what changed.
-incident_id: HOLD-003
-occurred_at: "2026-07-02"
+incident_id: INC-012
+occurred_at: "2026-06-05"
 source_type: prometheus
-title: Billing API degraded shortly after a release
-subject: billing-api
-split: holdout
+title: Catalog service erroring after a configuration rollout
+subject: catalog-service
+split: corpus
 validated_by: corpus-review
 validated_at: "2026-08-24"
 
@@ -14,15 +12,15 @@ symptoms:
   - error
   - deploy
   - release
-  - billing
+  - catalog
   - latency
   - rollout
 
 root_cause:
   label: config_regression
   summary: >-
-    A release swapped the retry policy for one that gave up before the upstream
-    could answer, so a share of requests failed on healthy pods.
+    A rollout pointed the service at a feature-flag endpoint that did not exist
+    in that environment, so every request that consulted a flag failed.
 
 reference_path:
   - intent: logs
@@ -41,9 +39,3 @@ reference_path:
     entity: {kind: pod, name: "<subject>"}
     weight: 0.4
     rationale: Confirms the pods themselves are healthy, ruling out a crash loop.
-
-observed_path:
-  - intent: logs
-    entity: {kind: pod, name: "<subject>"}
-    weight: 0.9
-    rationale: Ran.

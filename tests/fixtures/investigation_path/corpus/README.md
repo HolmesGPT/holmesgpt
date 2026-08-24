@@ -30,12 +30,22 @@ incidents are a smoke test, not evidence.
 
 ## Splits
 
-- `split: corpus` — the retrieval pool.
+- `split: corpus` — the retrieval pool. Also the only data the confidence
+  calibration is fitted on, via leave-one-out.
 - `split: holdout` — evaluation cases. These also carry an `observed_path`;
   `reference_path` minus `observed_path` is the ground-truth missing set.
 
 A holdout incident must never appear in the pool, and the two must not describe
 the same underlying event.
+
+Keep **at least three incidents per root cause** in the pool. Leave-one-out
+calibration removes one and needs two left for retrieval to answer at all, so a
+cause with only two members contributes nothing to the fit.
+
+The held-out set must include cases the method gets **wrong**. `HOLD-005` is
+there for that reason: it matches the cache incidents on both symptoms and root
+cause, but its dependency is a message broker. A held-out set made only of cases
+the method handles cannot measure precision or calibration at all.
 
 ## Root cause vocabulary
 

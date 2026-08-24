@@ -1,0 +1,65 @@
+# Held-out adversarial case. The symptoms match the cache incidents almost
+# exactly, and the root cause label is the same - but the dependency is a
+# message broker, not Redis. Every reference path in the pool names Redis, so a
+# naive validator confidently suggests four checks against a service that does
+# not exist here, and finds none of the three that were actually skipped.
+#
+# This case exists because a held-out set made only of incidents the method
+# handles cannot measure precision or calibration at all. It is the reason the
+# validator drops suggestions naming an object the investigation never saw.
+incident_id: HOLD-005
+occurred_at: "2026-07-28"
+source_type: prometheus
+title: Queue worker crash looping on refused broker connections
+subject: queue-worker
+split: holdout
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - crashloopbackoff
+  - pod
+  - restart
+  - connection
+  - refused
+  - timeout
+  - queue
+
+root_cause:
+  label: dependency_unreachable
+  summary: >-
+    The broker StatefulSet was scaled to zero during a maintenance window that
+    overran. The Service still existed, so name resolution succeeded and every
+    connection was refused.
+
+reference_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.8
+    rationale: Shows the restart reason and which container is failing.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: The application error names the dependency that is failing.
+  - intent: topology
+    entity: {kind: service, name: rabbitmq}
+    weight: 0.9
+    rationale: A resolving Service name does not mean anything is behind it.
+  - intent: topology
+    entity: {kind: endpoints, name: rabbitmq}
+    weight: 1.0
+    rationale: Zero endpoints is the direct evidence that the broker is scaled down.
+  - intent: metrics
+    entity: {kind: metric, name: rabbitmq_connections}
+    weight: 0.6
+    rationale: Confirms whether any client is reaching the broker at all.
+
+observed_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.8
+    rationale: Ran.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: Ran.

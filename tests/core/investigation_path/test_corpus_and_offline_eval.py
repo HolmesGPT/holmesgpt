@@ -11,6 +11,7 @@ import re
 import pytest
 import yaml
 
+from holmes.core.investigation_path.calibration import build_calibration_samples
 from holmes.core.investigation_path.corpus import (
     DEFAULT_CORPUS_DIR,
     corpus_bytes_per_incident,
@@ -147,78 +148,111 @@ class TestCorpusLoading:
 
 
 class TestOfflineEvalBaseline:
+    """Recorded baseline for the current policy on the current corpus.
+
+    These are thresholds so a regression shows up, not a quality bar anyone
+    should be satisfied with. Five held-out cases cannot establish that this
+    works; they establish that it has not silently got worse.
+    """
+
     @pytest.fixture(scope="class")
     def result(self):
         return run_offline_eval()
 
     def test_every_holdout_case_is_scored(self, result):
-        metrics, outcomes = result
+        metrics, outcomes, _ = result
         assert metrics.cases == len(outcomes) == len(load_corpus(split="holdout"))
 
     def test_no_llm_call_is_made(self, result):
-        metrics, _ = result
+        metrics, _, _ = result
         assert metrics.llm_calls == 0
 
     def test_validation_is_fast_enough_to_be_free(self, result):
-        metrics, _ = result
+        metrics, _, _ = result
         assert metrics.latency_p95_ms < 50
 
-    def test_when_it_answers_it_finds_what_was_skipped(self, result):
-        metrics, _ = result
-        assert metrics.weighted_path_recall_when_answering >= 0.9
+    def test_it_finds_what_was_skipped(self, result):
+        metrics, _, _ = result
+        assert metrics.weighted_path_recall_when_answering >= 0.7
 
-    def test_most_suggestions_are_genuinely_missing(self, result):
-        metrics, _ = result
-        assert metrics.suggestion_precision >= 0.7
+    def test_no_suggestion_is_wrong(self, result):
+        metrics, _, _ = result
+        assert metrics.suggestion_precision >= 0.95
 
     def test_wrong_suggestions_stay_within_the_reading_budget(self, result):
-        metrics, _ = result
-        assert metrics.false_positive_burden <= 1.5
+        metrics, _, _ = result
+        assert metrics.false_positive_burden <= 0.5
 
     def test_abstention_is_not_the_default_answer(self, result):
-        metrics, _ = result
-        assert metrics.abstention_rate <= 0.6
+        metrics, _, _ = result
+        assert metrics.abstention_rate <= 0.4
 
-    def test_confidence_is_not_yet_calibrated(self, result):
-        """Recorded as a known weakness, not a passing grade.
+    def test_confidence_is_calibrated(self, result):
+        metrics, _, _ = result
+        assert metrics.expected_calibration_error <= 0.10
+        assert metrics.brier_score <= 0.10
 
-        The score multiplies three sub-1 terms, so it reads far lower than the
-        observed hit rate. Calibrating it is the next piece of work, and this
-        assertion is here to catch it getting worse in the meantime.
-        """
-        metrics, _ = result
-        assert metrics.expected_calibration_error <= 0.55
+    def test_calibration_is_a_large_improvement_on_the_raw_score(self):
+        """The raw evidence score is a product of four terms below 1, so it
+        reads far below the observed hit rate. This is the gap being closed."""
+        raw, _, _ = run_offline_eval(calibrate=False)
+        calibrated, _, model = run_offline_eval(calibrate=True)
+        assert model.fitted
+        assert calibrated.expected_calibration_error < raw.expected_calibration_error / 2
 
-    def test_abstains_when_only_one_incident_shares_the_root_cause(self, result):
-        _, outcomes = result
-        by_id = {outcome.incident_id: outcome for outcome in outcomes}
-        assert by_id["HOLD-003"].abstained
-        assert by_id["HOLD-003"].abstain_reason == "insufficient_support"
+    def test_calibration_is_fitted_only_on_the_pool(self, result):
+        """Fitting on the held-out cases would make the reported error meaningless."""
+        _, _, model = result
+        assert model.samples == len(build_calibration_samples(load_corpus(split="corpus")))
 
     def test_abstains_on_an_incident_type_it_has_never_seen(self, result):
-        _, outcomes = result
+        _, outcomes, _ = result
         by_id = {outcome.incident_id: outcome for outcome in outcomes}
         assert by_id["HOLD-004"].abstained
         assert by_id["HOLD-004"].abstain_reason == "no_candidates"
 
+    def test_says_nothing_rather_than_something_wrong_on_the_hard_case(self, result):
+        """HOLD-005 matches the cache incidents on symptoms and root cause, but
+        its dependency is a broker. Suggesting the Redis checks would be four
+        confident wrong answers; the correct behaviour is to stay quiet."""
+        _, outcomes, _ = result
+        hard = {outcome.incident_id: outcome for outcome in outcomes}["HOLD-005"]
+        assert hard.false_positives == []
+
+    def test_the_hard_case_is_a_known_gap_not_a_success(self, result):
+        """Staying quiet costs recall, and that cost should stay visible."""
+        _, outcomes, _ = result
+        hard = {outcome.incident_id: outcome for outcome in outcomes}["HOLD-005"]
+        assert hard.missing_weights
+        assert hard.true_positives == []
+
 
 class TestPolicyTradeoffs:
     def test_demanding_more_support_trades_recall_for_precision(self):
-        lenient, _ = run_offline_eval(suggestion_policy=SuggestionPolicy(min_support=1))
-        strict, _ = run_offline_eval(suggestion_policy=SuggestionPolicy(min_support=2))
+        lenient, _, _ = run_offline_eval(
+            suggestion_policy=SuggestionPolicy(min_support_ratio=0.0)
+        )
+        strict, _, _ = run_offline_eval(suggestion_policy=SuggestionPolicy())
         assert strict.suggestion_precision >= lenient.suggestion_precision
         assert strict.false_positive_burden <= lenient.false_positive_burden
 
+    def test_the_support_ratio_filter_is_what_removes_the_false_positives(self):
+        without, _, _ = run_offline_eval(
+            suggestion_policy=SuggestionPolicy(min_support_ratio=0.0)
+        )
+        with_filter, _, _ = run_offline_eval()
+        assert without.false_positive_burden > with_filter.false_positive_burden
+
     def test_raising_the_similarity_floor_raises_abstention(self):
-        base, _ = run_offline_eval()
-        strict, _ = run_offline_eval(
+        base, _, _ = run_offline_eval()
+        strict, _, _ = run_offline_eval(
             retrieval_policy=RetrievalPolicy(min_symptom_similarity=0.9)
         )
         assert strict.abstention_rate >= base.abstention_rate
         assert strict.weighted_path_recall <= base.weighted_path_recall
 
     def test_coarse_signatures_change_the_scores(self):
-        coarse, _ = run_offline_eval(
+        coarse, _, _ = run_offline_eval(
             retrieval_policy=RetrievalPolicy(signature_level=SignatureLevel.COARSE),
             suggestion_policy=SuggestionPolicy(signature_level=SignatureLevel.COARSE),
         )
