@@ -15,12 +15,14 @@ They run at different points in the pipeline and serve different purposes.
 - If it exceeds `max_token_count_for_single_tool` (configured via `TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT`):
     - Saves the full text result to a file on disk.
     - If the result contains images, saves them as separate files on disk.
-    - Replaces the in-conversation result with a pointer message containing the file path, a preview, and instructions for the LLM to `cat` the file or use `read_image_file` to load images back.
+    - Replaces the in-conversation result with a pointer message containing the file path, a preview showing the beginning and the end of the output (the end matters for chronological data like logs), and instructions for the LLM to `cat` the file or use `read_image_file` to load images back.
     - If disk storage is unavailable, drops the data entirely and returns an error asking the LLM to narrow its query.
 
 **Called from:** `tool_calling_llm.py` → `_invoke_llm_tool_call()`, after tool execution.
 
 **Scope:** One tool result at a time. Does not look at the overall conversation size.
+
+**For tool authors:** when spilling is available, `ToolInvokeContext.tool_results_dir` is set during tool invocation. Tools should NOT pre-truncate or summarize their output below the single-tool token budget in that case — doing so destroys data the spill mechanism would otherwise preserve on disk. Only apply lossy in-tool truncation as a fallback when `tool_results_dir` is `None` (storage disabled, or the bash toolset is unavailable so the LLM could not read files back). `fetch_pod_logs` (`holmes/plugins/toolsets/logging_utils/logging_api.py`) is the reference implementation of this pattern.
 
 ## 2. Conversation History Compaction
 

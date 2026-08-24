@@ -8,6 +8,8 @@ from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_context_window_limiter import (
+    PREVIEW_OMISSION_MARKER,
+    build_spill_preview,
     spill_oversized_tool_result,
 )
 
@@ -314,3 +316,56 @@ class TestPreventOverlyBigToolResponse:
         assert "Saved to:" in tcr.result.data
         assert "Images saved to disk" not in tcr.result.data
         assert "read_image_file" not in tcr.result.data
+
+    def test_spill_preview_shows_head_and_tail(self, mock_llm, tmp_path):
+        """The preview of spilled data shows both the start and the end of the
+        output, so chronological data like logs keeps its most recent lines
+        visible in the conversation."""
+        lines = [f"log line {i}" for i in range(5000)]
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="\n".join(lines),
+        )
+        tcr = ToolCallResult(
+            tool_call_id="call-logs-1",
+            tool_name="fetch_pod_logs",
+            description="desc",
+            result=result,
+        )
+
+        mock_llm.get_max_token_count_for_single_tool.return_value = 1000
+        mock_llm.count_tokens.return_value = ContextWindowUsage(
+            total_tokens=50000,
+            system_tokens=0,
+            tools_to_call_tokens=0,
+            tools_tokens=0,
+            user_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+        spill_oversized_tool_result(tcr, mock_llm, tool_results_dir=tmp_path)
+
+        assert "Saved to:" in tcr.result.data
+        assert PREVIEW_OMISSION_MARKER in tcr.result.data
+        assert "log line 0" in tcr.result.data  # head preserved
+        assert "log line 4999" in tcr.result.data  # tail preserved
+
+
+class TestBuildSpillPreview:
+    def test_short_data_returned_unchanged(self):
+        assert build_spill_preview("short", 100) == "short"
+
+    def test_long_data_keeps_head_and_tail(self):
+        data = "A" * 500 + "B" * 500
+        preview = build_spill_preview(data, 300)
+        assert len(preview) <= 300
+        assert preview.startswith("A")
+        assert preview.endswith("B")
+        assert PREVIEW_OMISSION_MARKER in preview
+
+    def test_tiny_budget_falls_back_to_head_only(self):
+        data = "x" * 1000
+        budget = 20  # smaller than two omission markers
+        preview = build_spill_preview(data, budget)
+        assert preview == data[:budget]

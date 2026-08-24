@@ -18,6 +18,25 @@ from holmes.core.tools_utils.filesystem_result_storage import save_images, save_
 from holmes.utils import sentry_helper
 
 
+PREVIEW_OMISSION_MARKER = (
+    "\n\n[... middle omitted, read the file above for the full output ...]\n\n"
+)
+
+
+def build_spill_preview(data: str, budget: int) -> str:
+    """Build a preview of spilled data showing both the beginning and the end.
+
+    The end matters for chronological output like logs (the most recent lines),
+    while the beginning usually shows structure (JSON keys, headers).
+    """
+    if len(data) <= budget:
+        return data
+    if budget <= 2 * len(PREVIEW_OMISSION_MARKER):
+        return data[:budget]
+    half = (budget - len(PREVIEW_OMISSION_MARKER)) // 2
+    return data[:half] + PREVIEW_OMISSION_MARKER + data[-half:]
+
+
 def get_pct_token_count(percent_of_total_context_window: float, llm: LLM) -> int:
     context_window_size = llm.get_context_window_size()
 
@@ -112,7 +131,7 @@ def spill_oversized_tool_result(
         safety_margin_chars_per_token = chars_per_token / 2
         max_chars = max_tokens_allowed * safety_margin_chars_per_token
         preview_budget = int(max(0, max_chars - len(boilerplate)))
-        preview = filesystem_data[:preview_budget]
+        preview = build_spill_preview(filesystem_data, preview_budget)
         tool_call_result.result.data = f"{boilerplate}{preview}"
         # Clear images from the result since they're now on disk
         tool_call_result.result.images = None

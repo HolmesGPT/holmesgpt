@@ -261,6 +261,18 @@ class ToolCallingLLM:
                 return False
         return False
 
+    def _spill_results_dir(self) -> Optional[Path]:
+        """Directory for spilling oversized tool results, or None if spilling
+        is unavailable (no storage dir, storage disabled, or the LLM has no way
+        to read files back because the bash toolset is off)."""
+        if (
+            self.tool_results_dir
+            and load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True)
+            and self._has_bash_for_file_access()
+        ):
+            return self.tool_results_dir
+        return None
+
     def _execute_tool_decisions(
         self,
         messages: List[Dict[str, Any]],
@@ -826,6 +838,7 @@ class ToolCallingLLM:
                 tool_call_id=tool_call_id,
                 session_approved_prefixes=session_approved_prefixes or [],
                 request_context=request_context,
+                tool_results_dir=self._spill_results_dir(),
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
@@ -1007,9 +1020,7 @@ class ToolCallingLLM:
             original_token_count = spill_oversized_tool_result(
                 tool_call_result=tool_call_result,
                 llm=self.llm,
-                tool_results_dir=self.tool_results_dir
-                if self.tool_results_dir and self._has_bash_for_file_access()
-                else None,
+                tool_results_dir=self._spill_results_dir(),
             )
 
             # Record OTel tool span attributes

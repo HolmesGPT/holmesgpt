@@ -1,5 +1,22 @@
+"""Leftover of a removed multi-backend "logging backend" abstraction.
+
+Historically, multiple log toolsets (Loki, Datadog, ...) implemented a shared
+`fetch_pod_logs` interface defined here. That abstraction was dropped: each of
+those toolsets now defines its own tools, and TODAY this module serves exactly
+two purposes:
+
+1. Shared constants (DEFAULT_LOG_LIMIT, DEFAULT_TIME_SPAN_SECONDS,
+   DEFAULT_GRAPH_TIME_SPAN_SECONDS) imported by the Datadog, Loki,
+   VictoriaLogs, Prometheus and Tempo toolsets.
+2. The kubernetes/logs implementation of `fetch_pod_logs` (PodLoggingTool,
+   FetchPodLogsParams, truncate_logs), used ONLY by
+   holmes.plugins.toolsets.kubernetes_logs.KubernetesLogsToolset.
+
+Do not build new logging backends on top of this module — define tools in the
+new toolset directly and import only the constants if you need consistency.
+"""
+
 import logging
-from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import TYPE_CHECKING, Optional
 
@@ -59,6 +76,12 @@ def truncate_logs(
     tool_call_id: str,
     tool_name: str,
 ):
+    """Lossily trim logs from the top until the result fits within token_limit.
+
+    Only used as a fallback when spill-to-disk is unavailable (see
+    PodLoggingTool._invoke): the truncated logs are dropped and cannot be
+    recovered by the LLM, so spilling the full result to disk is preferred.
+    """
     original_token_count = count_tool_response_tokens(
         llm=llm,
         structured_tool_result=logging_structured_tool_result,
@@ -190,14 +213,20 @@ class PodLoggingTool(Tool):
             params=structured_params,
         )
 
-        truncate_logs(
-            logging_structured_tool_result=result,
-            llm=context.llm,
-            token_limit=context.max_token_count,
-            structured_params=structured_params,
-            tool_call_id=context.tool_call_id,
-            tool_name=context.tool_name,
-        )
+        # When spill-to-disk is available, return the full logs: oversized
+        # results are saved to disk by spill_oversized_tool_result and the LLM
+        # gets a preview plus a file path it can cat/grep, instead of silently
+        # losing everything above the token limit. Only fall back to lossy
+        # in-place truncation when the result cannot be spilled.
+        if not context.tool_results_dir:
+            truncate_logs(
+                logging_structured_tool_result=result,
+                llm=context.llm,
+                token_limit=context.max_token_count,
+                structured_params=structured_params,
+                tool_call_id=context.tool_call_id,
+                tool_name=context.tool_name,
+            )
 
         return result
 
@@ -206,94 +235,3 @@ class PodLoggingTool(Tool):
         namespace = params.get("namespace", "unknown-namespace")
         pod_name = params.get("pod_name", "unknown-pod")
         return f"Fetch Logs (pod={pod_name}, namespace={namespace})"
-
-
-def process_time_parameters(
-    start_time: Optional[str],
-    end_time: Optional[str],
-    default_span_seconds: int = DEFAULT_TIME_SPAN_SECONDS,
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    Convert time parameters to standard RFC3339 format
-
-    Args:
-        start_time: Either RFC3339 timestamp or negative integer (seconds before end)
-        end_time: RFC3339 timestamp or None (defaults to now)
-        default_span_seconds: Default time span if start_time not provided
-
-    Returns:
-        Tuple of (start_time, end_time) both in RFC3339 format or None
-    """
-    # Process end time first (as start might depend on it)
-    now = datetime.now(timezone.utc)
-
-    # Handle end_time
-    processed_end_time = None
-    if end_time:
-        try:
-            # Check if it's already in RFC3339 format
-            processed_end_time = end_time
-            datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            # If not a valid RFC3339, log the error and use current time
-            logging.warning(f"Invalid end_time format: {end_time}, using current time")
-            processed_end_time = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    else:
-        # Default to current time
-        processed_end_time = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # Handle start_time
-    processed_start_time = None
-    if start_time:
-        try:
-            # Check if it's a negative integer (relative time)
-            if isinstance(start_time, int) or (
-                isinstance(start_time, str)
-                and start_time.startswith("-")
-                and start_time[1:].isdigit()
-            ):
-                # Convert to seconds before end_time
-                seconds_before = abs(int(start_time))
-
-                # Parse end_time
-                if processed_end_time:
-                    end_datetime = datetime.fromisoformat(
-                        processed_end_time.replace("Z", "+00:00")
-                    )
-                else:
-                    end_datetime = now
-
-                # Calculate start_time
-                start_datetime = end_datetime - timedelta(seconds=seconds_before)
-                processed_start_time = start_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
-            else:
-                # Assume it's RFC3339
-                processed_start_time = start_time
-                datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            # If not a valid format, use default
-            logging.warning(
-                f"Invalid start_time format: {start_time}, using default time span"
-            )
-            if processed_end_time:
-                end_datetime = datetime.fromisoformat(
-                    processed_end_time.replace("Z", "+00:00")
-                )
-            else:
-                end_datetime = now
-
-            start_datetime = end_datetime - timedelta(seconds=default_span_seconds)
-            processed_start_time = start_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
-    else:
-        # Default to default_span_seconds before end_time
-        if processed_end_time:
-            end_datetime = datetime.fromisoformat(
-                processed_end_time.replace("Z", "+00:00")
-            )
-        else:
-            end_datetime = now
-
-        start_datetime = end_datetime - timedelta(seconds=default_span_seconds)
-        processed_start_time = start_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    return processed_start_time, processed_end_time
