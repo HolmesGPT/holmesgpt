@@ -1,0 +1,57 @@
+# Held-out case: should ANSWER. Both corpus OOM incidents match, and the
+# observed investigation never looked at usage against the limit.
+incident_id: HOLD-002
+occurred_at: "2026-06-24"
+source_type: prometheus
+title: Reporting service terminated repeatedly on memory
+subject: reporting-service
+split: holdout
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - oomkilled
+  - pod
+  - restart
+  - memory
+  - limit
+  - reporting
+  - terminated
+
+root_cause:
+  label: oom_kill
+  summary: >-
+    A month-end report built its result set in memory. Usage crossed the limit
+    only on the last day of the month, so the workload looked stable in review.
+
+reference_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.8
+    rationale: Shows the last terminated state and the exit code.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.7
+    rationale: The work in progress before the kill explains what the memory went on.
+  - intent: events
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: The OOMKilled event confirms the kernel killed the container.
+  - intent: resource_usage
+    entity: {kind: metric, name: container_memory_working_set_bytes}
+    weight: 1.0
+    rationale: Shows how close the container ran to its limit before the kill.
+  - intent: describe
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 0.9
+    rationale: The memory limit lives on the workload spec, not in pod status.
+
+observed_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.8
+    rationale: Ran.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.7
+    rationale: Ran, and the restart was reported as a generic crash.

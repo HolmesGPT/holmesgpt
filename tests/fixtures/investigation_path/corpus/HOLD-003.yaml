@@ -1,0 +1,47 @@
+# Held-out case: should ABSTAIN with insufficient_support. Exactly one corpus
+# incident (INC-008) shares this root cause, and answering from a single past
+# incident overfits to it. This case costs recall on purpose - it is how the
+# eval shows the price of the min_matches threshold.
+incident_id: HOLD-003
+occurred_at: "2026-07-02"
+source_type: prometheus
+title: Billing API degraded shortly after a release
+subject: billing-api
+split: holdout
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - http
+  - error
+  - deploy
+  - release
+  - billing
+  - latency
+  - rollout
+
+root_cause:
+  label: config_regression
+  summary: >-
+    A release swapped the retry policy for one that gave up before the upstream
+    could answer, so a share of requests failed on healthy pods.
+
+reference_path:
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: The error shape separates a code fault from a configuration one.
+  - intent: config_history
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 1.0
+    rationale: Lines the error up against the release that introduced it.
+  - intent: metrics
+    entity: {kind: metric, name: http_requests_total}
+    weight: 0.8
+    rationale: Shows whether the errors began exactly at the rollout.
+
+observed_path:
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: Ran.

@@ -1,0 +1,56 @@
+incident_id: INC-002
+occurred_at: "2026-02-03"
+source_type: prometheus
+title: Checkout API timing out on cache reads
+subject: checkout-api
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - redis
+  - connection
+  - pod
+  - restart
+  - timeout
+  - checkout
+  - latency
+
+root_cause:
+  label: dependency_unreachable
+  summary: >-
+    A NetworkPolicy rollout dropped traffic from the checkout namespace to
+    Redis. The Service resolved and Redis was healthy, but no client could
+    open a connection.
+
+reference_path:
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: The application error names the dependency that is failing.
+  - intent: describe
+    entity: {kind: pod, name: redis}
+    weight: 0.5
+    rationale: Rules out the dependency itself being down.
+  - intent: topology
+    entity: {kind: service, name: redis}
+    weight: 0.9
+    rationale: A healthy dependency pod does not prove the Service still selects it.
+  - intent: topology
+    entity: {kind: endpoints, name: redis}
+    weight: 1.0
+    rationale: >-
+      Empty endpoints is the direct evidence that traffic cannot reach the
+      dependency, and is the check that separates this cause from a slow
+      dependency.
+  - intent: metrics
+    entity: {kind: metric, name: redis_connected_clients}
+    weight: 0.6
+    rationale: Confirms whether any client is reaching the dependency at all.
+  # Kept deliberately: this check was useful here but is not part of the
+  # reference path for the held-out cache incidents, so it is a real
+  # false-positive source for the offline eval rather than a synthetic one.
+  - intent: metrics
+    entity: {kind: metric, name: redis_memory_used_bytes}
+    weight: 0.3
+    rationale: Ruled out eviction pressure as an alternative explanation.
