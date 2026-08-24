@@ -699,6 +699,26 @@ mcpAddons:
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
+    # Bearer-token authentication for the server's HTTP endpoint. Without it,
+    # any pod that can reach the port gets the full tool surface (including
+    # cluster mutations) with the remediation ServiceAccount's RBAC, bypassing
+    # Holmes's human-approval gate. The chart generates a random per-release
+    # token Secret and wires both the server and Holmes automatically; the
+    # token is preserved across `helm upgrade` (rotate by deleting the Secret
+    # and upgrading again).
+    # Requires server image >= 1.2.0; when running an older pinned image, the
+    # extra env/header are ignored and behavior is unchanged (unauthenticated).
+    auth:
+      enabled: true
+      # Name of a pre-existing Secret holding the token under the key "token".
+      # When set, the chart creates no Secret and uses this one on both sides.
+      # Required for clusterless rendering (`helm template`, ArgoCD), where the
+      # auto-generated token cannot be looked up and would otherwise change on
+      # every render. Create it once with, e.g.:
+      #   kubectl create secret generic my-remediation-auth \
+      #     --from-literal=token="$(openssl rand -hex 32)"
+      existingSecret: ""
+
     serviceAccount:
       create: true
       name: "k8s-remediation-mcp-sa"
