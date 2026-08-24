@@ -19,12 +19,10 @@ ENV PATH="/root/.local/bin/:$PATH"
 RUN apk add --no-cache \
     curl \
     git \
-    gnupg \
     unzip \
     build-base \
     libffi-dev \
     openssl-dev \
-    unixodbc-dev \
     cyrus-sasl-dev \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
@@ -45,15 +43,18 @@ ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # kubectl: official release binary from dl.k8s.io, pulled with upstream SHA-256
-# verification. v1.36.2 is the first kubectl built with Go >= 1.26.3 (go1.26.4),
-# so it already carries the stdlib CVE fixes (CVE-2026-42499/33814/39836/33811/
-# 39820/39823/39825/39826/42504) that previously forced a from-source rebuild --
-# it is now built with the exact toolchain our other bundled binaries use.
-# argocd/helm/kube-lineage are still rebuilt (see scripts/build_go_binaries.sh)
-# because no upstream release fixes their CVEs yet. Bump KUBECTL_VERSION as newer
-# releases ship (the 1.34/1.35 lines are still on a vulnerable Go toolchain).
+# verification. v1.36.3 is built with Go 1.26.5, so it carries the stdlib CVE
+# fixes (incl. CVE-2026-39822/42505). Known accepted findings: every kubectl
+# release (incl. v1.36.3) still vendors golang.org/x/net v0.49.0, which scanners
+# flag for CVE-2026-33814/25681/27136/39821 (High), CVE-2026-25680/42502/42506
+# (Medium) and CVE-2026-46600 -- all fixed in x/net <= 0.56.0 but with no kubectl
+# release shipping it yet. We previously rebuilt kubectl from source with an
+# x/net replace to clear these (see git history); that was reverted in favor of
+# the official binary. Bump KUBECTL_VERSION when a release ships x/net >= 0.56.0
+# -- check a candidate with:
+#   go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
 ARG TARGETARCH
-ARG KUBECTL_VERSION=v1.36.2
+ARG KUBECTL_VERSION=v1.36.3
 RUN cd /tmp \
     && curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o kubectl.sha256 \
@@ -61,18 +62,6 @@ RUN cd /tmp \
     && mv kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
     && rm -f kubectl.sha256 \
     && kubectl version --client
-
-# Download + signature-verify Microsoft ODBC driver (azure/sql toolset) for the
-# final stage. 18.6.2.1 ships genuine amd64 + aarch64 Alpine apks (the 18.5.x
-# arm64-named apk was mislabeled x86_64 and uninstallable on aarch64).
-ARG MSODBCSQL_VERSION=18.6.2.1-1
-ARG MSODBCSQL_DOWNLOAD=https://download.microsoft.com/download/0b3d5518-b4a7-4a2b-afc7-7ee9e967f93c
-RUN curl -fsSLO "${MSODBCSQL_DOWNLOAD}/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
-    && curl -fsSLO "${MSODBCSQL_DOWNLOAD}/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" \
-    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --import - \
-    && gpg --verify "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
-    && mv "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" /msodbcsql18.apk \
-    && rm -f "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig"
 
 # kube-lineage / ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
 COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz /tmp/kube-lineage.gz
@@ -121,8 +110,8 @@ WORKDIR /app
 COPY --from=builder /venv /venv
 
 # Runtime packages. librdkafka: confluent-kafka binding; libstdc++/libgcc:
-# compiled wheels; krb5-libs/unixodbc: msodbcsql18 (azure/sql). apk upgrade
-# pulls Alpine security fixes for base-image packages.
+# compiled wheels. apk upgrade pulls Alpine security fixes for base-image
+# packages.
 #
 # bash + GNU coreutils/findutils/grep/gzip: the bash toolset allowlist
 # (default_lists.py) lets the LLM run grep/find/sort/date/head/stat/zgrep/etc.
@@ -149,17 +138,10 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     tcpdump \
     libstdc++ \
     libgcc \
-    unixodbc \
-    krb5-libs \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
     librdkafka
-
-# Microsoft ODBC for Azure SQL. The apk was signature-verified in the builder
-# stage; --allow-untrusted since it's not in an Alpine repo.
-COPY --from=builder /msodbcsql18.apk /tmp/msodbcsql18.apk
-RUN apk add --no-cache --allow-untrusted /tmp/msodbcsql18.apk && rm /tmp/msodbcsql18.apk
 
 # Set up kubectl
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl

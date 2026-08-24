@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 from urllib.parse import quote, unquote, urlparse
 
+import certifi
 import requests
 from pydantic import ConfigDict, Field, model_validator
 
@@ -77,7 +78,7 @@ _DATABASE_DRIVERS: Dict[str, DatabaseDriverInfo] = {
     "mysql": DatabaseDriverInfo(DatabaseSubtype.MYSQL, "mysql+pymysql"),
     "mariadb": DatabaseDriverInfo(DatabaseSubtype.MARIADB, "mysql+pymysql"),
     "sqlite": DatabaseDriverInfo(DatabaseSubtype.SQLITE, None),
-    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pymssql"),
+    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pytds"),
     "clickhouse": DatabaseDriverInfo(DatabaseSubtype.CLICKHOUSE, None),
 }
 
@@ -107,6 +108,28 @@ def _detect_subtype(connection_url: str) -> DatabaseSubtype:
     parsed = urlparse(connection_url)
     info = _lookup_driver_info(parsed.scheme)
     return info.subtype if info else DatabaseSubtype.UNKNOWN
+
+
+# Per-subtype icons, copied from the frontend data-source catalog so tool-call
+# icons match the catalog card. One DatabaseToolset backs every SQL subtype, so
+# the icon is picked from the subtype rather than hardcoded (FRO-190).
+_ICON_URL_BASE = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos"
+_SUBTYPE_ICON_URLS: Dict[DatabaseSubtype, str] = {
+    DatabaseSubtype.POSTGRESQL: f"{_ICON_URL_BASE}/postgresql.svg",
+    DatabaseSubtype.MYSQL: f"{_ICON_URL_BASE}/mysql-icon.svg",
+    DatabaseSubtype.MARIADB: f"{_ICON_URL_BASE}/mariadb-icon.svg",
+    DatabaseSubtype.MSSQL: f"{_ICON_URL_BASE}/microsoft-icon.svg",
+    DatabaseSubtype.SQLITE: "https://cdn.simpleicons.org/sqlite/003B57",
+    DatabaseSubtype.CLICKHOUSE: "https://cdn.simpleicons.org/clickhouse/FFCC01",
+}
+
+# Fallback for an unknown subtype; matches the catalog's generic "database/sql".
+_DEFAULT_DATABASE_ICON_URL = f"{_ICON_URL_BASE}/mysql-icon.svg"
+
+
+def _icon_url_for_subtype(subtype: DatabaseSubtype) -> str:
+    """Return the catalog icon URL for a database subtype."""
+    return _SUBTYPE_ICON_URLS.get(subtype, _DEFAULT_DATABASE_ICON_URL)
 
 
 def _parse_clickhouse_http_url(
@@ -236,7 +259,7 @@ class DatabaseConfig(ToolsetConfig):
         description=(
             "SQLAlchemy-compatible database connection URL. "
             "Supported databases: PostgreSQL, MySQL/MariaDB, SQLite, SQL Server. "
-            "Pure-Python drivers are used automatically (pg8000, PyMySQL, pymssql)."
+            "Pure-Python drivers are used automatically (pg8000, PyMySQL, python-tds)."
         ),
         examples=[
             "postgresql://user:pass@host:5432/db",
@@ -349,7 +372,8 @@ class DatabaseToolset(Toolset):
             description=description,
             type=ToolsetType.DATABASE,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/database/",
-            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/postgresql.svg",
+            # Placeholder; replaced per-subtype by _apply_icon_url().
+            icon_url=_DEFAULT_DATABASE_ICON_URL,
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],
             tags=[ToolsetTag.CORE],
@@ -385,6 +409,9 @@ class DatabaseToolset(Toolset):
         # Set initial meta — updated with detected subtype in prerequisites_callable
         self.meta = {"type": "database", "subtype": self._subtype.value}
 
+        # Apply icon for the explicit subtype (or the default until detection).
+        self._apply_icon_url()
+
         self._user_llm_instructions = llm_instructions
         self._dialect: Optional[str] = None
         if self._user_llm_instructions:
@@ -401,9 +428,23 @@ class DatabaseToolset(Toolset):
             if self._subtype == DatabaseSubtype.UNKNOWN:
                 self._subtype = _detect_subtype(self.database_config.connection_url)
             self.meta = {"type": "database", "subtype": self._subtype.value}
+            # Re-apply now the subtype is known (covers auto-detect and lazy init).
+            self._apply_icon_url()
             return self._perform_health_check()
         except Exception as e:
             return False, f"Invalid database configuration: {e}"
+
+    def _apply_icon_url(self) -> None:
+        """Set the toolset and per-tool icon from the resolved subtype.
+
+        Tools are updated directly (not just the toolset) so the correct icon is
+        stamped onto results even under lazy init, where ToolExecutor has already
+        registered the tools and won't re-copy the toolset icon.
+        """
+        icon_url = _icon_url_for_subtype(self._subtype)
+        self.icon_url = icon_url
+        for tool in self.tools:
+            tool.icon_url = icon_url
 
     def _perform_health_check(self) -> Tuple[bool, str]:
         try:
@@ -450,18 +491,34 @@ class DatabaseToolset(Toolset):
                 )
 
     def _create_engine(self, url: str):
-        connect_args = {}
+        connect_args: Dict[str, Any] = {}
+        # Match on the parsed URL scheme, not a substring of the whole URL: a
+        # username or password can contain another engine's name (e.g.
+        # postgresql://mssql_sync_user@host/db) and would otherwise pick the
+        # wrong driver's SSL arguments.
+        subtype = _detect_subtype(url)
 
-        if not self.database_config.verify_ssl:
-            if "postgresql" in url:
+        if subtype is DatabaseSubtype.MSSQL:
+            # pytds only enables TLS when a CA bundle is passed, and always
+            # verifies the server certificate against it — there is no
+            # encrypt-without-verification mode. verify_ssl=True therefore
+            # means an encrypted, certificate-verified connection (Azure SQL
+            # requires TLS); verify_ssl=False disables TLS entirely, which is
+            # what servers with self-signed certificates need.
+            #
+            # certifi.where() is resolved per connection, so a private CA added
+            # at startup via the CERTIFICATE env var (holmes/utils/cert_utils.py)
+            # is picked up here without any toolset-level setting.
+            if self.database_config.verify_ssl:
+                connect_args["cafile"] = certifi.where()
+        elif not self.database_config.verify_ssl:
+            if subtype is DatabaseSubtype.POSTGRESQL:
                 # pg8000 uses ssl_context parameter
                 connect_args["ssl_context"] = None
-            elif "mysql" in url or "pymysql" in url:
+            elif subtype in (DatabaseSubtype.MYSQL, DatabaseSubtype.MARIADB):
                 connect_args["ssl_disabled"] = True
-            elif "clickhouse" in url:
+            elif subtype is DatabaseSubtype.CLICKHOUSE:
                 connect_args["verify"] = False
-            elif "mssql" in url or "pymssql" in url:
-                connect_args["TrustServerCertificate"] = "yes"
 
         return sqlalchemy.create_engine(
             url, pool_pre_ping=True, connect_args=connect_args

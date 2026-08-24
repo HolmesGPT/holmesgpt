@@ -437,6 +437,25 @@ def test_full_reconnect_raises_signin_error(exc):
         asyncio.run(m._full_reconnect())
 
 
+def test_full_reconnect_bounds_hanging_sign_in(monkeypatch):
+    """ROB-759: a sign_in that never returns (half-open connection, missing
+    HTTP timeout) must not stall the reconnect loop forever — _full_reconnect
+    bounds it and raises so the caller's backoff loop retries."""
+    import holmes.core.conversations_worker.realtime_manager as rm
+
+    monkeypatch.setattr(rm, "_RECONNECT_SIGN_IN_TIMEOUT_SECONDS", 0.2)
+    m = _make_manager()
+
+    def hang_forever():
+        import time as _time
+
+        _time.sleep(5)
+
+    m.dal.sign_in = hang_forever
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(m._full_reconnect())
+
+
 @pytest.mark.parametrize(
     "exc", [TimeoutError("ws handshake timed out"), RuntimeError("library bug")]
 )

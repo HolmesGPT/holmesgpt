@@ -15,6 +15,7 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
     CONVERSATION_WORKER_REALTIME_ENABLED,
+    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
 )
@@ -42,7 +43,7 @@ from holmes.core.tools_utils.frontend_tools import (
     FrontendToolCollisionError,
     inject_frontend_tools,
 )
-from holmes.core.tracing import TracingFactory
+from holmes.core.tracing import TracingFactory, langfuse_trace_attributes
 from holmes.core.usage_recorder import (
     build_chat_recorder_state,
     stream_with_usage_recording,
@@ -59,6 +60,22 @@ if TYPE_CHECKING:
 ChatFunction = Callable[
     [ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]
 ]
+
+# Saturation logging (ROB-759): the claim loop previously skipped claiming
+# with zero output when all executor slots were occupied, which looked
+# identical to a dead loop. Logging is transition-based, not periodic, so a
+# healthy busy worker stays quiet:
+#  * Saturation must persist CONTINUOUSLY for this long before the single
+#    INFO line is emitted. A worker churning through a backlog frees a slot
+#    on every completion (which wakes the claim loop synchronously), so its
+#    saturation clock keeps resetting and it never logs — no enter/exit
+#    flicker. Only a worker where nothing completes accumulates the full
+#    window.
+_SATURATION_LOG_AFTER_SECONDS = 60.0
+#  * The stuck-slot WARNING (in-flight age above
+#    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS while claiming is blocked)
+#    repeats at most this often.
+_STUCK_WARN_RATE_LIMIT_SECONDS = 300.0
 
 
 
@@ -96,9 +113,24 @@ class ConversationWorker:
 
         # In-flight (running) tasks, keyed by (conversation_id, request_sequence)
         # — see ConversationTask.active_key — so overlapping turns of one
-        # conversation are counted separately for capacity.
-        self._active_conversation_ids: set = set()
+        # conversation are counted separately for capacity. The value is the
+        # monotonic start time, so the claim loop can report how long each
+        # in-flight task has been holding a slot (ROB-759).
+        self._active_conversation_ids: Dict[Any, float] = {}
         self._active_lock = threading.Lock()
+
+        # Saturation-transition logging state (ROB-759). _saturated_since is
+        # the start of the current CONTINUOUS zero-free-slots stretch (None
+        # when a claim attempt found free capacity); _saturation_logged marks
+        # that the one INFO line for this stretch was emitted (its matching
+        # exit line logs the total duration); _last_stuck_warn rate-limits
+        # the stuck-slot WARNING. None means "never warned" — do NOT use 0.0
+        # as the sentinel: time.monotonic() is seconds since boot on Linux,
+        # so on a freshly booted host `now - 0.0` can be below the rate-limit
+        # window and the FIRST warning would be silently suppressed.
+        self._saturated_since: Optional[float] = None
+        self._saturation_logged: bool = False
+        self._last_stuck_warn: Optional[float] = None
 
         # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
@@ -388,6 +420,20 @@ class ConversationWorker:
             if not self._running:
                 break
             self._notify_event.clear()
+            # Per-tick trace (ROB-759): proves the loop is alive and shows
+            # whether a quiet worker is idle or out of capacity. Guarded so
+            # the lock acquisition and realtime check run only when DEBUG
+            # logging is actually enabled — this fires every poll tick.
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                with self._active_lock:
+                    active = len(self._active_conversation_ids)
+                logging.debug(
+                    "Claim loop tick (triggered=%s, realtime=%s, active=%d/%d)",
+                    triggered,
+                    self._realtime_connected(),
+                    active,
+                    CONVERSATION_WORKER_MAX_CONCURRENT,
+                )
             try:
                 self._try_claim_and_dispatch()
             except Exception:
@@ -419,6 +465,77 @@ class ConversationWorker:
             active = len(self._active_conversation_ids)
         return CONVERSATION_WORKER_MAX_CONCURRENT - active
 
+    def _note_saturation(self) -> None:
+        """Transition-based logging for a claim attempt that found 0 free slots.
+
+        Deliberately NOT edge-triggered: under a backlog every completed
+        conversation wakes the claim loop, which briefly sees a free slot and
+        immediately refills it — an enter/exit pair per completion would be
+        pure flicker. Instead the saturation clock must run CONTINUOUSLY for
+        _SATURATION_LOG_AFTER_SECONDS before the single INFO line is emitted;
+        any claim attempt that finds capacity resets it (see
+        _note_capacity_available). Full capacity under load is a normal state,
+        hence INFO; the WARNING is reserved for slots held longer than
+        CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS — an actual anomaly.
+        """
+        now = time.monotonic()
+        if self._saturated_since is None:
+            self._saturated_since = now
+            return
+        if (
+            not self._saturation_logged
+            and now - self._saturated_since >= _SATURATION_LOG_AFTER_SECONDS
+        ):
+            self._saturation_logged = True
+            with self._active_lock:
+                ages = sorted(
+                    (round(now - started, 1), key)
+                    for key, started in self._active_conversation_ids.items()
+                )
+            logging.info(
+                "Conversation claim capacity saturated for %.0fs: all %d slots "
+                "in use; pending conversations will not be claimed until one "
+                "finishes. In-flight (age_seconds, (conversation_id, "
+                "request_sequence)): %s",
+                now - self._saturated_since,
+                CONVERSATION_WORKER_MAX_CONCURRENT,
+                ages,
+            )
+        if (
+            self._last_stuck_warn is None
+            or now - self._last_stuck_warn >= _STUCK_WARN_RATE_LIMIT_SECONDS
+        ):
+            with self._active_lock:
+                stuck = sorted(
+                    (round(now - started, 1), key)
+                    for key, started in self._active_conversation_ids.items()
+                    if now - started >= CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
+                )
+            if stuck:
+                self._last_stuck_warn = now
+                logging.warning(
+                    "Conversation slot(s) stuck: %d in-flight conversation(s) "
+                    "running longer than %.0fs while claiming is blocked at "
+                    "full capacity. Stuck (age_seconds, (conversation_id, "
+                    "request_sequence)): %s",
+                    len(stuck),
+                    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
+                    stuck,
+                )
+
+    def _note_capacity_available(self, free: int) -> None:
+        """Reset the saturation clock; log the exit line if the enter line fired."""
+        if self._saturation_logged:
+            duration = time.monotonic() - (self._saturated_since or 0.0)
+            logging.info(
+                "Conversation claim capacity available again (free=%d) after "
+                "%.0fs saturated",
+                free,
+                duration,
+            )
+        self._saturated_since = None
+        self._saturation_logged = False
+
     def _try_claim_and_dispatch(self) -> None:
         # Claim only as many pending rows as we have free slots and submit each
         # straight to the executor (the claim already set them 'running'). The
@@ -426,7 +543,12 @@ class ConversationWorker:
         # wakes this loop to re-claim as slots free.
         free = self._free_claim_slots()
         if free <= 0:
+            # All slots occupied: pending rows stay unclaimed until a slot
+            # frees, and previously this returned with zero log output —
+            # indistinguishable from a dead claim loop (ROB-759).
+            self._note_saturation()
             return
+        self._note_capacity_available(free)
         claimed = self.dal.claim_n_pending_conversations(self.holmes_id, free)
         if claimed:
             logging.info(
@@ -474,14 +596,14 @@ class ConversationWorker:
             if not self._running or self._executor is None:
                 return
             with self._active_lock:
-                self._active_conversation_ids.add(task.active_key)
+                self._active_conversation_ids[task.active_key] = time.monotonic()
             try:
                 self._executor.submit(self._process_conversation_safe, task)
             except RuntimeError:
                 # Pool shut down (stop() raced); row stays 'running' and is
                 # recovered by the stale-conversation timeout sweep.
                 with self._active_lock:
-                    self._active_conversation_ids.discard(task.active_key)
+                    self._active_conversation_ids.pop(task.active_key, None)
                 logging.warning(
                     "Executor shut down; dropping claimed conversation %s",
                     task.conversation_id,
@@ -604,7 +726,7 @@ class ConversationWorker:
             )
         finally:
             with self._active_lock:
-                self._active_conversation_ids.discard(task.active_key)
+                self._active_conversation_ids.pop(task.active_key, None)
             # A slot freed up — wake the claim loop to re-claim pending rows.
             self._notify_event.set()
 
@@ -870,10 +992,22 @@ class ConversationWorker:
             # Write an initial ai_message event (optional) - skip; call_stream will emit events
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
             trace_span.log(
+                input=chat_request.ask,
                 metadata={
                     "holmesgpt.investigation.question": chat_request.ask[:1024],
                     "holmesgpt.investigation.stream": True,
                     "holmesgpt.conversation_id": task.conversation_id,
+                    # Langfuse trace-level attributes (user, session, metadata).
+                    **langfuse_trace_attributes(
+                        chat_request.ask,
+                        user_id=chat_request.user_id,
+                        user_email=chat_request.user_email,
+                        account_id=task.account_id,
+                        session_id=task.conversation_id,
+                        cluster_id=task.cluster_id,
+                        model=chat_request.model,
+                        request_source=chat_request.request_source,
+                    ),
                 }
             )
 

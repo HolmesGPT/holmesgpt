@@ -221,6 +221,13 @@ ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
 CONVERSATION_WORKER_MAX_CONCURRENT = int(
     os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
 )
+# An in-flight conversation holding its executor slot longer than this is
+# considered stuck and triggers a WARNING while claiming is blocked at full
+# capacity (ROB-759). Long-running conversations are legitimate, so the
+# default is deliberately generous; local/dev stacks set it much lower.
+CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS", 1800)
+)
 
 # Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
 # Tool calls run in their own pool so they never compete with user chats.

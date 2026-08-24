@@ -56,19 +56,25 @@ jobs:
 
     - name: Update package version (Linux)
       if: matrix.platform == 'linux'
-      run: sed -i 's/__version__ = .*/__version__ = "${{ github.ref_name }}"/g' holmes/__init__.py
+      env:
+        TAG: ${{ github.ref_name }}
+      run: sed -i "s/__version__ = .*/__version__ = \"$TAG\"/g" holmes/__init__.py
 
     # mac has BSD style sed command where you specify -i '' and not just -i
     - name: Update package version (macOS)
       if: matrix.platform == 'darwin'
-      run: sed -i '' 's/__version__ = .*/__version__ = "${{ github.ref_name }}"/g' holmes/__init__.py
+      env:
+        TAG: ${{ github.ref_name }}
+      run: sed -i '' "s/__version__ = .*/__version__ = \"$TAG\"/g" holmes/__init__.py
 
     # windows has no sed, so we use powershell
     - name: Update package version (Windows)
       if: matrix.platform == 'windows'
+      env:
+        TAG: ${{ github.ref_name }}
       run: |
         $filePath = 'holmes/__init__.py'
-        (Get-Content $filePath) -replace '__version__ = .+', '__version__ = "${{ github.ref_name }}"' | Set-Content $filePath
+        (Get-Content $filePath) -replace '__version__ = .+', "__version__ = `"$env:TAG`"" | Set-Content $filePath
       shell: pwsh
 
     - name: Install unixODBC (macOS)
@@ -101,18 +107,22 @@ jobs:
 
     - name: Zip the application (Unix and Mac)
       if: matrix.platform != 'windows'
+      env:
+        TAG: ${{ github.ref_name }}
       run: |
         cd dist
-        zip -r --symlinks holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip holmes
-        mv holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip ../
+        zip -r --symlinks "holmes-${{ matrix.platform }}-${{ matrix.arch }}-$TAG.zip" holmes
+        mv "holmes-${{ matrix.platform }}-${{ matrix.arch }}-$TAG.zip" ../
         cd ..
 
     - name: Zip the application (Windows)
       if: matrix.platform == 'windows'
+      env:
+        TAG: ${{ github.ref_name }}
       run: |
         Set-Location -Path dist
-        Compress-Archive -Path holmes -DestinationPath holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip -Force
-        Move-Item -Path holmes-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip -Destination ..\
+        Compress-Archive -Path holmes -DestinationPath "holmes-${{ matrix.platform }}-${{ matrix.arch }}-$($env:TAG).zip" -Force
+        Move-Item -Path "holmes-${{ matrix.platform }}-${{ matrix.arch }}-$($env:TAG).zip" -Destination ..\
         Set-Location -Path ..
 
     - name: Upload Release Asset
@@ -160,7 +170,9 @@ jobs:
           name: holmes-darwin-arm64-${{ github.ref_name }}
       - name: Calculate hash
         id: calc-hash
-        run: echo "MAC_ARM64_BUILD_HASH=$(sha256sum holmes-darwin-arm64-${{ github.ref_name }}.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+        env:
+          TAG: ${{ github.ref_name }}
+        run: echo "MAC_ARM64_BUILD_HASH=$(sha256sum "holmes-darwin-arm64-$TAG.zip" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
   # Define Linux hash job
   linux-hash:
@@ -178,7 +190,9 @@ jobs:
           name: holmes-linux-amd64-${{ github.ref_name }}
       - name: Calculate hash
         id: calc-hash
-        run: echo "LINUX_BUILD_HASH=$(sha256sum holmes-linux-amd64-${{ github.ref_name }}.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+        env:
+          TAG: ${{ github.ref_name }}
+        run: echo "LINUX_BUILD_HASH=$(sha256sum "holmes-linux-amd64-$TAG.zip" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
   # Update Homebrew formula with new binary URLs and hashes
   update-formula:
@@ -248,8 +262,10 @@ jobs:
           print(content)
           PYTHON_SCRIPT
       - name: Commit and push changes
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git commit -am "Update formula for release ${{ github.ref_name }}"
+          git commit -am "Update formula for release $TAG"
           git push

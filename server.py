@@ -90,7 +90,7 @@ from holmes.core.tools_utils.frontend_tools import (
     FrontendToolCollisionError,
     inject_frontend_tools,
 )
-from holmes.core.tracing import TracingFactory
+from holmes.core.tracing import TracingFactory, langfuse_trace_attributes
 from holmes.core.usage_recorder import (
     build_chat_recorder_state,
     record_error,
@@ -622,9 +622,19 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.stream:
             # Create root investigation span for streaming (same as non-streaming)
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
-            trace_span.log(metadata={
+            trace_span.log(input=chat_request.ask, metadata={
                 "holmesgpt.investigation.question": chat_request.ask[:1024],
                 "holmesgpt.investigation.stream": True,
+                **langfuse_trace_attributes(
+                    chat_request.ask,
+                    user_id=chat_request.user_id,
+                    user_email=chat_request.user_email,
+                    account_id=dal.account_id,
+                    session_id=chat_request.conversation_id,
+                    cluster_id=config.cluster_name,
+                    model=chat_request.model or config.model,
+                    request_source=chat_request.request_source,
+                ),
             })
             otel_metrics = TracingFactory.get_metrics()
             if otel_metrics:
@@ -668,8 +678,18 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span = server_tracer.start_trace(
                         "holmesgpt.investigation",
                     )
-                    trace_span.log(metadata={
+                    trace_span.log(input=chat_request.ask, metadata={
                         "holmesgpt.investigation.question": chat_request.ask[:1024],
+                        **langfuse_trace_attributes(
+                            chat_request.ask,
+                            user_id=chat_request.user_id,
+                            user_email=chat_request.user_email,
+                            account_id=dal.account_id,
+                            session_id=chat_request.conversation_id,
+                            cluster_id=config.cluster_name,
+                            model=chat_request.model or config.model,
+                            request_source=chat_request.request_source,
+                        ),
                     })
 
                 _inv_start = time.time()

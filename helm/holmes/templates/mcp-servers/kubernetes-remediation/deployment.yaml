@@ -21,6 +21,9 @@ data:
   KUBECTL_DANGEROUS_FLAGS: {{ .Values.mcpAddons.kubernetesRemediation.config.dangerousFlags | quote }}
   KUBECTL_PREAPPROVED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.preapprovedCommands | quote }}
   KUBECTL_DIAGNOSTIC_IMAGES: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticImages | quote }}
+  KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticTargetPolicyEnabled | quote }}
+  KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticAllowExternalTargets | quote }}
+  KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticInternalDnsSuffixes | quote }}
   KUBECTL_FILE_READ_ALLOWED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadAllowedPaths | quote }}
   KUBECTL_FILE_READ_DENIED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadDeniedPaths | quote }}
   KUBECTL_ALLOW_ARBITRARY_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowArbitraryKubectlCommands | quote }}
@@ -114,6 +117,21 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: KUBECTL_DIAGNOSTIC_IMAGES
+        - name: KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED
+        - name: KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS
+        - name: KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES
         - name: KUBECTL_FILE_READ_ALLOWED_PATHS
           valueFrom:
             configMapKeyRef:
