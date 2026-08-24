@@ -258,7 +258,7 @@ extraEnvVarsSecrets: []
 # so Holmes uses that model by default. The value must be a key from
 # modelList below. Also supported when Holmes is used as a subchart:
 # set holmes.config.model in the parent values.
-config: {}
+config:
   # model: "gemini-flash"
 
 # List of models available to Holmes. Any string value prefixed with
