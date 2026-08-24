@@ -811,6 +811,30 @@ if ENABLE_CONVERSATION_WORKER:
     )
 
 
+@app.on_event("shutdown")
+def stop_conversation_worker():
+    """Retire in-flight conversations before the process goes away.
+
+    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
+    a graceful shutdown, which runs this hook. Without it nothing ever called
+    ConversationWorker.stop(): the worker threads are daemons, so they were
+    simply frozen at interpreter exit and every conversation the pod was
+    mid-turn on stayed 'running' with a dead assignee until the stale-conversation
+    sweep retired it — up to hours of spinner in the UI. stop() now marks those
+    rows 'timeout' with a "Holmes Restarted" error event first.
+
+    Declared as a sync def on purpose: Starlette runs it in a threadpool, and
+    the body is blocking (Supabase writes plus bounded thread joins). SIGKILL /
+    OOM kill still bypass all of this — the pg_cron sweep stays the backstop.
+    """
+    if conversation_worker is None:
+        return
+    try:
+        conversation_worker.stop()
+    except Exception:
+        logging.error("Failed to stop conversation worker", exc_info=True)
+
+
 @app.get("/api/model")
 def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
