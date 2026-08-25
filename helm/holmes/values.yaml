@@ -948,6 +948,7 @@ operator:
   image: holmes-operator:0.0.0
   registry: robustadev
   imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
 
   # Holmes API connection
   holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
