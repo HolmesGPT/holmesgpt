@@ -292,44 +292,6 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
-  mariadb:
-    enabled: false
-
-    image: "mariadb-http-mcp-minimal:1.0.6"
-    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
-
-    config:
-      host: ""       # MariaDB host
-      port: "3306"   # MariaDB port
-      database: ""   # Database name
-      username: ""   # Username
-      password: ""   # Password
-      namespace: ""  # Kubernetes mcp server namespace
-
-      readOnlyMode: true
-      maxPoolSize: "5"
-      useSSL: true  # Use SSL for database connection
-
-    resources:
-      requests:
-        memory: "256Mi"
-        cpu: "250m"
-      limits:
-        memory: "512Mi"
-        cpu: "500m"
-
-
-    networkPolicy:
-      enabled: true  # Network policy to restrict access to MCP server (recommended)
-
-    # Custom LLM instructions (optional). Leave empty to use default instructions
-    llmInstructions: ""
-
-    annotations: {}
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-
   # Google Cloud Platform MCP addon - provides access to GCP services
   # Docker images and deployment scripts: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
   #
@@ -592,7 +554,7 @@ mcpAddons:
     imagePullPolicy: IfNotPresent
 
     # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
-    mcpGitlabVersion: "2.1.11"
+    mcpGitlabVersion: "2.1.46"
 
     auth:
       # K8s secret holding the GitLab Personal Access Token.
@@ -733,9 +695,29 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.1.0"
+    image: "kubernetes-remediation-mcp:1.2.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
+
+    # Bearer-token authentication for the server's HTTP endpoint. Without it,
+    # any pod that can reach the port gets the full tool surface (including
+    # cluster mutations) with the remediation ServiceAccount's RBAC, bypassing
+    # Holmes's human-approval gate. The chart generates a random per-release
+    # token Secret and wires both the server and Holmes automatically; the
+    # token is preserved across `helm upgrade` (rotate by deleting the Secret
+    # and upgrading again).
+    # Requires server image >= 1.2.0; when running an older pinned image, the
+    # extra env/header are ignored and behavior is unchanged (unauthenticated).
+    auth:
+      enabled: true
+      # Name of a pre-existing Secret holding the token under the key "token".
+      # When set, the chart creates no Secret and uses this one on both sides.
+      # Required for clusterless rendering (`helm template`, ArgoCD), where the
+      # auto-generated token cannot be looked up and would otherwise change on
+      # every render. Create it once with, e.g.:
+      #   kubectl create secret generic my-remediation-auth \
+      #     --from-literal=token="$(openssl rand -hex 32)"
+      existingSecret: ""
 
     serviceAccount:
       create: true
@@ -753,6 +735,25 @@ mcpAddons:
       preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
       # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
       diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+
+      # ---- Diagnostic-pod target policy (server >= 1.2.0) ----
+      # run_preapproved_diagnostic_image is auto-approved and its images are
+      # network-probing tools, so the probe TARGET is the security boundary.
+      # Without this policy, prompt-injected agent output could point curl at the
+      # cloud metadata service and read instance credentials back, or POST cluster
+      # data to an external collector, with no human in the loop.
+      #
+      # Master switch. false disables ALL target checks, including the
+      # cloud-metadata/link-local ranges, and restores that behaviour. Prefer the
+      # two narrower knobs below; only disable if neither fits your environment.
+      diagnosticTargetPolicyEnabled: true
+      # Allow probes to reach hosts outside the cluster. false keeps probes
+      # in-cluster so an auto-approved probe cannot ship data to an external host.
+      # Cloud-metadata and link-local stay denied either way.
+      diagnosticAllowExternalTargets: false
+      # DNS suffixes counted as cluster-internal. Set this if you run a custom
+      # cluster domain (e.g. ".svc,.svc.mycorp.internal").
+      diagnosticInternalDnsSuffixes: ".svc,.svc.cluster.local,.cluster.local"
       # read_file_from_container path policy (allow roots minus secret/token mounts)
       fileReadAllowedPaths: "/"
       fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
