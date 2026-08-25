@@ -1,0 +1,172 @@
+{
+  "alerts": [
+    {
+      "id": "a1-checkout-crashloop",
+      "aggregation_key": "KubePodCrashLooping",
+      "subject_type": "Pod",
+      "subject_name": "checkout-api-7d9c8b6f4-2xk9p",
+      "subject_namespace": "storefront",
+      "cluster": "prod-us-central",
+      "starts_at": "2026-06-30T14:22:10Z",
+      "ends_at": null,
+      "priority": "warning",
+      "source": "prometheus",
+      "title": "Pod checkout-api is crash looping",
+      "description": "Pod storefront/checkout-api-7d9c8b6f4-2xk9p (container api) has restarted 8 times in the last 15 minutes.",
+      "labels": {
+        "namespace": "storefront",
+        "pod": "checkout-api-7d9c8b6f4-2xk9p",
+        "workload": "checkout-api",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "checkout-api pod is restarting repeatedly"
+      }
+    },
+    {
+      "id": "a2-payments-5xx",
+      "aggregation_key": "HighErrorRate",
+      "subject_type": "Deployment",
+      "subject_name": "payments-gateway",
+      "subject_namespace": "storefront",
+      "cluster": "prod-us-central",
+      "starts_at": "2026-06-30T14:24:02Z",
+      "ends_at": null,
+      "priority": "critical",
+      "source": "prometheus",
+      "title": "Elevated 5xx error rate on payments-gateway",
+      "description": "storefront/payments-gateway is returning HTTP 503 for ~40% of requests over the last 10 minutes.",
+      "labels": {
+        "namespace": "storefront",
+        "workload": "payments-gateway",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "payments-gateway error rate above threshold"
+      }
+    },
+    {
+      "id": "b1-inventory-crashloop",
+      "aggregation_key": "KubePodCrashLooping",
+      "subject_type": "Pod",
+      "subject_name": "inventory-worker-6c47b9d8f5-h2ltq",
+      "subject_namespace": "backends",
+      "cluster": "prod-eu-west",
+      "starts_at": "2026-06-30T09:12:44Z",
+      "ends_at": null,
+      "priority": "warning",
+      "source": "prometheus",
+      "title": "Pod inventory-worker is crash looping",
+      "description": "Pod backends/inventory-worker-6c47b9d8f5-h2ltq (container worker) has restarted 6 times in the last 20 minutes.",
+      "labels": {
+        "namespace": "backends",
+        "pod": "inventory-worker-6c47b9d8f5-h2ltq",
+        "workload": "inventory-worker",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "inventory-worker pod is restarting repeatedly"
+      }
+    },
+    {
+      "id": "b2-notification-crashloop",
+      "aggregation_key": "KubePodCrashLooping",
+      "subject_type": "Pod",
+      "subject_name": "notification-worker-59f8c6b7d4-k9xmp",
+      "subject_namespace": "backends",
+      "cluster": "prod-eu-west",
+      "starts_at": "2026-06-30T09:15:20Z",
+      "ends_at": null,
+      "priority": "warning",
+      "source": "prometheus",
+      "title": "Pod notification-worker is crash looping",
+      "description": "Pod backends/notification-worker-59f8c6b7d4-k9xmp (container worker) has restarted 7 times in the last 20 minutes.",
+      "labels": {
+        "namespace": "backends",
+        "pod": "notification-worker-59f8c6b7d4-k9xmp",
+        "workload": "notification-worker",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "notification-worker pod is restarting repeatedly"
+      }
+    },
+    {
+      "id": "c1-report-oom-jun28",
+      "aggregation_key": "KubeContainerOOMKilled",
+      "subject_type": "Deployment",
+      "subject_name": "report-generator",
+      "subject_namespace": "analytics",
+      "cluster": "prod-us-central",
+      "starts_at": "2026-06-28T02:14:05Z",
+      "ends_at": "2026-06-28T03:05:40Z",
+      "priority": "warning",
+      "source": "prometheus",
+      "title": "report-generator container OOMKilled",
+      "description": "analytics/report-generator had a container OOMKilled during the overnight run on Jun 28; the pod recovered afterwards.",
+      "labels": {
+        "namespace": "analytics",
+        "workload": "report-generator",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "report-generator OOMKilled (Jun 28 overnight run)"
+      }
+    },
+    {
+      "id": "c2-report-oom-jun30",
+      "aggregation_key": "KubeContainerOOMKilled",
+      "subject_type": "Deployment",
+      "subject_name": "report-generator",
+      "subject_namespace": "analytics",
+      "cluster": "prod-us-central",
+      "starts_at": "2026-06-30T11:47:12Z",
+      "ends_at": null,
+      "priority": "critical",
+      "source": "prometheus",
+      "title": "report-generator container OOMKilled",
+      "description": "analytics/report-generator is being OOMKilled repeatedly since midday Jun 30 and is currently failing.",
+      "labels": {
+        "namespace": "analytics",
+        "workload": "report-generator",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "report-generator OOMKilled (ongoing, Jun 30)"
+      }
+    }
+  ],
+  "evidence": {
+    "logs": {
+      "storefront/checkout-api-7d9c8b6f4-2xk9p": "2026-06-30T14:21:58Z INFO  api  starting checkout-api build 3f9a1c\n2026-06-30T14:22:01Z INFO  api  connecting to dependency payments-gateway.storefront.svc:8080\n2026-06-30T14:22:03Z ERROR api  downstream call failed: payments-gateway returned 503 (Service Unavailable)\n2026-06-30T14:22:03Z ERROR api  readiness dependency check failed: payments unavailable, aborting startup\n2026-06-30T14:22:04Z WARN  api  upstream detail from payments-gateway: could not acquire connection to payments-db:5432 (pool exhausted, blocked on lock LOCK-8842 held by migration job MIG-7731)\n2026-06-30T14:22:04Z FATAL api  liveness failing; exiting with code 1",
+      "storefront/payments-gateway-5f8a9c7b6-qd4m2": "2026-06-30T14:23:50Z INFO  gw   payments-gateway build 8c21de accepting traffic\n2026-06-30T14:23:57Z ERROR gw   db query failed: could not acquire connection to payments-db:5432 within 5s\n2026-06-30T14:23:58Z ERROR gw   payments-db connection pool exhausted; all 20 connections waiting\n2026-06-30T14:24:00Z ERROR gw   payments-db reports advisory lock LOCK-8842 held by migration job MIG-7731 (schema migration in progress, not yet committed)\n2026-06-30T14:24:00Z ERROR gw   returning HTTP 503 to callers: payments backend unavailable",
+      "backends/inventory-worker-6c47b9d8f5-h2ltq": "2026-06-30T09:05:00Z INFO  worker  inventory-worker build 1a2b3c started, heap limit 512Mi\n2026-06-30T09:08:30Z INFO  worker  processing reconcile loop iteration 4200; heap in use 402Mi\n2026-06-30T09:11:10Z WARN  worker  heap in use 498Mi and climbing; GC not reclaiming (suspected leak in SkuCache, ref OOM-INV-3391)\n2026-06-30T09:12:41Z ERROR worker  java.lang.OutOfMemoryError: Java heap space\n2026-06-30T09:12:43Z FATAL worker  container OOMKilled (exit 137)",
+      "backends/notification-worker-59f8c6b7d4-k9xmp": "2026-06-30T09:15:12Z INFO  worker  notification-worker build 9z8y7x starting\n2026-06-30T09:15:13Z ERROR worker  configuration validation failed: CONFIG-ERR-7742 required environment variable SMTP_RELAY_URL is not set\n2026-06-30T09:15:13Z ERROR worker  cannot initialize notification dispatcher without SMTP_RELAY_URL; aborting\n2026-06-30T09:15:14Z FATAL worker  startup failed, exiting with code 2",
+      "analytics/report-generator-844b7f9c6d-tt7v2": "2026-06-28T02:10:00Z INFO  gen  report-generator run started for nightly batch BATCH-0628-XL (row count 41,900,000 — 6x the usual volume)\n2026-06-28T02:13:59Z WARN  gen  working set 1.9Gi approaching limit 2Gi while materializing BATCH-0628-XL\n2026-06-28T02:14:04Z ERROR gen  OOMKilled while aggregating BATCH-0628-XL\n2026-06-28T03:05:40Z INFO  gen  retried with smaller partitions; batch BATCH-0628-XL completed; run healthy again",
+      "analytics/report-generator-9f5d2a1b83-mn4kd": "2026-06-30T11:40:00Z INFO  gen  report-generator build deploy DEPLOY-0630-mem256 rolled out (memory limit changed 2Gi -> 256Mi)\n2026-06-30T11:47:05Z WARN  gen  working set 251Mi of new limit 256Mi on a normal-sized batch\n2026-06-30T11:47:11Z ERROR gen  OOMKilled on standard batch; new 256Mi limit from DEPLOY-0630-mem256 is far too low\n2026-06-30T11:52:30Z ERROR gen  OOMKilled again; crash looping under the reduced memory limit"
+    },
+    "describe": {
+      "Deployment/storefront/payments-gateway": "Name: payments-gateway\nNamespace: storefront\nReplicas: 3 desired | 3 updated | 3 available\nSelector: app=payments-gateway\nPod Template:\n  Containers:\n   gw:\n    Image: registry.internal/payments-gateway:8c21de\n    Env: PAYMENTS_DB_HOST=payments-db.storefront.svc\nConditions:\n  Available   True\nNote: pods healthy at the process level but returning 503 due to failing calls to payments-db.",
+      "Deployment/storefront/payments-db": "Name: payments-db\nNamespace: storefront\nReplicas: 1 desired | 1 updated | 1 available\nConditions:\n  Available   True\nRecent activity: schema migration job MIG-7731 started 2026-06-30T14:20:31Z and is still running; it holds advisory lock LOCK-8842 on the accounts table, blocking all writer connections. Connection pool for dependents is exhausted while the lock is held.",
+      "Job/storefront/MIG-7731": "Name: MIG-7731\nNamespace: storefront\nStatus: Active (1 running)\nStarted: 2026-06-30T14:20:31Z\nDetail: long-running ALTER TABLE accounts migration; holds advisory lock LOCK-8842 for the duration. Has not committed.",
+      "Pod/backends/inventory-worker-6c47b9d8f5-h2ltq": "Name: inventory-worker-6c47b9d8f5-h2ltq\nNamespace: backends\nContainers:\n  worker:\n    State: Waiting (CrashLoopBackOff)\n    Last State: Terminated (Reason: OOMKilled, Exit Code: 137)\n    Limits: memory: 512Mi\nNote: last termination was OOMKilled; memory limit reached.",
+      "Pod/backends/notification-worker-59f8c6b7d4-k9xmp": "Name: notification-worker-59f8c6b7d4-k9xmp\nNamespace: backends\nContainers:\n  worker:\n    State: Waiting (CrashLoopBackOff)\n    Last State: Terminated (Reason: Error, Exit Code: 2)\n    Env:\n      SMTP_RELAY_URL: (not set)\nNote: last termination was a startup Error (exit 2), not OOM. Missing required env var.",
+      "Deployment/analytics/report-generator": "Name: report-generator\nNamespace: analytics\nReplicas: 1 desired | 1 available\nContainer gen memory limit: 256Mi (changed from 2Gi by rollout DEPLOY-0630-mem256 on 2026-06-30T11:40)\nHistory:\n  - 2026-06-28 02:14: one OOMKill during oversized nightly batch BATCH-0628-XL, self-recovered by 03:05 same day.\n  - 2026-06-30 11:47+: repeated OOMKills after the memory limit was cut to 256Mi; currently crash looping."
+    },
+    "events": {
+      "storefront/checkout-api-7d9c8b6f4-2xk9p": "14:22:04  Warning  BackOff    Back-off restarting failed container api\n14:22:04  Warning  Unhealthy  Liveness probe failed: connection refused\n14:22:03  Warning  Unhealthy  Readiness probe failed: dependency payments unavailable",
+      "storefront/payments-gateway": "14:24:00  Warning  Unhealthy  Readiness probe degraded: payments-db unreachable\n14:24:00  Normal   Pulled     Container image already present",
+      "backends/inventory-worker-6c47b9d8f5-h2ltq": "09:12:43  Warning  BackOff    Back-off restarting failed container worker\n09:12:43  Warning  OOMKilling System OOM encountered, container worker exceeded memory limit",
+      "backends/notification-worker-59f8c6b7d4-k9xmp": "09:15:14  Warning  BackOff    Back-off restarting failed container worker\n09:15:13  Warning  Failed     Error: configuration invalid (missing SMTP_RELAY_URL)",
+      "analytics/report-generator": "Jun 30 11:52  Warning  OOMKilling  container gen exceeded memory limit (256Mi)\nJun 30 11:47  Warning  OOMKilling  container gen exceeded memory limit (256Mi)\nJun 28 02:14  Warning  OOMKilling  container gen exceeded memory limit (2Gi) during nightly batch"
+    }
+  },
+  "ground_truth": {
+    "a1-checkout-crashloop": "dbmig-cascade",
+    "a2-payments-5xx": "dbmig-cascade",
+    "b1-inventory-crashloop": "inv-oom",
+    "b2-notification-crashloop": "notif-config",
+    "c1-report-oom-jun28": "report-jun28",
+    "c2-report-oom-jun30": "report-jun30"
+  }
+}
