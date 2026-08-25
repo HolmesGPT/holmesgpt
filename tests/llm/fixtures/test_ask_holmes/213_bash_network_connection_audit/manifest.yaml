@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: connection-pool
+  namespace: app-213
+  labels:
+    app: connection-pool
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command:
+        - /bin/sh
+        - -c
+        - |
+          # Install netcat and iproute2 for ss
+          apk add --no-cache netcat-openbsd iproute2 >/dev/null 2>&1
+
+          # Create 50 TCP listeners on ports 8001-8050
+          for port in $(seq 8001 8050); do
+            # Use while loop to keep listener alive after connection
+            while true; do nc -l -p $port; done &
+          done
+
+          echo "Created 50 TCP listeners"
+
+          # Wait a moment for listeners to start
+          sleep 2
+
+          # Create connections to each listener (these will be ESTABLISHED)
+          for port in $(seq 8001 8050); do
+            # Keep connection open by sleeping after connect
+            (sleep 3600 | nc 127.0.0.1 $port) &
+          done
+
+          echo "Created 50 client connections"
+
+          # Show connection summary
+          sleep 2
+          echo "Connection states:"
+          ss -tan | head -20
+
+          # Keep container running
+          sleep 3600
+      resources:
+        limits:
+          memory: "128Mi"
+          cpu: "200m"
+        requests:
+          memory: "64Mi"
+          cpu: "100m"
