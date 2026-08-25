@@ -10,7 +10,14 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from holmes.core.otel_tracing import OTelSpan
-from holmes.core.tracing import DummySpan, DummyTracer, SpanType, TracingFactory
+from holmes.core.tracing import (
+    DummySpan,
+    DummyTracer,
+    SpanType,
+    TracingFactory,
+    _LANGFUSE_ENV_PATTERN,
+    langfuse_trace_attributes,
+)
 
 
 @pytest.fixture()
@@ -267,14 +274,10 @@ class TestLangfuseTraceAttributes:
 
     def test_disabled_by_default(self):
         """Returns {} unless HOLMES_LANGFUSE_ATTRIBUTES is enabled."""
-        from holmes.core.tracing import langfuse_trace_attributes
-
         with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", False):
             assert langfuse_trace_attributes("q", user_id="u1", session_id="c1") == {}
 
     def test_full_attrs(self):
-        from holmes.core.tracing import langfuse_trace_attributes
-
         with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             attrs = langfuse_trace_attributes(
                 "why is my pod crashing?",
@@ -304,8 +307,6 @@ class TestLangfuseTraceAttributes:
         ]
 
     def test_user_id_fallback_chain(self):
-        from holmes.core.tracing import langfuse_trace_attributes
-
         with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             assert (
                 langfuse_trace_attributes("q", user_email="a@b.com")["langfuse.user.id"]
@@ -317,8 +318,6 @@ class TestLangfuseTraceAttributes:
             )
 
     def test_empty_values_omitted(self):
-        from holmes.core.tracing import langfuse_trace_attributes
-
         with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             attrs = langfuse_trace_attributes("q")
         # no user/session/metadata/tags keys when nothing is provided
@@ -330,24 +329,18 @@ class TestLangfuseTraceAttributes:
         assert attrs["langfuse.trace.input"] == "q"
 
     def test_langfuse_environment_included_when_set(self):
-        from holmes.core.tracing import langfuse_trace_attributes
-
         with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             with patch("holmes.core.tracing.HOLMES_LANGFUSE_ENVIRONMENT", "production"):
                 attrs = langfuse_trace_attributes("q")
         assert attrs["langfuse.environment"] == "production"
 
     def test_langfuse_environment_omitted_when_attributes_disabled(self):
-        from holmes.core.tracing import langfuse_trace_attributes
-
         with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", False):
             with patch("holmes.core.tracing.HOLMES_LANGFUSE_ENVIRONMENT", "production"):
                 attrs = langfuse_trace_attributes("q")
         assert attrs == {}
 
     def test_langfuse_environment_omitted_when_not_set(self):
-        from holmes.core.tracing import langfuse_trace_attributes
-
         with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
             with patch("holmes.core.tracing.HOLMES_LANGFUSE_ENVIRONMENT", None):
                 attrs = langfuse_trace_attributes("q")
@@ -362,8 +355,6 @@ class TestLangfuseEnvironmentValidation:
         ["production", "staging", "dev", "my-env", "env_1", "a" * 40],
     )
     def test_valid_values_accepted(self, value):
-        from holmes.core.tracing import _LANGFUSE_ENV_PATTERN
-
         assert _LANGFUSE_ENV_PATTERN.fullmatch(value)
 
     @pytest.mark.parametrize(
@@ -379,8 +370,6 @@ class TestLangfuseEnvironmentValidation:
         ],
     )
     def test_invalid_values_rejected(self, value):
-        from holmes.core.tracing import _LANGFUSE_ENV_PATTERN
-
         assert not _LANGFUSE_ENV_PATTERN.fullmatch(value)
 
 
