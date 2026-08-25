@@ -1,4 +1,53 @@
 {{/*
+Name of the Secret holding the HTTP bearer token shared by the remediation
+server (MCP_AUTH_TOKEN) and the Holmes pod (K8S_REMEDIATION_MCP_TOKEN).
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.authSecretName" -}}
+{{- if .Values.mcpAddons.kubernetesRemediation.auth.existingSecret -}}
+{{- .Values.mcpAddons.kubernetesRemediation.auth.existingSecret -}}
+{{- else -}}
+{{- .Release.Name -}}-k8s-remediation-mcp-auth
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolve the HTTP bearer token shared by the remediation server and Holmes.
+Precedence: existing in-cluster Secret > freshly generated. (There is no
+plaintext value knob — the token only ever lives in a Secret, so it never lands
+in values or a pod-template annotation.)
+The generated value is memoized on .Values so every caller in a single render
+(the Secret's data and both pods' checksum annotations) sees the SAME token —
+otherwise the enabling upgrade would write a random token in the Secret while a
+pod-checksum lookup still saw the not-yet-created Secret as empty, and the next
+upgrade would roll that pod spuriously. lookup returns nothing under
+`helm template`/ArgoCD, so set auth.existingSecret for clusterless rendering.
+When auth.existingSecret is set but not yet present at render time, this emits
+nothing; the pods still read the token via secretKeyRef at runtime.
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.authToken" -}}
+{{- $auth := .Values.mcpAddons.kubernetesRemediation.auth -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "holmes.kubernetesRemediationMcp.authSecretName" .) -}}
+{{- if and $existing $existing.data (hasKey $existing.data "token") -}}
+{{- index $existing.data "token" | b64dec -}}
+{{- else if not $auth.existingSecret -}}
+{{- if not (hasKey .Values "_k8sRemediationAuthToken") -}}
+{{- $_ := set .Values "_k8sRemediationAuthToken" (randAlphaNum 48) -}}
+{{- end -}}
+{{- index .Values "_k8sRemediationAuthToken" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Checksum of the auth token for pod-template annotations: rolls the pods when
+the token rotates (env comes from a Secret via secretKeyRef, which does not
+restart pods on its own). Same source as the Secret data, so a stable token
+produces a stable checksum and no needless restarts.
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.authTokenChecksum" -}}
+{{- include "holmes.kubernetesRemediationMcp.authToken" . | sha256sum -}}
+{{- end -}}
+
+{{/*
 Define the LLM instructions for Kubernetes Remediation MCP
 */}}
 {{- define "holmes.kubernetesRemediationMcp.llmInstructions" -}}

@@ -67,40 +67,53 @@ jobs:
 
       - name: Build benchmark command
         id: build-command
+        env:
+          # Read the dispatch inputs via env (not inline ${{ }}) so they are
+          # never parsed as shell. They are emitted below as a JSON argument
+          # array rather than a command string, so the run step can execute
+          # them without a second round of shell parsing either.
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BENCHMARK_TYPE: ${{ github.event.inputs.benchmark_type }}
+          INPUT_TEST_MARKERS: ${{ github.event.inputs.test_markers }}
+          INPUT_MODELS: ${{ github.event.inputs.models }}
+          INPUT_ITERATIONS: ${{ github.event.inputs.iterations }}
         run: |
-          # Start with base command
-          CMD="./run_benchmarks_local.py"
+          ARGS=()
 
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            BENCHMARK_TYPE="${{ github.event.inputs.benchmark_type }}"
-            CUSTOM_MARKERS="${{ github.event.inputs.test_markers }}"
-            MODELS="${{ github.event.inputs.models }}"
-            ITERATIONS="${{ github.event.inputs.iterations }}"
+          if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
+            BENCHMARK_TYPE="$INPUT_BENCHMARK_TYPE"
 
             # Add benchmark type or custom markers (script validates they're mutually exclusive)
-            if [ -n "$CUSTOM_MARKERS" ]; then
-              CMD="$CMD --markers \"$CUSTOM_MARKERS\""
+            if [ -n "$INPUT_TEST_MARKERS" ]; then
+              ARGS+=(--markers "$INPUT_TEST_MARKERS")
             elif [ -n "$BENCHMARK_TYPE" ]; then
-              CMD="$CMD --benchmark-type $BENCHMARK_TYPE"
+              ARGS+=(--benchmark-type "$BENCHMARK_TYPE")
             fi
 
             # Add models only if specified (otherwise use script defaults)
-            if [ -n "$MODELS" ]; then
-              CMD="$CMD --models $MODELS"
+            if [ -n "$INPUT_MODELS" ]; then
+              ARGS+=(--models "$INPUT_MODELS")
             fi
 
             # Add iterations if specified
-            if [ -n "$ITERATIONS" ] && [ "$ITERATIONS" != "1" ]; then
-              CMD="$CMD --iterations $ITERATIONS"
+            if [ -n "$INPUT_ITERATIONS" ] && [ "$INPUT_ITERATIONS" != "1" ]; then
+              ARGS+=(--iterations "$INPUT_ITERATIONS")
             fi
           else
             # Scheduled run: use fast-benchmark with default models
             BENCHMARK_TYPE="fast-benchmark"
-            CMD="$CMD --benchmark-type fast-benchmark --models $DEFAULT_BENCHMARK_MODELS"
+            ARGS+=(--benchmark-type fast-benchmark --models "$DEFAULT_BENCHMARK_MODELS")
           fi
 
-          echo "command=$CMD" >> $GITHUB_OUTPUT
-          echo "benchmark_type=$BENCHMARK_TYPE" >> $GITHUB_OUTPUT
+          if [ ${#ARGS[@]} -gt 0 ]; then
+            ARGS_JSON=$(printf '%s\0' "${ARGS[@]}" | jq -Rsc 'split("\u0000")[:-1]')
+          else
+            ARGS_JSON='[]'
+          fi
+
+          echo "args_json=$ARGS_JSON" >> "$GITHUB_OUTPUT"
+          echo "benchmark_type=$BENCHMARK_TYPE" >> "$GITHUB_OUTPUT"
+          echo "command_display=./run_benchmarks_local.py ${ARGS[*]}" >> "$GITHUB_OUTPUT"
 
       - name: Create model list file
         run: |
@@ -128,9 +141,14 @@ jobs:
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
+          BENCHMARK_ARGS_JSON: ${{ steps.build-command.outputs.args_json }}
         run: |
-          echo "Running: ${{ steps.build-command.outputs.command }}"
-          ${{ steps.build-command.outputs.command }}
+          # Read the arguments back as an array. Executing "${ARGS[@]}" passes
+          # each element as one argv entry with no shell re-parsing, so a
+          # crafted dispatch input cannot reach the secrets in this step's env.
+          mapfile -t -d '' ARGS < <(jq -j '.[] | (., "\u0000")' <<< "$BENCHMARK_ARGS_JSON")
+          echo "Running: ./run_benchmarks_local.py ${ARGS[*]}"
+          ./run_benchmarks_local.py "${ARGS[@]}"
 
       - name: Upload eval results
         if: always()
@@ -148,6 +166,8 @@ jobs:
         if: always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_pr == 'true'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BENCHMARK_TYPE_OUT: ${{ steps.build-command.outputs.benchmark_type }}
+          COMMAND_DISPLAY: ${{ steps.build-command.outputs.command_display }}
         run: |
           # Configure git
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -167,7 +187,7 @@ jobs:
           fi
 
           # Commit and push
-          BENCHMARK_TYPE="${{ steps.build-command.outputs.benchmark_type }}"
+          BENCHMARK_TYPE="$BENCHMARK_TYPE_OUT"
           git commit -m "Update ${BENCHMARK_TYPE:-benchmark} results"
           git push origin "$BRANCH_NAME" --force
 
@@ -176,7 +196,7 @@ jobs:
           PR_BODY="Automated weekly benchmark results from CI.
 
           **Benchmark Type**: ${BENCHMARK_TYPE:-custom}
-          **Command**: ${{ steps.build-command.outputs.command }}"
+          **Command**: $COMMAND_DISPLAY"
 
           # Check if PR already exists
           EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json number --jq '.[0].number')

@@ -1,0 +1,38 @@
+# A single whitelisted endpoint, so the model must use the http toolset's
+# request tool to retrieve the page. `health_check_url` is set deliberately:
+# it makes toolset setup exercise the same redirect-validating request path as
+# the tool call, so a guard that wrongly refuses a plain 200 would fail the
+# toolset's prerequisites and the eval would not even reach the model.
+#
+# The cluster/binary toolsets are disabled so this eval needs no Kubernetes,
+# and so the model cannot answer via bash/curl instead of the guarded path.
+toolsets:
+  example_api:
+    type: http
+    enabled: true
+    description: "Example public API used to verify whitelisted HTTP access"
+    config:
+      endpoints:
+        - hosts: ["www.example.com"]
+          paths: ["*"]
+          methods: ["GET"]
+          health_check_url: "https://www.example.com/"
+          auth:
+            type: none
+    llm_instructions: |
+      Use the example_api_request tool to fetch pages from www.example.com.
+      Responses are HTML documents, not JSON. Never pass the `jq` or
+      `max_depth` parameters to this tool — they apply a JSON filter and
+      discard the HTML body. Read the returned body directly.
+  internet:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false
+  connectivity_check:
+    enabled: false

@@ -19,12 +19,10 @@ ENV PATH="/root/.local/bin/:$PATH"
 RUN apk add --no-cache \
     curl \
     git \
-    gnupg \
     unzip \
     build-base \
     libffi-dev \
     openssl-dev \
-    unixodbc-dev \
     cyrus-sasl-dev \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
@@ -64,32 +62,6 @@ RUN cd /tmp \
     && mv kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
     && rm -f kubectl.sha256 \
     && kubectl version --client
-
-# flux: official release binary from GitHub releases, checksum-verified the same
-# way as kubectl above. Unlike argocd/helm/kube-lineage, this is not going through
-# the CVE-rebuild pipeline in scripts/build_go_binaries.sh - flagging that as a
-# decision for a maintainer to confirm/revisit rather than assuming it unilaterally.
-ARG FLUX_VERSION=2.9.2
-RUN cd /tmp \
-    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz" \
-    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
-    && grep " flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz\$" "flux_${FLUX_VERSION}_checksums.txt" | sha256sum -c - \
-    && tar -xzf "flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz" flux \
-    && mv flux /usr/local/bin/flux && chmod +x /usr/local/bin/flux \
-    && rm -f "flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz" "flux_${FLUX_VERSION}_checksums.txt" \
-    && flux --version
-
-# Download + signature-verify Microsoft ODBC driver (azure/sql toolset) for the
-# final stage. 18.6.2.1 ships genuine amd64 + aarch64 Alpine apks (the 18.5.x
-# arm64-named apk was mislabeled x86_64 and uninstallable on aarch64).
-ARG MSODBCSQL_VERSION=18.6.2.1-1
-ARG MSODBCSQL_DOWNLOAD=https://download.microsoft.com/download/0b3d5518-b4a7-4a2b-afc7-7ee9e967f93c
-RUN curl -fsSLO "${MSODBCSQL_DOWNLOAD}/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
-    && curl -fsSLO "${MSODBCSQL_DOWNLOAD}/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" \
-    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --import - \
-    && gpg --verify "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
-    && mv "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" /msodbcsql18.apk \
-    && rm -f "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig"
 
 # kube-lineage / ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
 COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz /tmp/kube-lineage.gz
@@ -138,8 +110,8 @@ WORKDIR /app
 COPY --from=builder /venv /venv
 
 # Runtime packages. librdkafka: confluent-kafka binding; libstdc++/libgcc:
-# compiled wheels; krb5-libs/unixodbc: msodbcsql18 (azure/sql). apk upgrade
-# pulls Alpine security fixes for base-image packages.
+# compiled wheels. apk upgrade pulls Alpine security fixes for base-image
+# packages.
 #
 # bash + GNU coreutils/findutils/grep/gzip: the bash toolset allowlist
 # (default_lists.py) lets the LLM run grep/find/sort/date/head/stat/zgrep/etc.
@@ -166,17 +138,10 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     tcpdump \
     libstdc++ \
     libgcc \
-    unixodbc \
-    krb5-libs \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
     librdkafka
-
-# Microsoft ODBC for Azure SQL. The apk was signature-verified in the builder
-# stage; --allow-untrusted since it's not in an Alpine repo.
-COPY --from=builder /msodbcsql18.apk /tmp/msodbcsql18.apk
-RUN apk add --no-cache --allow-untrusted /tmp/msodbcsql18.apk && rm /tmp/msodbcsql18.apk
 
 # Set up kubectl
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl

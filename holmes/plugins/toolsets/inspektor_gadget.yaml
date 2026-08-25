@@ -195,7 +195,16 @@ toolsets:
             type: integer
             description: "Filter by minimum latency (nanoseconds)"
             default: 0
-        command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_dns:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} {% if name %}--filter name~{{ name }}{% endif %} {% if nameserver %}--filter nameserver.addr=={{ nameserver }}{% endif %} {% if minimal_latency %}--filter 'latency_ns_raw>={{ minimal_latency }}'{% endif %}"
+        # SECURITY: minimal_latency is assigned to a shell variable (unquoted
+        # slot) and referenced as "$MIN_LATENCY" inside the double-quoted filter.
+        # The single quotes here protect the ">=" from the shell; interpolating
+        # {{ minimal_latency }} inside them let the sanitized value's own quote
+        # break out and run $(...) command substitution. All other params sit in
+        # unquoted slots where shlex.quote already makes them safe.
+        script: |
+          #!/bin/bash
+          MIN_LATENCY={{ minimal_latency }}
+          kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run trace_dns:v0.49.0 -o json --timeout {{ timeout }}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %}{% if name %} --filter name~{{ name }}{% endif %}{% if nameserver %} --filter nameserver.addr=={{ nameserver }}{% endif %}{% if minimal_latency %} --filter "latency_ns_raw>=${MIN_LATENCY}"{% endif %}
 
   inspektor-gadget/tcpdump:
     description: "Inspektor Gadget tcpdump gadget for Kubernetes node-level packet capture"

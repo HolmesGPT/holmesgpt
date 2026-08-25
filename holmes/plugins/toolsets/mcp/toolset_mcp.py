@@ -125,7 +125,7 @@ class MCPMode(str, Enum):
 # Well-known, read-only "who am I" tools used to verify MCP authentication when
 # no health_check_tool is explicitly configured. MCP servers commonly expose an
 # authenticated-identity endpoint (e.g. GitHub's get_me, GitLab's
-# get_current_user). Calling one with empty arguments is a side-effect-free way
+# whoami). Calling one with empty arguments is a side-effect-free way
 # to confirm credentials (such as an API token) are actually valid, since
 # list_tools succeeds even with a bad token. Order reflects matching priority.
 DEFAULT_HEALTH_CHECK_TOOLS: List[str] = [
@@ -195,6 +195,17 @@ class MCPConfig(ToolsetConfig):
         "connection is fully functional (e.g., API token is valid). Example: 'get_me' for GitHub MCP.",
         examples=["get_me", "get_current_user"],
     )
+
+    @model_validator(mode="after")
+    def default_oauth_resource(self) -> "MCPConfig":
+        """Default the RFC 8707 resource indicator to the MCP server's canonical URL.
+
+        Only fills the value when it wasn't configured explicitly (None); an
+        explicit empty string opts out of sending a resource parameter entirely.
+        """
+        if self.oauth is not None and self.oauth.resource is None:
+            self.oauth.resource = str(self.url).rstrip("/")
+        return self
 
     def get_lock_string(self) -> str:
         return str(self.url)
@@ -372,6 +383,7 @@ class RemoteMCPTool(Tool):
                 client_secret=oauth_config.client_secret,
                 scopes=oauth_config.scopes,
                 registration_endpoint=oauth_config.registration_endpoint,
+                resource=oauth_config.resource,
             )
             token_data = cli_oauth_flow(oauth_endpoints, self.toolset.name)
             if token_data:
@@ -404,6 +416,8 @@ class RemoteMCPTool(Tool):
             metadata["scopes"] = oauth_config.scopes
         if oauth_config.registration_endpoint:
             metadata["registration_endpoint"] = oauth_config.registration_endpoint
+        if oauth_config.resource:
+            metadata["resource"] = oauth_config.resource
         params["__oauth_metadata"] = metadata
 
         return ApprovalRequirement(
@@ -555,7 +569,7 @@ class RemoteMCPTool(Tool):
     ) -> StructuredToolResult:
         is_remote = self.is_remote
         call_params = params
-        if user_approved:
+        if is_remote and user_approved:
             call_params = {**call_params, REMOTE_TOOL_APPROVED_PARAM: True}
         if is_remote and session_approved_prefixes:
             call_params = {

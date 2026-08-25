@@ -3,6 +3,7 @@
 import os
 import tempfile
 
+import certifi
 import pytest
 from pydantic import ValidationError
 
@@ -55,7 +56,14 @@ class TestNormaliseUrl:
     def test_mssql_url(self):
         assert (
             _normalise_url("mssql://user:pass@host/db")
-            == "mssql+pymssql://user:pass@host/db"
+            == "mssql+pytds://user:pass@host/db"
+        )
+
+    def test_legacy_pymssql_url_rewritten_to_pytds(self):
+        # Configs written before the pymssql -> python-tds swap keep working.
+        assert (
+            _normalise_url("mssql+pymssql://user:pass@host/db")
+            == "mssql+pytds://user:pass@host/db"
         )
 
     def test_sqlite_url(self):
@@ -142,6 +150,115 @@ class TestDatabaseToolset:
     def test_toolset_disabled_by_default(self):
         toolset = DatabaseToolset()
         assert toolset.enabled is False
+
+
+_CERTIFI_BUNDLE = certifi.where()
+
+
+class TestCreateEngineConnectArgs:
+    """verify_ssl maps to the correct driver-specific connect_args."""
+
+    def _connect_args(self, monkeypatch, url, verify_ssl):
+        toolset = DatabaseToolset()
+        toolset.config = DatabaseConfig(connection_url=url, verify_ssl=verify_ssl)
+        captured = {}
+
+        def fake_create_engine(engine_url, **kwargs):
+            captured["connect_args"] = kwargs["connect_args"]
+
+        monkeypatch.setattr(sqlalchemy, "create_engine", fake_create_engine)
+        toolset._create_engine(url)
+        return captured["connect_args"]
+
+    def test_mssql_verify_ssl_enables_tls_with_ca_bundle(self, monkeypatch):
+        # pytds only turns TLS on when a CA bundle is passed; certifi's bundle
+        # gives a certificate-verified connection (required by Azure SQL).
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {"cafile": certifi.where()}
+
+    def test_mssql_no_verify_ssl_disables_tls(self, monkeypatch):
+        # pytds has no encrypt-without-verification mode, so verify_ssl=False
+        # means no TLS at all (self-signed / plain servers).
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=False
+        )
+        assert args == {}
+
+    def test_postgres_no_verify_ssl(self, monkeypatch):
+        args = self._connect_args(
+            monkeypatch, "postgresql+pg8000://user:pass@host/db", verify_ssl=False
+        )
+        assert args == {"ssl_context": None}
+
+    def test_postgres_verify_ssl_passes_no_args(self, monkeypatch):
+        args = self._connect_args(
+            monkeypatch, "postgresql+pg8000://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {}
+
+    def test_mssql_ca_bundle_resolved_per_connection(self, monkeypatch):
+        """A custom CA added at startup (CERTIFICATE env var) must be honored.
+
+        cert_utils patches certifi.where(), so resolving it per connection is
+        what lets a private-CA SQL Server work without a toolset-level setting.
+        """
+        monkeypatch.setattr(certifi, "where", lambda: "/tmp/custom_ca.pem")
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {"cafile": "/tmp/custom_ca.pem"}
+
+    @pytest.mark.parametrize("verify_ssl", [True, False])
+    def test_engine_name_in_credentials_does_not_pick_wrong_driver(
+        self, monkeypatch, verify_ssl
+    ):
+        """A username containing another engine's name must not route SSL args.
+
+        'mssql' appears in the username here, but this is a PostgreSQL URL and
+        must get pg8000's arguments, never pytds's cafile.
+        """
+        url = "postgresql+pg8000://mssql_sync_user:pw@pg.example.com:5432/analytics"
+        args = self._connect_args(monkeypatch, url, verify_ssl=verify_ssl)
+        assert "cafile" not in args
+        assert args == ({} if verify_ssl else {"ssl_context": None})
+
+    def test_mysql_credentials_containing_mssql(self, monkeypatch):
+        url = "mysql+pymysql://mssql_migrator:pw@mysql.example.com/db"
+        args = self._connect_args(monkeypatch, url, verify_ssl=False)
+        assert args == {"ssl_disabled": True}
+
+    # Full engine x verify_ssl matrix. Every supported engine is pinned here so
+    # a change to one driver's SSL handling cannot silently alter another's.
+    # URLs are post-_normalise_url, which is what _create_engine always receives.
+    @pytest.mark.parametrize(
+        "url,verify_ssl,expected",
+        [
+            # SQL Server: TLS only when verifying; certifi bundle enables it.
+            ("mssql+pytds://u:p@host/db", True, {"cafile": _CERTIFI_BUNDLE}),
+            ("mssql+pytds://u:p@host/db", False, {}),
+            # PostgreSQL: pg8000 disables verification via ssl_context=None.
+            ("postgresql+pg8000://u:p@host/db", True, {}),
+            ("postgresql+pg8000://u:p@host/db", False, {"ssl_context": None}),
+            # MySQL / MariaDB: both normalise to pymysql, which uses ssl_disabled.
+            ("mysql+pymysql://u:p@host/db", True, {}),
+            ("mysql+pymysql://u:p@host/db", False, {"ssl_disabled": True}),
+            ("mariadb://u:p@host/db", True, {}),
+            ("mariadb://u:p@host/db", False, {"ssl_disabled": True}),
+            # ClickHouse uses `verify`.
+            ("clickhouse://u:p@host/db", True, {}),
+            ("clickhouse://u:p@host/db", False, {"verify": False}),
+            # SQLite is a local file: no SSL arguments in either mode.
+            ("sqlite:///tmp/test.db", True, {}),
+            ("sqlite:///tmp/test.db", False, {}),
+            # An unrecognised engine must not inherit another driver's args.
+            ("oracle+cx_oracle://u:p@host/db", True, {}),
+            ("oracle+cx_oracle://u:p@host/db", False, {}),
+        ],
+    )
+    def test_ssl_args_matrix(self, monkeypatch, url, verify_ssl, expected):
+        assert self._connect_args(monkeypatch, url, verify_ssl) == expected
 
 
 class TestSubtypeIcons:
@@ -360,6 +477,9 @@ class TestDetectSubtype:
 
     def test_mssql(self):
         assert _detect_subtype("mssql://user:pass@host/db") == DatabaseSubtype.MSSQL
+
+    def test_mssql_pytds(self):
+        assert _detect_subtype("mssql+pytds://user:pass@host/db") == DatabaseSubtype.MSSQL
 
     def test_mssql_pymssql(self):
         assert _detect_subtype("mssql+pymssql://user:pass@host/db") == DatabaseSubtype.MSSQL
