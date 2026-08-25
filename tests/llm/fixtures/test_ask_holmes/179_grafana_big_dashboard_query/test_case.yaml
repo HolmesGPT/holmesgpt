@@ -6,6 +6,10 @@ user_prompt: "In the 'E-Commerce Platform Monitoring' dashboard, find the Promet
 expected_output:
   - 'ecommerce_checkout_processing_delay_seconds{payment_gateway="stripe",region="us_east"} * 1000'
 
+toolsets_matrix:
+  - toolsets_builtin.yaml
+  - toolsets_mcp.yaml
+
 before_test: |
   set -e  # Exit immediately if any command fails
   kubectl create namespace app-179 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
@@ -120,6 +124,9 @@ before_test: |
     exit 1
   fi
   
+  # Deploy Grafana MCP server for MCP variant
+  NS=app-179 source ../../shared/setup-grafana-mcp.sh
+
   echo "✅ Test setup completed successfully - Node Exporter Full dashboard created and verified!"
 
 after_test: |
@@ -130,6 +137,10 @@ port_forwards:
     service: grafana
     local_port: 10179
     remote_port: 3000
+  - namespace: app-179
+    service: grafana-mcp
+    local_port: 11179
+    remote_port: 8000
 
 tags:
   - hard

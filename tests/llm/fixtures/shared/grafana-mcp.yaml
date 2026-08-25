@@ -1,0 +1,78 @@
+# Shared Grafana MCP server deployment for test fixtures
+# Connects to a Grafana instance in the same namespace at http://grafana:3000
+# Requires a Secret named 'grafana-mcp-token' with key 'token' containing a
+# Grafana service account token. Create it before applying this manifest:
+#
+#   kubectl create secret generic grafana-mcp-token \
+#     --from-literal=token=<SA_TOKEN> -n <namespace>
+#
+# Apply with: kubectl apply -f grafana-mcp.yaml -n <namespace>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana-mcp
+  template:
+    metadata:
+      labels:
+        app: grafana-mcp
+      annotations:
+        admission.datadoghq.com/enabled: "false"
+    spec:
+      containers:
+      - name: mcp
+        image: grafana/mcp-grafana:0.10.0-alpine
+        args:
+          - "-t"
+          - "sse"
+          - "--disable-write"
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: GRAFANA_URL
+          value: "http://grafana:3000"
+        - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: grafana-mcp-token
+              key: token
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        readinessProbe:
+          httpGet:
+            path: /sse
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        startupProbe:
+          httpGet:
+            path: /sse
+            port: http
+          periodSeconds: 3
+          failureThreshold: 20   # ~60s max startup
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-mcp
+spec:
+  selector:
+    app: grafana-mcp
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http

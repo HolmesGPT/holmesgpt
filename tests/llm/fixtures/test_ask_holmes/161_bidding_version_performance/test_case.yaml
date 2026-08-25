@@ -13,11 +13,19 @@ tags:
   - prometheus
   - medium
 
+toolsets_matrix:
+  - toolsets_builtin.yaml
+  - toolsets_mcp.yaml
+
 port_forwards:
   - namespace: app-161
     service: prometheus
     local_port: 10161
     remote_port: 9090
+  - namespace: app-161
+    service: grafana-mcp
+    local_port: 11161
+    remote_port: 8000
 
 setup_timeout: 480
 
@@ -58,6 +66,9 @@ before_test: |
 
   echo "🧹 Cleaning up k6 jobs to prevent AI detection"
   kubectl delete jobs -n app-161 -l app=k6 --ignore-not-found=true
+
+  # Deploy Grafana + Prometheus datasource + MCP server for MCP variant
+  NS=app-161 PROM_URL=http://prometheus:9090 source ../../shared/setup-grafana-prometheus-mcp.sh
 
   echo "✅ Test setup completed"
 
