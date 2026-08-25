@@ -17,6 +17,7 @@ nav:
   - DataDog: datadog.md
   - Docker: docker.md
   - Elasticsearch / OpenSearch: elasticsearch.md
+  - F5 Distributed Cloud: f5-distributed-cloud.md
   - GCP (MCP): gcp.md
   - GitHub (MCP): github-mcp.md
   - GitLab (MCP): gitlab-mcp.md
