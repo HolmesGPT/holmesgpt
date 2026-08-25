@@ -197,6 +197,7 @@ markers = [
     "victorialogs: Tests for VictoriaLogs toolset functionality",
     "integration: Integration tests requiring external services (e.g., running server, real APIs)",
     "confluence: Tests for Confluence page fetching toolset",
+    "overconfidence: Tests for detecting overconfident diagnostic language when root cause is outside observable scope",
     # REGRESSION TEST SELECTION CRITERIA:
     # - Must pass 30+ iterations reliably with Sonnet-4.5 model
     # - No external API dependencies (Loki OK, NewRelic/DataDog excluded)
