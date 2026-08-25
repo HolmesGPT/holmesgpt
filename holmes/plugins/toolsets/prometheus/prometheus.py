@@ -52,7 +52,7 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 PROMETHEUS_RULES_CACHE_KEY = "cached_prometheus_rules"
 PROMETHEUS_METADATA_API_LIMIT = 100  # Default limit for Prometheus metadata APIs (series, labels, metadata) to prevent overwhelming responses
 # Default timeout values for PromQL queries
-DEFAULT_QUERY_TIMEOUT_SECONDS = 20
+DEFAULT_QUERY_TIMEOUT_SECONDS = 30
 MAX_QUERY_TIMEOUT_SECONDS = 180
 # Default timeout for metadata API calls (discovery endpoints)
 DEFAULT_METADATA_TIMEOUT_SECONDS = 20
@@ -1611,7 +1611,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            timeout = params.get("timeout") or default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
@@ -1865,7 +1865,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            timeout = params.get("timeout") or default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
