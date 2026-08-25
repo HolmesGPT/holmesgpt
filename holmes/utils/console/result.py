@@ -46,3 +46,7 @@ def handle_result(
     elif destination == DestinationType.SLACK:
         slack = config.create_slack_destination()
         slack.send_issue(issue, result)
+
+    elif destination == DestinationType.TEAMS:
+        teams = config.create_teams_destination()
+        teams.send_issue(issue, result)

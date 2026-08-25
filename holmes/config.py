@@ -33,6 +33,7 @@ from holmes.plugins.skills.skill_loader import (
 if TYPE_CHECKING:
     from holmes.core.tool_calling_llm import ToolCallingLLM
     from holmes.plugins.destinations.slack import SlackDestination
+    from holmes.plugins.destinations.teams import TeamsDestination
     from holmes.plugins.sources.github import GitHubSource
     from holmes.plugins.sources.jira import JiraServiceManagementSource, JiraSource
     from holmes.plugins.sources.opsgenie import OpsGenieSource
@@ -123,6 +124,8 @@ class Config(RobustaBaseConfig):
 
     slack_token: Optional[SecretStr] = None
     slack_channel: Optional[str] = None
+
+    teams_webhook_url: Optional[str] = None
 
     pagerduty_api_key: Optional[SecretStr] = None
     pagerduty_user_email: Optional[str] = None
@@ -287,6 +290,7 @@ class Config(RobustaBaseConfig):
             "jira_query",
             "slack_token",
             "slack_channel",
+            "teams_webhook_url",
             "github_url",
             "github_owner",
             "github_repository",
@@ -765,6 +769,13 @@ class Config(RobustaBaseConfig):
         if self.slack_channel is None:
             raise ValueError("--slack-channel must be specified")
         return SlackDestination(self.slack_token.get_secret_value(), self.slack_channel)
+
+    def create_teams_destination(self) -> "TeamsDestination":
+        from holmes.plugins.destinations.teams import TeamsDestination
+
+        if self.teams_webhook_url is None:
+            raise ValueError("--teams-webhook-url must be specified")
+        return TeamsDestination(self.teams_webhook_url)
 
     @staticmethod
     def _format_token_count(n: int) -> str:
