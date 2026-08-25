@@ -153,6 +153,9 @@ spec:
           timeoutSeconds: 3
           failureThreshold: 3
         env:
+          # ~/.holmes is unwritable under readOnlyRootFilesystem; /tmp is the emptyDir
+          - name: HOLMES_CONFIGPATH_DIR
+            value: /tmp/.holmes
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
           - name: ENABLE_JSON_LOGS_FORMAT
