@@ -31,24 +31,29 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="app-183c-logs"
 
-  # Delete the index if it exists (clean slate)
-  echo "⏳ Cleaning up any existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  # Create the test index with mapping (wait for shard to be active)
-  echo "⏳ Creating test index with log mapping..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  # Reentrancy: index name is static and shared with parallel CI runs of this
+  # eval. Do NOT delete - that would wipe a parallel run's data. Create-or-
+  # reuse instead, and use stable doc _ids so concurrent runs converge on
+  # the same documents (the verification expects exactly 3 ERROR rows).
+  echo "⏳ Creating (or reusing) test index with log mapping..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"service":{"type":"keyword"},"error_code":{"type":"keyword"},"message":{"type":"text"}}}}')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create index: $CREATE_RESPONSE"
     exit 1
   fi
 
   sleep 2
+
+  # One-shot stale-doc cleanup: drop any doc whose _id isn't in our known
+  # set. Safe under concurrency (parallel run's docs match the keep-list).
+  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"must_not":[{"ids":{"values":["log-1","log-2","log-3","log-4","log-5","log-6","log-7"]}}]}}}' > /dev/null
 
   # Define the specific error codes for anti-hallucination testing
   ERROR_CODE_1="ERR-7291"
@@ -58,21 +63,23 @@ before_test: |
   # Create unique temp file
   BULK_FILE="/tmp/es_bulk_183c_$$.ndjson"
 
-  # Create bulk data file with mixed log levels and specific error codes
+  # Create bulk data file with mixed log levels and specific error codes.
+  # Stable _ids make this idempotent under concurrent runs (overwrite, not
+  # duplicate) so the ERROR-count check stays at exactly 3.
   cat > "$BULK_FILE" << BULK_EOF
-  {"index":{}}
+  {"index":{"_id":"log-1"}}
   {"timestamp":"2025-01-01T10:00:00Z","level":"INFO","service":"payment-api","message":"Service started successfully"}
-  {"index":{}}
+  {"index":{"_id":"log-2"}}
   {"timestamp":"2025-01-01T10:05:00Z","level":"ERROR","service":"payment-api","error_code":"${ERROR_CODE_1}","message":"Database connection timeout - ${ERROR_CODE_1}: Failed to connect to primary database after 30s"}
-  {"index":{}}
+  {"index":{"_id":"log-3"}}
   {"timestamp":"2025-01-01T10:06:00Z","level":"WARN","service":"payment-api","message":"Retrying database connection"}
-  {"index":{}}
+  {"index":{"_id":"log-4"}}
   {"timestamp":"2025-01-01T10:10:00Z","level":"ERROR","service":"order-service","error_code":"${ERROR_CODE_2}","message":"Payment validation failed - ${ERROR_CODE_2}: Invalid card number format"}
-  {"index":{}}
+  {"index":{"_id":"log-5"}}
   {"timestamp":"2025-01-01T10:15:00Z","level":"INFO","service":"order-service","message":"Processing order batch complete"}
-  {"index":{}}
+  {"index":{"_id":"log-6"}}
   {"timestamp":"2025-01-01T10:20:00Z","level":"ERROR","service":"inventory-api","error_code":"${ERROR_CODE_3}","message":"Stock sync failed - ${ERROR_CODE_3}: External inventory API returned 503"}
-  {"index":{}}
+  {"index":{"_id":"log-7"}}
   {"timestamp":"2025-01-01T10:25:00Z","level":"INFO","service":"inventory-api","message":"Recovered from temporary outage"}
   BULK_EOF
 
@@ -112,8 +119,8 @@ before_test: |
   fi
 
 after_test: |
-
-  echo "⏳ Cleaning up test index: app-183c-logs"
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183c-logs" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  echo "✅ Cleanup complete"
+  # Index uses a static test-ID-scoped name (app-183c-logs). Parallel CI runs
+  # share the same Elasticsearch cluster, so we skip deletion to avoid
+  # removing the index while another run still depends on it.
+  # before_test is idempotent (create-or-reuse + stable doc _ids).
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

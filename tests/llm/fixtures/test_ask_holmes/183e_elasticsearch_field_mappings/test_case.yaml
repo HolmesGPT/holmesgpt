@@ -33,14 +33,12 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="app-183e-transactions"
 
-  # Delete the index if it exists
-  echo "⏳ Cleaning up any existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  # Create the test index with specific mappings including nested objects
-  echo "⏳ Creating test index with specific schema..."
-  RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse instead. The mapping is fixed at index creation, so
+  # reusing an existing index is safe.
+  echo "⏳ Creating (or reusing) test index with specific schema..."
+  RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -67,9 +65,8 @@ before_test: |
       }
     }')
 
-  # Verify index was created
-  if echo "$RESPONSE" | grep -q '"acknowledged":true'; then
-    echo "✅ Test index created with custom schema"
+  if echo "$RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
+    echo "✅ Test index ready with custom schema"
   else
     echo "❌ Failed to create test index: $RESPONSE"
     exit 1
@@ -77,8 +74,9 @@ before_test: |
 
   sleep 2
 
-  # Index a sample document to confirm mappings
-  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_doc" \
+  # Index a sample document with a stable _id so concurrent runs converge on
+  # the same document instead of stacking duplicates.
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_doc/seed-1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -102,8 +100,8 @@ before_test: |
   echo "✅ Test index ready with mappings: transaction_id (keyword), amount (double), metadata.region (keyword), metadata.priority (integer), processed_at (date)"
 
 after_test: |
-
-  echo "⏳ Cleaning up test index: app-183e-transactions"
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183e-transactions" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  echo "✅ Cleanup complete"
+  # Index uses a static test-ID-scoped name (app-183e-transactions). Parallel
+  # CI runs share the same Elasticsearch cluster, so we skip deletion to
+  # avoid removing the index while another run still depends on it.
+  # before_test is idempotent (create-or-reuse + stable doc _id).
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

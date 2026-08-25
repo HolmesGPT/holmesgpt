@@ -34,13 +34,12 @@ before_test: |
 
   echo "Creating index with 10,000+ fields for large mapping test..."
 
-  # Clean up any existing test data first
-  echo "Cleaning up any existing test data..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-193-telemetry" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse, and seed the document with a stable _id so concurrent
+  # runs converge.
 
-  # Create the index
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-193-telemetry" \
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/app-193-telemetry" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -51,7 +50,7 @@ before_test: |
       }
     }')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "Failed to create index: $CREATE_RESPONSE"
     exit 1
   fi
@@ -88,10 +87,11 @@ before_test: |
   FIELD_COUNT=$(grep -o '"[^"]*":' "$DOC_FILE" | wc -l)
   echo "Generated document with $FIELD_COUNT fields"
 
-  # Index the document (large payload needs longer timeout and binary mode)
+  # Index the document with a stable _id so concurrent runs converge on the
+  # same single document (rather than stacking duplicates).
   DOC_SIZE=$(wc -c < "$DOC_FILE")
   echo "Indexing document ($DOC_SIZE bytes, this may take a moment)..."
-  RESPONSE=$(curl -s --max-time 120 -X POST "${ELASTICSEARCH_URL}/app-193-telemetry/_doc" \
+  RESPONSE=$(curl -s --max-time 120 -X PUT "${ELASTICSEARCH_URL}/app-193-telemetry/_doc/seed-1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     --data-binary @"$DOC_FILE" 2>&1)
@@ -103,7 +103,7 @@ before_test: |
     exit 1
   fi
 
-  if echo "$RESPONSE" | grep -q '"result":"created"'; then
+  if echo "$RESPONSE" | grep -qE '"result":"(created|updated)"'; then
     echo "✅ Document indexed successfully"
   else
     echo "❌ Failed to index document: $RESPONSE"
@@ -141,11 +141,9 @@ before_test: |
   echo "Setup complete!"
 
 after_test: |
-
-  echo "Cleaning up test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-193-telemetry" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Index uses a static test-ID-scoped name (app-193-telemetry). Parallel CI
+  # runs share the same Elasticsearch cluster, so we skip deletion to avoid
+  # wiping data another in-flight run depends on. before_test is idempotent
+  # (PUT tolerates already-exists, doc seeded with a stable _id).
   rm -f /tmp/es_large_mapping_193_*.json
-
-  echo "Cleanup complete"
+  echo "Skipping index cleanup (reentrant - before_test handles idempotent setup)"

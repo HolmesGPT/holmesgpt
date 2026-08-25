@@ -37,17 +37,19 @@ before_test: |
 
   echo "Creating test indexes for mapping explosion scenario..."
 
-  # Clean up any existing test data first
-  echo "Cleaning up any existing test data..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-188-index-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  # Reentrancy: indices use static test-ID-scoped names (app-188-index-*) and
+  # the same name space is shared with parallel CI runs of this eval. Do NOT
+  # delete the existing indices — that would wipe a parallel run's data.
+  # Instead, create-or-reuse: tolerate "resource_already_exists_exception"
+  # on PUT, and use a stable doc _id so re-running overwrites instead of
+  # duplicating.
 
   # Create indexes with standard field counts
   for suffix in a b c; do
     INDEX_NAME="app-188-index-${suffix}"
-    echo "Creating normal index: ${INDEX_NAME}..."
+    echo "Creating (or reusing) normal index: ${INDEX_NAME}..."
 
-    CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${INDEX_NAME}" \
+    CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${INDEX_NAME}" \
       -H "Content-Type: application/json" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
       -d '{
@@ -71,17 +73,18 @@ before_test: |
         }
       }')
 
-    if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
-      echo "⚠️ Warning creating ${INDEX_NAME}: $CREATE_RESPONSE"
+    if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
+      echo "❌ Failed to create ${INDEX_NAME}: $CREATE_RESPONSE"
+      exit 1
     fi
   done
 
-  echo "✅ Standard indexes created with ~10 fields each"
+  echo "✅ Standard indexes ready with ~10 fields each"
 
-  # Create index with 523 fields using dynamic mapping
-  echo "Creating index with 500+ fields..."
+  # Create (or reuse) index with 523 fields using dynamic mapping
+  echo "Creating (or reusing) index with 500+ fields..."
 
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-188-index-x" \
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/app-188-index-x" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -91,7 +94,7 @@ before_test: |
       }
     }')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create index: $CREATE_RESPONSE"
     exit 1
   fi
@@ -126,13 +129,14 @@ before_test: |
   FIELD_COUNT=$(grep -o '"[^"]*":' "$DOC_FILE" | wc -l)
   echo "Generated document with $FIELD_COUNT fields"
 
-  # Index the document
-  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-188-index-x/_doc" \
+  # Index the document with a stable _id so concurrent runs converge to the
+  # same single document instead of stacking duplicates.
+  RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-188-index-x/_doc/seed-1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d @"$DOC_FILE")
 
-  if echo "$RESPONSE" | grep -q '"result":"created"'; then
+  if echo "$RESPONSE" | grep -qE '"result":"(created|updated)"'; then
     echo "✅ Document indexed successfully"
   else
     echo "❌ Failed to index document: $RESPONSE"
@@ -159,11 +163,10 @@ before_test: |
   echo "✅ Setup complete!"
 
 after_test: |
-
-  echo "Cleaning up test indexes..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-188-index-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Indices use static test-ID-scoped names (app-188-index-*). Parallel CI
+  # runs share the same Elasticsearch cluster, so we skip deletion to avoid
+  # removing indices that another in-flight run still depends on.
+  # before_test is idempotent (create-or-reuse + stable doc _id), so stale
+  # state is harmless.
   rm -f /tmp/es_mapping_188_*.json
-
-  echo "✅ Cleanup complete"
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"
