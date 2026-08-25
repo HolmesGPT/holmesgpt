@@ -108,7 +108,7 @@ spec:
           {{- with .Values.containerSecurityContext }}
           {{- toYaml . | nindent 10 }}
           {{- end }}
-        command: ["python3", "-u", "server.py"]
+        command: ["python3", "-u", "{{ if .Values.experimental.aguiServer.enabled }}experimental/ag-ui/server-agui.py{{ else }}server.py{{ end }}"]
         {{- if .Values.args }}
         args:
         {{- toYaml .Values.args | nindent 8 }}
@@ -176,6 +176,35 @@ spec:
           {{- if $tls.caCertsSecretKey }}
           - name: HOLMES_SSL_CA_CERTS
             value: /etc/holmes/tls/ca.crt
+          {{- end }}
+          {{- end }}
+          {{- if and .Values.otlp.enabled .Values.otlp.endpoint }}
+          - name: OTEL_SERVICE_NAME
+            value: {{ .Values.otlp.service | quote }}
+          - name: OTEL_METRICS_EXPORTER
+            value: {{ .Values.otlp.metrics | quote }}
+          - name: OTEL_LOGS_EXPORTER
+            value: {{ .Values.otlp.logs | quote }}
+          {{- if .Values.otlp.protocol }}
+          - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: {{ .Values.otlp.protocol | quote }}
+          {{- end }}
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: {{ .Values.otlp.endpoint | quote }}
+          {{- if .Values.otlp.insecure }}
+          - name: OTEL_EXPORTER_OTLP_INSECURE
+            value: {{ .Values.otlp.insecure | quote }}
+          {{- end }}
+          {{- if .Values.otlp.headers }}
+          - name: OTEL_EXPORTER_OTLP_HEADERS
+            value: {{ .Values.otlp.headers | quote }}
+          {{- end }}
+          {{- if hasKey .Values.otlp "excludedUrls" }}
+          - name: OTEL_PYTHON_FASTAPI_EXCLUDED_URLS
+            value: {{ .Values.otlp.excludedUrls | quote }}
+          {{- else }}
+          - name: OTEL_PYTHON_FASTAPI_EXCLUDED_URLS
+            value: "/healthz,/readyz"
           {{- end }}
           {{- end }}
           {{ if .Values.certificate -}}
