@@ -44,6 +44,7 @@ nav:
   - PostgreSQL: database-postgresql.md
   - Prometheus: prometheus.md
   - Prefect (MCP): prefect-mcp.md
+  - Quickwit: quickwit.md
   - RabbitMQ: rabbitmq.md
   - Robusta: robusta.md
   - Sentry (MCP): sentry-mcp.md
