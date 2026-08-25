@@ -37,14 +37,24 @@ class SkillsFetcher(Tool):
         if skill_catalog:
             available_skills = skill_catalog.list_available_skills()
 
-        skill_list = ", ".join([f'"{s}"' for s in available_skills])
+        # Deliberately advertises NO id list. This toolset is built once and cached across
+        # requests and users, so any list baked in here is wrong in both directions: it omits
+        # the requesting user's personal skills, and it still contains skills the per-request
+        # catalog filtered out (hierarchy collision losers, other alerts' skills). Naming the
+        # authoritative source instead keeps the two from diverging -- an earlier
+        # "Must be one of: <list>" made the model refuse personal skills it could plainly see.
+        skill_id_description = (
+            "The skill_id: either a UUID or a skill name. Use the ids from the Skill Catalog"
+            " section of your instructions -- that catalog is built per request and is the"
+            " authoritative list, including the current user's personal skills."
+        )
 
         super().__init__(
             name="fetch_skill",
             description="Get skill content by skill link. Use this to get troubleshooting steps for incidents",
             parameters={
                 "skill_id": ToolParameter(
-                    description=f"The skill_id: either a UUID or a skill name. Must be one of: {skill_list}",
+                    description=skill_id_description,
                     type="string",
                     required=True,
                 ),
@@ -67,6 +77,9 @@ class SkillsFetcher(Tool):
                 params=params,
             )
 
+        # Resolved per invocation, not baked into the cached toolset -- see __init__.
+        user_id = (context.request_context or {}).get("user_id")
+
         # Look up in skill catalog by name — remote skills have empty content
         # (catalog only stores metadata), so fetch full content from Supabase
         skill = self._find_skill(skill_id)
@@ -75,9 +88,23 @@ class SkillsFetcher(Tool):
         elif skill:
             return self._format_skill_result(skill, params)
 
+        # Not in the cached catalog -- the expected case for a personal skill. User-scoped
+        # lookup goes first so one user can never read another's.
+        personal_miss: Optional[str] = None
+        if user_id and self._dal and self._dal.enabled:
+            personal_result, personal_miss = self._get_personal_skill(
+                skill_id, user_id, params
+            )
+            if personal_result is not None:
+                return personal_result
+
         # Fallback: try Supabase for UUID-style IDs not in catalog
         if self._dal and self._dal.enabled:
-            return self._get_robusta_skill(skill_id, params)
+            result = self._get_robusta_skill(skill_id, params)
+            # Report the personal miss too, or that path is invisible when debugging.
+            if result.status == StructuredToolResultStatus.ERROR and personal_miss:
+                result.error = f"{result.error} {personal_miss}"
+            return result
 
         err_msg = (
             f"Skill '{skill_id}' not found. "
@@ -143,6 +170,38 @@ class SkillsFetcher(Tool):
             data=wrapped_content,
             params=params,
         )
+
+    def _get_personal_skill(
+        self, skill_id: str, user_id: str, params: dict
+    ) -> tuple[Optional[StructuredToolResult], Optional[str]]:
+        """Fetch a personal skill scoped to this end user.
+
+        Returns (result, miss_reason). A None result means "not this user's skill" -- the
+        normal case for a global id -- so the caller falls through. miss_reason carries why,
+        so a failed lookup is not invisible in the error the LLM sees.
+        """
+        if not self._dal:
+            return None, None
+        try:
+            skill_content = self._dal.get_personal_skill_content(skill_id, user_id)
+        except Exception as e:
+            logging.warning(f"Failed to fetch personal skill '{skill_id}': {e}")
+            return None, f"A personal-skill lookup for this user also failed: {e}"
+
+        if not skill_content:
+            return None, "It is also not one of this user's personal skills."
+
+        description = skill_content.title
+        if skill_content.symptom:
+            description = f"{skill_content.title} — {skill_content.symptom}"
+        skill = Skill(
+            name=skill_content.id,
+            description=description,
+            content=skill_content.instruction or skill_content.pretty(),
+            source=SkillSource.PERSONAL,
+            title=skill_content.title,
+        )
+        return self._format_skill_result(skill, params), None
 
     def _get_robusta_skill(self, link: str, params: dict) -> StructuredToolResult:
         if self._dal and self._dal.enabled:
