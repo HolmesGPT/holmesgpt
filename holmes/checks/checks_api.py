@@ -13,6 +13,7 @@ from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
+from holmes.plugins.destinations.mattermost.plugin import MattermostDestination
 from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
 from holmes.plugins.destinations.slack.plugin import SlackDestination
 
@@ -211,6 +212,60 @@ def execute_health_check(
                             notification.error = str(e)
                             logging.error(
                                 f"Failed to send Slack notification: {e}", exc_info=True
+                            )
+
+                        notifications.append(notification)
+
+                    elif dest_type == "mattermost":
+                        notification = NotificationStatus(
+                            type="mattermost", status="pending"
+                        )
+                        try:
+                            mm_url = (
+                                dest_config.get("url")
+                                or _CONFIG.mattermost_url
+                                or os.environ.get("MATTERMOST_URL")
+                            )
+                            mm_token = (
+                                dest_config.get("token")
+                                or (
+                                    _CONFIG.mattermost_token.get_secret_value()
+                                    if _CONFIG.mattermost_token
+                                    else None
+                                )
+                                or os.environ.get("MATTERMOST_TOKEN")
+                            )
+                            mm_channel_id = (
+                                dest_config.get("channel_id")
+                                or _CONFIG.mattermost_channel_id
+                                or os.environ.get("MATTERMOST_CHANNEL_ID")
+                            )
+                            mm_verify_ssl = dest_config.get("verify_ssl", True)
+                            if mm_url and mm_token and mm_channel_id:
+                                notification.channel = mm_channel_id
+                                mattermost_dest = MattermostDestination(
+                                    url=mm_url,
+                                    token=mm_token,
+                                    channel_id=mm_channel_id,
+                                    verify_ssl=mm_verify_ssl,
+                                )
+                                mattermost_dest.send_issue(issue, llm_result)
+                                notification.status = "sent"
+                                logging.info(
+                                    f"Sent Mattermost notification to channel {mm_channel_id} for check {check_name}"
+                                )
+                            else:
+                                notification.status = "skipped"
+                                notification.error = "MATTERMOST_URL, MATTERMOST_TOKEN or MATTERMOST_CHANNEL_ID not configured"
+                                logging.warning(
+                                    "Mattermost destination missing url/token/channel_id, skipping notification"
+                                )
+                        except Exception as e:
+                            notification.status = "failed"
+                            notification.error = str(e)
+                            logging.error(
+                                f"Failed to send Mattermost notification: {e}",
+                                exc_info=True,
                             )
 
                         notifications.append(notification)

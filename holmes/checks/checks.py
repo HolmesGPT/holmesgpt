@@ -26,6 +26,7 @@ from holmes.core.issue import Issue, IssueStatus
 from holmes.core.llm import _is_gemini_route
 from holmes.core.llm_usage import RequestStats
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
+from holmes.plugins.destinations.mattermost.plugin import MattermostDestination
 from holmes.core.usage_recorder import (
     UsageRecorderState,
     record_error,
@@ -338,6 +339,40 @@ class CheckRunner:
                         f"PagerDuty destination '{name}': Missing integration_key in destination config"
                     )
 
+            elif name == "mattermost":
+                mattermost_url = (
+                    dest_config.mattermost_url or self.config.mattermost_url
+                )
+                mattermost_channel_id = (
+                    dest_config.mattermost_channel_id
+                    or self.config.mattermost_channel_id
+                )
+                mattermost_token = self.config.mattermost_token
+
+                if not mattermost_url:
+                    errors.append(
+                        f"Mattermost destination '{name}': Missing mattermost_url (set in destination config or via MATTERMOST_URL env var)"
+                    )
+                if not mattermost_channel_id:
+                    errors.append(
+                        f"Mattermost destination '{name}': Missing mattermost_channel_id (set in destination config or via MATTERMOST_CHANNEL_ID env var)"
+                    )
+                if mattermost_token:
+                    try:
+                        token_str = mattermost_token.get_secret_value()
+                        if not token_str or not token_str.strip():
+                            errors.append(
+                                f"Mattermost destination '{name}': Token is empty"
+                            )
+                    except Exception as e:
+                        errors.append(
+                            f"Mattermost destination '{name}': Invalid token format - {e}"
+                        )
+                else:
+                    errors.append(
+                        f"Mattermost destination '{name}': Missing token (set MATTERMOST_TOKEN env var or mattermost_token in config)"
+                    )
+
             else:
                 # Unknown destination type
                 errors.append(f"Unknown destination type: {name}")
@@ -594,6 +629,53 @@ class CheckRunner:
                 except Exception as e:
                     self.console.print(
                         f"  [red]Failed to send PagerDuty alert: {str(e)}[/red]"
+                    )
+
+            elif dest_name == "mattermost":
+                mattermost_dest_config: Optional[DestinationConfig] = (
+                    self._destinations_config.get(dest_name)
+                )
+                mattermost_url = (
+                    mattermost_dest_config.mattermost_url
+                    if mattermost_dest_config and mattermost_dest_config.mattermost_url
+                    else self.config.mattermost_url
+                )
+                mattermost_channel_id = (
+                    mattermost_dest_config.mattermost_channel_id
+                    if mattermost_dest_config
+                    and mattermost_dest_config.mattermost_channel_id
+                    else self.config.mattermost_channel_id
+                )
+                mattermost_token = self.config.mattermost_token
+                mattermost_verify_ssl = (
+                    mattermost_dest_config.mattermost_verify_ssl
+                    if mattermost_dest_config
+                    and mattermost_dest_config.mattermost_verify_ssl is not None
+                    else self.config.mattermost_verify_ssl
+                )
+
+                if not mattermost_url or not mattermost_token or not mattermost_channel_id:
+                    if self.verbose:
+                        self.console.print(
+                            "  [yellow]Mattermost not configured (missing url, token, or channel_id)[/yellow]"
+                        )
+                    continue
+
+                try:
+                    mattermost = MattermostDestination(
+                        url=mattermost_url,
+                        token=mattermost_token.get_secret_value(),
+                        channel_id=mattermost_channel_id,
+                        verify_ssl=mattermost_verify_ssl,
+                    )
+                    mattermost.send_issue(issue, llm_result)
+
+                    self.console.print(
+                        f"  [green]Alert sent to Mattermost channel {mattermost_channel_id}[/green]"
+                    )
+                except Exception as e:
+                    self.console.print(
+                        f"  [red]Failed to send Mattermost alert: {str(e)}[/red]"
                     )
 
             else:
