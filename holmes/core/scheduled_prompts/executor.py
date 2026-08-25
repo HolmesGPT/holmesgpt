@@ -31,9 +31,12 @@ if TYPE_CHECKING:
     from holmes.config import Config
     from holmes.core.supabase_dal import SupabaseDal
 
-ChatFunction = Callable[[ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]]
+ChatFunction = Callable[
+    [ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]
+]
 
 ADDITIONAL_SYSTEM_PROMPT_URL = f"{ROBUSTA_UI_DOMAIN}/api/additional-system-prompt.json"
+
 
 class ScheduledPromptsExecutor:
     def __init__(
@@ -140,7 +143,13 @@ class ScheduledPromptsExecutor:
             return True
 
         try:
-            self._execute_scheduled_prompt(sp)
+            run_id = sp.id
+
+            logging.info(
+                "Found pending run %s, executing with model %s", run_id, sp.model_name
+            )
+            self._execute_prompt(sp)
+            logging.info("Successfully completed run %s", run_id)
         except Exception as exc:
             logging.exception(
                 "Error executing scheduled %s prompt: %s",
@@ -155,29 +164,6 @@ class ScheduledPromptsExecutor:
             )
 
         return True
-
-    def _execute_scheduled_prompt(self, sp: ScheduledPrompt):
-        run_id = sp.id
-        available_models = self.config.get_models_list()
-        if sp.model_name not in available_models:
-            error_msg = f"Model '{sp.model_name}' not found in available models: {available_models}"
-            logging.warning(
-                "Pending run %s has invalid model_name '%s', marking as failed",
-                run_id,
-                sp.model_name,
-            )
-            self._finish_run(
-                status=RunStatus.FAILED,
-                result={"error": error_msg},
-                sp=sp,
-            )
-            return
-
-        logging.info(
-            "Found pending run %s, executing with model %s", run_id, sp.model_name
-        )
-        self._execute_prompt(sp)
-        logging.info("Successfully completed run %s", run_id)
 
     def _execute_prompt(
         self,
