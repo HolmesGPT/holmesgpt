@@ -302,6 +302,7 @@ class SupabaseDal:
         self.lock = threading.Lock()
 
     def __connect(self, options: ClientOptions):
+        self.options = options
         relay_key = fetch_supabase_api_key(self.account_id, self.cluster)
         for key in filter(None, (KEY_CACHE.pop("key", None), relay_key)):
             try:
@@ -330,7 +331,7 @@ class SupabaseDal:
                     logging.error(
                         "JWT token expired/invalid, signing in to Supabase again"
                     )
-                    self.sign_in()
+                    self.__connect(self.options)
                     # update the session to the new one, after re-sign in
                     _self.session = self.client.postgrest.session
                     return self._original_execute(_self)
