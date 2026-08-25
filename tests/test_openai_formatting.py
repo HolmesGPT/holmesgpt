@@ -126,6 +126,31 @@ def test_format_tool_disabled_via_env(monkeypatch):
     assert "strict" not in result["function"]
 
 
+def test_strict_no_params_keeps_parameters_with_additional_properties(monkeypatch):
+    """Tools with no parameters must retain a parameters object in strict mode.
+
+    OpenAI strict mode requires additionalProperties: false on every object,
+    including an empty parameters schema.  Reproduces the error:
+      Invalid schema for function 'grafana_get_dashboard_tags':
+      'additionalProperties' is required to be supplied and to be false.
+    """
+    monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", True)
+    monkeypatch.setattr("holmes.core.openai_formatting.TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS", True)
+    result = format_tool_to_open_ai_standard("grafana_get_dashboard_tags", "Get tags", {})
+    assert "parameters" in result["function"]
+    assert result["function"]["parameters"]["additionalProperties"] is False
+    assert result["function"]["strict"] is True
+
+
+def test_no_strict_no_params_strips_parameters(monkeypatch):
+    """When strict mode is off, no-param tools should still strip parameters."""
+    monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", False)
+    monkeypatch.setattr("holmes.core.openai_formatting.TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS", True)
+    result = format_tool_to_open_ai_standard("grafana_get_dashboard_tags", "Get tags", {})
+    assert "parameters" not in result["function"]
+    assert "strict" not in result["function"]
+
+
 class TestParameterCoercion:
     """Tests for Tool._coerce_params — LLMs sometimes send stringified JSON
     for array/object parameters, especially when strict mode is disabled."""
