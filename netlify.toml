@@ -1,0 +1,19 @@
+# Netlify configuration for HolmesGPT documentation
+
+[build]
+  command = "pip install mkdocs-material mkdocs-glightbox mkdocs-awesome-nav && mkdocs build"
+  publish = "site"
+
+# Only build if docs-related files have changed
+# The ignore command should return:
+#   0 (success) = skip the build (no docs changes)
+#   1 (failure) = proceed with the build (docs changed)
+#
+# Paths checked for changes:
+#   - docs/       (documentation content)
+#   - mkdocs.yml  (MkDocs configuration)
+#
+# Compares against origin/master to catch all docs changes in the PR,
+# even on the first build.
+[build.ignore]
+  command = "git fetch origin master && git diff --quiet origin/master -- docs/ mkdocs.yml"
