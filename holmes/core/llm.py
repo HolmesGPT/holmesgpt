@@ -167,6 +167,13 @@ ROBUSTA_AI_MODEL_NAME = "Robusta"
 # feedback on ROB-795).
 ROBUSTA_REFRESH_FAILURE_LOG_EVERY = 5
 
+_NO_MODELS_ERROR = (
+    "No LLM models were loaded. Configure a model using one of: "
+    "--model '<provider/model>', export MODEL='<provider/model>', "
+    "or MODEL_LIST_FILE_LOCATION/config model list. "
+    "Setting only an API key (for example OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AZURE_API_KEY) is not enough without a model."
+)
+
 
 def _is_gemini_route(litellm_model_name: str) -> bool:
     """True if the model goes through Google's Gemini GenerateContent API.
@@ -1128,33 +1135,54 @@ class LLMModelRegistry:
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
         with self._lock:
             if not self._llms:
-                raise Exception(
-                    "No LLM models were loaded. Configure a model using one of: "
-                    "--model '<provider/model>', export MODEL='<provider/model>', "
-                    "or MODEL_LIST_FILE_LOCATION/config model list. "
-                    "Setting only an API key (for example OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AZURE_API_KEY) is not enough without a model."
-                )
+                raise Exception(_NO_MODELS_ERROR)
 
-            if model_key:
-                model_params = self._llms.get(model_key)
-                if model_params:
-                    display_logger.info(f"Using selected model: {model_key}")
-                    return model_params.model_copy()
+        if model_key:
+            model_params = self._loaded_model(model_key)
+            if model_params is not None:
+                display_logger.info(f"Using selected model: {model_key}")
+                return model_params
 
-                # The catalog may have gained this model since it was last read.
-                # Any name is worth a look: a customer's models carry their own
-                # prefix, so keying on `Robusta/` left exactly those unable to
-                # recover. Unlike _init_models, refreshing never rebuilds from
-                # the model file and never falls back to the legacy entry, so a
-                # fetch that fails here cannot cost us the models we do have.
-                logging.warning(f"Model {model_key} is not loaded; refreshing.")
-                if self.refresh_robusta_models():
-                    model_params = self._llms.get(model_key)
-                    if model_params:
-                        display_logger.info(f"Using selected model: {model_key}")
-                        return model_params.model_copy()
+            # The catalog may have gained this model since it was last read.
+            # Any name is worth a look: a customer's models carry their own
+            # prefix, so keying on `Robusta/` left exactly those unable to
+            # recover. Unlike _init_models, refreshing never rebuilds from
+            # the model file and never falls back to the legacy entry, so a
+            # fetch that fails here cannot cost us the models we do have.
+            #
+            # Deliberately NOT under `_lock`: this is a network call that can
+            # run ~74s against an unreachable relay (5 attempts x 10s timeout
+            # plus 24s of backoff). `_lock` is reentrant, so holding it across
+            # the refresh silently serialized every other reader behind that
+            # whole window - including ones asking for non-Robusta models
+            # (ROB-795 review).
+            logging.warning(f"Model {model_key} is not loaded; refreshing.")
+            self.refresh_robusta_models()
 
-                logging.error(f"Couldn't find model: {model_key} in model list")
+            # Re-read regardless of what the refresh returned: a refresh
+            # already in flight on another thread makes this one back off
+            # (returning False) yet may have installed exactly what we want.
+            model_params = self._loaded_model(model_key)
+            if model_params is not None:
+                display_logger.info(f"Using selected model: {model_key}")
+                return model_params
+
+            logging.error(f"Couldn't find model: {model_key} in model list")
+
+        return self._fallback_model()
+
+    def _loaded_model(self, model_key: str) -> Optional[ModelEntry]:
+        """Point lookup against the loaded registry; None when it isn't there."""
+        with self._lock:
+            model_params = self._llms.get(model_key)
+            return model_params.model_copy() if model_params is not None else None
+
+    def _fallback_model(self) -> ModelEntry:
+        """The entry to serve when no specific model was asked for, or the
+        requested one couldn't be found even after a refresh."""
+        with self._lock:
+            if not self._llms:
+                raise Exception(_NO_MODELS_ERROR)
 
             if self._default_robusta_model:
                 model_params = self._llms.get(self._default_robusta_model)

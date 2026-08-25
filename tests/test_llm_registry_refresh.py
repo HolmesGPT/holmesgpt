@@ -272,6 +272,61 @@ def test_concurrent_refreshes_do_not_race(build_registry):
     assert set(registry.models) == {"Robusta/first"}
 
 
+def test_unknown_model_lookup_does_not_block_other_readers(build_registry):
+    """The refresh get_model_params triggers on a miss is a network call that
+    can run ~74s against an unreachable relay. It must not happen under the
+    registry lock: every other read path takes that same (reentrant) lock, so
+    one lookup of a stale name would otherwise stall every concurrent caller -
+    including ones asking for non-Robusta models (ROB-795 review)."""
+    registry = build_registry(
+        _catalog("Robusta/opus-4-6", default="Robusta/opus-4-6"),
+        file_models={
+            "my-azure-gpt4": ModelEntry(model="azure/gpt-4", name="my-azure-gpt4")
+        },
+    )
+
+    fetch_started = threading.Event()
+    release_fetch = threading.Event()
+
+    def slow_fetch(*args, **kwargs):
+        fetch_started.set()
+        # Generously longer than the reader's wait below, so that when this
+        # test does fail it fails on the reader's assertion - the one that
+        # explains why - rather than on this timeout firing first.
+        release_fetch.wait(timeout=30)
+        return _catalog("Robusta/opus-4-6", default="Robusta/opus-4-6")
+
+    def lookup_missing_model():
+        with patch("holmes.core.llm.fetch_robusta_models", side_effect=slow_fetch):
+            registry.get_model_params("Robusta/does-not-exist")
+
+    refresher = threading.Thread(target=lookup_missing_model, daemon=True)
+    refresher.start()
+    try:
+        assert fetch_started.wait(timeout=5)
+
+        # The refresh is now parked mid-fetch. A reader after an unrelated,
+        # user-defined model must still be served immediately.
+        served = {}
+        reader_done = threading.Event()
+
+        def unrelated_reader():
+            served["entry"] = registry.get_model_params("my-azure-gpt4")
+            reader_done.set()
+
+        reader = threading.Thread(target=unrelated_reader, daemon=True)
+        reader.start()
+
+        assert reader_done.wait(timeout=5), (
+            "a reader of an unrelated model blocked behind the in-flight refresh"
+        )
+        assert served["entry"].model == "azure/gpt-4"
+        reader.join(timeout=5)
+    finally:
+        release_fetch.set()
+        refresher.join(timeout=10)
+
+
 def test_skipped_when_robusta_ai_is_disabled(build_registry):
     registry = build_registry(
         None,
