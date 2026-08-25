@@ -50,16 +50,6 @@ def spill_oversized_tool_result(
     max_tokens_allowed = llm.get_max_token_count_for_single_tool()
     logging.debug(f"spill_oversized_tool_result: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)")
 
-    if tool_call_result.result.status not in (
-        StructuredToolResultStatus.SUCCESS,
-        StructuredToolResultStatus.ERROR,
-    ):
-        return messages_token
-    if tool_call_result.result.status in (
-        StructuredToolResultStatus.APPROVAL_REQUIRED,
-        StructuredToolResultStatus.FRONTEND_PAUSE,
-    ):
-        return messages_token  # control-flow pauses; params must survive intact
     if messages_token <= max_tokens_allowed:
         return messages_token
 
