@@ -15,6 +15,7 @@ from tenacity import (
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 
 HOLMES_GET_INFO_URL = f"{ROBUSTA_API_ENDPOINT}/api/holmes/get_info"
+SUPABASE_KEYS_URL = f"{ROBUSTA_API_ENDPOINT}/api/config/supabase-keys"
 TIMEOUT = 0.5
 
 # 429/5xx (gateway blips, overload) heal on retry; 4xx (bad token, unknown
@@ -39,6 +40,24 @@ class RobustaModel(BaseModel):
 
 class RobustaModelsResponse(BaseModel):
     models: Dict[str, RobustaModel]
+
+
+def fetch_supabase_api_key(account_id: str, cluster: str) -> Optional[str]:
+    from holmes.version import get_version
+
+    params = {
+        "account_id": account_id,
+        "cluster": cluster,
+        "component": "holmes",
+        "component_version": get_version(),
+    }
+    try:
+        response = requests.get(SUPABASE_KEYS_URL, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json().get("api_key")
+    except Exception as e:
+        logger.warning(f"Failed to fetch the api key from relay: {e}")
+        return None
 
 
 def _is_retryable_fetch_error(exc: BaseException) -> bool:

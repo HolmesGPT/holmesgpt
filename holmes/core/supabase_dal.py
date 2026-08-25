@@ -34,7 +34,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from holmes.core.publishable_key_cache import publishable_key_cache
+from holmes.clients.robusta_client import fetch_supabase_api_key
 from holmes.common.env_vars import (
     ROBUSTA_ACCOUNT_ID,
     ROBUSTA_CONFIG_PATH,
@@ -223,6 +223,9 @@ class SupabaseRetryTransport(httpx.HTTPTransport):
         return super().handle_request(request)
 
 
+KEY_CACHE: TTLCache = TTLCache(maxsize=1, ttl=24 * 60 * 60)
+
+
 class SupabaseDal:
     def __init__(self, cluster: str):
         self.enabled = self.__init_config()
@@ -299,33 +302,19 @@ class SupabaseDal:
         self.lock = threading.Lock()
 
     def __connect(self, options: ClientOptions):
-        cached_key = publishable_key_cache.get_cached_key()
-        if cached_key and self.__try_key(cached_key, options):
-            return
-        if cached_key:
-            publishable_key_cache.invalidate()
-        fetched_key = publishable_key_cache.fetch_key(self.account_id, self.cluster)
-        if (
-            fetched_key
-            and fetched_key not in (cached_key, self.api_key)
-            and self.__try_key(fetched_key, options)
-        ):
-            publishable_key_cache.store(fetched_key)
-            return
-        # fall back to the locally configured key; failures propagate as before
-        self.client = create_client(self.url, self.api_key, options)  # type: ignore
-        self.user_id = self.sign_in()
+        relay_key = fetch_supabase_api_key(self.account_id, self.cluster)
+        for key in filter(None, (KEY_CACHE.pop("key", None), relay_key)):
+            try:
+                self.__login(key, options)
+                KEY_CACHE["key"] = key
+                return
+            except Exception as e:
+                logging.warning(f"Supabase login with the relay api key failed: {e}")
+        self.__login(self.api_key, options)
 
-    def __try_key(self, api_key: str, options: ClientOptions) -> bool:
-        try:
-            self.client = create_client(self.url, api_key, options)  # type: ignore
-            self.user_id = self.sign_in()
-            return True
-        except Exception as e:
-            logging.warning(
-                f"Failed to connect to Supabase with the relay-provided api key: {e}"
-            )
-            return False
+    def __login(self, api_key: str, options: ClientOptions):
+        self.client = create_client(self.url, api_key, options)  # type: ignore
+        self.user_id = self.sign_in()
 
     def patch_postgrest_execute(self):
         logging.info("Patching postgres execute")
