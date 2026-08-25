@@ -2,6 +2,34 @@
 
 HolmesGPT supports all AI providers available through [LiteLLM](https://litellm.vercel.app/docs/providers){:target="_blank"}, including 100+ different LLM providers. This guide shows how to configure any LiteLLM-supported provider using DeepSeek via Novita as an example.
 
+## Example: MiniMax M3 and M2.7
+
+MiniMax provides OpenAI-compatible endpoints in both global and China regions. Configure either
+endpoint by selecting the matching base URL and setting `MINIMAX_API_KEY`.
+
+```yaml
+modelList:
+  minimax-m3:
+    model: openai/MiniMax-M3
+    api_key: "{{ env.MINIMAX_API_KEY }}"
+    api_base: "https://api.minimax.io/v1"
+    custom_args:
+      max_context_size: 1000000
+  minimax-m27:
+    model: openai/MiniMax-M2.7
+    api_key: "{{ env.MINIMAX_API_KEY }}"
+    api_base: "https://api.minimax.io/v1"
+    custom_args:
+      max_context_size: 204800
+```
+
+For users in China, replace `https://api.minimax.io/v1` with
+`https://api.minimaxi.com/v1`. MiniMax M3 accepts text, image, and video input with adaptive
+or disabled thinking; M2.7 is text-only with thinking enabled.
+
+See the [global MiniMax API documentation](https://platform.minimax.io/docs/api-reference/api-overview){:target="_blank"}
+or [China MiniMax API documentation](https://platform.minimaxi.com/docs/api-reference/api-overview){:target="_blank"}.
+
 ## Example: DeepSeek 3.1 Terminus via Novita
 
 Let's walk through setting up DeepSeek 3.1 Terminus using the Novita AI provider.
