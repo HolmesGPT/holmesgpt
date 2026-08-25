@@ -329,6 +329,60 @@ class TestLangfuseTraceAttributes:
         # name/input are always present
         assert attrs["langfuse.trace.input"] == "q"
 
+    def test_langfuse_environment_included_when_set(self):
+        from holmes.core.tracing import langfuse_trace_attributes
+
+        with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
+            with patch("holmes.core.tracing.HOLMES_LANGFUSE_ENVIRONMENT", "production"):
+                attrs = langfuse_trace_attributes("q")
+        assert attrs["langfuse.environment"] == "production"
+
+    def test_langfuse_environment_omitted_when_attributes_disabled(self):
+        from holmes.core.tracing import langfuse_trace_attributes
+
+        with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", False):
+            with patch("holmes.core.tracing.HOLMES_LANGFUSE_ENVIRONMENT", "production"):
+                attrs = langfuse_trace_attributes("q")
+        assert attrs == {}
+
+    def test_langfuse_environment_omitted_when_not_set(self):
+        from holmes.core.tracing import langfuse_trace_attributes
+
+        with patch("holmes.core.tracing.HOLMES_LANGFUSE_ATTRIBUTES", True):
+            with patch("holmes.core.tracing.HOLMES_LANGFUSE_ENVIRONMENT", None):
+                attrs = langfuse_trace_attributes("q")
+        assert "langfuse.environment" not in attrs
+
+
+class TestLangfuseEnvironmentValidation:
+    """Test HOLMES_LANGFUSE_ENVIRONMENT validation logic."""
+
+    @pytest.mark.parametrize(
+        "value",
+        ["production", "staging", "dev", "my-env", "env_1", "a" * 40],
+    )
+    def test_valid_values_accepted(self, value):
+        from holmes.core.tracing import _LANGFUSE_ENV_PATTERN
+
+        assert _LANGFUSE_ENV_PATTERN.fullmatch(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "Production",          # uppercase
+            "my env",              # space
+            "langfuse-prod",       # starts with "langfuse"
+            "a" * 41,              # too long
+            "-starts-with-dash",   # leading dash
+            "",                    # empty
+            "production\n",        # trailing newline
+        ],
+    )
+    def test_invalid_values_rejected(self, value):
+        from holmes.core.tracing import _LANGFUSE_ENV_PATTERN
+
+        assert not _LANGFUSE_ENV_PATTERN.fullmatch(value)
+
 
 class TestSpanHierarchy:
     """Test that spans form correct parent-child relationships."""

@@ -43,6 +43,7 @@ additionalEnvVars:
 | `OTEL_EXPORTER_OTLP_HEADERS` | Headers for OTLP exporter (e.g., auth tokens) | *(none)* |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Override metrics endpoint (if different from traces) | *(uses OTEL_EXPORTER_OTLP_ENDPOINT)* |
 | `HOLMES_LANGFUSE_ATTRIBUTES` | Emit Langfuse-specific span attributes (prompts, tool I/O, thinking, user/session, tags). See [Langfuse](#langfuse). | `false` |
+| `HOLMES_LANGFUSE_ENVIRONMENT` | Deployment environment tag sent to Langfuse (e.g. `production`, `staging`). Sets the `langfuse.environment` span attribute, which populates Langfuse's Environments filter. Requires `HOLMES_LANGFUSE_ATTRIBUTES=true`. | *(unset)* |
 | `HOLMES_OTEL_MAX_ATTR_CHARS` | Max characters for the input/output attributes emitted when `HOLMES_LANGFUSE_ATTRIBUTES` is enabled | `100000` |
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, HolmesGPT uses a no-op `DummyTracer` with zero overhead.
@@ -218,6 +219,7 @@ echo -n "pk-lf-xxxx:sk-lf-xxxx" | base64
     export OTEL_SERVICE_NAME="holmesgpt"
     export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64(public:secret)>"
     export HOLMES_LANGFUSE_ATTRIBUTES="true"
+    export HOLMES_LANGFUSE_ENVIRONMENT="production"  # optional: tag traces by environment
     holmes ask "Why is my pod crashing?"
     ```
 
@@ -235,6 +237,8 @@ echo -n "pk-lf-xxxx:sk-lf-xxxx" | base64
         value: "holmesgpt"
       - name: HOLMES_LANGFUSE_ATTRIBUTES
         value: "true"
+      - name: HOLMES_LANGFUSE_ENVIRONMENT
+        value: "production"  # optional: tag traces by environment
       - name: OTEL_EXPORTER_OTLP_HEADERS
         valueFrom:
           secretKeyRef:
@@ -249,6 +253,7 @@ echo -n "pk-lf-xxxx:sk-lf-xxxx" | base64
 - **Trace user & session** — `langfuse.user.id` (initiating user, falling back through user id → email → account id) and `langfuse.session.id` (the conversation id), powering Langfuse's Users and Sessions views.
 - **Trace tags** — `source:<request_source>`, `cluster:<cluster>`, `model:<model>`.
 - **Filterable trace metadata** — `user_id`, `user_email`, `conversation_id`, `account_id`, `cluster_id`, `model`, `request_source`.
+- **Environment** — `langfuse.environment` (set via `HOLMES_LANGFUSE_ENVIRONMENT`), which powers Langfuse's [Environments](https://langfuse.com/docs/observability/features/environments) filter and view. This is the OTel equivalent of the Langfuse Python SDK's `LANGFUSE_TRACING_ENVIRONMENT`.
 
 Since Holmes emits OTel **metrics** as well and Langfuse ingests **traces only**, metric exports to the Langfuse endpoint are rejected harmlessly (traces are unaffected). To avoid that noise entirely, route Holmes through an OTel Collector and forward only traces to Langfuse.
 
