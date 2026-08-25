@@ -23,6 +23,35 @@ class SkillSource(str, Enum):
     BUILTIN = "builtin"
     USER = "user"
     REMOTE = "remote"
+    PERSONAL = "personal"
+
+
+# Priority tiers as named in the per-account hierarchy config. "custom" covers every
+# filesystem skill (GitHub repo, inline Helm values, ConfigMap/Secret) since they all
+# load as SkillSource.USER -- it is deliberately not called "github".
+TIER_GLOBAL = "global"
+TIER_CUSTOM = "custom"
+TIER_PERSONAL = "personal"
+
+DEFAULT_HIERARCHY_ORDER: List[str] = [TIER_GLOBAL, TIER_CUSTOM, TIER_PERSONAL]
+
+TIER_TO_SOURCE = {
+    TIER_GLOBAL: SkillSource.REMOTE,
+    TIER_CUSTOM: SkillSource.USER,
+    TIER_PERSONAL: SkillSource.PERSONAL,
+}
+
+
+class SkillHierarchyConfig(BaseModel):
+    """Per-account name-collision policy, read from AccountSettings.settings.
+
+    enabled defaults to False, which preserves today's behaviour: no cross-tier
+    collision resolution at all. order is highest-priority-first; BUILTIN is always
+    implicitly lowest and is not listed.
+    """
+
+    enabled: bool = False
+    order: List[str] = DEFAULT_HIERARCHY_ORDER
 
 
 class Skill(BaseModel):
@@ -31,10 +60,27 @@ class Skill(BaseModel):
     content: str
     source: SkillSource
     source_path: Optional[str] = None
-    # Human-readable title for skills whose name is an opaque id (remote
-    # skills are named by their HolmesRunbooks UUID); None when the name is
-    # already readable (local skills).
+    # Human-readable title for skills whose name is an opaque id (remote and personal skills
+    # are named by their HolmesRunbooks UUID); None when the name is already readable
+    # (filesystem skills). Doubles as the key for cross-tier collision detection.
     title: Optional[str] = None
+    # GroupedIssues.aggregation_key values this skill is scoped to. Empty means all alerts,
+    # as `clusters = null` means all clusters. Filesystem skills never set it.
+    alerts: List[str] = []
+
+    def applies_to_alert(self, alert_name: Optional[str]) -> bool:
+        """Whether this skill may run for the given alert.
+
+        Unscoped skills always apply. With NO alert context (chat, CLI) nothing is filtered:
+        scoped skills stay on offer, with their alert names in the description so the model
+        can judge relevance itself.
+        """
+        if not self.alerts or alert_name is None:
+            return True
+        return alert_name in self.alerts
+
+    def collision_key(self) -> str:
+        return normalize_skill_name(self.title or self.name)
 
     def to_prompt_string(self) -> str:
         return f"{self.name} | description: {self.description}"
@@ -47,11 +93,18 @@ class SkillCatalog(BaseModel):
         return [s.name for s in self.skills]
 
     def to_prompt_string(self) -> str:
-        priority = {SkillSource.REMOTE: 0, SkillSource.USER: 1, SkillSource.BUILTIN: 2}
-        sorted_skills = sorted(self.skills, key=lambda s: priority[s.source])
+        priority = {
+            SkillSource.REMOTE: 0,
+            SkillSource.PERSONAL: 1,
+            SkillSource.USER: 2,
+            SkillSource.BUILTIN: 3,
+        }
+        sorted_skills = sorted(self.skills, key=lambda s: priority.get(s.source, 99))
 
-        local = [s for s in sorted_skills if s.source != SkillSource.REMOTE]
+        remote_sources = (SkillSource.REMOTE, SkillSource.PERSONAL)
+        local = [s for s in sorted_skills if s.source not in remote_sources]
         remote = [s for s in sorted_skills if s.source == SkillSource.REMOTE]
+        personal = [s for s in sorted_skills if s.source == SkillSource.PERSONAL]
 
         parts: List[str] = [""]
         if local:
@@ -60,6 +113,9 @@ class SkillCatalog(BaseModel):
         if remote:
             parts.append("\nHere are Robusta skills:")
             parts.extend(f"* {s.to_prompt_string()}" for s in remote)
+        if personal:
+            parts.append("\nHere are the current user's personal skills:")
+            parts.extend(f"* {s.to_prompt_string()}" for s in personal)
         return "\n".join(parts)
 
 
@@ -155,29 +211,115 @@ def scan_skill_directory(
 
 def map_robusta_instruction_to_skill(
     instr: RobustaSkillInstruction,
+    source: SkillSource = SkillSource.REMOTE,
 ) -> Skill:
-    """Convert a Supabase RobustaSkillInstruction into a Skill."""
+    """Convert a Supabase RobustaSkillInstruction into a Skill.
+
+    `name` stays the runbook UUID because that is the id the LLM passes to fetch_skill.
+    The human name is kept in `title` so cross-tier collisions can be detected.
+    """
     description = instr.title
     if instr.symptom:
         description = f"{instr.title} — {instr.symptom}"
+    # Surface the alert scoping in the description too. The deterministic filter only applies
+    # when there IS an alert context, so in chat this is the only signal the model has that a
+    # skill is alert-specific -- and for an alert-only skill (no symptoms) it is the ONLY
+    # description content beyond the title.
+    if instr.alerts:
+        description = f"{description} (applies to alerts: {', '.join(instr.alerts)})"
 
     return Skill(
         name=instr.id,
         description=description,
         content=instr.instruction or "",
-        source=SkillSource.REMOTE,
+        source=source,
         source_path=instr.id,
         title=instr.title,
+        alerts=instr.alerts,
     )
+
+
+def _resolve_name_collisions(skills: List[Skill], order: List[str]) -> List[Skill]:
+    """Keep only the highest-priority skill per normalized human name.
+
+    Deterministic and resolved in Python rather than left to the prompt, so losers are not
+    offered to the model. BUILTIN is always lowest and is not part of `order`.
+
+    NOT an access control. This shapes the per-request prompt catalog only; the cached
+    fetch_skill toolset is built without a hierarchy, so a loser's id stays resolvable if the
+    model supplies it from somewhere else. Treat this as ranking what gets advertised, not as
+    a guarantee that a shadowed skill can never run.
+
+    Callers MUST apply cluster/agent/alert filtering BEFORE this, so a higher-tier skill that
+    does not apply cannot suppress an applicable lower-tier one.
+    """
+    rank_by_source: dict[SkillSource, int] = {}
+    for index, tier in enumerate(order):
+        source = TIER_TO_SOURCE.get(tier)
+        if source is None:
+            logging.warning(
+                f"Unknown skill hierarchy tier '{tier}' in skill_name_hierarchy_order; ignoring it"
+            )
+            continue
+        rank_by_source.setdefault(source, index)
+
+    # Unlisted sources sort below everything named, and BUILTIN below even those. Ranking all
+    # unlisted equally would tie personal against builtin under order=["global"], letting
+    # insertion order decide.
+    unlisted = len(order) + 1
+    builtin = unlisted + 1
+
+    def rank(skill: Skill) -> int:
+        if skill.source in rank_by_source:
+            return rank_by_source[skill.source]
+        return builtin if skill.source == SkillSource.BUILTIN else unlisted
+
+    winners: dict[str, Skill] = {}
+    for skill in skills:
+        key = skill.collision_key()
+        incumbent = winners.get(key)
+        if incumbent is None:
+            winners[key] = skill
+            continue
+        if rank(skill) < rank(incumbent):
+            logging.info(
+                f"Skill name collision on '{key}': {skill.source.value} skill wins over "
+                f"{incumbent.source.value} (hierarchy order: {order})"
+            )
+            winners[key] = skill
+        else:
+            logging.info(
+                f"Skill name collision on '{key}': {incumbent.source.value} skill wins over "
+                f"{skill.source.value} (hierarchy order: {order})"
+            )
+
+    kept = {id(skill) for skill in winners.values()}
+    return [skill for skill in skills if id(skill) in kept]
 
 
 def load_skill_catalog(
     dal: Optional["SupabaseDal"] = None,
     custom_skill_paths: Optional[List[Union[str, Path]]] = None,
+    user_id: Optional[str] = None,
+    hierarchy: Optional[SkillHierarchyConfig] = None,
+    alert_name: Optional[str] = None,
 ) -> Optional[SkillCatalog]:
     """Load skills from all sources and merge into a single catalog.
 
-    Priority (highest wins on name collision): remote > user > builtin.
+    Filesystem skills (builtin, then user) are keyed by name, so a user skill overrides a
+    same-named builtin. Remote and personal skills are keyed by UUID.
+
+    `user_id` must be the END USER's id from the request -- personal skills load only when it
+    is present, keeping them out of server-initiated flows (alert triage, triggered
+    workflows, scheduled prompts). Never pass SupabaseDal.user_id: that is Holmes's own
+    service identity and would leak an identity into unattended runs.
+
+    `hierarchy` controls cross-tier collision resolution; None or disabled (the default)
+    means no dedup at all.
+
+    `alert_name` is the firing alert's GroupedIssues.aggregation_key, set only for alert
+    investigations. Present, it drops skills scoped to other alerts; absent (chat, CLI)
+    nothing is filtered.
     """
     skills_by_name: dict[str, Skill] = {}
 
@@ -215,7 +357,7 @@ def load_skill_catalog(
                     f"Skill path is not a directory or SKILL.md file: {path}"
                 )
 
-    # 3. Load remote skills from Supabase (overrides all)
+    # 3. Load remote (global) skills from Supabase
     if dal:
         try:
             supabase_entries = dal.get_skill_catalog()
@@ -231,7 +373,36 @@ def load_skill_catalog(
         except Exception as e:
             logging.error(f"Error loading skills from Supabase: {e}")
 
+    # 4. Load the requesting end user's personal skills. Gated on an explicit end-user
+    #    user_id so server-initiated runs never pick up anyone's personal skills.
+    if dal and user_id:
+        try:
+            personal_entries = dal.get_personal_skill_catalog(user_id)
+            if personal_entries:
+                for entry in personal_entries:
+                    skill = map_robusta_instruction_to_skill(
+                        entry, source=SkillSource.PERSONAL
+                    )
+                    skills_by_name[skill.name] = skill
+        except Exception as e:
+            logging.error(f"Error loading personal skills from Supabase: {e}")
+
     if not skills_by_name:
         return None
 
-    return SkillCatalog(skills=list(skills_by_name.values()))
+    skills = list(skills_by_name.values())
+
+    # BEFORE the hierarchy dedup, like the DAL's cluster filter: a higher-tier skill scoped to
+    # a different alert must not suppress an applicable lower-tier one.
+    if alert_name is not None:
+        skills = [s for s in skills if s.applies_to_alert(alert_name)]
+
+    # Cross-tier name-collision resolution. Runs AFTER the per-tier cluster/agent filtering
+    # done by the DAL, so only skills that actually apply to this request compete.
+    if hierarchy and hierarchy.enabled:
+        skills = _resolve_name_collisions(skills, hierarchy.order or DEFAULT_HIERARCHY_ORDER)
+
+    if not skills:
+        return None
+
+    return SkillCatalog(skills=skills)

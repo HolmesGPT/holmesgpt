@@ -74,6 +74,7 @@ from holmes.utils.holmes_status import (
     refresh_holmes_status,
     update_holmes_status_in_db,
 )
+from holmes.utils.holmes_sync_skills import holmes_sync_skills_status
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
 from holmes.utils.log import (
@@ -217,6 +218,10 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
+    try:
+        holmes_sync_skills_status(dal, config)
+    except Exception:
+        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
     if conversation_worker is not None:
         try:
             conversation_worker.start()
@@ -323,6 +328,16 @@ def _toolset_status_refresh_loop():
             except Exception:
                 logging.error(
                     "Error during periodic toolset status refresh", exc_info=True
+                )
+            try:
+                # Re-read every cycle rather than gating on a change signal: a
+                # ConfigMap/Secret remount changes skills with no toolset status change to
+                # detect. The sync is an idempotent upsert + prune, so repeating is cheap.
+                if dal.enabled:
+                    holmes_sync_skills_status(dal, config)
+            except Exception:
+                logging.error(
+                    "Error during periodic custom skills refresh", exc_info=True
                 )
 
     thread = threading.Thread(target=refresh_loop, daemon=True, name="toolset-refresh")
@@ -511,7 +526,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
         open_experiment_from_request(http_request)
 
-        skills = config.get_skill_catalog()
+        # End user's id, so their personal skills are included for this request only.
+        skills = config.get_skill_catalog(user_id=chat_request.user_id)
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -784,6 +800,30 @@ if ENABLE_CONVERSATION_WORKER:
     conversation_worker = ConversationWorker(
         dal=dal, config=config, chat_function=chat
     )
+
+
+@app.on_event("shutdown")
+def stop_conversation_worker():
+    """Retire in-flight conversations before the process goes away.
+
+    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
+    a graceful shutdown, which runs this hook. Without it nothing ever called
+    ConversationWorker.stop(): the worker threads are daemons, so they were
+    simply frozen at interpreter exit and every conversation the pod was
+    mid-turn on stayed 'running' with a dead assignee until the stale-conversation
+    sweep retired it — up to hours of spinner in the UI. stop() now marks those
+    rows 'timeout' with a "Holmes Restarted" error event first.
+
+    Declared as a sync def on purpose: Starlette runs it in a threadpool, and
+    the body is blocking (Supabase writes plus bounded thread joins). SIGKILL /
+    OOM kill still bypass all of this — the pg_cron sweep stays the backstop.
+    """
+    if conversation_worker is None:
+        return
+    try:
+        conversation_worker.stop()
+    except Exception:
+        logging.error("Failed to stop conversation worker", exc_info=True)
 
 
 @app.get("/api/model")
