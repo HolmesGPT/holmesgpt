@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
@@ -5,13 +6,22 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
+from holmes.common.env_vars import TEMPERATURE
 from holmes.core.models import ChatResponse
 from holmes.core.scheduled_prompts import (
     ScheduledPrompt,
     ScheduledPromptsExecutor,
     ScheduledPromptsHeartbeatSpan,
+    sink_conditions,
+)
+from holmes.core.scheduled_prompts.sink_conditions import (
+    _coerce_decisions,
+    _coerce_rationale,
+    evaluate_sink_decisions,
+    format_delivery_note,
 )
 from holmes.core.supabase_dal import RunStatus
+from holmes.core.usage_recorder import RequestStatus
 
 
 @pytest.fixture
@@ -582,3 +592,359 @@ class TestScheduledPromptModel:
         assert sp.scheduled_prompt_definition_id is None
         assert sp.msg is None
         assert sp.metadata is None
+
+
+class TestSinkDeliveryConditions:
+    """Tests for per-channel delivery conditions on scheduled prompts."""
+
+    def _completion_returning(self, payload):
+        """Build a mock LLM whose completion returns the given JSON payload."""
+        message = MagicMock()
+        message.content = json.dumps(payload)
+        choice = MagicMock()
+        choice.message = message
+        result = MagicMock()
+        result.choices = [choice]
+        llm = MagicMock()
+        llm.completion = MagicMock(return_value=result)
+        return llm
+
+    def test_coerce_decisions_valid(self):
+        out = _coerce_decisions(
+            '{"send_to_slack": true, "send_to_email": false, "rationale": "x"}'
+        )
+        assert out == {"slack": True, "email": False}
+
+    def test_coerce_decisions_malformed_returns_empty(self):
+        assert _coerce_decisions("not json") == {}
+        assert _coerce_decisions("") == {}
+        assert _coerce_decisions("[1, 2, 3]") == {}
+
+    def test_coerce_decisions_ignores_non_bool(self):
+        # Non-bool fields are dropped, valid ones kept.
+        assert _coerce_decisions('{"send_to_slack": "yes", "send_to_email": true}') == {
+            "email": True
+        }
+
+    def test_evaluate_returns_empty_for_blank_prompt(self):
+        llm = MagicMock()
+        out = evaluate_sink_decisions(llm, "   ", "some analysis")
+        assert out.decisions == {}
+        # No conditions to evaluate -> must not even call the model.
+        llm.completion.assert_not_called()
+
+    def test_evaluate_maps_structured_output(self):
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "not critical"}
+        )
+        out = evaluate_sink_decisions(llm, "email me only if critical", "all healthy")
+        assert out.decisions == {"slack": True, "email": False}
+        assert out.rationale == "not critical"
+        assert out.suppressed() == ["email"]
+        llm.completion.assert_called_once()
+
+    def test_evaluate_returns_empty_on_llm_error(self):
+        llm = MagicMock()
+        llm.completion = MagicMock(side_effect=RuntimeError("boom"))
+        # Fail-safe: any error -> empty (reporter then delivers to all channels).
+        assert evaluate_sink_decisions(llm, "some prompt", "analysis").decisions == {}
+
+    def test_evaluate_uses_temperature_contract_not_hardcoded_zero(self):
+        """Regression: a hardcoded temperature=0 breaks thinking-enabled and
+        Opus 4.7+ models (the provider 400s, the error is swallowed, and
+        sink_decisions silently stays null). The call must instead pass the
+        shared TEMPERATURE constant, which is None when temperature must be
+        omitted entirely."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": True, "rationale": "x"}
+        )
+        evaluate_sink_decisions(llm, "notify only on problems", "analysis")
+
+        kwargs = llm.completion.call_args.kwargs
+        assert kwargs["temperature"] == TEMPERATURE
+        assert kwargs["temperature"] != 0
+
+    def test_evaluate_requests_structured_output_schema(self):
+        """The first attempt requests validated JSON via a strict json_schema
+        response_format (so compliant providers don't need text parsing)."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": True, "rationale": "x"}
+        )
+        evaluate_sink_decisions(llm, "notify only on problems", "analysis")
+
+        kwargs = llm.completion.call_args.kwargs
+        rf = kwargs.get("response_format")
+        assert rf is not None
+        assert rf["type"] == "json_schema"
+        assert rf["json_schema"]["strict"] is True
+
+    def test_evaluate_falls_back_when_response_format_rejected(self):
+        """If the strict schema is rejected (e.g. thinking-enabled Anthropic via
+        the proxy → HTTP 400), retry WITHOUT response_format and still parse the
+        prompt-instructed JSON, rather than silently returning no decisions."""
+        message = MagicMock()
+        message.content = json.dumps(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "x"}
+        )
+        choice = MagicMock()
+        choice.message = message
+        good = MagicMock()
+        good.choices = [choice]
+
+        llm = MagicMock()
+        llm.completion = MagicMock(side_effect=[RuntimeError("400 invalid"), good])
+
+        out = evaluate_sink_decisions(llm, "email only if critical", "healthy")
+
+        assert out.decisions == {"slack": True, "email": False}
+        assert llm.completion.call_count == 2
+        # First attempt carries the schema; the retry drops it.
+        assert (
+            llm.completion.call_args_list[0].kwargs.get("response_format") is not None
+        )
+        assert (
+            llm.completion.call_args_list[1].kwargs.get("response_format") is None
+        )
+
+    def test_coerce_decisions_handles_code_fenced_json(self):
+        fenced = '```json\n{"send_to_slack": true, "send_to_email": false}\n```'
+        assert _coerce_decisions(fenced) == {"slack": True, "email": False}
+
+    def test_coerce_decisions_handles_prose_wrapped_json(self):
+        prose = (
+            "Sure! Based on the report:\n"
+            '{"rationale": "all healthy", "send_to_slack": true, '
+            '"send_to_email": false}\nLet me know if you need more.'
+        )
+        assert _coerce_decisions(prose) == {"slack": True, "email": False}
+
+    def test_coerce_decisions_handles_multiple_json_objects(self):
+        """Regression: a greedy `{.*}` regex spans first-to-last brace and fails
+        json.loads ('Extra data') when the model emits more than one object;
+        raw_decode must take the first valid object instead."""
+        multi = (
+            'Result: {"send_to_slack": true, "send_to_email": false} '
+            'or maybe {"other": 1}'
+        )
+        assert _coerce_decisions(multi) == {"slack": True, "email": False}
+
+    def test_coerce_decisions_handles_trailing_prose_with_brace(self):
+        """A `}` in trailing prose must not break extraction of the first object."""
+        text = (
+            '{"send_to_slack": false, "send_to_email": true} '
+            "note: use the }}-syntax elsewhere"
+        )
+        assert _coerce_decisions(text) == {"slack": False, "email": True}
+
+    def test_coerce_rationale_handles_brace_inside_string(self):
+        """A brace inside the rationale string must not truncate parsing."""
+        text = '{"rationale": "use the {placeholder}", "send_to_slack": true}'
+        assert _coerce_rationale(text) == "use the {placeholder}"
+
+    def test_evaluate_warns_when_output_unparseable(self):
+        """A successful call with non-JSON output must log (not silently return
+        null) and fall back to deliver-everywhere."""
+        llm = MagicMock()
+        message = MagicMock()
+        message.content = "I cannot decide that."  # not JSON
+        choice = MagicMock()
+        choice.message = message
+        result = MagicMock()
+        result.choices = [choice]
+        llm.completion = MagicMock(return_value=result)
+
+        with patch.object(sink_conditions, "logging") as mock_logging:
+            out = sink_conditions.evaluate_sink_decisions(
+                llm, "only notify on problems", "analysis"
+            )
+
+        assert out.decisions == {}
+        mock_logging.warning.assert_called_once()
+
+    def test_format_delivery_note(self):
+        assert format_delivery_note([], "x") == ""
+        single = format_delivery_note(["email"], "no critical issues")
+        assert "not sent to email" in single
+        assert "no critical issues" in single
+        both = format_delivery_note(["slack", "email"], "")
+        assert "Slack and email" in both
+        assert "Reason:" not in both  # no rationale -> no reason line
+
+    def test_execute_prompt_sets_sink_decisions(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """A successful condition evaluation must be attached to the result."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "healthy"}
+        )
+        mock_config._get_llm = MagicMock(return_value=llm)
+
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only email me if there's a critical issue",
+        }
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        response = executor._execute_prompt(sp)
+
+        assert response.sink_decisions == {"slack": True, "email": False}
+        # The suppressed channel is surfaced in the chat result.
+        assert "not sent to email" in response.analysis
+        # The decision is persisted as part of the result payload.
+        result_arg = mock_dal.finish_scheduled_prompt_run.call_args.kwargs["result"]
+        assert result_arg["sink_decisions"] == {"slack": True, "email": False}
+        assert "not sent to email" in result_arg["analysis"]
+
+    def test_execute_prompt_skips_evaluation_without_notification_prompt(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """No notification_prompt -> no LLM call, deliver everywhere (None)."""
+        mock_config._get_llm = MagicMock()
+
+        # sample payload's prompt has only raw_prompt, no notification_prompt
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        response = executor._execute_prompt(sp)
+
+        assert response.sink_decisions is None
+        mock_config._get_llm.assert_not_called()
+
+    def test_execute_prompt_leaves_decisions_none_on_failure(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """If evaluation fails, sink_decisions stays None (deliver everywhere)."""
+        mock_config._get_llm = MagicMock(side_effect=RuntimeError("no llm"))
+
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only notify if there are problems",
+        }
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        response = executor._execute_prompt(sp)
+
+        assert response.sink_decisions is None
+
+    def test_sink_decision_usage_recorded_as_internal(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """The 2nd (sink-decision) LLM call must be recorded as a server-internal
+        usage event: is_internal=True and an 'internal_'-prefixed request_source."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "healthy"}
+        )
+        llm.model = "anthropic/claude-x"
+        llm.is_robusta_model = False
+        mock_config._get_llm = MagicMock(return_value=llm)
+
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only email me if there's a critical issue",
+        }
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+
+        with patch(
+            "holmes.core.scheduled_prompts.executor.record_single_llm_call"
+        ) as rec:
+            executor._execute_prompt(sp)
+
+        rec.assert_called_once()
+        state = rec.call_args.args[0]
+        assert state.is_internal is True
+        assert state.request_source.startswith("internal_")
+        assert state.request_type == "scheduled_prompt"
+        assert state.source_ref == sp.id
+        # SUCCESS status is passed when the completion returned a response.
+        assert rec.call_args.kwargs["status"] == RequestStatus.SUCCESS
+
+    def test_sink_decision_usage_not_recorded_without_notification_prompt(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """No notification_prompt -> no 2nd LLM call -> nothing to record."""
+        mock_config._get_llm = MagicMock()
+
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+        with patch(
+            "holmes.core.scheduled_prompts.executor.record_single_llm_call"
+        ) as rec:
+            executor._execute_prompt(sp)
+
+        rec.assert_not_called()
+
+    def test_sink_usage_recorded_after_finish(
+        self, executor, mock_dal, mock_config, sample_scheduled_prompt_payload
+    ):
+        """Usage recording must happen AFTER the run is finished, so the
+        background Supabase write can't race (and terminate) the finish write —
+        which would strand the run in RUNNING and cause re-execution."""
+        llm = self._completion_returning(
+            {"send_to_slack": True, "send_to_email": False, "rationale": "x"}
+        )
+        mock_config._get_llm = MagicMock(return_value=llm)
+        sample_scheduled_prompt_payload["prompt"] = {
+            "raw_prompt": "Check cluster health",
+            "notification_prompt": "Only email me if there's a critical issue",
+        }
+        sp = ScheduledPrompt(**sample_scheduled_prompt_payload)
+
+        order = []
+        mock_dal.finish_scheduled_prompt_run.side_effect = (
+            lambda **kwargs: order.append("finish") or True
+        )
+        with patch(
+            "holmes.core.scheduled_prompts.executor.record_single_llm_call",
+            side_effect=lambda *a, **k: order.append("record"),
+        ):
+            executor._execute_prompt(sp)
+
+        assert order == ["finish", "record"]
+
+
+class TestFinishScheduledPromptRunRetry:
+    """finish_scheduled_prompt_run must survive transient Supabase connection
+    errors, so a completed run is actually persisted and not reclaimed."""
+
+    def _make_dal(self, execute_side_effect):
+        from holmes.core.supabase_dal import SupabaseDal
+
+        dal = object.__new__(SupabaseDal)
+        dal.enabled = True
+        dal.cluster = "test-cluster"
+        dal.account_id = "acc"
+        exec_builder = MagicMock()
+        exec_builder.execute = MagicMock(side_effect=execute_side_effect)
+        dal.client = MagicMock()
+        dal.client.rpc = MagicMock(return_value=exec_builder)
+        return dal, exec_builder
+
+    def _finish(self, dal):
+        return dal.finish_scheduled_prompt_run(
+            status=RunStatus.COMPLETED,
+            result={},
+            run_id="r",
+            scheduled_prompt_definition_id=None,
+            version="v",
+            metadata=None,
+        )
+
+    def test_retries_then_succeeds_on_transient_error(self):
+        import httpx
+
+        dal, exec_builder = self._make_dal(
+            [
+                httpx.RemoteProtocolError("terminated"),
+                httpx.RemoteProtocolError("terminated"),
+                MagicMock(),
+            ]
+        )
+        assert self._finish(dal) is True
+        assert exec_builder.execute.call_count == 3
+
+    def test_returns_false_after_exhausting_retries(self):
+        import httpx
+
+        dal, exec_builder = self._make_dal(httpx.RemoteProtocolError("terminated"))
+        assert self._finish(dal) is False
+        assert exec_builder.execute.call_count == 3
+
+    def test_non_transient_error_is_not_retried(self):
+        dal, exec_builder = self._make_dal(ValueError("schema error"))
+        assert self._finish(dal) is False
+        assert exec_builder.execute.call_count == 1
