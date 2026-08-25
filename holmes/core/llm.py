@@ -341,7 +341,7 @@ class LLM:
     def completion(
         self,
         messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = [],
+        tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Union[str, dict]] = None,
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
         temperature: Optional[float] = None,
