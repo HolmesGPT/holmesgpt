@@ -18,6 +18,8 @@ jobs:
     name: "Benchmark PR"
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      pull-requests: write
     outputs:
       startup_json: ${{ steps.benchmark.outputs.startup_json }}
       llm_json: ${{ steps.benchmark.outputs.llm_json }}
@@ -46,28 +48,98 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
+          set -x
           echo "=== Benchmarking PR branch ==="
+          echo "openrouter_key_set=$([ -n "$OPENROUTER_API_KEY" ] && echo yes || echo no)"
+          poetry --version
+          poetry run python -c "import sys; print('py:', sys.version)"
+          poetry run holmes version || true
 
+          set +e
           python scripts/cli_performance_benchmark.py \
             --startup-only \
             --iterations 5 \
-            --output startup.json
+            --output startup.json 2>&1 | tee startup-output.log
+          STARTUP_EXIT=${PIPESTATUS[0]}
+          set -e
 
+          {
+            echo "## PR — startup benchmark (exit $STARTUP_EXIT)"
+            echo '```'
+            tail -300 startup-output.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          LLM_EXIT=0
           if [ -n "$OPENROUTER_API_KEY" ]; then
+            set +e
             python scripts/cli_performance_benchmark.py \
               --e2e-only \
               --iterations 5 \
               --model "openrouter/anthropic/claude-haiku-4.5" \
-              --output llm.json
-            echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+              --output llm.json 2>&1 | tee llm-output.log
+            LLM_EXIT=${PIPESTATUS[0]}
+            set -e
+
+            {
+              echo "## PR — e2e benchmark (exit $LLM_EXIT)"
+              echo '```'
+              tail -300 llm-output.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$LLM_EXIT" -eq 0 ]; then
+              echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
-          echo "startup_json=$(cat startup.json | jq -c)" >> "$GITHUB_OUTPUT"
+          if [ "$STARTUP_EXIT" -eq 0 ]; then
+            echo "startup_json=$(cat startup.json | jq -c)" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$STARTUP_EXIT" -ne 0 ] || [ "$LLM_EXIT" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Post diagnostic comment (PR)
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const tail = (p) => {
+              try {
+                const t = fs.readFileSync(p, 'utf8');
+                return t.split('\n').slice(-200).join('\n');
+              } catch (e) {
+                return `(no ${p}: ${e.message})`;
+              }
+            };
+            const body = [
+              '## 🔍 Benchmark PR diagnostic dump',
+              '',
+              '### startup-output.log (tail)',
+              '```',
+              tail('startup-output.log'),
+              '```',
+              '### llm-output.log (tail)',
+              '```',
+              tail('llm-output.log'),
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
 
   benchmark-master:
     name: "Benchmark Master"
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      pull-requests: write
     outputs:
       startup_json: ${{ steps.benchmark.outputs.startup_json }}
       llm_json: ${{ steps.benchmark.outputs.llm_json }}
@@ -107,23 +179,91 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
+          set -x
           echo "=== Benchmarking master branch ==="
+          echo "openrouter_key_set=$([ -n "$OPENROUTER_API_KEY" ] && echo yes || echo no)"
+          poetry --version
+          poetry run python -c "import sys; print('py:', sys.version)"
+          poetry run holmes version || true
 
+          set +e
           python scripts/cli_performance_benchmark.py \
             --startup-only \
             --iterations 5 \
-            --output startup.json
+            --output startup.json 2>&1 | tee startup-output.log
+          STARTUP_EXIT=${PIPESTATUS[0]}
+          set -e
 
+          {
+            echo "## Master — startup benchmark (exit $STARTUP_EXIT)"
+            echo '```'
+            tail -300 startup-output.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          LLM_EXIT=0
           if [ -n "$OPENROUTER_API_KEY" ]; then
+            set +e
             python scripts/cli_performance_benchmark.py \
               --e2e-only \
               --iterations 5 \
               --model "openrouter/anthropic/claude-haiku-4.5" \
-              --output llm.json
-            echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+              --output llm.json 2>&1 | tee llm-output.log
+            LLM_EXIT=${PIPESTATUS[0]}
+            set -e
+
+            {
+              echo "## Master — e2e benchmark (exit $LLM_EXIT)"
+              echo '```'
+              tail -300 llm-output.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$LLM_EXIT" -eq 0 ]; then
+              echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
-          echo "startup_json=$(cat startup.json | jq -c)" >> "$GITHUB_OUTPUT"
+          if [ "$STARTUP_EXIT" -eq 0 ]; then
+            echo "startup_json=$(cat startup.json | jq -c)" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$STARTUP_EXIT" -ne 0 ] || [ "$LLM_EXIT" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Post diagnostic comment (Master)
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const tail = (p) => {
+              try {
+                const t = fs.readFileSync(p, 'utf8');
+                return t.split('\n').slice(-200).join('\n');
+              } catch (e) {
+                return `(no ${p}: ${e.message})`;
+              }
+            };
+            const body = [
+              '## 🔍 Benchmark Master diagnostic dump',
+              '',
+              '### startup-output.log (tail)',
+              '```',
+              tail('startup-output.log'),
+              '```',
+              '### llm-output.log (tail)',
+              '```',
+              tail('llm-output.log'),
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
 
   compare:
     name: "Compare & Report"
