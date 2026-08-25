@@ -39,23 +39,26 @@ See this [video](https://www.loom.com/share/f969ab3af509444693802254ab040791?sid
 **Find your Tempo datasource UID:**
 
 ```bash
-# Port forward to Grafana
+# If Grafana isn't already reachable from where you're running this, port-forward first:
 kubectl port-forward svc/robusta-grafana 3000:80
 
-# Get Tempo datasource UID
+# Otherwise, replace http://localhost:3000 with the URL Holmes will use to reach Grafana
+# (e.g. https://grafana.example.com for an ingress, or the in-cluster service URL).
 curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[] | select(.type == "tempo") | .uid'
 ```
 
 === "Holmes CLI"
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist. Use a `api_url` that's reachable from the machine running `holmes` (a laptop running the CLI typically can't resolve `*.svc.cluster.local`):
 
     ```yaml
     toolsets:
       grafana/tempo:
         enabled: true
         config:
-          api_url: <your grafana url>  # e.g. http://grafana.monitoring.svc.cluster.local
+          # Out-of-cluster (CLI on a laptop): use an ingress, external hostname, or `kubectl port-forward`
+          api_url: https://grafana.example.com
+          # api_url: http://localhost:3000  # via `kubectl port-forward svc/grafana 3000:80`
           api_key: <your grafana service account token>
           grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
@@ -138,14 +141,16 @@ HolmesGPT connects directly to a self-hosted Tempo API endpoint without going th
 
 === "Holmes CLI"
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist. Use a `api_url` that's reachable from the machine running `holmes` (a laptop running the CLI typically can't resolve `*.svc.cluster.local`):
 
     ```yaml
     toolsets:
       grafana/tempo:
         enabled: true
         config:
-          api_url: http://tempo.monitoring.svc.cluster.local:3200
+          # Out-of-cluster (CLI on a laptop): use an ingress, external hostname, or `kubectl port-forward`
+          api_url: https://tempo.example.com
+          # api_url: http://localhost:3200  # via `kubectl port-forward svc/tempo 3200:3200`
           additional_headers:
             X-Scope-OrgID: "<tenant id>"  # Only needed for multi-tenant Tempo
     ```
