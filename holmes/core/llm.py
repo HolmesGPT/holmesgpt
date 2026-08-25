@@ -167,13 +167,6 @@ ROBUSTA_AI_MODEL_NAME = "Robusta"
 # feedback on ROB-795).
 ROBUSTA_REFRESH_FAILURE_LOG_EVERY = 5
 
-_NO_MODELS_ERROR = (
-    "No LLM models were loaded. Configure a model using one of: "
-    "--model '<provider/model>', export MODEL='<provider/model>', "
-    "or MODEL_LIST_FILE_LOCATION/config model list. "
-    "Setting only an API key (for example OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AZURE_API_KEY) is not enough without a model."
-)
-
 
 def _is_gemini_route(litellm_model_name: str) -> bool:
     """True if the model goes through Google's Gemini GenerateContent API.
@@ -1133,10 +1126,6 @@ class LLMModelRegistry:
         return True
 
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
-        with self._lock:
-            if not self._llms:
-                raise Exception(_NO_MODELS_ERROR)
-
         if model_key:
             model_params = self._loaded_model(model_key)
             if model_params is not None:
@@ -1182,7 +1171,12 @@ class LLMModelRegistry:
         requested one couldn't be found even after a refresh."""
         with self._lock:
             if not self._llms:
-                raise Exception(_NO_MODELS_ERROR)
+                raise Exception(
+                    "No LLM models were loaded. Configure a model using one of: "
+                    "--model '<provider/model>', export MODEL='<provider/model>', "
+                    "or MODEL_LIST_FILE_LOCATION/config model list. "
+                    "Setting only an API key (for example OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AZURE_API_KEY) is not enough without a model."
+                )
 
             if self._default_robusta_model:
                 model_params = self._llms.get(self._default_robusta_model)
