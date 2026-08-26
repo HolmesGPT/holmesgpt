@@ -128,9 +128,9 @@ value paths.
 Usage: {{- with (include "holmes.config.model" .) }}
 */}}
 {{- define "holmes.config.model" -}}
-{{- if .Values.config.model -}}
+{{- if and .Values.config .Values.config.model -}}
 {{- .Values.config.model -}}
-{{- else if and .Values.holmes .Values.holmes.config.model -}}
+{{- else if and .Values.holmes .Values.holmes.config .Values.holmes.config.model -}}
 {{- .Values.holmes.config.model -}}
 {{- end -}}
 {{- end -}}
