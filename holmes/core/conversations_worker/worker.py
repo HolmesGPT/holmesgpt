@@ -664,48 +664,27 @@ class ConversationWorker:
         )
         if not oauth_enabled:
             resolved_user_id = None
-        # Per-event presence wins, not truthiness — so an explicit empty
-        # value from the FE (e.g. "" to deliberately clear a field) keeps
-        # priority over the row-level metadata fallback and we don't
-        # reintroduce stale Conversation-row values. Only fall back to
-        # task.metadata when the per-turn event omits the key entirely.
-        resolved_user_email = (
-            data["user_email"]
-            if "user_email" in data
-            else (task.metadata.get("user_email") if task.metadata else None)
-        )
-        resolved_request_source = (
-            data["request_source"]
-            if "request_source" in data
-            else (task.metadata.get("request_source") if task.metadata else None)
-        )
-        # source_ref is conversation-level for alert investigations (the
-        # whole chat is about one alert id), so the FE puts it on the
-        # Conversations row's metadata, not in each per-turn event.
-        resolved_source_ref = (
-            data["source_ref"]
-            if "source_ref" in data
-            else (task.metadata.get("source_ref") if task.metadata else None)
-        )
-        # request_type may also live under Conversations.metadata when the
-        # FE classifies a whole chat once at creation time. Same key-presence
-        # semantics — leaving the resolved value None when neither source
-        # supplies it preserves build_chat_recorder_state's auto-detection
-        # (Slack-prefix → 'slack_chat', fallback → 'user_chat').
-        resolved_request_type = (
-            data["request_type"]
-            if "request_type" in data
-            else (task.metadata.get("request_type") if task.metadata else None)
-        )
-        # conversation_link is conversation-level like source_ref: the surface a
-        # chat originated from (Slack thread, Teams message, workflow run) does
-        # not change between turns, so it may live on the Conversations row's
-        # metadata instead of being repeated in each per-turn event.
-        resolved_conversation_link = (
-            data["conversation_link"]
-            if "conversation_link" in data
-            else (task.metadata.get("conversation_link") if task.metadata else None)
-        )
+        def from_event_or_conversation(key: str) -> Any:
+            # Per-event presence wins, not truthiness — so an explicit empty
+            # value from the FE (e.g. "" to deliberately clear a field) keeps
+            # priority over the row-level metadata fallback and we don't
+            # reintroduce stale Conversation-row values. Only fall back to
+            # task.metadata when the per-turn event omits the key entirely.
+            if key in data:
+                return data[key]
+            return task.metadata.get(key) if task.metadata else None
+
+        resolved_user_email = from_event_or_conversation("user_email")
+        resolved_request_source = from_event_or_conversation("request_source")
+        # source_ref, request_type, and conversation_link are conversation-level
+        # (one alert id / one creation-time classification / one originating
+        # surface per chat), so the FE may put them on the Conversations row's
+        # metadata instead of each per-turn event. A resolved None for
+        # request_type still lets build_chat_recorder_state's auto-detection
+        # run (Slack-prefix → 'slack_chat', fallback → 'user_chat').
+        resolved_source_ref = from_event_or_conversation("source_ref")
+        resolved_request_type = from_event_or_conversation("request_type")
+        resolved_conversation_link = from_event_or_conversation("conversation_link")
 
         chat_request = ChatRequest(
             ask=ask,

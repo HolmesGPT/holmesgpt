@@ -2,6 +2,7 @@ import os
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse
 
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.skills.skill_loader import SkillCatalog
@@ -175,6 +176,31 @@ def generate_user_prompt(
     )
 
 
+MAX_CONVERSATION_LINK_LENGTH = 2048
+
+
+def sanitize_conversation_link(link: Optional[str]) -> Optional[str]:
+    """Drop any conversation_link that isn't a plain absolute http(s) URL.
+
+    The value is client-supplied (REST body, Conversations metadata) and is
+    rendered verbatim into the system prompt with an instruction to copy it
+    into PR/issue descriptions — so anything with whitespace or a non-URL
+    shape would let a caller inject arbitrary prompt text and arbitrary
+    artifact content. All server-built links (Slack permalinks, Teams deep
+    links, platform UI URLs) pass this check.
+    """
+    if not link:
+        return None
+    if len(link) > MAX_CONVERSATION_LINK_LENGTH or any(
+        ch.isspace() for ch in link
+    ):
+        return None
+    parsed = urlparse(link)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return link
+
+
 def build_system_prompt(
     toolsets: List[Any],
     skills: Optional[SkillCatalog],
@@ -210,7 +236,7 @@ def build_system_prompt(
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
         else None,
-        "conversation_link": conversation_link
+        "conversation_link": sanitize_conversation_link(conversation_link)
         if is_enabled(PromptComponent.CONVERSATION_LINK)
         else None,
         "toolsets": toolsets if toolset_instructions_enabled else [],
