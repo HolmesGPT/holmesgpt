@@ -16,6 +16,7 @@ from holmes.plugins.skills.skill_loader import (
     Skill,
     SkillCatalog,
     SkillSource,
+    load_filesystem_skills_by_name,
     load_skill_catalog,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
@@ -26,12 +27,14 @@ class SkillsFetcher(Tool):
     available_skills: List[str] = []
     _skill_catalog: Optional[SkillCatalog] = None
     _dal: Optional[SupabaseDal] = None
+    _search_paths: Optional[List[str]] = None
 
     def __init__(
         self,
         toolset: "SkillsToolset",
         skill_catalog: Optional[SkillCatalog] = None,
         dal: Optional[SupabaseDal] = None,
+        search_paths: Optional[List[str]] = None,
     ):
         available_skills: List[str] = []
         if skill_catalog:
@@ -64,6 +67,7 @@ class SkillsFetcher(Tool):
         )
         self._skill_catalog = skill_catalog
         self._dal = dal
+        self._search_paths = search_paths
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         skill_id: str = params.get("skill_id", "")
@@ -80,13 +84,25 @@ class SkillsFetcher(Tool):
         # Resolved per invocation, not baked into the cached toolset -- see __init__.
         user_id = (context.request_context or {}).get("user_id")
 
-        # Look up in skill catalog by name — remote skills have empty content
-        # (catalog only stores metadata), so fetch full content from Supabase
-        skill = self._find_skill(skill_id)
-        if skill and skill.source == SkillSource.REMOTE:
-            return self._get_robusta_skill(skill_id, params)
-        elif skill:
+        # Filesystem skills (builtin + custom, including git-synced repos) are
+        # re-read from disk per invocation, never served from the cached catalog:
+        # the catalog is a snapshot from toolset construction, and skill files
+        # change under a running server (a git repo re-pull, a ConfigMap
+        # remount). The per-request prompt catalog already re-scans disk, so
+        # without this a freshly-advertised skill would 404 here and an edited
+        # one would serve its old content until restart.
+        skill = self._find_filesystem_skill(skill_id)
+        if skill:
             return self._format_skill_result(skill, params)
+
+        # The cached catalog still resolves everything else: remote skills (their
+        # catalog entry is metadata-only, content comes from Supabase either way)
+        # and catalogs handed in directly by SDK callers.
+        cached = self._find_skill(skill_id)
+        if cached and cached.source == SkillSource.REMOTE:
+            return self._get_robusta_skill(skill_id, params)
+        elif cached:
+            return self._format_skill_result(cached, params)
 
         # Not in the cached catalog -- the expected case for a personal skill. User-scoped
         # lookup goes first so one user can never read another's.
@@ -116,6 +132,14 @@ class SkillsFetcher(Tool):
             error=err_msg,
             params=params,
         )
+
+    def _find_filesystem_skill(self, name: str) -> Optional[Skill]:
+        """Fresh disk lookup of a builtin/custom skill by its normalized name."""
+        try:
+            return load_filesystem_skills_by_name(self._search_paths).get(name)
+        except Exception as e:
+            logging.warning(f"Failed to re-scan filesystem skills for '{name}': {e}")
+            return None
 
     def _find_skill(self, name: str) -> Optional[Skill]:
         if not self._skill_catalog:
@@ -268,7 +292,12 @@ class SkillsToolset(Toolset):
             description="Fetch skills",
             icon_url="https://platform.robusta.dev/demos/runbook.svg",
             tools=[
-                SkillsFetcher(self, skill_catalog=skill_catalog, dal=dal),
+                SkillsFetcher(
+                    self,
+                    skill_catalog=skill_catalog,
+                    dal=dal,
+                    search_paths=additional_search_paths,
+                ),
             ],
             docs_url="https://holmesgpt.dev/data-sources/",
             tags=[

@@ -339,6 +339,16 @@ def _toolset_status_refresh_loop():
                     "Error during periodic toolset status refresh", exc_info=True
                 )
             try:
+                # Re-pull git skill repos so pushed skill changes reach a running
+                # agent without a pod restart. Runs before the mirror sync below
+                # so freshly-pulled skills appear in the UI on the same cycle.
+                if config.skill_repos:
+                    config.skill_repo_manager.sync()
+            except Exception:
+                logging.error(
+                    "Error during periodic skill repo sync", exc_info=True
+                )
+            try:
                 # Re-read every cycle rather than gating on a change signal: a
                 # ConfigMap/Secret remount changes skills with no toolset status change to
                 # detect. The sync is an idempotent upsert + prune, so repeating is cheap.

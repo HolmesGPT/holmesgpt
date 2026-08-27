@@ -39,7 +39,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills | toYaml | sha256sum }}
+        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
         {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
         # Roll this pod when the remediation MCP auth token rotates — the token
         # is read from a Secret into env, so a content change alone would not
@@ -193,6 +193,31 @@ spec:
           {{- if $skillPaths }}
           - name: CUSTOM_SKILL_PATHS
             value: {{ join "," $skillPaths | quote }}
+          {{- end }}
+          {{- if .Values.skillRepos }}
+          {{- $skillRepos := list }}
+          {{- range $i, $repo := .Values.skillRepos }}
+          {{- $entry := dict "url" (required "skillRepos entries need a url" $repo.url) }}
+          {{- with $repo.name }}{{- $entry = merge $entry (dict "name" .) }}{{- end }}
+          {{- with $repo.branch }}{{- $entry = merge $entry (dict "branch" .) }}{{- end }}
+          {{- with $repo.subPath }}{{- $entry = merge $entry (dict "sub_path" .) }}{{- end }}
+          {{- with $repo.username }}{{- $entry = merge $entry (dict "username" .) }}{{- end }}
+          {{- if $repo.tokenSecret }}
+          {{- $entry = merge $entry (dict "token_env" (printf "SKILL_REPO_TOKEN_%d" $i)) }}
+          {{- end }}
+          {{- $skillRepos = append $skillRepos $entry }}
+          {{- end }}
+          - name: SKILL_REPOS
+            value: {{ toJson $skillRepos | quote }}
+          {{- range $i, $repo := .Values.skillRepos }}
+          {{- if $repo.tokenSecret }}
+          - name: SKILL_REPO_TOKEN_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ $repo.tokenSecret.name }}
+                key: {{ $repo.tokenSecret.key }}
+          {{- end }}
+          {{- end }}
           {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}

@@ -168,6 +168,21 @@ customSkills: {}
   #     ## Goal
   #     ...
 
+# Git repositories to sync skills from. Holmes clones each repo at startup and
+# re-pulls it periodically (every TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+# default 5 minutes), so pushed skill changes reach a running agent without a
+# pod restart. The chart sets SKILL_REPOS in the Holmes pod from this list and,
+# for entries with tokenSecret, injects the token env var from that Secret.
+skillRepos: []
+  # - name: team-skills            # optional; defaults to the repo name from the URL
+  #   url: https://github.com/acme/holmes-skills.git
+  #   branch: main                 # optional; defaults to the repo's default branch
+  #   subPath: skills              # optional; subdirectory holding the SKILL.md dirs
+  #   username: oauth2             # optional; "x-token-auth" for Bitbucket tokens
+  #   tokenSecret:                 # omit entirely for public repos
+  #     name: holmes-skills-git-credentials
+  #     key: token
+
 resources:
   requests:
     cpu: 100m

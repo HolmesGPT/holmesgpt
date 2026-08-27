@@ -24,10 +24,14 @@ def _dal() -> Mock:
     return dal
 
 
-def _config(paths) -> Mock:
+def _config(paths, skill_repos=None, repo_manager=None) -> Mock:
     config = Mock()
     config.cluster_name = "c1"
     config.custom_skill_paths = paths
+    # The sync reads the combined view (configured paths + git-repo checkouts).
+    config.all_skill_paths = paths
+    config.skill_repos = skill_repos or []
+    config.skill_repo_manager = repo_manager
     return config
 
 
@@ -245,3 +249,41 @@ def test_failure_row_wins_over_a_same_named_healthy_skill(tmp_path: Path):
     assert len(shared) == 1
     assert shared[0]["status"] == "error"
     assert "frontmatter" in shared[0]["error"]
+
+
+def test_git_repo_skills_are_labeled_with_their_repo_url(tmp_path: Path):
+    """Skills whose files come from a synced git repo report source "git:<url>".
+
+    The UI parses that prefix to show which repo a skill syncs from; everything
+    else keeps the plain "custom"/"builtin" labels.
+    """
+    import subprocess
+
+    from holmes.plugins.skills.git_skill_repos import GitSkillRepo, GitSkillRepoManager
+
+    repo_dir = tmp_path / "repo"
+    _write_skill(repo_dir, "from-git")
+    subprocess.run(["git", "init", "--quiet", "-b", "main"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "skills"], cwd=repo_dir, check=True)
+
+    plain_dir = tmp_path / "plain"
+    _write_skill(plain_dir, "from-files")
+
+    repo = GitSkillRepo(url=f"file://{repo_dir}")
+    manager = GitSkillRepoManager([repo], root_dir=tmp_path / "checkouts")
+    dal = _dal()
+    config = _config(
+        [plain_dir] + manager.skill_paths(),
+        skill_repos=[repo],
+        repo_manager=manager,
+    )
+
+    holmes_sync_skills_status(dal, config)
+
+    rows, _ = dal.sync_skills.call_args[0]
+    by_name = {r["skill_name"]: r for r in rows}
+    assert by_name["from-git"]["source"] == f"git:file://{repo_dir}"
+    assert by_name["from-files"]["source"] == "custom"

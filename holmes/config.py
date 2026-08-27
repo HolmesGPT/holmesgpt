@@ -24,6 +24,11 @@ from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetTag
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
+from holmes.plugins.skills.git_skill_repos import (
+    GitSkillRepo,
+    GitSkillRepoManager,
+    parse_skill_repos_env,
+)
 from holmes.plugins.skills.skill_loader import (
     SkillCatalog,
     load_skill_catalog,
@@ -133,6 +138,10 @@ class Config(RobustaBaseConfig):
     opsgenie_query: Optional[str] = None
 
     custom_skill_paths: List[Union[str, FilePath]] = []
+    # Git repositories to sync skills from (re-pulled periodically by the server's
+    # refresh loop; synced once per run in the CLI). Their checkouts are appended
+    # to the effective skill paths -- see all_skill_paths.
+    skill_repos: List[GitSkillRepo] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -160,6 +169,7 @@ class Config(RobustaBaseConfig):
 
     # TODO: Separate those fields to facade class, this shouldn't be part of the config.
     _toolset_manager: Optional[ToolsetManager] = PrivateAttr(None)
+    _skill_repo_manager: Optional[GitSkillRepoManager] = PrivateAttr(None)
     _llm_model_registry: Optional[LLMModelRegistry] = PrivateAttr(None)
     _dal: Optional[SupabaseDal] = PrivateAttr(None)
     _config_file_path: Optional[Path] = PrivateAttr(None)
@@ -183,11 +193,30 @@ class Config(RobustaBaseConfig):
                 mcp_servers=self.mcp_servers,
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
-                custom_skill_paths=self.custom_skill_paths,
+                custom_skill_paths=self.all_skill_paths,
                 config_file_path=self._config_file_path,
                 additional_toolsets=self.additional_toolsets,
             )
         return self._toolset_manager
+
+    @property
+    def skill_repo_manager(self) -> GitSkillRepoManager:
+        if not self._skill_repo_manager:
+            self._skill_repo_manager = GitSkillRepoManager(self.skill_repos)
+        return self._skill_repo_manager
+
+    @property
+    def all_skill_paths(self) -> List[Union[str, FilePath]]:
+        """Every path skills load from: configured paths plus git-repo checkouts.
+
+        The repo paths are `current` symlinks that keep pointing at the newest
+        checkout across syncs, so this list is stable even though the content
+        behind it moves. Accessing it clones the repos on first use.
+        """
+        paths: List[Union[str, FilePath]] = list(self.custom_skill_paths)
+        if self.skill_repos:
+            paths.extend(self.skill_repo_manager.skill_paths())
+        return paths
 
     @property
     def dal(self) -> SupabaseDal:
@@ -256,7 +285,7 @@ class Config(RobustaBaseConfig):
         return result
 
     def _apply_env_fallbacks(self) -> None:
-        """Apply MODEL and CUSTOM_SKILL_PATHS when absent after YAML load/reload."""
+        """Apply MODEL, CUSTOM_SKILL_PATHS and SKILL_REPOS when absent after YAML load/reload."""
         if self.model is None:
             model_from_env = os.environ.get("MODEL")
             if model_from_env and model_from_env.strip():
@@ -267,6 +296,11 @@ class Config(RobustaBaseConfig):
             skill_paths = _parse_custom_skill_paths_env()
             if skill_paths:
                 self.custom_skill_paths = skill_paths
+
+        if not self.skill_repos:
+            skill_repos = parse_skill_repos_env()
+            if skill_repos:
+                self.skill_repos = skill_repos
 
     @classmethod
     def load_from_env(cls):
@@ -299,6 +333,9 @@ class Config(RobustaBaseConfig):
         skill_paths = _parse_custom_skill_paths_env()
         if skill_paths:
             kwargs["custom_skill_paths"] = skill_paths
+        skill_repos = parse_skill_repos_env()
+        if skill_repos:
+            kwargs["skill_repos"] = skill_repos
         kwargs["cluster_name"] = Config.__get_cluster_name()
         if kwargs["cluster_name"] and not os.environ.get("CLUSTER_NAME"):
             os.environ["CLUSTER_NAME"] = kwargs["cluster_name"]
@@ -351,7 +388,7 @@ class Config(RobustaBaseConfig):
         hierarchy = self.dal.get_skill_hierarchy_config()
         return load_skill_catalog(
             dal=self.dal,
-            custom_skill_paths=self.custom_skill_paths,
+            custom_skill_paths=self.all_skill_paths,
             user_id=user_id,
             hierarchy=hierarchy,
             alert_name=alert_name,
@@ -547,9 +584,13 @@ class Config(RobustaBaseConfig):
                 self.mcp_servers = fresh.mcp_servers
                 self.custom_toolsets = fresh.custom_toolsets
                 self.custom_skill_paths = fresh.custom_skill_paths
+                self.skill_repos = fresh.skill_repos
                 self.additional_toolsets = fresh.additional_toolsets
                 self._apply_env_fallbacks()
             self._toolset_manager = None
+            # Rebuilt lazily; existing checkouts on disk are reused since the
+            # per-repo directories are deterministic.
+            self._skill_repo_manager = None
             self._cached_tool_executor = None
             self._cached_executor_key = None
         if fresh is None:

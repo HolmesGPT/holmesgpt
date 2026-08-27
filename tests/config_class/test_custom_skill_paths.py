@@ -118,3 +118,62 @@ def test_load_from_file_config_paths_take_precedence_over_env(tmp_path, monkeypa
     config = Config.load_from_file(config_file)
     assert len(config.custom_skill_paths) == 1
     assert str(config.custom_skill_paths[0]) == str(tmp_path)
+
+
+# ── git skill repos (skill_repos config / SKILL_REPOS env) ──
+
+
+def _make_git_skill_repo(path, name, body):
+    import subprocess
+
+    skill_dir = path / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(f"---\ndescription: {name}\n---\n{body}\n")
+    for args in (
+        ["init", "--quiet", "-b", "main"],
+        ["config", "user.email", "t@example.com"],
+        ["config", "user.name", "t"],
+        ["add", "-A"],
+        ["commit", "--quiet", "-m", "skills"],
+    ):
+        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
+
+
+def test_config_skill_repos_feed_the_skill_catalog(tmp_path, monkeypatch):
+    """skill_repos in config.yaml is cloned and its skills reach get_skill_catalog."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _make_git_skill_repo(repo, "git-sourced-skill", "## Steps\n1. From git\n")
+    monkeypatch.setenv("SKILL_REPOS_DIR", str(tmp_path / "checkouts"))
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        f"model: gpt-4\nskill_repos:\n  - url: file://{repo}\n"
+    )
+
+    config = Config.load_from_file(config_file)
+    catalog = config.get_skill_catalog()
+
+    assert catalog is not None
+    assert "git-sourced-skill" in [s.name for s in catalog.skills]
+
+
+@patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
+def test_load_from_env_parses_skill_repos(mock_cluster, monkeypatch):
+    monkeypatch.setenv(
+        "SKILL_REPOS",
+        '[{"url": "github.com/acme/skills.git", "sub_path": "skills"}]',
+    )
+    config = Config.load_from_env()
+    assert len(config.skill_repos) == 1
+    assert config.skill_repos[0].url == "https://github.com/acme/skills.git"
+    assert config.skill_repos[0].sub_path == "skills"
+
+
+def test_load_from_file_falls_back_to_env_skill_repos(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("model: gpt-4\n")
+    monkeypatch.setenv("SKILL_REPOS", '[{"url": "github.com/acme/skills.git"}]')
+
+    config = Config.load_from_file(config_file)
+    assert [r.url for r in config.skill_repos] == ["https://github.com/acme/skills.git"]

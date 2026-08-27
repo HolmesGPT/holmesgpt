@@ -8,14 +8,18 @@ from holmes.plugins.skills.skill_loader import (
     load_filesystem_skills,
 )
 
-# How a SkillSource is labelled in the HolmesCustomSkills.source column. Every filesystem
-# skill -- from a GitHub repo, inline Helm values, or a ConfigMap/Secret mount -- loads as
-# SkillSource.USER and Holmes keeps no origin metadata, so they are all reported as
-# "custom". Distinguishing github/inline/configmap would require new origin tagging.
+# How a SkillSource is labelled in the HolmesCustomSkills.source column. Filesystem skills
+# load as SkillSource.USER and are reported as "custom" -- except skills whose path belongs
+# to a configured git skill repo, which are reported as "git:<repo url>" so the UI can show
+# which repo they sync from (older UIs treat the unrecognised value as plain custom).
 # HolmesCustomSkills.status values. The column exists to surface a malformed SKILL.md, so
 # both are reachable: "ok" for a skill that parsed, "error" for one that did not.
 STATUS_OK = "ok"
 STATUS_ERROR = "error"
+
+# Prefix marking a row as synced from a git repo; the rest of the value is the repo URL.
+# Parsed by the UI (robusta-frontend custom-skill-source.ts) -- keep the format in sync.
+GIT_SOURCE_PREFIX = "git:"
 
 SOURCE_LABELS = {
     SkillSource.USER: "custom",
@@ -46,7 +50,17 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
         # Reports whether every skill source was readable, which the prune below depends on.
         # An empty result alone cannot distinguish "the last skill was deleted" from "the
         # ConfigMap is not mounted yet" -- and only the first should prune the mirror.
-        loaded = load_filesystem_skills(config.custom_skill_paths)
+        loaded = load_filesystem_skills(config.all_skill_paths)
+
+        def source_label(source: SkillSource, source_path) -> str:
+            repo = (
+                config.skill_repo_manager.repo_for_path(source_path)
+                if config.skill_repos
+                else None
+            )
+            if repo:
+                return f"{GIT_SOURCE_PREFIX}{repo.url}"
+            return SOURCE_LABELS[source]
 
         # UTC-aware: a naive timestamp would be interpreted in the database session's
         # timezone, so updated_at would not reflect the real sync time off-UTC.
@@ -76,7 +90,7 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
             if skill.source in SOURCE_LABELS:
                 by_name[skill.name] = row(
                     skill.name,
-                    SOURCE_LABELS[skill.source],
+                    source_label(skill.source, skill.source_path),
                     skill.description,
                     skill.content,
                     skill.source_path,
@@ -99,7 +113,7 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
             if failure.source in SOURCE_LABELS:
                 by_name[failure.skill_name] = row(
                     failure.skill_name,
-                    SOURCE_LABELS[failure.source],
+                    source_label(failure.source, failure.source_path),
                     # Nullable, and there is nothing trustworthy to put here -- the parse
                     # that would have produced them is what failed.
                     None,

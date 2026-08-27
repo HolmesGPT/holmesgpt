@@ -150,8 +150,12 @@ class ToolsetManager:
         # Extract search paths from custom skill paths
         additional_search_paths = None
         if self.custom_skill_paths:
+            # Absolutize without resolving symlinks: a git-synced skill repo is
+            # published through a `current` symlink that flips on every update,
+            # and resolving it here would pin this long-lived toolset to one
+            # commit's checkout. Scans resolve at scan time instead.
             additional_search_paths = [
-                str(Path(p).resolve()) if Path(p).is_dir() else os.path.dirname(os.path.abspath(str(p)))
+                os.path.abspath(str(p)) if Path(p).is_dir() else os.path.dirname(os.path.abspath(str(p)))
                 for p in self.custom_skill_paths
             ]
 
