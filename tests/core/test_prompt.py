@@ -225,6 +225,26 @@ class TestBuildInitialAskMessages:
                 assert test_file.read_text() in user_content
                 assert "<attached-file" in user_content
 
+    def test_system_prompt_pins_permission_error_docs_link(self, mock_tool_executor):
+        """The permissions-error section must keep linking users to the setup docs.
+
+        Guards against the docs URL being lost in future prompt edits — Holmes
+        is expected to include this link when reporting RBAC/permission errors.
+        """
+        messages = build_initial_ask_messages(
+            "Test prompt",
+            None,
+            mock_tool_executor,
+            None,
+            None,
+        )
+
+        assert messages[0]["role"] == "system"
+        assert (
+            "https://holmesgpt.dev/data-sources/permissions/"
+            in messages[0]["content"]
+        )
+
     def test_build_initial_ask_messages_with_system_prompt_additions(
         self, mock_tool_executor
     ):

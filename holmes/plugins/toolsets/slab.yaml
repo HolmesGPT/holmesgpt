@@ -7,14 +7,25 @@ toolsets:
       - core
     prerequisites:
       - command: "curl --version"
+      - command: "jq --version"
       - env:
           - SLAB_API_KEY
     tools:
       - name: "fetch_slab_document"
         description: "Fetch a document from slab."
-        command: |
-          curl -X POST \
-          -H "Authorization: ${SLAB_API_KEY}" \
-          -H "Content-Type: application/json" \
-          -d '{"query":"query { post(id: \"{{ post_id }}\") { id title content } }"}' \
-          https://api.slab.com/v1/graphql
+        script: |
+          #!/bin/bash
+          # SECURITY: assign the sanitized param to a shell variable (unquoted
+          # slot) and build the JSON request body with jq --arg. post_id is sent
+          # as a GraphQL *variable* (data), not concatenated into the query text,
+          # so it can't break out of the shell, the JSON, or the GraphQL document.
+          # Interpolating post_id directly inside the quoted -d payload allowed
+          # shell command substitution to run on the host.
+          POST_ID={{ post_id }}
+          BODY=$(jq -n --arg doc_id "$POST_ID" \
+            '{query: "query($doc_id: ID!) { post(id: $doc_id) { id title content } }", variables: {doc_id: $doc_id}}')
+          curl -s -X POST \
+            -H "Authorization: ${SLAB_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" \
+            https://api.slab.com/v1/graphql

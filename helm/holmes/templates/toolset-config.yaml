@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.mariadb.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -46,20 +46,6 @@ data:
       )
     }}
     {{- $mcpServers = merge $mcpServers $azureMcpServers }}
-    {{- end }}
-    {{- if .Values.mcpAddons.mariadb.enabled }}
-    {{- $mariadbMcpServers := dict "mariadb" (dict
-        "description" "MariaDB database troubleshooting and monitoring MCP server"
-        "config" (dict
-          "url" (printf "http://%s-mariadb-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name (.Values.mcpAddons.mariadb.config.namespace | default .Release.Namespace))
-          "mode" "streamable-http"
-          "headers" (dict "Content-Type" "application/json")
-          "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/mariadb.svg"
-        )
-        "llm_instructions" (include "holmes.mariadbMcp.llmInstructions" . | trim)
-      )
-    }}
-    {{- $mcpServers = merge $mcpServers $mariadbMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.gcp.enabled }}
     {{- $gcpMcpServers := dict }}
@@ -145,7 +131,7 @@ data:
           "url" (printf "http://%s-gitlab-mcp-server.%s.svc.cluster.local:8000/sse" .Release.Name .Release.Namespace)
           "mode" "sse"
           "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/gitlab.svg"
-          "health_check_tool" "get_current_user"
+          "health_check_tool" "whoami"
         )
         "llm_instructions" (include "holmes.gitlabMcp.llmInstructions" . | trim)
       )
@@ -179,13 +165,23 @@ data:
     {{- $mcpServers = merge $mcpServers $prefectMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.kubernetesRemediation.enabled }}
+    {{- $k8sRemediationConfig := dict
+        "url" (printf "http://%s-k8s-remediation-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
+        "mode" "streamable-http"
+        "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
+    }}
+    {{- if .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+    {{- /* The server rejects requests without this bearer token (image >= 1.2.0).
+           The token is mounted as env on the Holmes pod from the auth Secret
+           (see holmes.yaml) and rendered into the header via Jinja. */}}
+    {{- $_ := set $k8sRemediationConfig "extra_headers" (dict
+          "Authorization" "Bearer {{ env.K8S_REMEDIATION_MCP_TOKEN }}"
+        )
+    }}
+    {{- end }}
     {{- $k8sRemediationMcpServers := dict "kubernetes_remediation" (dict
         "description" "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
-        "config" (dict
-          "url" (printf "http://%s-k8s-remediation-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
-          "mode" "streamable-http"
-          "icon_url" "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
-        )
+        "config" $k8sRemediationConfig
         "llm_instructions" (include "holmes.kubernetesRemediationMcp.llmInstructions" . | trim)
         "approval_required_tools" .Values.mcpAddons.kubernetesRemediation.approvalRequiredTools
       )

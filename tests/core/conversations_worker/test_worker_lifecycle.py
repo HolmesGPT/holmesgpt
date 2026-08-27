@@ -1,5 +1,7 @@
 """Unit tests for worker lifecycle / claim-loop / error handling."""
 import threading
+import logging
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,7 +10,12 @@ from holmes.core.conversations_worker.models import (
     ConversationReassignedError,
     ConversationTask,
 )
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.worker import (
+    SHUTDOWN_ERROR_CODE,
+    SHUTDOWN_REASON,
+    ConversationWorker,
+    _ActiveTask,
+)
 
 
 def _bare_worker():
@@ -22,14 +29,29 @@ def _bare_worker():
     w._running = True
     w._claim_thread = None
     w._notify_event = threading.Event()
+    w._saturated_since = None
+    w._saturation_logged = False
+    w._last_stuck_warn = None
     w._executor = MagicMock()
-    w._active_conversation_ids = set()
+    w._active_conversation_ids = {}
     w._active_lock = threading.Lock()
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
     w._realtime_verify_thread = None
     w._realtime_verify_stop = threading.Event()
     return w
+
+
+def _slot(started: float, conversation_id="c-slot", request_sequence=1):
+    """An occupied executor slot, as _dispatch records it."""
+    task = ConversationTask(
+        conversation_id=conversation_id,
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=request_sequence,
+    )
+    return _ActiveTask(task, started)
 
 
 def test_build_task_from_conversation_row_parses_required_fields():
@@ -125,7 +147,7 @@ def test_try_claim_and_dispatch_passes_remaining_capacity_as_limit(monkeypatch):
     )
     # Two conversations already running -> only 3 free slots remain
     # (free = MAX_CONCURRENT - active; there is no longer a local queue).
-    w._active_conversation_ids = {"existing1", "existing2"}
+    w._active_conversation_ids = {"existing1": _slot(0.0), "existing2": _slot(0.0)}
     w.dal.claim_n_pending_conversations.return_value = []
     w._try_claim_and_dispatch()
     w.dal.claim_n_pending_conversations.assert_called_once_with("h-test", 3)
@@ -140,11 +162,125 @@ def test_try_claim_and_dispatch_skips_claim_when_at_capacity(monkeypatch):
         1,
     )
     # Already have one active conversation -> zero free slots.
-    w._active_conversation_ids = {"existing"}
+    w._active_conversation_ids = {"existing": _slot(0.0)}
     w._try_claim_and_dispatch()
     # No claim RPC is issued at all when there is no free capacity.
     w.dal.claim_n_pending_conversations.assert_not_called()
     w._executor.submit.assert_not_called()
+
+
+def test_saturation_logs_only_after_continuous_window(monkeypatch, caplog):
+    """ROB-759: full capacity is a normal state under load, so the saturation
+    INFO fires only after _SATURATION_LOG_AFTER_SECONDS of CONTINUOUS
+    saturation — a brief free-slot observation (backlog churn) resets the
+    clock, so a healthy busy worker never logs (no enter/exit flicker)."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    w._active_conversation_ids = {("conv-busy", 1): _slot(time.monotonic())}
+
+    def saturation_lines():
+        return [
+            r
+            for r in caplog.records
+            if "claim capacity saturated" in r.getMessage()
+        ]
+
+    with caplog.at_level(logging.INFO):
+        # First saturated observation starts the clock — no log yet.
+        w._try_claim_and_dispatch()
+        assert not saturation_lines()
+
+        # Still within the window — no log.
+        w._try_claim_and_dispatch()
+        assert not saturation_lines()
+
+        # Backfill the clock past the window → the single INFO fires.
+        w._saturated_since = time.monotonic() - 61.0
+        w._try_claim_and_dispatch()
+        assert len(saturation_lines()) == 1
+        assert "conv-busy" in saturation_lines()[0].getMessage()
+
+        # Saturation persists → still only the one line.
+        w._try_claim_and_dispatch()
+        assert len(saturation_lines()) == 1
+
+        # A slot frees → exit line with duration, and the clock resets.
+        w._active_conversation_ids = {}
+        w.dal.claim_n_pending_conversations.return_value = []
+        w._try_claim_and_dispatch()
+        exits = [
+            r
+            for r in caplog.records
+            if "capacity available again" in r.getMessage()
+        ]
+        assert len(exits) == 1
+        assert w._saturated_since is None and w._saturation_logged is False
+
+
+def test_brief_free_slot_resets_saturation_clock(monkeypatch, caplog):
+    """Churn scenario: saturated → one slot frees momentarily → saturated
+    again. The free observation must reset the clock so no line is logged."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    w.dal.claim_n_pending_conversations.return_value = []
+
+    with caplog.at_level(logging.INFO):
+        # Saturated, clock nearly expired.
+        w._active_conversation_ids = {("conv-a", 1): _slot(time.monotonic())}
+        w._try_claim_and_dispatch()
+        w._saturated_since = time.monotonic() - 59.0
+
+        # Brief dip to a free slot (conversation completed) → clock resets.
+        w._active_conversation_ids = {}
+        w._try_claim_and_dispatch()
+        assert w._saturated_since is None
+
+        # Saturated again: window starts over, so no log even though the
+        # combined saturated time exceeds the threshold.
+        w._active_conversation_ids = {("conv-b", 1): _slot(time.monotonic())}
+        w._try_claim_and_dispatch()
+    assert not [
+        r for r in caplog.records if "claim capacity" in r.getMessage()
+    ]
+
+
+def test_stuck_slot_emits_warning(monkeypatch, caplog):
+    """A slot held longer than CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
+    while claiming is blocked is an anomaly → WARNING (rate-limited)."""
+    w = _bare_worker()
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_MAX_CONCURRENT",
+        1,
+    )
+    monkeypatch.setattr(
+        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS",
+        100.0,
+    )
+    w._active_conversation_ids = {("conv-stuck", 1): _slot(time.monotonic() - 150.0)}
+    w._saturated_since = time.monotonic() - 10.0  # saturation ongoing
+
+    def stuck_warnings():
+        return [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "slot(s) stuck" in r.getMessage()
+        ]
+
+    with caplog.at_level(logging.INFO):
+        w._try_claim_and_dispatch()
+        assert len(stuck_warnings()) == 1
+        assert "conv-stuck" in stuck_warnings()[0].getMessage()
+
+        # Rate-limited: an immediate second check does not warn again.
+        w._try_claim_and_dispatch()
+        assert len(stuck_warnings()) == 1
 
 
 def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
@@ -208,7 +344,7 @@ def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
         assert len(w._active_conversation_ids) <= 5, "never exceed MAX_CONCURRENT"
 
         for key in list(w._active_conversation_ids):
-            w._active_conversation_ids.discard(key)
+            w._active_conversation_ids.pop(key, None)
 
     # The whole pool is freed each iteration, so every claim requests the full
     # 5 free slots; the final batch simply returns fewer rows (the remaining 2).
@@ -280,7 +416,7 @@ def test_two_workers_claim_disjoint_sets(monkeypatch):
         for w in (w1, w2):
             w._try_claim_and_dispatch()
             for key in list(w._active_conversation_ids):
-                w._active_conversation_ids.discard(key)
+                w._active_conversation_ids.pop(key, None)
 
     assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
     assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
@@ -795,3 +931,170 @@ def test_realtime_verify_loop_surfaces_non_transient_exception(caplog):
         if r.levelno == logging.ERROR and "not retrying" in r.getMessage()
     ]
     assert errors, "non-transient defect must be logged at ERROR"
+
+
+# ---------------------------------------------------------------------------
+# Shutdown: retire in-flight conversations ("Holmes Restarted")
+# ---------------------------------------------------------------------------
+
+
+def _active(w, conversation_id="c1", request_sequence=1):
+    """Register an in-flight conversation the way _dispatch does."""
+    task = ConversationTask(
+        conversation_id=conversation_id,
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=request_sequence,
+    )
+    w._active_conversation_ids[task.active_key] = _ActiveTask(task, time.monotonic())
+    return task
+
+
+def test_timeout_active_conversations_posts_reason_then_sets_timeout():
+    w = _bare_worker()
+    _active(w, "c1", 2)
+
+    w._timeout_active_conversations()
+
+    # The error event must carry the reason and be posted while the row is
+    # still 'running' — i.e. before the status flip.
+    w.dal.post_conversation_events.assert_called_once()
+    kwargs = w.dal.post_conversation_events.call_args.kwargs
+    assert kwargs["conversation_id"] == "c1"
+    assert kwargs["request_sequence"] == 2
+    (event,) = kwargs["events"]
+    assert event["event"] == "error"
+    assert event["data"]["reason"] == SHUTDOWN_REASON
+    assert SHUTDOWN_REASON in event["data"]["description"]
+    assert event["data"]["error_code"] == SHUTDOWN_ERROR_CODE
+
+    w.dal.update_conversation_status.assert_called_once_with(
+        conversation_id="c1",
+        request_sequence=2,
+        assignee="h-test",
+        status="timeout",
+    )
+
+
+def test_timeout_active_conversations_handles_every_in_flight_row():
+    w = _bare_worker()
+    _active(w, "c1", 1)
+    _active(w, "c2", 1)
+    # Same conversation, later turn — a distinct slot (see active_key).
+    _active(w, "c1", 2)
+
+    w._timeout_active_conversations()
+
+    assert w.dal.update_conversation_status.call_count == 3
+    handled = {
+        (c.kwargs["conversation_id"], c.kwargs["request_sequence"])
+        for c in w.dal.update_conversation_status.call_args_list
+    }
+    assert handled == {("c1", 1), ("c1", 2), ("c2", 1)}
+
+
+def test_timeout_active_conversations_noop_when_idle():
+    w = _bare_worker()
+    w._timeout_active_conversations()
+    w.dal.post_conversation_events.assert_not_called()
+    w.dal.update_conversation_status.assert_not_called()
+
+
+def test_timeout_conversation_writes_timeout_only():
+    """One status write, no second-guessing: a database that rejects 'timeout'
+    leaves the row to the pg_cron stale sweep (the migration ships first)."""
+    w = _bare_worker()
+    task = _active(w, "c1", 1)
+    w.dal.update_conversation_status = MagicMock(return_value=False)
+
+    w._timeout_conversation(task)
+
+    statuses = [c.kwargs["status"] for c in w.dal.update_conversation_status.call_args_list]
+    assert statuses == ["timeout"]
+
+
+def test_timeout_conversation_stops_when_row_was_reassigned():
+    """The turn finished (or the user hit stop) while we were shutting down —
+    the new owner's status must not be overwritten."""
+    w = _bare_worker()
+    task = _active(w, "c1", 1)
+    w.dal.update_conversation_status = MagicMock(
+        side_effect=ConversationReassignedError("MISMATCH")
+    )
+
+    w._timeout_conversation(task)
+
+    assert w.dal.update_conversation_status.call_count == 1
+
+
+def test_timeout_active_conversations_continues_after_one_row_fails():
+    w = _bare_worker()
+    _active(w, "c1", 1)
+    _active(w, "c2", 1)
+    w.dal.post_conversation_events = MagicMock(
+        side_effect=[RuntimeError("supabase down"), 7]
+    )
+
+    w._timeout_active_conversations()
+
+    # _post_error_event swallows its own exception, so both rows still get a
+    # status write; the point is that one bad row can't abort the sweep.
+    assert w.dal.update_conversation_status.call_count == 2
+
+
+def test_stop_retires_in_flight_conversations():
+    """stop() is the SIGTERM path — it must not leave rows 'running'."""
+    w = _bare_worker()
+    w._tool_call_worker = MagicMock()
+    _active(w, "c1", 1)
+
+    w.stop()
+
+    w.dal.update_conversation_status.assert_called_once_with(
+        conversation_id="c1",
+        request_sequence=1,
+        assignee="h-test",
+        status="timeout",
+    )
+    assert w._running is False
+
+
+def test_stop_survives_a_failing_retirement():
+    """A broken DAL must not stop the rest of the shutdown from running."""
+    w = _bare_worker()
+    w._tool_call_worker = MagicMock()
+    _active(w, "c1", 1)
+    w._timeout_active_conversations = MagicMock(side_effect=RuntimeError("boom"))
+
+    w.stop()
+
+    assert w._running is False
+    w._tool_call_worker.stop.assert_called_once()
+
+
+def test_timeout_active_conversations_stops_at_the_budget(caplog):
+    """A slow Supabase must not hold the process past its grace period — the
+    sweep gives up and leaves the rest to the pg_cron stale sweep."""
+    from itertools import chain, repeat
+
+    w = _bare_worker()
+    _active(w, "c1", 1)
+    _active(w, "c2", 1)
+    _active(w, "c3", 1)
+
+    # Clock jumps past the budget once the first row has been retired.
+    clock = chain([0.0, 0.0], repeat(1_000.0))
+    with patch(
+        "holmes.core.conversations_worker.worker.time.monotonic",
+        lambda: next(clock),
+    ):
+        with caplog.at_level(logging.WARNING, logger="root"):
+            w._timeout_active_conversations()
+
+    assert w.dal.update_conversation_status.call_count == 1
+    assert any(
+        "budget" in r.getMessage() and "2 conversation(s)" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+    )

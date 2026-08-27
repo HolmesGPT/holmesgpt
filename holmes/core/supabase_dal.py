@@ -9,6 +9,8 @@ import threading
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+from urllib.request import getproxies, proxy_bypass
 from uuid import uuid4
 
 import httpx
@@ -20,7 +22,7 @@ from postgrest._sync.request_builder import SyncQueryRequestBuilder
 from postgrest.base_request_builder import QueryArgs
 from postgrest.exceptions import APIError as PGAPIError
 from postgrest.types import ReturnMethod
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from supabase import create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
@@ -48,6 +50,10 @@ from holmes.core.truncation.dal_truncation_utils import (
     truncate_evidences_entities_if_necessary,
 )
 from holmes.plugins.skills import RobustaSkillInstruction
+from holmes.plugins.skills.skill_loader import (
+    DEFAULT_HIERARCHY_ORDER,
+    SkillHierarchyConfig,
+)
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
@@ -69,6 +75,9 @@ RUNBOOKS_TABLE = "HolmesRunbooks"
 SESSION_TOKENS_TABLE = "AuthTokens"
 HOLMES_STATUS_TABLE = "HolmesStatus"
 HOLMES_TOOLSET = "HolmesToolsStatus"
+HOLMES_CUSTOM_SKILLS_TABLE = "HolmesCustomSkills"
+ACCOUNT_SETTINGS_TABLE = "AccountSettings"
+PERSONAL_RUNBOOK_CATALOG = "PersonalRunbookCatalog"
 SCANS_META_TABLE = "ScansMeta"
 SCANS_RESULTS_TABLE = "ScansResults"
 SCHEDULED_PROMPTS_RUNS_TABLE = "ScheduledPromptsRuns"
@@ -247,7 +256,15 @@ class SupabaseDal:
         # verify/http2 go on the transport (httpx ignores them on the client once a
         # custom transport is supplied); timeout/follow_redirects stay on the client
         # (supabase ignores postgrest_client_timeout once an httpx_client is given).
-        transport = SupabaseRetryTransport(http2=False, verify=verify)
+        # httpx skips env proxies when given a custom transport; resolve it here
+        # so proxied clusters still reach Supabase.
+        parsed = urlparse(self.url)
+        proxy = None
+        if parsed.hostname:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            if not proxy_bypass(f"{parsed.hostname}:{port}"):
+                proxy = getproxies().get(parsed.scheme)
+        transport = SupabaseRetryTransport(http2=False, verify=verify, proxy=proxy)
         httpx_client = httpx.Client(
             transport=transport,
             timeout=SUPABASE_TIMEOUT_SECONDS,
@@ -263,6 +280,22 @@ class SupabaseDal:
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
+        # Read on every chat request but per-account and rarely changed, so cache it briefly
+        # instead of adding an AccountSettings round trip per turn. Parsed defensively: this
+        # runs in __init__, so a bad env var must not stop Holmes from starting.
+        raw_ttl = os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")
+        try:
+            hierarchy_ttl = int(raw_ttl)
+            if hierarchy_ttl <= 0:
+                raise ValueError(f"must be positive, got {hierarchy_ttl}")
+        except ValueError as e:
+            logging.warning(
+                "Invalid SKILL_HIERARCHY_CACHE_TTL_SEC=%r (%s); falling back to 60s",
+                raw_ttl,
+                e,
+            )
+            hierarchy_ttl = 60
+        self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
         self.lock = threading.Lock()
 
     def patch_postgrest_execute(self):
@@ -566,15 +599,29 @@ class SupabaseDal:
                 symptom = row.get("symptoms")
                 title = row.get("subject_name")
                 clusters = row.get("clusters")
-                if not symptom:
-                    logging.warning("Skipping skill with empty symptom: %s", id)
+                alerts = row.get("alerts") or []
+                # Alerts are a valid alternative to symptoms (the UI enforces "either"), so
+                # requiring symptoms here discarded every alert-only skill.
+                if not symptom and not alerts:
+                    logging.warning(
+                        "Skipping skill with neither symptom nor alerts: %s", id
+                    )
                     continue
                 # Filter by cluster: null means all clusters, otherwise check membership
                 if clusters is not None and self.cluster not in clusters:
                     continue
-                instructions.append(
-                    RobustaSkillInstruction(id=id, symptom=symptom, title=title)
-                )
+                # Per row, so one malformed row costs that skill rather than the whole
+                # catalog. ValidationError only -- a broader catch would hide real bugs.
+                try:
+                    instructions.append(
+                        RobustaSkillInstruction(
+                            id=id, symptom=symptom or "", title=title, alerts=alerts
+                        )
+                    )
+                except ValidationError:
+                    logging.warning(
+                        "Skipping malformed skill row: runbook_id=%s", id
+                    )
             return instructions
         except Exception:
             logging.exception("Failed to fetch skill catalog", exc_info=True)
@@ -590,35 +637,254 @@ class SupabaseDal:
             .eq("account_id", self.account_id)
             .eq("subject_type", "RunbookCatalog")
             .eq("runbook_id", skill_id)
+            # Both catalog reads already skip disabled skills, so one was never offered to
+            # the model -- but its body stayed fetchable by id. NULL counts as disabled,
+            # matching what both catalogs do today.
+            .eq("enabled", True)
             .execute()
         )
         if not res.data or len(res.data) != 1:
             return None
 
         row = res.data[0]
-        id = row.get("runbook_id")
-        symptom = row.get("symptoms")
-        title = row.get("subject_name")
-        raw_instruction = row.get("runbook").get("instructions")
+        return RobustaSkillInstruction(
+            id=row.get("runbook_id"),
+            # `or ""` -- an alert-only skill has NULL symptoms, and `symptom` is typed `str`,
+            # so its "" default applies only when OMITTED; an explicit None fails validation
+            # and the skill becomes unfetchable despite being offered to the LLM.
+            symptom=row.get("symptoms") or "",
+            instruction=self._extract_skill_instruction(row, skill_id),
+            title=row.get("subject_name"),
+        )
+
+    @staticmethod
+    def _extract_skill_instruction(row: dict, skill_id: str) -> str:
+        """Normalize the runbook.instructions jsonb into a single string.
+
+        Returns "" when there is nothing to extract, NOT str(None). Callers fall back with
+        `instruction or pretty()`, and "None" is truthy -- it would suppress the fallback and
+        hand the LLM the literal text "None" as the skill body.
+        """
+        runbook = row.get("runbook")
+        if runbook is not None and not isinstance(runbook, dict):
+            # jsonb has no shape constraint, so this can be a list or scalar. `.get` on those
+            # raises, and the caller turns any exception into a silently dropped skill.
+            logging.error(
+                "Unexpected runbook shape for skill_id=%s: %s",
+                skill_id,
+                type(runbook).__name__,
+            )
+            return ""
+        raw_instruction = (runbook or {}).get("instructions")
+        if raw_instruction is None:
+            return ""
         # TODO: remove in the future when we migrate the table data
-        if isinstance(raw_instruction, list) and len(raw_instruction) == 1:
-            instruction = raw_instruction[0]
-        elif isinstance(raw_instruction, list) and len(raw_instruction) > 1:
-            # not currently used, but will be used in the future
-            instruction = "\n - ".join(raw_instruction)
+        if isinstance(raw_instruction, list):
+            # An empty list must return "" for the same reason str(None) must not become
+            # "None": callers fall back with `instruction or pretty()`, and str([]) == "[]"
+            # is truthy, which would suppress the fallback and hand the LLM "[]" as a body.
+            if not raw_instruction:
+                return ""
+            # Elements must all be strings before either fast path. jsonb has no shape
+            # constraint, so a list of dicts is possible -- and it used to return the dict
+            # itself (breaking this function's `-> str` contract, then failing validation in
+            # RobustaSkillInstruction) or raise TypeError out of the join. Both left the
+            # skill unfetchable. Fall through to "" instead, so pretty() renders the row.
+            if all(isinstance(item, str) for item in raw_instruction):
+                if len(raw_instruction) == 1:
+                    return raw_instruction[0]
+                # not currently used, but will be used in the future
+                return "\n - ".join(raw_instruction)
+            logging.error(
+                "Unexpected skill instruction element types for skill_id=%s: %s",
+                skill_id,
+                sorted({type(item).__name__ for item in raw_instruction}),
+            )
+            return ""
         elif isinstance(raw_instruction, str):
             # not supported by the current UI, but will be supported in the future
-            instruction = raw_instruction
-        else:
-            # in case the format is unexpected, convert to string
-            logging.error(
-                f"Unexpected skill instruction format for skill_id={skill_id}: {raw_instruction}"
-            )
-            instruction = str(raw_instruction)
-
-        return RobustaSkillInstruction(
-            id=id, symptom=symptom, instruction=instruction, title=title
+            return raw_instruction
+        # in case the format is unexpected, convert to string. Log the TYPE only -- personal
+        # skill bodies are private to their owner and must not be written to shared logs.
+        logging.error(
+            "Unexpected skill instruction format for skill_id=%s: %s",
+            skill_id,
+            type(raw_instruction).__name__,
         )
+        return str(raw_instruction)
+
+    def get_personal_skill_catalog(
+        self, user_id: str
+    ) -> Optional[List[RobustaSkillInstruction]]:
+        """List the given END USER's personal skills.
+
+        A plain table select: the RLS SELECT policy lets a row through for its owner OR for
+        the account's API-role user, and Holmes signs in as an AccountUsers row with
+        role = 'API'. Same mechanism the Conversations policies use.
+
+        `user_id` MUST come from the request -- never self.user_id, which is Holmes's own
+        service identity and identical on every request.
+        """
+        if not self.enabled or not user_id:
+            return None
+
+        try:
+            res = (
+                self.client.table(RUNBOOKS_TABLE)
+                # Must name every column the loop below reads. `alerts` is load-bearing:
+                # without it the "neither symptom nor alerts" guard drops alert-only skills
+                # outright, and every surviving skill loads as "applies to all alerts".
+                .select("runbook_id, subject_name, symptoms, alerts, clusters, enabled")
+                .eq("account_id", self.account_id)
+                .eq("user_id", user_id)
+                .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)
+                .execute()
+            )
+            if not res.data:
+                return None
+
+            instructions = []
+            for row in res.data:
+                id = row.get("runbook_id")
+                symptom = row.get("symptoms")
+                title = row.get("subject_name")
+                clusters = row.get("clusters")
+                alerts = row.get("alerts") or []
+                if not row.get("enabled", True):
+                    continue
+                # See get_skill_catalog: alerts are a valid alternative to symptoms.
+                if not symptom and not alerts:
+                    logging.warning(
+                        "Skipping personal skill with neither symptom nor alerts: %s", id
+                    )
+                    continue
+                # Cluster filter (null = all). Must precede hierarchy dedup, so a skill
+                # scoped to another cluster cannot suppress an applicable one.
+                if clusters is not None and self.cluster not in clusters:
+                    continue
+                # Validate per row. id and title are required on the model, so a row with a
+                # null runbook_id or subject_name raises -- and if that reached the outer
+                # handler the user would silently lose EVERY personal skill, not just the
+                # malformed one. Skip the bad row instead.
+                try:
+                    instructions.append(
+                        RobustaSkillInstruction(
+                            id=id, symptom=symptom or "", title=title, alerts=alerts
+                        )
+                    )
+                # See get_skill_catalog: only ValidationError, so a real bug in this loop
+                # surfaces instead of being logged as malformed data.
+                except ValidationError:
+                    logging.warning(
+                        "Skipping malformed personal skill row: runbook_id=%s", id
+                    )
+            return instructions
+        except Exception:
+            logging.exception("Failed to fetch personal skill catalog", exc_info=True)
+            return None
+
+    def get_personal_skill_content(
+        self, skill_id: str, user_id: str
+    ) -> Optional[RobustaSkillInstruction]:
+        """Fetch one personal skill's body for the given END USER.
+
+        Scoped by user_id so one user cannot fetch another user's personal skill content --
+        the RLS policy admits Holmes for every personal row in the account, so this filter is
+        what keeps one user's fetch from reaching another's skill.
+        """
+        if not self.enabled or not user_id:
+            return None
+
+        try:
+            res = (
+                self.client.table(RUNBOOKS_TABLE)
+                .select("runbook_id, subject_name, symptoms, runbook, enabled")
+                .eq("account_id", self.account_id)
+                .eq("user_id", user_id)
+                .eq("runbook_id", skill_id)
+                .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)
+                # See get_skill_content: a disabled skill must not be fetchable by id.
+                .eq("enabled", True)
+                .execute()
+            )
+            if not res.data:
+                return None
+
+            row = res.data[0] if isinstance(res.data, list) else res.data
+            return RobustaSkillInstruction(
+                id=row.get("runbook_id"),
+                # See get_skill_content: an alert-only skill has NULL symptoms and an
+                # explicit None fails validation. Here the ValidationError would be
+                # swallowed by the handler below and the caller would read the result as
+                # "not one of this user's skills", falling through to the global lookup.
+                symptom=row.get("symptoms") or "",
+                instruction=self._extract_skill_instruction(row, skill_id),
+                title=row.get("subject_name"),
+            )
+        except Exception:
+            logging.exception(
+                f"Failed to fetch personal skill content for skill_id={skill_id}",
+                exc_info=True,
+            )
+            return None
+
+    def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:
+        """Read the per-account skill name-collision policy from AccountSettings.
+
+        Defaults to disabled, which preserves today's behaviour (no cross-tier dedup).
+        Any read failure also falls back to the default rather than changing behaviour.
+        """
+        default = SkillHierarchyConfig()
+        if not self.enabled:
+            return default
+
+        cached = self.skill_hierarchy_cache.get("config")
+        if cached is not None:
+            return cached
+
+        try:
+            res = (
+                self.client.table(ACCOUNT_SETTINGS_TABLE)
+                .select("settings")
+                .eq("account_id", self.account_id)
+                .execute()
+            )
+            if not res.data:
+                self.skill_hierarchy_cache["config"] = default
+                return default
+
+            settings = res.data[0].get("settings") or {}
+            raw_enabled = settings.get("skill_name_hierarchy_enabled", False)
+            if isinstance(raw_enabled, bool):
+                enabled = raw_enabled
+            else:
+                # Written by hand-run SQL, so the string "false" is a realistic mistake --
+                # and bool("false") is True, which would silently enable suppression.
+                logging.warning(
+                    "Ignoring non-boolean skill_name_hierarchy_enabled=%r; treating as false",
+                    raw_enabled,
+                )
+                enabled = False
+            order = settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
+            if not isinstance(order, list) or not all(
+                isinstance(tier, str) for tier in order
+            ):
+                logging.warning(
+                    f"Ignoring malformed skill_name_hierarchy_order: {order!r}"
+                )
+                order = DEFAULT_HIERARCHY_ORDER
+            config = SkillHierarchyConfig(enabled=enabled, order=order)
+            self.skill_hierarchy_cache["config"] = config
+            return config
+        except Exception:
+            logging.exception(
+                "Failed to fetch skill hierarchy config; falling back to disabled",
+                exc_info=True,
+            )
+            # Cache the fallback too, so a persistent read failure does not retry Supabase
+            # on every single chat request.
+            self.skill_hierarchy_cache["config"] = default
+            return default
 
     def get_resource_instructions(
         self, type: str, name: Optional[str]
@@ -760,6 +1026,72 @@ class SupabaseDal:
         except Exception as e:
             logging.exception(
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
+            )
+
+    def sync_skills(
+        self, skills: list[dict], cluster_name: str, prune: bool
+    ) -> None:
+        """Mirror this cluster's filesystem + builtin skills into HolmesCustomSkills.
+
+        The filesystem stays the source of truth -- Holmes keeps executing these from disk.
+        These rows exist only so the UI can display them, so this is a plain upsert plus a
+        prune of names that no longer exist for this (account, cluster). Best-effort: a
+        failure here must never break startup.
+
+        `prune` is required rather than defaulted because it gates a DELETE, so the caller
+        has to state whether the loaded set is authoritative. Pass the loader's
+        FilesystemSkills.sources_ok: True only when every skill source was readable.
+
+        The four cases:
+          prune=True,  skills non-empty -> upsert, then delete every other name
+          prune=True,  skills empty     -> delete every row for this cluster (the user really
+                                           did delete their last skill)
+          prune=False, skills non-empty -> upsert only; a partially-readable load must not
+                                           prune the part that failed to load
+          prune=False, skills empty     -> no-op; nothing was read, so nothing is known
+        """
+        if not self.enabled:
+            logging.info("Robusta store not initialized. Skipping sync holmes skills.")
+            return
+
+        if not skills and not prune:
+            logging.debug(
+                "No skills loaded and sources were not fully readable; skipping sync."
+            )
+            return
+
+        provided_skill_names = [skill["skill_name"] for skill in skills]
+
+        try:
+            if skills:
+                self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).upsert(
+                    skills, on_conflict="account_id, cluster_id, skill_name"
+                ).execute()
+
+            if not prune:
+                logging.info(
+                    f"Upserted {len(skills)} custom skills; skipped pruning because at "
+                    "least one skill source could not be read."
+                )
+                return
+
+            stale = (
+                self.client.table(HOLMES_CUSTOM_SKILLS_TABLE)
+                .delete()
+                .eq("account_id", self.account_id)
+                .eq("cluster_id", cluster_name)
+            )
+            # Only add the not-in filter when there is something to exclude. An empty list
+            # renders as `skill_name=not.in.()`, which PostgREST does not reliably accept --
+            # and semantically the empty case wants an unfiltered delete anyway.
+            if provided_skill_names:
+                stale = stale.not_.in_("skill_name", provided_skill_names)
+            stale.execute()
+
+            logging.info(f"Synchronized {len(skills)} custom skills successfully.")
+        except Exception as e:
+            logging.exception(
+                f"An error occurred during skill synchronization: {e}", exc_info=True
             )
 
     def record_usage_event(self, state: "UsageRecorderState") -> None:

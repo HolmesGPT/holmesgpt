@@ -44,8 +44,11 @@ def _bare_worker():
     w._running = True
     w._claim_thread = None
     w._notify_event = threading.Event()
+    w._saturated_since = None
+    w._saturation_logged = False
+    w._last_stuck_warn = None
     w._executor = MagicMock()
-    w._active_conversation_ids = set()
+    w._active_conversation_ids = {}
     w._active_lock = threading.Lock()
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None

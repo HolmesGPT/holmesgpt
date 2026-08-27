@@ -15,6 +15,7 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
     CONVERSATION_WORKER_REALTIME_ENABLED,
+    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
 )
@@ -60,6 +61,61 @@ ChatFunction = Callable[
     [ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]
 ]
 
+# Saturation logging (ROB-759): the claim loop previously skipped claiming
+# with zero output when all executor slots were occupied, which looked
+# identical to a dead loop. Logging is transition-based, not periodic, so a
+# healthy busy worker stays quiet:
+#  * Saturation must persist CONTINUOUSLY for this long before the single
+#    INFO line is emitted. A worker churning through a backlog frees a slot
+#    on every completion (which wakes the claim loop synchronously), so its
+#    saturation clock keeps resetting and it never logs — no enter/exit
+#    flicker. Only a worker where nothing completes accumulates the full
+#    window.
+_SATURATION_LOG_AFTER_SECONDS = 60.0
+#  * The stuck-slot WARNING (in-flight age above
+#    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS while claiming is blocked)
+#    repeats at most this often.
+_STUCK_WARN_RATE_LIMIT_SECONDS = 300.0
+
+# Shutdown handling. When the pod is asked to stop (SIGTERM from a rollout,
+# node drain, scale-down), whatever conversations we are mid-turn on are never
+# going to finish: the executor is not drained, the threads are daemons, and
+# nothing else picks the row back up (the claim RPCs only take 'pending').
+# Before this, the row simply stayed 'running' with our now-dead assignee until
+# the pg_cron stale sweep retired it hours later — a spinner in the UI the whole
+# time. We now retire them ourselves: an error event carrying the reason below,
+# then status 'timeout'.
+SHUTDOWN_REASON = "Holmes Restarted"
+SHUTDOWN_ERROR_DESCRIPTION = (
+    f"{SHUTDOWN_REASON} — this request was interrupted before it finished. "
+    "Ask again to retry."
+)
+# Distinct from the generic 5000 so this is greppable and the FE can special-case
+# it later; unmapped codes render `description` as-is today.
+SHUTDOWN_ERROR_CODE = 5205
+# Wall-clock budget for the whole retirement sweep. It is sequential and each
+# row costs up to two DAL calls, each retrying 3 times with backoff, so a slow
+# or unreachable Supabase could otherwise eat the container's termination grace
+# period and earn us a SIGKILL — leaving the remaining rows 'running', the very
+# thing this is here to prevent. Rows we don't reach fall back to the pg_cron
+# stale sweep, exactly as they did before.
+SHUTDOWN_RETIRE_BUDGET_SECONDS = 10.0
+
+
+class _ActiveTask:
+    """An in-flight conversation: the task itself plus when it took its slot.
+
+    ``started`` is ``time.monotonic()`` and feeds the saturation/stuck-slot
+    logging; ``task`` is kept so the shutdown path can address the row (it
+    needs conversation_id + request_sequence, which the dict key alone no
+    longer suffices for once we have to write to the DB).
+    """
+
+    __slots__ = ("task", "started")
+
+    def __init__(self, task: "ConversationTask", started: float):
+        self.task = task
+        self.started = started
 
 
 class ConversationWorker:
@@ -96,9 +152,24 @@ class ConversationWorker:
 
         # In-flight (running) tasks, keyed by (conversation_id, request_sequence)
         # — see ConversationTask.active_key — so overlapping turns of one
-        # conversation are counted separately for capacity.
-        self._active_conversation_ids: set = set()
+        # conversation are counted separately for capacity. The value is the
+        # monotonic start time, so the claim loop can report how long each
+        # in-flight task has been holding a slot (ROB-759).
+        self._active_conversation_ids: Dict[Any, _ActiveTask] = {}
         self._active_lock = threading.Lock()
+
+        # Saturation-transition logging state (ROB-759). _saturated_since is
+        # the start of the current CONTINUOUS zero-free-slots stretch (None
+        # when a claim attempt found free capacity); _saturation_logged marks
+        # that the one INFO line for this stretch was emitted (its matching
+        # exit line logs the total duration); _last_stuck_warn rate-limits
+        # the stuck-slot WARNING. None means "never warned" — do NOT use 0.0
+        # as the sentinel: time.monotonic() is seconds since boot on Linux,
+        # so on a freshly booted host `now - 0.0` can be below the rate-limit
+        # window and the FIRST warning would be silently suppressed.
+        self._saturated_since: Optional[float] = None
+        self._saturation_logged: bool = False
+        self._last_stuck_warn: Optional[float] = None
 
         # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
@@ -217,6 +288,19 @@ class ConversationWorker:
         self._running = False
         self._notify_event.set()
         self._realtime_verify_stop.set()
+        # Retire whatever we're mid-turn on before tearing the pool down. Must
+        # happen while the rows still carry our assignee and 'running' status —
+        # both RPCs guard on that. Flipping the status also makes any straggler
+        # write from the in-flight thread fail with MISMATCH, which the
+        # publisher already handles as ConversationReassignedError, so the
+        # abandoned turn unwinds quietly instead of racing us.
+        try:
+            self._timeout_active_conversations()
+        except Exception:
+            logging.exception(
+                "Failed to retire in-flight conversations during shutdown",
+                exc_info=True,
+            )
         try:
             self._tool_call_worker.stop()
         except Exception:
@@ -388,6 +472,20 @@ class ConversationWorker:
             if not self._running:
                 break
             self._notify_event.clear()
+            # Per-tick trace (ROB-759): proves the loop is alive and shows
+            # whether a quiet worker is idle or out of capacity. Guarded so
+            # the lock acquisition and realtime check run only when DEBUG
+            # logging is actually enabled — this fires every poll tick.
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                with self._active_lock:
+                    active = len(self._active_conversation_ids)
+                logging.debug(
+                    "Claim loop tick (triggered=%s, realtime=%s, active=%d/%d)",
+                    triggered,
+                    self._realtime_connected(),
+                    active,
+                    CONVERSATION_WORKER_MAX_CONCURRENT,
+                )
             try:
                 self._try_claim_and_dispatch()
             except Exception:
@@ -419,6 +517,78 @@ class ConversationWorker:
             active = len(self._active_conversation_ids)
         return CONVERSATION_WORKER_MAX_CONCURRENT - active
 
+    def _note_saturation(self) -> None:
+        """Transition-based logging for a claim attempt that found 0 free slots.
+
+        Deliberately NOT edge-triggered: under a backlog every completed
+        conversation wakes the claim loop, which briefly sees a free slot and
+        immediately refills it — an enter/exit pair per completion would be
+        pure flicker. Instead the saturation clock must run CONTINUOUSLY for
+        _SATURATION_LOG_AFTER_SECONDS before the single INFO line is emitted;
+        any claim attempt that finds capacity resets it (see
+        _note_capacity_available). Full capacity under load is a normal state,
+        hence INFO; the WARNING is reserved for slots held longer than
+        CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS — an actual anomaly.
+        """
+        now = time.monotonic()
+        if self._saturated_since is None:
+            self._saturated_since = now
+            return
+        if (
+            not self._saturation_logged
+            and now - self._saturated_since >= _SATURATION_LOG_AFTER_SECONDS
+        ):
+            self._saturation_logged = True
+            with self._active_lock:
+                ages = sorted(
+                    (round(now - entry.started, 1), key)
+                    for key, entry in self._active_conversation_ids.items()
+                )
+            logging.info(
+                "Conversation claim capacity saturated for %.0fs: all %d slots "
+                "in use; pending conversations will not be claimed until one "
+                "finishes. In-flight (age_seconds, (conversation_id, "
+                "request_sequence)): %s",
+                now - self._saturated_since,
+                CONVERSATION_WORKER_MAX_CONCURRENT,
+                ages,
+            )
+        if (
+            self._last_stuck_warn is None
+            or now - self._last_stuck_warn >= _STUCK_WARN_RATE_LIMIT_SECONDS
+        ):
+            with self._active_lock:
+                stuck = sorted(
+                    (round(now - entry.started, 1), key)
+                    for key, entry in self._active_conversation_ids.items()
+                    if now - entry.started
+                    >= CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
+                )
+            if stuck:
+                self._last_stuck_warn = now
+                logging.warning(
+                    "Conversation slot(s) stuck: %d in-flight conversation(s) "
+                    "running longer than %.0fs while claiming is blocked at "
+                    "full capacity. Stuck (age_seconds, (conversation_id, "
+                    "request_sequence)): %s",
+                    len(stuck),
+                    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
+                    stuck,
+                )
+
+    def _note_capacity_available(self, free: int) -> None:
+        """Reset the saturation clock; log the exit line if the enter line fired."""
+        if self._saturation_logged:
+            duration = time.monotonic() - (self._saturated_since or 0.0)
+            logging.info(
+                "Conversation claim capacity available again (free=%d) after "
+                "%.0fs saturated",
+                free,
+                duration,
+            )
+        self._saturated_since = None
+        self._saturation_logged = False
+
     def _try_claim_and_dispatch(self) -> None:
         # Claim only as many pending rows as we have free slots and submit each
         # straight to the executor (the claim already set them 'running'). The
@@ -426,7 +596,12 @@ class ConversationWorker:
         # wakes this loop to re-claim as slots free.
         free = self._free_claim_slots()
         if free <= 0:
+            # All slots occupied: pending rows stay unclaimed until a slot
+            # frees, and previously this returned with zero log output —
+            # indistinguishable from a dead claim loop (ROB-759).
+            self._note_saturation()
             return
+        self._note_capacity_available(free)
         claimed = self.dal.claim_n_pending_conversations(self.holmes_id, free)
         if claimed:
             logging.info(
@@ -474,14 +649,16 @@ class ConversationWorker:
             if not self._running or self._executor is None:
                 return
             with self._active_lock:
-                self._active_conversation_ids.add(task.active_key)
+                self._active_conversation_ids[task.active_key] = _ActiveTask(
+                    task, time.monotonic()
+                )
             try:
                 self._executor.submit(self._process_conversation_safe, task)
             except RuntimeError:
                 # Pool shut down (stop() raced); row stays 'running' and is
                 # recovered by the stale-conversation timeout sweep.
                 with self._active_lock:
-                    self._active_conversation_ids.discard(task.active_key)
+                    self._active_conversation_ids.pop(task.active_key, None)
                 logging.warning(
                     "Executor shut down; dropping claimed conversation %s",
                     task.conversation_id,
@@ -521,6 +698,7 @@ class ConversationWorker:
         description: str,
         error_code: int = 5000,
         raw_error: Optional[str] = None,
+        reason: Optional[str] = None,
     ) -> None:
         """Post an error event to ConversationEvents so subscribers can see the failure reason."""
         data: Dict[str, Any] = {
@@ -529,6 +707,11 @@ class ConversationWorker:
             "msg": description,
             "success": False,
         }
+        # Short machine-readable cause (e.g. "Holmes Restarted") alongside the
+        # human-readable description the UI renders. Kept separate so a caller
+        # can group/filter on it without parsing prose.
+        if reason is not None:
+            data["reason"] = reason
         # Full upstream error, included only for Robusta-AI (relay) models where
         # the error originates from our own backend and is safe to surface.
         if raw_error is not None:
@@ -576,6 +759,76 @@ class ConversationWorker:
                 exc_info=True,
             )
 
+    # ---- shutdown ----
+
+    def _timeout_active_conversations(self) -> None:
+        """Mark every conversation this worker is still processing as timed out.
+
+        Called from ``stop()`` — i.e. on a graceful shutdown (SIGTERM from a
+        rollout / drain), not on SIGKILL or an OOM kill, where nothing of ours
+        runs and the pg_cron stale sweep remains the backstop.
+
+        Each row gets an error event carrying ``reason="Holmes Restarted"``
+        first (post_conversation_events requires status='running', so the order
+        matters) and is then transitioned to 'timeout'. The sweep is bounded by
+        ``SHUTDOWN_RETIRE_BUDGET_SECONDS`` so a slow Supabase cannot hold the
+        process past its termination grace period.
+        """
+        with self._active_lock:
+            entries = list(self._active_conversation_ids.values())
+        if not entries:
+            return
+
+        logging.info(
+            "Shutdown: marking %d in-flight conversation(s) as timed out (%s)",
+            len(entries),
+            SHUTDOWN_REASON,
+        )
+        deadline = time.monotonic() + SHUTDOWN_RETIRE_BUDGET_SECONDS
+        for index, entry in enumerate(entries):
+            if time.monotonic() >= deadline:
+                logging.warning(
+                    "Shutdown retirement budget (%.0fs) exhausted; leaving %d "
+                    "conversation(s) to the stale sweep",
+                    SHUTDOWN_RETIRE_BUDGET_SECONDS,
+                    len(entries) - index,
+                )
+                break
+            task = entry.task
+            try:
+                self._post_error_event(
+                    task,
+                    SHUTDOWN_ERROR_DESCRIPTION,
+                    error_code=SHUTDOWN_ERROR_CODE,
+                    reason=SHUTDOWN_REASON,
+                )
+                self._timeout_conversation(task)
+            except Exception:
+                logging.warning(
+                    "Failed to time out conversation %s on shutdown",
+                    task.conversation_id,
+                    exc_info=True,
+                )
+
+    def _timeout_conversation(self, task: ConversationTask) -> None:
+        """Transition one conversation to 'timeout'.
+
+        'timeout' as a *target* status needs robusta-storage migration
+        20260817121606, which is applied before this ships (see that
+        migration's DEPLOY ORDER note).
+        """
+        try:
+            self.dal.update_conversation_status(
+                conversation_id=task.conversation_id,
+                request_sequence=task.request_sequence,
+                assignee=self.holmes_id,
+                status=ConversationStatus.TIMEOUT.value,
+            )
+        except ConversationReassignedError:
+            # The turn finished (or was stopped/retried) while we were shutting
+            # down — whoever owns the row now has already set its status.
+            return
+
     # ---- per-conversation processing ----
 
     def _process_conversation_safe(self, task: ConversationTask) -> None:
@@ -604,7 +857,7 @@ class ConversationWorker:
             )
         finally:
             with self._active_lock:
-                self._active_conversation_ids.discard(task.active_key)
+                self._active_conversation_ids.pop(task.active_key, None)
             # A slot freed up — wake the claim loop to re-claim pending rows.
             self._notify_event.set()
 
@@ -790,6 +1043,52 @@ class ConversationWorker:
                             return text
         return None
 
+    def _resolve_alert_name(
+        self, task: ConversationTask, chat_request: ChatRequest
+    ) -> Optional[str]:
+        """The firing alert's ``GroupedIssues.aggregation_key``, for alert flows only.
+
+        Returned only for alert conversations, so ordinary chat keeps being offered every
+        skill (alert-scoped ones included, with their alert names in the description).
+
+        BOTH id fields are needed: triage names the GroupedIssue in ``metadata.finding_id``
+        and sets no ``source_ref``, while the FE's alert-investigation flow uses
+        ``source_ref``. Wiring only ``source_ref`` leaves triage silently unfiltered.
+
+        `request_type` comes from the Conversations metadata first -- relay persists
+        'alert_investigation' there, while ChatRequest.request_type carries a different,
+        backend-set taxonomy ('user_chat', 'scheduled_prompt', …).
+        """
+        meta = task.metadata or {}
+        markers = {
+            meta.get("request_type"),
+            meta.get("request_source"),
+            chat_request.request_type,
+            chat_request.request_source,
+        }
+        if "alert_investigation" not in markers:
+            return None
+
+        issue_id = (
+            meta.get("finding_id") or chat_request.source_ref or meta.get("source_ref")
+        )
+        if not issue_id:
+            logging.debug(
+                "Alert investigation %s carries no finding_id/source_ref; "
+                "alert-scoped skills will not be filtered.",
+                task.conversation_id,
+            )
+            return None
+
+        try:
+            issue = self.dal.get_issue_data(str(issue_id))
+        except Exception:
+            logging.warning(
+                "Could not resolve issue %s for alert-scoped skills", issue_id
+            )
+            return None
+        return (issue or {}).get("aggregation_key") or None
+
     def _run_chat_and_publish(
         self,
         task: ConversationTask,
@@ -806,7 +1105,13 @@ class ConversationWorker:
             trace_type=os.environ.get("HOLMES_TRACE_BACKEND")
         )
 
-        skills = self.config.get_skill_catalog()
+        # chat_request.user_id is the already-resolved "user Holmes may act on behalf of" --
+        # the same value the per-user OAuth resolver keys on, so a conversation that opted out
+        # via metadata.oauth_enabled = false loads no personal skills either.
+        skills = self.config.get_skill_catalog(
+            user_id=chat_request.user_id,
+            alert_name=self._resolve_alert_name(task, chat_request),
+        )
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:

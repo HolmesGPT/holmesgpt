@@ -345,6 +345,33 @@ export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-int
 
 See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
 
+### HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS
+**Default:** `false`
+
+When set to `true`, the `connectivity_check` toolset's `tcp_check` tool may probe
+private/internal destinations without them being listed in its `allowed_hosts`
+setting. Use it if you don't want to maintain an allowlist — at your own risk:
+the model picks the host and port, and `tcp_check`'s open/refused/filtered
+outcomes make that a usable network scanner if an investigation reads
+attacker-controlled text. A warning is logged at startup while it is on.
+
+Cloud-metadata (`169.254.169.254`), loopback and link-local targets remain
+blocked — this variable never unblocks them. The one setting that does is
+`block_internal_ips: false`, which removes those checks independently of this
+variable; a deployment that sets both gets the unrestricted behaviour of
+`block_internal_ips: false`. `block_private_ips: true` still overrides this.
+While it is on, any
+configured `allowed_hosts` entries are ignored entirely — they neither restrict
+destinations nor exempt one from the metadata/loopback block. Equivalent to
+setting `allow_all_hosts: true` in the toolset config.
+
+**Example:**
+```bash
+export HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS=true
+```
+
+See [Connectivity Check](../data-sources/builtin-toolsets/connectivity-check.md) for details.
+
 ## Data Source Configuration
 
 ### Prometheus
