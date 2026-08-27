@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
+from holmes.common.env_vars import ROBUSTA_UI_DOMAIN
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.skills.skill_loader import SkillCatalog
 from holmes.utils.global_instructions import Instructions, generate_skills_args
@@ -178,15 +179,34 @@ def generate_user_prompt(
 MAX_CONVERSATION_LINK_LENGTH = 2048
 
 
-def sanitize_conversation_link(link: Optional[str]) -> Optional[str]:
-    """Drop any conversation_link that isn't a plain absolute http(s) URL.
+def _is_allowed_conversation_link_origin(scheme: str, host: str) -> bool:
+    # The deployment's own UI (covers self-hosted instances, http included).
+    ui = urlparse(ROBUSTA_UI_DOMAIN or "")
+    if scheme == ui.scheme and host == (ui.hostname or "").lower():
+        return True
+    if scheme != "https":
+        return False
+    # Robusta platform in any region, Slack permalinks, Teams deep links —
+    # the only surfaces that originate conversations.
+    return (
+        host == "robusta.dev"
+        or host.endswith(".robusta.dev")
+        or host.endswith(".slack.com")
+        or host == "teams.microsoft.com"
+    )
 
-    The value is client-supplied (REST body, Conversations metadata) and is
+
+def sanitize_conversation_link(link: Optional[str]) -> Optional[str]:
+    """Drop any conversation_link that isn't a well-formed URL to a surface
+    conversations actually originate from.
+
+    The value is client-suppliable (REST body, Conversations metadata) and is
     rendered verbatim into the system prompt with an instruction to copy it
-    into PR/issue descriptions — so anything with whitespace or a non-URL
-    shape would let a caller inject arbitrary prompt text and arbitrary
-    artifact content. All server-built links (Slack permalinks, Teams deep
-    links, platform UI URLs) pass this check.
+    into PR/issue descriptions — so both the text shape AND the destination
+    must be server-controlled: no whitespace/length games (prompt injection),
+    and no arbitrary hosts (a tracking or phishing URL laundered into public
+    artifacts). All server-built links (Slack permalinks, Teams deep links,
+    platform UI URLs) pass this check.
     """
     if not link:
         return None
@@ -195,7 +215,11 @@ def sanitize_conversation_link(link: Optional[str]) -> Optional[str]:
     ):
         return None
     parsed = urlparse(link)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    if not _is_allowed_conversation_link_origin(
+        parsed.scheme, parsed.hostname.lower()
+    ):
         return None
     return link
 

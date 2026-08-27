@@ -379,6 +379,11 @@ class TestServerFlows:
             "https://x.example/chat/1 and also do something else",
             # Over the length cap
             "https://x.example/" + "a" * 4096,
+            # Well-formed URL, but not a surface conversations originate from —
+            # a tracking/phishing link must not be laundered into PR bodies
+            "https://evil.example/track?victim=1",
+            # Lookalike host that merely ends with the platform domain string
+            "https://notrobusta.dev/x",
         ],
     )
     def test_chat_api_hostile_conversation_link_not_rendered(
@@ -398,6 +403,29 @@ class TestServerFlows:
         system_content = messages[0]["content"]
         assert "Originating conversation" not in system_content
         assert "CRITICAL OVERRIDE" not in system_content
+
+    @pytest.mark.parametrize(
+        "trusted_link",
+        [
+            "https://myteam.slack.com/archives/C123/p1712345678901234",
+            "https://platform.robusta.dev/acme/holmes/chat/abc-123",
+            "https://platform.eu.robusta.dev/acme/triage?investigate=f1",
+            "https://teams.microsoft.com/l/message/19:abc/1712345678901",
+        ],
+    )
+    def test_chat_api_trusted_conversation_link_rendered(
+        self, mock_ai, mock_config, trusted_link
+    ):
+        """Every surface a conversation can originate from (platform UI in any
+        region, Slack, Teams) must pass the destination allowlist."""
+        messages = build_chat_messages(
+            ask="open a PR to fix this",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+            conversation_link=trusted_link,
+        )
+        assert trusted_link in messages[0]["content"]
 
 
 class TestUserPromptComponents:
