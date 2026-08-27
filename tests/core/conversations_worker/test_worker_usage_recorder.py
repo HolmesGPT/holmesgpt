@@ -404,6 +404,28 @@ def test_conversation_link_falls_back_to_conversations_metadata():
     assert cr.conversation_link == "https://slack.com/archives/C1/p123"
 
 
+def test_freeform_chat_conversation_link_is_server_derived():
+    # For freeform platform chats the worker derives the link itself from the
+    # task's own ids — a client-writable metadata value must not pick the
+    # destination.
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={
+            "request_source": "freeform",
+            "conversation_link": "https://evil.example/spoof",
+        },
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "q"})
+    assert cr is not None
+    assert cr.conversation_link == (
+        "https://platform.robusta.dev/holmes/chat/c1?account_id=a1"
+    )
+
+
 def test_event_conversation_link_wins_over_conversations_metadata():
     task = ConversationTask(
         conversation_id="c1",

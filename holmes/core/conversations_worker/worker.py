@@ -32,6 +32,7 @@ from holmes.core.conversations_worker.models import (
 from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
 from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
+from holmes.core.conversation_links import derive_freeform_chat_link
 from holmes.core.supabase_dal import SupabaseDnsException
 from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
@@ -937,7 +938,13 @@ class ConversationWorker:
         # run (Slack-prefix → 'slack_chat', fallback → 'user_chat').
         resolved_source_ref = from_event_or_conversation("source_ref")
         resolved_request_type = from_event_or_conversation("request_type")
-        resolved_conversation_link = from_event_or_conversation("conversation_link")
+        # Freeform platform chats get a server-derived link, so the destination
+        # never depends on the client-writable metadata value; other surfaces
+        # (triggered workflows, alert triage) have theirs stamped server-side
+        # by relay onto the Conversations metadata.
+        resolved_conversation_link = derive_freeform_chat_link(
+            resolved_request_source, task.conversation_id, task.account_id
+        ) or from_event_or_conversation("conversation_link")
 
         chat_request = ChatRequest(
             ask=ask,
