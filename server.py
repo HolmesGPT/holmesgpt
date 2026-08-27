@@ -600,6 +600,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 skills=skills,
                 images=chat_request.images,
                 prompt_component_overrides=prompt_component_overrides,
+                conversation_link=chat_request.conversation_link,
             )
 
         try:

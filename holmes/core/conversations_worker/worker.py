@@ -697,6 +697,15 @@ class ConversationWorker:
             if "request_type" in data
             else (task.metadata.get("request_type") if task.metadata else None)
         )
+        # conversation_link is conversation-level like source_ref: the surface a
+        # chat originated from (Slack thread, Teams message, workflow run) does
+        # not change between turns, so it may live on the Conversations row's
+        # metadata instead of being repeated in each per-turn event.
+        resolved_conversation_link = (
+            data["conversation_link"]
+            if "conversation_link" in data
+            else (task.metadata.get("conversation_link") if task.metadata else None)
+        )
 
         chat_request = ChatRequest(
             ask=ask,
@@ -725,6 +734,7 @@ class ConversationWorker:
             source_ref=resolved_source_ref,
             conversation_id=task.conversation_id,
             conversation_source="conversations",
+            conversation_link=resolved_conversation_link,
             meta=data.get("meta"),
             is_internal=data.get("is_internal"),
         )
@@ -865,6 +875,7 @@ class ConversationWorker:
                     skills=skills,
                     images=chat_request.images,
                     prompt_component_overrides=prompt_component_overrides,
+                    conversation_link=chat_request.conversation_link,
                 )
 
             # Write an initial ai_message event (optional) - skip; call_stream will emit events

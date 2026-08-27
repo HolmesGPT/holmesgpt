@@ -316,6 +316,37 @@ class TestServerFlows:
             expected_global_instructions=extract_instructions(global_instructions),
         )
 
+    def test_chat_api_conversation_link_rendered_in_system_prompt(
+        self, mock_ai, mock_config
+    ):
+        """conversation_link must land in the system prompt with the back-link
+        instruction so PRs/issues Holmes creates reference the originating
+        conversation."""
+        link = "https://myteam.slack.com/archives/C123/p1712345678901234"
+        messages = build_chat_messages(
+            ask="open a PR to fix this",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+            conversation_link=link,
+        )
+        assert messages[0]["role"] == "system"
+        system_content = messages[0]["content"]
+        assert link in system_content
+        assert "Originating conversation" in system_content
+
+    def test_chat_api_no_conversation_link_block_when_absent(
+        self, mock_ai, mock_config
+    ):
+        messages = build_chat_messages(
+            ask="hello",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+        )
+        assert "Originating conversation" not in messages[0]["content"]
+
+
 class TestUserPromptComponents:
     """Test that user prompts include all expected components via generate_user_prompt."""
 

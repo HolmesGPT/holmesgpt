@@ -381,3 +381,37 @@ def test_slack_prefix_in_event_ask_routes_to_slack_chat_via_helper():
     assert cr.ask.startswith("**@user_U0AKMP2CZ97**")
     # And request_type is None so the helper's auto-detect runs.
     assert cr.request_type is None
+
+
+def test_conversation_link_falls_back_to_conversations_metadata():
+    # conversation_link is conversation-level like source_ref: the surface a
+    # chat originated from (Slack thread, Teams message, workflow run) does
+    # not change between turns, so relay/the FE may store it once on the
+    # Conversations row's metadata instead of repeating it per turn.
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={"conversation_link": "https://slack.com/archives/C1/p123"},
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "follow-up?"})
+    assert cr is not None
+    assert cr.conversation_link == "https://slack.com/archives/C1/p123"
+
+
+def test_event_conversation_link_wins_over_conversations_metadata():
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={"conversation_link": "https://example.com/stale"},
+    )
+    cr = _capture_chat_request_from_process(
+        task, {"ask": "q", "conversation_link": "https://example.com/fresh"}
+    )
+    assert cr is not None
+    assert cr.conversation_link == "https://example.com/fresh"
