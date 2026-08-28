@@ -8,10 +8,6 @@ from holmes.plugins.skills.skill_loader import (
     load_filesystem_skills,
 )
 
-# How a SkillSource is labelled in the HolmesCustomSkills.source column. Filesystem skills
-# load as SkillSource.USER and are reported as "custom" -- except skills whose path belongs
-# to a configured git skill repo, which are reported as "git:<repo url>" so the UI can show
-# which repo they sync from (older UIs treat the unrecognised value as plain custom).
 # HolmesCustomSkills.status values. The column exists to surface a malformed SKILL.md, so
 # both are reachable: "ok" for a skill that parsed, "error" for one that did not.
 STATUS_OK = "ok"
@@ -21,6 +17,10 @@ STATUS_ERROR = "error"
 # Parsed by the UI (robusta-frontend custom-skill-source.ts) -- keep the format in sync.
 GIT_SOURCE_PREFIX = "git:"
 
+# How a SkillSource is labelled in the HolmesCustomSkills.source column. Filesystem skills
+# load as SkillSource.USER and are reported as "custom" -- except skills whose path belongs
+# to a configured git skill repo, which are reported as "git:<repo url>" so the UI can show
+# which repo they sync from (older UIs treat the unrecognised value as plain custom).
 SOURCE_LABELS = {
     SkillSource.USER: "custom",
     SkillSource.BUILTIN: "builtin",
@@ -53,14 +53,8 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
         loaded = load_filesystem_skills(config.all_skill_paths)
 
         def source_label(source: SkillSource, source_path) -> str:
-            repo = (
-                config.skill_repo_manager.repo_for_path(source_path)
-                if config.skill_repos
-                else None
-            )
-            if repo:
-                return f"{GIT_SOURCE_PREFIX}{repo.url}"
-            return SOURCE_LABELS[source]
+            repo = config.skill_repo_manager.repo_for_path(source_path)
+            return f"{GIT_SOURCE_PREFIX}{repo.url}" if repo else SOURCE_LABELS[source]
 
         # UTC-aware: a naive timestamp would be interpreted in the database session's
         # timezone, so updated_at would not reflect the real sync time off-UTC.

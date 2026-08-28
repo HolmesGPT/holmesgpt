@@ -5,12 +5,12 @@ bearing: deleting your last custom skill must clear the mirror, but an unreadabl
 ConfigMap mount must not. These tests pin the decision down at the layer that makes it.
 """
 
-import subprocess
 from pathlib import Path
 from unittest.mock import Mock
 
 from holmes.plugins.skills.git_skill_repos import GitSkillRepo, GitSkillRepoManager
 from holmes.utils.holmes_sync_skills import holmes_sync_skills_status
+from tests.git_skill_repo_utils import make_skill_repo
 
 SKILL_BODY = "---\ndescription: Test skill\n---\n## Goal\nTest\n"
 
@@ -33,7 +33,7 @@ def _config(paths, skill_repos=None, repo_manager=None) -> Mock:
     # The sync reads the combined view (configured paths + git-repo checkouts).
     config.all_skill_paths = paths
     config.skill_repos = skill_repos or []
-    config.skill_repo_manager = repo_manager
+    config.skill_repo_manager = repo_manager or GitSkillRepoManager([])
     return config
 
 
@@ -259,13 +259,7 @@ def test_git_repo_skills_are_labeled_with_their_repo_url(tmp_path: Path):
     The UI parses that prefix to show which repo a skill syncs from; everything
     else keeps the plain "custom"/"builtin" labels.
     """
-    repo_dir = tmp_path / "repo"
-    _write_skill(repo_dir, "from-git")
-    subprocess.run(["git", "init", "--quiet", "-b", "main"], cwd=repo_dir, check=True)
-    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo_dir, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=repo_dir, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
-    subprocess.run(["git", "commit", "--quiet", "-m", "skills"], cwd=repo_dir, check=True)
+    repo_dir = make_skill_repo(tmp_path / "repo", {"from-git": "steps"})
 
     plain_dir = tmp_path / "plain"
     _write_skill(plain_dir, "from-files")

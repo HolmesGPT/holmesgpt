@@ -84,25 +84,24 @@ class SkillsFetcher(Tool):
         # Resolved per invocation, not baked into the cached toolset -- see __init__.
         user_id = (context.request_context or {}).get("user_id")
 
+        # Remote skills are keyed by UUID and can never be on disk, so resolve
+        # them from the cached catalog first and skip the filesystem scan (their
+        # catalog entry is metadata-only; content comes from Supabase anyway).
+        cached = self._find_skill(skill_id)
+        if cached and cached.source == SkillSource.REMOTE:
+            return self._get_robusta_skill(skill_id, params)
+
         # Filesystem skills (builtin + custom, including git-synced repos) are
         # re-read from disk per invocation, never served from the cached catalog:
         # the catalog is a snapshot from toolset construction, and skill files
         # change under a running server (a git repo re-pull, a ConfigMap
         # remount). The per-request prompt catalog already re-scans disk, so
         # without this a freshly-advertised skill would 404 here and an edited
-        # one would serve its old content until restart.
-        skill = self._find_filesystem_skill(skill_id)
+        # one would serve its old content until restart. The cached entry stays
+        # the fallback for catalogs handed in directly by SDK callers.
+        skill = self._find_filesystem_skill(skill_id) or cached
         if skill:
             return self._format_skill_result(skill, params)
-
-        # The cached catalog still resolves everything else: remote skills (their
-        # catalog entry is metadata-only, content comes from Supabase either way)
-        # and catalogs handed in directly by SDK callers.
-        cached = self._find_skill(skill_id)
-        if cached and cached.source == SkillSource.REMOTE:
-            return self._get_robusta_skill(skill_id, params)
-        elif cached:
-            return self._format_skill_result(cached, params)
 
         # Not in the cached catalog -- the expected case for a personal skill. User-scoped
         # lookup goes first so one user can never read another's.

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from holmes.plugins.sources.pagerduty import PagerDutySource
     from holmes.plugins.sources.prometheus.plugin import AlertManagerSource
 
+from holmes.common.env_vars import TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
 from holmes.core.config import config_path_dir
 from holmes.core.oauth_utils import eager_load_oauth_tools, preload_oauth_tokens, set_oauth_dal
 from holmes.core.supabase_dal import SupabaseDal
@@ -202,7 +203,12 @@ class Config(RobustaBaseConfig):
     @property
     def skill_repo_manager(self) -> GitSkillRepoManager:
         if not self._skill_repo_manager:
-            self._skill_repo_manager = GitSkillRepoManager(self.skill_repos)
+            # The manager rate-limits itself to the refresh cadence, so callers
+            # (the server refresh loop included) can invoke sync() freely.
+            self._skill_repo_manager = GitSkillRepoManager(
+                self.skill_repos,
+                min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+            )
         return self._skill_repo_manager
 
     @property
@@ -214,8 +220,7 @@ class Config(RobustaBaseConfig):
         behind it moves. Accessing it clones the repos on first use.
         """
         paths: List[Union[str, FilePath]] = list(self.custom_skill_paths)
-        if self.skill_repos:
-            paths.extend(self.skill_repo_manager.skill_paths())
+        paths.extend(self.skill_repo_manager.skill_paths())
         return paths
 
     @property
@@ -330,17 +335,14 @@ class Config(RobustaBaseConfig):
             val = os.getenv(field_name.upper(), None)
             if val is not None:
                 kwargs[field_name] = val
-        skill_paths = _parse_custom_skill_paths_env()
-        if skill_paths:
-            kwargs["custom_skill_paths"] = skill_paths
-        skill_repos = parse_skill_repos_env()
-        if skill_repos:
-            kwargs["skill_repos"] = skill_repos
         kwargs["cluster_name"] = Config.__get_cluster_name()
         if kwargs["cluster_name"] and not os.environ.get("CLUSTER_NAME"):
             os.environ["CLUSTER_NAME"] = kwargs["cluster_name"]
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
+        # CUSTOM_SKILL_PATHS / SKILL_REPOS share one env-fallback path with
+        # load_from_file, so the two loaders cannot drift.
+        result._apply_env_fallbacks()
         if "model" in kwargs:
             result._model_source = "via $MODEL"
         result.log_useful_info()
@@ -584,13 +586,16 @@ class Config(RobustaBaseConfig):
                 self.mcp_servers = fresh.mcp_servers
                 self.custom_toolsets = fresh.custom_toolsets
                 self.custom_skill_paths = fresh.custom_skill_paths
+                previous_skill_repos = self.skill_repos
                 self.skill_repos = fresh.skill_repos
                 self.additional_toolsets = fresh.additional_toolsets
                 self._apply_env_fallbacks()
+                # Keep the manager when the repo config is unchanged: it holds
+                # the synced state and cached GitHub App tokens, and dropping it
+                # would force a full network re-sync on the next request.
+                if self.skill_repos != previous_skill_repos:
+                    self._skill_repo_manager = None
             self._toolset_manager = None
-            # Rebuilt lazily; existing checkouts on disk are reused since the
-            # per-repo directories are deterministic.
-            self._skill_repo_manager = None
             self._cached_tool_executor = None
             self._cached_executor_key = None
         if fresh is None:

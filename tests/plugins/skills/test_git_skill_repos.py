@@ -1,5 +1,4 @@
 import shutil
-import subprocess
 from pathlib import Path
 
 import jwt
@@ -15,42 +14,11 @@ from holmes.plugins.skills.git_skill_repos import (
     parse_skill_repos_env,
 )
 from holmes.plugins.skills.skill_loader import load_filesystem_skills
-
-SKILL_BODY = "---\ndescription: {description}\n---\n## Goal\n{body}\n"
-
-
-def _git(cwd: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
-    )
-    return result.stdout.strip()
-
-
-def _make_skill_repo(path: Path, skills: dict[str, str], sub_path: str = "") -> Path:
-    """Create a real git repo whose working tree holds SKILL.md directories."""
-    path.mkdir(parents=True, exist_ok=True)
-    _git(path, "init", "--quiet", "-b", "main")
-    _git(path, "config", "user.email", "test@example.com")
-    _git(path, "config", "user.name", "Test")
-    _write_skills(path, skills, sub_path)
-    _git(path, "add", "-A")
-    _git(path, "commit", "--quiet", "-m", "initial skills")
-    return path
-
-
-def _write_skills(repo: Path, skills: dict[str, str], sub_path: str = "") -> None:
-    base = repo / sub_path if sub_path else repo
-    for name, body in skills.items():
-        skill_dir = base / name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        (skill_dir / "SKILL.md").write_text(
-            SKILL_BODY.format(description=f"Skill {name}", body=body)
-        )
-
-
-def _commit_all(repo: Path, message: str) -> None:
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "--quiet", "-m", message)
+from tests.git_skill_repo_utils import (
+    commit_all as _commit_all,
+    make_skill_repo as _make_skill_repo,
+    write_skills as _write_skills,
+)
 
 
 def _manager_for(repo: Path, tmp_path: Path, **repo_kwargs) -> GitSkillRepoManager:
@@ -299,3 +267,29 @@ def test_duplicate_repo_names_are_rejected():
     ]
     with pytest.raises(ValueError, match="duplicate"):
         GitSkillRepoManager(repos)
+
+
+def test_sync_is_rate_limited_but_first_sync_always_runs(tmp_path: Path):
+    repo = _make_skill_repo(tmp_path / "repo", {"dns-debug": "old"})
+    manager = GitSkillRepoManager(
+        [GitSkillRepo(url=f"file://{repo}")],
+        root_dir=tmp_path / "checkouts",
+        min_sync_interval_seconds=3600,
+    )
+    # First sync runs regardless of the interval.
+    paths = manager.skill_paths()
+    assert "dns-debug" in {s.name for s in load_filesystem_skills(paths).skills}
+
+    _write_skills(repo, {"dns-debug": "new steps"})
+    _commit_all(repo, "update")
+
+    # Within the interval sync() is a no-op...
+    manager.sync()
+    skill = next(s for s in load_filesystem_skills(paths).skills if s.name == "dns-debug")
+    assert "new steps" not in skill.content
+
+    # ...and once it elapses the same call fetches again.
+    manager._last_sync = 0.0
+    manager.sync()
+    skill = next(s for s in load_filesystem_skills(paths).skills if s.name == "dns-debug")
+    assert "new steps" in skill.content

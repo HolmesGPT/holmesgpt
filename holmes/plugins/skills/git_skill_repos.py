@@ -30,13 +30,15 @@ import jwt
 import requests
 from pydantic import BaseModel, PrivateAttr, model_validator
 
+from holmes.utils.env import environ_get_safe_int
+
 SKILL_REPOS_ENV = "SKILL_REPOS"
 # Root under which every repo is checked out. Defaults under the system temp dir
 # because in the Helm deployment /tmp is the writable emptyDir (the root
 # filesystem is read-only), and for the CLI it is always writable.
 SKILL_REPOS_DIR_ENV = "SKILL_REPOS_DIR"
 
-GIT_TIMEOUT_SECONDS = int(os.environ.get("SKILL_REPOS_GIT_TIMEOUT_SECONDS", "120"))
+GIT_TIMEOUT_SECONDS = environ_get_safe_int("SKILL_REPOS_GIT_TIMEOUT_SECONDS", "120")
 
 # The symlink each repo publishes its active checkout through.
 CURRENT_LINK_NAME = "current"
@@ -101,7 +103,7 @@ class GitSkillRepo(BaseModel):
         self.url = url
         if not self.name:
             last_segment = split.path.rstrip("/").rsplit("/", 1)[-1]
-            self.name = re.sub(r"\.git$", "", last_segment)
+            self.name = last_segment.removesuffix(".git")
         if not re.fullmatch(r"[A-Za-z0-9._-]+", self.name) or self.name in (".", ".."):
             raise ValueError(
                 f"skill repo name {self.name!r} must be a plain directory name "
@@ -237,7 +239,12 @@ class GitSkillRepoManager:
     serving and are recorded in `last_errors`.
     """
 
-    def __init__(self, repos: List[GitSkillRepo], root_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        repos: List[GitSkillRepo],
+        root_dir: Optional[Path] = None,
+        min_sync_interval_seconds: float = 0.0,
+    ):
         # Names key the checkout directories, so two repos sharing one would
         # silently fight over a single clone and only the last one's skills
         # would ever be served. Refuse loudly instead.
@@ -250,8 +257,13 @@ class GitSkillRepoManager:
             )
         self.repos = repos
         self.root_dir = Path(root_dir) if root_dir else default_repos_root()
+        # Rate limit that sync() applies to itself, so callers on faster
+        # cadences (the server refresh loop under MCP backoff) cannot multiply
+        # network git fetches. The first sync always runs.
+        self.min_sync_interval_seconds = min_sync_interval_seconds
         self._lock = threading.Lock()
         self._synced_once = False
+        self._last_sync = 0.0
         # repo.name -> error string from the last sync attempt (absent when ok)
         self.last_errors: dict[str, str] = {}
 
@@ -267,7 +279,7 @@ class GitSkillRepoManager:
         Skipping it here would make a temporarily-broken repo look like a
         deliberately-emptied one.
         """
-        self.ensure_synced()
+        self._ensure_synced()
         paths = []
         for repo in self.repos:
             path = self._repo_dir(repo) / CURRENT_LINK_NAME
@@ -276,41 +288,49 @@ class GitSkillRepoManager:
             paths.append(str(path))
         return paths
 
-    def ensure_synced(self) -> None:
+    def sync(self) -> None:
+        """Fetch every repo and flip its `current` symlink if it moved.
+
+        A no-op within min_sync_interval_seconds of the previous sync.
+        """
+        with self._lock:
+            if (
+                self._synced_once
+                and time.time() - self._last_sync < self.min_sync_interval_seconds
+            ):
+                return
+            self._sync_all_locked()
+
+    def _ensure_synced(self) -> None:
+        # Double-checked so concurrent cold callers do one sync, not one each.
         if self._synced_once:
             return
-        self.sync()
-
-    def sync(self) -> None:
-        """Fetch every repo and flip its `current` symlink if it moved."""
         with self._lock:
-            for repo in self.repos:
-                try:
-                    self._sync_repo(repo)
-                    self.last_errors.pop(repo.name, None)  # type: ignore[arg-type]
-                except Exception as e:
-                    logging.error(f"Failed to sync skill repo '{repo.name}': {e}")
-                    self.last_errors[repo.name] = str(e)  # type: ignore[index]
-            self._synced_once = True
+            if not self._synced_once:
+                self._sync_all_locked()
+
+    def _sync_all_locked(self) -> None:
+        for repo in self.repos:
+            try:
+                self._sync_repo(repo)
+                self.last_errors.pop(repo.name, None)  # type: ignore[arg-type]
+            except Exception as e:
+                logging.error(f"Failed to sync skill repo '{repo.name}': {e}")
+                self.last_errors[repo.name] = str(e)  # type: ignore[index]
+        self._synced_once = True
+        self._last_sync = time.time()
 
     def repo_for_path(self, path: Optional[str]) -> Optional[GitSkillRepo]:
         """The repo a loaded skill's source_path belongs to, if any.
 
         source_path is fully resolved by the scanner, so compare against the
-        resolved repo directory.
+        resolved repo directory (root_dir itself may sit behind a symlink).
         """
         if not path:
             return None
+        candidate = Path(path)
         for repo in self.repos:
-            repo_dir = self._repo_dir(repo)
-            try:
-                resolved_repo_dir = repo_dir.resolve()
-            except OSError:
-                continue
-            candidate = Path(path)
-            if candidate.is_relative_to(repo_dir) or candidate.is_relative_to(
-                resolved_repo_dir
-            ):
+            if candidate.is_relative_to(self._repo_dir(repo).resolve()):
                 return repo
         return None
 
@@ -395,13 +415,17 @@ class GitSkillRepoManager:
     ) -> None:
         """Remove checkouts of superseded commits, sparing the active one."""
         keep_sha = self._current_sha(current_link)
+        removed = False
         for entry in worktrees_dir.iterdir():
             if entry.name == keep_sha or not entry.is_dir():
                 continue
             try:
                 shutil.rmtree(entry)
+                removed = True
             except OSError as e:
                 logging.warning(f"Failed to remove old skill repo worktree {entry}: {e}")
+        if not removed:
+            return
         try:
             self._run_git(["git", "--git-dir", str(git_dir), "worktree", "prune"])
         except Exception as e:

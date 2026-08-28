@@ -154,8 +154,12 @@ class ToolsetManager:
             # published through a `current` symlink that flips on every update,
             # and resolving it here would pin this long-lived toolset to one
             # commit's checkout. Scans resolve at scan time instead.
+            # dirname only for an explicit SKILL.md file path -- a path that
+            # does not exist yet (a repo whose first sync failed) must pass
+            # through unchanged so scans report it unreadable rather than
+            # walking its parent directory.
             additional_search_paths = [
-                os.path.abspath(str(p)) if Path(p).is_dir() else os.path.dirname(os.path.abspath(str(p)))
+                os.path.dirname(os.path.abspath(str(p))) if Path(p).is_file() else os.path.abspath(str(p))
                 for p in self.custom_skill_paths
             ]
 

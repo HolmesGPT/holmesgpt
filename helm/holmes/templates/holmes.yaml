@@ -195,6 +195,10 @@ spec:
             value: {{ join "," $skillPaths | quote }}
           {{- end }}
           {{- if .Values.skillRepos }}
+          {{- /* One pass per repo: build its SKILL_REPOS entry and emit its
+                 secret-backed env vars together, so the env var names and the
+                 token_env / github_app_private_key_env fields referencing them
+                 cannot drift apart. */}}
           {{- $skillRepos := list }}
           {{- range $i, $repo := .Values.skillRepos }}
           {{- $entry := dict "url" (required "skillRepos entries need a url" $repo.url) }}
@@ -202,8 +206,13 @@ spec:
           {{- with $repo.branch }}{{- $entry = merge $entry (dict "branch" .) }}{{- end }}
           {{- with $repo.subPath }}{{- $entry = merge $entry (dict "sub_path" .) }}{{- end }}
           {{- with $repo.username }}{{- $entry = merge $entry (dict "username" .) }}{{- end }}
-          {{- if $repo.tokenSecret }}
+          {{- with $repo.tokenSecret }}
           {{- $entry = merge $entry (dict "token_env" (printf "SKILL_REPO_TOKEN_%d" $i)) }}
+          - name: SKILL_REPO_TOKEN_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "skillRepos tokenSecret needs a name" .name }}
+                key: {{ required "skillRepos tokenSecret needs a key" .key }}
           {{- end }}
           {{- with $repo.githubApp }}
           {{- $entry = merge $entry (dict
@@ -211,27 +220,16 @@ spec:
                 "github_app_installation_id" (toString (required "skillRepos githubApp needs installationId" .installationId))
                 "github_app_private_key_env" (printf "SKILL_REPO_GH_APP_KEY_%d" $i)) }}
           {{- with .apiUrl }}{{- $entry = merge $entry (dict "github_api_url" .) }}{{- end }}
+          - name: SKILL_REPO_GH_APP_KEY_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ (required "skillRepos githubApp needs privateKeySecret" .privateKeySecret).name }}
+                key: {{ .privateKeySecret.key }}
           {{- end }}
           {{- $skillRepos = append $skillRepos $entry }}
           {{- end }}
           - name: SKILL_REPOS
             value: {{ toJson $skillRepos | quote }}
-          {{- range $i, $repo := .Values.skillRepos }}
-          {{- if $repo.tokenSecret }}
-          - name: SKILL_REPO_TOKEN_{{ $i }}
-            valueFrom:
-              secretKeyRef:
-                name: {{ required "skillRepos tokenSecret needs a name" $repo.tokenSecret.name }}
-                key: {{ required "skillRepos tokenSecret needs a key" $repo.tokenSecret.key }}
-          {{- end }}
-          {{- if $repo.githubApp }}
-          - name: SKILL_REPO_GH_APP_KEY_{{ $i }}
-            valueFrom:
-              secretKeyRef:
-                name: {{ (required "skillRepos githubApp needs privateKeySecret" $repo.githubApp.privateKeySecret).name }}
-                key: {{ $repo.githubApp.privateKeySecret.key }}
-          {{- end }}
-          {{- end }}
           {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}

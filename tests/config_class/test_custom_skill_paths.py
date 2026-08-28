@@ -1,7 +1,7 @@
-import subprocess
 from unittest.mock import patch
 
 from holmes.config import Config
+from tests.git_skill_repo_utils import make_skill_repo
 
 
 def test_config_custom_skill_paths_from_file(tmp_path):
@@ -124,25 +124,9 @@ def test_load_from_file_config_paths_take_precedence_over_env(tmp_path, monkeypa
 # ── git skill repos (skill_repos config / SKILL_REPOS env) ──
 
 
-def _make_git_skill_repo(path, name, body):
-    skill_dir = path / name
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(f"---\ndescription: {name}\n---\n{body}\n")
-    for args in (
-        ["init", "--quiet", "-b", "main"],
-        ["config", "user.email", "t@example.com"],
-        ["config", "user.name", "t"],
-        ["add", "-A"],
-        ["commit", "--quiet", "-m", "skills"],
-    ):
-        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
-
-
 def test_config_skill_repos_feed_the_skill_catalog(tmp_path, monkeypatch):
     """skill_repos in config.yaml is cloned and its skills reach get_skill_catalog."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _make_git_skill_repo(repo, "git-sourced-skill", "## Steps\n1. From git\n")
+    repo = make_skill_repo(tmp_path / "repo", {"git-sourced-skill": "1. From git"})
     monkeypatch.setenv("SKILL_REPOS_DIR", str(tmp_path / "checkouts"))
 
     config_file = tmp_path / "config.yaml"
