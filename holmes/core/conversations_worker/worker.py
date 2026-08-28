@@ -941,10 +941,13 @@ class ConversationWorker:
         # Freeform platform chats get a server-derived link, so the destination
         # never depends on the client-writable metadata value; other surfaces
         # (triggered workflows, alert triage) have theirs stamped server-side
-        # by relay onto the Conversations metadata.
+        # by relay onto the Conversations metadata. Unlike its sibling fields,
+        # this one deliberately ignores per-turn events: nothing legitimately
+        # sends it per-event, so honoring one would only let a client override
+        # the stamped link.
         resolved_conversation_link = derive_freeform_chat_link(
             resolved_request_source, task.conversation_id, task.account_id
-        ) or from_event_or_conversation("conversation_link")
+        ) or (task.metadata.get("conversation_link") if task.metadata else None)
 
         chat_request = ChatRequest(
             ask=ask,
