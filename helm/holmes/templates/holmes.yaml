@@ -205,6 +205,13 @@ spec:
           {{- if $repo.tokenSecret }}
           {{- $entry = merge $entry (dict "token_env" (printf "SKILL_REPO_TOKEN_%d" $i)) }}
           {{- end }}
+          {{- with $repo.githubApp }}
+          {{- $entry = merge $entry (dict
+                "github_app_id" (toString (required "skillRepos githubApp needs appId" .appId))
+                "github_app_installation_id" (toString (required "skillRepos githubApp needs installationId" .installationId))
+                "github_app_private_key_env" (printf "SKILL_REPO_GH_APP_KEY_%d" $i)) }}
+          {{- with .apiUrl }}{{- $entry = merge $entry (dict "github_api_url" .) }}{{- end }}
+          {{- end }}
           {{- $skillRepos = append $skillRepos $entry }}
           {{- end }}
           - name: SKILL_REPOS
@@ -216,6 +223,13 @@ spec:
               secretKeyRef:
                 name: {{ $repo.tokenSecret.name }}
                 key: {{ $repo.tokenSecret.key }}
+          {{- end }}
+          {{- if $repo.githubApp }}
+          - name: SKILL_REPO_GH_APP_KEY_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ (required "skillRepos githubApp needs privateKeySecret" $repo.githubApp.privateKeySecret).name }}
+                key: {{ $repo.githubApp.privateKeySecret.key }}
           {{- end }}
           {{- end }}
           {{- end }}

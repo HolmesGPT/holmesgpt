@@ -21,11 +21,14 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from pydantic import BaseModel, model_validator
+import jwt
+import requests
+from pydantic import BaseModel, PrivateAttr, model_validator
 
 SKILL_REPOS_ENV = "SKILL_REPOS"
 # Root under which every repo is checked out. Defaults under the system temp dir
@@ -49,9 +52,17 @@ def default_repos_root() -> Path:
 class GitSkillRepo(BaseModel):
     """One git repository to sync skills from.
 
-    `url` must not embed credentials -- it is shown in the UI and in logs. Use
-    `token_env` (the NAME of an env var holding the token) plus `username`
-    ("oauth2" fits GitHub PATs; Bitbucket repository tokens use "x-token-auth").
+    `url` must not embed credentials -- it is shown in the UI and in logs.
+    Authentication, one of:
+
+    * `token_env` -- the NAME of an env var holding a static token, plus
+      `username` ("oauth2" fits GitHub PATs; Bitbucket repository tokens use
+      "x-token-auth").
+    * GitHub App -- `github_app_id`, `github_app_installation_id`, and
+      `github_app_private_key_env` (env var holding the App's PEM private key),
+      all three together. A short-lived installation token is minted per sync
+      and cached until near expiry, so re-pulls keep working without a static
+      credential.
     """
 
     url: str
@@ -64,6 +75,17 @@ class GitSkillRepo(BaseModel):
     sub_path: Optional[str] = None
     token_env: Optional[str] = None
     username: str = "oauth2"
+
+    github_app_id: Optional[str] = None
+    github_app_installation_id: Optional[str] = None
+    github_app_private_key_env: Optional[str] = None
+    # Override for GitHub Enterprise Server (e.g. https://ghe.example.com/api/v3).
+    github_api_url: str = "https://api.github.com"
+
+    # Cached installation token; minting costs two API calls, so keep it for
+    # the hour GitHub grants rather than re-minting every 5-minute sync.
+    _installation_token: Optional[str] = PrivateAttr(None)
+    _installation_token_expiry: float = PrivateAttr(0.0)
 
     @model_validator(mode="after")
     def _normalize(self) -> "GitSkillRepo":
@@ -90,15 +112,36 @@ class GitSkillRepo(BaseModel):
             if ".." in Path(sub).parts:
                 raise ValueError(f"skill repo sub_path {self.sub_path!r} must not contain '..'")
             self.sub_path = sub
+
+        app_fields = (
+            self.github_app_id,
+            self.github_app_installation_id,
+            self.github_app_private_key_env,
+        )
+        if any(app_fields) and not all(app_fields):
+            raise ValueError(
+                f"skill repo {self.name}: GitHub App auth needs github_app_id, "
+                "github_app_installation_id and github_app_private_key_env together"
+            )
+        if any(app_fields) and self.token_env:
+            raise ValueError(
+                f"skill repo {self.name}: set either token_env or the github_app_* "
+                "fields, not both"
+            )
         return self
 
     def authenticated_url(self) -> str:
         """The fetch URL, with credentials injected from the environment.
 
-        Raises when token_env names a variable that is not set: fetching a
-        private repo anonymously would fail with a less actionable error, and
-        for a public repo the fix is to drop token_env.
+        Raises when a configured credential cannot be produced (token_env names
+        an unset variable, or the GitHub App mint fails): fetching a private
+        repo anonymously would fail with a less actionable error, and for a
+        public repo the fix is to drop the auth fields.
         """
+        if self.github_app_id:
+            return self._with_credentials(
+                "x-access-token", self._github_app_installation_token()
+            )
         if not self.token_env:
             return self.url
         token = os.environ.get(self.token_env)
@@ -106,9 +149,62 @@ class GitSkillRepo(BaseModel):
             raise RuntimeError(
                 f"skill repo {self.name}: token_env '{self.token_env}' is not set"
             )
+        return self._with_credentials(self.username, token)
+
+    def _with_credentials(self, username: str, token: str) -> str:
         split = urlsplit(self.url)
-        netloc = f"{quote(self.username, safe='')}:{quote(token, safe='')}@{split.netloc}"
+        netloc = f"{quote(username, safe='')}:{quote(token, safe='')}@{split.netloc}"
         return urlunsplit((split.scheme, netloc, split.path, split.query, split.fragment))
+
+    def _github_app_installation_token(self) -> str:
+        """A GitHub App installation token, minted on demand and cached.
+
+        GitHub Apps have no static credential: the App's private key signs a
+        short JWT, which is exchanged for an installation token valid for one
+        hour. The token is cached until 5 minutes before expiry, so the
+        periodic re-pull re-mints roughly once an hour.
+        """
+        if self._installation_token and time.time() < self._installation_token_expiry:
+            return self._installation_token
+
+        private_key = os.environ.get(self.github_app_private_key_env)  # type: ignore[arg-type]
+        if not private_key:
+            raise RuntimeError(
+                f"skill repo {self.name}: github_app_private_key_env "
+                f"'{self.github_app_private_key_env}' is not set"
+            )
+
+        now = int(time.time())
+        # iat backdated 60s for clock drift; GitHub caps exp at now+10min.
+        app_jwt = jwt.encode(
+            {"iat": now - 60, "exp": now + 540, "iss": self.github_app_id},
+            private_key,
+            algorithm="RS256",
+        )
+        response = requests.post(
+            f"{self.github_api_url.rstrip('/')}/app/installations/"
+            f"{self.github_app_installation_id}/access_tokens",
+            headers={
+                "Authorization": f"Bearer {app_jwt}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=30,
+        )
+        if response.status_code != 201:
+            raise RuntimeError(
+                f"skill repo {self.name}: failed to mint a GitHub App installation "
+                f"token (HTTP {response.status_code}): {response.text[:500]}"
+            )
+        token = response.json().get("token")
+        if not token:
+            raise RuntimeError(
+                f"skill repo {self.name}: GitHub App token response carried no token"
+            )
+        self._installation_token = token
+        # The response's expires_at is ~1h out; a fixed 55-minute cache stays
+        # safely inside it without parsing GitHub's timestamp format.
+        self._installation_token_expiry = time.time() + 55 * 60
+        return token
 
 
 def parse_skill_repos_env() -> List[GitSkillRepo]:

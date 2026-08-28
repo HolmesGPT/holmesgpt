@@ -1,4 +1,6 @@
 import subprocess
+
+import responses as responses_lib
 from pathlib import Path
 
 import pytest
@@ -195,3 +197,98 @@ def test_parse_skill_repos_env(monkeypatch):
 
     monkeypatch.delenv(SKILL_REPOS_ENV)
     assert parse_skill_repos_env() == []
+
+
+# ── GitHub App authentication (installation tokens minted per sync) ──
+
+
+def _rsa_private_key_pem() -> str:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+
+
+def _github_app_repo(**overrides) -> GitSkillRepo:
+    fields = {
+        "url": "https://github.com/acme/skills.git",
+        "github_app_id": "12345",
+        "github_app_installation_id": "67890",
+        "github_app_private_key_env": "GH_APP_KEY",
+        **overrides,
+    }
+    return GitSkillRepo(**fields)
+
+
+def test_github_app_mints_installation_token_for_fetch(monkeypatch, responses):
+    monkeypatch.setenv("GH_APP_KEY", _rsa_private_key_pem())
+    responses.add(
+        responses_lib.POST,
+        "https://api.github.com/app/installations/67890/access_tokens",
+        json={"token": "ghs_minted", "expires_at": "2099-01-01T00:00:00Z"},
+        status=201,
+    )
+    repo = _github_app_repo()
+
+    authed = repo.authenticated_url()
+
+    assert authed == "https://x-access-token:ghs_minted@github.com/acme/skills.git"
+    # The exchange was authorized with a JWT issued by the App.
+    auth_header = responses.calls[0].request.headers["Authorization"]
+    assert auth_header.startswith("Bearer ")
+    import jwt as jwt_lib
+
+    claims = jwt_lib.decode(
+        auth_header.removeprefix("Bearer "), options={"verify_signature": False}
+    )
+    assert claims["iss"] == "12345"
+
+
+def test_github_app_token_is_cached_across_syncs(monkeypatch, responses):
+    monkeypatch.setenv("GH_APP_KEY", _rsa_private_key_pem())
+    responses.add(
+        responses_lib.POST,
+        "https://api.github.com/app/installations/67890/access_tokens",
+        json={"token": "ghs_minted"},
+        status=201,
+    )
+    repo = _github_app_repo()
+
+    first = repo.authenticated_url()
+    second = repo.authenticated_url()
+
+    assert first == second
+    assert len(responses.calls) == 1
+
+
+def test_github_app_mint_failure_is_a_sync_error_not_a_crash(
+    tmp_path, monkeypatch, responses
+):
+    monkeypatch.setenv("GH_APP_KEY", _rsa_private_key_pem())
+    responses.add(
+        responses_lib.POST,
+        "https://api.github.com/app/installations/67890/access_tokens",
+        json={"message": "Integration not found"},
+        status=404,
+    )
+    repo = _github_app_repo(name="app-repo")
+    manager = GitSkillRepoManager([repo], root_dir=tmp_path / "checkouts")
+
+    manager.sync()
+
+    assert "installation" in manager.last_errors["app-repo"]
+
+
+def test_github_app_fields_are_all_or_none():
+    with pytest.raises(ValueError):
+        GitSkillRepo(url="github.com/acme/skills.git", github_app_id="12345")
+
+
+def test_github_app_and_token_env_are_mutually_exclusive():
+    with pytest.raises(ValueError):
+        _github_app_repo(token_env="TOK")
