@@ -35,6 +35,25 @@ def derive_freeform_chat_link(
     )
 
 
+def resolve_conversation_link(
+    request_source: Optional[str],
+    conversation_id: Optional[str],
+    account_id: Optional[str],
+    supplied_link: Optional[str],
+) -> Optional[str]:
+    """The conversation_link a chat actually gets.
+
+    Freeform platform chats use only the server-derived link — when derivation
+    isn't possible they get none, never the client-suppliable value, so a
+    freeform link's destination can't be picked by the client. Every other
+    surface (Slack, Teams, triggered workflows, alert triage) passes through
+    the link its server built upstream.
+    """
+    if request_source == FREEFORM_CHAT_REQUEST_SOURCE:
+        return derive_freeform_chat_link(request_source, conversation_id, account_id)
+    return supplied_link
+
+
 MAX_CONVERSATION_LINK_LENGTH = 2048
 
 

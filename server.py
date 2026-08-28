@@ -53,7 +53,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
-from holmes.core.conversation_links import derive_freeform_chat_link
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -626,15 +626,12 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 skills=skills,
                 images=chat_request.images,
                 prompt_component_overrides=prompt_component_overrides,
-                # Server-derived for freeform platform chats, so the link's
-                # destination never depends on a client-supplied value; other
-                # surfaces (Slack, Teams) pass their server-built link through.
-                conversation_link=derive_freeform_chat_link(
+                conversation_link=resolve_conversation_link(
                     chat_request.request_source,
                     chat_request.conversation_id,
                     dal.account_id,
-                )
-                or chat_request.conversation_link,
+                    chat_request.conversation_link,
+                ),
             )
 
         try:

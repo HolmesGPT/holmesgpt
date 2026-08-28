@@ -429,6 +429,27 @@ def test_freeform_chat_conversation_link_is_server_derived(monkeypatch):
     )
 
 
+def test_freeform_chat_gets_no_link_when_derivation_fails(monkeypatch):
+    # A freeform chat's link is server-derived or nothing: when derivation
+    # can't run (here: no UI domain configured), the client-writable metadata
+    # value must not slip in as a fallback.
+    monkeypatch.setattr("holmes.core.conversation_links.ROBUSTA_UI_DOMAIN", "")
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={
+            "request_source": "freeform",
+            "conversation_link": "https://acme.slack.com/archives/C1/p123",
+        },
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "q"})
+    assert cr is not None
+    assert cr.conversation_link is None
+
+
 def test_event_conversation_link_is_ignored():
     # Only relay legitimately sets this key, and it stamps metadata — a
     # per-turn event value is a client-side override attempt and is ignored.

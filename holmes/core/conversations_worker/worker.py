@@ -32,7 +32,7 @@ from holmes.core.conversations_worker.models import (
 from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
 from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
-from holmes.core.conversation_links import derive_freeform_chat_link
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.supabase_dal import SupabaseDnsException
 from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
@@ -938,16 +938,16 @@ class ConversationWorker:
         # run (Slack-prefix → 'slack_chat', fallback → 'user_chat').
         resolved_source_ref = from_event_or_conversation("source_ref")
         resolved_request_type = from_event_or_conversation("request_type")
-        # Freeform platform chats get a server-derived link, so the destination
-        # never depends on the client-writable metadata value; other surfaces
-        # (triggered workflows, alert triage) have theirs stamped server-side
-        # by relay onto the Conversations metadata. Unlike its sibling fields,
-        # this one deliberately ignores per-turn events: nothing legitimately
-        # sends it per-event, so honoring one would only let a client override
-        # the stamped link.
-        resolved_conversation_link = derive_freeform_chat_link(
-            resolved_request_source, task.conversation_id, task.account_id
-        ) or (task.metadata.get("conversation_link") if task.metadata else None)
+        # Unlike its sibling fields, conversation_link deliberately ignores
+        # per-turn events: nothing legitimately sends it per-event, so honoring
+        # one would only let a client override the link relay stamped onto the
+        # Conversations metadata (triggered workflows, alert triage).
+        resolved_conversation_link = resolve_conversation_link(
+            resolved_request_source,
+            task.conversation_id,
+            task.account_id,
+            task.metadata.get("conversation_link") if task.metadata else None,
+        )
 
         chat_request = ChatRequest(
             ask=ask,
