@@ -40,6 +40,12 @@ spec:
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
         checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
+        {{- if .Values.skillRepos }}
+        # Rolls the pod when a skill repo credential Secret's DATA rotates —
+        # the token env vars come from secretKeyRef, which a Secret update
+        # alone does not refresh.
+        checksum/skill-repo-secrets: {{ include "holmes.skillRepoSecretsChecksum" . }}
+        {{- end }}
         {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
         # Roll this pod when the remediation MCP auth token rotates — the token
         # is read from a Secret into env, so a content change alone would not
