@@ -238,6 +238,16 @@ class GitSkillRepoManager:
     """
 
     def __init__(self, repos: List[GitSkillRepo], root_dir: Optional[Path] = None):
+        # Names key the checkout directories, so two repos sharing one would
+        # silently fight over a single clone and only the last one's skills
+        # would ever be served. Refuse loudly instead.
+        names = [repo.name for repo in repos]
+        duplicates = {n for n in names if names.count(n) > 1}
+        if duplicates:
+            raise ValueError(
+                f"skill repos with duplicate names {sorted(duplicates)}; "
+                "set a distinct 'name' on each repo"
+            )
         self.repos = repos
         self.root_dir = Path(root_dir) if root_dir else default_repos_root()
         self._lock = threading.Lock()
@@ -248,7 +258,15 @@ class GitSkillRepoManager:
     # ── public API ──────────────────────────────────────────────────────────
 
     def skill_paths(self) -> List[str]:
-        """Paths to hand to the skill loaders. Syncs on first use."""
+        """Paths to hand to the skill loaders. Syncs on first use.
+
+        A repo that has never synced successfully is still listed: its missing
+        `current` path makes the loaders report an unreadable source, which is
+        exactly what keeps the HolmesCustomSkills mirror from pruning that
+        repo's rows while it is broken (see FilesystemSkills.sources_ok).
+        Skipping it here would make a temporarily-broken repo look like a
+        deliberately-emptied one.
+        """
         self.ensure_synced()
         paths = []
         for repo in self.repos:
@@ -311,6 +329,12 @@ class GitSkillRepoManager:
         if not (git_dir / "HEAD").exists():
             self._run_git(["git", "init", "--bare", "--quiet", str(git_dir)])
 
+        # Prune BEFORE fetching, not right after the flip: a scan that resolved
+        # `current` just before a flip is still walking the old worktree, so the
+        # superseded checkout must survive until the next sync (a full refresh
+        # interval), by which time any in-flight scan has long finished.
+        self._prune_worktrees(git_dir, worktrees_dir, current_link)
+
         ref = repo.branch or "HEAD"
         # Fetch by URL instead of a configured remote so credentials are never
         # written into .git/config.
@@ -360,18 +384,17 @@ class GitSkillRepoManager:
         os.replace(tmp_link, current_link)
         logging.info(f"Skill repo '{repo.name}' updated to {sha[:12]} ({repo.url})")
 
-        self._prune_worktrees(git_dir, worktrees_dir, keep_sha=sha)
-
     @staticmethod
     def _current_sha(current_link: Path) -> Optional[str]:
         if not current_link.is_symlink():
             return None
         return Path(os.readlink(current_link)).name
 
-    def _prune_worktrees(self, git_dir: Path, worktrees_dir: Path, keep_sha: str) -> None:
-        """Remove checkouts of superseded commits (a request mid-scan is on a
-        resolved path, so the small race window only affects a scan that started
-        before the flip; retirees are only removed after the flip)."""
+    def _prune_worktrees(
+        self, git_dir: Path, worktrees_dir: Path, current_link: Path
+    ) -> None:
+        """Remove checkouts of superseded commits, sparing the active one."""
+        keep_sha = self._current_sha(current_link)
         for entry in worktrees_dir.iterdir():
             if entry.name == keep_sha or not entry.is_dir():
                 continue
@@ -391,13 +414,20 @@ class GitSkillRepoManager:
             # Never hang on a credential prompt inside a server.
             "GIT_TERMINAL_PROMPT": "0",
         }
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT_SECONDS,
-            env=env,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=GIT_TIMEOUT_SECONDS,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            # Never re-raise TimeoutExpired: its message embeds the full command
+            # line, credential-bearing fetch URL included.
+            raise RuntimeError(
+                f"{' '.join(cmd[:3])}... timed out after {GIT_TIMEOUT_SECONDS}s"
+            ) from None
         if result.returncode != 0:
             # stderr may echo the URL of a failed fetch; strip any userinfo so a
             # token never reaches the logs.

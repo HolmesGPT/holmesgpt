@@ -1,3 +1,4 @@
+import subprocess
 from unittest.mock import patch
 
 from holmes.config import Config
@@ -124,8 +125,6 @@ def test_load_from_file_config_paths_take_precedence_over_env(tmp_path, monkeypa
 
 
 def _make_git_skill_repo(path, name, body):
-    import subprocess
-
     skill_dir = path / name
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(f"---\ndescription: {name}\n---\n{body}\n")

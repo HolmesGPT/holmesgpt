@@ -5,9 +5,11 @@ bearing: deleting your last custom skill must clear the mirror, but an unreadabl
 ConfigMap mount must not. These tests pin the decision down at the layer that makes it.
 """
 
+import subprocess
 from pathlib import Path
 from unittest.mock import Mock
 
+from holmes.plugins.skills.git_skill_repos import GitSkillRepo, GitSkillRepoManager
 from holmes.utils.holmes_sync_skills import holmes_sync_skills_status
 
 SKILL_BODY = "---\ndescription: Test skill\n---\n## Goal\nTest\n"
@@ -257,10 +259,6 @@ def test_git_repo_skills_are_labeled_with_their_repo_url(tmp_path: Path):
     The UI parses that prefix to show which repo a skill syncs from; everything
     else keeps the plain "custom"/"builtin" labels.
     """
-    import subprocess
-
-    from holmes.plugins.skills.git_skill_repos import GitSkillRepo, GitSkillRepoManager
-
     repo_dir = tmp_path / "repo"
     _write_skill(repo_dir, "from-git")
     subprocess.run(["git", "init", "--quiet", "-b", "main"], cwd=repo_dir, check=True)

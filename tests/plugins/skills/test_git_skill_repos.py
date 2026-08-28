@@ -1,9 +1,12 @@
+import shutil
 import subprocess
-
-import responses as responses_lib
 from pathlib import Path
 
+import jwt
 import pytest
+import responses as responses_lib
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from holmes.plugins.skills.git_skill_repos import (
     SKILL_REPOS_ENV,
@@ -91,17 +94,19 @@ def test_resync_removes_deleted_skills_and_prunes_old_worktrees(tmp_path: Path):
     paths = manager.skill_paths()
     assert {s.name for s in load_filesystem_skills(paths).skills} >= {"dns-debug", "oom"}
 
-    import shutil
-
     shutil.rmtree(repo / "oom")
     _commit_all(repo, "drop oom skill")
     manager.sync()
 
     loaded = load_filesystem_skills(paths)
     assert "oom" not in {s.name for s in loaded.skills}
-    # Only the active commit's worktree remains.
-    worktrees = list((tmp_path / "checkouts" / "repo" / "worktrees").iterdir())
-    assert len(worktrees) == 1
+
+    # The superseded worktree survives one sync (a scan that resolved `current`
+    # just before the flip may still be walking it) and is pruned on the next.
+    worktrees_dir = tmp_path / "checkouts" / "repo" / "worktrees"
+    assert len(list(worktrees_dir.iterdir())) == 2
+    manager.sync()
+    assert len(list(worktrees_dir.iterdir())) == 1
 
 
 def test_sub_path_scopes_the_scan(tmp_path: Path):
@@ -122,8 +127,6 @@ def test_failed_fetch_keeps_previous_checkout(tmp_path: Path):
     assert manager.last_errors == {}
 
     # Make the remote unreachable and re-sync: the old checkout must keep serving.
-    import shutil
-
     shutil.rmtree(repo)
     manager.sync()
 
@@ -203,9 +206,6 @@ def test_parse_skill_repos_env(monkeypatch):
 
 
 def _rsa_private_key_pem() -> str:
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     return key.private_bytes(
         serialization.Encoding.PEM,
@@ -241,9 +241,7 @@ def test_github_app_mints_installation_token_for_fetch(monkeypatch, responses):
     # The exchange was authorized with a JWT issued by the App.
     auth_header = responses.calls[0].request.headers["Authorization"]
     assert auth_header.startswith("Bearer ")
-    import jwt as jwt_lib
-
-    claims = jwt_lib.decode(
+    claims = jwt.decode(
         auth_header.removeprefix("Bearer "), options={"verify_signature": False}
     )
     assert claims["iss"] == "12345"
@@ -292,3 +290,12 @@ def test_github_app_fields_are_all_or_none():
 def test_github_app_and_token_env_are_mutually_exclusive():
     with pytest.raises(ValueError):
         _github_app_repo(token_env="TOK")
+
+
+def test_duplicate_repo_names_are_rejected():
+    repos = [
+        GitSkillRepo(url="https://github.com/team-a/skills.git"),
+        GitSkillRepo(url="https://github.com/team-b/skills.git"),
+    ]
+    with pytest.raises(ValueError, match="duplicate"):
+        GitSkillRepoManager(repos)

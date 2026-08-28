@@ -221,8 +221,8 @@ spec:
           - name: SKILL_REPO_TOKEN_{{ $i }}
             valueFrom:
               secretKeyRef:
-                name: {{ $repo.tokenSecret.name }}
-                key: {{ $repo.tokenSecret.key }}
+                name: {{ required "skillRepos tokenSecret needs a name" $repo.tokenSecret.name }}
+                key: {{ required "skillRepos tokenSecret needs a key" $repo.tokenSecret.key }}
           {{- end }}
           {{- if $repo.githubApp }}
           - name: SKILL_REPO_GH_APP_KEY_{{ $i }}

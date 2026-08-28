@@ -273,6 +273,7 @@ def _toolset_status_refresh_loop():
 
     def refresh_loop():
         backoff_index = 0
+        last_skill_repo_sync = 0.0
 
         while True:
             # Use shorter intervals when MCP servers are failing
@@ -342,8 +343,15 @@ def _toolset_status_refresh_loop():
                 # Re-pull git skill repos so pushed skill changes reach a running
                 # agent without a pod restart. Runs before the mirror sync below
                 # so freshly-pulled skills appear in the UI on the same cycle.
-                if config.skill_repos:
+                # Paced to the configured interval, not the loop's cadence: the
+                # MCP failure backoff shortens cycles to retry MCP servers, and
+                # that must not multiply network git fetches.
+                if (
+                    config.skill_repos
+                    and time.time() - last_skill_repo_sync >= interval
+                ):
                     config.skill_repo_manager.sync()
+                    last_skill_repo_sync = time.time()
             except Exception:
                 logging.error(
                     "Error during periodic skill repo sync", exc_info=True
