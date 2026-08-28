@@ -91,17 +91,19 @@ stable, exactly like that precedent.
 {{- with .tokenSecret -}}
 {{- $existing := lookup "v1" "Secret" $.Release.Namespace .name -}}
 {{- if and $existing $existing.data (hasKey $existing.data .key) -}}
-{{- $parts = append $parts (index $existing.data .key) -}}
+{{- $parts = append $parts (dict "name" .name "key" .key "value" (index $existing.data .key)) -}}
 {{- end -}}
 {{- end -}}
 {{- with .githubApp -}}
 {{- with .privateKeySecret -}}
 {{- $existing := lookup "v1" "Secret" $.Release.Namespace .name -}}
 {{- if and $existing $existing.data (hasKey $existing.data .key) -}}
-{{- $parts = append $parts (index $existing.data .key) -}}
+{{- $parts = append $parts (dict "name" .name "key" .key "value" (index $existing.data .key)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- join "" $parts | sha256sum -}}
+{{- /* Structured records, not joined values: concatenation would hash two
+       adjacent secrets whose contents merely shifted a boundary identically. */ -}}
+{{- toJson $parts | sha256sum -}}
 {{- end -}}

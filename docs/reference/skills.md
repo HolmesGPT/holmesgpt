@@ -18,7 +18,7 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
 
 For private repos there are two ways to authenticate: a fine-grained [Personal Access Token](#using-a-personal-access-token) (simplest) or a [GitHub App](#using-a-github-app) (short-lived auto-expiring tokens, not tied to a personal account).
 
-Holmes syncs the repos itself: it clones each configured repo at startup and re-pulls it periodically (every `TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS`, default 5 minutes), so pushed skill changes reach a running agent automatically — no pod restart needed. Configure as many repos as you like; skills from all of them are merged.
+Holmes syncs the repos itself: it clones each configured repo at startup and re-pulls it periodically (every `TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS`, default 5 minutes), so pushed skill changes reach a running agent automatically — no pod restart needed. Configure as many repos as you like; skills from all of them are merged. On Helm deployments, rotating a credential Secret needs one `helm upgrade` afterwards: the chart checksums the Secret data into the pod template, so the upgrade rolls the pod with the new credential.
 
 #### Using a Personal Access Token
 
