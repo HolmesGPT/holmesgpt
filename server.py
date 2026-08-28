@@ -204,17 +204,33 @@ def init_config():
 config, dal = init_config()
 
 
+def _warm_skill_repos_and_mirror():
+    """Clone the git skill repos, then publish the skills mirror.
+
+    Runs in a daemon thread so nothing on the startup path performs a network
+    git fetch: the mirror sync reads all_skill_paths, which triggers the first
+    repo sync, and a slow or unreachable remote must delay neither server
+    readiness nor liveness. Ordered so the mirror sees the freshly-cloned
+    skills instead of recording the checkouts as unreadable.
+    """
+    try:
+        config.skill_repo_manager.sync()
+    except Exception:
+        logging.error("Failed to warm git skill repos", exc_info=True)
+    if not dal.enabled:
+        return
+    try:
+        holmes_sync_skills_status(dal, config)
+    except Exception:
+        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
+
+
 def sync_before_server_start():
-    if config.skill_repos:
-        # Warm the git skill repo checkouts off the request path: the first
-        # all_skill_paths access would otherwise clone them inside whichever
-        # request happens to arrive first. A daemon thread so a slow or broken
-        # remote cannot hold up startup.
-        threading.Thread(
-            target=config.skill_repo_manager.sync,
-            daemon=True,
-            name="skill-repo-warmup",
-        ).start()
+    threading.Thread(
+        target=_warm_skill_repos_and_mirror,
+        daemon=True,
+        name="skill-repo-warmup",
+    ).start()
     if not dal.enabled:
         logging.info(
             "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
@@ -228,10 +244,6 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
-    try:
-        holmes_sync_skills_status(dal, config)
-    except Exception:
-        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
     if conversation_worker is not None:
         try:
             conversation_worker.start()

@@ -201,6 +201,9 @@ spec:
                  cannot drift apart. */}}
           {{- $skillRepos := list }}
           {{- range $i, $repo := .Values.skillRepos }}
+          {{- if and $repo.tokenSecret $repo.githubApp }}
+          {{- fail (printf "skillRepos[%d]: set either tokenSecret or githubApp, not both" $i) }}
+          {{- end }}
           {{- $entry := dict "url" (required "skillRepos entries need a url" $repo.url) }}
           {{- with $repo.name }}{{- $entry = merge $entry (dict "name" .) }}{{- end }}
           {{- with $repo.branch }}{{- $entry = merge $entry (dict "branch" .) }}{{- end }}
@@ -223,8 +226,8 @@ spec:
           - name: SKILL_REPO_GH_APP_KEY_{{ $i }}
             valueFrom:
               secretKeyRef:
-                name: {{ (required "skillRepos githubApp needs privateKeySecret" .privateKeySecret).name }}
-                key: {{ .privateKeySecret.key }}
+                name: {{ required "skillRepos githubApp privateKeySecret needs a name" (required "skillRepos githubApp needs privateKeySecret" .privateKeySecret).name }}
+                key: {{ required "skillRepos githubApp privateKeySecret needs a key" .privateKeySecret.key }}
           {{- end }}
           {{- $skillRepos = append $skillRepos $entry }}
           {{- end }}

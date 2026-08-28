@@ -104,12 +104,15 @@ def test_failed_fetch_keeps_previous_checkout(tmp_path: Path):
 
 def test_missing_token_env_is_an_error_not_a_crash(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("MISSING_SKILL_TOKEN", raising=False)
-    repo = _make_skill_repo(tmp_path / "repo", {"dns-debug": "x"})
-    manager = _manager_for(repo, tmp_path, token_env="MISSING_SKILL_TOKEN")
+    # The credential check fires before any fetch, so no network is touched.
+    repo = GitSkillRepo(
+        url="https://github.com/acme/skills.git", token_env="MISSING_SKILL_TOKEN"
+    )
+    manager = GitSkillRepoManager([repo], root_dir=tmp_path / "checkouts")
 
     manager.sync()
 
-    assert "MISSING_SKILL_TOKEN" in manager.last_errors["repo"]
+    assert "MISSING_SKILL_TOKEN" in manager.last_errors["skills"]
 
 
 def test_token_env_injected_into_fetch_url(monkeypatch):
@@ -293,3 +296,15 @@ def test_sync_is_rate_limited_but_first_sync_always_runs(tmp_path: Path):
     manager.sync()
     skill = next(s for s in load_filesystem_skills(paths).skills if s.name == "dns-debug")
     assert "new steps" in skill.content
+
+
+def test_authenticated_repos_must_use_https():
+    with pytest.raises(ValueError, match="https"):
+        GitSkillRepo(url="http://git.internal/acme/skills.git", token_env="TOK")
+    with pytest.raises(ValueError, match="https"):
+        _github_app_repo(url="http://github.com/acme/skills.git")
+    with pytest.raises(ValueError, match="github_api_url"):
+        _github_app_repo(github_api_url="http://ghe.internal/api/v3")
+    # Without credentials there is nothing to leak; plain http and file stay allowed.
+    assert GitSkillRepo(url="http://git.internal/acme/skills.git").url
+    assert GitSkillRepo(url="file:///tmp/repo").url

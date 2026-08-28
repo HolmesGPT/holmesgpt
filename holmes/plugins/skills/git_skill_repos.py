@@ -130,6 +130,19 @@ class GitSkillRepo(BaseModel):
                 f"skill repo {self.name}: set either token_env or the github_app_* "
                 "fields, not both"
             )
+        # A credential must never cross the network in cleartext: authenticated
+        # fetches embed the token in the URL, and the App JWT rides an HTTP
+        # header to github_api_url.
+        if (self.token_env or any(app_fields)) and split.scheme != "https":
+            raise ValueError(
+                f"skill repo {self.name}: authenticated repos must use an https:// "
+                f"url, got {split.scheme}://"
+            )
+        if any(app_fields) and urlsplit(self.github_api_url).scheme != "https":
+            raise ValueError(
+                f"skill repo {self.name}: github_api_url must use https://, "
+                f"got {self.github_api_url!r}"
+            )
         return self
 
     def authenticated_url(self) -> str:
