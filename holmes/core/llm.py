@@ -60,6 +60,17 @@ _warned_missing_model_lookups: set[tuple[str, str]] = set()
 # Prevents spam when _init_models re-runs (e.g. Robusta resync path).
 _warned_unknown_cost_models: set[str] = set()
 
+# OrcaRouter is an OpenAI-compatible AI gateway (like OpenRouter). LiteLLM has
+# no native provider prefix for it, so `orcarouter/` models are rewritten to
+# `openai/` and routed to this base URL through LiteLLM's OpenAI-compatible
+# path - the same approach Robusta-hosted models use.
+ORCAROUTER_API_BASE = "https://api.orcarouter.ai/v1"
+
+
+def is_orcarouter_model(model_name: str) -> bool:
+    """True if the model is served through OrcaRouter's OpenAI-compatible endpoint."""
+    return model_name.startswith("orcarouter/")
+
 
 def _litellm_name_for_entry(entry: "ModelEntry") -> str:
     """Return the model-name string that will be passed to litellm.completion.
@@ -70,6 +81,11 @@ def _litellm_name_for_entry(entry: "ModelEntry") -> str:
     if entry.is_robusta_model:
         split = entry.model.split("/")
         return split[0] if len(split) == 1 else f"openai/{split[1]}"
+    if is_orcarouter_model(entry.model):
+        # OrcaRouter models are rewritten to `openai/` at completion time
+        # (see DefaultLLM.completion), so pricing must register under the same
+        # name or usage-event costs would resolve to 0.
+        return f"openai/{entry.model.split('/', 1)[1]}"
     return entry.model
 
 
@@ -409,10 +425,22 @@ class DefaultLLM(LLM):
             return
         args = args or {}
         logging.debug(f"Checking LiteLLM model {model}")
-        lookup = litellm.get_llm_provider(model)
+        # OrcaRouter has no native LiteLLM provider prefix; the model is
+        # validated as an OpenAI-compatible model pointing at OrcaRouter's
+        # base URL (see get_litellm_corrected_name_for_robusta_ai).
+        if is_orcarouter_model(model):
+            lookup = ("openai", "openai")
+        else:
+            lookup = litellm.get_llm_provider(model)
         if not lookup:
             raise Exception(f"Unknown provider for model {model}")
         provider = lookup[1]
+        # OrcaRouter models are validated under their OpenAI-compatible name
+        # (`orcarouter/<m>` -> `openai/<m>`), so a missing key is caught here
+        # instead of litellm treating the unknown prefix as requiring nothing.
+        validate_model = (
+            f"openai/{model.split('/', 1)[1]}" if is_orcarouter_model(model) else model
+        )
         if provider == "watsonx":
             # NOTE: LiteLLM's validate_environment does not currently include checks for IBM WatsonX.
             # The following WatsonX-specific variables are set based on documentation from:
@@ -492,7 +520,7 @@ class DefaultLLM(LLM):
 
         else:
             model_requirements = litellm.validate_environment(
-                model=model, api_key=api_key, api_base=api_base
+                model=validate_model, api_key=api_key, api_base=api_base
             )
 
         if not model_requirements["keys_in_environment"]:
@@ -733,6 +761,14 @@ class DefaultLLM(LLM):
         ]
 
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
+
+        # OrcaRouter models are routed through LiteLLM's OpenAI-compatible path
+        # with a default base URL, so a bare `orcarouter/<model>` entry works
+        # out of the box (no explicit api_base required in model_list.yaml).
+        is_orcarouter = is_orcarouter_model(litellm_model_name)
+        if is_orcarouter:
+            litellm_model_name = f"openai/{litellm_model_name.split('/', 1)[1]}"
+            self.api_base = self.api_base or ORCAROUTER_API_BASE
 
         # When Azure AD (Entra ID) token auth is enabled, obtain a cached token
         # and pass it to litellm instead of an API key.
