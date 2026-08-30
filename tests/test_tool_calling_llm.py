@@ -1703,3 +1703,152 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Repetition loop detection
+# ---------------------------------------------------------------------------
+
+
+class TestRepetitionLoopDetection:
+    """The model repeats the same tool call forever; the harness must break in."""
+
+    @staticmethod
+    def _looping_llm(mock_llm, final_answer="here is what I found"):
+        """LLM that repeats one tool call until tools are withdrawn."""
+
+        def _completion(*_args, **kwargs):
+            if not kwargs.get("tools"):
+                return _make_llm_response(content=final_answer, tool_calls=None)
+            return _make_llm_response(
+                content="Let me examine the API to see what it returns",
+                tool_calls=[_make_mock_tool_call()],
+            )
+
+        mock_llm.completion.side_effect = _completion
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_loop_is_nudged_in_band(self, _mock_limit, make_ai, mock_llm):
+        self._looping_llm(mock_llm)
+        ai = make_ai(max_steps=30)
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "check the API"}])
+        )
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        nudges = [
+            m
+            for m in answer.data["messages"]
+            if m.get("role") == "user" and "Do not repeat" in str(m.get("content", ""))
+        ]
+        assert nudges, "expected an in-band loop-breaker message in the transcript"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_persistent_loop_ends_with_an_answer_not_an_exception(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        """A model that ignores every nudge still gets a final answer out,
+        well before max_steps raises."""
+        self._looping_llm(mock_llm)
+        ai = make_ai(max_steps=50)
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "check the API"}])
+        )
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert answer.data["content"] == "here is what I found"
+        # Tools are withdrawn after two failed nudges, so this must terminate
+        # far short of max_steps.
+        assert answer.data["num_llm_calls"] < 20
+        assert answer.data["metadata"]["loop_detected"]["kind"] == "repeated_tool_calls"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_healthy_investigation_is_untouched(self, _mock_limit, make_ai, mock_llm):
+        """Distinct tool calls each turn must not trigger any intervention."""
+        responses = [
+            _make_llm_response(
+                content=f"checking resource {n}",
+                tool_calls=[
+                    _make_mock_tool_call(
+                        tool_call_id=f"tc_{n}", arguments={"command": f"get pod-{n}"}
+                    )
+                ],
+            )
+            for n in range(5)
+        ] + [_make_llm_response(content="done", tool_calls=None)]
+        mock_llm.completion.side_effect = responses
+
+        ai = make_ai(max_steps=30)
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "investigate"}])
+        )
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert "loop_detected" not in answer.data["metadata"]
+        assert answer.data["num_llm_calls"] == 6
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_degenerate_reasoning_is_trimmed_before_resending(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        degenerate = "Let me look at the API and see what it returns. " * 60
+        resp = _make_llm_response(
+            content="working on it", tool_calls=[_make_mock_tool_call()]
+        )
+        resp.choices[0].message.reasoning_content = degenerate
+        resp.choices[0].message.model_dump.return_value = {
+            "role": "assistant",
+            "content": "working on it",
+            "reasoning_content": degenerate,
+            "tool_calls": [
+                {
+                    "id": "tc_1",
+                    "type": "function",
+                    "function": {
+                        "name": "kubectl_get",
+                        "arguments": json.dumps({"command": "kubectl get pods"}),
+                    },
+                }
+            ],
+        }
+        mock_llm.completion.side_effect = [
+            resp,
+            _make_llm_response(content="done", tool_calls=None),
+        ]
+
+        ai = make_ai(max_steps=10)
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "check the API"}])
+        )
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assistant = next(
+            m for m in answer.data["messages"] if m.get("reasoning_content")
+        )
+        assert len(assistant["reasoning_content"]) < len(degenerate)
+        assert "truncated" in assistant["reasoning_content"]
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_final_answer_is_never_trimmed(self, _mock_limit, make_ai, mock_llm):
+        """A long, repetitive final answer is the user's output - leave it alone."""
+        repetitive_answer = "The pod is in CrashLoopBackOff and needs a restart. " * 60
+        mock_llm.completion.return_value = _make_llm_response(
+            content=repetitive_answer, tool_calls=None
+        )
+
+        ai = make_ai(max_steps=10)
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "what is wrong?"}])
+        )
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert answer.data["content"] == repetitive_answer
+        assert answer.data["messages"][-1]["content"] == repetitive_answer
