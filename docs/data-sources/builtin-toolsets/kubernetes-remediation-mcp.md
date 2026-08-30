@@ -1,37 +1,81 @@
 # Kubernetes Remediation (MCP)
 
-The Kubernetes Remediation MCP server is what lets Holmes **act on your cluster** — restart pods, scale deployments, drain nodes, patch and edit resources, and more — plus run **deeper diagnostics** than read-only access allows: reading files and processes *inside* running containers and launching short-lived troubleshooting pods (netshoot/busybox/curl).
+The Kubernetes Remediation MCP server extends Holmes from read-only investigation to investigation **and action**: it can restart, scale, patch and drain — with every mutating action gated behind human approval — and run deeper diagnostics than read-only access allows, like reading files inside running containers and launching short-lived troubleshooting pods.
 
-It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md) (which already covers `get`/`describe`/`logs`), extending Holmes from read-only investigation to investigation **and** remediation — with every mutating action gated behind human approval.
+It runs **alongside** the built-in [Kubernetes toolset](kubernetes.md), which keeps handling `get`/`describe`/`logs`.
 
-!!! info "What this adds over the built-in Kubernetes toolset"
+## What Works Out of the Box
 
-    | Capability | Built-in | + Remediation MCP |
-    |---|---|---|
-    | Read resources (`get` / `describe` / `logs`) | ✅ | — *(keep using the built-in)* |
-    | Read files & processes inside containers | ❌ | ✅ auto-approved |
-    | Run diagnostic pods (netshoot/busybox/curl) | ❌ | ✅ auto-approved |
-    | Write actions (restart / scale / drain / patch / …) | ❌ | ✅ **human-approved** |
+Enable it with one Helm value (see [Setup](#setup)) and Holmes immediately gets five tools:
 
-## Available Tools
+| Tool | Approval | What it does |
+|------|----------|--------------|
+| `read_file_from_container` | Auto | Read a file from inside a running container (config files, on-disk logs). Secret/token mounts and `/proc`, `/sys`, `/dev` are always refused. |
+| `run_preapproved_kubectl_exec_command` | Auto | Run an allowlisted read-only binary inside a container via `kubectl exec`. Default allowlist: `ps`, `top`, `df`, `ls`, `netstat`, `ss`. |
+| `run_preapproved_diagnostic_image` | Auto | Launch a short-lived pod from an allowlisted troubleshooting image (`nicolaka/netshoot`, `busybox`, `curlimages/curl`), capture its output, auto-delete it. Probe targets are restricted to in-cluster destinations by default ([details](#diagnostic-pod-target-policy)). |
+| `get_remediation_mcp_config` | Auto | Return the live effective policy, for debugging. |
+| `run_kubectl_command` | **Human approval** | The catch-all for everything else: mutations (`scale`, `rollout`, `delete`, `patch`, `cordon`, `drain`, `taint`, `label`, ...), arbitrary `exec`, non-allowlisted images. |
 
-| Tool | Mutating | Approval | What it does |
-|------|----------|----------|--------------|
-| `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
-| `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
-| `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. By default probe targets are restricted to in-cluster destinations, and cloud metadata is refused for as long as the target policy is enabled ([details](#diagnostic-pod-target-policy)). |
-| `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
-| `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
+Each tool is *either* always auto-approved *or* always human-approved — the split is fixed, so the model never guesses whether an action is safe to take on its own.
 
-Each tool is *either* always auto-approved *or* always human-approved — the split is fixed, so the model never has to guess whether an action is safe to take on its own. The read-only and diagnostic tools run immediately; the mutating fallback (`run_kubectl_command`) always pauses for a human.
+**What this lets Holmes do**, with no further configuration:
 
-## Prerequisites
+```bash
+# Remediate (Holmes proposes the kubectl command; you approve it before it runs)
+holmes ask "Restart the payment-service deployment in production"
+holmes ask "The checkout-api pods are crashlooping - investigate and fix"
+holmes ask "Cordon node worker-3 and drain it safely"
 
-For CLI deployments, you'll need to create the RBAC resources manually. For Helm deployments, the chart creates them automatically (a scoped, least-privilege ClusterRole — not `cluster-admin`).
+# Look inside containers (auto-approved)
+holmes ask "Read the app config from the checkout-api pod and tell me which database host it points to"
+holmes ask "Is anything filling up the disk inside the etl-worker pod?"
+holmes ask "Which process inside the api pod is using the most memory, and what ports is it listening on?"
 
-## Configuration
+# Probe the network from inside the cluster (auto-approved)
+holmes ask "From inside the cluster, check whether the payments service DNS resolves and the endpoint responds"
+holmes ask "Is the orders service reachable from the staging namespace?"
+```
 
-=== "Holmes CLI"
+## Setup
+
+=== "Holmes Helm Chart"
+
+    The defaults work out of the box once enabled. Add to your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      kubernetesRemediation:
+        enabled: true
+    ```
+
+    Then deploy or upgrade:
+
+    ```bash
+    helm upgrade --install holmes robusta/holmes -f values.yaml
+    ```
+
+    The chart creates a scoped ClusterRole (no `cluster-admin`, no `secrets`), an ingress-only NetworkPolicy locked to Holmes, a random per-release bearer token authenticating Holmes to the server, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists ([reference](#configuration-reference)).
+
+=== "Robusta Helm Chart"
+
+    Add the following to your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        kubernetesRemediation:
+          enabled: true
+    ```
+
+    Then deploy or upgrade your Robusta installation:
+
+    ```bash
+    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    ```
+
+=== "Holmes CLI (manual deploy)"
+
+    For CLI deployments, create the RBAC resources and deploy the server manually.
 
     **Step 1: Create RBAC Resources**
 
@@ -60,9 +104,11 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
       - apiGroups: ["apps"]
         resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
         verbs: ["get", "update", "patch"]
+      # `watch` lets kubectl run/debug follow the pods they create; without it
+      # they still work but spam forbidden-watch retries into stderr
       - apiGroups: [""]
         resources: ["pods"]
-        verbs: ["get", "list", "create", "delete"]
+        verbs: ["get", "list", "watch", "create", "delete"]
       - apiGroups: [""]
         resources: ["pods/exec"]
         verbs: ["create"]
@@ -129,15 +175,19 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
             ports:
             - containerPort: 8000
               name: http
-            # The defaults below ship in the image — listing them is optional.
+            # The defaults below ship in the image — listing them is optional,
+            # but they are the values you are most likely to customize
+            # (see "Customizing What Holmes Can Run").
             env:
             - name: KUBECTL_ALLOWED_COMMANDS
               value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
+            - name: KUBECTL_PREAPPROVED_EXEC_BINARIES
+              value: "ps,top,df,ls,netstat,ss"
+            - name: KUBECTL_DIAGNOSTIC_IMAGES
+              value: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
             - name: KUBECTL_TIMEOUT
               value: "60"
-            # Diagnostic-pod target policy (see "Diagnostic-pod target policy"
-            # below). These are the defaults; both are shown because they are
-            # the two you are most likely to need to change.
+            # Diagnostic-pod target policy (see below).
             - name: KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS
               value: "false"
             - name: KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES
@@ -202,42 +252,202 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Holmes Helm Chart"
+## Customizing What Holmes Can Run
 
-    The defaults work out of the box once enabled (plug-and-play). Add the following to your `values.yaml`:
+All policy lives in the MCP server, configured through Helm values under `mcpAddons.kubernetesRemediation.config.*` (or the matching `KUBECTL_*` env vars on a manual deployment — see the [reference table](#configuration-reference)). The sections below cover the customizations that unlock the most, with real scenarios.
+
+### GPU Troubleshooting: More Pre-Approved Exec Binaries
+
+`run_preapproved_kubectl_exec_command` runs a single binary inside an existing container, and only binaries on the allowlist are allowed (matched exactly on the binary name — `nvidia-smi` does not allow `nvidia-smi-tool`). The default list is generic (`ps,top,df,ls,netstat,ss`); extend it with whatever read-only diagnostics your workloads carry. GPU pods running on the NVIDIA runtime have `nvidia-smi` available inside the container, so adding it lets Holmes check GPU health with no approval round-trip:
+
+=== "Holmes Helm Chart"
 
     ```yaml
     mcpAddons:
       kubernetesRemediation:
         enabled: true
+        config:
+          preapprovedExecBinaries: "ps,top,df,ls,netstat,ss,nvidia-smi,free,uptime,du"
     ```
 
-    Then deploy or upgrade your Holmes installation:
-
-    ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
-    The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
-
-=== "Robusta Helm Chart"
-
-    Add the following to your `generated_values.yaml`:
+=== "Manual deployment"
 
     ```yaml
-    holmes:
-      mcpAddons:
-        kubernetesRemediation:
-          enabled: true
+    env:
+    - name: KUBECTL_PREAPPROVED_EXEC_BINARIES
+      value: "ps,top,df,ls,netstat,ss,nvidia-smi,free,uptime,du"
     ```
 
-    Then deploy or upgrade your Robusta installation:
+Now Holmes can answer these without waiting for approval:
 
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+```bash
+holmes ask "The training job in ml-prod is slower than yesterday. Check GPU utilization and memory on its pods."
+```
+
+```bash
+holmes ask "Are any GPUs in the ml-prod namespace showing ECC errors or thermal throttling?"
+```
+
+```bash
+holmes ask "Is the inference service actually using the GPU, or is it falling back to CPU?"
+```
+
+Holmes passes arguments too — the allowlist gates only the binary, so `nvidia-smi -q -d MEMORY,UTILIZATION,ECC,TEMPERATURE` works once `nvidia-smi` is listed.
+
+GPU checks belong on this exec allowlist rather than on the diagnostic-image list: the GPU device is bound to the workload's container, so `nvidia-smi` must run *inside that container* — a separate diagnostic pod sees no GPU.
+
+**What to add — and what not to.** Good candidates are read-only, side-effect-free binaries: `nvidia-smi`, `free`, `uptime`, `du`, `ip`, `id`, `hostname`, or a read-only health CLI your app ships. Do **not** add shells (`sh`, `bash`), interpreters (`python`, `perl`), or package managers — they execute arbitrary code, which collapses the auto-approved/human-approved distinction. Anything that mutates state belongs in `run_kubectl_command`, where a human sees it first. Also note the binary must actually exist in the target container: allowlisting `nvidia-smi` does nothing for pods without the NVIDIA runtime. (`cat` and `env` are deliberately absent from the default list: use `read_file_from_container` for files — it enforces the secret-mount denylist — and `env` output leaks env-injected secrets.)
+
+### Custom Diagnostic Images
+
+`run_preapproved_diagnostic_image` launches a short-lived pod, so it works even when the workload's own containers have nothing useful installed (distroless images, scratch containers). The default allowlist covers general network debugging; add your own images for anything more specific — a database client image, an org-internal toolbox, a cloud CLI:
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      kubernetesRemediation:
+        enabled: true
+        config:
+          diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1,ghcr.io/yourorg/db-toolbox:1.4.2"
     ```
 
-## Security Controls
+=== "Manual deployment"
+
+    ```yaml
+    env:
+    - name: KUBECTL_DIAGNOSTIC_IMAGES
+      value: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1,ghcr.io/yourorg/db-toolbox:1.4.2"
+    ```
+
+Always pin a tag — the model requests an image by repository name and the server substitutes the pinned tag from the allowlist, so the model can never pick the version. Keep the images read-only troubleshooting tools; every image on this list runs with **no approval prompt** (though with [restricted targets](#diagnostic-pod-target-policy), no service account token, and capped resources).
+
+```bash
+holmes ask "Use the db-toolbox to check whether the orders database accepts connections from the staging namespace"
+```
+
+### Node Troubleshooting with kubectl debug
+
+Node-level problems — kubelet failures, packet drops, conntrack exhaustion, disk pressure from files outside any pod — need access to the node itself. `kubectl debug node/<name>` is the standard tool for that, but the `debug` verb is **not** in the default allowlist, so Holmes gets a refusal if it tries. Add it:
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    mcpAddons:
+      kubernetesRemediation:
+        enabled: true
+        config:
+          allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec,debug"
+    ```
+
+=== "Manual deployment"
+
+    ```yaml
+    env:
+    - name: KUBECTL_ALLOWED_COMMANDS
+      value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec,debug"
+    ```
+
+`debug` goes through `run_kubectl_command`, so **every node debug session is human-approved** — appropriate, since a node debug pod can mount the host filesystem. Holmes proposes the full `kubectl debug ... -- <command>` invocation, you approve it, and the command's output comes back in the tool result (this works non-interactively: `-it` needs no real terminal here, and the server captures stdout).
+
+```bash
+holmes ask "Pods on node worker-3 keep timing out on DNS. Debug the node's network and find out why."
+```
+
+```bash
+holmes ask "Check the kubelet logs on worker-3 for eviction or PLEG errors."
+```
+
+```bash
+holmes ask "Something outside of Kubernetes is filling the disk on worker-3 - find what."
+```
+
+Commands Holmes will typically propose (each one approval-gated):
+
+```bash
+# Node network diagnostics. The debug pod shares the node's network namespace
+# by default, so interface stats, sockets, and routing are the node's own:
+kubectl debug node/worker-3 -it --image=nicolaka/netshoot:v0.13 -- ip -s link
+
+# Tools that need NET_ADMIN/NET_RAW (tcpdump, conntrack) additionally need
+# --profile=netadmin; --profile=sysadmin runs privileged:
+kubectl debug node/worker-3 -it --profile=netadmin --image=nicolaka/netshoot:v0.13 -- conntrack -S
+
+# Node files and logs: the node filesystem is mounted at /host
+kubectl debug node/worker-3 -it --image=busybox:1.37.0 -- chroot /host journalctl -u kubelet --since "1 hour ago"
+```
+
+!!! note "Cleanup"
+
+    `kubectl debug` leaves the debug pod behind when it finishes. Holmes can delete it afterwards (`delete` is in the default verb allowlist and prompts for approval), or clean up yourself: debug pods are named `node-debugger-<node>-<suffix>`.
+
+### Debugging Pods That Have No Shell
+
+The same `debug` verb also enables **ephemeral debug containers** on running pods — the way into distroless or scratch-based containers where `kubectl exec` has nothing to execute:
+
+```bash
+holmes ask "The checkout-api container is distroless and I can't exec into it. Attach a debug container and check what ports it's listening on."
+```
+
+Holmes proposes something like:
+
+```bash
+kubectl debug -it pod/checkout-api-7d9f -n prod --image=nicolaka/netshoot:v0.13 --target=checkout-api -- ss -tlnp
+```
+
+`--target` puts the debug container in the app container's process namespace so `ss`/`ps` see its sockets and processes.
+
+This needs one RBAC addition the default ClusterRole doesn't carry — attaching an ephemeral container patches the pod:
+
+```yaml
+- apiGroups: [""]
+  resources: ["pods/ephemeralcontainers"]
+  verbs: ["update", "patch"]
+```
+
+With the Helm chart, copy the chart's ClusterRole, add the rule, and point `serviceAccount.clusterRole` at your copy. (Node debugging needs no RBAC change — it creates a regular pod, which the default role already allows.)
+
+### Allowing External Probe Targets
+
+By default, auto-approved diagnostic pods may only probe in-cluster targets. If Holmes should verify egress or reach external APIs (is `api.stripe.com` reachable from inside the cluster?), opt in:
+
+```yaml
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    config:
+      diagnosticAllowExternalTargets: true
+```
+
+Cloud-metadata and link-local addresses stay refused regardless. See [Diagnostic-pod target policy](#diagnostic-pod-target-policy) for what this changes and for the egress NetworkPolicy you should pair with it.
+
+### Locked-Down Mode: Diagnostics Only, No Mutations
+
+To get the deep-diagnostics tools without giving Holmes any write path at all, disable the mutating fallback entirely:
+
+```yaml
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    config:
+      allowArbitraryKubectlCommands: false
+```
+
+`run_kubectl_command` then refuses everything; the four auto-approved tools keep working. You can also narrow `allowedCommands` instead — e.g. `"rollout,scale,delete"` permits restarts and scaling but refuses drains, taints, and exec.
+
+### Longer Timeouts for Slow Operations
+
+Every command is killed after `timeout` seconds (default 60). `kubectl drain` on a busy node routinely takes longer:
+
+```yaml
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    config:
+      timeout: "300"
+```
+
+## Security Model
 
 All policy lives in the MCP server; Holmes only maps tool name → approval.
 
@@ -245,18 +455,18 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 |---------|-------------|
 | **Tool separation** | Read-only tools auto-approve; only `run_kubectl_command` (mutations) requires human approval |
 | **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
-| **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
-| **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
-| **Diagnostic target policy** | With the defaults, `run_preapproved_diagnostic_image` probes are restricted to in-cluster targets; cloud-metadata/link-local addresses are refused and cannot be re-enabled by config while the policy is on. `diagnosticAllowExternalTargets: true` permits external targets, and `diagnosticTargetPolicyEnabled: false` removes the whole layer — see [Diagnostic-pod target policy](#diagnostic-pod-target-policy) |
+| **Exec binary allowlist** | `run_preapproved_kubectl_exec_command` only runs allowlisted binaries, matched exactly on the binary name |
+| **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved images, at the pinned tag |
+| **Diagnostic target policy** | Probes are restricted to in-cluster targets; cloud-metadata/link-local addresses are refused and cannot be re-enabled by config while the policy is on — see [below](#diagnostic-pod-target-policy) |
+| **Diagnostic pod hardening** | Diagnostic pods run with `automountServiceAccountToken: false`, no privilege escalation, capped memory, and `hostNetwork: false` pinned |
 | **Verb allowlist** | `run_kubectl_command` only accepts an allowlisted set of verbs |
-| **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token`, `--as` are always blocked |
+| **Flag blocklist** | Flags like `--kubeconfig`, `--context`, `--token`, `--as` are always blocked, as is `--overrides` |
 | **Shell injection protection** | Shell metacharacters are rejected; `shell=False` |
-| **Locked-down mode** | Set `allowArbitraryKubectlCommands: false` to disable `run_kubectl_command` entirely |
+| **HTTP authentication** | The Helm chart generates a bearer token requiring callers to authenticate (server ≥ 1.2.0); a NetworkPolicy additionally restricts ingress to Holmes pods |
 | **Scoped RBAC** | Least-privilege ClusterRole — no `cluster-admin`, no `secrets` |
-| **NetworkPolicy** | Ingress-only, locked to Holmes pods |
 | **Command timeout** | Commands are killed after a configurable timeout (default: 60s) |
 
-## Diagnostic-pod target policy
+## Diagnostic-Pod Target Policy
 
 !!! warning "Requires MCP server image 1.2.0 or newer"
 
@@ -378,7 +588,7 @@ kubectl run np-test --rm -i --restart=Never -n <namespace> \
   -- curl -s -m 5 http://169.254.169.254/    # must time out, not answer
 ```
 
-### If a legitimate probe is refused
+### If a Legitimate Probe Is Refused
 
 Refusals name the rule and the fix, and Holmes will usually correct itself. The
 most common case is a namespace-qualified short name: `kubernetes.default` is
@@ -406,36 +616,24 @@ Otherwise, in order of preference:
 
 ## Configuration Reference
 
-| Helm value (`config.*`) | Default | Purpose |
-|-------------------------|---------|---------|
-| `allowedCommands` | `edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec` | Hard verb allowlist for `run_kubectl_command` |
-| `dangerousFlags` | `--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid` | Blocked flags |
-| `preapprovedCommands` | `exec * -- ps*,...,exec * -- ss*` | `run_preapproved_kubectl_command` allowlist |
-| `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist |
-| `diagnosticTargetPolicyEnabled` | `true` | master switch for the [target policy](#diagnostic-pod-target-policy); `false` disables **all** target checks |
-| `diagnosticAllowExternalTargets` | `false` | allow diagnostic probes to reach hosts outside the cluster |
-| `diagnosticInternalDnsSuffixes` | `.svc,.svc.cluster.local,.cluster.local` | DNS suffixes counted as cluster-internal (set for a custom cluster domain) |
-| `fileReadAllowedPaths` | `/` | `read_file_from_container` allow roots |
-| `fileReadDeniedPaths` | `/var/run/secrets/,/run/secrets/,...` | secret-mount denylist |
-| `allowArbitraryKubectlCommands` | `true` | enable the approval-gated fallback |
-| `timeout` | `60` | per-command timeout (s) |
+| Helm value (`config.*`) | Env var (manual deploy) | Default | Purpose |
+|-------------------------|-------------------------|---------|---------|
+| `allowedCommands` | `KUBECTL_ALLOWED_COMMANDS` | `edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec` | Hard verb allowlist for `run_kubectl_command` |
+| `dangerousFlags` | `KUBECTL_DANGEROUS_FLAGS` | `--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid` | Blocked flags |
+| `preapprovedExecBinaries` | `KUBECTL_PREAPPROVED_EXEC_BINARIES` | `ps,top,df,ls,netstat,ss` | Binaries `run_preapproved_kubectl_exec_command` may run in-container, matched exactly on `command[0]` |
+| `diagnosticImages` | `KUBECTL_DIAGNOSTIC_IMAGES` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist (pinned tags) |
+| `diagnosticTargetPolicyEnabled` | `KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED` | `true` | Master switch for the [target policy](#diagnostic-pod-target-policy); `false` disables **all** target checks |
+| `diagnosticAllowExternalTargets` | `KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS` | `false` | Allow diagnostic probes to reach hosts outside the cluster |
+| `diagnosticInternalDnsSuffixes` | `KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES` | `.svc,.svc.cluster.local,.cluster.local` | DNS suffixes counted as cluster-internal (set for a custom cluster domain) |
+| `fileReadAllowedPaths` | `KUBECTL_FILE_READ_ALLOWED_PATHS` | `/` | `read_file_from_container` allow roots |
+| `fileReadDeniedPaths` | `KUBECTL_FILE_READ_DENIED_PATHS` | `/var/run/secrets/,/run/secrets/,...` | Secret-mount denylist |
+| `allowArbitraryKubectlCommands` | `KUBECTL_ALLOW_ARBITRARY_COMMANDS` | `true` | Enable the approval-gated fallback |
+| `timeout` | `KUBECTL_TIMEOUT` | `60` | Per-command timeout (s) |
 
-## Common Use Cases
-
-```bash
-holmes ask "Read /app/config.yaml from the checkout-api pod and tell me what database host it points to"
-```
+To see the policy a running server actually has (after Helm overrides, env typos, image-version mismatches), ask Holmes — `get_remediation_mcp_config` returns the live effective configuration:
 
 ```bash
-holmes ask "From inside the production cluster, check whether the payments service DNS resolves and the endpoint is reachable"
-```
-
-```bash
-holmes ask "Restart the payment-service deployment in the production namespace"
-```
-
-```bash
-holmes ask "The checkout-api pods are crashlooping - investigate and fix"
+holmes ask "Show me the current kubernetes remediation policy - which commands and images are pre-approved?"
 ```
 
 ## Additional Resources

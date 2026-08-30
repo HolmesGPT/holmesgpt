@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vision-training
+  namespace: app-291
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vision-training
+  template:
+    metadata:
+      labels:
+        app: vision-training
+    spec:
+      containers:
+        - name: vision-training
+          image: busybox:1.37.0
+          command: ["sh", "-c", "sleep infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi

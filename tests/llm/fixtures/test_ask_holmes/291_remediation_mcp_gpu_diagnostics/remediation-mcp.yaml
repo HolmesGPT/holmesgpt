@@ -1,0 +1,105 @@
+# The real Kubernetes Remediation MCP server, with ONE customization: the
+# pre-approved exec-binary allowlist is extended with nvidia-smi — the GPU
+# troubleshooting setup documented in
+# docs/data-sources/builtin-toolsets/kubernetes-remediation-mcp.md.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: remediation-mcp-sa-291
+  namespace: app-291
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: remediation-mcp-role-291
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "patch", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events", "services", "configmaps", "namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: remediation-mcp-291
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: remediation-mcp-role-291
+subjects:
+  - kind: ServiceAccount
+    name: remediation-mcp-sa-291
+    namespace: app-291
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-remediation-mcp
+  namespace: app-291
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-remediation-mcp
+  template:
+    metadata:
+      labels:
+        app: k8s-remediation-mcp
+    spec:
+      serviceAccountName: remediation-mcp-sa-291
+      containers:
+        - name: k8s-remediation-mcp
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            # The customization under test: extend the exec allowlist so Holmes
+            # can run nvidia-smi inside GPU pods without human approval.
+            - name: KUBECTL_PREAPPROVED_EXEC_BINARIES
+              value: "ps,top,df,ls,netstat,ss,nvidia-smi"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-remediation-mcp
+  namespace: app-291
+spec:
+  selector:
+    app: k8s-remediation-mcp
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http

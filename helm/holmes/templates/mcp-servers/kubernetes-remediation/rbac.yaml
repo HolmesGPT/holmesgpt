@@ -29,10 +29,12 @@ rules:
     resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
     verbs: ["get", "update", "patch"]
   # Pods: restart(=delete), exec (read tools), run diagnostic images (create),
-  # cleanup (delete), logs
+  # cleanup (delete), logs. `watch` is needed by kubectl run/debug to follow the
+  # pod it created — without it the command still works but retries a forbidden
+  # watch in a loop, and that stderr noise lands in the tool result the model reads.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]

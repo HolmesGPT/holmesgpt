@@ -1,0 +1,17 @@
+toolsets:
+  # Mimic a hardened deployment where the remediation MCP server is the only
+  # exec path into containers (with bash enabled Holmes could `kubectl exec`
+  # directly and bypass the allowlist under test).
+  bash: { enabled: false }
+
+mcp_servers:
+  kubernetes_remediation:
+    description: "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
+    config:
+      url: "http://localhost:10291/mcp"
+      mode: streamable-http
+    # Same mapping the Helm chart wires: the mutating fallback needs a human.
+    # Evals have no interactive approver, so calls to it are denied — the
+    # customized auto-approved exec allowlist must carry the task.
+    approval_required_tools:
+      - "run_kubectl_command"

@@ -731,8 +731,12 @@ mcpAddons:
       allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
       # Comma-separated list of blocked flags
       dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
-      # Pre-approved read-only commands for run_preapproved_kubectl_command (auto-approved)
-      preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
+      # Read-only binaries run_preapproved_kubectl_exec_command may run inside a
+      # container (auto-approved). Matched exactly on the binary name — no
+      # patterns. Extend for workload-specific diagnostics, e.g. nvidia-smi for
+      # GPU pods. (Replaces the old preapprovedCommands pattern list, which
+      # server images >= 1.1.0 ignore.)
+      preapprovedExecBinaries: "ps,top,df,ls,netstat,ss"
       # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
       diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
 
@@ -776,7 +780,7 @@ mcpAddons:
       enabled: true          # ingress-only; inert where the CNI doesn't enforce
 
     # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
-    # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
+    # the read-only tools (read_file_from_container, run_preapproved_kubectl_exec_command,
     # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
     approvalRequiredTools:
       - "run_kubectl_command"

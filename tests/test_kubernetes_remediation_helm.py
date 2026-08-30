@@ -37,7 +37,7 @@ def test_values_defaults_are_plug_and_play():
     assert v["config"]["allowArbitraryKubectlCommands"] is True
     # New config keys present
     for key in (
-        "preapprovedCommands",
+        "preapprovedExecBinaries",
         "diagnosticImages",
         "fileReadAllowedPaths",
         "fileReadDeniedPaths",
@@ -75,7 +75,7 @@ def test_deployment_binding_has_no_cluster_admin_default():
     assert "k8s-remediation-mcp-role" in text
     # new env vars wired through the ConfigMap
     for key in (
-        "KUBECTL_PREAPPROVED_COMMANDS",
+        "KUBECTL_PREAPPROVED_EXEC_BINARIES",
         "KUBECTL_DIAGNOSTIC_IMAGES",
         "KUBECTL_FILE_READ_ALLOWED_PATHS",
         "KUBECTL_FILE_READ_DENIED_PATHS",
@@ -202,4 +202,4 @@ def test_llm_instructions_mention_the_tool_split():
     assert "run_kubectl_command" in text
     assert "read_file_from_container" in text
     assert "run_preapproved_diagnostic_image" in text
-    assert "run_preapproved_kubectl_command" in text
+    assert "run_preapproved_kubectl_exec_command" in text

@@ -1,0 +1,105 @@
+# Test: the documented GPU-troubleshooting customization of the Kubernetes
+# Remediation MCP server — extending KUBECTL_PREAPPROVED_EXEC_BINARIES with
+# nvidia-smi so Holmes can check GPU health via the auto-approved
+# run_preapproved_kubectl_exec_command tool (no human approval round-trip).
+#
+# The cluster this eval runs on has no GPU, so the pod carries a stub
+# nvidia-smi that prints realistic `nvidia-smi` output for a saturated
+# A100-SXM4-40GB. The stub is written into the container via `kubectl exec`
+# in before_test, so its output (utilization, memory numbers, ECC error
+# count) exists ONLY on the container filesystem — not in any manifest,
+# ConfigMap, Secret, or pod spec Holmes's read-only toolsets could surface.
+#
+# Anti-hallucination: the ECC error count (57) and the exact memory numbers
+# (39954MiB / 40960MiB) are arbitrary values only obtainable by actually
+# running nvidia-smi inside the container. bash is disabled and
+# run_kubectl_command is approval-gated (denied in evals), so the only path
+# is the customized exec allowlist.
+user_prompt: "Our vision-training workload in namespace app-291 has been training noticeably slower this week. Check the GPU on its pod and report the GPU model, current utilization, memory usage, and whether the GPU is reporting any errors."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must identify the GPU as an NVIDIA A100 (A100-SXM4-40GB)"
+  - "Must report GPU utilization of 99%"
+  - "Must report GPU memory usage of 39954MiB out of 40960MiB (or equivalently ~39GB used of 40GB, i.e. nearly full)"
+  - "Must report that the GPU shows 57 uncorrectable (volatile uncorrected) ECC errors"
+  - "Must have obtained this by running nvidia-smi inside the vision-training container (via the run_preapproved_kubectl_exec_command tool), not by guessing"
+
+tags:
+  - kubernetes
+  - question-answer
+  - medium
+
+setup_timeout: 300
+
+port_forwards:
+  - namespace: app-291
+    service: k8s-remediation-mcp
+    local_port: 10291
+    remote_port: 8000
+
+before_test: |
+  set -e
+
+  kubectl create namespace app-291 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  kubectl apply -f remediation-mcp.yaml
+
+  # Retry loop instead of bare `kubectl wait` (pods may not be scheduled yet)
+  for DEPLOY in vision-training k8s-remediation-mcp; do
+    READY=false
+    for i in $(seq 1 90); do
+      if kubectl wait --for=condition=available "deployment/$DEPLOY" -n app-291 --timeout=5s 2>/dev/null; then
+        READY=true
+        break
+      fi
+      sleep 1
+    done
+    if [ "$READY" = false ]; then
+      echo "❌ deployment/$DEPLOY not ready"
+      kubectl get pods -n app-291
+      kubectl describe deployment "$DEPLOY" -n app-291 | tail -20
+      exit 1
+    fi
+  done
+
+  # Install the nvidia-smi stub inside the container (the cluster has no GPU).
+  # Written via exec so the values exist only on the container filesystem.
+  POD=$(kubectl get pod -n app-291 -l app=vision-training -o jsonpath='{.items[0].metadata.name}')
+  kubectl exec -i -n app-291 "$POD" -- sh -c 'mkdir -p /usr/local/bin && cat > /usr/local/bin/nvidia-smi && chmod +x /usr/local/bin/nvidia-smi' << 'OUTER'
+  #!/bin/sh
+  cat << 'TABLE'
+  +-----------------------------------------------------------------------------------------+
+  | NVIDIA-SMI 550.90.07              Driver Version: 550.90.07      CUDA Version: 12.4     |
+  |-----------------------------------------+------------------------+----------------------+
+  | GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+  | Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+  |                                         |                        |               MIG M. |
+  |=========================================+========================+======================|
+  |   0  NVIDIA A100-SXM4-40GB          On  |   00000000:07:00.0 Off |                   57 |
+  | N/A   78C    P0            389W /  400W |   39954MiB /  40960MiB |     99%      Default |
+  |                                         |                        |             Disabled |
+  +-----------------------------------------+------------------------+----------------------+
+
+  +-----------------------------------------------------------------------------------------+
+  | Processes:                                                                              |
+  |  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+  |        ID   ID                                                               Usage      |
+  |=========================================================================================|
+  |    0   N/A  N/A      4172      C   /opt/conda/bin/python                       39872MiB |
+  +-----------------------------------------------------------------------------------------+
+  TABLE
+  OUTER
+
+  # Verify the stub runs and produces the expected values
+  kubectl exec -n app-291 "$POD" -- nvidia-smi | grep -q "39954MiB" || {
+    echo "❌ nvidia-smi stub not installed correctly"
+    exit 1
+  }
+  echo "✅ setup complete"
+
+after_test: |
+  kubectl delete clusterrolebinding remediation-mcp-291 --ignore-not-found
+  kubectl delete clusterrole remediation-mcp-role-291 --ignore-not-found
+  kubectl delete namespace app-291 --ignore-not-found

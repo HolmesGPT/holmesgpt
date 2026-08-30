@@ -1,0 +1,88 @@
+# Test: the Kubernetes Remediation MCP server's out-of-the-box deep-diagnostics
+# path — read_file_from_container. The real server image (the one the Helm chart
+# deploys) runs in-cluster with the chart's scoped RBAC; Holmes connects over
+# streamable-http through a port-forward.
+#
+# Anti-hallucination: the config file is written into the container via
+# `kubectl exec` in before_test, so its contents (database host, license key)
+# exist ONLY on the container filesystem — not in any ConfigMap, Secret, pod
+# spec, env var, or log that Holmes's read-only toolsets could surface. The
+# license key is an arbitrary string that can only be produced by actually
+# reading the file. bash is disabled so the MCP server is the only exec path,
+# and run_kubectl_command is approval-gated (denied in evals), so the answer
+# must come through the auto-approved read_file_from_container tool.
+user_prompt: "The inventory-sync app in namespace app-290 keeps its runtime configuration on disk at /etc/app/settings.conf inside the container. What database host does it connect to, and what license key is it running with?"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must state that the database host is pg-inventory-primary.data-platform.svc.cluster.local"
+  - "Must report the license key LXK-4921-VRTQ-8834-KJ71 exactly"
+  - "Must have obtained the file contents by reading /etc/app/settings.conf from inside the container (a read_file_from_container tool call), not by guessing or by claiming the file is inaccessible"
+
+tags:
+  - kubernetes
+  - question-answer
+  - medium
+
+setup_timeout: 300
+
+port_forwards:
+  - namespace: app-290
+    service: k8s-remediation-mcp
+    local_port: 10290
+    remote_port: 8000
+
+before_test: |
+  set -e
+
+  kubectl create namespace app-290 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  kubectl apply -f remediation-mcp.yaml
+
+  # Retry loop instead of bare `kubectl wait` (pods may not be scheduled yet)
+  for DEPLOY in inventory-sync k8s-remediation-mcp; do
+    READY=false
+    for i in $(seq 1 90); do
+      if kubectl wait --for=condition=available "deployment/$DEPLOY" -n app-290 --timeout=5s 2>/dev/null; then
+        READY=true
+        break
+      fi
+      sleep 1
+    done
+    if [ "$READY" = false ]; then
+      echo "❌ deployment/$DEPLOY not ready"
+      kubectl get pods -n app-290
+      kubectl describe deployment "$DEPLOY" -n app-290 | tail -20
+      exit 1
+    fi
+  done
+
+  # Write the config file inside the app container. It must exist ONLY on the
+  # container filesystem so the values are discoverable solely by reading it.
+  POD=$(kubectl get pod -n app-290 -l app=inventory-sync -o jsonpath='{.items[0].metadata.name}')
+  kubectl exec -i -n app-290 "$POD" -- sh -c 'mkdir -p /etc/app && cat > /etc/app/settings.conf' << 'EOF'
+  [service]
+  name = inventory-sync
+  listen_addr = 0.0.0.0:8080
+
+  [database]
+  host = pg-inventory-primary.data-platform.svc.cluster.local
+  port = 5432
+  pool_size = 12
+
+  [licensing]
+  license_key = LXK-4921-VRTQ-8834-KJ71
+  EOF
+
+  # Verify the file landed
+  kubectl exec -n app-290 "$POD" -- cat /etc/app/settings.conf | grep -q "LXK-4921-VRTQ-8834-KJ71" || {
+    echo "❌ config file not written correctly"
+    exit 1
+  }
+  echo "✅ setup complete"
+
+after_test: |
+  kubectl delete clusterrolebinding remediation-mcp-290 --ignore-not-found
+  kubectl delete clusterrole remediation-mcp-role-290 --ignore-not-found
+  kubectl delete namespace app-290 --ignore-not-found

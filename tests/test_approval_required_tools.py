@@ -38,7 +38,7 @@ class _EchoTool(Tool):
 # tools plus the single approval-gated mutating fallback.
 READ_ONLY_TOOLS = [
     "read_file_from_container",
-    "run_preapproved_kubectl_command",
+    "run_preapproved_kubectl_exec_command",
     "run_preapproved_diagnostic_image",
     "get_remediation_mcp_config",
 ]

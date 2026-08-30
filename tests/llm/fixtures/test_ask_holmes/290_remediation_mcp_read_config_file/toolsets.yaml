@@ -1,0 +1,18 @@
+toolsets:
+  # Mimic a hardened deployment (like the Helm chart's k8sRBAC mode) where the
+  # remediation MCP server is the only exec path into containers. With bash
+  # enabled Holmes could `kubectl exec ... cat` directly and bypass the tool
+  # under test.
+  bash: { enabled: false }
+
+mcp_servers:
+  kubernetes_remediation:
+    description: "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
+    config:
+      url: "http://localhost:10290/mcp"
+      mode: streamable-http
+    # Same mapping the Helm chart wires: the mutating fallback needs a human.
+    # Evals have no interactive approver, so calls to it are denied — which is
+    # exactly the point: the auto-approved tools must be enough for this task.
+    approval_required_tools:
+      - "run_kubectl_command"
