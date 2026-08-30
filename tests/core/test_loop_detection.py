@@ -225,6 +225,75 @@ class TestEscalation:
         assert "no further tool calls" in content
 
 
+class TestWindowSizing:
+    """The sliding window must never be smaller than a configured threshold."""
+
+    def test_a_threshold_above_the_window_still_fires(self, monkeypatch):
+        # Window of 4 but a repeat threshold of 6: without sizing the window to
+        # the widest threshold, the history is trimmed before the check can see
+        # 6 turns and the check silently never fires.
+        monkeypatch.setattr("holmes.core.loop_detection.LOOP_DETECTION_WINDOW", 4)
+        monkeypatch.setattr(
+            "holmes.core.loop_detection.LOOP_DETECTION_REPEAT_THRESHOLD", 6
+        )
+        detector = LoopDetector()
+        calls = [tool_call("fetch_api", "{}")]
+
+        signals = [detector.record_turn(calls, None, None) for _ in range(6)]
+
+        assert all(s is None for s in signals[:5])
+        assert signals[5] is not None
+        assert signals[5].kind == KIND_REPEATED_TOOL_CALLS
+
+    def test_error_streak_above_the_window_still_fires(self, monkeypatch):
+        monkeypatch.setattr("holmes.core.loop_detection.LOOP_DETECTION_WINDOW", 2)
+        monkeypatch.setattr("holmes.core.loop_detection.LOOP_DETECTION_ERROR_STREAK", 5)
+        detector = LoopDetector()
+
+        signals = [
+            detector.record_turn(
+                [tool_call("query", '{"q": %d}' % i)],
+                None,
+                None,
+                tool_results_all_errored=True,
+            )
+            for i in range(5)
+        ]
+
+        assert signals[-1] is not None
+        assert signals[-1].kind == KIND_REPEATED_ERRORS
+
+
+class TestEscalationBudgetIsPerRun:
+    """reset() clears the turn window but not the escalation budget."""
+
+    def test_a_second_independent_loop_still_escalates(self):
+        detector = LoopDetector()
+        a = [tool_call("fetch_api", "{}")]
+        b = [tool_call("list_pods", "{}")]
+
+        # First loop: detected, nudged, then the window is cleared as the agent
+        # loop does after a nudge.
+        for _ in range(3):
+            first = detector.record_turn(a, None, None)
+        assert first is not None and first.should_force_answer is False
+        detector.reset()
+
+        # A different loop later in the same run must not restart the budget.
+        for _ in range(3):
+            second = detector.record_turn(b, None, None)
+        assert second is not None
+        assert second.nudge_count == 1, "escalation budget must carry across loops"
+        detector.reset()
+
+        for _ in range(3):
+            third = detector.record_turn(a, None, None)
+        assert third is not None
+        assert (
+            third.should_force_answer is True
+        ), "a run that keeps looping in new shapes must still be forced to answer"
+
+
 class TestDisabled:
     def test_detector_is_inert_when_disabled(self, monkeypatch):
         monkeypatch.setattr("holmes.core.loop_detection.LOOP_DETECTION_ENABLED", False)

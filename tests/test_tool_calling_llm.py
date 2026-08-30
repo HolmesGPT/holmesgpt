@@ -1837,6 +1837,52 @@ class TestRepetitionLoopDetection:
         assert "truncated" in assistant["reasoning_content"]
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_rejected_approval_tools_count_as_failures(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        """Approval-required tools rejected because approval is disabled are
+        downgraded to ERROR and fed back to the model. A model that keeps
+        retrying them with new arguments must still reach the repeated-errors
+        check, rather than looping until max_steps."""
+        counter = {"n": 0}
+
+        def _completion(*_args, **kwargs):
+            if not kwargs.get("tools"):
+                return _make_llm_response(content="giving up", tool_calls=None)
+            counter["n"] += 1
+            # Different arguments each turn, so only the repeated-ERRORS check
+            # can catch this - not the repeated-tool-call check.
+            return _make_llm_response(
+                content="retrying the delete",
+                tool_calls=[
+                    _make_mock_tool_call(
+                        tool_call_id=f"tc_{counter['n']}",
+                        tool_name="kubectl_delete",
+                        arguments={"command": f"kubectl delete pod foo-{counter['n']}"},
+                    )
+                ],
+            )
+
+        mock_llm.completion.side_effect = _completion
+        ai = make_ai(max_steps=40)
+        ai._invoke_llm_tool_call = MagicMock(
+            side_effect=lambda **kw: _make_tool_call_result_approval(
+                tool_call_id=kw["tool_to_call"].id
+            )
+        )
+
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "delete the pods"}],
+                enable_tool_approval=False,
+            )
+        )
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert answer.data["metadata"]["loop_detected"]["kind"] == "repeated_errors"
+        assert answer.data["num_llm_calls"] < 20
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_final_answer_is_never_trimmed(self, _mock_limit, make_ai, mock_llm):
         """A long, repetitive final answer is the user's output - leave it alone."""
         repetitive_answer = "The pod is in CrashLoopBackOff and needs a restart. " * 60

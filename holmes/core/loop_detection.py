@@ -192,8 +192,17 @@ class LoopDetector:
                 all_tools_errored=bool(tool_calls) and tool_results_all_errored,
             )
             self._turns.append(turn)
-            # Keep only what the widest check needs.
-            window = max(LOOP_DETECTION_WINDOW, LOOP_DETECTION_ALTERNATION_CYCLES * 2)
+            # Keep only what the widest check needs. Every per-check threshold
+            # is included: raising one above LOOP_DETECTION_WINDOW would
+            # otherwise trim the history that check needs and silently disable
+            # it.
+            window = max(
+                LOOP_DETECTION_WINDOW,
+                LOOP_DETECTION_ALTERNATION_CYCLES * 2,
+                LOOP_DETECTION_REPEAT_THRESHOLD,
+                LOOP_DETECTION_ERROR_STREAK,
+                LOOP_DETECTION_NARRATION_REPEATS,
+            )
             if len(self._turns) > window:
                 self._turns = self._turns[-window:]
 
@@ -221,7 +230,16 @@ class LoopDetector:
         return signal
 
     def reset(self) -> None:
-        """Forget the window after a successful course correction."""
+        """Forget the turn window after a successful course correction.
+
+        Deliberately does NOT reset ``_nudges``. That counter is a per-run
+        escalation budget, not a per-loop one: a model that loops, gets nudged,
+        corrects briefly and then loops again in a different shape is still a
+        model that is failing to make progress. Resetting the budget on every
+        correction would let such a run alternate between looping and nudging
+        forever without ever reaching the forced answer -- exactly the failure
+        this detector exists to end.
+        """
         self._turns = []
 
     # -- individual checks -------------------------------------------------

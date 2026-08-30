@@ -1462,6 +1462,12 @@ class ToolCallingLLM:
                                 StructuredToolResultStatus.ERROR
                             )
                             tool_call_result.result.error = f"Tool call rejected for security reasons: {tool_call_result.result.error}"
+                            # Counts as an executed-and-failed call: the error
+                            # goes back to the model, so a model that keeps
+                            # retrying rejected tools must reach the
+                            # repeated-errors check like any other failure.
+                            executed_this_turn += 1
+                            errored_this_turn += 1
                             tool_result_dict = tool_call_result.to_client_dict()
 
                             tool_calls.append(tool_result_dict)
