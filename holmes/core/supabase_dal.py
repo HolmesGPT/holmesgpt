@@ -1054,38 +1054,65 @@ class SupabaseDal:
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
             )
 
-    def sync_skills(self, skills: list[dict], cluster_name: str) -> None:
+    def sync_skills(
+        self, skills: list[dict], cluster_name: str, prune: bool
+    ) -> None:
         """Mirror this cluster's filesystem + builtin skills into HolmesCustomSkills.
 
         The filesystem stays the source of truth -- Holmes keeps executing these from disk.
         These rows exist only so the UI can display them, so this is a plain upsert plus a
-        prune of names that no longer exist for this (account, cluster), exactly like
-        sync_toolsets. Best-effort: a failure here must never break startup.
+        prune of names that no longer exist for this (account, cluster). Best-effort: a
+        failure here must never break startup.
 
-        Note this intentionally does NOT delete when `skills` is empty: an empty list means
-        "no skills loaded", which we cannot distinguish from a load failure, and wiping the
-        UI's view on a transient error would be worse than showing slightly stale rows.
+        `prune` is required rather than defaulted because it gates a DELETE, so the caller
+        has to state whether the loaded set is authoritative. Pass the loader's
+        FilesystemSkills.sources_ok: True only when every skill source was readable.
+
+        The four cases:
+          prune=True,  skills non-empty -> upsert, then delete every other name
+          prune=True,  skills empty     -> delete every row for this cluster (the user really
+                                           did delete their last skill)
+          prune=False, skills non-empty -> upsert only; a partially-readable load must not
+                                           prune the part that failed to load
+          prune=False, skills empty     -> no-op; nothing was read, so nothing is known
         """
         if not self.enabled:
             logging.info("Robusta store not initialized. Skipping sync holmes skills.")
             return
 
-        if not skills:
-            logging.debug("No skills were provided for synchronization.")
+        if not skills and not prune:
+            logging.debug(
+                "No skills loaded and sources were not fully readable; skipping sync."
+            )
             return
 
         provided_skill_names = [skill["skill_name"] for skill in skills]
 
         try:
-            self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).upsert(
-                skills, on_conflict="account_id, cluster_id, skill_name"
-            ).execute()
+            if skills:
+                self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).upsert(
+                    skills, on_conflict="account_id, cluster_id, skill_name"
+                ).execute()
 
-            self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).delete().eq(
-                "account_id", self.account_id
-            ).eq("cluster_id", cluster_name).not_.in_(
-                "skill_name", provided_skill_names
-            ).execute()
+            if not prune:
+                logging.info(
+                    f"Upserted {len(skills)} custom skills; skipped pruning because at "
+                    "least one skill source could not be read."
+                )
+                return
+
+            stale = (
+                self.client.table(HOLMES_CUSTOM_SKILLS_TABLE)
+                .delete()
+                .eq("account_id", self.account_id)
+                .eq("cluster_id", cluster_name)
+            )
+            # Only add the not-in filter when there is something to exclude. An empty list
+            # renders as `skill_name=not.in.()`, which PostgREST does not reliably accept --
+            # and semantically the empty case wants an unfiltered delete anyway.
+            if provided_skill_names:
+                stale = stale.not_.in_("skill_name", provided_skill_names)
+            stale.execute()
 
             logging.info(f"Synchronized {len(skills)} custom skills successfully.")
         except Exception as e:
