@@ -116,9 +116,7 @@ class TestNarrationLoop:
             "Let me examine the payments API to understand the failures",
         ]
         signals = [
-            detector.record_turn(
-                [tool_call("t", '{"i": %d}' % i)], text, None
-            )
+            detector.record_turn([tool_call("t", '{"i": %d}' % i)], text, None)
             for i, text in enumerate(narrations)
         ]
 
@@ -217,7 +215,9 @@ class TestEscalation:
     def test_forced_message_tells_the_model_tools_are_gone(self):
         detector = LoopDetector()
         calls = [tool_call("fetch_api", "{}")]
-        signals = [s for s in (detector.record_turn(calls, None, None) for _ in range(12)) if s]
+        signals = [
+            s for s in (detector.record_turn(calls, None, None) for _ in range(12)) if s
+        ]
         forced = next(s for s in signals if s.should_force_answer)
 
         content = build_loop_breaker_message(forced)["content"]

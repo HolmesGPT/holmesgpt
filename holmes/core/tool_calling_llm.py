@@ -28,6 +28,12 @@ from holmes.common.env_vars import (
 )
 from holmes.core.llm import LLM
 from holmes.core.llm_usage import RequestStats
+from holmes.core.loop_detection import (
+    LoopDetector,
+    build_loop_breaker_message,
+    degenerate_repetition_ratio,
+    summarize_degenerate_text,
+)
 from holmes.core.models import (
     FrontendToolResult,
     PendingFrontendToolCall,
@@ -37,12 +43,6 @@ from holmes.core.models import (
 )
 from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
 from holmes.core.oauth_utils import _get_token_manager
-from holmes.core.loop_detection import (
-    LoopDetector,
-    build_loop_breaker_message,
-    degenerate_repetition_ratio,
-    summarize_degenerate_text,
-)
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
     StructuredToolResult,
@@ -1338,9 +1338,11 @@ class ToolCallingLLM:
                 else ()
             ):
                 _value = messages[-1].get(_field)
-                if isinstance(_value, str) and degenerate_repetition_ratio(
-                    _value
-                ) >= LOOP_DETECTION_DEGENERATE_RATIO:
+                if (
+                    isinstance(_value, str)
+                    and degenerate_repetition_ratio(_value)
+                    >= LOOP_DETECTION_DEGENERATE_RATIO
+                ):
                     messages[-1][_field] = summarize_degenerate_text(_value)
                     logging.warning(
                         f"Trimmed degenerate repeated text from assistant "

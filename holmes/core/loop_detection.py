@@ -297,7 +297,7 @@ class LoopDetector:
         """The model keeps saying the same thing across turns."""
         if len(self._turns) < LOOP_DETECTION_NARRATION_REPEATS:
             return None
-        recent = [t.narration for t in self._turns[-LOOP_DETECTION_NARRATION_REPEATS :]]
+        recent = [t.narration for t in self._turns[-LOOP_DETECTION_NARRATION_REPEATS:]]
         if any(len(text.split()) < 4 for text in recent):
             return None
         latest = recent[-1]
@@ -333,8 +333,7 @@ _NUDGE_BY_KIND: Dict[str, str] = {
         "on it differently."
     ),
     KIND_DEGENERATE_OUTPUT: (
-        "Your last response collapsed into repeated text instead of making "
-        "progress."
+        "Your last response collapsed into repeated text instead of making " "progress."
     ),
 }
 
