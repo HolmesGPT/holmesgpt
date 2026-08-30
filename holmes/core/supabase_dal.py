@@ -223,7 +223,7 @@ class SupabaseRetryTransport(httpx.HTTPTransport):
         return super().handle_request(request)
 
 
-KEY_CACHE: TTLCache = TTLCache(maxsize=1, ttl=24 * 60 * 60)
+KEY_CACHE: TTLCache = TTLCache(maxsize=64, ttl=24 * 60 * 60)
 
 
 class SupabaseDal:
@@ -303,11 +303,18 @@ class SupabaseDal:
 
     def __connect(self, options: ClientOptions):
         self.options = options
-        relay_key = fetch_supabase_api_key(self.account_id, self.cluster)
-        for key in filter(None, (KEY_CACHE.pop("key", None), relay_key)):
+        cache_key = f"{self.account_id}:{self.cluster}"
+        sources = (
+            lambda: KEY_CACHE.pop(cache_key, None),
+            lambda: fetch_supabase_api_key(self.account_id, self.cluster),
+        )
+        for source in sources:
+            key = source()
+            if not key:
+                continue
             try:
                 self.__login(key, options)
-                KEY_CACHE["key"] = key
+                KEY_CACHE[cache_key] = key
                 return
             except Exception as e:
                 logging.warning(f"Supabase login with the relay api key failed: {e}")
