@@ -25,17 +25,29 @@ from tests.git_skill_repo_utils import (
 
 
 @pytest.fixture(autouse=True)
-def _hermetic_git_config(monkeypatch):
-    """Clear ambient GIT_CONFIG_* so credential-env assertions are reproducible.
+def _hermetic_git_config(monkeypatch, tmp_path_factory):
+    """Isolate git config so these tests assert on our own behaviour only.
 
-    Real environments (CI runners, proxied sandboxes) inject git config through
-    this numbered-list mechanism, and the index our entry lands at depends on
-    how many are already set. Tests that care about the appending behaviour set
-    the ambient entries themselves.
+    Two separate hazards:
+
+    * Ambient GIT_CONFIG_* entries. Real environments (CI runners, proxied
+      sandboxes) inject git config through this numbered-list mechanism, and the
+      index our entry lands at depends on how many are already set. Tests that
+      care about the appending behaviour set the ambient entries themselves.
+    * The global and system config FILES. The shipped Holmes image runs
+      `git config --global core.symlinks false` (for CVE-2024-32002), so a test
+      asserting that OUR checkout pins core.symlinks would pass there even with
+      our override deleted -- silently vacuous exactly where it matters most.
+      Verified: with core.symlinks=false in ~/.gitconfig, the symlink
+      regression test passes with the fix removed.
     """
     for key in list(os.environ):
         if key.startswith("GIT_CONFIG"):
             monkeypatch.delenv(key, raising=False)
+    empty = tmp_path_factory.mktemp("gitconfig") / "empty"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 def _manager_for(repo: Path, tmp_path: Path, **repo_kwargs) -> GitSkillRepoManager:
@@ -619,3 +631,40 @@ def test_a_symlink_in_the_repo_cannot_read_outside_it(tmp_path, monkeypatch):
     assert not [
         s for s in loaded.skills if "TOP-SECRET-CONTENT" in (s.content or "")
     ], "content from outside the repo was loaded as a skill"
+
+
+def test_a_carried_over_checkout_with_symlinks_is_rebuilt(tmp_path):
+    """A checkout predating the no-symlink guarantee must not be reused.
+
+    _sync_repo returns early when the fetched sha is unchanged, reusing the
+    existing worktree. So a tree created before the checkout pinned
+    core.symlinks=false -- on a root that outlives the process, a
+    PersistentVolume or the CLI's temp dir -- would keep serving, and keep
+    following its symlinks out of the repo, indefinitely after an upgrade.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "SKILL.md").write_text(
+        "---\ndescription: leaked\n---\n## Goal\nTOP-SECRET-CONTENT\n"
+    )
+    repo = _make_skill_repo(tmp_path / "repo", {"legit": "normal"})
+    manager = _manager_for(repo, tmp_path)
+    paths = manager.skill_paths()
+    checkout = Path(os.path.realpath(paths[0]))
+
+    # Recreate the pre-guarantee state: a real symlink inside the checkout, and
+    # no marker recording that this root only holds guaranteed-safe trees.
+    os.symlink(outside, checkout / "escape")
+    (tmp_path / "checkouts" / "repo" / ".symlinks-safe").unlink()
+    assert (checkout / "escape").is_symlink()
+
+    # Same sha -- the path that used to return early and keep the tree.
+    manager._last_sync = 0.0
+    manager.sync()
+
+    assert manager.last_errors == {}
+    rebuilt = Path(manager.skill_paths()[0])
+    assert not (rebuilt / "escape").is_symlink(), "the stale checkout was reused"
+    loaded = load_filesystem_skills(manager.skill_paths())
+    assert "legit" in {s.name for s in loaded.skills}
+    assert not [s for s in loaded.skills if "TOP-SECRET-CONTENT" in (s.content or "")]

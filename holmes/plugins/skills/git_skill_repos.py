@@ -543,6 +543,20 @@ class GitSkillRepoManager:
         if not (git_dir / "HEAD").exists():
             self._run_git(["git", "init", "--bare", "--quiet", str(git_dir)])
 
+        # One-time migration. A checkout created before the worktree add pinned
+        # core.symlinks=false may hold real symlinks, and the catalog scan
+        # follows them (followlinks=True, needed for ConfigMap mounts). Because
+        # an unchanged fetched sha makes _sync_repo reuse the existing worktree
+        # and return early, such a tree would keep serving -- and keep reading
+        # outside the repo -- indefinitely after an upgrade. Only reachable
+        # where root_dir outlives the process (a PersistentVolume, or the CLI's
+        # temp dir), since the Helm chart mounts an emptyDir; cheap enough to
+        # guarantee unconditionally rather than argue about.
+        guarantee = repo_dir / ".symlinks-safe"
+        if not guarantee.exists():
+            self._discard_pre_guarantee_checkouts(git_dir, worktrees_dir, current_link)
+            guarantee.write_text("checkouts here pin core.symlinks=false\n")
+
         # Prune BEFORE fetching, not right after the flip: a scan that resolved
         # `current` just before a flip is still walking the old worktree, so the
         # superseded checkout must survive until the next sync (a full refresh
@@ -647,6 +661,39 @@ class GitSkillRepoManager:
             )
         except Exception as e:
             logging.warning(f"git gc failed for {git_dir}: {e}")
+
+    def _discard_pre_guarantee_checkouts(
+        self, git_dir: Path, worktrees_dir: Path, current_link: Path
+    ) -> None:
+        """Drop every checkout under this repo dir, once, so it is rebuilt safely.
+
+        A no-op on a fresh root (nothing to remove), so new installs are
+        unaffected. On a carried-over root the active checkout goes too: the
+        sync that follows re-creates and re-publishes it within the same call,
+        and a scan landing in that window sees an unreadable source, which holds
+        mirror pruning off rather than deleting anything.
+        """
+        removed = False
+        for entry in worktrees_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            try:
+                shutil.rmtree(entry)
+                removed = True
+            except OSError as e:
+                logging.warning(f"Failed to remove pre-existing checkout {entry}: {e}")
+        if current_link.is_symlink():
+            current_link.unlink()
+        if not removed:
+            return
+        logging.info(
+            f"Rebuilding skill repo checkouts under {worktrees_dir}: they predate "
+            f"the guarantee that a checkout contains no symlinks"
+        )
+        try:
+            self._run_git(["git", "--git-dir", str(git_dir), "worktree", "prune"])
+        except Exception as e:
+            logging.warning(f"git worktree prune failed for {git_dir}: {e}")
 
     @staticmethod
     def _current_sha(current_link: Path) -> Optional[str]:
