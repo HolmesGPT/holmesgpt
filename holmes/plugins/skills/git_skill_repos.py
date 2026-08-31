@@ -405,16 +405,10 @@ class GitSkillRepoManager:
         paths = []
         for repo in self.repos:
             current = self._repo_dir(repo) / CURRENT_LINK_NAME
+            # Silent: this runs on every request and several times per toolset
+            # build, so a log line here becomes many per second. _sync_all_locked
+            # reports the omission once per sync cycle instead.
             if not current.is_symlink():
-                logging.warning(
-                    f"Skill repo '{repo.name}' has no checkout yet, so its skills "
-                    f"are not loaded"
-                    + (
-                        f": {self.last_errors[repo.name]}"
-                        if repo.name in self.last_errors
-                        else " (first sync has not completed)"
-                    )
-                )
                 continue
             path = current / repo.sub_path if repo.sub_path else current
             paths.append(str(path))
@@ -502,6 +496,14 @@ class GitSkillRepoManager:
                 self.last_errors[repo.name] = str(e)
         self._synced_once = True
         self._last_sync = time.time()
+        # Once per cycle, not once per skill_paths() call: a repo with no
+        # checkout contributes nothing, and the reason has to be visible
+        # somewhere without drowning the log.
+        for name, reason in self.unsynced_repos().items():
+            logging.warning(
+                f"Skill repo '{name}' has no checkout, so its skills are not "
+                f"loaded: {reason}"
+            )
 
     def repo_for_path(self, path: Optional[str]) -> Optional[GitSkillRepo]:
         """The repo a loaded skill's source_path belongs to, if any.

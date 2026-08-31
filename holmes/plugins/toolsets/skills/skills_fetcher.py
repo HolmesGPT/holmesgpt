@@ -1,6 +1,7 @@
 import logging
 import textwrap
-from typing import List, Optional
+import uuid
+from typing import List, Optional, Tuple
 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
@@ -20,6 +21,14 @@ from holmes.plugins.skills.skill_loader import (
     load_skill_catalog,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
 class SkillsFetcher(Tool):
@@ -97,9 +106,17 @@ class SkillsFetcher(Tool):
         # change under a running server (a git repo re-pull, a ConfigMap
         # remount). The per-request prompt catalog already re-scans disk, so
         # without this a freshly-advertised skill would 404 here and an edited
-        # one would serve its old content until restart. The cached entry stays
-        # the fallback for catalogs handed in directly by SDK callers.
-        skill = self._find_filesystem_skill(skill_id) or cached
+        # one would serve its old content until restart.
+        #
+        # When the scan is authoritative, a miss is a real miss and must NOT
+        # fall back to the snapshot: a skill DELETED upstream would otherwise
+        # stay fetchable for the life of the process, which matters most for the
+        # skill someone deleted precisely because it was wrong. The snapshot is
+        # only a fallback when disk is not the source of truth (an SDK caller
+        # handed us a catalog with no search paths) or the scan itself failed.
+        skill, disk_was_authoritative = self._find_filesystem_skill(skill_id)
+        if skill is None and not disk_was_authoritative:
+            skill = cached
         if skill:
             return self._format_skill_result(skill, params)
 
@@ -113,8 +130,14 @@ class SkillsFetcher(Tool):
             if personal_result is not None:
                 return personal_result
 
-        # Fallback: try Supabase for UUID-style IDs not in catalog
-        if self._dal and self._dal.enabled:
+        # Fallback: try Supabase for UUID-style IDs not in catalog. Gated on the
+        # id actually looking like a UUID -- the remote table is keyed by one, so
+        # a plain name can only come back as a Postgres cast error ("invalid
+        # input syntax for type uuid"), which tells the model nothing about the
+        # real problem: there is no such skill. Reachable for any missing name
+        # now that a deleted filesystem skill is no longer served from the
+        # startup snapshot.
+        if self._dal and self._dal.enabled and _looks_like_uuid(skill_id):
             result = self._get_robusta_skill(skill_id, params)
             # Report the personal miss too, or that path is invisible when debugging.
             if result.status == StructuredToolResultStatus.ERROR and personal_miss:
@@ -132,13 +155,22 @@ class SkillsFetcher(Tool):
             params=params,
         )
 
-    def _find_filesystem_skill(self, name: str) -> Optional[Skill]:
-        """Fresh disk lookup of a builtin/custom skill by its normalized name."""
+    def _find_filesystem_skill(self, name: str) -> Tuple[Optional[Skill], bool]:
+        """Fresh disk lookup by normalized name, and whether disk was decisive.
+
+        The second element says whether a None means "not on disk" (True) or
+        "could not tell" (False) -- the caller uses it to decide whether the
+        cached snapshot may answer instead.
+        """
+        if self._search_paths is None:
+            # No search paths: the catalog came from an SDK caller, so disk is
+            # not the source of truth and a miss here says nothing.
+            return None, False
         try:
-            return load_filesystem_skills_by_name(self._search_paths).get(name)
+            return load_filesystem_skills_by_name(self._search_paths).get(name), True
         except Exception as e:
             logging.warning(f"Failed to re-scan filesystem skills for '{name}': {e}")
-            return None
+            return None, False
 
     def _find_skill(self, name: str) -> Optional[Skill]:
         if not self._skill_catalog:
