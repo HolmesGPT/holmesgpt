@@ -178,6 +178,10 @@ customSkills: {}
 # new credential. A Secret edit alone does not reach running pods (env comes
 # from secretKeyRef); without an upgrade, restart the Deployment yourself.
 skillRepos: []
+# Size of the emptyDir holding the git checkouts (only created when skillRepos
+# is set). Holmes gc's the object store on every update, so this needs to fit
+# roughly two checkouts of your largest repo, not one per push.
+skillReposVolumeSize: 1Gi
   # - name: team-skills            # optional; defaults to the repo name from the URL
   #   url: https://github.com/acme/holmes-skills.git
   #   branch: main                 # optional; defaults to the repo's default branch

@@ -20,6 +20,16 @@ For private repos there are two ways to authenticate: a fine-grained [Personal A
 
 Holmes syncs the repos itself: it clones each configured repo at startup and re-pulls it periodically (every `TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS`, default 5 minutes), so pushed skill changes reach a running agent automatically — no pod restart needed. Configure as many repos as you like; skills from all of them are merged. On Helm deployments, rotating a credential Secret needs one `helm upgrade` afterwards (the chart checksums the Secret data into the pod template, so the upgrade rolls the pod with the new credential) — or restart the Deployment yourself if you'd rather not run an upgrade.
 
+Repo URLs must be `https://`. SSH URLs (`git@github.com:org/repo.git`) are not supported — Holmes holds no SSH key — so use the HTTPS URL with a token or a GitHub App instead.
+
+!!! note "Where the checkouts live, and how big they get"
+
+    On Helm deployments the chart mounts a dedicated `emptyDir` at `/var/holmes/skill-repos` (sized by `skillReposVolumeSize`, default `1Gi`) and points Holmes at it, so a large repo cannot crowd out the `/tmp` volume Holmes uses for tool results. Holmes garbage-collects the object store on every update, so disk use tracks the size of your repo rather than the number of pushes. Set `SKILL_REPOS_DIR` to override the location (the CLI defaults to a directory under the system temp dir).
+
+!!! note "If a repo cannot be synced"
+
+    A repo that has synced at least once keeps serving its last good checkout when a later pull fails, so a transient outage or an expired token does not remove skills that are already loaded. A repo that has *never* synced successfully — a wrong branch name, a `subPath` that does not exist, a bad token — contributes no skills, and the reason is logged once per sync cycle (`Skill repo '<name>' has no checkout ...`). Other skill sources are unaffected either way.
+
 #### Using a Personal Access Token
 
 === "Holmes Helm Chart"

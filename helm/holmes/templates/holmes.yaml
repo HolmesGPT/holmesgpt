@@ -211,12 +211,14 @@ spec:
           {{- fail (printf "skillRepos[%d]: set either tokenSecret or githubApp, not both" $i) }}
           {{- end }}
           {{- $entry := dict "url" (required "skillRepos entries need a url" $repo.url) }}
-          {{- with $repo.name }}{{- $entry = merge $entry (dict "name" .) }}{{- end }}
-          {{- with $repo.branch }}{{- $entry = merge $entry (dict "branch" .) }}{{- end }}
-          {{- with $repo.subPath }}{{- $entry = merge $entry (dict "sub_path" .) }}{{- end }}
-          {{- with $repo.username }}{{- $entry = merge $entry (dict "username" .) }}{{- end }}
+          {{- /* `set`, not `merge`: merge leaves an existing key alone, so it
+                 reads as though a later value could be ignored. */}}
+          {{- with $repo.name }}{{- $entry = set $entry "name" . }}{{- end }}
+          {{- with $repo.branch }}{{- $entry = set $entry "branch" . }}{{- end }}
+          {{- with $repo.subPath }}{{- $entry = set $entry "sub_path" . }}{{- end }}
+          {{- with $repo.username }}{{- $entry = set $entry "username" . }}{{- end }}
           {{- with $repo.tokenSecret }}
-          {{- $entry = merge $entry (dict "token_env" (printf "SKILL_REPO_TOKEN_%d" $i)) }}
+          {{- $entry = set $entry "token_env" (printf "SKILL_REPO_TOKEN_%d" $i) }}
           - name: SKILL_REPO_TOKEN_{{ $i }}
             valueFrom:
               secretKeyRef:
@@ -224,21 +226,24 @@ spec:
                 key: {{ required "skillRepos tokenSecret needs a key" .key }}
           {{- end }}
           {{- with $repo.githubApp }}
-          {{- $entry = merge $entry (dict
-                "github_app_id" (toString (required "skillRepos githubApp needs appId" .appId))
-                "github_app_installation_id" (toString (required "skillRepos githubApp needs installationId" .installationId))
-                "github_app_private_key_env" (printf "SKILL_REPO_GH_APP_KEY_%d" $i)) }}
-          {{- with .apiUrl }}{{- $entry = merge $entry (dict "github_api_url" .) }}{{- end }}
+          {{- $keySecret := required "skillRepos githubApp needs privateKeySecret" .privateKeySecret }}
+          {{- $entry = set $entry "github_app_id" (toString (required "skillRepos githubApp needs appId" .appId) ) }}
+          {{- $entry = set $entry "github_app_installation_id" (toString (required "skillRepos githubApp needs installationId" .installationId)) }}
+          {{- $entry = set $entry "github_app_private_key_env" (printf "SKILL_REPO_GH_APP_KEY_%d" $i) }}
+          {{- with .apiUrl }}{{- $entry = set $entry "github_api_url" . }}{{- end }}
           - name: SKILL_REPO_GH_APP_KEY_{{ $i }}
             valueFrom:
               secretKeyRef:
-                name: {{ required "skillRepos githubApp privateKeySecret needs a name" (required "skillRepos githubApp needs privateKeySecret" .privateKeySecret).name }}
-                key: {{ required "skillRepos githubApp privateKeySecret needs a key" .privateKeySecret.key }}
+                name: {{ required "skillRepos githubApp privateKeySecret needs a name" $keySecret.name }}
+                key: {{ required "skillRepos githubApp privateKeySecret needs a key" $keySecret.key }}
           {{- end }}
           {{- $skillRepos = append $skillRepos $entry }}
           {{- end }}
           - name: SKILL_REPOS
             value: {{ toJson $skillRepos | quote }}
+          # Off /tmp, onto the dedicated volume mounted above.
+          - name: SKILL_REPOS_DIR
+            value: /var/holmes/skill-repos
           {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
@@ -283,6 +288,13 @@ spec:
         volumeMounts:
           - name: tmp-volume
             mountPath: /tmp
+          {{- if .Values.skillRepos }}
+          # Git checkouts get their own volume rather than sharing /tmp: a repo
+          # bigger than the /tmp sizeLimit would otherwise evict the pod, and
+          # the two have unrelated size needs.
+          - name: skill-repos
+            mountPath: /var/holmes/skill-repos
+          {{- end }}
           {{- if $tls.enabled }}
           - name: holmes-tls
             mountPath: /etc/holmes/tls
@@ -314,6 +326,15 @@ spec:
         - name: tmp-volume
           emptyDir:
             sizeLimit: 256Mi
+        {{- if .Values.skillRepos }}
+        - name: skill-repos
+          emptyDir:
+            # Holds a bare object store plus up to two worktrees per repo (the
+            # active checkout and the one being retired). Holmes gc's the store
+            # on every update so this does not grow with the number of pushes,
+            # only with repo size -- raise it for large repos.
+            sizeLimit: {{ .Values.skillReposVolumeSize | default "1Gi" }}
+        {{- end }}
         {{- if $tls.enabled }}
         - name: holmes-tls
           secret:

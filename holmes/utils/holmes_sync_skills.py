@@ -52,8 +52,19 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
         # ConfigMap is not mounted yet" -- and only the first should prune the mirror.
         loaded = load_filesystem_skills(config.all_skill_paths)
 
+        repo_manager = config.skill_repo_manager
+
+        # A repo with no checkout contributes no rows, so it cannot be reported
+        # per-skill; log it here so the reason a configured repo's skills are
+        # missing from the page is visible next to the sync that omitted them.
+        for name, reason in repo_manager.unsynced_repos().items():
+            logging.warning(
+                f"Skill repo '{name}' has no checkout, so none of its skills are "
+                f"mirrored to the platform: {reason}"
+            )
+
         def source_label(source: SkillSource, source_path) -> str:
-            repo = config.skill_repo_manager.repo_for_path(source_path)
+            repo = repo_manager.repo_for_path(source_path)
             return f"{GIT_SOURCE_PREFIX}{repo.url}" if repo else SOURCE_LABELS[source]
 
         # UTC-aware: a naive timestamp would be interpreted in the database session's
@@ -87,7 +98,10 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
                     source_label(skill.source, skill.source_path),
                     skill.description,
                     skill.content,
-                    skill.source_path,
+                    # Stable published path, not the sha-bearing worktree the
+                    # scan resolved to -- that changes on every push and the UI
+                    # shows it verbatim.
+                    repo_manager.display_path(skill.source_path),
                     STATUS_OK,
                     None,
                 )
@@ -104,15 +118,18 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
         # the thing worth surfacing -- a broken skill the user cannot see is exactly what
         # this feature exists to fix.
         for failure in loaded.failed_skills:
-            if failure.source in SOURCE_LABELS:
-                by_name[failure.skill_name] = row(
-                    failure.skill_name,
+            # failed_skills only yields problems that carry a skill_name, but the
+            # field is Optional on the model, so bind it for the type checker.
+            skill_name = failure.skill_name
+            if skill_name and failure.source in SOURCE_LABELS:
+                by_name[skill_name] = row(
+                    skill_name,
                     source_label(failure.source, failure.source_path),
                     # Nullable, and there is nothing trustworthy to put here -- the parse
                     # that would have produced them is what failed.
                     None,
                     None,
-                    failure.source_path,
+                    repo_manager.display_path(failure.source_path),
                     STATUS_ERROR,
                     failure.error,
                 )

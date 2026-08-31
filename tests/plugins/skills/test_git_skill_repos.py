@@ -1,3 +1,4 @@
+import base64
 import shutil
 from pathlib import Path
 
@@ -43,7 +44,9 @@ def test_resync_picks_up_new_and_edited_skills(tmp_path: Path):
     manager = _manager_for(repo, tmp_path)
     paths = manager.skill_paths()
 
-    _write_skills(repo, {"dns-debug": "check coredns AND kube-proxy", "oom": "check limits"})
+    _write_skills(
+        repo, {"dns-debug": "check coredns AND kube-proxy", "oom": "check limits"}
+    )
     _commit_all(repo, "update skills")
     manager.sync()
 
@@ -60,7 +63,10 @@ def test_resync_removes_deleted_skills_and_prunes_old_worktrees(tmp_path: Path):
     )
     manager = _manager_for(repo, tmp_path)
     paths = manager.skill_paths()
-    assert {s.name for s in load_filesystem_skills(paths).skills} >= {"dns-debug", "oom"}
+    assert {s.name for s in load_filesystem_skills(paths).skills} >= {
+        "dns-debug",
+        "oom",
+    }
 
     shutil.rmtree(repo / "oom")
     _commit_all(repo, "drop oom skill")
@@ -115,15 +121,34 @@ def test_missing_token_env_is_an_error_not_a_crash(tmp_path: Path, monkeypatch):
     assert "MISSING_SKILL_TOKEN" in manager.last_errors["skills"]
 
 
-def test_token_env_injected_into_fetch_url(monkeypatch):
+def test_token_env_becomes_a_url_scoped_auth_header_not_a_url(monkeypatch):
+    """The credential rides env-passed git config, never argv.
+
+    A token in the fetch URL would sit in /proc/<pid>/cmdline (mode 444) and in
+    `ps` output for every process in the pod; GIT_CONFIG_* lands in `environ`
+    (mode 400) instead. The config key is URL-scoped so a cross-host redirect
+    does not carry the header along.
+    """
     monkeypatch.setenv("SKILL_TOKEN", "s3cr3t/+")
-    repo = GitSkillRepo(url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN")
+    repo = GitSkillRepo(
+        url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN"
+    )
 
-    authed = repo.authenticated_url()
+    env = repo.credential_env()
 
-    assert authed.startswith("https://oauth2:s3cr3t%2F%2B@github.com/")
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert env["GIT_CONFIG_KEY_0"] == (
+        "http.https://github.com/acme/skills.git.extraHeader"
+    )
+    scheme, encoded = env["GIT_CONFIG_VALUE_0"].removeprefix("Authorization: ").split()
+    assert scheme == "Basic"
+    assert base64.b64decode(encoded).decode() == "oauth2:s3cr3t/+"
     # The stored URL never carries the credential.
     assert "s3cr3t" not in repo.url
+
+
+def test_public_repo_gets_no_credential_env():
+    assert GitSkillRepo(url="https://github.com/acme/public.git").credential_env() == {}
 
 
 def test_repo_for_path_maps_checkout_to_repo(tmp_path: Path):
@@ -206,9 +231,10 @@ def test_github_app_mints_installation_token_for_fetch(monkeypatch, responses):
     )
     repo = _github_app_repo()
 
-    authed = repo.authenticated_url()
+    env = repo.credential_env()
 
-    assert authed == "https://x-access-token:ghs_minted@github.com/acme/skills.git"
+    encoded = env["GIT_CONFIG_VALUE_0"].split()[-1]
+    assert base64.b64decode(encoded).decode() == "x-access-token:ghs_minted"
     # The exchange was authorized with a JWT issued by the App.
     auth_header = responses.calls[0].request.headers["Authorization"]
     assert auth_header.startswith("Bearer ")
@@ -228,8 +254,8 @@ def test_github_app_token_is_cached_across_syncs(monkeypatch, responses):
     )
     repo = _github_app_repo()
 
-    first = repo.authenticated_url()
-    second = repo.authenticated_url()
+    first = repo.credential_env()
+    second = repo.credential_env()
 
     assert first == second
     assert len(responses.calls) == 1
@@ -288,13 +314,17 @@ def test_sync_is_rate_limited_but_first_sync_always_runs(tmp_path: Path):
 
     # Within the interval sync() is a no-op...
     manager.sync()
-    skill = next(s for s in load_filesystem_skills(paths).skills if s.name == "dns-debug")
+    skill = next(
+        s for s in load_filesystem_skills(paths).skills if s.name == "dns-debug"
+    )
     assert "new steps" not in skill.content
 
     # ...and once it elapses the same call fetches again.
     manager._last_sync = 0.0
     manager.sync()
-    skill = next(s for s in load_filesystem_skills(paths).skills if s.name == "dns-debug")
+    skill = next(
+        s for s in load_filesystem_skills(paths).skills if s.name == "dns-debug"
+    )
     assert "new steps" in skill.content
 
 
@@ -308,3 +338,162 @@ def test_authenticated_repos_must_use_https():
     # Without credentials there is nothing to leak; plain http and file stay allowed.
     assert GitSkillRepo(url="http://git.internal/acme/skills.git").url
     assert GitSkillRepo(url="file:///tmp/repo").url
+
+
+# ── review follow-ups: leak scrubbing, bounded object store, prune wedge ──
+
+
+def test_fetch_failure_never_leaks_the_token(tmp_path: Path, monkeypatch):
+    """A failed authenticated fetch must not put the credential in the error.
+
+    The credential now travels in env rather than in the URL, so git's stderr
+    has nothing to echo -- but _run_git also truncates the command and strips
+    any `user:pass@` userinfo, and this pins all three so a future refactor
+    that reintroduces URL auth cannot quietly start logging tokens.
+    """
+    monkeypatch.setenv("LEAK_TOKEN", "ghp_do_not_log_me")
+    # A syntactically valid https url that cannot be reached.
+    repo = GitSkillRepo(
+        url="https://127.0.0.1:1/acme/skills.git",
+        name="leaky",
+        token_env="LEAK_TOKEN",
+    )
+    manager = GitSkillRepoManager([repo], root_dir=tmp_path / "checkouts")
+
+    manager.sync()
+
+    error = manager.last_errors["leaky"]
+    assert error, "the unreachable fetch should have been recorded"
+    assert "ghp_do_not_log_me" not in error
+    assert base64.b64encode(b"oauth2:ghp_do_not_log_me").decode() not in error
+
+
+def test_gc_bounds_the_object_store_across_many_pushes(tmp_path: Path):
+    """Superseded commits' objects are dropped, so the store does not grow forever.
+
+    Without the gc after a flip, every push left its objects behind in the bare
+    repo -- unbounded growth inside the Helm deployment's /tmp emptyDir, which
+    the kubelet enforces by evicting the pod.
+    """
+    repo = _make_skill_repo(tmp_path / "repo", {"dns-debug": "step 0"})
+    manager = _manager_for(repo, tmp_path)
+    manager.skill_paths()
+
+    git_dir = tmp_path / "checkouts" / "repo" / "git"
+
+    def object_count() -> int:
+        return len([p for p in (git_dir / "objects").rglob("*") if p.is_file()])
+
+    # A body big enough that a leaked copy per push is unmistakable.
+    for i in range(1, 8):
+        _write_skills(repo, {"dns-debug": f"step {i} " + ("x" * 2000)})
+        _commit_all(repo, f"push {i}")
+        manager._last_sync = 0.0
+        manager.sync()
+
+    assert manager.last_errors == {}
+    # The active checkout plus the one worktree still in its grace period are
+    # the only roots, so the store holds ~2 commits' worth regardless of how
+    # many pushes went by. 7 pushes with no gc would leave far more than this.
+    # Measured: 7 pushes leave 32 object files without the gc and 5 with it
+    # (30 pushes of a 200KB skill: 3.5MB/124 files vs 231KB/5 files), so this
+    # threshold fails if the gc is removed rather than just tracking growth.
+    assert object_count() <= 15, f"object store grew unbounded: {object_count()} files"
+    # And the newest content is what is being served.
+    skill = next(
+        s
+        for s in load_filesystem_skills(manager.skill_paths()).skills
+        if s.name == "dns-debug"
+    )
+    assert "step 7" in skill.content
+
+
+def test_never_synced_repo_is_omitted_so_mirror_pruning_is_not_wedged(tmp_path: Path):
+    """A repo that never produced a checkout must not appear in skill_paths.
+
+    An unreadable path makes load_filesystem_skills report sources_ok=False,
+    which stops the HolmesCustomSkills mirror from pruning ANY row cluster-wide.
+    A permanently broken repo (typo'd sub_path, wrong branch, revoked token)
+    would otherwise freeze the mirror forever, for every other source too.
+    """
+    good = _make_skill_repo(tmp_path / "good", {"dns-debug": "x"})
+    manager = GitSkillRepoManager(
+        [
+            GitSkillRepo(url=f"file://{good}", name="good"),
+            GitSkillRepo(url=f"file://{tmp_path}/does-not-exist", name="broken"),
+        ],
+        root_dir=tmp_path / "checkouts",
+    )
+
+    paths = manager.skill_paths()
+
+    assert len(paths) == 1 and "good" in paths[0]
+    assert "broken" in manager.last_errors
+    assert set(manager.unsynced_repos()) == {"broken"}
+    # The load is complete, so the mirror may still prune deleted skills.
+    loaded = load_filesystem_skills(paths)
+    assert loaded.sources_ok is True
+    assert "dns-debug" in {s.name for s in loaded.skills}
+
+
+def test_repo_that_had_a_checkout_stays_listed_when_a_sync_fails(tmp_path: Path):
+    """The transient case keeps the old behaviour: still listed, still serving."""
+    repo = _make_skill_repo(tmp_path / "repo", {"dns-debug": "x"})
+    manager = _manager_for(repo, tmp_path)
+    paths = manager.skill_paths()
+
+    shutil.rmtree(repo)
+    manager._last_sync = 0.0
+    manager.sync()
+
+    assert manager.skill_paths() == paths
+    assert manager.unsynced_repos() == {}
+    assert "dns-debug" in {s.name for s in load_filesystem_skills(paths).skills}
+
+
+def test_display_path_folds_the_worktree_sha_back_to_current(tmp_path: Path):
+    """The UI should show a stable path, not one carrying the commit sha."""
+    repo = _make_skill_repo(tmp_path / "repo", {"dns-debug": "x"})
+    manager = _manager_for(repo, tmp_path)
+    loaded = load_filesystem_skills(manager.skill_paths())
+    skill = next(s for s in loaded.skills if s.name == "dns-debug")
+
+    assert "worktrees" in str(skill.source_path)
+    shown = manager.display_path(skill.source_path)
+    assert shown == str(
+        tmp_path / "checkouts" / "repo" / "current" / "dns-debug" / "SKILL.md"
+    )
+    # Unrelated paths pass through untouched.
+    assert manager.display_path("/etc/holmes/skills/x/SKILL.md") == (
+        "/etc/holmes/skills/x/SKILL.md"
+    )
+
+
+def test_ssh_urls_are_rejected_with_an_actionable_message():
+    with pytest.raises(ValueError, match="SSH is not supported"):
+        GitSkillRepo(url="git@github.com:acme/skills.git")
+    with pytest.raises(ValueError, match="ssh://, which is not supported"):
+        GitSkillRepo(url="ssh://git@github.com/acme/skills.git")
+
+
+def test_unsupported_url_scheme_is_rejected():
+    with pytest.raises(ValueError, match="scheme"):
+        GitSkillRepo(url="javascript://evil/x")
+
+
+def test_malformed_skill_repos_env_does_not_log_the_credential(monkeypatch, caplog):
+    """The url-with-credentials check must not itself log the credential.
+
+    pydantic renders the rejected input into its error string, so the generic
+    logging.exception path printed the very token the validator refused.
+    """
+    monkeypatch.setenv(
+        SKILL_REPOS_ENV,
+        '[{"url": "https://oauth2:ghp_leaked@github.com/acme/s.git"}]',
+    )
+
+    with caplog.at_level("ERROR"):
+        assert parse_skill_repos_env() == []
+
+    assert "ghp_leaked" not in caplog.text
+    assert "must not embed credentials" in caplog.text
