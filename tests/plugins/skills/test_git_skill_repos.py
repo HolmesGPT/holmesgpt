@@ -1,4 +1,5 @@
 import base64
+import os
 import shutil
 from pathlib import Path
 
@@ -20,6 +21,20 @@ from tests.git_skill_repo_utils import (
     make_skill_repo as _make_skill_repo,
     write_skills as _write_skills,
 )
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_git_config(monkeypatch):
+    """Clear ambient GIT_CONFIG_* so credential-env assertions are reproducible.
+
+    Real environments (CI runners, proxied sandboxes) inject git config through
+    this numbered-list mechanism, and the index our entry lands at depends on
+    how many are already set. Tests that care about the appending behaviour set
+    the ambient entries themselves.
+    """
+    for key in list(os.environ):
+        if key.startswith("GIT_CONFIG"):
+            monkeypatch.delenv(key, raising=False)
 
 
 def _manager_for(repo: Path, tmp_path: Path, **repo_kwargs) -> GitSkillRepoManager:
@@ -497,3 +512,40 @@ def test_malformed_skill_repos_env_does_not_log_the_credential(monkeypatch, capl
 
     assert "ghp_leaked" not in caplog.text
     assert "must not embed credentials" in caplog.text
+
+
+def test_credential_env_appends_to_ambient_git_config(monkeypatch):
+    """GIT_CONFIG_* is a shared numbered list -- do not overwrite entry 0.
+
+    Corporate proxies, CA paths and url.insteadOf rewrites are commonly injected
+    this way. Writing KEY_0 with COUNT=1 would drop every one of them, and the
+    resulting fetch failure looks like a network fault rather than a config one.
+    """
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "2")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "http.proxy")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "http://corp-proxy:3128")
+    monkeypatch.setenv("GIT_CONFIG_KEY_1", "url.https://mirror/.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_1", "https://github.com/")
+    monkeypatch.setenv("SKILL_TOKEN", "tok")
+    repo = GitSkillRepo(url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN")
+
+    env = repo.credential_env()
+
+    assert env["GIT_CONFIG_COUNT"] == "3"
+    assert env["GIT_CONFIG_KEY_2"].endswith(".extraHeader")
+    assert "GIT_CONFIG_KEY_0" not in env and "GIT_CONFIG_VALUE_0" not in env
+    # And the merged env _run_git builds keeps the ambient entries intact.
+    merged = {**os.environ, **env}
+    assert merged["GIT_CONFIG_KEY_0"] == "http.proxy"
+    assert merged["GIT_CONFIG_KEY_1"] == "url.https://mirror/.insteadOf"
+
+
+def test_credential_env_tolerates_a_broken_ambient_count(monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "not-a-number")
+    monkeypatch.setenv("SKILL_TOKEN", "tok")
+    repo = GitSkillRepo(url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN")
+
+    env = repo.credential_env()
+
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert env["GIT_CONFIG_KEY_0"].endswith(".extraHeader")

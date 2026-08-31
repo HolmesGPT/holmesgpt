@@ -222,12 +222,36 @@ class GitSkillRepo(BaseModel):
 
     def _header_env(self, username: str, token: str) -> Dict[str, str]:
         basic = base64.b64encode(f"{username}:{token}".encode()).decode()
+        # APPEND to any GIT_CONFIG_* already in the environment rather than
+        # starting at index 0. The mechanism is a shared numbered list, so
+        # writing KEY_0/COUNT=1 would overwrite the first existing entry and
+        # drop the rest -- and this environment is a real one to inherit from:
+        # a corporate proxy, a CA path, or url.insteadOf rewrites are commonly
+        # injected this way, and silently losing them breaks the fetch in a way
+        # that looks like a network fault.
+        index = self._existing_git_config_count()
         return {
-            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_COUNT": str(index + 1),
             # URL-scoped so the header is not resent on a cross-host redirect.
-            "GIT_CONFIG_KEY_0": f"http.{self.url}.extraHeader",
-            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+            f"GIT_CONFIG_KEY_{index}": f"http.{self.url}.extraHeader",
+            f"GIT_CONFIG_VALUE_{index}": f"Authorization: Basic {basic}",
         }
+
+    @staticmethod
+    def _existing_git_config_count() -> int:
+        """How many GIT_CONFIG_* entries the ambient environment already holds.
+
+        Garbage (or an absent var) means "none": git itself rejects a
+        non-numeric GIT_CONFIG_COUNT, so treating it as 0 replaces one broken
+        config with a working one rather than inventing a worse failure.
+        """
+        try:
+            return max(int(os.environ.get("GIT_CONFIG_COUNT", "0")), 0)
+        except ValueError:
+            logging.warning(
+                "Ignoring non-numeric GIT_CONFIG_COUNT while building git credentials"
+            )
+            return 0
 
     def _github_app_installation_token(self) -> str:
         """A GitHub App installation token, minted on demand and cached.
@@ -655,6 +679,18 @@ class GitSkillRepoManager:
             # stderr may echo the URL of a failed fetch; strip any userinfo so a
             # token never reaches the logs.
             stderr = re.sub(r"://[^/@\s]+@", "://", result.stderr.strip())
+            # With the credential in a header there is no username/password for
+            # git to retry with, so a rejected credential surfaces as git asking
+            # for one. On its own that reads like "no auth configured", which
+            # sends people looking in the wrong place.
+            if (
+                "could not read Username" in stderr
+                or "terminal prompts disabled" in stderr
+            ):
+                stderr += (
+                    " (the server refused the configured credential -- check that the"
+                    " token is valid and still has read access to this repo)"
+                )
             raise RuntimeError(
                 f"{' '.join(cmd[:3])}... failed (exit {result.returncode}): {stderr}"
             )
