@@ -222,36 +222,12 @@ class GitSkillRepo(BaseModel):
 
     def _header_env(self, username: str, token: str) -> Dict[str, str]:
         basic = base64.b64encode(f"{username}:{token}".encode()).decode()
-        # APPEND to any GIT_CONFIG_* already in the environment rather than
-        # starting at index 0. The mechanism is a shared numbered list, so
-        # writing KEY_0/COUNT=1 would overwrite the first existing entry and
-        # drop the rest -- and this environment is a real one to inherit from:
-        # a corporate proxy, a CA path, or url.insteadOf rewrites are commonly
-        # injected this way, and silently losing them breaks the fetch in a way
-        # that looks like a network fault.
-        index = self._existing_git_config_count()
-        return {
-            "GIT_CONFIG_COUNT": str(index + 1),
-            # URL-scoped so the header is not resent on a cross-host redirect.
-            f"GIT_CONFIG_KEY_{index}": f"http.{self.url}.extraHeader",
-            f"GIT_CONFIG_VALUE_{index}": f"Authorization: Basic {basic}",
-        }
-
-    @staticmethod
-    def _existing_git_config_count() -> int:
-        """How many GIT_CONFIG_* entries the ambient environment already holds.
-
-        Garbage (or an absent var) means "none": git itself rejects a
-        non-numeric GIT_CONFIG_COUNT, so treating it as 0 replaces one broken
-        config with a working one rather than inventing a worse failure.
-        """
-        try:
-            return max(int(os.environ.get("GIT_CONFIG_COUNT", "0")), 0)
-        except ValueError:
-            logging.warning(
-                "Ignoring non-numeric GIT_CONFIG_COUNT while building git credentials"
-            )
-            return 0
+        return git_config_env(
+            [
+                # URL-scoped so the header is not resent on a cross-host redirect.
+                (f"http.{self.url}.extraHeader", f"Authorization: Basic {basic}")
+            ]
+        )
 
     def _github_app_installation_token(self) -> str:
         """A GitHub App installation token, minted on demand and cached.
@@ -302,6 +278,32 @@ class GitSkillRepo(BaseModel):
         # safely inside it without parsing GitHub's timestamp format.
         self._installation_token_expiry = time.time() + 55 * 60
         return token
+
+
+def git_config_env(pairs: List[tuple]) -> Dict[str, str]:
+    """GIT_CONFIG_* env vars setting `pairs`, appended after ambient entries.
+
+    APPENDS rather than starting at index 0: the mechanism is a shared numbered
+    list, so writing KEY_0/COUNT=1 would overwrite the first existing entry and
+    drop the rest -- and this environment is a real one to inherit from, since a
+    corporate proxy, a CA path, or url.insteadOf rewrites are commonly injected
+    this way and silently losing them breaks the fetch in a way that looks like
+    a network fault.
+    """
+    try:
+        start = max(int(os.environ.get("GIT_CONFIG_COUNT", "0")), 0)
+    except ValueError:
+        # git itself rejects a non-numeric count, so treating it as 0 replaces
+        # one broken config with a working one rather than a worse failure.
+        logging.warning(
+            "Ignoring non-numeric GIT_CONFIG_COUNT while building git config"
+        )
+        start = 0
+    env = {"GIT_CONFIG_COUNT": str(start + len(pairs))}
+    for offset, (key, value) in enumerate(pairs):
+        env[f"GIT_CONFIG_KEY_{start + offset}"] = key
+        env[f"GIT_CONFIG_VALUE_{start + offset}"] = value
+    return env
 
 
 def parse_skill_repos_env() -> List[GitSkillRepo]:
@@ -587,7 +589,20 @@ class GitSkillRepoManager:
                     "--quiet",
                     str(worktree),
                     sha,
-                ]
+                ],
+                # core.symlinks=false: a symlink committed in a skills repo would
+                # otherwise be checked out as a real link, and the catalog scan
+                # walks with followlinks=True (needed for ConfigMap mounts), so a
+                # link to /etc or to a mounted service-account token would be
+                # read as a "skill" -- into the LLM prompt and into the
+                # HolmesCustomSkills mirror. Verified: without this, an absolute
+                # symlink leaks the target's content; with it, git materializes a
+                # plain text file holding the target path and nothing is
+                # traversed. The shipped image happens to set this globally (for
+                # CVE-2024-32002), but that is an unrelated mitigation which does
+                # not cover the CLI or a non-image deployment, so pin it here for
+                # the checkout that reads repo-controlled content.
+                extra_env=git_config_env([("core.symlinks", "false")]),
             )
 
         # Atomic flip: build the new symlink beside the old one, then rename over

@@ -581,3 +581,41 @@ def test_relative_root_dir_still_publishes_a_working_checkout(tmp_path, monkeypa
     loaded = load_filesystem_skills(paths)
     assert loaded.sources_ok is True
     assert "dns-debug" in {s.name for s in loaded.skills}
+
+
+def test_a_symlink_in_the_repo_cannot_read_outside_it(tmp_path, monkeypatch):
+    """A skills repo must not be able to exfiltrate files outside itself.
+
+    scan_skill_directory walks with followlinks=True (it has to, for ConfigMap
+    mounts), so a symlink checked out from the repo would be followed and the
+    target read as a "skill" -- into the LLM prompt and into the
+    HolmesCustomSkills mirror. Anyone who can push to a configured skills repo
+    could point one at /etc or at a mounted service-account token.
+
+    The checkout therefore pins core.symlinks=false. The shipped image sets that
+    globally for CVE-2024-32002, but that is an unrelated mitigation and does not
+    cover the CLI, so this asserts it with ambient git config cleared.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "SKILL.md").write_text(
+        "---\ndescription: leaked\n---\n## Goal\nTOP-SECRET-CONTENT\n"
+    )
+    repo = _make_skill_repo(
+        tmp_path / "repo", {"legit": "normal steps"}, sub_path="skills"
+    )
+    os.symlink(outside, repo / "skills" / "escape")
+    _commit_all(repo, "add an escaping symlink")
+
+    manager = _manager_for(repo, tmp_path, sub_path="skills")
+    paths = manager.skill_paths()
+
+    assert manager.last_errors == {}
+    checkout = Path(paths[0])
+    escape = checkout / "escape"
+    assert not escape.is_symlink(), "the checkout must not materialize a real symlink"
+    loaded = load_filesystem_skills(paths)
+    assert "legit" in {s.name for s in loaded.skills}
+    assert not [
+        s for s in loaded.skills if "TOP-SECRET-CONTENT" in (s.content or "")
+    ], "content from outside the repo was loaded as a skill"
