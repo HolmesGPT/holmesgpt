@@ -668,3 +668,43 @@ def test_a_carried_over_checkout_with_symlinks_is_rebuilt(tmp_path):
     loaded = load_filesystem_skills(manager.skill_paths())
     assert "legit" in {s.name for s in loaded.skills}
     assert not [s for s in loaded.skills if "TOP-SECRET-CONTENT" in (s.content or "")]
+
+
+def test_a_failed_migration_does_not_record_the_repo_as_safe(tmp_path, monkeypatch):
+    """If a pre-guarantee checkout cannot be removed, nothing may claim it is safe.
+
+    The marker is what stops the migration re-running, so writing it after a
+    failed removal would leave the unsafe tree in place and never retry. The
+    sync must fail instead, publish nothing, and try again next cycle.
+    """
+    repo = _make_skill_repo(tmp_path / "repo", {"legit": "normal"})
+    manager = _manager_for(repo, tmp_path)
+    manager.skill_paths()
+    repo_dir = tmp_path / "checkouts" / "repo"
+    marker = repo_dir / ".symlinks-safe"
+    marker.unlink()  # back to the pre-guarantee state
+
+    real_rmtree = shutil.rmtree
+    monkeypatch.setattr(
+        shutil,
+        "rmtree",
+        lambda p, *a, **k: (_ for _ in ()).throw(OSError("device busy")),
+    )
+    manager._last_sync = 0.0
+    manager.sync()
+    monkeypatch.setattr(shutil, "rmtree", real_rmtree)
+
+    assert "device busy" in manager.last_errors["repo"]
+    assert not marker.exists(), "a failed migration must not be recorded as safe"
+    # Nothing is published, so the unproven tree is not served either.
+    assert manager.skill_paths() == []
+    assert manager.unsynced_repos() == {"repo": manager.last_errors["repo"]}
+
+    # And the next sync, with removal working again, completes the migration.
+    manager._last_sync = 0.0
+    manager.sync()
+    assert manager.last_errors == {}
+    assert marker.exists()
+    assert "legit" in {
+        s.name for s in load_filesystem_skills(manager.skill_paths()).skills
+    }

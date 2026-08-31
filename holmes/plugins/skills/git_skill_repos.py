@@ -673,17 +673,21 @@ class GitSkillRepoManager:
         and a scan landing in that window sees an unreadable source, which holds
         mirror pruning off rather than deleting anything.
         """
+        # Unpublish FIRST. If a removal below fails and this raises, nothing may
+        # still point at a tree we could not prove safe.
+        if current_link.is_symlink():
+            current_link.unlink()
         removed = False
         for entry in worktrees_dir.iterdir():
             if not entry.is_dir():
                 continue
-            try:
-                shutil.rmtree(entry)
-                removed = True
-            except OSError as e:
-                logging.warning(f"Failed to remove pre-existing checkout {entry}: {e}")
-        if current_link.is_symlink():
-            current_link.unlink()
+            # Deliberately unguarded. A checkout we cannot delete must not be
+            # recorded as safe and must not keep serving: letting this propagate
+            # aborts this repo's sync (recorded in last_errors, retried next
+            # cycle) before the caller writes the .symlinks-safe marker, so the
+            # migration is attempted again instead of being skipped forever.
+            shutil.rmtree(entry)
+            removed = True
         if not removed:
             return
         logging.info(
