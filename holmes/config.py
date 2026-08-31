@@ -46,7 +46,11 @@ if TYPE_CHECKING:
 
 from holmes.common.env_vars import TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
 from holmes.core.config import config_path_dir
-from holmes.core.oauth_utils import eager_load_oauth_tools, preload_oauth_tokens, set_oauth_dal
+from holmes.core.oauth_utils import (
+    eager_load_oauth_tools,
+    preload_oauth_tokens,
+    set_oauth_dal,
+)
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.pydantic_utils import (
@@ -54,7 +58,6 @@ from holmes.utils.pydantic_utils import (
     load_model_from_file,
     parse_model_from_file,
 )
-
 
 
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
@@ -78,16 +81,16 @@ def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
     )
 
 
-def _toolset_tools_changed(
-    current: List[Toolset], new: List[Toolset]
-) -> bool:
+def _toolset_tools_changed(current: List[Toolset], new: List[Toolset]) -> bool:
     """Return True if the set of toolsets, or any shared toolset's tool list, changed."""
     current_by_name = {ts.name: ts for ts in current}
     new_by_name = {ts.name: ts for ts in new}
     if current_by_name.keys() != new_by_name.keys():
         return True
     for name, new_ts in new_by_name.items():
-        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(new_ts):
+        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(
+            new_ts
+        ):
             return True
     return False
 
@@ -205,10 +208,28 @@ class Config(RobustaBaseConfig):
         if not self._skill_repo_manager:
             # The manager rate-limits itself to the refresh cadence, so callers
             # (the server refresh loop included) can invoke sync() freely.
-            self._skill_repo_manager = GitSkillRepoManager(
-                self.skill_repos,
-                min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
-            )
+            try:
+                self._skill_repo_manager = GitSkillRepoManager(
+                    self.skill_repos,
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
+            except Exception as e:
+                # A rejected repo list (two repos whose names collide -- easy to
+                # hit, since an omitted name is derived from the URL's last
+                # segment, so .../team-a/skills.git and .../team-b/skills.git
+                # both become "skills") must not take out the request path. This
+                # property is reached per request through all_skill_paths, and a
+                # raise here left the failed construction to be retried on every
+                # chat, turning a skills misconfiguration into a total outage.
+                # Serve no git-synced skills instead, and say so.
+                logging.error(
+                    f"Skill repos are misconfigured, so none will be loaded until "
+                    f"this is fixed: {e}"
+                )
+                self._skill_repo_manager = GitSkillRepoManager(
+                    [],
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
         return self._skill_repo_manager
 
     @property
@@ -235,8 +256,6 @@ class Config(RobustaBaseConfig):
             if not self._llm_model_registry:
                 self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
             return self._llm_model_registry
-
-
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
@@ -361,7 +380,9 @@ class Config(RobustaBaseConfig):
                 config = RobustaConfig(**yaml_content)
                 return config.global_config.get(key)
         except Exception:
-            logging.warning("Failed to load '%s' from Robusta config", key, exc_info=True)
+            logging.warning(
+                "Failed to load '%s' from Robusta config", key, exc_info=True
+            )
             return None
 
     @staticmethod
@@ -399,9 +420,7 @@ class Config(RobustaBaseConfig):
     # ── Unified factory methods ──
 
     @staticmethod
-    def _executor_cache_key(
-        tags: List[ToolsetTag], enable_all: bool
-    ) -> tuple:
+    def _executor_cache_key(tags: List[ToolsetTag], enable_all: bool) -> tuple:
         return (tuple(sorted(tags, key=lambda t: t.value)), enable_all)
 
     def create_tool_executor(
@@ -527,7 +546,11 @@ class Config(RobustaBaseConfig):
 
         If neither condition holds, the cached executor is left in place.
         """
-        logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
+        logging.info(
+            "Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s",
+            toolset_tag_filter,
+            enable_all_toolsets_possible,
+        )
         # Normalize early so the same tags are used for both loading and caching.
         tags = toolset_tag_filter or [ToolsetTag.CORE]
 
@@ -549,13 +572,11 @@ class Config(RobustaBaseConfig):
 
         current_toolsets = cached_executor.toolsets
 
-        new_toolsets, changes = (
-            self.toolset_manager.refresh_toolsets_and_get_changes(
-                current_toolsets,
-                dal,
-                toolset_tag_filter=tags,
-                enable_all_toolsets_possible=enable_all_toolsets_possible,
-            )
+        new_toolsets, changes = self.toolset_manager.refresh_toolsets_and_get_changes(
+            current_toolsets,
+            dal,
+            toolset_tag_filter=tags,
+            enable_all_toolsets_possible=enable_all_toolsets_possible,
         )
 
         if changes or _toolset_tools_changed(current_toolsets, new_toolsets):
@@ -874,7 +895,11 @@ class Config(RobustaBaseConfig):
         msg = f"Model: {model_name}, {context_size} context, {max_response} max response ({source_hint})"
         display_logger.info(msg)
         if on_event is not None:
-            on_event(StatusEvent(kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg))
+            on_event(
+                StatusEvent(
+                    kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg
+                )
+            )
         return llm
 
     def get_models_list(self) -> List[str]:

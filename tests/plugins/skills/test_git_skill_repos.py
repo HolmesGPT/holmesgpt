@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from holmes.plugins.skills.git_skill_repos import (
+    CURRENT_LINK_NAME,
     SKILL_REPOS_ENV,
     GitSkillRepo,
     GitSkillRepoManager,
@@ -527,7 +528,9 @@ def test_credential_env_appends_to_ambient_git_config(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_KEY_1", "url.https://mirror/.insteadOf")
     monkeypatch.setenv("GIT_CONFIG_VALUE_1", "https://github.com/")
     monkeypatch.setenv("SKILL_TOKEN", "tok")
-    repo = GitSkillRepo(url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN")
+    repo = GitSkillRepo(
+        url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN"
+    )
 
     env = repo.credential_env()
 
@@ -543,9 +546,38 @@ def test_credential_env_appends_to_ambient_git_config(monkeypatch):
 def test_credential_env_tolerates_a_broken_ambient_count(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_COUNT", "not-a-number")
     monkeypatch.setenv("SKILL_TOKEN", "tok")
-    repo = GitSkillRepo(url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN")
+    repo = GitSkillRepo(
+        url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN"
+    )
 
     env = repo.credential_env()
 
     assert env["GIT_CONFIG_COUNT"] == "1"
     assert env["GIT_CONFIG_KEY_0"].endswith(".extraHeader")
+
+
+def test_relative_root_dir_still_publishes_a_working_checkout(tmp_path, monkeypatch):
+    """A relative root_dir must not produce a dangling `current` symlink.
+
+    A relative symlink target is resolved against the LINK's directory, not the
+    process cwd, so `current` pointed at <root>/<name>/<root>/<name>/worktrees/...
+    -- a path that does not exist. The load then reported sources_ok=False, which
+    also holds off HolmesCustomSkills pruning. Reachable via a relative
+    SKILL_REPOS_DIR.
+    """
+    repo = _make_skill_repo(tmp_path / "repo", {"dns-debug": "check coredns"})
+    monkeypatch.chdir(tmp_path)
+    manager = GitSkillRepoManager(
+        [GitSkillRepo(url=f"file://{repo}")], root_dir=Path("relative-checkouts")
+    )
+
+    paths = manager.skill_paths()
+
+    assert manager.last_errors == {}
+    current = tmp_path / "relative-checkouts" / "repo" / CURRENT_LINK_NAME
+    assert current.is_symlink()
+    assert Path(os.readlink(current)).is_absolute()
+    assert current.exists(), "the published symlink must resolve"
+    loaded = load_filesystem_skills(paths)
+    assert loaded.sources_ok is True
+    assert "dns-debug" in {s.name for s in loaded.skills}

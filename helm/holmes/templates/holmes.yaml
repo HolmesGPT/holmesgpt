@@ -210,6 +210,16 @@ spec:
           {{- if and $repo.tokenSecret $repo.githubApp }}
           {{- fail (printf "skillRepos[%d]: set either tokenSecret or githubApp, not both" $i) }}
           {{- end }}
+          {{- /* A url with userinfo would be serialized verbatim into the
+                 SKILL_REPOS env value in the pod spec -- readable by anyone who
+                 can get the Deployment, which is far more common RBAC than
+                 reading Secrets, and kept in Helm release history and any
+                 GitOps repo. Holmes rejects such a url too, but only once the
+                 pod is already running, by which point the token has leaked.
+                 Refuse to render it. */}}
+          {{- if regexMatch "^[A-Za-z][A-Za-z0-9+.-]*://[^/@]*@" (toString $repo.url) }}
+          {{- fail (printf "skillRepos[%d]: url must not embed credentials; put the token in a Secret and reference it via tokenSecret (or use githubApp)" $i) }}
+          {{- end }}
           {{- $entry := dict "url" (required "skillRepos entries need a url" $repo.url) }}
           {{- /* `set`, not `merge`: merge leaves an existing key alone, so it
                  reads as though a later value could be ignored. */}}

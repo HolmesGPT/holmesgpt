@@ -17,7 +17,7 @@ from holmes.plugins.skills.skill_loader import (
     Skill,
     SkillCatalog,
     SkillSource,
-    load_filesystem_skills_by_name,
+    load_filesystem_skills,
     load_skill_catalog,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
@@ -167,7 +167,16 @@ class SkillsFetcher(Tool):
             # not the source of truth and a miss here says nothing.
             return None, False
         try:
-            return load_filesystem_skills_by_name(self._search_paths).get(name), True
+            # load_filesystem_skills, not ..._by_name: a configured path that is
+            # missing or unreadable does not raise, it just contributes nothing,
+            # so a scan can come back INCOMPLETE and still look like a clean
+            # miss. Only sources_ok distinguishes them, and treating a partial
+            # scan as decisive made a skill that still exists upstream report
+            # "not found" during a ConfigMap remount -- with the snapshot right
+            # there holding it.
+            loaded = load_filesystem_skills(self._search_paths)
+            skill = next((s for s in loaded.skills if s.name == name), None)
+            return skill, loaded.sources_ok
         except Exception as e:
             logging.warning(f"Failed to re-scan filesystem skills for '{name}': {e}")
             return None, False

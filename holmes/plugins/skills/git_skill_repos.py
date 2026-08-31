@@ -364,7 +364,14 @@ class GitSkillRepoManager:
                 "set a distinct 'name' on each repo"
             )
         self.repos = repos
-        self.root_dir = Path(root_dir) if root_dir else default_repos_root()
+        # Absolute, because `current` is a symlink to a path under this root and
+        # a relative target is resolved against the LINK's directory, not the
+        # process cwd -- so a relative root_dir (a relative SKILL_REPOS_DIR)
+        # produced a `current` pointing at <root>/<name>/<root>/<name>/... which
+        # does not exist. abspath, not resolve: normalise the root without
+        # collapsing symlinks in it.
+        root = root_dir if root_dir else default_repos_root()
+        self.root_dir = Path(os.path.abspath(root))
         # Rate limit that sync() applies to itself, so callers on faster
         # cadences (the server refresh loop under MCP backoff) cannot multiply
         # network git fetches. The first sync always runs.

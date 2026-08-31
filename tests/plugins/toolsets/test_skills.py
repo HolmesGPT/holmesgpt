@@ -418,3 +418,47 @@ def test_SkillsFetcher_reports_a_missing_name_clearly_not_as_a_uuid_cast_error(
     assert "no-such-skill" in result.error and "not found" in result.error
     assert "uuid" not in result.error.lower()
     dal.get_skill.assert_not_called() if hasattr(dal, "get_skill") else None
+
+
+def test_SkillsFetcher_falls_back_to_the_snapshot_when_a_source_is_unreadable(tmp_path):
+    """An INCOMPLETE scan must not be treated as a decisive miss.
+
+    A configured path that is missing or unreadable does not raise -- it just
+    contributes nothing -- so a partial scan looks exactly like a clean miss.
+    Treating it as decisive made a skill that still exists upstream report "not
+    found" during a ConfigMap remount, while the snapshot was holding it. The
+    error even contradicted itself: "Skill 'pod-oom' not found. Available:
+    dns-debug, pod-oom".
+    """
+    good = tmp_path / "good"
+    mount = tmp_path / "mount"
+    _write_fs_skill(good, "dns-debug", "dns steps")
+    _write_fs_skill(mount, "pod-oom", "Check memory limits")
+    toolset = SkillsToolset(additional_search_paths=[str(good), str(mount)])
+    fetcher = toolset.tools[0]
+
+    shutil.rmtree(mount)  # the mount goes away for a cycle
+
+    skill, authoritative = fetcher._find_filesystem_skill("pod-oom")
+    assert authoritative is False, "a scan missing a configured source is not decisive"
+    result = fetcher._invoke(
+        {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()
+    )
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "Check memory limits" in result.data
+
+
+def test_SkillsFetcher_deletion_is_still_authoritative_on_a_clean_scan(tmp_path):
+    """The deletion fix must survive the partial-scan fix: a clean miss still wins."""
+    _write_fs_skill(tmp_path, "pod-oom", "Check memory limits")
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = toolset.tools[0]
+
+    shutil.rmtree(tmp_path / "pod-oom")  # deleted, but the source is still readable
+
+    skill, authoritative = fetcher._find_filesystem_skill("pod-oom")
+    assert (skill, authoritative) == (None, True)
+    result = fetcher._invoke(
+        {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()
+    )
+    assert result.status == StructuredToolResultStatus.ERROR
