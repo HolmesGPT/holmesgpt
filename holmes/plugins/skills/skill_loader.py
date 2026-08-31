@@ -108,7 +108,10 @@ class SkillCatalog(BaseModel):
 
         parts: List[str] = [""]
         if local:
-            parts.append("Here are local skills:")
+            # "custom skills" matches the UI's wording for skills loaded from
+            # files; the model parrots this header back to users, so never call
+            # them "local" here.
+            parts.append("Here are built-in and custom skills:")
             parts.extend(f"* {s.to_prompt_string()}" for s in local)
         if remote:
             parts.append("\nHere are Robusta skills:")
@@ -333,7 +336,7 @@ class FilesystemSkills(BaseModel):
         return [p for p in self.problems if p.skill_name is not None]
 
 
-def _load_filesystem_skills_by_name(
+def load_filesystem_skills_by_name(
     custom_skill_paths: Optional[List[Union[str, Path]]] = None,
     problems: Optional[List[SkillLoadProblem]] = None,
 ) -> dict[str, Skill]:
@@ -416,7 +419,7 @@ def load_filesystem_skills(
     as `sources_ok` is True.
     """
     problems: List[SkillLoadProblem] = []
-    skills_by_name = _load_filesystem_skills_by_name(custom_skill_paths, problems)
+    skills_by_name = load_filesystem_skills_by_name(custom_skill_paths, problems)
 
     unreadable = [p for p in problems if p.skill_name is None]
     if unreadable:
@@ -514,7 +517,7 @@ def load_skill_catalog(
     nothing is filtered.
     """
     # 1 + 2. Builtin skills, then filesystem skills (which override builtins by name)
-    skills_by_name = _load_filesystem_skills_by_name(custom_skill_paths)
+    skills_by_name = load_filesystem_skills_by_name(custom_skill_paths)
 
     # 3. Load remote (global) skills from Supabase
     if dal:

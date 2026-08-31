@@ -296,3 +296,47 @@ def test_SkillsFetcher_one_liner_uses_title_for_remote_skills():
         skills_fetch_tool.get_parameterized_one_liner({"skill_id": REMOTE_SKILL_UUID})
         == "Skills: Fetch Skill Erlang Debugging"
     )
+
+
+# ── filesystem skills are re-read from disk per invocation, never from the ──
+# ── snapshot the toolset was built with (live refresh of git-synced repos) ──
+
+
+def _write_fs_skill(dir_path, name, body):
+    skill_dir = dir_path / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\ndescription: {name}\n---\n## Steps\n{body}\n"
+    )
+
+
+def test_SkillsFetcher_serves_skill_added_after_toolset_construction(tmp_path):
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = toolset.tools[0]
+
+    # Simulates a git re-pull / ConfigMap remount landing a new skill on disk
+    # after the toolset (and its catalog snapshot) was built.
+    _write_fs_skill(tmp_path, "new-skill", "Do the new thing")
+
+    result = fetcher._invoke(
+        {"skill_id": "new-skill"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "Do the new thing" in result.data
+
+
+def test_SkillsFetcher_serves_edited_content_not_the_startup_snapshot(tmp_path):
+    _write_fs_skill(tmp_path, "dns-debug", "old steps")
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = toolset.tools[0]
+
+    _write_fs_skill(tmp_path, "dns-debug", "brand new steps")
+
+    result = fetcher._invoke(
+        {"skill_id": "dns-debug"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "brand new steps" in result.data
+    assert "old steps" not in result.data

@@ -168,6 +168,32 @@ customSkills: {}
   #     ## Goal
   #     ...
 
+# Git repositories to sync skills from. Holmes clones each repo at startup and
+# re-pulls it periodically (every TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+# default 5 minutes), so pushed skill changes reach a running agent without a
+# pod restart. The chart sets SKILL_REPOS in the Holmes pod from this list and,
+# for entries with tokenSecret, injects the token env var from that Secret.
+# After rotating a credential Secret, run `helm upgrade`: the chart checksums
+# the Secret data into the pod template, so the upgrade rolls the pod with the
+# new credential. A Secret edit alone does not reach running pods (env comes
+# from secretKeyRef); without an upgrade, restart the Deployment yourself.
+skillRepos: []
+  # - name: team-skills            # optional; defaults to the repo name from the URL
+  #   url: https://github.com/acme/holmes-skills.git
+  #   branch: main                 # optional; defaults to the repo's default branch
+  #   subPath: skills              # optional; subdirectory holding the SKILL.md dirs
+  #   username: oauth2             # optional; "x-token-auth" for Bitbucket tokens
+  #   tokenSecret:                 # omit for public repos / GitHub App auth
+  #     name: holmes-skills-git-credentials
+  #     key: token
+  #   githubApp:                   # alternative to tokenSecret: GitHub App auth.
+  #     appId: "123456"            # Holmes mints short-lived installation tokens
+  #     installationId: "7890"     # from the App's private key on every sync.
+  #     privateKeySecret:
+  #       name: holmes-github-app
+  #       key: GITHUB_APP_PRIVATE_KEY
+  #     apiUrl: https://api.github.com   # optional; override for GitHub Enterprise
+
 resources:
   requests:
     cpu: 100m
