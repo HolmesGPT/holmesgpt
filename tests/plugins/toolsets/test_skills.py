@@ -439,7 +439,7 @@ def test_SkillsFetcher_falls_back_to_the_snapshot_when_a_source_is_unreadable(tm
 
     shutil.rmtree(mount)  # the mount goes away for a cycle
 
-    skill, authoritative = fetcher._find_filesystem_skill("pod-oom")
+    _skill, authoritative = fetcher._find_filesystem_skill("pod-oom")
     assert authoritative is False, "a scan missing a configured source is not decisive"
     result = fetcher._invoke(
         {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()

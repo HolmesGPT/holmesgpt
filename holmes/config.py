@@ -213,7 +213,12 @@ class Config(RobustaBaseConfig):
                     self.skill_repos,
                     min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
                 )
-            except Exception as e:
+            except ValueError as e:
+                # ValueError specifically, not Exception: the only thing the
+                # constructor rejects is the repo list itself, and a broad catch
+                # would swallow a genuine bug or filesystem fault here and make
+                # git-synced skills quietly vanish instead of surfacing it.
+                #
                 # A rejected repo list (two repos whose names collide -- easy to
                 # hit, since an omitted name is derived from the URL's last
                 # segment, so .../team-a/skills.git and .../team-b/skills.git
