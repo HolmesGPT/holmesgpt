@@ -43,18 +43,15 @@ ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # kubectl: official release binary from dl.k8s.io, pulled with upstream SHA-256
-# verification. v1.36.3 is built with Go 1.26.5, so it carries the stdlib CVE
-# fixes (incl. CVE-2026-39822/42505). Known accepted findings: every kubectl
-# release (incl. v1.36.3) still vendors golang.org/x/net v0.49.0, which scanners
-# flag for CVE-2026-33814/25681/27136/39821 (High), CVE-2026-25680/42502/42506
-# (Medium) and CVE-2026-46600 -- all fixed in x/net <= 0.56.0 but with no kubectl
-# release shipping it yet. We previously rebuilt kubectl from source with an
-# x/net replace to clear these (see git history); that was reverted in favor of
-# the official binary. Bump KUBECTL_VERSION when a release ships x/net >= 0.56.0
-# -- check a candidate with:
+# verification. v1.37.0 is built with Go 1.26.6 (stdlib CVE fixes incl. the
+# CVE-2026-33818/56853/56858-56862 batch) and vendors x/net v0.57.0 / x/sys
+# v0.47.0 / x/text v0.40.0, clearing the x/net finding set (CVE-2026-33814/
+# 25681/27136/39821 High and friends) that the 1.36.x line carried and that
+# once forced a from-source rebuild (see git history). When bumping, check the
+# candidate's toolchain and x/* versions with:
 #   go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
 ARG TARGETARCH
-ARG KUBECTL_VERSION=v1.36.3
+ARG KUBECTL_VERSION=v1.37.0
 RUN cd /tmp \
     && curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o kubectl.sha256 \
@@ -167,13 +164,22 @@ ARG AWS_REGION
 # Patching CVE-2024-32002
 RUN git config --global core.symlinks false
 
-# Upgrade base-image system Python's wheel/setuptools/pip (CVE floors pinned via
-# the ARGs at the top of this file).
+# Upgrade base-image system Python's wheel/setuptools (CVE floors pinned via
+# the ARGs at the top of this file), then remove pip from BOTH the system
+# Python and the venv. The runtime never installs packages (the venv is fully
+# populated at build time, holmes never shells out to pip, and pip is not in
+# the bash toolset allowlist), while pip's own vendored dependencies
+# (pip/_vendor/vendor.txt) ship msgpack 1.1.2 (GHSA-6v7p-g79w-8964, High) and
+# setuptools 70.3.0 (CVE-2025-47273, High) with NO pip release that fixes them
+# -- pip 26.2.1 is the latest and still vendors both. Removing pip removes the
+# vendored copies. Restore with `python -m ensurepip` if ever needed at runtime.
 ARG PIP_MIN_VERSION
 ARG WHEEL_MIN_VERSION
 ARG SETUPTOOLS_MIN_VERSION
 RUN /usr/local/bin/pip install --upgrade --no-cache-dir \
-    "wheel>=${WHEEL_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}"
+    "wheel>=${WHEEL_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}" \
+    && /venv/bin/python -m pip uninstall -y pip \
+    && /usr/local/bin/python -m pip uninstall -y pip
 
 COPY ./experimental/ag-ui/server-agui.py /app/experimental/ag-ui/server-agui.py
 COPY ./holmes /app/holmes
