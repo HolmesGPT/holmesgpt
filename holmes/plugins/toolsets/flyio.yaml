@@ -1,0 +1,41 @@
+toolsets:
+  flyio/core:
+    description: "Read access to Fly.io apps, machines, logs, and releases — for investigating a service that runs on Fly rather than Kubernetes"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/flyio/"
+    tags:
+      - cli
+    prerequisites:
+      - command: "fly version"
+
+    tools:
+      - name: "fly_status"
+        description: "Show the current status of a Fly app — machines, regions, health"
+        command: "fly status -a {{ app }}"
+
+      - name: "fly_logs_recent"
+        description: "Fetch recent logs for a Fly app without tailing, capped to the last 500 lines to avoid unbounded output during a noisy incident"
+        command: "fly logs -a {{ app }} --no-tail | tail -n 500"
+
+      - name: "fly_machine_list"
+        description: "List all machines for a Fly app, including state and restart counts"
+        command: "fly machine list -a {{ app }}"
+
+      - name: "fly_machine_status"
+        description: "Show detailed status for one Fly machine, including recent events (crashes, restarts, OOM kills)"
+        command: "fly machine status {{ machine_id }} -a {{ app }}"
+
+      - name: "fly_checks_list"
+        description: "List health check results for a Fly app"
+        command: "fly checks list -a {{ app }}"
+
+      - name: "fly_releases"
+        description: "Show recent deploy/release history for a Fly app — useful for correlating an incident with a recent deploy"
+        command: "fly releases -a {{ app }}"
+
+      - name: "fly_scale_show"
+        description: "Show current VM size/count configuration for a Fly app"
+        command: "fly scale show -a {{ app }}"
+
+      - name: "fly_secrets_list"
+        description: "List secret NAMES configured for a Fly app (values are never exposed) — useful for checking whether expected integrations (e.g. an API key) are actually wired"
+        command: "fly secrets list -a {{ app }}"
