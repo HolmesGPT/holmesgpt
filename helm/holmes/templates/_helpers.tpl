@@ -76,3 +76,34 @@ Usage: {{- include "holmes.commonLabels" . | nindent 4 }}
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Checksum of the Secret DATA behind every skillRepos credential, for the
+pod-template annotation: env comes from these Secrets via secretKeyRef, which
+does not restart pods when the data rotates, so the rollout must be triggered
+here. Same lookup pattern as holmes.kubernetesRemediationMcp.authTokenChecksum;
+during `helm template` (no cluster) lookup returns nothing and the checksum is
+stable, exactly like that precedent.
+*/}}
+{{- define "holmes.skillRepoSecretsChecksum" -}}
+{{- $parts := list -}}
+{{- range .Values.skillRepos -}}
+{{- with .tokenSecret -}}
+{{- $existing := lookup "v1" "Secret" $.Release.Namespace .name -}}
+{{- if and $existing $existing.data (hasKey $existing.data .key) -}}
+{{- $parts = append $parts (dict "name" .name "key" .key "value" (index $existing.data .key)) -}}
+{{- end -}}
+{{- end -}}
+{{- with .githubApp -}}
+{{- with .privateKeySecret -}}
+{{- $existing := lookup "v1" "Secret" $.Release.Namespace .name -}}
+{{- if and $existing $existing.data (hasKey $existing.data .key) -}}
+{{- $parts = append $parts (dict "name" .name "key" .key "value" (index $existing.data .key)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* Structured records, not joined values: concatenation would hash two
+       adjacent secrets whose contents merely shifted a boundary identically. */ -}}
+{{- toJson $parts | sha256sum -}}
+{{- end -}}

@@ -3,7 +3,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import List, Optional, Sequence, TYPE_CHECKING, Union
 
 import yaml
 from pydantic import BaseModel
@@ -108,7 +108,10 @@ class SkillCatalog(BaseModel):
 
         parts: List[str] = [""]
         if local:
-            parts.append("Here are local skills:")
+            # "custom skills" matches the UI's wording for skills loaded from
+            # files; the model parrots this header back to users, so never call
+            # them "local" here.
+            parts.append("Here are built-in and custom skills:")
             parts.extend(f"* {s.to_prompt_string()}" for s in local)
         if remote:
             parts.append("\nHere are Robusta skills:")
@@ -243,7 +246,9 @@ def scan_skill_directory(
     # walked (unresolved) path so the symlink-traversed path is at depth 1,
     # not depth 2 from the resolved `..NNN/` real dir.
     seen_paths: set[str] = set()
-    for root, dirs, files in os.walk(directory, followlinks=True, onerror=on_walk_error):
+    for root, dirs, files in os.walk(
+        directory, followlinks=True, onerror=on_walk_error
+    ):
         depth = len(Path(root).relative_to(directory).parts)
         if depth >= max_depth:
             dirs.clear()
@@ -333,8 +338,8 @@ class FilesystemSkills(BaseModel):
         return [p for p in self.problems if p.skill_name is not None]
 
 
-def _load_filesystem_skills_by_name(
-    custom_skill_paths: Optional[List[Union[str, Path]]] = None,
+def load_filesystem_skills_by_name(
+    custom_skill_paths: Optional[Sequence[Union[str, Path]]] = None,
     problems: Optional[List[SkillLoadProblem]] = None,
 ) -> dict[str, Skill]:
     """Load builtin skills, then filesystem skills which override builtins by name.
@@ -389,7 +394,9 @@ def _load_filesystem_skills_by_name(
                             )
                         )
             else:
-                logging.warning(f"Skill path is not a directory or SKILL.md file: {path}")
+                logging.warning(
+                    f"Skill path is not a directory or SKILL.md file: {path}"
+                )
                 if problems is not None:
                     problems.append(
                         SkillLoadProblem(
@@ -404,7 +411,7 @@ def _load_filesystem_skills_by_name(
 
 
 def load_filesystem_skills(
-    custom_skill_paths: Optional[List[Union[str, Path]]] = None,
+    custom_skill_paths: Optional[Sequence[Union[str, Path]]] = None,
 ) -> FilesystemSkills:
     """Load only the builtin + filesystem skills, reporting whether every source was read.
 
@@ -416,7 +423,7 @@ def load_filesystem_skills(
     as `sources_ok` is True.
     """
     problems: List[SkillLoadProblem] = []
-    skills_by_name = _load_filesystem_skills_by_name(custom_skill_paths, problems)
+    skills_by_name = load_filesystem_skills_by_name(custom_skill_paths, problems)
 
     unreadable = [p for p in problems if p.skill_name is None]
     if unreadable:
@@ -426,9 +433,7 @@ def load_filesystem_skills(
             "; ".join(p.error for p in unreadable),
         )
 
-    return FilesystemSkills(
-        skills=list(skills_by_name.values()), problems=problems
-    )
+    return FilesystemSkills(skills=list(skills_by_name.values()), problems=problems)
 
 
 def _resolve_name_collisions(skills: List[Skill], order: List[str]) -> List[Skill]:
@@ -491,7 +496,7 @@ def _resolve_name_collisions(skills: List[Skill], order: List[str]) -> List[Skil
 
 def load_skill_catalog(
     dal: Optional["SupabaseDal"] = None,
-    custom_skill_paths: Optional[List[Union[str, Path]]] = None,
+    custom_skill_paths: Optional[Sequence[Union[str, Path]]] = None,
     user_id: Optional[str] = None,
     hierarchy: Optional[SkillHierarchyConfig] = None,
     alert_name: Optional[str] = None,
@@ -514,7 +519,7 @@ def load_skill_catalog(
     nothing is filtered.
     """
     # 1 + 2. Builtin skills, then filesystem skills (which override builtins by name)
-    skills_by_name = _load_filesystem_skills_by_name(custom_skill_paths)
+    skills_by_name = load_filesystem_skills_by_name(custom_skill_paths)
 
     # 3. Load remote (global) skills from Supabase
     if dal:
@@ -559,7 +564,9 @@ def load_skill_catalog(
     # Cross-tier name-collision resolution. Runs AFTER the per-tier cluster/agent filtering
     # done by the DAL, so only skills that actually apply to this request compete.
     if hierarchy and hierarchy.enabled:
-        skills = _resolve_name_collisions(skills, hierarchy.order or DEFAULT_HIERARCHY_ORDER)
+        skills = _resolve_name_collisions(
+            skills, hierarchy.order or DEFAULT_HIERARCHY_ORDER
+        )
 
     if not skills:
         return None
