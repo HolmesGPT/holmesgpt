@@ -21,12 +21,19 @@ from pydantic import BaseModel, Field
 
 from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
+    LOOP_DETECTION_DEGENERATE_RATIO,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
     load_bool,
 )
 from holmes.core.llm import LLM
 from holmes.core.llm_usage import RequestStats
+from holmes.core.loop_detection import (
+    LoopDetector,
+    build_loop_breaker_message,
+    degenerate_repetition_ratio,
+    summarize_degenerate_text,
+)
 from holmes.core.models import (
     FrontendToolResult,
     PendingFrontendToolCall,
@@ -1145,6 +1152,18 @@ class ToolCallingLLM:
         tool_calls: list[dict] = []
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
+        # Catches repetition loops the per-tool-call safeguard cannot see
+        # (varied params, A/B ping-pong, repeated failures, restated narration,
+        # degenerate output). See holmes/core/loop_detection.py.
+        loop_detector = LoopDetector()
+        # A run does not always stay inside one call_stream: an approval pause or
+        # a frontend tool hands control back to the caller, which re-enters here
+        # with the conversation so far. Replaying it keeps a looping run from
+        # winning a fresh window and a fresh escalation budget on every pause.
+        loop_detector.seed_from_messages(messages)
+        # Set once nudging has failed: withdraws the tools so the next call has
+        # no choice but to produce a final answer.
+        force_final_answer = False
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
         if iteration_offset < 0:
@@ -1158,7 +1177,7 @@ class ToolCallingLLM:
             i += 1
             logging.debug(f"running iteration {i}")
 
-            tools = None if i == max_steps else tools
+            tools = None if (i == max_steps or force_final_answer) else tools
             tool_choice = "auto" if tools else None
 
             compaction_start_event = check_compaction_needed(self.llm, messages, tools)
@@ -1312,6 +1331,29 @@ class ToolCallingLLM:
                 )
             )
 
+            # A response that collapsed into repeated text is what turns a
+            # one-off stumble into a self-reinforcing loop: the model sees its
+            # own repetition in the history and continues the pattern. Trim it
+            # in the transcript we send back (the client still received the
+            # full text via the AI_MESSAGE event below). Only intermediate
+            # turns are trimmed - a final answer is never rewritten.
+            for _field in (
+                ("reasoning_content", "content")
+                if getattr(response_message, "tool_calls", None)
+                else ()
+            ):
+                _value = messages[-1].get(_field)
+                if (
+                    isinstance(_value, str)
+                    and degenerate_repetition_ratio(_value)
+                    >= LOOP_DETECTION_DEGENERATE_RATIO
+                ):
+                    messages[-1][_field] = summarize_degenerate_text(_value)
+                    logging.warning(
+                        f"Trimmed degenerate repeated text from assistant "
+                        f"{_field} before resending it (iteration {i})"
+                    )
+
             yield self._emit_token_count(
                 messages, tools, full_response, limit_result, metadata, stats
             )
@@ -1362,6 +1404,9 @@ class ToolCallingLLM:
             # Check if any tools require approval or are frontend-defined
             pending_approvals = []
             pending_frontend_calls: list[PendingFrontendToolCall] = []
+            # Loop detection: did every tool call this turn come back an error?
+            executed_this_turn = 0
+            errored_this_turn = 0
 
             session_prefixes_by_agent = extract_bash_session_prefixes_by_agent(messages)
 
@@ -1422,6 +1467,12 @@ class ToolCallingLLM:
                                 StructuredToolResultStatus.ERROR
                             )
                             tool_call_result.result.error = f"Tool call rejected for security reasons: {tool_call_result.result.error}"
+                            # Counts as an executed-and-failed call: the error
+                            # goes back to the model, so a model that keeps
+                            # retrying rejected tools must reach the
+                            # repeated-errors check like any other failure.
+                            executed_this_turn += 1
+                            errored_this_turn += 1
                             tool_result_dict = tool_call_result.to_client_dict()
 
                             tool_calls.append(tool_result_dict)
@@ -1458,6 +1509,12 @@ class ToolCallingLLM:
                         all_tool_calls.append(frontend_call_dict)
 
                     else:
+                        executed_this_turn += 1
+                        if (
+                            tool_call_result.result.status
+                            == StructuredToolResultStatus.ERROR
+                        ):
+                            errored_this_turn += 1
                         tool_calls.append(tool_result_dict)
                         all_tool_calls.append(tool_result_dict)
                         messages.append(tool_call_result.to_llm_message())
@@ -1529,6 +1586,39 @@ class ToolCallingLLM:
                             f"Tool list changed - refreshing ({len(tools)} -> {len(new_tools)} tools)"
                         )
                         tools = new_tools
+
+                # Break repetition loops in band: push a message into the
+                # transcript telling the model it is repeating itself, so it
+                # gets a clean chance to change course. Only if that fails do
+                # we withdraw the tools to force a final answer. max_steps
+                # remains the last resort.
+                loop_signal = loop_detector.record_turn(
+                    tool_calls=tools_to_call,
+                    content=message,
+                    reasoning=reasoning,
+                    tool_results_all_errored=(
+                        executed_this_turn > 0
+                        and errored_this_turn == executed_this_turn
+                    ),
+                )
+                if loop_signal:
+                    messages.append(build_loop_breaker_message(loop_signal))
+                    metadata["loop_detected"] = {
+                        "kind": loop_signal.kind,
+                        "detail": loop_signal.detail,
+                        "iteration": i,
+                        "interventions": loop_signal.nudge_count + 1,
+                    }
+                    if loop_signal.should_force_answer:
+                        logging.warning(
+                            "Repetition loop persisted after "
+                            f"{loop_signal.nudge_count} nudge(s) - withdrawing "
+                            "tools to force a final answer"
+                        )
+                        force_final_answer = True
+                    else:
+                        # Give the corrected approach a clean window.
+                        loop_detector.reset()
 
         raise Exception(
             f"Too many LLM calls - exceeded max_steps: {i}/{self.max_steps}"
