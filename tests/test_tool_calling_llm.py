@@ -1882,6 +1882,74 @@ class TestRepetitionLoopDetection:
         assert answer.data["metadata"]["loop_detected"]["kind"] == "repeated_errors"
         assert answer.data["num_llm_calls"] < 20
 
+    @staticmethod
+    def _looping_assistant_msg():
+        """One assistant turn as it appears in a stored transcript."""
+        return {
+            "role": "assistant",
+            "content": "Let me examine the API",
+            "tool_calls": [
+                {
+                    "id": "tc_1",
+                    "type": "function",
+                    "function": {
+                        "name": "kubectl_get",
+                        "arguments": json.dumps({"command": "kubectl get pods"}),
+                    },
+                }
+            ],
+        }
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_loop_state_survives_an_approval_pause(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        """An approval pause hands control back to the caller, which re-enters
+        call_stream with a fresh detector. Seeding from the transcript must stop
+        a looping run from winning a clean window on every pause."""
+        transcript = [{"role": "user", "content": "check the API"}]
+        for _ in range(2):  # two identical turns already happened
+            transcript.append(self._looping_assistant_msg())
+            transcript.append(
+                {"role": "tool", "tool_call_id": "tc_1", "content": "pod1 Running"}
+            )
+
+        mock_llm.completion.side_effect = [
+            _make_llm_response(
+                content="Let me examine the API", tool_calls=[_make_mock_tool_call()]
+            ),
+            _make_llm_response(content="done", tool_calls=None),
+        ]
+        ai = make_ai(max_steps=10)
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(ai.call_stream(msgs=transcript))
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert answer.data["metadata"]["loop_detected"]["kind"] == "repeated_tool_calls"
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_a_fresh_question_is_not_seeded_from_an_old_loop(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        """A new user question after an earlier loop starts with a clean slate."""
+        transcript = [{"role": "user", "content": "check the API"}]
+        for _ in range(3):
+            transcript.append(self._looping_assistant_msg())
+        transcript.append({"role": "user", "content": "different question now"})
+
+        mock_llm.completion.side_effect = [
+            _make_llm_response(content="checking", tool_calls=[_make_mock_tool_call()]),
+            _make_llm_response(content="done", tool_calls=None),
+        ]
+        ai = make_ai(max_steps=10)
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(ai.call_stream(msgs=transcript))
+
+        answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert "loop_detected" not in answer.data["metadata"]
+
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_final_answer_is_never_trimmed(self, _mock_limit, make_ai, mock_llm):
         """A long, repetitive final answer is the user's output - leave it alone."""

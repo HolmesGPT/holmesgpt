@@ -1156,6 +1156,11 @@ class ToolCallingLLM:
         # (varied params, A/B ping-pong, repeated failures, restated narration,
         # degenerate output). See holmes/core/loop_detection.py.
         loop_detector = LoopDetector()
+        # A run does not always stay inside one call_stream: an approval pause or
+        # a frontend tool hands control back to the caller, which re-enters here
+        # with the conversation so far. Replaying it keeps a looping run from
+        # winning a fresh window and a fresh escalation budget on every pause.
+        loop_detector.seed_from_messages(messages)
         # Set once nudging has failed: withdraws the tools so the next call has
         # no choice but to produce a final answer.
         force_final_answer = False

@@ -2,13 +2,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from holmes.common.env_vars import LOOP_DETECTION_MAX_NUDGES
 from holmes.core.loop_detection import (
+    FORCE_ANSWER_SIGNATURE,
     KIND_ALTERNATING_TOOL_CALLS,
     KIND_DEGENERATE_OUTPUT,
     KIND_NARRATION_LOOP,
     KIND_REPEATED_ERRORS,
     KIND_REPEATED_TOOL_CALLS,
     LoopDetector,
+    LoopSignal,
+    _window_size,
     build_loop_breaker_message,
     degenerate_repetition_ratio,
     signature_for_tool_calls,
@@ -292,6 +296,168 @@ class TestEscalationBudgetIsPerRun:
         assert (
             third.should_force_answer is True
         ), "a run that keeps looping in new shapes must still be forced to answer"
+
+
+def assistant(tool_name: str, args: str, text: str = "working on it") -> dict:
+    """An assistant message as it appears in a transcript."""
+    return {
+        "role": "assistant",
+        "content": text,
+        "tool_calls": [
+            {
+                "id": "x",
+                "type": "function",
+                "function": {"name": tool_name, "arguments": args},
+            }
+        ],
+    }
+
+
+class TestSeedFromMessages:
+    """State is rebuilt from the transcript, so pauses cannot reset it."""
+
+    def test_a_loop_spanning_a_pause_still_trips(self):
+        # Two looping turns happened before the pause. After the pause a fresh
+        # detector is built from the transcript; the third identical turn must
+        # complete the loop rather than starting the count over.
+        transcript = [
+            {"role": "user", "content": "check the API"},
+            assistant("fetch_api", '{"url": "/v1"}'),
+            assistant("fetch_api", '{"url": "/v1"}'),
+        ]
+        detector = LoopDetector()
+        detector.seed_from_messages(transcript)
+
+        signal = detector.record_turn(
+            [tool_call("fetch_api", '{"url": "/v1"}')], "working on it", None
+        )
+
+        assert signal is not None
+        assert signal.kind == KIND_REPEATED_TOOL_CALLS
+
+    def test_without_seeding_the_same_loop_escapes(self):
+        # Pins the bug this fixes: a fresh, unseeded detector sees only one turn.
+        detector = LoopDetector()
+        assert (
+            detector.record_turn(
+                [tool_call("fetch_api", '{"url": "/v1"}')], "working on it", None
+            )
+            is None
+        )
+
+    def test_nudges_already_issued_are_recovered(self):
+        signal = LoopSignal(kind=KIND_REPEATED_TOOL_CALLS, detail="d", nudge_count=0)
+        nudge = build_loop_breaker_message(signal)
+
+        detector = LoopDetector()
+        detector.seed_from_messages(
+            [
+                {"role": "user", "content": "check the API"},
+                assistant("fetch_api", "{}"),
+                nudge,
+            ]
+        )
+
+        assert detector.nudge_count == 1
+
+    def test_a_nudge_in_the_transcript_also_clears_the_window(self):
+        """The runtime calls reset() after nudging; the replay must match."""
+        nudge = build_loop_breaker_message(
+            LoopSignal(kind=KIND_REPEATED_TOOL_CALLS, detail="d", nudge_count=0)
+        )
+        detector = LoopDetector()
+        detector.seed_from_messages(
+            [
+                {"role": "user", "content": "go"},
+                assistant("fetch_api", "{}"),
+                assistant("fetch_api", "{}"),
+                nudge,
+                assistant("fetch_api", "{}"),
+            ]
+        )
+
+        # Only the post-nudge turn survives, so two more are needed to trip.
+        assert (
+            detector.record_turn([tool_call("fetch_api", "{}")], "working on it", None)
+            is None
+        )
+
+    def test_forced_answer_message_counts_but_keeps_the_window(self):
+        forced = build_loop_breaker_message(
+            LoopSignal(
+                kind=KIND_REPEATED_TOOL_CALLS,
+                detail="d",
+                nudge_count=LOOP_DETECTION_MAX_NUDGES,
+            )
+        )
+        assert FORCE_ANSWER_SIGNATURE in forced["content"]
+
+        detector = LoopDetector()
+        detector.seed_from_messages(
+            [
+                {"role": "user", "content": "go"},
+                assistant("fetch_api", "{}"),
+                assistant("fetch_api", "{}"),
+                forced,
+            ]
+        )
+
+        assert detector.nudge_count == 1
+        # Window kept: the next identical turn completes the streak of three.
+        signal = detector.record_turn(
+            [tool_call("fetch_api", "{}")], "working on it", None
+        )
+        assert signal is not None
+
+    def test_a_new_user_question_starts_fresh(self):
+        """A follow-up question must not inherit the previous run's state."""
+        nudge = build_loop_breaker_message(
+            LoopSignal(kind=KIND_REPEATED_TOOL_CALLS, detail="d", nudge_count=0)
+        )
+        detector = LoopDetector()
+        detector.seed_from_messages(
+            [
+                {"role": "user", "content": "first question"},
+                assistant("fetch_api", "{}"),
+                assistant("fetch_api", "{}"),
+                nudge,
+                {"role": "user", "content": "a completely new question"},
+            ]
+        )
+
+        assert detector.nudge_count == 0
+        assert (
+            detector.record_turn([tool_call("fetch_api", "{}")], "working on it", None)
+            is None
+        )
+
+    def test_content_parts_format_is_handled(self):
+        """cache_control turns string content into a list of text parts."""
+        nudge = build_loop_breaker_message(
+            LoopSignal(kind=KIND_REPEATED_TOOL_CALLS, detail="d", nudge_count=0)
+        )
+        nudge_as_parts = {
+            "role": "user",
+            "content": [{"type": "text", "text": nudge["content"]}],
+        }
+        detector = LoopDetector()
+        detector.seed_from_messages([nudge_as_parts])
+        assert detector.nudge_count == 1
+
+    def test_malformed_transcripts_do_not_raise(self):
+        for bad in ([], [{}], [{"role": "assistant"}], [{"role": "tool"}], None):
+            detector = LoopDetector()
+            detector.seed_from_messages(bad)
+            assert detector.nudge_count == 0
+
+    def test_seeding_respects_the_window(self):
+        """A long transcript is trimmed to the same bound record_turn uses."""
+        detector = LoopDetector()
+        detector.seed_from_messages(
+            [{"role": "user", "content": "go"}]
+            + [assistant("t", '{"i": %d}' % i) for i in range(50)]
+        )
+        assert len(detector._turns) == _window_size()
 
 
 class TestDisabled:

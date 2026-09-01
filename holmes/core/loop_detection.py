@@ -62,6 +62,12 @@ KIND_DEGENERATE_OUTPUT = "degenerate_output"
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
+# Phrases that identify a loop-breaker message in a transcript. They are used to
+# BUILD the messages below and to RECOGNISE them in seed_from_messages(), so the
+# two can never drift apart. Changing one changes both.
+NUDGE_SIGNATURE = "Do not repeat that step."
+FORCE_ANSWER_SIGNATURE = "no further tool calls will be executed"
+
 
 @dataclass
 class LoopSignal:
@@ -138,9 +144,46 @@ def _normalize_text(text: Optional[str]) -> str:
 
 
 def _similarity(a: str, b: str) -> float:
+    """Lexical similarity of two normalized strings, 0.0 to 1.0.
+
+    ``SequenceMatcher`` scores shared runs of characters, so near-verbatim
+    restatement with a few words swapped still scores high. It is lexical, not
+    semantic: two short phrases that mean the same thing but share few words
+    score low.
+    """
     if not a or not b:
         return 0.0
     return SequenceMatcher(None, a, b).ratio()
+
+
+def _message_text(message: Dict[str, Any]) -> str:
+    """Plain text of a message whose content may be a string or content parts."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
+def _window_size() -> int:
+    """Turns to retain: the widest span any single check needs.
+
+    Every per-check threshold is included. Raising one above
+    ``LOOP_DETECTION_WINDOW`` would otherwise trim the history that check needs
+    and silently disable it.
+    """
+    return max(
+        LOOP_DETECTION_WINDOW,
+        LOOP_DETECTION_ALTERNATION_CYCLES * 2,
+        LOOP_DETECTION_REPEAT_THRESHOLD,
+        LOOP_DETECTION_ERROR_STREAK,
+        LOOP_DETECTION_NARRATION_REPEATS,
+    )
 
 
 def degenerate_repetition_ratio(text: Optional[str], n: int = 8) -> float:
@@ -165,12 +208,85 @@ class LoopDetector:
     """
 
     def __init__(self) -> None:
+        """Start with an empty window and a full escalation budget."""
         self._turns: List[_Turn] = []
         self._nudges = 0
 
     @property
     def nudge_count(self) -> int:
+        """How many interventions have already been issued in this run."""
         return self._nudges
+
+    def seed_from_messages(self, messages: Sequence[Dict[str, Any]]) -> None:
+        """Rebuild detector state by replaying an existing transcript.
+
+        The detector is created inside ``call_stream``, but a run does not
+        always stay inside one ``call_stream``: an approval pause or a frontend
+        tool hands control back to the caller, which re-enters with the
+        conversation so far. Without this, every pause would hand a looping run
+        a fresh window and a fresh escalation budget -- the same blindness that
+        compaction creates for ``prevent_overly_repeated_tool_call``.
+
+        Replaying the transcript keeps the state where the rest of the agentic
+        loop already keeps it: in the messages. That also survives the server's
+        process boundary, where each resume is a separate request.
+
+        Only what the transcript records reliably is restored. Whether a turn's
+        tools all errored is not recoverable from a tool message (the error text
+        is concatenated into the content), so seeded turns are treated as
+        non-errored. That can delay the repeated-errors check across a pause; it
+        cannot cause a false positive.
+        """
+        if not LOOP_DETECTION_ENABLED or not messages:
+            return
+
+        try:
+            turns: List[_Turn] = []
+            nudges = 0
+            for message in messages:
+                role = message.get("role")
+                if role == "user":
+                    text = _message_text(message)
+                    if FORCE_ANSWER_SIGNATURE in text:
+                        # Tools were withdrawn; the runtime kept the window.
+                        nudges += 1
+                    elif NUDGE_SIGNATURE in text:
+                        # The runtime calls reset() after a nudge, giving the
+                        # corrected approach a clean window.
+                        nudges += 1
+                        turns = []
+                    else:
+                        # A genuine new question from the user: a fresh run
+                        # deserves a fresh window and a fresh budget.
+                        turns = []
+                        nudges = 0
+                elif role == "assistant":
+                    turns.append(
+                        _Turn(
+                            tool_signature=signature_for_tool_calls(
+                                message.get("tool_calls") or []
+                            ),
+                            narration=_normalize_text(
+                                " ".join(
+                                    part
+                                    for part in (
+                                        message.get("reasoning_content"),
+                                        _message_text(message),
+                                    )
+                                    if part
+                                )
+                            ),
+                            all_tools_errored=False,
+                        )
+                    )
+
+            self._turns = turns[-_window_size() :] if turns else []
+            self._nudges = nudges
+        except Exception:
+            # Seeding is an optimisation; a failure must not break the run.
+            logging.error("Loop detection failed to seed from messages", exc_info=True)
+            self._turns = []
+            self._nudges = 0
 
     def record_turn(
         self,
@@ -192,17 +308,7 @@ class LoopDetector:
                 all_tools_errored=bool(tool_calls) and tool_results_all_errored,
             )
             self._turns.append(turn)
-            # Keep only what the widest check needs. Every per-check threshold
-            # is included: raising one above LOOP_DETECTION_WINDOW would
-            # otherwise trim the history that check needs and silently disable
-            # it.
-            window = max(
-                LOOP_DETECTION_WINDOW,
-                LOOP_DETECTION_ALTERNATION_CYCLES * 2,
-                LOOP_DETECTION_REPEAT_THRESHOLD,
-                LOOP_DETECTION_ERROR_STREAK,
-                LOOP_DETECTION_NARRATION_REPEATS,
-            )
+            window = _window_size()
             if len(self._turns) > window:
                 self._turns = self._turns[-window:]
 
@@ -370,7 +476,7 @@ def build_loop_breaker_message(signal: LoopSignal) -> Dict[str, str]:
             "role": "user",
             "content": (
                 f"STOP. {preamble} You have already been warned about this once, "
-                "and no further tool calls will be executed.\n\n"
+                f"and {FORCE_ANSWER_SIGNATURE}.\n\n"
                 "Write your final answer now, using only what you have already "
                 "gathered. State plainly which parts of the question you could "
                 "not answer and why, rather than repeating the attempt."
@@ -381,7 +487,7 @@ def build_loop_breaker_message(signal: LoopSignal) -> Dict[str, str]:
         "role": "user",
         "content": (
             f"{preamble} ({signal.detail}.)\n\n"
-            "Do not repeat that step. Choose exactly one of the following and "
+            f"{NUDGE_SIGNATURE} Choose exactly one of the following and "
             "act on it in your next message:\n"
             "1. Use a DIFFERENT tool, or the same tool with MATERIALLY different "
             "arguments (a different resource, namespace, time range or query - "
