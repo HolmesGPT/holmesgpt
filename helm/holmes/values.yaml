@@ -983,6 +983,18 @@ operator:
   holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
   holmesApiTimeout: 300  # seconds
 
+  # Authenticate the operator's calls to the Holmes API server.
+  # Required when the API server has HOLMES_API_KEY set (otherwise HealthChecks
+  # fail with 401 Unauthorized from /api/checks/execute).
+  # Natural pattern: point both the server and the operator at the same Secret/key.
+  # Prefer holmesApiKeyExistingSecret for production deployments;
+  # holmesApiKey (plain value) is convenient for local testing only.
+  # If both are set, holmesApiKeyExistingSecret takes precedence.
+  holmesApiKey: ""
+  holmesApiKeyExistingSecret:
+    name: ""   # Name of an existing Secret containing the API key
+    key: ""    # Key within the Secret that holds the API key value
+
   # Logging
   logLevel: INFO
 

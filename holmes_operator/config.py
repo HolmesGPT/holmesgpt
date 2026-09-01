@@ -16,6 +16,7 @@ def load_bool(env_var, default: Optional[bool]) -> Optional[bool]:
 
 HOLMES_API_URL = os.getenv("HOLMES_API_URL", "http://holmes-api:80")
 HOLMES_API_TIMEOUT = int(os.getenv("HOLMES_API_TIMEOUT", "300"))
+HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip() or None
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 MAX_HISTORY_ITEMS = int(os.getenv("MAX_HISTORY_ITEMS", "10"))
 CLEANUP_COMPLETED_CHECKS = load_bool("CLEANUP_COMPLETED_CHECKS", False)
@@ -39,12 +40,17 @@ class OperatorConfig:
     cleanup_completed_checks: bool
     completed_check_ttl_hours: int
 
+    # Optional API key forwarded to the Holmes API server (issue #2030).
+    # Default None preserves prior behavior when HOLMES_API_KEY is unset.
+    holmes_api_key: Optional[str] = None
+
     @classmethod
     def load(cls) -> "OperatorConfig":
         """Load configuration from environment variables."""
         return cls(
             holmes_api_url=HOLMES_API_URL,
             holmes_api_timeout=HOLMES_API_TIMEOUT,
+            holmes_api_key=HOLMES_API_KEY,
             log_level=LOG_LEVEL,
             max_history_items=MAX_HISTORY_ITEMS,
             cleanup_completed_checks=CLEANUP_COMPLETED_CHECKS,
