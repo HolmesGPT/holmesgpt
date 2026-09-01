@@ -794,7 +794,7 @@ class TestSyncSkills:
             {"account_id": "acct-1", "cluster_id": "c1", "skill_name": "beta"},
         ]
 
-        skills_dal.sync_skills(rows, "c1")
+        skills_dal.sync_skills(rows, "c1", prune=True)
 
         table = skills_dal.client.table
         table.assert_called_with("HolmesCustomSkills")
@@ -806,18 +806,49 @@ class TestSyncSkills:
         not_in = table.return_value.delete.return_value.eq.return_value.eq.return_value.not_.in_
         not_in.assert_called_once_with("skill_name", ["alpha", "beta"])
 
-    def test_empty_list_does_not_delete_everything(self, skills_dal):
-        """"No skills loaded" is indistinguishable from a load failure, so an empty list
-        must not wipe the UI's view."""
-        skills_dal.sync_skills([], "c1")
+    def test_empty_list_with_prune_deletes_every_row_for_the_cluster(self, skills_dal):
+        """Deleting your LAST custom skill must clear the mirror.
+
+        prune=True means the caller verified every skill source was readable, so an empty
+        list really does mean "there are no skills" and the leftover row has to go. This is
+        the case that previously returned early and left the row visible in the UI forever.
+        """
+        skills_dal.sync_skills([], "c1", prune=True)
+
+        table = skills_dal.client.table
+        # nothing to upsert
+        table.return_value.upsert.assert_not_called()
+        # the delete is scoped to (account, cluster) and otherwise unfiltered
+        scoped = table.return_value.delete.return_value.eq.return_value.eq.return_value
+        scoped.execute.assert_called_once()
+        # `not.in.()` is not reliably valid PostgREST, so the filter must be omitted entirely
+        scoped.not_.in_.assert_not_called()
+
+    def test_empty_list_without_prune_does_not_delete_everything(self, skills_dal):
+        """Nothing was readable, so nothing is known -- the UI's view must survive."""
+        skills_dal.sync_skills([], "c1", prune=False)
 
         skills_dal.client.table.assert_not_called()
+
+    def test_partial_load_upserts_but_does_not_prune(self, skills_dal):
+        """A source that failed to load must not prune the skills it would have provided."""
+        rows = [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}]
+
+        skills_dal.sync_skills(rows, "c1", prune=False)
+
+        table = skills_dal.client.table
+        table.return_value.upsert.assert_called_once_with(
+            rows, on_conflict="account_id, cluster_id, skill_name"
+        )
+        table.return_value.delete.assert_not_called()
 
     def test_disabled_dal_is_a_noop(self, skills_dal):
         skills_dal.enabled = False
 
         skills_dal.sync_skills(
-            [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}], "c1"
+            [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}],
+            "c1",
+            prune=True,
         )
 
         skills_dal.client.table.assert_not_called()
@@ -827,7 +858,9 @@ class TestSyncSkills:
         skills_dal.client.table.side_effect = PGAPIError({"message": "boom"})
 
         skills_dal.sync_skills(
-            [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}], "c1"
+            [{"account_id": "acct-1", "cluster_id": "c1", "skill_name": "alpha"}],
+            "c1",
+            prune=True,
         )
 
 class TestGlobalSkillCatalog:

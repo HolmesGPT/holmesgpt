@@ -34,6 +34,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from holmes.clients.robusta_client import fetch_supabase_api_key
 from holmes.common.env_vars import (
     ROBUSTA_ACCOUNT_ID,
     ROBUSTA_CONFIG_PATH,
@@ -222,6 +223,9 @@ class SupabaseRetryTransport(httpx.HTTPTransport):
         return super().handle_request(request)
 
 
+KEY_CACHE: TTLCache = TTLCache(maxsize=64, ttl=24 * 60 * 60)
+
+
 class SupabaseDal:
     def __init__(self, cluster: str):
         self.enabled = self.__init_config()
@@ -275,8 +279,7 @@ class SupabaseDal:
             httpx_client=httpx_client,
         )
         sentry_sdk.set_tag("db_url", self.url)
-        self.client = create_client(self.url, self.api_key, options)  # type: ignore
-        self.user_id = self.sign_in()
+        self.__connect(options)
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
@@ -298,6 +301,29 @@ class SupabaseDal:
         self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
         self.lock = threading.Lock()
 
+    def __connect(self, options: ClientOptions):
+        self.options = options
+        cache_key = f"{self.account_id}:{self.cluster}"
+        sources = (
+            lambda: KEY_CACHE.pop(cache_key, None),
+            lambda: fetch_supabase_api_key(self.account_id, self.cluster),
+        )
+        for source in sources:
+            key = source()
+            if not key:
+                continue
+            try:
+                self.__login(key, options)
+                KEY_CACHE[cache_key] = key
+                return
+            except Exception as e:
+                logging.warning(f"Supabase login with the relay api key failed: {e}")
+        self.__login(self.api_key, options)
+
+    def __login(self, api_key: str, options: ClientOptions):
+        self.client = create_client(self.url, api_key, options)  # type: ignore
+        self.user_id = self.sign_in()
+
     def patch_postgrest_execute(self):
         logging.info("Patching postgres execute")
 
@@ -312,7 +338,7 @@ class SupabaseDal:
                     logging.error(
                         "JWT token expired/invalid, signing in to Supabase again"
                     )
-                    self.sign_in()
+                    self.__connect(self.options)
                     # update the session to the new one, after re-sign in
                     _self.session = self.client.postgrest.session
                     return self._original_execute(_self)
@@ -1028,38 +1054,65 @@ class SupabaseDal:
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
             )
 
-    def sync_skills(self, skills: list[dict], cluster_name: str) -> None:
+    def sync_skills(
+        self, skills: list[dict], cluster_name: str, prune: bool
+    ) -> None:
         """Mirror this cluster's filesystem + builtin skills into HolmesCustomSkills.
 
         The filesystem stays the source of truth -- Holmes keeps executing these from disk.
         These rows exist only so the UI can display them, so this is a plain upsert plus a
-        prune of names that no longer exist for this (account, cluster), exactly like
-        sync_toolsets. Best-effort: a failure here must never break startup.
+        prune of names that no longer exist for this (account, cluster). Best-effort: a
+        failure here must never break startup.
 
-        Note this intentionally does NOT delete when `skills` is empty: an empty list means
-        "no skills loaded", which we cannot distinguish from a load failure, and wiping the
-        UI's view on a transient error would be worse than showing slightly stale rows.
+        `prune` is required rather than defaulted because it gates a DELETE, so the caller
+        has to state whether the loaded set is authoritative. Pass the loader's
+        FilesystemSkills.sources_ok: True only when every skill source was readable.
+
+        The four cases:
+          prune=True,  skills non-empty -> upsert, then delete every other name
+          prune=True,  skills empty     -> delete every row for this cluster (the user really
+                                           did delete their last skill)
+          prune=False, skills non-empty -> upsert only; a partially-readable load must not
+                                           prune the part that failed to load
+          prune=False, skills empty     -> no-op; nothing was read, so nothing is known
         """
         if not self.enabled:
             logging.info("Robusta store not initialized. Skipping sync holmes skills.")
             return
 
-        if not skills:
-            logging.debug("No skills were provided for synchronization.")
+        if not skills and not prune:
+            logging.debug(
+                "No skills loaded and sources were not fully readable; skipping sync."
+            )
             return
 
         provided_skill_names = [skill["skill_name"] for skill in skills]
 
         try:
-            self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).upsert(
-                skills, on_conflict="account_id, cluster_id, skill_name"
-            ).execute()
+            if skills:
+                self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).upsert(
+                    skills, on_conflict="account_id, cluster_id, skill_name"
+                ).execute()
 
-            self.client.table(HOLMES_CUSTOM_SKILLS_TABLE).delete().eq(
-                "account_id", self.account_id
-            ).eq("cluster_id", cluster_name).not_.in_(
-                "skill_name", provided_skill_names
-            ).execute()
+            if not prune:
+                logging.info(
+                    f"Upserted {len(skills)} custom skills; skipped pruning because at "
+                    "least one skill source could not be read."
+                )
+                return
+
+            stale = (
+                self.client.table(HOLMES_CUSTOM_SKILLS_TABLE)
+                .delete()
+                .eq("account_id", self.account_id)
+                .eq("cluster_id", cluster_name)
+            )
+            # Only add the not-in filter when there is something to exclude. An empty list
+            # renders as `skill_name=not.in.()`, which PostgREST does not reliably accept --
+            # and semantically the empty case wants an unfiltered delete anyway.
+            if provided_skill_names:
+                stale = stale.not_.in_("skill_name", provided_skill_names)
+            stale.execute()
 
             logging.info(f"Synchronized {len(skills)} custom skills successfully.")
         except Exception as e:

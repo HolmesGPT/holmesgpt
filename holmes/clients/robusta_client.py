@@ -13,8 +13,10 @@ from tenacity import (
 )
 
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
+from holmes.version import get_version
 
 HOLMES_GET_INFO_URL = f"{ROBUSTA_API_ENDPOINT}/api/holmes/get_info"
+SUPABASE_KEYS_URL = f"{ROBUSTA_API_ENDPOINT}/api/config/supabase-keys"
 TIMEOUT = 0.5
 
 # 429/5xx (gateway blips, overload) heal on retry; 4xx (bad token, unknown
@@ -65,6 +67,32 @@ def _log_fetch_retry(retry_state: RetryCallState) -> None:
         FETCH_MODELS_ATTEMPTS,
         exc,
     )
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_fetch_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=10),
+    reraise=True,
+)
+def _request_supabase_api_key(params: dict) -> Optional[str]:
+    response = requests.get(SUPABASE_KEYS_URL, params=params, timeout=10)
+    response.raise_for_status()
+    return response.json().get("api_key")
+
+
+def fetch_supabase_api_key(account_id: str, cluster: str) -> Optional[str]:
+    params = {
+        "account_id": account_id,
+        "cluster": cluster,
+        "component": "holmes",
+        "component_version": get_version(),
+    }
+    try:
+        return _request_supabase_api_key(params)
+    except Exception as e:
+        logger.warning(f"Failed to fetch the api key from relay: {e}")
+        return None
 
 
 # The model list is fetched once, at startup: losing that single request to a
