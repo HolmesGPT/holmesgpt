@@ -144,6 +144,10 @@ RUN apk upgrade --no-cache && apk add --no-cache \
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 RUN kubectl version --client
 
+# Set up flux
+COPY --from=builder /usr/local/bin/flux /usr/local/bin/flux
+RUN flux --version
+
 # Set up kube lineage
 COPY --from=builder /kube-lineage /usr/local/bin
 RUN kube-lineage --version
