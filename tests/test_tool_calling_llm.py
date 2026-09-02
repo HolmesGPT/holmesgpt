@@ -23,6 +23,13 @@ import pytest
 from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import PendingToolApproval, ToolApprovalDecision, ToolCallResult
 from holmes.core.llm_usage import RequestStats
+from holmes.core.otel_tracing import (
+    ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+    ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
+    ATTR_GEN_AI_USAGE_INPUT_TOKENS,
+    ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+    ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
+)
 from holmes.core.tool_calling_llm import LLMInterruptedError, ToolCallingLLM
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -81,8 +88,14 @@ def _make_mock_tool_call(tool_call_id="tc_1", tool_name="kubectl_get", arguments
     return tc
 
 
-def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20):
-    """Create a mock LLM response matching litellm ModelResponse shape."""
+def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20,
+                       cached_tokens=None, cache_creation_tokens=None):
+    """Create a mock LLM response matching litellm ModelResponse shape.
+
+    cached_tokens / cache_creation_tokens mimic the litellm prompt-cache usage
+    fields (prompt_tokens_details.cached_tokens / cache_creation_input_tokens);
+    None means the provider reported nothing, as before.
+    """
     resp = MagicMock()
     resp.choices = [MagicMock()]
     msg = MagicMock()
@@ -116,8 +129,11 @@ def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_token
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
-        "prompt_tokens_details": None,
+        "prompt_tokens_details": (
+            {"cached_tokens": cached_tokens} if cached_tokens is not None else None
+        ),
         "completion_tokens_details": None,
+        "cache_creation_input_tokens": cache_creation_tokens,
     }.get(key, default)
     resp.usage = usage
 
@@ -1703,3 +1719,140 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Test 21: gen_ai.chat span usage is per iteration and carries the cache split
+# ---------------------------------------------------------------------------
+
+
+class _RecordingSpan:
+    """Minimal trace_span double: records child spans and their log() calls."""
+
+    def __init__(self, name: Optional[str] = None):
+        self.name = name
+        self.children: List["_RecordingSpan"] = []
+        self.log_calls: List[Dict[str, Any]] = []
+
+    def start_span(self, name: Optional[str] = None, **_kwargs) -> "_RecordingSpan":
+        child = _RecordingSpan(name=name)
+        self.children.append(child)
+        return child
+
+    def log(self, *_args, **kwargs) -> None:
+        self.log_calls.append(kwargs)
+
+    def end(self) -> None:
+        pass
+
+    def set_attributes(self, *_args, **_kwargs) -> None:
+        pass
+
+    def __enter__(self) -> "_RecordingSpan":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        pass
+
+
+def _span_metadata(span: _RecordingSpan) -> Dict[str, Any]:
+    """Merge every metadata dict logged on a span."""
+    merged: Dict[str, Any] = {}
+    for call in span.log_calls:
+        if isinstance(call.get("metadata"), dict):
+            merged.update(call["metadata"])
+    return merged
+
+
+class TestGenAiChatSpanUsage:
+    """Each gen_ai.chat span must report the usage of ITS OWN LLM call.
+
+    Backends such as Langfuse sum spans; stamping the request-level running
+    total on every span over-counts an n-iteration request ~n/2 times.
+    The span must also carry the prompt-cache split so those backends can
+    price cache reads/writes at cache rates.
+    """
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_span_usage_is_per_iteration_with_cache_split(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        tc = _make_mock_tool_call()
+        resp_with_tool = _make_llm_response(
+            content="Let me check",
+            tool_calls=[tc],
+            prompt_tokens=100,
+            completion_tokens=10,
+            cached_tokens=0,
+            cache_creation_tokens=90,
+        )
+        resp_final = _make_llm_response(
+            content="All pods are running",
+            tool_calls=None,
+            prompt_tokens=150,
+            completion_tokens=20,
+            cached_tokens=100,
+            cache_creation_tokens=40,
+        )
+        mock_llm.completion.side_effect = [resp_with_tool, resp_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        root = _RecordingSpan(name="root")
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "What pods are running?"}],
+                trace_span=root,
+            )
+        )
+
+        chat_spans = [s for s in root.children if s.name == "gen_ai.chat"]
+        assert len(chat_spans) == 2
+        usage = [_span_metadata(s) for s in chat_spans]
+
+        # Per-iteration values — NOT the running total (which would be 100, 250).
+        assert [u[ATTR_GEN_AI_USAGE_INPUT_TOKENS] for u in usage] == [100, 150]
+        assert [u[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS] for u in usage] == [10, 20]
+        assert [u[ATTR_GEN_AI_USAGE_TOTAL_TOKENS] for u in usage] == [110, 170]
+        # Cache buckets (subsets of input_tokens), also per iteration.
+        assert [u[ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS] for u in usage] == [0, 100]
+        assert [u[ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS] for u in usage] == [
+            90,
+            40,
+        ]
+        assert [u["holmesgpt.iteration"] for u in usage] == [1, 2]
+
+        # The request-level accumulator is unchanged: ANSWER_END still carries the sum.
+        answer_end = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert answer_end.data["costs"]["prompt_tokens"] == 250
+        assert answer_end.data["costs"]["completion_tokens"] == 30
+        assert answer_end.data["costs"]["cached_tokens"] == 100
+        assert answer_end.data["costs"]["cache_creation_tokens"] == 130
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_span_cache_attributes_are_zero_when_provider_reports_none(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        """No cache info from the provider => numeric 0, never None (OTel would stringify it)."""
+        mock_llm.completion.return_value = _make_llm_response(
+            content="answer",
+            tool_calls=None,
+            prompt_tokens=50,
+            completion_tokens=20,
+        )
+        ai = make_ai()
+
+        root = _RecordingSpan(name="root")
+        _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "hello"}], trace_span=root)
+        )
+
+        chat_spans = [s for s in root.children if s.name == "gen_ai.chat"]
+        assert len(chat_spans) == 1
+        usage = _span_metadata(chat_spans[0])
+        assert usage[ATTR_GEN_AI_USAGE_INPUT_TOKENS] == 50
+        assert usage[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS] == 20
+        assert usage[ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS] == 0
+        assert usage[ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS] == 0
+        assert usage["holmesgpt.iteration"] == 1
