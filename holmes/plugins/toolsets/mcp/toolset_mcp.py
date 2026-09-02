@@ -195,6 +195,14 @@ class MCPConfig(ToolsetConfig):
         "connection is fully functional (e.g., API token is valid). Example: 'get_me' for GitHub MCP.",
         examples=["get_me", "get_current_user"],
     )
+    excluded_tools: Optional[List[str]] = Field(
+        default=None,
+        title="Excluded Tools",
+        description="List of tool names to exclude from this MCP server. "
+        "Useful for filtering out tools with Azure-incompatible schemas "
+        "(e.g., dynamic object arguments in 'required' but not in 'properties').",
+        examples=[["tools_call", "dynamic_args_tool"]],
+    )
 
     @model_validator(mode="after")
     def default_oauth_resource(self) -> "MCPConfig":
@@ -250,6 +258,14 @@ class StdioMCPConfig(ToolsetConfig):
         "If set, this tool will be called with empty arguments after loading tools to ensure the "
         "connection is fully functional (e.g., API token is valid). Example: 'get_me' for GitHub MCP.",
         examples=["get_me", "get_current_user"],
+    )
+    excluded_tools: Optional[List[str]] = Field(
+        default=None,
+        title="Excluded Tools",
+        description="List of tool names to exclude from this MCP server. "
+        "Useful for filtering out tools with Azure-incompatible schemas "
+        "(e.g., dynamic object arguments in 'required' but not in 'properties').",
+        examples=[["tools_call", "dynamic_args_tool"]],
     )
 
     def get_lock_string(self) -> str:
@@ -905,6 +921,36 @@ class RemoteMCPTool(Tool):
         return f"{self.toolset.name}: {self.name} {params}"
 
 
+def _is_azure_incompatible_schema(input_schema: dict) -> bool:
+    """Detect MCP tool schemas that Azure OpenAI rejects.
+
+    Azure OpenAI requires that if a property is in ``required``, it must also
+    appear in ``properties``.  Some MCP tools define dynamic object arguments
+    (e.g. ``args``) where ``required`` lists the key but ``properties`` is
+    absent or doesn't include it.  This causes Azure to reject the entire
+    schema, which disables all tools from that MCP server.
+
+    Returns True if the schema is Azure-incompatible.
+    """
+    if not isinstance(input_schema, dict):
+        return False
+
+    required = input_schema.get("required", [])
+    properties = input_schema.get("properties", {})
+
+    if not required or not isinstance(required, list):
+        return False
+
+    if not isinstance(properties, dict):
+        return True
+
+    for key in required:
+        if key not in properties:
+            return True
+
+    return False
+
+
 class RemoteMCPToolset(Toolset):
     config_classes: ClassVar[list[Type[Union[MCPConfig, StdioMCPConfig]]]] = [
         MCPConfig,
@@ -930,17 +976,39 @@ class RemoteMCPToolset(Toolset):
         return self._mcp_config.oauth.model_dump(exclude_none=True)
 
     def _load_remote_tools(self, request_context: Optional[Dict[str, Any]] = None) -> List["RemoteMCPTool"]:
-        """Load tools from the MCP server and return as RemoteMCPTool instances."""
+        """Load tools from the MCP server and return as RemoteMCPTool instances.
+
+        Filters out tools listed in ``excluded_tools`` and tools with
+        Azure-incompatible schemas (dynamic object arguments in 'required'
+        but not in 'properties').
+        """
         if request_context:
             tools_result = asyncio.run(self._get_server_tools_with_context(request_context))
         else:
             tools_result = asyncio.run(self._get_server_tools())
-        return [
-            RemoteMCPTool.create(
-                tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
+
+        excluded = set(self._mcp_config.excluded_tools or [])
+        loaded = []
+        for tool in tools_result.tools:
+            if tool.name in excluded:
+                logger.info(
+                    "MCP server %s: excluding tool '%s' (listed in excluded_tools)",
+                    self.name, tool.name,
+                )
+                continue
+            if _is_azure_incompatible_schema(tool.inputSchema):
+                logger.warning(
+                    "MCP server %s: excluding tool '%s' (Azure-incompatible schema: "
+                    "dynamic object in 'required' but not in 'properties')",
+                    self.name, tool.name,
+                )
+                continue
+            loaded.append(
+                RemoteMCPTool.create(
+                    tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
+                )
             )
-            for tool in tools_result.tools
-        ]
+        return loaded
 
     def _render_headers(
         self, request_context: Optional[Dict[str, Any]] = None
