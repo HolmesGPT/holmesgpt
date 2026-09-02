@@ -16,6 +16,7 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
     ToolsetYamlFromConfig,
+    YAMLToolset,
 )
 from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 
@@ -110,3 +111,30 @@ def test_deprecated_restricted_tools_is_ignored_with_warning(caplog):
     assert not hasattr(ts, "restricted_tools")
     assert ts.approval_required_tools == [APPROVAL_TOOL]
     assert any("restricted_tools" in r.message for r in caplog.records)
+
+
+def test_yaml_toolset_tools_are_gated_by_approval_required_tools():
+    """A YAML-defined toolset must gate its own tools without manual wiring."""
+    toolset = YAMLToolset(
+        name="custom_demo",
+        description="Custom toolset",
+        approval_required_tools=["sensitive_action"],
+        tools=[
+            {
+                "name": "sensitive_action",
+                "description": "Sensitive action",
+                "command": "echo hello",
+            },
+            {
+                "name": "safe_action",
+                "description": "Safe action",
+                "command": "echo hello",
+            },
+        ],
+    )
+
+    gated = _tool(toolset, "sensitive_action").invoke({}, _context("sensitive_action"))
+    assert gated.status == StructuredToolResultStatus.APPROVAL_REQUIRED
+
+    ungated = _tool(toolset, "safe_action").invoke({}, _context("safe_action"))
+    assert ungated.status != StructuredToolResultStatus.APPROVAL_REQUIRED

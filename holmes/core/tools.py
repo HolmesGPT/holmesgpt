@@ -293,6 +293,9 @@ class Tool(ABC, BaseModel):
         description="The URL of the icon for the tool, if None will get toolset icon",
     )
     transformers: Optional[List[Transformer]] = None
+    # Back-reference to the owning toolset. Read by _check_approval_config() to
+    # resolve `approval_required_tools`; set by Toolset.link_tools_to_toolset().
+    toolset: Optional[Any] = Field(default=None, exclude=True, repr=False)
 
     # Private attribute to store initialized transformer instances for performance
     _transformer_instances: Optional[List["BaseTransformer"]] = PrivateAttr(
@@ -921,6 +924,17 @@ class Toolset(BaseModel):
         values["tools"] = tools
 
         return values
+
+    @model_validator(mode="after")
+    def link_tools_to_toolset(self):
+        # Tools resolve `approval_required_tools` through this back-reference.
+        # Toolsets built in Python wire it up themselves (Tool(toolset=self)),
+        # but YAML/config-loaded toolsets construct their tools from dicts, so
+        # without this their approval patterns would never be applied.
+        for tool in self.tools or []:
+            if getattr(tool, "toolset", None) is None:
+                tool.toolset = self
+        return self
 
     def get_environment_variables(self) -> List[str]:
         env_vars = set()
