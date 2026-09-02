@@ -2271,6 +2271,34 @@ def _wait_for_completion_or_escape(
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
+def _run_hooks(hooks: Optional[dict], hook_name: str) -> None:
+    """Fire-and-forget execution of configured lifecycle hook commands."""
+    if not hooks:
+        return
+    bucket = hooks.get(hook_name)
+    if bucket is None:
+        return
+    if not isinstance(bucket, (list, tuple, set)):
+        logging.warning("Invalid %s hooks config (expected list, got %s)", hook_name, type(bucket).__name__)
+        return
+    for hook in bucket:
+        try:
+            if not isinstance(hook, dict):
+                logging.warning("Skipping invalid %s hook (expected dict, got %s)", hook_name, type(hook).__name__)
+                continue
+            cmd = hook.get("command")
+            if cmd:
+                subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                )
+        except Exception as e:
+            logging.warning("Failed to run %s hook: %s", hook_name, e)
+
+
 def run_interactive_loop(
     ai: ToolCallingLLM,
     console: Console,
@@ -2449,6 +2477,7 @@ def run_interactive_loop(
                 user_input = initial_user_input
                 initial_user_input = None
             else:
+                _run_hooks(config.hooks if config else None, "on_waiting_for_input")
                 user_input = session.prompt(input_prompt, style=style)  # type: ignore
 
             if user_input.startswith("/"):
@@ -2822,6 +2851,8 @@ def run_interactive_loop(
             )
 
             console.print("")
+
+            _run_hooks(config.hooks if config else None, "on_turn_complete")
 
             # Save conversation after each AI response
             if json_output_file and messages:
