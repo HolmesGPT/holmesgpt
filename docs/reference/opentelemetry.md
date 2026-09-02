@@ -72,10 +72,14 @@ holmesgpt.investigation (root span)
 **LLM spans** (`gen_ai.chat`):
 - `gen_ai.system` — LLM provider (`litellm`)
 - `gen_ai.request.model` — model name
-- `gen_ai.usage.input_tokens` — prompt tokens
-- `gen_ai.usage.output_tokens` — completion tokens
-- `gen_ai.usage.total_tokens` — total tokens
+- `gen_ai.usage.input_tokens` — prompt tokens of this LLM call (inclusive of the two cache buckets below)
+- `gen_ai.usage.output_tokens` — completion tokens of this LLM call
+- `gen_ai.usage.total_tokens` — total tokens of this LLM call
+- `gen_ai.usage.cache_read_input_tokens` — prompt tokens served from the provider's prompt cache (subset of `input_tokens`; `0` when the provider reports none)
+- `gen_ai.usage.cache_creation_input_tokens` — prompt tokens written to the provider's prompt cache (subset of `input_tokens`; `0` when the provider reports none)
 - `holmesgpt.iteration` — iteration number (0-based)
+
+Usage attributes are **per iteration**: each `gen_ai.chat` span reports only its own LLM call, never a running total for the request, so backends that sum spans (Langfuse, etc.) arrive at the correct request total. The cache attributes let such backends price cache reads and writes at their own rates rather than the full input rate.
 
 **Tool spans** (`holmesgpt.tool.<name>`):
 - `holmesgpt.tool.name` — tool name
