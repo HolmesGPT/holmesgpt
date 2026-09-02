@@ -610,6 +610,13 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.user_id:
             request_context.setdefault("headers", {})
             request_context["user_id"] = chat_request.user_id
+        # user_email is the frontend-supplied source of truth for usage
+        # analytics; surface it so LLM-call observability metadata can attribute
+        # traces to the end user (see holmes.core.llm_observability).
+        if chat_request.user_email:
+            request_context["user_email"] = chat_request.user_email
+        if chat_request.request_type:
+            request_context["request_type"] = chat_request.request_type
         # Surface conversation_id and cluster_name to toolsets that need
         # to hardwire them into outbound requests (e.g. platform-mcp adds
         # them as X-Robusta-* headers so tool handlers don't have to trust

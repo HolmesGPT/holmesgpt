@@ -353,6 +353,8 @@ class LLM:
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        user: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         """Execute one LLM completion request."""
         pass
@@ -661,6 +663,8 @@ class DefaultLLM(LLM):
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        user: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         """Execute one litellm completion request with the model's configured args."""
         tools_args = {}
@@ -760,6 +764,34 @@ class DefaultLLM(LLM):
                 }
             ]
 
+        # Provider-neutral trace attribution. `user` is the standard end-user
+        # identifier; `metadata` carries optional observability fields (session
+        # id, tags) that are used only for logging and never sent to the model.
+        # Both are forwarded as-is to the underlying LLM client so any configured
+        # observability backend can group and filter traces by user/conversation,
+        # whichever model provider serves the request. Explicit call arguments
+        # win over any statically-configured values in self.args (metadata is
+        # merged key-by-key; user is replaced).
+        #
+        # self.args is read non-destructively (and `user`/`metadata` are excluded
+        # from the spread below) so a reused DefaultLLM keeps its configured
+        # values across calls — completion() runs once per call_stream iteration.
+        attribution_kwargs: Dict[str, Any] = {}
+        configured_user = self.args.get("user")
+        effective_user = user if user is not None else configured_user
+        if effective_user is not None:
+            attribution_kwargs["user"] = effective_user
+
+        configured_metadata = self.args.get("metadata")
+        if configured_metadata or metadata:
+            merged_metadata: Dict[str, Any] = {}
+            if isinstance(configured_metadata, dict):
+                merged_metadata.update(configured_metadata)
+            if metadata:
+                merged_metadata.update(metadata)
+            if merged_metadata:
+                attribution_kwargs["metadata"] = merged_metadata
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
@@ -773,8 +805,11 @@ class DefaultLLM(LLM):
             timeout=LLM_REQUEST_TIMEOUT,
             **azure_ad_kwargs,
             **tools_args,
-            **self.args,
+            # `user`/`metadata` are handled via attribution_kwargs; exclude them
+            # here so they are never passed twice.
+            **{k: v for k, v in self.args.items() if k not in ("user", "metadata")},
             **cache_kwargs,
+            **attribution_kwargs,
         )
 
         if isinstance(result, ModelResponse):
