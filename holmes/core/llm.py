@@ -183,6 +183,27 @@ def _is_gemini_route(litellm_model_name: str) -> bool:
     return False
 
 
+def _supports_prompt_caching(litellm_model_name: str) -> bool:
+    """True if the provider/model accepts cache-control hints.
+
+    Gemini routes (Google AI Studio and Vertex-AI hosted Gemini) reject
+    GenerateContent requests combining CachedContent with system_instruction /
+    tools / tool_config, which is exactly what cache_control_injection_points
+    produces. Amazon Bedrock Nova models likewise reject the cachePoint field
+    that LiteLLM translates the hint into on Bedrock. Other providers -
+    including non-Gemini models on Vertex and Bedrock Claude - keep their
+    cache benefit. Add new incompatible routes here rather than special-casing
+    the call site.
+    """
+    if _is_gemini_route(litellm_model_name):
+        return False
+    if litellm_model_name.startswith("bedrock/"):
+        # Bedrock routes carry a regional alias (e.g. bedrock/us.amazon.nova-pro-v1:0);
+        # only the Nova family rejects cachePoint.
+        return "amazon.nova" not in litellm_model_name.split("/", 1)[1].lower()
+    return True
+
+
 class ContextWindowUsage(BaseModel):
     total_tokens: int
     tools_tokens: int
@@ -207,6 +228,13 @@ class ModelEntry(BaseModel):
     # LLM configuration fields used by services like Azure AI Foundry
     api_base: Optional[str] = None
     api_version: Optional[str] = None
+
+    # Explicit prompt-caching override. True forces cache_control hints, False
+    # suppresses them, None (default) falls back to the automatic per-route
+    # default (_supports_prompt_caching). Set this for models whose provider
+    # rejects cache hints and isn't covered by the default yet, e.g.
+    # cache_control: false for a Bedrock model.
+    cache_control: Optional[bool] = None
 
     model_config = ConfigDict(
         extra="allow",
@@ -365,6 +393,7 @@ class DefaultLLM(LLM):
     api_version: Optional[str]
     args: Dict
     is_robusta_model: bool
+    cache_control: Optional[bool] = None
 
     def __init__(
         self,
@@ -393,6 +422,9 @@ class DefaultLLM(LLM):
     def update_custom_args(self):
         self.max_context_size = self.args.get("custom_args", {}).get("max_context_size")
         self.args.pop("custom_args", None)
+        # ModelEntry.cache_control explicit override flows in via args; pop it
+        # so it never leaks into the litellm.completion call.
+        self.cache_control = self.args.pop("cache_control", None)
 
     def check_llm(
         self,
@@ -745,14 +777,18 @@ class DefaultLLM(LLM):
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
 
-        # Gemini rejects GenerateContent requests that combine CachedContent with
-        # system_instruction / tools / tool_config, which is exactly what
-        # cache_control_injection_points produces for us. Skip the cache hint for
-        # Gemini routes (both Google AI Studio and Vertex-AI hosted Gemini); other
-        # providers - including non-Gemini models on Vertex like Claude - keep
-        # their cache benefit.
+        # Some providers reject cache-control hints: Gemini rejects
+        # GenerateContent requests that combine CachedContent with
+        # system_instruction / tools / tool_config, and Bedrock Nova rejects
+        # the cachePoint field - both of which cache_control_injection_points
+        # produces. Skip the cache hint for those routes (see
+        # _supports_prompt_caching); a per-model `cache_control` override in
+        # model_list.yaml wins over the automatic default.
         cache_kwargs: Dict[str, Any] = {}
-        if not _is_gemini_route(litellm_model_name):
+        cache_control = self.cache_control
+        if cache_control is None:
+            cache_control = _supports_prompt_caching(litellm_model_name)
+        if cache_control:
             cache_kwargs["cache_control_injection_points"] = [
                 {
                     "location": "message",
