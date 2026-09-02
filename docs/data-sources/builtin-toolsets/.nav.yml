@@ -29,6 +29,7 @@ nav:
   - Internet: internet.md
   - Jenkins (MCP): jenkins-mcp.md
   - Kafka: kafka.md
+  - Karpenter: karpenter.md
   - Kubectl Run: kubectl-run.md
   - Kubernetes: kubernetes.md
   - Kubernetes (MCP): kubernetes-mcp.md

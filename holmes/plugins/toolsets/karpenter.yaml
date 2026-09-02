@@ -1,0 +1,122 @@
+toolsets:
+  karpenter/core:
+    description: "Read-only tools for investigating Karpenter node autoscaling: NodePools, NodeClaims, disruption events and controller logs"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/karpenter/"
+    icon_url: "https://raw.githubusercontent.com/HolmesGPT/holmesgpt/master/images/integration_logos/karpenter-icon.png"
+    llm_instructions: |
+      You have access to a set of Karpenter tools for debugging Kubernetes node autoscaling.
+      Karpenter provisions nodes in response to unschedulable pods and disrupts (consolidates/expires)
+      underutilized or drifted nodes. Its core CRDs are:
+        - NodePool (karpenter.sh)        – scheduling constraints and disruption policy
+        - NodeClaim (karpenter.sh)       – a requested node; one-to-one with a real Node once fulfilled
+
+      For AWS-specific infrastructure inspection (EC2NodeClass, subnets, security groups, AMIs,
+      IAM instance profiles, userdata) use the karpenter/aws toolset.
+
+      ALWAYS follow these troubleshooting steps when investigating Karpenter issues:
+        1. If pods are Pending, list them with karpenter_pending_pods and check their scheduling
+           constraints (nodeSelector, tolerations, affinity, topologySpreadConstraints, resource requests)
+           against the available NodePools (karpenter_nodepool_list / karpenter_nodepool_get).
+        2. If a NodeClaim exists but no Node has joined, run karpenter_nodeclaim_describe to read its
+           conditions and events — common failures include ICE ("insufficient capacity"), subnet/SG
+           misconfiguration, AMI/userdata errors, or IAM permission issues on the EC2NodeClass.
+           Use karpenter_nodeclaim_get for the raw YAML when you need provider IDs, resource requests,
+           or the exact spec that was submitted.
+        3. For unexpected node termination or scale-down, check karpenter_disruption_events and
+           karpenter_controller_logs for reasons like Drift, Consolidation, Expiration, Empty, or Interruption.
+        4. Cross-check with core Kubernetes resources (nodes, pods, events) to confirm whether the
+           problem is Karpenter-side or workload-side.
+
+      {% if tool_names|list|length > 0 %}
+      The following commands are available to introspect Karpenter: {{ ", ".join(tool_names) }}
+      {% endif %}
+
+      DO NOT tell the user to check resources themselves — investigate on their behalf with these tools
+      and give a specific, actionable conclusion (which NodePool, which NodeClaim, which constraint,
+      which log line).
+    tags:
+      - core
+    prerequisites:
+      - command: "kubectl version --client"
+      - command: "kubectl get crd nodepools.karpenter.sh"
+
+    tools:
+      - name: "karpenter_nodepool_list"
+        description: "List all Karpenter NodePools in the cluster (wide output shows disruption policy, weight, node count)"
+        command: "kubectl get nodepools.karpenter.sh -o wide"
+
+      - name: "karpenter_nodepool_get"
+        description: "Show full YAML spec and status of a specific NodePool — use to inspect requirements, disruption budgets, limits and template"
+        command: "kubectl get nodepool.karpenter.sh {{ name }} -o yaml"
+
+      - name: "karpenter_nodeclaim_list"
+        description: "List all NodeClaims (requested/live nodes managed by Karpenter) with type, zone, capacity-type and ready status"
+        command: "kubectl get nodeclaims.karpenter.sh -o wide"
+
+      - name: "karpenter_nodeclaim_get"
+        description: "Show full YAML of a NodeClaim — use when you need the raw spec (provider ID, resource requests, nodeClassRef) alongside conditions. Prefer karpenter_nodeclaim_describe for human-readable output with events."
+        command: "kubectl get nodeclaim.karpenter.sh {{ name }} -o yaml"
+
+      - name: "karpenter_nodeclaim_describe"
+        description: "Describe a NodeClaim to see its conditions and events — the primary tool for diagnosing a NodeClaim that is not becoming a Node (ICE, launch failures, registration timeouts, etc.)"
+        command: "kubectl describe nodeclaim.karpenter.sh {{ name }}"
+
+      - name: "karpenter_disruption_events"
+        description: "Recent cluster events related to Karpenter disruption (consolidation, drift, expiration, emptiness, interruption, blocked disruptions, failed draining/terminating, unconsolidatable pods). Returns the most recent matching events sorted by lastTimestamp; pass `lines` (default 100) to bound the output on busy clusters."
+        command: "kubectl get events -A --sort-by=.lastTimestamp | grep -iE 'karpenter|disrupt|unconsolidatable|drifted|expired|empty|faileddraining|failedterminating' | tail -n {{ lines | default(100) }}"
+
+      - name: "karpenter_controller_logs"
+        description: "Tail logs from the Karpenter controller pods (selected by app.kubernetes.io/name=karpenter). Defaults to the 'karpenter' namespace used by the upstream Helm chart; pass `ns` to override if Karpenter is installed elsewhere (e.g., `ns: kube-system` on EKS add-on installs)."
+        command: "kubectl logs -n {{ ns | default('karpenter') }} -l app.kubernetes.io/name=karpenter --tail={{ lines | default(500) }}"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 10000
+              prompt: |
+                Summarize these Karpenter controller logs focusing on:
+                - Provisioning decisions (launched NodeClaims, selected instance types, zones, capacity types)
+                - Disruption decisions (consolidation, drift, expiration, emptiness, interruption)
+                - Errors and warnings (ICE, subnet/SG/AMI discovery failures, IAM issues, registration timeouts, draining failures)
+                - Repeating reconcile messages — collapse into counts rather than listing every occurrence
+                - Specific NodeClaim/NodePool/Node/Pod names mentioned in problematic log lines
+                - Be concise: aim for ≤ 50% of the original text; prioritize anomalies over routine reconcile chatter
+                - Preserve exact timestamps and error strings so a human can grep for them in full logs
+
+      - name: "karpenter_pending_pods"
+        description: "List Pending pods cluster-wide — these are what drives Karpenter to provision new nodes. Always the first thing to check when 'nothing scales up'"
+        command: "kubectl get pods -A --field-selector=status.phase=Pending -o wide"
+
+  karpenter/aws:
+    description: "AWS-specific Karpenter tools: inspect EC2NodeClasses (AMI selectors, subnets, security groups, IAM instance profile, userdata). Requires the Karpenter AWS provider CRDs."
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/karpenter/"
+    icon_url: "https://raw.githubusercontent.com/HolmesGPT/holmesgpt/master/images/integration_logos/karpenter-icon.png"
+    llm_instructions: |
+      You have access to AWS-specific Karpenter tools for inspecting EC2NodeClass infrastructure
+      templates. Use these when debugging why a NodeClaim fails to launch an EC2 instance, or
+      when ICE / subnet / security group / AMI / IAM issues are suspected.
+
+      Typical uses:
+        1. A NodeClaim is stuck — after karpenter_nodeclaim_describe points at the EC2NodeClass,
+           run karpenter_ec2nodeclass_get on that class to verify subnetSelectorTerms,
+           securityGroupSelectorTerms, amiSelectorTerms and the role / instance profile resolve to
+           real AWS resources.
+        2. Capacity problems (ICE, no matching offerings) — confirm the EC2NodeClass permits the
+           instance categories / zones required by the NodePool.
+
+      {% if tool_names|list|length > 0 %}
+      The following AWS-specific commands are available: {{ ", ".join(tool_names) }}
+      {% endif %}
+    tags:
+      - cli
+    prerequisites:
+      - command: "kubectl version --client"
+      - command: "kubectl get crd ec2nodeclasses.karpenter.k8s.aws"
+
+    tools:
+      - name: "karpenter_ec2nodeclass_list"
+        description: "List EC2NodeClasses (AWS provider infrastructure templates)"
+        command: "kubectl get ec2nodeclasses.karpenter.k8s.aws"
+
+      - name: "karpenter_ec2nodeclass_get"
+        description: "Show full YAML of an EC2NodeClass — use to verify AMI selectors, subnets, security groups, IAM instance profile and userdata"
+        command: "kubectl get ec2nodeclass.karpenter.k8s.aws {{ name }} -o yaml"
