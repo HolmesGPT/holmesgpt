@@ -22,6 +22,21 @@ from holmes.common.env_vars import (
 )
 
 
+THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
+MAX_FILENAME_BYTES = 200
+
+
+def _safe_filename(
+    tool_name: str, tool_call_id: str, extension: str, suffix: str = ""
+) -> str:
+    safe_name = re.sub(r"[^\w\-]", "_", tool_name)
+    call_id = tool_call_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)[0]
+    safe_id = re.sub(r"[^\w\-]", "_", call_id)
+    stem = f"{safe_name}_{safe_id}{suffix}"
+    stem_bytes = stem.encode("utf-8")[: MAX_FILENAME_BYTES - len(extension)]
+    return stem_bytes.decode("utf-8", errors="ignore") + extension
+
+
 @contextmanager
 def tool_result_storage() -> Generator[Path, None, None]:
     """Context manager that creates a temp directory for tool results and cleans up after."""
@@ -53,10 +68,10 @@ def save_large_result(
     Returns the file path, or None if storage failed.
     """
     try:
-        safe_name = re.sub(r"[^\w\-]", "_", tool_name)
-        safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
         extension = ".json" if is_json else ".txt"
-        file_path = tool_results_dir / f"{safe_name}_{safe_id}{extension}"
+        file_path = tool_results_dir / _safe_filename(
+            tool_name, tool_call_id, extension
+        )
         file_path.write_text(content, encoding="utf-8")
         logging.info(f"Saved large tool result to filesystem: {file_path}")
         return str(file_path)
@@ -85,8 +100,6 @@ def save_images(
     Returns a list of saved file paths.
     """
     saved: List[str] = []
-    safe_name = re.sub(r"[^\w\-]", "_", tool_name)
-    safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
     for i, img in enumerate(images):
         try:
             mime_type = img.get("mimeType", "image/png")
@@ -97,7 +110,9 @@ def save_images(
                     f"(supported: {', '.join(MIME_TO_EXT.keys())})"
                 )
                 continue
-            file_path = tool_results_dir / f"{safe_name}_{safe_id}_img{i}{ext}"
+            file_path = tool_results_dir / _safe_filename(
+                tool_name, tool_call_id, ext, suffix=f"_img{i}"
+            )
             image_bytes = base64.b64decode(img["data"])
             file_path.write_bytes(image_bytes)
             saved.append(str(file_path))
