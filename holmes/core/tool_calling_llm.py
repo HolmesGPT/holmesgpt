@@ -1317,6 +1317,18 @@ class ToolCallingLLM:
             )
 
             tools_to_call = getattr(response_message, "tool_calls", None)
+            reasoning = getattr(response_message, "reasoning_content", None)
+            message = response_message.content
+
+            if reasoning:
+                yield StreamMessage(
+                    event=StreamEvents.AI_REASONING,
+                    data={
+                        "content": reasoning,
+                        "metadata": metadata,
+                    },
+                )
+
             if not tools_to_call:
                 # Capture the final iteration's finish_reason for usage tracking
                 # (HolmesUsageEvents.finish_reason). Earlier iterations always end
@@ -1336,7 +1348,7 @@ class ToolCallingLLM:
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
-                        "content": response_message.content,
+                        "content": message,
                         "messages": messages,
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,
@@ -1347,8 +1359,6 @@ class ToolCallingLLM:
                 )
                 return
 
-            reasoning = getattr(response_message, "reasoning_content", None)
-            message = response_message.content
             if reasoning or message:
                 yield StreamMessage(
                     event=StreamEvents.AI_MESSAGE,
