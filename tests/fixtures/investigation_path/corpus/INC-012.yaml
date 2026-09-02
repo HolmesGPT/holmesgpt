@@ -1,0 +1,41 @@
+incident_id: INC-012
+occurred_at: "2026-06-05"
+source_type: prometheus
+title: Catalog service erroring after a configuration rollout
+subject: catalog-service
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - http
+  - error
+  - deploy
+  - release
+  - catalog
+  - latency
+  - rollout
+
+root_cause:
+  label: config_regression
+  summary: >-
+    A rollout pointed the service at a feature-flag endpoint that did not exist
+    in that environment, so every request that consulted a flag failed.
+
+reference_path:
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: The error shape separates a code fault from a configuration one.
+  - intent: config_history
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 1.0
+    rationale: Lines the error up against the release that introduced it.
+  - intent: metrics
+    entity: {kind: metric, name: http_requests_total}
+    weight: 0.8
+    rationale: Shows whether the errors began exactly at the rollout.
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.4
+    rationale: Confirms the pods themselves are healthy, ruling out a crash loop.

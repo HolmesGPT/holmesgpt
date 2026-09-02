@@ -1,0 +1,43 @@
+incident_id: INC-008
+occurred_at: "2026-05-06"
+source_type: prometheus
+title: Search API returning errors after a release
+subject: search-api
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - http
+  - error
+  - deploy
+  - release
+  - search
+  - latency
+  - rollout
+
+root_cause:
+  label: config_regression
+  summary: >-
+    A release changed a default timeout to a value below the upstream response
+    time, so a share of requests failed while the pods stayed healthy.
+
+reference_path:
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: The error shape separates a code fault from a configuration one.
+  - intent: config_history
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 1.0
+    rationale: >-
+      Lines the error up against the release that introduced it. Without it,
+      a healthy-looking workload gives no starting point.
+  - intent: metrics
+    entity: {kind: metric, name: http_requests_total}
+    weight: 0.8
+    rationale: Shows whether the errors began exactly at the rollout.
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.4
+    rationale: Confirms the pods themselves are healthy, ruling out a crash loop.
