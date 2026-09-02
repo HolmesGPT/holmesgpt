@@ -18,6 +18,28 @@ You can also provide an initial question:
 holmes ask "what pods are failing?"
 ```
 
+## Continuing a Session
+
+Every `holmes ask` conversation is saved locally so you can pick it up again later. Sessions are stored as JSON files under `~/.holmes/sessions/` (override the location with the `HOLMES_CONFIGPATH_DIR` environment variable).
+
+To continue the most recent conversation with its full history:
+
+```bash
+holmes ask --continue
+# or
+holmes ask -c
+```
+
+You can also add a new question right away:
+
+```bash
+holmes ask -c "did the fix work?"
+```
+
+Use `/clear` inside interactive mode to start a fresh session without quitting. Continuing also works with `--no-interactive` for scripted runs.
+
+To stop saving conversations to disk (for example in CI), set `HOLMES_DISABLE_SESSION_PERSISTENCE=true`. Existing sessions can still be continued.
+
 ## Example Workflows
 
 ### Autonomous AI Investigation

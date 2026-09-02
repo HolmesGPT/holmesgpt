@@ -59,7 +59,11 @@ from holmes.core.feedback import (
     FeedbackCallback,
     UserFeedback,
 )
-from holmes.core.prompt import PromptComponent, build_initial_ask_messages
+from holmes.core.prompt import (
+    PromptComponent,
+    append_all_files_to_user_prompt,
+    build_initial_ask_messages,
+)
 from holmes.core.models import PendingToolApproval
 from holmes.core.tool_calling_llm import (
     ApprovalCallback,
@@ -90,6 +94,12 @@ from holmes.utils.colors import (
 from holmes.toolset_config_tui import run_toolset_config_tui
 from holmes.utils.console.consts import agent_name
 from holmes.utils.file_utils import write_json_file
+from holmes.utils.sessions import (
+    ChatSession,
+    SessionManager,
+    derive_title,
+    session_persistence_disabled,
+)
 from holmes.version import check_version_async
 
 # Display loggers that are silenced in interactive mode.
@@ -2221,6 +2231,91 @@ def save_conversation_to_file(
         )
 
 
+def persist_session(
+    session_manager: SessionManager,
+    session_id: str,
+    messages: List,
+    all_tool_calls_history: List[ToolCallResult],
+    model: Optional[str],
+    session_type: str = "interactive",
+) -> None:
+    """Save (or update) the current conversation as a session that can be continued.
+
+    Saving is skipped entirely when persistence is disabled via
+    ``HOLMES_DISABLE_SESSION_PERSISTENCE``. Failures are swallowed (and logged
+    inside SessionManager.save) so that an inability to persist never interrupts
+    an active conversation.
+    """
+    if session_persistence_disabled():
+        return
+    # Serialize tool calls one at a time so a single unserializable entry only
+    # drops itself rather than discarding the whole history.
+    tool_calls = []
+    for tc in all_tool_calls_history:
+        try:
+            tool_calls.append(tc.model_dump(mode="json"))
+        except Exception as e:  # noqa: BLE001 - never let serialization break the loop
+            logging.debug(
+                "Skipping unserializable tool call when saving session: %s", e
+            )
+    session = ChatSession(
+        session_id=session_id,
+        title=derive_title(messages),
+        working_directory=os.getcwd(),
+        model=model,
+        messages=messages,
+        tool_calls=tool_calls,
+        metadata={"session_type": session_type},
+    )
+    session_manager.save(session)
+
+
+def deserialize_tool_calls(serialized: List[Dict]) -> List[ToolCallResult]:
+    """Rebuild ToolCallResult objects from a continued session's saved tool calls.
+
+    Malformed entries are skipped (and logged) so a single bad record never
+    blocks continuing a conversation.
+    """
+    restored: List[ToolCallResult] = []
+    for tc in serialized or []:
+        try:
+            restored.append(ToolCallResult.model_validate(tc))
+        except Exception as e:  # noqa: BLE001
+            logging.debug("Skipping unrestorable tool call in resumed session: %s", e)
+    return restored
+
+
+def render_resumed_session(console: Console, session: ChatSession) -> None:
+    """Show a short summary of a continued conversation before resuming it."""
+    last_answer = next(
+        (
+            m.get("content")
+            for m in reversed(session.messages)
+            if m.get("role") == "assistant" and m.get("content")
+        ),
+        None,
+    )
+    console.print(
+        f"[bold {STATUS_COLOR}]Resumed session [bold]{session.session_id}[/bold] "
+        f"({session.user_turns} question(s), {session.message_count} messages).[/bold {STATUS_COLOR}]"
+    )
+    if session.working_directory:
+        console.print(f"[dim]Started in: {session.working_directory}[/dim]")
+    if isinstance(last_answer, str) and last_answer.strip():
+        console.print(
+            Panel(
+                Markdown(last_answer),
+                padding=(1, 2),
+                border_style=AI_COLOR,
+                title=f"[bold {AI_COLOR}]Last AI Response[/bold {AI_COLOR}]",
+                title_align="left",
+            )
+        )
+    console.print(
+        f"[dim]Continue the conversation below, or {SlashCommands.CLEAR.command} to start fresh.[/dim]\n"
+    )
+
+
 def _wait_for_completion_or_escape(
     thread: threading.Thread,
     cancel_event: threading.Event,
@@ -2288,6 +2383,8 @@ def run_interactive_loop(
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
     config: Optional[Config] = None,
     config_file_path: Optional[Path] = None,
+    session_manager: Optional[SessionManager] = None,
+    resume_session: Optional[ChatSession] = None,
 ) -> None:
     # Enable CLI mode for bash prefix loading (server mode doesn't call this)
     enable_cli_mode()
@@ -2428,7 +2525,25 @@ def run_interactive_loop(
         welcome_banner += f", [bold]{SlashCommands.FEEDBACK.command}[/bold] for feedback"
     console.print(welcome_banner)
 
-    if not initial_user_input:
+    # Continue a previous conversation if one was loaded (--continue).
+    messages = None
+    current_session_id = None
+    # Track all tool calls throughout conversation; seed it from the resumed
+    # session so previously persisted tool calls are not lost when this session
+    # is saved again, and so /show works on the earlier tool outputs.
+    all_tool_calls_history: List[ToolCallResult] = []
+    # Files passed with --file are attached to the first question of a continued
+    # session, since build_initial_ask_messages (which normally attaches them) is
+    # skipped when the history comes from disk.
+    pending_include_files: Optional[List[Path]] = None
+    if resume_session is not None:
+        messages = list(resume_session.messages)
+        current_session_id = resume_session.session_id
+        all_tool_calls_history = deserialize_tool_calls(resume_session.tool_calls)
+        pending_include_files = include_files
+        render_resumed_session(console, resume_session)
+
+    if not initial_user_input and resume_session is None:
         sample = _show_sample_questions_menu(console)
         if sample:
             initial_user_input = sample
@@ -2437,11 +2552,25 @@ def run_interactive_loop(
         console.print(
             f"\n[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {initial_user_input}"
         )
-    messages = None
     last_response = None
-    all_tool_calls_history: List[
-        ToolCallResult
-    ] = []  # Track all tool calls throughout conversation
+    if all_tool_calls_history:
+        show_completer.update_history(all_tool_calls_history)
+    model_name = getattr(ai.llm, "model", None)
+
+    def _save_session() -> None:
+        """Persist the current conversation so it can be continued later."""
+        nonlocal current_session_id
+        if session_manager is None or not messages:
+            return
+        if current_session_id is None:
+            current_session_id = SessionManager.new_session_id()
+        persist_session(
+            session_manager,
+            current_session_id,
+            messages,
+            all_tool_calls_history,
+            model_name,
+        )
 
     while True:
         try:
@@ -2496,6 +2625,12 @@ def run_interactive_loop(
                     messages = None
                     last_response = None
                     all_tool_calls_history.clear()
+                    # Start a fresh session on the next question rather than
+                    # overwriting the conversation we just cleared. The new
+                    # session's first question goes through
+                    # build_initial_ask_messages, which attaches --file itself.
+                    current_session_id = None
+                    pending_include_files = None
                     # Reset the show completer history
                     show_completer.update_history([])
                     ai.reset_interaction_state()
@@ -2579,6 +2714,15 @@ def run_interactive_loop(
                     prompt_component_overrides=prompt_component_overrides,
                 )
             else:
+                if pending_include_files:
+                    for file_path in pending_include_files:
+                        console.print(
+                            f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
+                        )
+                    user_input = append_all_files_to_user_prompt(
+                        user_input, pending_include_files
+                    )
+                    pending_include_files = None
                 messages.append({"role": "user", "content": user_input})
 
             escape_hint = (
@@ -2828,6 +2972,9 @@ def run_interactive_loop(
                 save_conversation_to_file(
                     json_output_file, messages, all_tool_calls_history, console
                 )
+
+            # Persist the session so it can be continued later with --continue
+            _save_session()
         except typer.Abort:
             console.print(
                 f"[bold {STATUS_COLOR}]Exiting interactive mode.[/bold {STATUS_COLOR}]"

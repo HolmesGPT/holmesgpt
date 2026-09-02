@@ -30,6 +30,7 @@ from holmes.config import (
 )
 from holmes.core.prompt import (
     PromptComponent,
+    append_all_files_to_user_prompt,
     build_initial_ask_messages,
     build_system_prompt,
     generate_user_prompt,
@@ -46,7 +47,13 @@ from holmes.core.oauth_utils import enable_disk_token_store
 # guess whether a missing user_id means "CLI" or "buggy server caller".
 _CLI_REQUEST_CONTEXT = {"user_id": DEFAULT_CLI_USER}
 from holmes.core.tracing import SpanType, TracingFactory
-from holmes.interactive import InitProgressRenderer, run_interactive_loop, silence_display_loggers
+from holmes.interactive import (
+    InitProgressRenderer,
+    deserialize_tool_calls,
+    persist_session,
+    run_interactive_loop,
+    silence_display_loggers,
+)
 from holmes.plugins.destinations import DestinationType
 from holmes.plugins.interfaces import Issue
 from holmes.plugins.prompts import load_and_render_prompt
@@ -54,6 +61,7 @@ from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.utils.sessions import ChatSession, SessionManager
 from holmes.checks.checks_cli import checks_app
 from holmes.common.cli_commons import (
     opt_api_key,
@@ -145,6 +153,13 @@ opt_documents: Optional[str] = typer.Option(
     None,
     "--documents",
     help="Additional documents to provide the LLM (typically URLs to runbooks)",
+)
+
+opt_continue_session: bool = typer.Option(
+    False,
+    "--continue",
+    "-c",
+    help="Resume the most recent session and continue the conversation",
 )
 
 
@@ -263,6 +278,7 @@ def ask(
         "--fast-mode",
         help="Skip TodoWrite planning phase for faster responses",
     ),
+    continue_session: bool = opt_continue_session,
 ):
     """
     Ask any question and answer using available tools
@@ -340,6 +356,16 @@ def ask(
     if echo_request and not interactive and prompt:
         console.print(f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {prompt}")
 
+    # Resolve the session to continue (--continue)
+    session_manager = SessionManager()
+    resumed_session: Optional[ChatSession] = None
+    if continue_session:
+        resumed_session = session_manager.latest()
+        if resumed_session is None:
+            raise typer.BadParameter(
+                "No previous sessions found to continue. Start one with 'holmes ask'."
+            )
+
     # Build prompt component overrides for fast mode
     prompt_component_overrides = None
     if fast_mode:
@@ -387,6 +413,8 @@ def ask(
                 prompt_component_overrides=prompt_component_overrides,
                 config=config,
                 config_file_path=config_file,
+                session_manager=session_manager,
+                resume_session=resumed_session,
             )
             return
 
@@ -396,14 +424,27 @@ def ask(
                     f"[bold yellow]Adding file {file_path} to context[/bold yellow]"
                 )
 
-        messages = build_initial_ask_messages(
-            prompt,  # type: ignore
-            include_file,
-            ai.tool_executor,
-            config.get_skill_catalog(),
-            system_prompt_additions,
-            prompt_component_overrides=prompt_component_overrides,
-        )
+        if resumed_session is not None:
+            # Continue the previous conversation: keep its history and append
+            # the new question, with any --file contents attached to it like a
+            # fresh run does. The system prompt from the original run is reused
+            # as-is.
+            messages = list(resumed_session.messages)
+            messages.append(
+                {
+                    "role": "user",
+                    "content": append_all_files_to_user_prompt(prompt, include_file),  # type: ignore
+                }
+            )
+        else:
+            messages = build_initial_ask_messages(
+                prompt,  # type: ignore
+                include_file,
+                ai.tool_executor,
+                config.get_skill_catalog(),
+                system_prompt_additions,
+                prompt_component_overrides=prompt_component_overrides,
+            )
 
         with tracer.start_trace(
             f'holmes ask "{prompt}"', span_type=SpanType.TASK
@@ -419,6 +460,28 @@ def ask(
 
         if json_output_file:
             write_json_file(json_output_file, response.model_dump())
+
+        # Persist the conversation so it can later be continued with --continue,
+        # even from non-interactive runs.
+        if messages:
+            if resumed_session is not None:
+                non_interactive_session_id = resumed_session.session_id
+                # Keep the resumed session's prior tool calls instead of
+                # overwriting them with only this run's tool calls.
+                tool_calls = deserialize_tool_calls(resumed_session.tool_calls) + (
+                    response.tool_calls or []
+                )
+            else:
+                non_interactive_session_id = SessionManager.new_session_id()
+                tool_calls = response.tool_calls or []
+            persist_session(
+                session_manager,
+                non_interactive_session_id,
+                messages,
+                tool_calls,
+                getattr(ai.llm, "model", None),
+                session_type="non-interactive",
+            )
 
         issue = Issue(
             id=str(uuid.uuid4()),
