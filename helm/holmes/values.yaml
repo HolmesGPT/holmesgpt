@@ -322,6 +322,15 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
+
+
   # Google Cloud Platform MCP addon - provides access to GCP services
   # Docker images and deployment scripts: https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/gcp
   #
@@ -417,6 +426,18 @@ mcpAddons:
       observability: ""
       storage: ""
 
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. The default below preserves the previously
+    # hardcoded behavior (non-root UID 1000 with fsGroup 1000); override or
+    # extend it for PSA-restricted namespaces.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      fsGroup: 1000
+    # Container-level security context. Applied to each gcp container's
+    # securityContext (gcloud, observability, storage).
+    containerSecurityContext: {}
+
   # Azure MCP Server Configuration
   azure:
     enabled: false
@@ -464,6 +485,14 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
@@ -563,6 +592,14 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
+
   # GitLab MCP Server Configuration
   # Provides access to GitLab projects, merge requests, issues, pipelines, and code.
   # Supports both gitlab.com (cloud) and self-hosted GitLab instances.
@@ -642,6 +679,14 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
+
   # Sentry MCP Server Configuration
   # Provides access to Sentry error tracking and monitoring
   # Authentication: Create a Sentry Auth Token with appropriate scopes
@@ -679,6 +724,14 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
 
   # Prefect MCP Server Configuration
   # Provides access to Prefect workflow orchestration for monitoring and troubleshooting
@@ -718,6 +771,14 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
 
   # Kubernetes Remediation MCP Server Configuration
   # Provides safe kubectl command execution with security controls
@@ -818,6 +879,23 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext. The default below preserves the previously hardcoded
+    # hardened block (read-only root FS, non-root UID, no capabilities); set
+    # explicit values to override.
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+
   # Kubernetes MCP Server Configuration
   # Provides advanced Kubernetes cluster access via the containers/kubernetes-mcp-server
   # Uses in-cluster ServiceAccount by default. For external clusters, provide a kubeconfig secret.
@@ -915,6 +993,14 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
+
   # Confluence MCP Server Configuration
   # Provides access to Confluence documentation search and retrieval
   # Authentication: Create an Atlassian API token
@@ -969,6 +1055,14 @@ mcpAddons:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+    # Pod-level security context. Applied to spec.template.spec.securityContext
+    # in the addon's Deployment. Set this when running in PSA-restricted
+    # namespaces.
+    podSecurityContext: {}
+    # Container-level security context. Applied to the addon container's
+    # securityContext.
+    containerSecurityContext: {}
 
 # Holmes Operator Configuration
 operator:
