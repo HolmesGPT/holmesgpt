@@ -1,0 +1,70 @@
+user_prompt: "Job 'legacy-batch-job' in namespace 'app-293' has been stuck in Pending for over 20 minutes. Investigate using the available tools and determine the root cause."
+expected_output:
+  - No Kueue Workload object exists for this Job
+  - The Job is missing the kueue.x-k8s.io/queue-name label
+  - The root cause is that Kueue never intercepted this Job, not insufficient quota or a queue misconfiguration
+
+tags:
+  - kubernetes
+  - easy
+  - question-answer
+
+evaluation:
+  correctness: 1
+
+# legacy-batch-job deliberately has no kueue.x-k8s.io/queue-name label, so
+# Kueue's webhook never intercepts it and no Workload is ever created. The
+# pod also requests far more CPU than any real node has, so it's genuinely
+# stuck Pending too (a plausible real-world surface symptom that must not be
+# mistaken for the actual root cause).
+before_test: |
+  KUEUE_VERSION=v0.19.0
+  if kubectl get crd workloads.kueue.x-k8s.io >/dev/null 2>&1; then
+    INSTALLED_IMAGE=$(kubectl get deployment/kueue-controller-manager -n kueue-system -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    if [[ "$INSTALLED_IMAGE" != *"$KUEUE_VERSION"* ]]; then
+      echo "❌ an existing Kueue install (image: ${INSTALLED_IMAGE:-none}) does not match the expected ${KUEUE_VERSION}; refusing to reuse it"
+      exit 1
+    fi
+  else
+    kubectl apply --server-side -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
+  fi
+  for i in {1..60}; do
+    kubectl get deployment/kueue-controller-manager -n kueue-system >/dev/null 2>&1 && break
+    sleep 1
+  done
+  kubectl wait --for=condition=Available deployment/kueue-controller-manager -n kueue-system --timeout=60s
+
+  kubectl apply -f ./manifest.yaml
+  # Poll (instead of a bare sleep) for both conditions that make this fixture
+  # valid: no Workload was ever created, and the Pod itself is genuinely
+  # Pending (not, say, still being created or already Running/Failed).
+  READY=false
+  for i in {1..60}; do
+    NO_WORKLOAD=false
+    kubectl get workload -n app-293 -o name 2>/dev/null | grep -q . || NO_WORKLOAD=true
+    POD_PHASE=$(kubectl get pods -n app-293 -l job-name=legacy-batch-job -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
+    if [ "$NO_WORKLOAD" = true ] && [ "$POD_PHASE" = "Pending" ]; then
+      echo "✅ Confirmed: no Workload was created and the Pod is Pending, as expected"
+      READY=true
+      break
+    fi
+    echo "⏳ Attempt $i/60: waiting for the pod to settle into Pending (no_workload=$NO_WORKLOAD phase=$POD_PHASE), checking in 1s..."
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "❌ did not reach the expected no-Workload/Pod-Pending state after 60s"
+    kubectl get workload -n app-293 -o yaml
+    kubectl get pods -n app-293 -o wide
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-293 --ignore-not-found
+  for i in {1..60}; do
+    kubectl get namespace app-293 >/dev/null 2>&1 || break
+    sleep 1
+  done
+  if kubectl get namespace app-293 >/dev/null 2>&1; then
+    echo "❌ namespace app-293 still exists after bounded teardown wait"
+    exit 1
+  fi
