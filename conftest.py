@@ -222,6 +222,11 @@ pytest_terminal_summary = show_llm_summary_report
 
 @pytest.fixture(autouse=True)
 def patch_supabase(monkeypatch):
+    """Patch Supabase connection settings with safe test values for every test.
+
+    Applied automatically (autouse=True) so all tests run without requiring a
+    real Supabase instance or valid credentials.
+    """
     monkeypatch.setattr("holmes.core.supabase_dal.ROBUSTA_ACCOUNT_ID", "test-cluster")
     monkeypatch.setattr(
         "holmes.core.supabase_dal.STORE_URL", "https://fakesupabaseref.supabase.co"
