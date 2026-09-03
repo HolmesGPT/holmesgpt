@@ -206,6 +206,7 @@ def pytest_configure(config):
 
 
 def pytest_report_header(config):
+    """Add a Braintrust experiment URL to the pytest report header when BRAINTRUST_API_KEY is set."""
     braintrust_api_key = os.environ.get("BRAINTRUST_API_KEY")
     if not braintrust_api_key:
         return ""
