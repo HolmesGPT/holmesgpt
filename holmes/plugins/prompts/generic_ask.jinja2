@@ -103,6 +103,14 @@ Relevant logs:
 Validation error led to an unhandled exception causing a crash.
 {% endif %}
 
+{% if conversation_link %}
+# Originating conversation
+
+This request originated from a conversation at {{ conversation_link }}
+
+Whenever you create an artifact outside this conversation that has a description — a pull request, merge request, issue, or ticket — include that link in its description (for example, end the description with "Requested via {{ conversation_link }}") so readers can trace it back to the original request.
+{% endif %}
+
 {% if system_prompt_additions %}
 {{ system_prompt_additions }}
 {% endif %}

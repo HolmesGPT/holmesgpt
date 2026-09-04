@@ -384,3 +384,85 @@ def test_slack_prefix_in_event_ask_routes_to_slack_chat_via_helper():
     assert cr.ask.startswith("**@user_U0AKMP2CZ97**")
     # And request_type is None so the helper's auto-detect runs.
     assert cr.request_type is None
+
+
+def test_conversation_link_read_from_conversations_metadata():
+    # conversation_link is conversation-level: the surface a chat originated
+    # from (Slack thread, Teams message, workflow run) does not change between
+    # turns, so relay stamps it once on the Conversations row's metadata.
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={"conversation_link": "https://acme.slack.com/archives/C1/p123"},
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "follow-up?"})
+    assert cr is not None
+    assert cr.conversation_link == "https://acme.slack.com/archives/C1/p123"
+
+
+def test_freeform_chat_conversation_link_is_server_derived(monkeypatch):
+    # For freeform platform chats the worker derives the link itself from the
+    # task's own ids — a client-writable metadata value must not pick the
+    # destination.
+    monkeypatch.setattr(
+        "holmes.core.conversation_links.ROBUSTA_UI_DOMAIN",
+        "https://platform.robusta.dev",
+    )
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={
+            "request_source": "freeform",
+            "conversation_link": "https://evil.example/spoof",
+        },
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "q"})
+    assert cr is not None
+    assert cr.conversation_link == (
+        "https://platform.robusta.dev/holmes/chat/c1?account_id=a1"
+    )
+
+
+def test_freeform_chat_gets_no_link_when_derivation_fails(monkeypatch):
+    # A freeform chat's link is server-derived or nothing: when derivation
+    # can't run (here: no UI domain configured), the client-writable metadata
+    # value must not slip in as a fallback.
+    monkeypatch.setattr("holmes.core.conversation_links.ROBUSTA_UI_DOMAIN", "")
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={
+            "request_source": "freeform",
+            "conversation_link": "https://acme.slack.com/archives/C1/p123",
+        },
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "q"})
+    assert cr is not None
+    assert cr.conversation_link is None
+
+
+def test_event_conversation_link_is_ignored():
+    # Only relay legitimately sets this key, and it stamps metadata — a
+    # per-turn event value is a client-side override attempt and is ignored.
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={"conversation_link": "https://acme.slack.com/archives/C1/p123"},
+    )
+    cr = _capture_chat_request_from_process(
+        task, {"ask": "q", "conversation_link": "https://evil.example/override"}
+    )
+    assert cr is not None
+    assert cr.conversation_link == "https://acme.slack.com/archives/C1/p123"
