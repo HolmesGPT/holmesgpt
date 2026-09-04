@@ -43,21 +43,26 @@ class KubectlRunImageCommand(Tool):
         super().__init__(
             name="kubectl_run_image",
             description=(
-                "Executes `kubectl run <name> --image=<image> ... -- <command>` return the result"
+                "Runs a command in a temporary, auto-deleted pod via "
+                "`kubectl run <name> --image=<image> --rm --attach --restart=Never -i -- <command>` "
+                "and returns the output. The image AND command must match an allow-list configured "
+                "by the operator - if no allow-list is configured, or the image/command is not "
+                "whitelisted, the call is rejected. The pod is ephemeral (created and deleted for "
+                "this single call) and runs in the 'default' namespace unless one is specified."
             ),
             parameters={
                 "image": ToolParameter(
-                    description="The image to run",
+                    description="The image to run (must be allow-listed by the operator)",
                     type="string",
                     required=True,
                 ),
                 "command": ToolParameter(
-                    description="The command to execute on the deployed pod",
+                    description="The command to execute on the deployed pod (must match the operator's allow-list)",
                     type="string",
                     required=True,
                 ),
                 "namespace": ToolParameter(
-                    description="The namespace in which to deploy the temporary pod",
+                    description="The namespace in which to deploy the temporary pod. Defaults to 'default'.",
                     type="string",
                     required=False,
                 ),
