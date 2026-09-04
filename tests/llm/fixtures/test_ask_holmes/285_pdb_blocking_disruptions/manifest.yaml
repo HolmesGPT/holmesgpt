@@ -1,0 +1,132 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-285
+---
+# minAvailable equals the replica count, so no pod can be evicted:
+# disruptionsAllowed=0 with expectedPods=1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nimbus-worker
+  namespace: app-285
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nimbus-worker
+  template:
+    metadata:
+      labels:
+        app: nimbus-worker
+    spec:
+      containers:
+      - name: worker
+        image: registry.k8s.io/pause:3.9
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nimbus-worker-pdb
+  namespace: app-285
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: nimbus-worker
+---
+# Same shape as nimbus: disruptionsAllowed=0 with expectedPods=1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: solstice-worker
+  namespace: app-285
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: solstice-worker
+  template:
+    metadata:
+      labels:
+        app: solstice-worker
+    spec:
+      containers:
+      - name: worker
+        image: registry.k8s.io/pause:3.9
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: solstice-worker-pdb
+  namespace: app-285
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: solstice-worker
+---
+# The deployment is scaled to zero, so this PDB guards nothing. It still
+# reports disruptionsAllowed=0, but with expectedPods=0 it cannot block an
+# eviction that can never happen.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: driftwood-worker
+  namespace: app-285
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: driftwood-worker
+  template:
+    metadata:
+      labels:
+        app: driftwood-worker
+    spec:
+      containers:
+      - name: worker
+        image: registry.k8s.io/pause:3.9
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: driftwood-worker-pdb
+  namespace: app-285
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: driftwood-worker
+---
+# Two replicas against minAvailable=1 leaves one eviction of headroom:
+# disruptionsAllowed=1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-worker
+  namespace: app-285
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lighthouse-worker
+  template:
+    metadata:
+      labels:
+        app: lighthouse-worker
+    spec:
+      containers:
+      - name: worker
+        image: registry.k8s.io/pause:3.9
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: lighthouse-worker-pdb
+  namespace: app-285
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: lighthouse-worker
