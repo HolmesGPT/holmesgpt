@@ -1,0 +1,5 @@
+# Classic variant ([toolsets]): only the ordinary read-only kubernetes toolset.
+# The model counts ConfigMaps by emitting individual tool calls per LLM step.
+toolsets:
+  kubernetes/core:
+    enabled: true

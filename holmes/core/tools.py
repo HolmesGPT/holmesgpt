@@ -265,6 +265,11 @@ class ToolInvokeContext(BaseModel):
         str
     ] = []  # Bash prefixes approved during this session
     request_context: Optional[Dict[str, Any]] = None
+    # Request-scoped ToolExecutor, set by the agentic loop. Lets a tool dispatch
+    # sibling tool calls (used by the code_execution toolset) without reading
+    # shared, mutable toolset state. Typed Any to avoid a circular import.
+    # exclude=True so executor/toolset/config state never appears in model_dump().
+    tool_executor: Optional[Any] = Field(default=None, exclude=True)
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""

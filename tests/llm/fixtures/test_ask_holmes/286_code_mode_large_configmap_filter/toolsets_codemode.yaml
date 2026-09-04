@@ -1,0 +1,9 @@
+# Code-mode variant ([codemode]): the read-only kubernetes toolset PLUS the
+# code_execution toolset. The model can fetch the ConfigMap inside a Python
+# script, filter for the needle, and print only the matching connection string,
+# so the ~40k-token body never enters the model's context.
+toolsets:
+  kubernetes/core:
+    enabled: true
+  code_execution:
+    enabled: true

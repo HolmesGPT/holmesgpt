@@ -1,0 +1,80 @@
+user_prompt:
+- "Find every namespace whose name starts with 'app-285' and tell me how many ConfigMaps are in each one. Give me the exact count per namespace and the total across all of them."
+
+# Same counting task as eval 227, but run as an A/B matrix over the toolset
+# config (see toolsets_matrix below): one variant with the ordinary read-only
+# kubernetes toolset ([toolsets]) and one that also enables the code_execution
+# "code mode" toolset ([codemode]). The expected answer is identical for both,
+# so this asserts CORRECTNESS PARITY — enabling code mode must not regress the
+# answer. The per-variant token / LLM-call counts recorded by the harness are
+# what quantify the token win; correctness is the pass/fail gate here.
+expected_output:
+  - The answer must state that app-285-alpha has exactly 23 ConfigMaps
+  - The answer must state that app-285-bravo has exactly 47 ConfigMaps
+  - The answer must state that app-285-charlie has exactly 71 ConfigMaps
+  - The answer must state that the total across all namespaces is exactly 141 ConfigMaps
+
+tags:
+  - kubernetes
+  - counting
+  - numerical
+  - benchmark
+
+toolsets_matrix:
+  - toolsets.yaml
+  - toolsets_codemode.yaml
+
+include_tool_calls: true
+
+before_test: |
+  set -e
+  echo "Creating 3 namespaces for the code-mode ConfigMap counting test"
+  for NS in alpha bravo charlie; do
+    kubectl create namespace "app-285-$NS" --dry-run=client -o yaml | kubectl apply -f -
+  done
+
+  create_configmaps() {
+    local NS=$1
+    local COUNT=$2
+    echo "Creating $COUNT ConfigMaps in $NS with random names..."
+    for i in $(seq 1 "$COUNT"); do
+      NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
+      kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n "$NS" &
+    done
+    wait
+    echo "Created $COUNT ConfigMaps in $NS"
+  }
+
+  # Each namespace also has an auto-created kube-root-ca.crt ConfigMap, so the
+  # observable count is (created + 1): 22->23, 46->47, 70->71. Total = 141.
+  create_configmaps app-285-alpha 22
+  create_configmaps app-285-bravo 46
+  create_configmaps app-285-charlie 70
+
+  echo "Verifying counts..."
+  FAIL=false
+  for PAIR in "app-285-alpha:23" "app-285-bravo:47" "app-285-charlie:71"; do
+    NS="${PAIR%%:*}"
+    EXPECTED="${PAIR##*:}"
+    ACTUAL=$(kubectl get configmaps -n "$NS" --no-headers | wc -l)
+    echo "$NS: $ACTUAL ConfigMaps (expected $EXPECTED)"
+    if [ "$ACTUAL" -ne "$EXPECTED" ]; then
+      echo "ERROR: Count mismatch in $NS"
+      FAIL=true
+    fi
+  done
+
+  if [ "$FAIL" = true ]; then
+    exit 1
+  fi
+
+  echo "Test setup complete!"
+
+after_test: |
+  for NS in alpha bravo charlie; do
+    kubectl delete namespace "app-285-$NS" --ignore-not-found
+  done
+
+# Routine counting investigation — nothing reusable to teach the environment, so
+# a well-behaved agent must not propose a skill. Mirrors eval 227.
+memories_generated: false

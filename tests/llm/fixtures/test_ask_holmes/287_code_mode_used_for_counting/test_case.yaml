@@ -1,0 +1,77 @@
+user_prompt:
+- "Use the code execution tool (run_python_code) to write a SINGLE Python script that lists the ConfigMaps in every namespace whose name starts with 'app-287', counts them per namespace, and returns the exact count per namespace and the total. Do the gathering and counting inside one script via the holmes.* client — do not call the kubernetes tools directly one-by-one."
+
+# Unlike evals 285/286 (which only assert correctness parity), this eval verifies
+# that CODE MODE IS ACTUALLY USED end-to-end: the prompt directs the model to use
+# run_python_code, `bash` is disabled so it cannot shell-script around it, and
+# include_tool_calls lets the evaluator confirm the run_python_code tool was
+# invoked. It also checks the answer is correct, so a passing run means: the model
+# chose code mode, the script dispatched the real kubernetes tools through the
+# bridge, and the aggregated result came back right.
+include_tool_calls: true
+
+expected_output:
+  - "Must call the run_python_code tool (code mode) to gather and count the ConfigMaps"
+  - "The answer must state that app-287-alpha has exactly 19 ConfigMaps"
+  - "The answer must state that app-287-bravo has exactly 43 ConfigMaps"
+  - "The answer must state that app-287-charlie has exactly 61 ConfigMaps"
+  - "The answer must state that the total across all namespaces is exactly 123 ConfigMaps"
+
+tags:
+  - kubernetes
+  - counting
+  - numerical
+  - benchmark
+
+before_test: |
+  set -e
+  echo "Creating 3 namespaces for the code-mode usage test"
+  for NS in alpha bravo charlie; do
+    kubectl create namespace "app-287-$NS" --dry-run=client -o yaml | kubectl apply -f -
+  done
+
+  create_configmaps() {
+    local NS=$1
+    local COUNT=$2
+    echo "Creating $COUNT ConfigMaps in $NS with random names..."
+    for i in $(seq 1 "$COUNT"); do
+      NAME="cm-$(cat /proc/sys/kernel/random/uuid | cut -c1-12)"
+      kubectl create configmap "$NAME" --from-literal=data="value-$RANDOM" -n "$NS" &
+    done
+    wait
+    echo "Created $COUNT ConfigMaps in $NS"
+  }
+
+  # Each namespace also has an auto-created kube-root-ca.crt ConfigMap, so the
+  # observable count is (created + 1): 18->19, 42->43, 60->61. Total = 123.
+  create_configmaps app-287-alpha 18
+  create_configmaps app-287-bravo 42
+  create_configmaps app-287-charlie 60
+
+  echo "Verifying counts..."
+  FAIL=false
+  for PAIR in "app-287-alpha:19" "app-287-bravo:43" "app-287-charlie:61"; do
+    NS="${PAIR%%:*}"
+    EXPECTED="${PAIR##*:}"
+    ACTUAL=$(kubectl get configmaps -n "$NS" --no-headers | wc -l)
+    echo "$NS: $ACTUAL ConfigMaps (expected $EXPECTED)"
+    if [ "$ACTUAL" -ne "$EXPECTED" ]; then
+      echo "ERROR: Count mismatch in $NS"
+      FAIL=true
+    fi
+  done
+
+  if [ "$FAIL" = true ]; then
+    exit 1
+  fi
+
+  echo "Test setup complete!"
+
+after_test: |
+  for NS in alpha bravo charlie; do
+    kubectl delete namespace "app-287-$NS" --ignore-not-found
+  done
+
+# Routine counting investigation — nothing reusable to teach; a well-behaved
+# agent must not propose a skill. Mirrors evals 227/285.
+memories_generated: false

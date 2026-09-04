@@ -1,0 +1,5 @@
+# Classic variant ([toolsets]): only the read-only kubernetes toolset. Fetching
+# the large ConfigMap brings its whole body into the model's context.
+toolsets:
+  kubernetes/core:
+    enabled: true
