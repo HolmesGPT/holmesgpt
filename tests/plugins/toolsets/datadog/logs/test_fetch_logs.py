@@ -7,6 +7,7 @@ Run with:
 """
 
 import os
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -58,3 +59,41 @@ class TestGetLogsTokenCount:
             print(f"\nData preview:\n{str(result.data)[:1000]}...")
         else:
             print(f"Error: {result.error}")
+
+
+class TestGetLogsSort:
+    """Unit tests for the sort order of the Datadog logs search."""
+
+    def setup_method(self):
+        self.toolset = DatadogLogsToolset()
+        self.toolset.dd_config = MagicMock()
+        self.toolset.dd_config.api_url = "https://api.datadoghq.com"
+        self.toolset.dd_config.default_limit = 100
+        self.toolset.dd_config.storage_tier = "indexes"
+        self.toolset.dd_config.indexes = []
+        self.toolset.dd_config.timeout_seconds = 60
+        self.toolset.dd_config.compact_logs = False
+        self.tool = GetLogs(toolset=self.toolset)
+
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
+    )
+    def test_sort_desc(self, mock_execute):
+        """sort_desc must map to the correct Datadog sort direction.
+
+        Regression test: the mapping used to be inverted (sort_desc=True
+        produced ascending order) and the documented default (true/descending)
+        did not match the code default.
+        """
+        mock_execute.return_value = {"data": []}
+
+        def sort_for(params):
+            self.tool._invoke(params, context=create_mock_tool_invoke_context())
+            return mock_execute.call_args[1]["payload_or_params"]["sort"]
+
+        # Omitted -> default descending (newest first)
+        assert sort_for({"query": "*"}) == "-timestamp"
+        # Explicit True -> descending
+        assert sort_for({"query": "*", "sort_desc": True}) == "-timestamp"
+        # Explicit False -> ascending (oldest first)
+        assert sort_for({"query": "*", "sort_desc": False}) == "timestamp"

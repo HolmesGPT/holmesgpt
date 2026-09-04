@@ -146,6 +146,30 @@ class TestFetchDatadogSpansByFilter:
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
     )
+    def test_invoke_sort_desc(self, mock_execute):
+        """The declared sort_desc parameter must control the sort order.
+
+        Regression test: the implementation used to read a non-existent "sort"
+        key, so sort_desc was silently ignored and the sort was always
+        descending (and an invalid boolean True could be sent to the API).
+        """
+        mock_execute.return_value = {"data": []}
+
+        def sort_for(params):
+            self.tool._invoke(params, context=create_mock_tool_invoke_context())
+            payload = mock_execute.call_args[1]["payload_or_params"]
+            return payload["data"]["attributes"]["sort"]
+
+        # Omitted -> default descending (newest first)
+        assert sort_for({"query": "*"}) == "-timestamp"
+        # Explicit True -> descending
+        assert sort_for({"query": "*", "sort_desc": True}) == "-timestamp"
+        # Explicit False -> ascending (oldest first)
+        assert sort_for({"query": "*", "sort_desc": False}) == "timestamp"
+
+    @patch(
+        "holmes.plugins.toolsets.datadog.toolset_datadog_traces.execute_datadog_http_request"
+    )
     def test_invoke_no_spans_found(self, mock_execute):
         """Test invocation when no spans are found."""
         mock_execute.return_value = {"data": []}
