@@ -1,0 +1,26 @@
+description: |
+  Tests that a Datadog environment scope (env:staging) actually restricts what
+  Holmes can see. Metrics for the target pod exist in Datadog but are tagged
+  env:production, and the toolset is scoped to env:staging. Holmes must report
+  that the data is not visible within its configured scope, and must not report
+  any production metric values — an unscoped or mis-scoped query would surface
+  them.
+
+before_test: |
+  bash ../../shared/send_datadog_metrics.sh billing-services invoice-processor-6d9f7b4c8-tk2mq invoice-processor
+
+user_prompt: "Can you show me a cpu graph of the invoice-processor-6d9f7b4c8-tk2mq pod in namespace billing-services?"
+
+include_tool_calls: true
+
+expected_output: |
+  - Must call the query_datadog_metrics tool at least once
+  - Must state that no data was found, or that the data is not visible/accessible, within the environment scope Holmes is restricted to (staging)
+  - Must NOT display CPU metric values, a CPU graph with data, or any datadogql embed presented as actual data for this pod
+  - Must NOT claim the pod does not exist or that everything is healthy
+
+tags:
+  - datadog
+
+after_test: |
+  # No cleanup needed - metrics sent to Datadog cannot be deleted anyway
