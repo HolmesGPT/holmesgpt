@@ -122,6 +122,18 @@ MAX_OUTPUT_TOKEN_RESERVATION = int(
 # When using the bash tool, setting BASH_TOOL_UNSAFE_ALLOW_ALL will skip any command validation and run any command requested by the LLM
 BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
 
+# Sandbox bash tool execution inside a bubblewrap (bwrap) OS-level jail.
+# Opt-in (default off). When enabled but the jail is unavailable (no bwrap, or
+# unprivileged user namespaces disabled), Holmes logs a warning and falls back
+# to direct execution. See docs/design/2026-06-05_bash-sandboxing.md
+HOLMES_BASH_SANDBOX_ENABLED = load_bool("HOLMES_BASH_SANDBOX_ENABLED", False)
+# Comma-separated list of additional environment variable names to carry into
+# the sandbox beyond the safe defaults (PATH, HOME, LANG, LC_*, TERM, TZ).
+# The jail clears the environment by default; only allowlisted vars are passed.
+HOLMES_BASH_SANDBOX_ENV_PASSTHROUGH = os.environ.get(
+    "HOLMES_BASH_SANDBOX_ENV_PASSTHROUGH", ""
+)
+
 LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
 TRACE_TOKEN_USAGE = load_bool("TRACE_TOKEN_USAGE", False)
 
