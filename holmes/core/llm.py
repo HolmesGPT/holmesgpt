@@ -320,6 +320,15 @@ class LLM:
     def get_context_window_size(self) -> int:
         pass
 
+    def is_prompt_caching_enabled(self) -> bool:
+        """Whether Holmes sends prompt-cache hints for this model.
+
+        Used to decide whether to warn about missing cache reads. Defaults to
+        True; DefaultLLM overrides this to exclude routes (e.g. Gemini) where
+        Holmes deliberately skips the cache hint.
+        """
+        return True
+
     @abstractmethod
     def get_maximum_output_token(self) -> int:
         pass
@@ -652,6 +661,16 @@ class DefaultLLM(LLM):
         else:
             return self.model
 
+    def is_prompt_caching_enabled(self) -> bool:
+        """Whether Holmes sends prompt-cache hints for this model.
+
+        Mirrors the gating used in completion(): every route gets
+        cache_control_injection_points except Gemini (Google AI Studio and
+        Vertex-hosted Gemini), which rejects CachedContent combined with
+        system_instruction / tools / tool_config.
+        """
+        return not _is_gemini_route(self.get_litellm_corrected_name_for_robusta_ai())
+
     def completion(
         self,
         messages: List[Dict[str, Any]],
@@ -752,7 +771,7 @@ class DefaultLLM(LLM):
         # providers - including non-Gemini models on Vertex like Claude - keep
         # their cache benefit.
         cache_kwargs: Dict[str, Any] = {}
-        if not _is_gemini_route(litellm_model_name):
+        if self.is_prompt_caching_enabled():
             cache_kwargs["cache_control_injection_points"] = [
                 {
                     "location": "message",

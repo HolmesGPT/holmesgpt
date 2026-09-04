@@ -26,7 +26,7 @@ from holmes.common.env_vars import (
     load_bool,
 )
 from holmes.core.llm import LLM
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_usage import PromptCachingValidator, RequestStats
 from holmes.core.models import (
     FrontendToolResult,
     PendingFrontendToolCall,
@@ -1147,6 +1147,10 @@ class ToolCallingLLM:
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
+        caching_validator = PromptCachingValidator(
+            model=self.llm.model,
+            caching_enabled=self.llm.is_prompt_caching_enabled(),
+        )
         if iteration_offset < 0:
             raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
@@ -1239,6 +1243,12 @@ class ToolCallingLLM:
                     if usage:
                         logging.info(f"LLM usage response:\n{usage}\n")
                 stats += response_stats
+
+                # Warn once if prompt caching looks misconfigured (caching-enabled
+                # model repeatedly returning 0 cache reads on a large prompt).
+                caching_validator.record(
+                    response_stats.prompt_tokens, response_stats.cached_tokens
+                )
 
                 # Record OTel LLM metrics
                 otel_metrics = TracingFactory.get_metrics()
