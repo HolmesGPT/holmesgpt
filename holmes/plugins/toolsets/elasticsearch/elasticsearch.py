@@ -367,8 +367,10 @@ class ElasticsearchCat(BaseElasticsearchTool):
                 "index": ToolParameter(
                     description=(
                         "Filter by index name or pattern. Supports wildcards (e.g., 'logs-*'). "
-                        "REQUIRED for shards, segments, recovery endpoints to avoid returning data for all indices. "
-                        "Recommended for indices endpoint when looking for specific indices."
+                        "STRONGLY RECOMMENDED for the shards, segments and recovery endpoints: it is "
+                        "not enforced, but omitting it returns data for ALL indices, which can be very "
+                        "large on big clusters. Also recommended for the indices endpoint when looking "
+                        "for specific indices. Ignored by endpoints that are not index-scoped (e.g. nodes, health)."
                     ),
                     type="string",
                     required=False,
@@ -443,7 +445,10 @@ class ElasticsearchSearch(BaseElasticsearchTool):
             description=(
                 "Execute an Elasticsearch search query using Query DSL. "
                 "Supports full Query DSL including bool queries, aggregations, and filters. "
-                "Returns up to 100 documents by default (configurable via size parameter)."
+                "Returns up to 100 documents by default; set the size parameter to change this. "
+                "Note: size is passed directly to Elasticsearch with no enforced upper limit, "
+                "so large values can return very large responses - keep size as small as possible "
+                "and use filters/aggregations to narrow results."
             ),
             parameters={
                 "index": ToolParameter(
@@ -465,7 +470,11 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                     required=False,
                 ),
                 "size": ToolParameter(
-                    description="Maximum number of documents to return (default: 100, max recommended: 500)",
+                    description=(
+                        "Maximum number of documents to return (default: 100). "
+                        "No enforced upper limit - large values can return very large "
+                        "responses, so keep this small and narrow results with filters/aggregations."
+                    ),
                     type="integer",
                     required=False,
                 ),
