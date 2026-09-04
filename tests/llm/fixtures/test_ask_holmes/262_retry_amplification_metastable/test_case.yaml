@@ -1,0 +1,133 @@
+# Test: retry-amplification / metastable cascade behind a wall of red herrings
+#
+# INTEGRITY MODEL (this is the answer key — never shown to the model):
+#   This eval does NOT restrict the toolset to stay honest (no disabling bash, no
+#   denying secret reads). Instead, integrity is a property of the DATA: nothing the
+#   model can observe — logs, ConfigMaps, or the app source in manifest.yaml — states
+#   or interprets the root cause. The observable surface is realistic raw signal only;
+#   the conclusion lives solely in expected_output below. That makes the eval robust
+#   no matter which tool surfaces the data: our kubernetes/logs, bash, or an
+#   off-the-shelf third-party logging MCP whose tools we don't control all return the
+#   same answer-free data, so the model must reason either way. (The only artifact that
+#   contains the answer is this file; the general guarantee against reading it is to run
+#   the agent the way a real deployment does — its own process with access to the
+#   cluster + MCP endpoints, not the eval's source tree.)
+#
+# Measured results (clean, sequential judge): opus-4.6 PASS (3/3), sonnet-4.6 PASS,
+# sonnet-4.5 FAIL — sonnet-4.5 takes the bait, calling it "pricing-db resource
+# starvation" and recommending a DB scale-up as the primary fix, while opus/sonnet-4.6
+# correctly identify the retry amplification as the cause and the DB scale-up as a
+# band-aid. A fair, solvable, frontier-discriminating eval.
+#
+# A famous real-world failure mode (retry storms / metastable failures, see the
+# Google SRE book "Addressing Cascading Failures" and the metastable-failures
+# literature). The hard part is that EVERY loud error is at the victim tier, so
+# the instinctive answer is wrong:
+#
+#   - Visible/loud symptom: pricing-service "worker pool exhausted / PRICE_POOL_FULL"
+#     and pricing-db "sorry, too many clients already". Screams "the pricing/DB
+#     tier is overloaded -> scale it / raise max_connections". THIS IS THE TRAP.
+#   - Actual root cause (quiet): catalog-service retries slow pricing calls up to 5x
+#     with ZERO backoff and NO circuit breaker (catalog-config), turning ~40 user
+#     req/s into ~200 req/s against pricing -> ~5x amplification. That self-inflicted
+#     load keeps pricing saturated, which keeps catalog retrying: a metastable loop
+#     that does NOT recover on its own.
+#   - pricing-db's own checkpoints/I-O are currently HEALTHY (it logs nominal
+#     checkpoints, sync ~110ms); it has simply run out of connection slots because
+#     of the excessive client connections. So "the DB is slow, scale it" is wrong —
+#     it is a victim of the connection load, not an unhealthy database.
+#   - Real fix: fix catalog's retry policy (exponential backoff + jitter, cap/reduce
+#     retries, enable circuit breaker, shed load) so the amplification stops.
+#
+# The real cause IS discoverable from logs + the ConfigMap (per the requirement
+# that the model can find it): the ~5x rate mismatch (storefront-gateway ~40 req/s
+# vs pricing-service ~200 req/s), catalog-config retry_max=5 / backoff=0 /
+# circuit_breaker=disabled, and catalog logging the same req_id retried "attempt
+# 5/5". Anti-hallucination needles (all periodic, so robustly present in tailed
+# logs): PRICE_POOL_FULL, the repeated "attempt 5/5" req_id retries, and the
+# amplification numbers (user_requests=40 / pricing_calls_emitted ~200).
+#
+# Surrounded by noise: recommendation-engine (OOMKilled + recent deploy),
+# analytics-collector (kafka down), email-dispatcher (crashloop), inventory-sync
+# (benign "connection pool nearing limit" decoy), ledger-api (benign retries),
+# edge-router (502/504 access-log noise).
+
+user_prompt: |
+  Customers are getting intermittent errors loading product pages in the app-262 namespace.
+  It started a while ago and it is NOT clearing up on its own. Lots of services in there look
+  unhealthy and there's a ton of noise. Find the actual root cause of the product-page failures
+  and tell me specifically what to change to fix it.
+
+include_tool_calls: true
+
+expected_output:
+  - "Identifies the REAL root cause as a retry-amplification / metastable cascade: catalog-service retries slow pricing-service calls up to 5x with no backoff and no circuit breaker (catalog-config: pricing-retry-max=5, pricing-retry-backoff-ms=0, circuit-breaker=disabled), turning each user request into ~5 upstream calls and driving ~5x the organic load onto pricing-service and pricing-db. The self-inflicted load is what sustains the overload (it does not recover on its own)"
+  - "Recognizes that the loud pricing-service 'worker pool exhausted / PRICE_POOL_FULL' and pricing-db 'too many clients already' errors are the SYMPTOM of the amplified load (the victim tier), NOT the root cause — i.e. pricing-db has run out of connection slots because of the excessive client connections, not because the database itself is unhealthy or its disk/IO is slow (its checkpoints are nominal)"
+  - "Cites the connecting evidence: the request-rate amplification (storefront-gateway / organic user traffic ~40 req/s vs pricing-service receiving ~200 req/s, i.e. ~5x) AND catalog-service's retry configuration (retry max 5, zero backoff, circuit breaker disabled) AND catalog retrying the same req_id (attempt 5/5)"
+  - "Its PRIMARY recommended fix targets the retry amplification in catalog-service: add exponential backoff + jitter, reduce/cap the retries, and/or enable a circuit breaker (and shed load) so the amplification stops and the system can recover. Recommending a temporary scale-up of pricing-service/pricing-db as a short-term stopgap is acceptable, but presenting 'scale pricing-db / raise max_connections / scale the pricing tier' as THE root cause or the main fix is a failure"
+  - "Does NOT pin the root cause on a red herring: the recently deployed or OOMKilled recommendation-engine, the analytics-collector kafka publish failures, the crashlooping email-dispatcher, the inventory-sync 'connection pool nearing limit' decoy, the ledger-api retry warnings, or storefront-gateway itself"
+
+tags:
+  - kubernetes
+  - logs
+  - chain-of-causation
+  - hard
+
+setup_timeout: 300
+
+before_test: |
+  set -e
+  kubectl apply -f manifest.yaml
+
+  # Trigger a recent rollout of an UNRELATED service so a "it broke right after a
+  # deploy" red herring points at a red herring (recommendation-engine), not the
+  # real culprit. The product-page failures are unrelated to this change.
+  kubectl set env deployment/recommendation-engine -n app-262 APP_VERSION=2.9.1 >/dev/null
+
+  # Verify the needles actually appear in the live logs before running the test.
+  GATEWAY_503=false
+  for i in $(seq 1 90); do
+    LOGS=$(kubectl logs -l app=storefront-gateway -n app-262 --tail=200 2>/dev/null || true)
+    if echo "$LOGS" | grep -q "503 Service Unavailable"; then
+      echo "Setup verified - storefront-gateway is emitting product-page 503s"
+      GATEWAY_503=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$GATEWAY_503" = false ]; then
+    echo "ERROR: storefront-gateway 503s not seen after 180s"
+    kubectl get pods -n app-262
+    kubectl logs -l app=storefront-gateway -n app-262 --tail=50 || true
+    exit 1
+  fi
+
+  POOL_FULL=false
+  for i in $(seq 1 60); do
+    LOGS=$(kubectl logs -l app=pricing-service -n app-262 --tail=200 2>/dev/null || true)
+    if echo "$LOGS" | grep -q "PRICE_POOL_FULL"; then
+      echo "Setup verified - pricing-service is emitting PRICE_POOL_FULL (the trap symptom)"
+      POOL_FULL=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$POOL_FULL" = false ]; then
+    echo "ERROR: pricing-service PRICE_POOL_FULL not seen after 120s"
+    kubectl get pods -n app-262
+    kubectl logs -l app=pricing-service -n app-262 --tail=50 || true
+    exit 1
+  fi
+
+  # Best-effort: let the red-herring pods reach their alarming states.
+  for i in $(seq 1 30); do
+    if kubectl get pods -n app-262 2>/dev/null | grep -Eq "OOMKilled|CrashLoopBackOff|Error"; then
+      echo "Red-herring pods reached an alarming state"
+      break
+    fi
+    sleep 2
+  done
+  kubectl get pods -n app-262 || true
+
+after_test: |
+  kubectl delete namespace app-262 --ignore-not-found
