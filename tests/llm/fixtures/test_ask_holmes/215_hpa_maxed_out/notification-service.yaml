@@ -1,0 +1,141 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: notification-app
+  namespace: app-215
+type: Opaque
+stringData:
+  app.py: |
+    from flask import Flask, Response, jsonify
+    from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+    import time
+    import random
+    import os
+
+    app = Flask(__name__)
+
+    NAMESPACE = os.environ.get('NAMESPACE', 'app-215')
+    POD_NAME = os.environ.get('POD_NAME', os.environ.get('HOSTNAME', 'unknown'))
+
+    request_count = Counter(
+        'notification_requests_total',
+        'Total notification requests',
+        ['namespace', 'pod', 'status']
+    )
+
+    request_duration = Histogram(
+        'notification_request_duration_seconds',
+        'Request duration in seconds',
+        ['namespace', 'pod'],
+        buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+    )
+
+    @app.route('/health')
+    def health():
+        return 'ok'
+
+    @app.route('/send', methods=['POST'])
+    def send_notification():
+        start = time.time()
+        # Simulate processing - gets slower under load
+        processing_time = 0.1 + random.uniform(0, 0.1)
+        time.sleep(processing_time)
+        duration = time.time() - start
+
+        request_count.labels(namespace=NAMESPACE, pod=POD_NAME, status='sent').inc()
+        request_duration.labels(namespace=NAMESPACE, pod=POD_NAME).observe(duration)
+
+        return jsonify({"status": "sent", "duration": duration})
+
+    @app.route('/metrics')
+    def metrics():
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=8080)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: app-215
+  labels:
+    app: notification-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: notification-service
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:2.2
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/app.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          periodSeconds: 10
+      volumes:
+      - name: app-code
+        secret:
+          secretName: notification-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: app-215
+  labels:
+    app: notification-service
+spec:
+  selector:
+    app: notification-service
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http

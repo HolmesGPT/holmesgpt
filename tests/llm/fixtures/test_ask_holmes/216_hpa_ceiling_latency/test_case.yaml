@@ -1,0 +1,129 @@
+user_prompt:
+- "The dispatch-service in namespace app-216 is responding very slowly. Average response time has jumped from 200ms to over 10 seconds. What is happening?"
+
+expected_output:
+  - Must identify that the HPA has reached its maximum replica count and cannot scale further
+  - Must note the current replica count equals maxReplicas (e.g., 3 out of 3)
+  - Should mention that CPU utilization is above the HPA target but no more pods can be added
+  - Should suggest increasing maxReplicas or adding more resources as a remediation
+
+include_tool_calls: true
+
+tags:
+  - kubernetes
+  - medium
+  - chain-of-causation
+  - regression
+
+setup_timeout: 300
+
+port_forwards:
+  - namespace: app-216
+    service: prometheus
+    local_port: 10216
+    remote_port: 9090
+
+before_test: |
+  set -e
+
+  echo "📁 Creating namespace..."
+  kubectl create namespace app-216 --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "🗄️ Deploying supporting services..."
+  kubectl apply -f supporting-services.yaml -n app-216
+
+  echo "⚙️ Setting up Prometheus..."
+  kubectl apply -f prometheus-config.yaml -n app-216
+  kubectl apply -f ../../shared/prometheus.yaml -n app-216
+
+  echo "🚀 Deploying dispatch-service..."
+  kubectl apply -f dispatch-service.yaml -n app-216
+
+  echo "⏳ Waiting for dispatch-service pods to be ready..."
+  PODS_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=dispatch-service -n app-216 --timeout=5s 2>/dev/null; then
+      echo "✅ Pods are ready!"
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PODS_READY" = false ]; then
+    echo "❌ Pods failed to become ready"
+    kubectl get pods -n app-216
+    exit 1
+  fi
+
+  echo "⏳ Waiting for Prometheus to be ready..."
+  PROM_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-216 --timeout=5s 2>/dev/null; then
+      echo "✅ Prometheus is ready!"
+      PROM_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PROM_READY" = false ]; then
+    echo "❌ Prometheus failed to become ready"
+    kubectl get pods -n app-216
+    exit 1
+  fi
+
+  echo "⏳ Waiting for supporting services..."
+  for i in {1..30}; do
+    if kubectl wait --for=condition=ready pod -l tier=infra -n app-216 --timeout=5s 2>/dev/null; then
+      echo "✅ Supporting services ready!"
+      break
+    fi
+    sleep 1
+  done
+
+  echo "📊 Applying HPA with low maxReplicas..."
+  kubectl apply -f hpa.yaml -n app-216
+
+  echo "📈 Generating load to saturate pods..."
+  kubectl apply -f traffic-generator.yaml -n app-216
+
+  echo "⏳ Waiting for traffic generator to start..."
+  for i in {1..30}; do
+    if kubectl get pods -n app-216 -l app=traffic-gen --no-headers 2>/dev/null | grep -q "Running"; then
+      echo "✅ Traffic generator running!"
+      break
+    fi
+    sleep 1
+  done
+
+  echo "⏳ Waiting for HPA to hit maxReplicas..."
+  HPA_MAXED=false
+  for i in {1..90}; do
+    CURRENT=$(kubectl get hpa dispatch-service-hpa -n app-216 -o jsonpath='{.status.currentReplicas}' 2>/dev/null || echo "0")
+    MAX=$(kubectl get hpa dispatch-service-hpa -n app-216 -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || echo "0")
+    if [ "$CURRENT" = "$MAX" ] && [ "$MAX" != "0" ]; then
+      echo "✅ HPA is at maxReplicas ($CURRENT/$MAX)!"
+      HPA_MAXED=true
+      break
+    fi
+    echo "⏳ HPA: $CURRENT/$MAX replicas (attempt $i/90)"
+    sleep 2
+  done
+  if [ "$HPA_MAXED" = false ]; then
+    echo "⚠️ HPA did not reach maxReplicas within timeout"
+    kubectl get hpa -n app-216
+  fi
+
+  echo "⏳ Waiting for metrics to be scraped by Prometheus (30s)..."
+  sleep 30
+
+  echo "🧹 Cleaning up traffic generator..."
+  kubectl delete -f traffic-generator.yaml -n app-216 --ignore-not-found=true
+
+  echo "📋 Final state:"
+  kubectl get pods -n app-216
+  kubectl get hpa -n app-216
+
+  echo "✅ Test setup completed"
+
+after_test: |
+  kubectl delete namespace app-216 || true
