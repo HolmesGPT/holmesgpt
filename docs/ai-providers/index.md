@@ -16,6 +16,7 @@ HolmesGPT supports multiple AI providers, giving you flexibility in choosing the
 -   [:material-earth:{ .lg .middle } **OpenRouter**](openrouter.md)
 -   [:material-robot:{ .lg .middle } **Robusta AI**](robusta-ai.md)
 -   [:material-layers-triple:{ .lg .middle } **Using Multiple Providers**](using-multiple-providers.md)
+-   [:material-dots-horizontal:{ .lg .middle } **Other LiteLLM Providers**](other.md)
 
 </div>
 
