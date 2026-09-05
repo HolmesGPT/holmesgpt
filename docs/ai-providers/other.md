@@ -24,8 +24,15 @@ modelList:
 ```
 
 For users in China, replace `https://api.minimax.io/v1` with
-`https://api.minimaxi.com/v1`. MiniMax M3 accepts text, image, and video input with adaptive
-or disabled thinking; M2.7 is text-only with thinking enabled.
+`https://api.minimaxi.com/v1`. The corresponding Anthropic-compatible endpoints are
+`https://api.minimax.io/anthropic` (global) and `https://api.minimaxi.com/anthropic` (China).
+
+Model capabilities and pricing in USD per million tokens are:
+
+| Model | Context window | Input | Output | Cache read | Cache write | Input types | Thinking mode |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| MiniMax M3 | 1,000,000 | $0.60 | $2.40 | $0.12 | — | Text, image, video | Adaptive or disabled |
+| MiniMax M2.7 | 204,800 | $0.30 | $1.20 | $0.06 | $0.375 | Text | Always on |
 
 See the [global MiniMax API documentation](https://platform.minimax.io/docs/api-reference/api-overview){:target="_blank"}
 or [China MiniMax API documentation](https://platform.minimaxi.com/docs/api-reference/api-overview){:target="_blank"}.
