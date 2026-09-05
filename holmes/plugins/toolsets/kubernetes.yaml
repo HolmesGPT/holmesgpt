@@ -18,13 +18,12 @@ toolsets:
         user_description: "jq query: kubectl get {{kind}} | jq '{{jq_expr}}'"
         description: >
           Use kubectl to get json for all resources of a specific kind and filter with jq.
-          More memory-efficient than bash for large queries - uses Kubernetes API pagination
-          to process resources in batches of 500, avoiding context window overflow.
-          Returns a JSON object with keys: "total_items_processed" (number of resources examined),
-          "matches_found" (number of results), "results" (array of matching resources), and
-          "stderr" (any error output from kubectl, or null).
-          IMPORTANT: The 'kind' parameter must be the plural form of the resource type
-          (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
+          Prefer over bash for large queries - paginates via the Kubernetes API so large
+          clusters don't overflow context.
+          Returns a JSON object with keys: "total_items_processed", "matches_found",
+          "results" (array of matching resources), and "stderr" (error output or null).
+          The 'kind' parameter must be the plural form of the resource type
+          (e.g., "pods" not "pod", "jobs" not "job").
           Do not worry about escaping the jq_expr - it will be done by the system.
           Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
         script: |
@@ -183,22 +182,16 @@ toolsets:
                 - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
 
       - name: "kubernetes_tabular_query"
-        user_description: "filter: kubectl get {{kind}} columns='{{columns}}'{% if filter_pattern %} filter={{filter_pattern}}{% endif %}"
+        user_description: "filter: kubectl get {{kind}} columns='{{columns}}'{% if filter_pattern %} filter={{filter_pattern}}{% endif %}{% if namespace %} ns={{namespace}}{% endif %}"
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
           Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
-          "rows" (array of data rows), and "stderr" (any error output, or null).
-          Memory-efficient way to query large clusters - only requested fields are transmitted.
+          "rows" (array of data rows), and "stderr" (error output or null).
+          Only requested fields are transmitted, so it works well on large clusters.
           Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
-
-          Optional filtering parameter:
-          - filter_pattern: Pattern to match in any column (supports grep regex)
-
-          Examples:
-          - Basic fields: NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName
-          - Filter by status: filter_pattern="Running"
-          - Nested fields: CREATED:.metadata.creationTimestamp,IMAGE:.spec.containers[0].image
-          - Array fields: LABELS:.metadata.labels,PORTS:.spec.ports[*].port
+          e.g. NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[0].image
+          Optional filter_pattern matches any column (grep regex), e.g. filter_pattern="Running".
+          Optional namespace restricts the query to a single namespace (avoids OOM on large clusters).
 
           LIMITATIONS - not allowed characters in columns: ' / ; and newline.
           Label keys containing dots or slashes (e.g. kubernetes.io/arch, app.kubernetes.io/name)
@@ -209,7 +202,11 @@ toolsets:
         script: |
           #!/bin/bash
           err_file=$(mktemp)
+          {% if namespace %}
+          output=$(kubectl get {{ kind }} -n {{ namespace }} -o custom-columns='{{ columns }}' 2>"$err_file")
+          {% else %}
           output=$(kubectl get {{ kind }} --all-namespaces -o custom-columns='{{ columns }}' 2>"$err_file")
+          {% endif %}
           kubectl_exit=$?
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
@@ -279,15 +276,14 @@ toolsets:
         description: >
           Use kubectl to apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.
-          More memory-efficient than bash for large queries - uses Kubernetes API pagination
-          to process resources in batches of 500, avoiding context window overflow.
+          Prefer over bash for large queries - paginates via the Kubernetes API so large
+          clusters don't overflow context.
           Returns a JSON object with keys: "total_items_processed", "matches_found" (number of matches),
-          "preview" (first 10 results truncated to 200 chars), and "stderr" (any error output, or null).
-          IMPORTANT: The 'kind' parameter must be the plural form of the resource type
-          (e.g., use "pods" not "pod", "services" not "service", "jobs" not "job").
-          Use select() to filter objects before extracting properties, e.g. .items[] | select(.metadata.namespace == "test-1") | .metadata.name
-          Do not worry about escaping the jq_expr it will be done by the system on an unescaped expression that you give.
-          e.g. give an expression like .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
+          "preview" (first 10 results truncated to 200 chars), and "stderr" (error output or null).
+          The 'kind' parameter must be the plural form of the resource type ("pods" not "pod").
+          Use select() to filter objects before extracting properties; do not worry about escaping
+          the jq_expr - it will be done by the system.
+          e.g. .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
         script: |
           #!/bin/bash
 

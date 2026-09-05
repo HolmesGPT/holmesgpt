@@ -1450,7 +1450,37 @@ class ToolCallingLLM:
                 # If either type of pause is needed, emit a single APPROVAL_REQUIRED
                 # event that carries both pending_approvals and pending_frontend_tool_calls.
                 # The client checks which lists are populated and handles accordingly.
+                #
+                # Special case: when the model produced content AND only frontend tool
+                # calls (no regular tool calls needing approval), treat this as a
+                # terminal answer.  The frontend calls (e.g. SuggestSkills) are
+                # side-effects that should not force another LLM turn; continuing the
+                # loop would cause the model to re-answer with a shorter, truncated
+                # version that loses the original detail.  See #2428.
                 if pending_approvals or pending_frontend_calls:
+                    if (
+                        message
+                        and pending_frontend_calls
+                        and not pending_approvals
+                    ):
+                        # Model answered + frontend-only tools → terminal
+                        deduped: dict[str, dict] = {}
+                        for tc in all_tool_calls:
+                            deduped[tc.get("tool_call_id", id(tc))] = tc
+                        yield StreamMessage(
+                            event=StreamEvents.ANSWER_END,
+                            data={
+                                "content": message,
+                                "messages": messages,
+                                "metadata": metadata,
+                                "tool_calls": list(deduped.values()),
+                                "num_llm_calls": i,
+                                "prompt": json.dumps(messages, indent=2),
+                                "costs": stats.model_dump(),
+                            },
+                        )
+                        return
+
                     yield StreamMessage(
                         event=StreamEvents.APPROVAL_REQUIRED,
                         data={
