@@ -1,4 +1,4 @@
-"""The model key on a dispatched user_message decides which LLM runs (ROB-873).
+"""The model key on a dispatched user_message decides which LLM runs.
 
 Relay's alert-triage dispatcher (relay#736) names a model in the seq-1
 user_message only when the account default is a model defined on the
@@ -8,7 +8,7 @@ decides. These pin the worker half of that contract:
 
   * a named model must reach ChatRequest untouched — losing it here silently
     reruns the investigation on the account/platform default, which is exactly
-    the bug ROB-873 reports;
+    the reported bug;
   * an omitted key must stay None (not become '' or a guess), because None is
     what routes get_model_params to the account-fallback path.
 """
