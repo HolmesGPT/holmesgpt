@@ -1,10 +1,11 @@
 """The model key on a dispatched user_message decides which LLM runs.
 
-Relay's alert-triage dispatcher (relay#736) names a model in the seq-1
-user_message only when the account default is a model defined on the
-customer's own agents; a Robusta-hosted default is omitted so the registry's
-account fallback (the model relay flags is_default in the models payload)
-decides. These pin the worker half of that contract:
+Relay's alert-triage dispatcher (relay#736, relay#772) names the account
+default in the seq-1 user_message — agent-defined or Robusta-hosted. The key
+is omitted when no default is stored (and by older relays, and for a Robusta
+name relay no longer serves); the registry's account fallback (the model relay
+flags is_default in the models payload) then decides. These pin the worker
+half of that contract:
 
   * a named model must reach ChatRequest untouched — losing it here silently
     reruns the investigation on the account/platform default, which is exactly
