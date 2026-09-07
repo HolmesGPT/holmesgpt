@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from typing import Any, Dict
@@ -23,12 +24,32 @@ TODO_WRITE_TOOL_NAME = "TodoWrite"
 def parse_tasks(todos_data: Any) -> list[Task]:
     tasks = []
 
-    for todo_item in todos_data:
+    if isinstance(todos_data, str):
+        try:
+            parsed = json.loads(todos_data)
+            if isinstance(parsed, list):
+                todos_data = parsed
+            else:
+                todos_data = [todos_data]
+        except (json.JSONDecodeError, ValueError):
+            todos_data = [todos_data]
+
+    if not isinstance(todos_data, list):
+        return tasks
+
+    for i, todo_item in enumerate(todos_data):
         if isinstance(todo_item, dict):
             task = Task(
-                id=todo_item.get("id", str(uuid4())),
-                content=todo_item.get("content", ""),
+                id=str(todo_item.get("id", str(uuid4()))),
+                content=str(todo_item.get("content", "")),
                 status=TaskStatus(todo_item.get("status", "pending")),
+            )
+            tasks.append(task)
+        elif isinstance(todo_item, str):
+            task = Task(
+                id=str(i + 1),
+                content=todo_item,
+                status=TaskStatus.PENDING,
             )
             tasks.append(task)
 
@@ -113,6 +134,11 @@ class TodoWriteTool(Tool):
                 response_data += formatted_tasks
             else:
                 response_data += "No tasks currently in the investigation plan."
+
+            params["todos"] = [
+                {"id": t.id, "content": t.content, "status": t.status.value}
+                for t in tasks
+            ]
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,

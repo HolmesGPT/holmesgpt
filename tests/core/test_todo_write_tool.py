@@ -66,6 +66,20 @@ class TestTodoWriteTool:
         # Should include pretty printed TodoList
         assert "Test task" in result.data
 
+    def test_todo_write_tool_with_string_tasks(self):
+        """Test TodoWriteTool handles string task items gracefully."""
+        tool = TodoWriteTool()
+        params = {"todos": ["Check pod status", "Analyze logs"]}
+
+        result = tool._invoke(params, context=create_mock_tool_invoke_context())
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "2 tasks" in result.data
+        assert "Check pod status" in result.data
+        assert isinstance(result.params["todos"], list)
+        assert result.params["todos"][0]["content"] == "Check pod status"
+        assert result.params["todos"][0]["status"] == "pending"
+
     def test_todo_write_tool_invalid_enum_values(self):
         """Test TodoWriteTool handles invalid enum values gracefully."""
         tool = TodoWriteTool()

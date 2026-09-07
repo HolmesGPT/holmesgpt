@@ -1,4 +1,5 @@
 import contextvars
+import json
 import logging
 import math
 import os
@@ -383,13 +384,61 @@ def _size_bar(output_len: int, max_width: int = 12) -> str:
     return f"{'▰' * filled} {size_str}"
 
 
+def _normalize_todos(todos: Any) -> list[dict]:
+    """Normalize todos into a list of dicts with 'id', 'content', and 'status'.
+
+    Handles cases where LLMs provide a list of strings, JSON strings, or dicts with unexpected types.
+    """
+    if isinstance(todos, str):
+        try:
+            parsed = json.loads(todos)
+            if isinstance(parsed, list):
+                todos = parsed
+            else:
+                todos = [todos]
+        except (json.JSONDecodeError, ValueError):
+            todos = [todos]
+    if not isinstance(todos, list):
+        return []
+
+    normalized = []
+    for i, t in enumerate(todos):
+        if isinstance(t, dict):
+            status = t.get("status")
+            if not isinstance(status, str) or status not in ("pending", "in_progress", "completed", "failed"):
+                status = "pending"
+            content = t.get("content")
+            if not isinstance(content, str):
+                content = str(content) if content is not None else ""
+            id_val = t.get("id", str(i + 1))
+            normalized.append({
+                "id": str(id_val),
+                "content": content,
+                "status": status,
+            })
+        elif isinstance(t, str):
+            normalized.append({
+                "id": str(i + 1),
+                "content": t,
+                "status": "pending",
+            })
+        elif t is not None:
+            normalized.append({
+                "id": str(i + 1),
+                "content": str(t),
+                "status": "pending",
+            })
+    return normalized
+
+
 def _build_task_panel(tasks: list) -> Panel:
     """Build a Rich Panel showing the task list with checkbox-style icons."""
-    completed = sum(1 for t in tasks if t.get("status") == "completed")
-    total = len(tasks)
+    normalized_tasks = _normalize_todos(tasks)
+    completed = sum(1 for t in normalized_tasks if t.get("status") == "completed")
+    total = len(normalized_tasks)
 
     content = Text()
-    for i, task in enumerate(tasks):
+    for i, task in enumerate(normalized_tasks):
         status = task.get("status", "pending")
         task_content = task.get("content", "")
 
@@ -650,10 +699,11 @@ class AgenticProgressRenderer:
 
         # --- Tasks section ---
         if self._live_tasks:
+            tasks = _normalize_todos(self._live_tasks)
             tasks_text = Text()
-            completed = sum(1 for t in self._live_tasks if t.get("status") == "completed")
-            total = len(self._live_tasks)
-            for task in self._live_tasks:
+            completed = sum(1 for t in tasks if t.get("status") == "completed")
+            total = len(tasks)
+            for task in tasks:
                 status = task.get("status", "pending")
                 tc = task.get("content", "")
                 if self._approval_pending:
@@ -856,7 +906,10 @@ class AgenticProgressRenderer:
                             if self._scroll_offset >= max_start:
                                 self._scroll_offset = 0
                                 self._scroll_pause = 6  # ~1s pause at wrap
-                    self._live.update(self._build_display())
+                    try:
+                        self._live.update(self._build_display())
+                    except Exception:
+                        pass
 
     def start(self) -> None:
         """Start the Live display with the initial 'Thinking...' spinner."""
@@ -956,7 +1009,7 @@ class AgenticProgressRenderer:
         for item in self._completed:
             _num, name, desc, toolset, elapsed, output_len, is_error, extra = item
             if name == _TODO_WRITE_TOOL_NAME and extra:
-                self._live_tasks = extra
+                self._live_tasks = _normalize_todos(extra)
             else:
                 self._tool_history.append((name, desc, toolset, elapsed, output_len or 0, is_error))
 
@@ -1066,9 +1119,10 @@ class AgenticProgressRenderer:
                 if tool_name == _TODO_WRITE_TOOL_NAME:
                     params = result_data.get("params") or {}
                     todos = params.get("todos")
-                    if isinstance(todos, list):
-                        extra = todos
-                        self._live_tasks = todos
+                    normalized = _normalize_todos(todos)
+                    if normalized:
+                        extra = normalized
+                        self._live_tasks = normalized
 
                 # Ingest raw output into scrolling data buffer (skip TodoWrite)
                 if tool_name != _TODO_WRITE_TOOL_NAME:

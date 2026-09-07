@@ -99,6 +99,40 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
         panels = self._get_printed_panels(console)
         assert len(panels) >= 2, f"Expected tasks + tools panels, got {len(panels)}"
 
+    def test_live_tasks_with_strings(self):
+        """Test that renderer handles live tasks when LLM returns strings instead of dicts."""
+        console = Mock(spec=Console)
+        renderer = AgenticProgressRenderer(console, tool_number_offset=0)
+        renderer._live_tasks = ["Check pods", "Check logs"]
+        renderer._tool_history.append(("kubectl_get_pods", "get pods in namespace default", "kubernetes", 1.0, 100, False))
+
+        pane = renderer._build_left_pane()
+        assert pane is not None
+
+        renderer.flush()
+        panels = self._get_printed_panels(console)
+        assert len(panels) >= 2
+
+    def test_todo_write_tool_result_with_string_todos(self):
+        """Test that handle_event handles TodoWrite when todos contains strings."""
+        console = Mock(spec=Console)
+        renderer = AgenticProgressRenderer(console, tool_number_offset=0)
+        event = StreamMessage(
+            event=StreamEvents.TOOL_RESULT,
+            data={
+                "tool_name": "TodoWrite",
+                "description": "Update tasks",
+                "result": {
+                    "data": "Investigation plan updated",
+                    "params": {"todos": ["Task 1", "Task 2"]},
+                },
+            },
+        )
+        all_calls = []
+        renderer.handle_event(event, all_calls, [])
+        pane = renderer._build_left_pane()
+        assert pane is not None
+
     def test_flush_no_double_print_after_ai_message(self):
         """Summary should print only once even if AI_MESSAGE already triggered it."""
         console = Mock(spec=Console)
