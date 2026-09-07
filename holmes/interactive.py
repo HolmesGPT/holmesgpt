@@ -385,22 +385,15 @@ def _size_bar(output_len: int, max_width: int = 12) -> str:
 
 def _build_task_panel(tasks: list) -> Panel:
     """Build a Rich Panel showing the task list with checkbox-style icons."""
-    content = Text()
-    completed = 0
+    completed = sum(1 for t in tasks if t.get("status") == "completed")
     total = len(tasks)
 
+    content = Text()
     for i, task in enumerate(tasks):
-        status = getattr(task, "status", None) or (
-            task.get("status") if isinstance(task, dict) else "pending"
-        )
-        if hasattr(status, "value"):
-            status = status.value
-        task_content = getattr(task, "content", None) or (
-            task.get("content") if isinstance(task, dict) else str(task)
-        )
+        status = task.get("status", "pending")
+        task_content = task.get("content", "")
 
         if status == "completed":
-            completed += 1
             content.append(" ☑ ", style="green")
             content.append(task_content, style="dim strike")
         elif status == "in_progress":
@@ -412,7 +405,7 @@ def _build_task_panel(tasks: list) -> Panel:
         else:
             content.append(" ☐ ", style="dim")
             content.append(task_content, style="dim")
-        if i < total - 1:
+        if i < len(tasks) - 1:
             content.append("\n")
 
     # Title with progress
@@ -658,21 +651,11 @@ class AgenticProgressRenderer:
         # --- Tasks section ---
         if self._live_tasks:
             tasks_text = Text()
-            completed = 0
+            completed = sum(1 for t in self._live_tasks if t.get("status") == "completed")
             total = len(self._live_tasks)
             for task in self._live_tasks:
-                status = getattr(task, "status", None) or (
-                    task.get("status") if isinstance(task, dict) else "pending"
-                )
-                if hasattr(status, "value"):
-                    status = status.value
-                tc = getattr(task, "content", None) or (
-                    task.get("content") if isinstance(task, dict) else str(task)
-                )
-
-                if status == "completed":
-                    completed += 1
-
+                status = task.get("status", "pending")
+                tc = task.get("content", "")
                 if self._approval_pending:
                     # All tasks dim when waiting for approval
                     icon = " ☑ " if status == "completed" else " ☒ " if status == "failed" else " ☐ "
@@ -873,10 +856,7 @@ class AgenticProgressRenderer:
                             if self._scroll_offset >= max_start:
                                 self._scroll_offset = 0
                                 self._scroll_pause = 6  # ~1s pause at wrap
-                    try:
-                        self._live.update(self._build_display())
-                    except Exception:
-                        logging.debug("Live display update failed", exc_info=True)
+                    self._live.update(self._build_display())
 
     def start(self) -> None:
         """Start the Live display with the initial 'Thinking...' spinner."""
@@ -975,7 +955,7 @@ class AgenticProgressRenderer:
 
         for item in self._completed:
             _num, name, desc, toolset, elapsed, output_len, is_error, extra = item
-            if name == _TODO_WRITE_TOOL_NAME and extra is not None:
+            if name == _TODO_WRITE_TOOL_NAME and extra:
                 self._live_tasks = extra
             else:
                 self._tool_history.append((name, desc, toolset, elapsed, output_len or 0, is_error))
@@ -1086,7 +1066,7 @@ class AgenticProgressRenderer:
                 if tool_name == _TODO_WRITE_TOOL_NAME:
                     params = result_data.get("params") or {}
                     todos = params.get("todos")
-                    if todos is not None and isinstance(todos, list):
+                    if isinstance(todos, list):
                         extra = todos
                         self._live_tasks = todos
 
