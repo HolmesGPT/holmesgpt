@@ -21,11 +21,13 @@ from holmes.interactive import (
     SlashCommands,
     UserFeedback,
     _LiveLogFilter,
+    _build_task_panel,
     _make_live,
     _run_inline_menu,
     handle_feedback_command,
     run_interactive_loop,
 )
+from holmes.plugins.toolsets.investigator.model import Task, TaskStatus
 from holmes.utils.stream import StreamEvents, StreamMessage
 from tests.mocks.toolset_mocks import SampleToolset
 
@@ -132,6 +134,40 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
         renderer.handle_event(event, all_calls, [])
         pane = renderer._build_left_pane()
         assert pane is not None
+
+    def test_build_task_panel_with_dicts_and_tasks(self):
+        """Test _build_task_panel renders both dicts and Task model instances with correct counts and icons."""
+        tasks = [
+            {"content": "Check pods", "status": "completed"},
+            Task(content="Analyze logs", status=TaskStatus.IN_PROGRESS),
+            Task(content="Check metrics", status=TaskStatus.FAILED),
+            {"content": "Draft report", "status": "pending"},
+        ]
+        panel = _build_task_panel(tasks)
+        assert panel is not None
+        assert "1/4" in str(panel.title)
+        plain_text = panel.renderable.plain
+        assert "Check pods" in plain_text
+        assert "Analyze logs" in plain_text
+        assert "Check metrics" in plain_text
+        assert "Draft report" in plain_text
+
+    def test_live_tasks_with_task_objects(self):
+        """Test that renderer handles live tasks containing Task model instances directly."""
+        console = Mock(spec=Console)
+        renderer = AgenticProgressRenderer(console, tool_number_offset=0)
+        renderer._live_tasks = [
+            Task(content="Task A", status=TaskStatus.COMPLETED),
+            Task(content="Task B", status=TaskStatus.PENDING),
+        ]
+        renderer._tool_history.append(("kubectl_get_pods", "get pods", "kubernetes", 1.0, 100, False))
+
+        pane = renderer._build_left_pane()
+        assert pane is not None
+
+        renderer.flush()
+        panels = self._get_printed_panels(console)
+        assert len(panels) >= 2
 
     def test_flush_no_double_print_after_ai_message(self):
         """Summary should print only once even if AI_MESSAGE already triggered it."""

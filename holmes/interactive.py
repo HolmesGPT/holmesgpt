@@ -384,65 +384,24 @@ def _size_bar(output_len: int, max_width: int = 12) -> str:
     return f"{'▰' * filled} {size_str}"
 
 
-def _normalize_todos(todos: Any) -> list[dict]:
-    """Normalize todos into a list of dicts with 'id', 'content', and 'status'.
-
-    Handles cases where LLMs provide a list of strings, JSON strings, or dicts with unexpected types.
-    """
-    if isinstance(todos, str):
-        try:
-            parsed = json.loads(todos)
-            if isinstance(parsed, list):
-                todos = parsed
-            else:
-                todos = [todos]
-        except (json.JSONDecodeError, ValueError):
-            todos = [todos]
-    if not isinstance(todos, list):
-        return []
-
-    normalized = []
-    for i, t in enumerate(todos):
-        if isinstance(t, dict):
-            status = t.get("status")
-            if not isinstance(status, str) or status not in ("pending", "in_progress", "completed", "failed"):
-                status = "pending"
-            content = t.get("content")
-            if not isinstance(content, str):
-                content = str(content) if content is not None else ""
-            id_val = t.get("id", str(i + 1))
-            normalized.append({
-                "id": str(id_val),
-                "content": content,
-                "status": status,
-            })
-        elif isinstance(t, str):
-            normalized.append({
-                "id": str(i + 1),
-                "content": t,
-                "status": "pending",
-            })
-        elif t is not None:
-            normalized.append({
-                "id": str(i + 1),
-                "content": str(t),
-                "status": "pending",
-            })
-    return normalized
-
-
 def _build_task_panel(tasks: list) -> Panel:
     """Build a Rich Panel showing the task list with checkbox-style icons."""
-    normalized_tasks = _normalize_todos(tasks)
-    completed = sum(1 for t in normalized_tasks if t.get("status") == "completed")
-    total = len(normalized_tasks)
-
     content = Text()
-    for i, task in enumerate(normalized_tasks):
-        status = task.get("status", "pending")
-        task_content = task.get("content", "")
+    completed = 0
+    total = len(tasks)
+
+    for i, task in enumerate(tasks):
+        status = getattr(task, "status", None) or (
+            task.get("status") if isinstance(task, dict) else "pending"
+        )
+        if hasattr(status, "value"):
+            status = status.value
+        task_content = getattr(task, "content", None) or (
+            task.get("content") if isinstance(task, dict) else str(task)
+        )
 
         if status == "completed":
+            completed += 1
             content.append(" ☑ ", style="green")
             content.append(task_content, style="dim strike")
         elif status == "in_progress":
@@ -454,7 +413,7 @@ def _build_task_panel(tasks: list) -> Panel:
         else:
             content.append(" ☐ ", style="dim")
             content.append(task_content, style="dim")
-        if i < len(tasks) - 1:
+        if i < total - 1:
             content.append("\n")
 
     # Title with progress
@@ -699,13 +658,22 @@ class AgenticProgressRenderer:
 
         # --- Tasks section ---
         if self._live_tasks:
-            tasks = _normalize_todos(self._live_tasks)
             tasks_text = Text()
-            completed = sum(1 for t in tasks if t.get("status") == "completed")
-            total = len(tasks)
-            for task in tasks:
-                status = task.get("status", "pending")
-                tc = task.get("content", "")
+            completed = 0
+            total = len(self._live_tasks)
+            for task in self._live_tasks:
+                status = getattr(task, "status", None) or (
+                    task.get("status") if isinstance(task, dict) else "pending"
+                )
+                if hasattr(status, "value"):
+                    status = status.value
+                tc = getattr(task, "content", None) or (
+                    task.get("content") if isinstance(task, dict) else str(task)
+                )
+
+                if status == "completed":
+                    completed += 1
+
                 if self._approval_pending:
                     # All tasks dim when waiting for approval
                     icon = " ☑ " if status == "completed" else " ☒ " if status == "failed" else " ☐ "
@@ -909,7 +877,7 @@ class AgenticProgressRenderer:
                     try:
                         self._live.update(self._build_display())
                     except Exception:
-                        pass
+                        logging.debug("Live display update failed", exc_info=True)
 
     def start(self) -> None:
         """Start the Live display with the initial 'Thinking...' spinner."""
@@ -1009,7 +977,7 @@ class AgenticProgressRenderer:
         for item in self._completed:
             _num, name, desc, toolset, elapsed, output_len, is_error, extra = item
             if name == _TODO_WRITE_TOOL_NAME and extra:
-                self._live_tasks = _normalize_todos(extra)
+                self._live_tasks = extra
             else:
                 self._tool_history.append((name, desc, toolset, elapsed, output_len or 0, is_error))
 
@@ -1119,10 +1087,9 @@ class AgenticProgressRenderer:
                 if tool_name == _TODO_WRITE_TOOL_NAME:
                     params = result_data.get("params") or {}
                     todos = params.get("todos")
-                    normalized = _normalize_todos(todos)
-                    if normalized:
-                        extra = normalized
-                        self._live_tasks = normalized
+                    if todos and isinstance(todos, list):
+                        extra = todos
+                        self._live_tasks = todos
 
                 # Ingest raw output into scrolling data buffer (skip TodoWrite)
                 if tool_name != _TODO_WRITE_TOOL_NAME:
