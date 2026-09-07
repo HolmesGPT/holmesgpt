@@ -33,14 +33,12 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="app-183f-shards"
 
-  # Delete the index if it exists
-  echo "⏳ Cleaning up any existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  # Create the test index with 3 shards and 0 replicas
-  echo "⏳ Creating test index with 3 shards..."
-  RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse instead. The shard count is fixed at index creation,
+  # so reusing an existing index keeps the test invariant intact.
+  echo "⏳ Creating (or reusing) test index with 3 shards..."
+  RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -50,8 +48,8 @@ before_test: |
       }
     }')
 
-  if echo "$RESPONSE" | grep -q '"acknowledged":true'; then
-    echo "✅ Test index created with 3 shards"
+  if echo "$RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
+    echo "✅ Test index ready with 3 shards"
   else
     echo "❌ Failed to create test index: $RESPONSE"
     exit 1
@@ -79,8 +77,8 @@ before_test: |
   done
 
 after_test: |
-
-  echo "⏳ Cleaning up test index: app-183f-shards"
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183f-shards" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  echo "✅ Cleanup complete"
+  # Index uses a static test-ID-scoped name (app-183f-shards). Parallel CI
+  # runs share the same Elasticsearch cluster, so we skip deletion to avoid
+  # removing the index while another run still depends on it.
+  # before_test is idempotent (create-or-reuse).
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

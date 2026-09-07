@@ -41,14 +41,14 @@ before_test: |
 
   echo "Creating test indexes for cross-service correlation..."
 
-  # Clean up any existing test data first
-  echo "Cleaning up any existing test data..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-190-service-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  # Reentrancy: indices use static test-ID-scoped names (app-190-service-*)
+  # and the same names are shared with parallel CI runs of this eval.
+  # Do NOT delete existing indices - that would wipe a parallel run's data.
+  # Instead, create-or-reuse: tolerate "resource_already_exists_exception".
 
   # Create indexes for each service
   for service in gateway auth orders inventory; do
-    CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-190-service-${service}" \
+    CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/app-190-service-${service}" \
       -H "Content-Type: application/json" \
       -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
       -d '{
@@ -70,8 +70,9 @@ before_test: |
         }
       }')
 
-    if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
-      echo "⚠️ Warning creating app-190-service-${service}: $CREATE_RESPONSE"
+    if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
+      echo "❌ Failed to create app-190-service-${service}: $CREATE_RESPONSE"
+      exit 1
     fi
   done
 
@@ -80,53 +81,57 @@ before_test: |
   BULK_FILE="/tmp/es_correlation_190_$$.ndjson"
   > "$BULK_FILE"
 
-  # Generate 50 normal traces (success)
+  # Generate 50 normal traces (success). Stable _ids and deterministic
+  # trace_ids so concurrent runs converge on the same docs instead of
+  # accumulating new copies in the shared cluster.
   for i in $(seq 1 50); do
-    TRACE_ID="TRACE-$((10000 + RANDOM % 90000))"
+    TRACE_ID=$(printf "TRACE-NORM-%03d" "$i")
     MIN=$(printf "%02d" $i)
 
     # Gateway log
-    echo "{\"index\": {\"_index\": \"app-190-service-gateway\"}}" >> "$BULK_FILE"
-    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"gateway\", \"level\": \"INFO\", \"message\": \"Received request POST /api/orders\", \"duration_ms\": $((1 + RANDOM % 5))}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-gateway\", \"_id\": \"norm-gw-${i}\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"gateway\", \"level\": \"INFO\", \"message\": \"Received request POST /api/orders\", \"duration_ms\": $((1 + i % 5))}" >> "$BULK_FILE"
 
     # Auth log
-    echo "{\"index\": {\"_index\": \"app-190-service-auth\"}}" >> "$BULK_FILE"
-    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.010Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-auth-${i}\", \"service\": \"auth\", \"level\": \"INFO\", \"message\": \"User authenticated successfully\", \"duration_ms\": $((5 + RANDOM % 15))}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-auth\", \"_id\": \"norm-auth-${i}\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.010Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-auth-${i}\", \"service\": \"auth\", \"level\": \"INFO\", \"message\": \"User authenticated successfully\", \"duration_ms\": $((5 + i % 15))}" >> "$BULK_FILE"
 
     # Orders log
-    echo "{\"index\": {\"_index\": \"app-190-service-orders\"}}" >> "$BULK_FILE"
-    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.030Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-orders-${i}\", \"service\": \"orders\", \"level\": \"INFO\", \"message\": \"Order created, checking inventory\", \"duration_ms\": $((10 + RANDOM % 40))}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-orders\", \"_id\": \"norm-orders-${i}\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.030Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-orders-${i}\", \"service\": \"orders\", \"level\": \"INFO\", \"message\": \"Order created, checking inventory\", \"duration_ms\": $((10 + i % 40))}" >> "$BULK_FILE"
 
     # Inventory log
-    echo "{\"index\": {\"_index\": \"app-190-service-inventory\"}}" >> "$BULK_FILE"
-    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.080Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-inv-${i}\", \"service\": \"inventory\", \"level\": \"INFO\", \"message\": \"Stock reserved successfully\", \"duration_ms\": $((20 + RANDOM % 80))}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-190-service-inventory\", \"_id\": \"norm-inv-${i}\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\": \"2024-01-15T10:${MIN}:00.080Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-inv-${i}\", \"service\": \"inventory\", \"level\": \"INFO\", \"message\": \"Stock reserved successfully\", \"duration_ms\": $((20 + i % 80))}" >> "$BULK_FILE"
   done
 
-  # Generate THE error trace - TRACE-X7K9M2-ERR
+  # Generate THE error trace - TRACE-X7K9M2-ERR. The needle docs use stable
+  # _ids so concurrent runs converge on the same documents instead of
+  # stacking duplicates that could skew the search.
   ERROR_TRACE="TRACE-X7K9M2-ERR"
 
   # Gateway - received request
-  echo "{\"index\": {\"_index\": \"app-190-service-gateway\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-gateway\", \"_id\": \"err-gw-1\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-gw-err\", \"service\": \"gateway\", \"level\": \"INFO\", \"message\": \"Received request POST /api/orders for user_12847\", \"duration_ms\": 2}" >> "$BULK_FILE"
 
   # Auth - success
-  echo "{\"index\": {\"_index\": \"app-190-service-auth\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-auth\", \"_id\": \"err-auth-1\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.010Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-auth-err\", \"service\": \"auth\", \"level\": \"INFO\", \"message\": \"User user_12847 authenticated via JWT token\", \"duration_ms\": 15}" >> "$BULK_FILE"
 
   # Orders - processing
-  echo "{\"index\": {\"_index\": \"app-190-service-orders\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-orders\", \"_id\": \"err-orders-1\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.030Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-orders-err\", \"service\": \"orders\", \"level\": \"INFO\", \"message\": \"Processing order for product SKU-78234, quantity: 500\", \"duration_ms\": 25}" >> "$BULK_FILE"
 
   # Inventory - THE ERROR
-  echo "{\"index\": {\"_index\": \"app-190-service-inventory\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-inventory\", \"_id\": \"err-inv-1\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.080Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-inv-err\", \"service\": \"inventory\", \"level\": \"ERROR\", \"message\": \"Failed to reserve stock for SKU-78234: insufficient inventory. Requested: 500, Available: 23\", \"error_code\": \"INV-ERR-4082\", \"duration_ms\": 45}" >> "$BULK_FILE"
 
   # Orders - propagated error
-  echo "{\"index\": {\"_index\": \"app-190-service-orders\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-orders\", \"_id\": \"err-orders-2\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.130Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-orders-err-2\", \"service\": \"orders\", \"level\": \"ERROR\", \"message\": \"Order failed: inventory service returned error INV-ERR-4082\", \"error_code\": \"ORD-ERR-1001\", \"duration_ms\": 130}" >> "$BULK_FILE"
 
   # Gateway - error response
-  echo "{\"index\": {\"_index\": \"app-190-service-gateway\"}}" >> "$BULK_FILE"
+  echo "{\"index\": {\"_index\": \"app-190-service-gateway\", \"_id\": \"err-gw-2\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:25:00.140Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-gw-err-2\", \"service\": \"gateway\", \"level\": \"ERROR\", \"message\": \"Request failed with 400 Bad Request: Order could not be fulfilled\", \"error_code\": \"GW-ERR-400\", \"duration_ms\": 145}" >> "$BULK_FILE"
 
   DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
@@ -172,11 +177,9 @@ before_test: |
   echo "✅ Setup complete!"
 
 after_test: |
-
-  echo "Cleaning up test indexes..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-190-service-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Indices use static test-ID-scoped names (app-190-service-*). Parallel CI
+  # runs share the same Elasticsearch cluster, so we skip deletion to avoid
+  # removing indices that another in-flight run still depends on.
+  # before_test is idempotent (create-or-reuse + stable _ids on every doc).
   rm -f /tmp/es_correlation_190_*.ndjson
-
-  echo "✅ Cleanup complete"
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

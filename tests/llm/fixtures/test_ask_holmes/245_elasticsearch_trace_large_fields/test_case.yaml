@@ -46,18 +46,19 @@ before_test: |
 
   echo "Creating APM traces index with large payload fields..."
 
-  # Clean up any existing test data
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-245-apm-traces" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse, with stable _ids on both the noise traces and the
+  # error needle so concurrent runs converge on the same document set.
 
-  # Create index with APM trace mapping
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-245-apm-traces" \
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/app-245-apm-traces" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"parent_span_id":{"type":"keyword"},"service":{"type":"keyword"},"operation":{"type":"keyword"},"duration_ms":{"type":"integer"},"http.method":{"type":"keyword"},"http.status_code":{"type":"integer"},"http.request.body":{"type":"text"},"http.response.body":{"type":"text"},"error.type":{"type":"keyword"},"error.message":{"type":"text"},"error.stack_trace":{"type":"text"}}}}')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
-    echo "⚠️ Warning creating index: $CREATE_RESPONSE"
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
   fi
 
   echo "✅ Index created, generating trace data..."
@@ -65,17 +66,19 @@ before_test: |
   BULK_FILE="/tmp/es_trace_195_$$.ndjson"
   > "$BULK_FILE"
 
-  # Generate 10 normal successful traces (small data)
+  # Generate 10 normal successful traces (small data). Stable _ids and
+  # deterministic trace_ids (derived from the loop index) keep this fully
+  # idempotent under concurrent runs.
   for i in $(seq 1 10); do
     PADDED_MIN=$(printf "%02d" $i)
-    TRACE_ID="TRACE-OK-$((10000 + RANDOM % 90000))"
+    TRACE_ID=$(printf "TRACE-OK-%05d" $((10000 + i)))
 
     # API Gateway span
-    echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-245-apm-traces\", \"_id\": \"ok-gw-${i}\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-gw-${i}\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 245, \"http.method\": \"POST\", \"http.status_code\": 200}" >> "$BULK_FILE"
 
     # Payment service span
-    echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
+    echo "{\"index\": {\"_index\": \"app-245-apm-traces\", \"_id\": \"ok-pay-${i}\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T10:${PADDED_MIN}:00.050Z\", \"trace_id\": \"${TRACE_ID}\", \"span_id\": \"span-pay-${i}\", \"parent_span_id\": \"span-gw-${i}\", \"service\": \"payment-service\", \"operation\": \"process_payment\", \"duration_ms\": 180, \"http.status_code\": 200}" >> "$BULK_FILE"
   done
 
@@ -112,12 +115,12 @@ before_test: |
   done
   STACK_TRACE="${STACK_TRACE}\\nConnectionTimeout: Authentication service did not respond within 5.0 seconds"
 
-  # API Gateway - received request (NO large fields here)
-  echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
+  # API Gateway - received request (NO large fields here). Stable _id.
+  echo "{\"index\": {\"_index\": \"app-245-apm-traces\", \"_id\": \"err-gw-1\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:15:00Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-gw-err\", \"service\": \"api-gateway\", \"operation\": \"POST /api/payment\", \"duration_ms\": 5234, \"http.method\": \"POST\", \"http.status_code\": 503}" >> "$BULK_FILE"
 
-  # Payment Gateway - THE ERROR with HUGE fields
-  echo "{\"index\": {\"_index\": \"app-245-apm-traces\"}}" >> "$BULK_FILE"
+  # Payment Gateway - THE ERROR with HUGE fields. Stable _id.
+  echo "{\"index\": {\"_index\": \"app-245-apm-traces\", \"_id\": \"err-pay-1\"}}" >> "$BULK_FILE"
   echo "{\"@timestamp\": \"2024-01-15T10:15:00.050Z\", \"trace_id\": \"${ERROR_TRACE}\", \"span_id\": \"span-pay-err\", \"parent_span_id\": \"span-gw-err\", \"service\": \"payment-gateway\", \"operation\": \"authenticate_payment\", \"duration_ms\": 5180, \"http.status_code\": 503, \"http.request.body\": \"${REQUEST_BODY}\", \"http.response.body\": \"${RESPONSE_BODY}\", \"error.type\": \"ConnectionTimeout\", \"error.message\": \"Authentication service timeout - error code AUTH-4729\", \"error.stack_trace\": \"${STACK_TRACE}\"}" >> "$BULK_FILE"
 
   DOC_COUNT=$(grep -c '\"index\"' "$BULK_FILE")
@@ -168,10 +171,9 @@ before_test: |
   echo "✅ Setup complete!"
 
 after_test: |
-  echo "Cleaning up test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-245-apm-traces" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Index uses a static test-ID-scoped name (app-245-apm-traces). Parallel
+  # CI runs share the same Elasticsearch cluster, so we skip deletion to
+  # avoid wiping data another in-flight run depends on. before_test is
+  # idempotent (PUT tolerates already-exists, bulk inserts use stable _ids).
   rm -f /tmp/es_trace_195_*.ndjson
-
-  echo "✅ Cleanup complete"
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

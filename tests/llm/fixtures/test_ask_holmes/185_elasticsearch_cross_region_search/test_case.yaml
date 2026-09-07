@@ -40,15 +40,13 @@ before_test: |
 
   echo "Creating 1620 geo-distributed indexes..."
 
-  # Clean up any existing test data first for idempotency
-  echo "Cleaning up any existing test data..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-185-geo-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
+  # Reentrancy: index pattern (app-185-geo-*) and template are static and
+  # shared with parallel CI runs of this eval. Do NOT delete - that would
+  # wipe a parallel run's data. PUT the template (idempotent overwrite) and
+  # rely on stable doc _ids in the bulk inserts so concurrent runs converge
+  # on the same documents.
 
-  # Create index template with 0 replicas to fit within cluster shard limits
-  echo "Creating index template with 0 replicas..."
+  echo "Creating (or updating) index template with 0 replicas..."
   TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
@@ -80,7 +78,8 @@ before_test: |
     for service in $SERVICES; do
       for day in $(seq -w 1 10); do
         INDEX_NAME="app-185-geo-${region}-${service}-2024.01.${day}"
-        echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
+        # Stable _id keeps the bulk inserts idempotent under concurrent runs.
+        echo "{\"index\": {\"_index\": \"${INDEX_NAME}\", \"_id\": \"seed-1\"}}" >> "$BULK_FILE"
         echo "{\"@timestamp\": \"2024-01-${day}T12:00:00Z\", \"level\": \"INFO\", \"service\": \"${service}\", \"region\": \"${region}\", \"message\": \"Request completed successfully\", \"response_time_ms\": 150}" >> "$BULK_FILE"
       done
     done
@@ -115,7 +114,10 @@ before_test: |
   # Insert the needle - a slow request in EU auth service
   echo "Inserting needle (slow EU request) into app-185-geo-eu-west-auth-2024.01.05..."
 
-  NEEDLE_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/app-185-geo-eu-west-auth-2024.01.05/_doc" \
+  # PUT with a stable needle _id so concurrent runs overwrite the same doc
+  # (rather than producing two copies of the needle, which would still pass
+  # but bloat the index).
+  NEEDLE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-185-geo-eu-west-auth-2024.01.05/_doc/needle-1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -161,15 +163,10 @@ before_test: |
   echo "✅ Setup complete!"
 
 after_test: |
-
-  echo "Cleaning up test indexes (app-185-geo-*)..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-185-geo-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  echo "Cleaning up index template..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-185-geo-template" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Indices and template use static test-ID-scoped names (app-185-geo-*,
+  # app-185-geo-template). Parallel CI runs share the same Elasticsearch
+  # cluster, so we skip deletion to avoid wiping resources that another
+  # in-flight run still depends on. before_test is idempotent (template PUT
+  # overwrites, bulk inserts and needle PUT use stable _ids).
   rm -f /tmp/es_geo_185_*.ndjson /tmp/es_geo_185_chunk_*
-
-  echo "✅ Cleanup complete"
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"
