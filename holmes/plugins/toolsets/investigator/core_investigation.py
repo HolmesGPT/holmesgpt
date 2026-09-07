@@ -3,6 +3,8 @@ import logging
 import os
 from typing import Any, Dict
 
+from pydantic import ValidationError
+
 from holmes.core.todo_tasks_formatter import format_tasks
 from holmes.core.tools import (
     StructuredToolResult,
@@ -35,7 +37,8 @@ def parse_tasks(todos_data: Any) -> list[Task]:
         if item:
             try:
                 tasks.append(Task.model_validate(item))
-            except Exception:
+            except ValidationError:
+                display_logger.debug("Skipping invalid todo item")
                 continue
 
     return tasks
