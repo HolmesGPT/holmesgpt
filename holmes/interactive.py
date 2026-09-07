@@ -71,7 +71,7 @@ from holmes.core.tool_calling_llm import (
 from holmes.core.llm_usage import RequestStats
 from holmes.core.models import ToolApprovalDecision
 from holmes.utils.stream import StreamEvents, StreamMessage
-from holmes.core.tools import pretty_print_toolset_status
+from holmes.core.tools import StructuredToolResult, pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
     enable_cli_mode,
@@ -1444,6 +1444,39 @@ def handle_show_command(
     show_tool_output_modal(tool_to_show, console)
 
 
+def _build_show_output(result: StructuredToolResult) -> str:
+    """Build the text shown in the /show modal, inserting a marker at the
+    real LLM boundary when the result was spilled for being oversized."""
+    if result.original_stringified_data is None:
+        return strip_ansi_codes(result.get_stringified_data())
+
+    raw_full = result.original_stringified_data
+    full = strip_ansi_codes(raw_full)
+    if result.spill_reason == "dropped_no_storage":
+        label = (
+            "--- NOTHING below this line was sent to the LLM "
+            "(tool output was dropped; no filesystem storage) ---\n"
+        )
+        return label + full
+
+    # The spill boundary is recorded against the *raw* stringified data (which
+    # may contain ANSI escapes), but we display the ANSI-stripped text. Map the
+    # raw index onto the stripped index so the marker lands at the visible
+    # character the LLM actually saw, not offset by whatever escape sequences
+    # happened to live before the boundary.
+    raw_boundary = result.llm_preview_boundary_chars or 0
+    raw_boundary = max(0, min(raw_boundary, len(raw_full)))
+    boundary = len(strip_ansi_codes(raw_full[:raw_boundary]))
+    boundary = max(0, min(boundary, len(full)))
+    spilled = result.spilled_file_path
+    marker = (
+        "\n--- content below this line was NOT sent to the LLM"
+        + (f"; saved to {spilled}" if spilled else "")
+        + " ---\n"
+    )
+    return full[:boundary] + marker + full[boundary:]
+
+
 def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
     """
     Display a tool output in a scrollable modal window.
@@ -1453,9 +1486,8 @@ def show_tool_output_modal(tool_call: ToolCallResult, console: Console) -> None:
         console: Rich console (for fallback display)
     """
     try:
-        # Get the full output
-        output = tool_call.result.get_stringified_data()
-        output = strip_ansi_codes(output)
+        output = _build_show_output(tool_call.result)
+
         title = build_modal_title(tool_call, "off")  # Word wrap starts disabled
 
         # Detect appropriate syntax highlighting

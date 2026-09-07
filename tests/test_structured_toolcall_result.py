@@ -266,7 +266,16 @@ def test_to_client_dict():
     assert response["description"] == "desc"
     assert response["role"] == "tool"
 
-    expected_dump = structured.model_dump()
+    # to_client_dict excludes interactive-only spill metadata to avoid
+    # doubling API payload size on oversized tool results.
+    expected_dump = structured.model_dump(
+        exclude={
+            "original_stringified_data",
+            "llm_preview_boundary_chars",
+            "spilled_file_path",
+            "spill_reason",
+        }
+    )
     expected_dump["data"] = structured.get_stringified_data()
     assert response["result"] == expected_dump
 
