@@ -1,0 +1,3 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
