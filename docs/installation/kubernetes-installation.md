@@ -133,6 +133,37 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
    helm install holmesgpt robusta/holmes -f values.yaml
    ```
 
+## Optional: OpenTelemetry instrumentation
+
+You can enable optional OpenTelemetry (OTLP) tracing to send traces to an OpenTelemetry Collector or compatible backend (e.g. Jaeger, Tempo, Grafana Cloud). When enabled, the chart injects the OTLP environment variables consumed by Holmes’ built-in tracer; if you also want auto-instrumentation, the container entrypoint needs to be wrapped accordingly.
+
+To enable:
+
+1. Set **`otlp.enabled`** to `true` and set **`otlp.endpoint`** to your collector URL (e.g. `http://otel-collector.observability.svc:4317`).
+2. Ensure your Holmes image includes the OpenTelemetry dependencies (the default image does).
+
+Add (or merge) the following into your `values.yaml`:
+
+    # values.yaml (merge with your existing modelList, additionalEnvVars, etc.)
+    otlp:
+      enabled: true
+      service: holmesgpt          # OTEL_SERVICE_NAME
+      endpoint: "http://otel-collector.observability.svc:4317"
+      metrics: "none"             # optional; set to "otlp" to export metrics
+      logs: "none"                # optional; set to "otlp" to export logs
+      # protocol: "grpc"          # optional; default is grpc, use "http/protobuf" for HTTP
+      # insecure: "true"          # optional; set for plaintext (e.g. same-cluster collector)
+      # headers: "key1=value1,key2=value2"   # optional; auth or tenant headers
+      # excludedUrls: optional. If omitted, the chart sets OTEL_PYTHON_FASTAPI_EXCLUDED_URLS to "/healthz,/readyz".
+      # If you set excludedUrls (including ""), that exact value is used—an empty string clears the default exclusions
+      # so health/readiness routes are not excluded from tracing (OpenTelemetry Python FastAPI semantics).
+
+Then install or upgrade as usual:
+
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
+
+If **`otlp.enabled`** is `false` or **`otlp.endpoint`** is empty, the server runs without the OpenTelemetry wrapper and no OTLP env vars are set.
+
 ## Usage
 
 After installation, test the service with a simple API call:
