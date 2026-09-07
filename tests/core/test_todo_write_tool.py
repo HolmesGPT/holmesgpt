@@ -1,6 +1,6 @@
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.investigator.core_investigation import TodoWriteTool
-from holmes.plugins.toolsets.investigator.model import TaskStatus
+from holmes.plugins.toolsets.investigator.model import Task, TaskStatus
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -139,3 +139,32 @@ class TestTodoWriteTool:
 
         # Check required fields
         assert "todos" in params["required"]
+
+
+class TestTaskModel:
+    def test_task_model_string_coercion(self):
+        """Test that Task.model_validate with a string coerces to Task with content and pending status."""
+        task = Task.model_validate("Check pod status")
+        assert task.content == "Check pod status"
+        assert task.status == TaskStatus.PENDING
+        assert isinstance(task.id, str)
+        assert len(task.id) > 0
+
+    def test_task_model_invalid_status_sanitization(self):
+        """Test that Task.model_validate with an unknown status value sanitizes to pending status."""
+        task = Task.model_validate({"content": "foo", "status": "unknown_value"})
+        assert task.content == "foo"
+        assert task.status == TaskStatus.PENDING
+        assert isinstance(task.id, str)
+
+    def test_task_model_to_dict(self):
+        """Test that Task.to_dict returns a dict with string status."""
+        task = Task.model_validate({"id": "custom-id", "content": "foo", "status": "completed"})
+        d = task.to_dict()
+        assert d == {
+            "id": "custom-id",
+            "content": "foo",
+            "status": "completed",
+        }
+        assert isinstance(d["status"], str)
+
