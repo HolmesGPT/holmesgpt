@@ -27,7 +27,9 @@ class Task(BaseModel):
         # Dict task: sanitize invalid status enum values to default
         if isinstance(data, dict):
             status = data.get("status")
-            if status and status not in TaskStatus._value2member_map_:
+            try:
+                TaskStatus(status)
+            except (ValueError, TypeError):
                 data = {**data, "status": TaskStatus.PENDING.value}
             return data
 
@@ -39,4 +41,3 @@ class Task(BaseModel):
             "content": self.content,
             "status": self.status.value,
         }
-

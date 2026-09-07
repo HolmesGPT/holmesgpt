@@ -151,15 +151,18 @@ class TestTaskModel:
         assert len(task.id) > 0
 
     def test_task_model_invalid_status_sanitization(self):
-        """Test that Task.model_validate with an unknown status value sanitizes to pending status."""
-        task = Task.model_validate({"content": "foo", "status": "unknown_value"})
-        assert task.content == "foo"
-        assert task.status == TaskStatus.PENDING
-        assert isinstance(task.id, str)
+        """Test that Task.model_validate with an unknown or malformed status sanitizes to pending status."""
+        for invalid_status in ["unknown_value", None, "", ["pending"]]:
+            task = Task.model_validate({"content": "foo", "status": invalid_status})
+            assert task.content == "foo"
+            assert task.status == TaskStatus.PENDING
+            assert isinstance(task.id, str)
 
     def test_task_model_to_dict(self):
         """Test that Task.to_dict returns a dict with string status."""
-        task = Task.model_validate({"id": "custom-id", "content": "foo", "status": "completed"})
+        task = Task.model_validate(
+            {"id": "custom-id", "content": "foo", "status": "completed"}
+        )
         d = task.to_dict()
         assert d == {
             "id": "custom-id",
@@ -167,4 +170,3 @@ class TestTaskModel:
             "status": "completed",
         }
         assert isinstance(d["status"], str)
-
