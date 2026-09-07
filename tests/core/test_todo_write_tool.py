@@ -197,6 +197,13 @@ class TestParseTasks:
         assert tasks[0].content == "Check pods"
         assert tasks[0].status == TaskStatus.IN_PROGRESS
 
+    def test_parse_tasks_with_json_singleton_object(self):
+        """Test parse_tasks with a JSON string of a single task object."""
+        tasks = parse_tasks('{"content": "Check pods", "status": "in_progress"}')
+        assert len(tasks) == 1
+        assert tasks[0].content == "Check pods"
+        assert tasks[0].status == TaskStatus.IN_PROGRESS
+
     def test_parse_tasks_with_plain_string(self):
         """Test parse_tasks with a plain non-JSON string."""
         tasks = parse_tasks("Check single pod")

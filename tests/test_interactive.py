@@ -135,6 +135,29 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
         pane = renderer._build_left_pane()
         assert pane is not None
 
+    def test_todo_write_empty_todos_clears_tasks(self):
+        """Test that TodoWrite with empty todos clears live tasks and is not added to tool history."""
+        console = Mock(spec=Console)
+        renderer = AgenticProgressRenderer(console, tool_number_offset=0)
+        renderer._live_tasks = [{"content": "Existing task", "status": "pending"}]
+
+        event = StreamMessage(
+            event=StreamEvents.TOOL_RESULT,
+            data={
+                "tool_name": "TodoWrite",
+                "description": "Update tasks",
+                "result": {
+                    "data": "Investigation plan updated with 0 tasks",
+                    "params": {"todos": []},
+                },
+            },
+        )
+        all_calls = []
+        renderer.handle_event(event, all_calls, [])
+
+        assert renderer._live_tasks == []
+        assert len(renderer._tool_history) == 0
+
     def test_build_task_panel_with_dicts_and_tasks(self):
         """Test _build_task_panel renders both dicts and Task model instances with correct counts and icons."""
         tasks = [

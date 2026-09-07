@@ -1,5 +1,4 @@
 import contextvars
-import json
 import logging
 import math
 import os
@@ -976,7 +975,7 @@ class AgenticProgressRenderer:
 
         for item in self._completed:
             _num, name, desc, toolset, elapsed, output_len, is_error, extra = item
-            if name == _TODO_WRITE_TOOL_NAME and extra:
+            if name == _TODO_WRITE_TOOL_NAME and extra is not None:
                 self._live_tasks = extra
             else:
                 self._tool_history.append((name, desc, toolset, elapsed, output_len or 0, is_error))
@@ -1087,7 +1086,7 @@ class AgenticProgressRenderer:
                 if tool_name == _TODO_WRITE_TOOL_NAME:
                     params = result_data.get("params") or {}
                     todos = params.get("todos")
-                    if todos and isinstance(todos, list):
+                    if todos is not None and isinstance(todos, list):
                         extra = todos
                         self._live_tasks = todos
 
