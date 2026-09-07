@@ -12,7 +12,8 @@ from holmes.core.tools import (
     YAMLTool,
     YAMLToolset,
 )
-from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_file
+from holmes.core.toolset_manager import DEPRECATED_TOOLSET_NAMES
+from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config, load_toolsets_from_file
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from tests.llm.utils.mock_dal import load_test_dal
 
@@ -73,11 +74,8 @@ class TestToolsetManager:
         )
         custom_definitions = self._load_custom_toolsets(config_path)
 
-        # Always load default toolsets.yaml
-        default_config_path = os.path.join(
-            os.path.dirname(__file__), "default_toolsets.yaml"
-        )
-        default_definitions = self._load_custom_toolsets(default_config_path)
+        # Load server defaults from helm chart values.yaml (single source of truth)
+        default_definitions = self._load_server_default_toolsets()
 
         # If custom toolsets.yaml exists, merge with defaults (custom takes precedence)
         if custom_definitions:
@@ -92,6 +90,36 @@ class TestToolsetManager:
 
         # Configure builtin toolsets with custom definitions
         self.toolsets = self._configure_toolsets(builtin_toolsets, custom_definitions)
+
+    @staticmethod
+    def _load_server_default_toolsets() -> List[Toolset]:
+        """Load default toolsets from the helm chart values.yaml.
+
+        This ensures evals use the same default toolset set as the server/helm
+        chart. Eval-specific overlays (e.g. blocking secret access via bash)
+        are applied on top.
+        """
+        repo_root = Path(__file__).resolve().parents[3]
+        helm_values_path = repo_root / "helm" / "holmes" / "values.yaml"
+
+        with open(helm_values_path) as f:
+            helm_values = yaml.safe_load(f)
+
+        toolsets_config: dict = {}
+        for name, config in (helm_values.get("toolsets") or {}).items():
+            mapped_name = DEPRECATED_TOOLSET_NAMES.get(name, name)
+            toolsets_config[mapped_name] = dict(config) if config else {}
+
+        # Eval-specific: block secret access via bash tool to prevent LLM
+        # from reading code hints stored in Kubernetes secrets
+        if "bash" in toolsets_config:
+            bash_config = toolsets_config["bash"].setdefault("config", {})
+            bash_config["deny"] = [
+                "kubectl get secret",
+                "kubectl describe secret",
+            ]
+
+        return load_toolsets_from_config(toolsets_config, strict_check=False)
 
     def _load_custom_toolsets(self, config_path: str) -> List[Toolset]:
         """Load custom toolsets from a YAML file.
