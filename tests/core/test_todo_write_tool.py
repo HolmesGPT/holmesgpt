@@ -1,5 +1,8 @@
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.plugins.toolsets.investigator.core_investigation import TodoWriteTool
+from holmes.plugins.toolsets.investigator.core_investigation import (
+    TodoWriteTool,
+    parse_tasks,
+)
 from holmes.plugins.toolsets.investigator.model import Task, TaskStatus
 from tests.conftest import create_mock_tool_invoke_context
 
@@ -81,7 +84,7 @@ class TestTodoWriteTool:
         assert result.params["todos"][0]["status"] == "pending"
 
     def test_todo_write_tool_invalid_enum_values(self):
-        """Test TodoWriteTool handles invalid enum values gracefully."""
+        """Test TodoWriteTool handles invalid enum values gracefully by sanitizing to pending."""
         tool = TodoWriteTool()
         params = {
             "todos": [
@@ -95,9 +98,11 @@ class TestTodoWriteTool:
 
         result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
-        # Should handle gracefully and return error
-        assert result.status == StructuredToolResultStatus.ERROR
-        assert "Failed to process tasks" in result.error
+        # Should handle gracefully by sanitizing invalid status to pending
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "1 tasks" in result.data
+        assert result.params["todos"][0]["status"] == "pending"
+        assert result.params["todos"][0]["content"] == "Test task"
 
     def test_get_parameterized_one_liner(self):
         """Test the parameterized one-liner description."""
@@ -170,3 +175,55 @@ class TestTaskModel:
             "status": "completed",
         }
         assert isinstance(d["status"], str)
+
+
+class TestParseTasks:
+    def test_parse_tasks_with_json_string_list(self):
+        """Test parse_tasks with a JSON string of task strings."""
+        tasks = parse_tasks('["Check pods", "View logs"]')
+        assert len(tasks) == 2
+        assert tasks[0].content == "Check pods"
+        assert tasks[0].status == TaskStatus.PENDING
+        assert tasks[1].content == "View logs"
+        assert tasks[1].status == TaskStatus.PENDING
+
+    def test_parse_tasks_with_json_object_list(self):
+        """Test parse_tasks with a JSON string of task objects."""
+        tasks = parse_tasks(
+            '[{"id": "t1", "content": "Check pods", "status": "in_progress"}]'
+        )
+        assert len(tasks) == 1
+        assert tasks[0].id == "t1"
+        assert tasks[0].content == "Check pods"
+        assert tasks[0].status == TaskStatus.IN_PROGRESS
+
+    def test_parse_tasks_with_plain_string(self):
+        """Test parse_tasks with a plain non-JSON string."""
+        tasks = parse_tasks("Check single pod")
+        assert len(tasks) == 1
+        assert tasks[0].content == "Check single pod"
+        assert tasks[0].status == TaskStatus.PENDING
+
+    def test_parse_tasks_with_dict_list(self):
+        """Test parse_tasks with a Python list of dicts."""
+        data = [
+            {"content": "Task 1", "status": "completed"},
+            {"content": "Task 2", "status": "invalid_status"},
+        ]
+        tasks = parse_tasks(data)
+        assert len(tasks) == 2
+        assert tasks[0].status == TaskStatus.COMPLETED
+        assert tasks[1].status == TaskStatus.PENDING
+
+    def test_parse_tasks_skips_invalid_items(self):
+        """Test parse_tasks gracefully skips unparseable items."""
+        data = [None, "", {"non_task_field": 123}, {"content": "Valid task"}]
+        tasks = parse_tasks(data)
+        assert len(tasks) == 1
+        assert tasks[0].content == "Valid task"
+
+    def test_parse_tasks_empty_inputs(self):
+        """Test parse_tasks with empty or None input."""
+        assert parse_tasks([]) == []
+        assert parse_tasks(None) == []
+        assert parse_tasks("") == []

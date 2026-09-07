@@ -2,9 +2,6 @@ import json
 import logging
 import os
 from typing import Any, Dict
-from uuid import uuid4
-
-display_logger = logging.getLogger("holmes.display.core_investigation")
 
 from holmes.core.todo_tasks_formatter import format_tasks
 from holmes.core.tools import (
@@ -16,42 +13,30 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
-from holmes.plugins.toolsets.investigator.model import Task, TaskStatus
+from holmes.plugins.toolsets.investigator.model import Task
+
+display_logger = logging.getLogger("holmes.display.core_investigation")
 
 TODO_WRITE_TOOL_NAME = "TodoWrite"
 
 
 def parse_tasks(todos_data: Any) -> list[Task]:
-    tasks = []
-
     if isinstance(todos_data, str):
         try:
-            parsed = json.loads(todos_data)
-            if isinstance(parsed, list):
-                todos_data = parsed
-            else:
-                todos_data = [todos_data]
+            todos_data = json.loads(todos_data)
         except (json.JSONDecodeError, ValueError):
             todos_data = [todos_data]
 
     if not isinstance(todos_data, list):
-        return tasks
+        todos_data = [todos_data] if todos_data else []
 
-    for i, todo_item in enumerate(todos_data):
-        if isinstance(todo_item, dict):
-            task = Task(
-                id=str(todo_item.get("id", str(uuid4()))),
-                content=str(todo_item.get("content", "")),
-                status=TaskStatus(todo_item.get("status", "pending")),
-            )
-            tasks.append(task)
-        elif isinstance(todo_item, str):
-            task = Task(
-                id=str(i + 1),
-                content=todo_item,
-                status=TaskStatus.PENDING,
-            )
-            tasks.append(task)
+    tasks = []
+    for item in todos_data:
+        if item:
+            try:
+                tasks.append(Task.model_validate(item))
+            except Exception:
+                continue
 
     return tasks
 
@@ -135,10 +120,7 @@ class TodoWriteTool(Tool):
             else:
                 response_data += "No tasks currently in the investigation plan."
 
-            params["todos"] = [
-                {"id": t.id, "content": t.content, "status": t.status.value}
-                for t in tasks
-            ]
+            params["todos"] = [t.to_dict() for t in tasks]
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
