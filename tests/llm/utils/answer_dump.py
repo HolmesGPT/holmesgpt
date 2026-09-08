@@ -41,6 +41,7 @@ def dump_eval_answer(
     correctness: Any,
     model: Any = "",
     env_config: Any = "",
+    tools: Any = (),
 ) -> None:
     """Write one answer under ANSWER_DUMP_DIR. No-op when the var is unset.
 
@@ -65,6 +66,7 @@ def dump_eval_answer(
                 f"model: {model}\n"
                 f"env_config: {env_config}\n"
                 f"verdict: {verdict}\n"
+                f"tools: {', '.join(str(t) for t in tools)}\n"
                 f"{_HEADER_END}\n"
             )
             handle.write(str(output))

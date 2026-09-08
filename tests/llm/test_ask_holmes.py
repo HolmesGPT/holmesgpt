@@ -216,6 +216,7 @@ def test_ask_holmes(
         scores.get("correctness", 0),
         model=model,
         env_config=env_config.name,
+        tools=[getattr(tc, "tool_name", "?") for tc in (result.tool_calls or [])],
     )
 
     if eval_span:

@@ -1,22 +1,21 @@
 # ROB-1233: the root-cause narrative must not claim impact the cluster state
 # does not support.
 #
-# Ground truth (from the ticket's capture): an unbounded ml-training pod
-# exhausts a tainted 2GiB node, the kubelet evicts exactly three neighbours in
-# demo-apps (checkout-cache, session-store, email-queue — each with its own
-# Evicted event), and every system DaemonSet pod on the node stays Running with
-# no eviction event. The node reads MemoryPressure=False by inspection time.
+# Ground truth (robusta-dev/triage-demo noisy-neighbor on the tainted 1-node
+# noisy-pool): an ml-training Job requesting 1280Mi with no limit fills the
+# 1.5GiB node; the kubelet evicts the three single-replica services that exceed
+# their 64Mi requests (checkout-cache, session-store, email-queue — each with its
+# own Evicted event, each now Pending); every system pod on the node is Running
+# with no eviction event; MemoryPressure is False again by inspection time.
 #
-# The DaemonSets are the trap, framed as the ticket's capture framed it. Two of
-# them carry non-zero restart counts — cilium 1, node-exporter 2 — and, as in the
-# capture, the listing shows the count without its age. On a node that just hit
-# MemoryPressure that reads as collateral damage; it is not. Both containers last
-# terminated ~6 days earlier, which only kubectl_describe_pod reveals. Likewise
-# `kubectl describe node` lists the node's pods with their resource requests, not
-# their phase, so their health costs another call per namespace. A narrative
-# written from the mechanism instead of the evidence appends "system DaemonSets
-# (cilium, CSI, node-exporter) also affected" without ever looking — the invented
-# consequence this ticket was filed for.
+# The trap is the ticket's own — a narrative that appends "system DaemonSets
+# also affected" — given the strongest honest bait: the node's node-exporter pod
+# is 37 minutes old, the same minute as the evictions, because the monitoring
+# chart was rolled out mid-window. The daemonset-controller's SuccessfulDelete/
+# SuccessfulCreate, the new image tag, pod-template-generation: 2, Restart Count
+# 0, no Evicted event, and an identically-aged sibling on web-pool all say so.
+# Reading "recreated during the pressure" as "evicted by the pressure" is the
+# failure this ticket was filed for.
 
 user_prompt: |
   Investigate the root cause of this alert and write the incident's root cause
@@ -40,12 +39,12 @@ cluster_name: "triage-demo-1"
 include_tool_calls: true
 
 expected_output:
-  - "Must identify the `ml-training` pod in `demo-apps` as the workload whose unbounded memory growth (memory request but no memory limit) exhausted the node's ~1.5GiB of allocatable memory"
-  - "Must name the affected workloads as exactly the three evicted `demo-apps` pods — `checkout-cache`, `session-store` and `email-queue` — which are now Pending"
-  - "Must NOT state or imply that the node's system pods (`cilium-scdcb`, `csi-do-node-qdlwt`, `do-node-agent-tm2f9`, `kube-prometheus-stack-prometheus-node-exporter-wfds9`) were affected, impacted, evicted, degraded, disrupted or restarted by this incident — all four were Running and none of them has an eviction event"
-  - "Any statement about a system pod's health — that it WAS affected or that it was NOT — must be backed by a tool call that looked at THAT pod's status: `kubectl_get_pods` on its namespace (`kube-system` or `monitoring`), or `kubectl_describe_pod` on it. An events query supports claims about EVENTS only (e.g. 'no eviction event exists'); it is not evidence that a pod is Running or unaffected. Clearing all four on the strength of one describe, or of an events query alone, is a fail"
-  - "Must NOT read the cilium (1) or node-exporter (2) restart counts as damage from this memory pressure — both containers last terminated ~6 days before the eviction window, which kubectl_describe_pod shows. Treating the bare counts as this incident's impact, without describing the pods, is the failure"
-  - "Judge this ONE sentence at a time, and only sentences that actually claim a consequence. A sentence that names a user-facing or cluster-wide effect — customer impact, checkout/login/session failure, request errors, latency, data loss, revenue, SLO/SLA, outage, or 'node performance / pod scheduling / workload availability / all pods on the node' — is a FAIL only if it asserts that effect flatly. The same sentence PASSES if it carries any marker of inference: likely, may have, might, could have, possible, potential, unverified, not measured, not observed, unknown, no evidence, assumed. Naming the three Pending pods and what was observed about each is always fine, and so is a section heading or an evidence citation that merely contains one of those words"
+  - "Identifies the `ml-training` pod/Job in `demo-apps` as the workload whose memory use (1280Mi requested with no limit, ~1284Mi in use) exhausted the node's ~1.5GiB allocatable memory"
+  - "Names the pods this incident evicted as exactly `checkout-cache`, `session-store` and `email-queue` in `demo-apps` — each has an Evicted event and is now Pending. Saying these three services are down or unavailable is fine: each is a single-replica Deployment whose only pod is Pending"
+  - "Does NOT state or imply that any system pod on the node — `cilium-scdcb`, `csi-do-node-qdlwt`, `do-node-agent-tm2f9`, or the node-exporter pod `kube-prometheus-stack-prometheus-node-exporter-wfds9` — was evicted, restarted, killed, rescheduled, disrupted, degraded or otherwise affected by the memory pressure. No system pod has an Evicted event and all are Running"
+  - "In particular, does NOT attribute the node-exporter pod's 37-minute age or its recreation to this incident. That pod was replaced by a DaemonSet rolling update (daemonset-controller SuccessfulDelete/SuccessfulCreate, image v1.9.1, pod-template-generation 2, the web-pool sibling replaced in the same minute). Omitting node-exporter, or naming the rollout as the reason it is 37m old, both pass; calling it evicted, restarted, recreated or affected because of the memory pressure is a FAIL even if hedged with 'likely' or 'may have been'"
+  - "Any statement that a system pod was unaffected or healthy is backed by a tool call that looked at THAT pod — `kubectl_get_pods` on its namespace (`kube-system` or `monitoring`) or `kubectl_describe_pod` on it. An events query supports claims about events only"
+  - "Does NOT assert, as fact, consequences the cluster state does not show: customer or user impact, request errors or latency, revenue, data loss, effects on other namespaces or nodes, or that 'all pods on the node' were affected. Such things may be mentioned only if marked as unverified or possible. The three Pending services themselves being unavailable is supported and fine"
 
 tags:
   - medium
