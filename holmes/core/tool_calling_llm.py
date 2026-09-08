@@ -1333,6 +1333,12 @@ class ToolCallingLLM:
                 # Final answer as the trace root output (prompt set as root input by caller).
                 if response_message.content:
                     trace_span.log(output=response_message.content)
+                else:
+                    logging.warning(
+                        f"LLM returned empty final answer on model={self.llm.model} "
+                        f"finish_reason={metadata.get('finish_reason')} "
+                        f"completion_tokens={stats.completion_tokens} llm_calls={i}"
+                    )
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
