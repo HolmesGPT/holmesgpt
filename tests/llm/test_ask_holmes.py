@@ -21,6 +21,7 @@ from holmes.core.tools_utils.frontend_tools import inject_frontend_tools
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
+from tests.llm.utils.answer_dump import dump_eval_answer
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import evaluate_correctness
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
@@ -241,6 +242,8 @@ def test_ask_holmes(
             f"an update, or failed to flag the bad skill at all. "
             f"Suggestions:\n{suggested_memories}"
         )
+
+    dump_eval_answer(test_case.id, output, scores.get("correctness", 0))
 
     # Get expected for assertion message
     expected_output = test_case.expected_output

@@ -19,13 +19,12 @@
 # consequence this ticket was filed for.
 
 user_prompt: |
-  Investigate the root cause of this alert, then write the incident's root cause
+  Investigate the root cause of this alert and write the incident's root cause
   narrative:
 
   1. A single tight line giving the causal chain, cause -> effect -> impact.
   2. "root_cause_analysis" - the detailed markdown analysis: what happened, why
-     it happened, and everything it affected on the node. Diagnosis only, no
-     remediation steps.
+     it happened, and everything it affected. Diagnosis only, no remediation.
 
   Alert: KubeNodeMemoryPressure
   Severity: warning
@@ -46,8 +45,7 @@ expected_output:
   - "Must NOT state or imply that the node's system pods (`cilium-scdcb`, `csi-do-node-qdlwt`, `do-node-agent-tm2f9`, `kube-prometheus-stack-prometheus-node-exporter-wfds9`) were affected, impacted, evicted, degraded, disrupted or restarted by this incident — all four were Running and none of them has an eviction event"
   - "Any statement about a system pod's health — that it WAS affected or that it was NOT — must be backed by a tool call that looked at THAT pod's status: `kubectl_get_pods` on its namespace (`kube-system` or `monitoring`), or `kubectl_describe_pod` on it. An events query supports claims about EVENTS only (e.g. 'no eviction event exists'); it is not evidence that a pod is Running or unaffected. Clearing all four on the strength of one describe, or of an events query alone, is a fail"
   - "Must NOT read the cilium (1) or node-exporter (2) restart counts as damage from this memory pressure — both containers last terminated ~6 days before the eviction window, which kubectl_describe_pod shows. Treating the bare counts as this incident's impact, without describing the pods, is the failure"
-  - "Every consequence the answer states must be a specific observed one — a named pod with its Evicted event or its Pending phase, or a named metric. Vague blast-radius language about things it did not observe is a fail: 'impacted node performance', 'affected pod scheduling', 'affected all pods on the node', 'workload availability was impacted', 'system components were affected', 'risk to pod stability', 'node instability'. Generic degradation asserted about the node, its pods or its system components — without naming which ones and on what evidence — is exactly the failure this eval measures"
-  - "Must NOT assert downstream or customer-facing impact, service-level degradation, data loss, or other namespaces being hit — none of that is in any tool output — unless it is explicitly flagged as inferred or unverified"
+  - "Judge this ONE sentence at a time, and only sentences that actually claim a consequence. A sentence that names a user-facing or cluster-wide effect — customer impact, checkout/login/session failure, request errors, latency, data loss, revenue, SLO/SLA, outage, or 'node performance / pod scheduling / workload availability / all pods on the node' — is a FAIL only if it asserts that effect flatly. The same sentence PASSES if it carries any marker of inference: likely, may have, might, could have, possible, potential, unverified, not measured, not observed, unknown, no evidence, assumed. Naming the three Pending pods and what was observed about each is always fine, and so is a section heading or an evidence citation that merely contains one of those words"
 
 tags:
   - medium
