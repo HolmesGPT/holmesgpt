@@ -39,7 +39,13 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills | toYaml | sha256sum }}
+        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
+        {{- if .Values.skillRepos }}
+        # Rolls the pod when a skill repo credential Secret's DATA rotates —
+        # the token env vars come from secretKeyRef, which a Secret update
+        # alone does not refresh.
+        checksum/skill-repo-secrets: {{ include "holmes.skillRepoSecretsChecksum" . }}
+        {{- end }}
         {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
         # Roll this pod when the remediation MCP auth token rotates — the token
         # is read from a Secret into env, so a content change alone would not
@@ -194,6 +200,61 @@ spec:
           - name: CUSTOM_SKILL_PATHS
             value: {{ join "," $skillPaths | quote }}
           {{- end }}
+          {{- if .Values.skillRepos }}
+          {{- /* One pass per repo: build its SKILL_REPOS entry and emit its
+                 secret-backed env vars together, so the env var names and the
+                 token_env / github_app_private_key_env fields referencing them
+                 cannot drift apart. */}}
+          {{- $skillRepos := list }}
+          {{- range $i, $repo := .Values.skillRepos }}
+          {{- if and $repo.tokenSecret $repo.githubApp }}
+          {{- fail (printf "skillRepos[%d]: set either tokenSecret or githubApp, not both" $i) }}
+          {{- end }}
+          {{- /* A url with userinfo would be serialized verbatim into the
+                 SKILL_REPOS env value in the pod spec -- readable by anyone who
+                 can get the Deployment, which is far more common RBAC than
+                 reading Secrets, and kept in Helm release history and any
+                 GitOps repo. Holmes rejects such a url too, but only once the
+                 pod is already running, by which point the token has leaked.
+                 Refuse to render it. */}}
+          {{- if regexMatch "^[A-Za-z][A-Za-z0-9+.-]*://[^/@]*@" (toString $repo.url) }}
+          {{- fail (printf "skillRepos[%d]: url must not embed credentials; put the token in a Secret and reference it via tokenSecret (or use githubApp)" $i) }}
+          {{- end }}
+          {{- $entry := dict "url" (required "skillRepos entries need a url" $repo.url) }}
+          {{- /* `set`, not `merge`: merge leaves an existing key alone, so it
+                 reads as though a later value could be ignored. */}}
+          {{- with $repo.name }}{{- $entry = set $entry "name" . }}{{- end }}
+          {{- with $repo.branch }}{{- $entry = set $entry "branch" . }}{{- end }}
+          {{- with $repo.subPath }}{{- $entry = set $entry "sub_path" . }}{{- end }}
+          {{- with $repo.username }}{{- $entry = set $entry "username" . }}{{- end }}
+          {{- with $repo.tokenSecret }}
+          {{- $entry = set $entry "token_env" (printf "SKILL_REPO_TOKEN_%d" $i) }}
+          - name: SKILL_REPO_TOKEN_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "skillRepos tokenSecret needs a name" .name }}
+                key: {{ required "skillRepos tokenSecret needs a key" .key }}
+          {{- end }}
+          {{- with $repo.githubApp }}
+          {{- $keySecret := required "skillRepos githubApp needs privateKeySecret" .privateKeySecret }}
+          {{- $entry = set $entry "github_app_id" (toString (required "skillRepos githubApp needs appId" .appId) ) }}
+          {{- $entry = set $entry "github_app_installation_id" (toString (required "skillRepos githubApp needs installationId" .installationId)) }}
+          {{- $entry = set $entry "github_app_private_key_env" (printf "SKILL_REPO_GH_APP_KEY_%d" $i) }}
+          {{- with .apiUrl }}{{- $entry = set $entry "github_api_url" . }}{{- end }}
+          - name: SKILL_REPO_GH_APP_KEY_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "skillRepos githubApp privateKeySecret needs a name" $keySecret.name }}
+                key: {{ required "skillRepos githubApp privateKeySecret needs a key" $keySecret.key }}
+          {{- end }}
+          {{- $skillRepos = append $skillRepos $entry }}
+          {{- end }}
+          - name: SKILL_REPOS
+            value: {{ toJson $skillRepos | quote }}
+          # Off /tmp, onto the dedicated volume mounted above.
+          - name: SKILL_REPOS_DIR
+            value: /var/holmes/skill-repos
+          {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
           {{- end }}
@@ -237,6 +298,13 @@ spec:
         volumeMounts:
           - name: tmp-volume
             mountPath: /tmp
+          {{- if .Values.skillRepos }}
+          # Git checkouts get their own volume rather than sharing /tmp: a repo
+          # bigger than the /tmp sizeLimit would otherwise evict the pod, and
+          # the two have unrelated size needs.
+          - name: skill-repos
+            mountPath: /var/holmes/skill-repos
+          {{- end }}
           {{- if $tls.enabled }}
           - name: holmes-tls
             mountPath: /etc/holmes/tls
@@ -268,6 +336,15 @@ spec:
         - name: tmp-volume
           emptyDir:
             sizeLimit: 256Mi
+        {{- if .Values.skillRepos }}
+        - name: skill-repos
+          emptyDir:
+            # Holds a bare object store plus up to two worktrees per repo (the
+            # active checkout and the one being retired). Holmes gc's the store
+            # on every update so this does not grow with the number of pushes,
+            # only with repo size -- raise it for large repos.
+            sizeLimit: {{ .Values.skillReposVolumeSize | default "1Gi" }}
+        {{- end }}
         {{- if $tls.enabled }}
         - name: holmes-tls
           secret:

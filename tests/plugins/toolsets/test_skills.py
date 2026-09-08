@@ -1,9 +1,15 @@
 import os
+import shutil
 from unittest.mock import Mock
 
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.skills import RobustaSkillInstruction
-from holmes.plugins.skills.skill_loader import Skill, SkillCatalog, SkillSource
+from holmes.plugins.skills.skill_loader import (
+    Skill,
+    SkillCatalog,
+    SkillSource,
+    load_skill_catalog,
+)
 from holmes.plugins.toolsets.skills.skills_fetcher import (
     SkillsFetcher,
     SkillsToolset,
@@ -118,7 +124,9 @@ def test_SkillsFetcher_resolves_personal_skill_for_requesting_user():
     # that list is baked into a description shared by every user.
     assert "uuid-a" not in fetcher.available_skills
 
-    result = fetcher._invoke({"skill_id": "uuid-a"}, context=_context_for_user("user-a"))
+    result = fetcher._invoke(
+        {"skill_id": "uuid-a"}, context=_context_for_user("user-a")
+    )
 
     assert result.status == StructuredToolResultStatus.SUCCESS
     assert "Step A" in result.data
@@ -296,3 +304,161 @@ def test_SkillsFetcher_one_liner_uses_title_for_remote_skills():
         skills_fetch_tool.get_parameterized_one_liner({"skill_id": REMOTE_SKILL_UUID})
         == "Skills: Fetch Skill Erlang Debugging"
     )
+
+
+# ── filesystem skills are re-read from disk per invocation, never from the ──
+# ── snapshot the toolset was built with (live refresh of git-synced repos) ──
+
+
+def _write_fs_skill(dir_path, name, body):
+    skill_dir = dir_path / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\ndescription: {name}\n---\n## Steps\n{body}\n"
+    )
+
+
+def test_SkillsFetcher_serves_skill_added_after_toolset_construction(tmp_path):
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = toolset.tools[0]
+
+    # Simulates a git re-pull / ConfigMap remount landing a new skill on disk
+    # after the toolset (and its catalog snapshot) was built.
+    _write_fs_skill(tmp_path, "new-skill", "Do the new thing")
+
+    result = fetcher._invoke(
+        {"skill_id": "new-skill"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "Do the new thing" in result.data
+
+
+def test_SkillsFetcher_serves_edited_content_not_the_startup_snapshot(tmp_path):
+    _write_fs_skill(tmp_path, "dns-debug", "old steps")
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = toolset.tools[0]
+
+    _write_fs_skill(tmp_path, "dns-debug", "brand new steps")
+
+    result = fetcher._invoke(
+        {"skill_id": "dns-debug"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "brand new steps" in result.data
+    assert "old steps" not in result.data
+
+
+def test_SkillsFetcher_stops_serving_a_skill_deleted_from_disk(tmp_path):
+    """A skill removed upstream must stop being fetchable, not fall back to the snapshot.
+
+    The catalog snapshot taken at toolset construction outlives the file. Serving
+    from it on a miss kept a deleted skill fetchable for the life of the process
+    -- worst for the skill someone deleted precisely because it was wrong.
+    """
+    _write_fs_skill(tmp_path, "pod-oom", "Check memory limits")
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = toolset.tools[0]
+    # It resolves while the file is there.
+    assert (
+        fetcher._invoke(
+            {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()
+        ).status
+        == StructuredToolResultStatus.SUCCESS
+    )
+
+    shutil.rmtree(tmp_path / "pod-oom")
+
+    result = fetcher._invoke(
+        {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "Check memory limits" not in str(result.data)
+
+
+def test_SkillsFetcher_still_uses_the_catalog_when_no_search_paths_are_set(tmp_path):
+    """SDK callers hand in a catalog directly; disk is not the source of truth then."""
+    _write_fs_skill(tmp_path, "sdk-skill", "from an SDK catalog")
+    catalog = load_skill_catalog(custom_skill_paths=[str(tmp_path)])
+    toolset = SkillsToolset()  # no additional_search_paths
+    fetcher = SkillsFetcher(toolset, skill_catalog=catalog)
+
+    shutil.rmtree(tmp_path / "sdk-skill")
+
+    result = fetcher._invoke(
+        {"skill_id": "sdk-skill"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "from an SDK catalog" in result.data
+
+
+def test_SkillsFetcher_reports_a_missing_name_clearly_not_as_a_uuid_cast_error(
+    tmp_path,
+):
+    """A plain name that does not exist must not be sent to the UUID-keyed table.
+
+    The remote skills table is keyed by UUID, so a name reached it only to come
+    back as "invalid input syntax for type uuid" -- which says nothing about the
+    real problem. Reachable for any missing name now that a deleted filesystem
+    skill is no longer served from the startup snapshot.
+    """
+    dal = Mock()
+    dal.enabled = True
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = SkillsFetcher(toolset, search_paths=[str(tmp_path)], dal=dal)
+
+    result = fetcher._invoke(
+        {"skill_id": "no-such-skill"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "no-such-skill" in result.error and "not found" in result.error
+    assert "uuid" not in result.error.lower()
+    dal.get_skill.assert_not_called() if hasattr(dal, "get_skill") else None
+
+
+def test_SkillsFetcher_falls_back_to_the_snapshot_when_a_source_is_unreadable(tmp_path):
+    """An INCOMPLETE scan must not be treated as a decisive miss.
+
+    A configured path that is missing or unreadable does not raise -- it just
+    contributes nothing -- so a partial scan looks exactly like a clean miss.
+    Treating it as decisive made a skill that still exists upstream report "not
+    found" during a ConfigMap remount, while the snapshot was holding it. The
+    error even contradicted itself: "Skill 'pod-oom' not found. Available:
+    dns-debug, pod-oom".
+    """
+    good = tmp_path / "good"
+    mount = tmp_path / "mount"
+    _write_fs_skill(good, "dns-debug", "dns steps")
+    _write_fs_skill(mount, "pod-oom", "Check memory limits")
+    toolset = SkillsToolset(additional_search_paths=[str(good), str(mount)])
+    fetcher = toolset.tools[0]
+
+    shutil.rmtree(mount)  # the mount goes away for a cycle
+
+    _skill, authoritative = fetcher._find_filesystem_skill("pod-oom")
+    assert authoritative is False, "a scan missing a configured source is not decisive"
+    result = fetcher._invoke(
+        {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()
+    )
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert "Check memory limits" in result.data
+
+
+def test_SkillsFetcher_deletion_is_still_authoritative_on_a_clean_scan(tmp_path):
+    """The deletion fix must survive the partial-scan fix: a clean miss still wins."""
+    _write_fs_skill(tmp_path, "pod-oom", "Check memory limits")
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher = toolset.tools[0]
+
+    shutil.rmtree(tmp_path / "pod-oom")  # deleted, but the source is still readable
+
+    skill, authoritative = fetcher._find_filesystem_skill("pod-oom")
+    assert (skill, authoritative) == (None, True)
+    result = fetcher._invoke(
+        {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()
+    )
+    assert result.status == StructuredToolResultStatus.ERROR
