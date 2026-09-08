@@ -136,6 +136,12 @@ def load_python_toolsets(
 
         toolsets.append(multi_instance(PrometheusToolset))
 
+        from holmes.plugins.toolsets.prometheus.label_routed_prometheus import (
+            LabelRoutedPrometheusToolset,
+        )
+
+        toolsets.append(LabelRoutedPrometheusToolset())
+
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
 

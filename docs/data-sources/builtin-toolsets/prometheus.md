@@ -391,6 +391,32 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
 
 ---
 
+## Label-Routed Prometheus (Multi-Tenant Gateway)
+
+For deployments behind a gateway that fronts a **separate Prometheus instance per client**, keyed by a URL path segment (e.g. `http://gateway:80/prometheus/<client>/api/v1/query`), use the dedicated `prometheus/label-routed-metrics` toolset instead of `prometheus/metrics`. It does not take a single static `prometheus_url` to query — every call is routed dynamically based on a Kubernetes resource label.
+
+```yaml
+toolsets:
+    prometheus/label-routed-metrics:
+        enabled: true
+        config:
+            prometheus_url: http://prometheus-gateway.monitoring.svc.cluster.local:80
+            label_key: productline  # Kubernetes label whose value selects the per-client path (default: productline)
+```
+
+**How it works:** every tool in this toolset requires a `label_value` parameter. Before calling any tool, the LLM is instructed (via this toolset's built-in guidance) to first look up the `label_key` label (e.g. `productline`) on the Kubernetes resource being investigated using a kubernetes tool, then pass the discovered value as `label_value`. Each call is then routed to `{prometheus_url}/prometheus/{label_value}/api/v1/...` — a completely separate Prometheus instance per label value. There is no default/fallback backend: if the resource has no value for the configured label, the tool returns an error instead of guessing.
+
+This toolset is meant to run standalone for this use case — don't enable it alongside `prometheus/metrics` in the same deployment, since their tool names overlap in purpose (though not in name) and would confuse the LLM about which to use.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `prometheus_url` | (required) | Base URL of the Prometheus gateway, **without** the per-client path segment |
+| `label_key` | `productline` | Kubernetes label name used to generate the LLM instructions telling it which label to look up first |
+| `additional_headers` | `{}` | HTTP headers sent with every request (e.g. `Authorization: Bearer <token>`) |
+| `verify_ssl` | `true` | Enable SSL certificate verification |
+
+It also accepts the same `discover_metrics_from_last_hours`, `query_timeout_seconds_default`, `query_timeout_seconds_hard_max`, `metadata_timeout_seconds_default`, `metadata_timeout_seconds_hard_max`, `tool_calls_return_data`, and `query_response_size_limit_pct` options as `prometheus/metrics` (see [Advanced Configuration](#advanced-configuration) below for their meaning).
+
 ## Advanced Configuration
 
 You can further customize the Prometheus toolset with the following options:

@@ -619,6 +619,17 @@ class AzurePrometheusConfig(PrometheusConfig):
 class BasePrometheusTool(Tool):
     toolset: "PrometheusToolset"
 
+    def _get_base_url(self, params: dict) -> str:
+        """Base URL to build this call's request against. Overridable seam for
+        variants that route to a different backend per call (e.g. based on a
+        param value) without touching the shared query/response logic below.
+        Must be computed fresh from `params` each call — never cache/mutate
+        `self.toolset.config` here, since a toolset instance can be invoked
+        concurrently with different params."""
+        assert self.toolset.config is not None
+        assert self.toolset.config.prometheus_url is not None
+        return self.toolset.config.prometheus_url
+
 
 def do_request(
     config,  # PrometheusConfig | AMPConfig | AzurePrometheusConfig
@@ -957,9 +968,7 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
             if params.get("match"):
                 query_params["match[]"] = params["match"]
 
-            prometheus_url = self.toolset.config.prometheus_url
-
-            rules_url = urljoin(prometheus_url, "api/v1/rules")
+            rules_url = urljoin(self._get_base_url(params), "api/v1/rules")
 
             rules_response = do_request(
                 config=self.toolset.config,
@@ -1080,9 +1089,7 @@ class GetMetricNames(BasePrometheusTool):
                     params=params,
                 )
 
-            url = urljoin(
-                self.toolset.config.prometheus_url, "api/v1/label/__name__/values"
-            )
+            url = urljoin(self._get_base_url(params), "api/v1/label/__name__/values")
             query_params = {
                 "limit": str(PROMETHEUS_METADATA_API_LIMIT),
                 "match[]": match_param,
@@ -1199,9 +1206,7 @@ class GetLabelValues(BasePrometheusTool):
                     params=params,
                 )
 
-            url = urljoin(
-                self.toolset.config.prometheus_url, f"api/v1/label/{label}/values"
-            )
+            url = urljoin(self._get_base_url(params), f"api/v1/label/{label}/values")
             query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
             if params.get("match"):
                 query_params["match[]"] = params["match"]
@@ -1305,7 +1310,7 @@ class GetAllLabels(BasePrometheusTool):
                 params=params,
             )
         try:
-            url = urljoin(self.toolset.config.prometheus_url, "api/v1/labels")
+            url = urljoin(self._get_base_url(params), "api/v1/labels")
             query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
             if params.get("match"):
                 query_params["match[]"] = params["match"]
@@ -1418,7 +1423,7 @@ class GetSeries(BasePrometheusTool):
                     params=params,
                 )
 
-            url = urljoin(self.toolset.config.prometheus_url, "api/v1/series")
+            url = urljoin(self._get_base_url(params), "api/v1/series")
             query_params = {
                 "match[]": match,
                 "limit": str(PROMETHEUS_METADATA_API_LIMIT),
@@ -1512,7 +1517,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 params=params,
             )
         try:
-            url = urljoin(self.toolset.config.prometheus_url, "api/v1/metadata")
+            url = urljoin(self._get_base_url(params), "api/v1/metadata")
             query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
 
             if params.get("metric"):
@@ -1604,7 +1609,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             query = params.get("query", "")
             description = params.get("description", "")
 
-            url = urljoin(self.toolset.config.prometheus_url, "api/v1/query")
+            url = urljoin(self._get_base_url(params), "api/v1/query")
 
             payload = {"query": query}
 
@@ -1832,7 +1837,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             )
 
         try:
-            url = urljoin(self.toolset.config.prometheus_url, "api/v1/query_range")
+            url = urljoin(self._get_base_url(params), "api/v1/query_range")
 
             query = get_param_or_raise(params, "query")
             (start, end) = process_timestamps_to_rfc3339(

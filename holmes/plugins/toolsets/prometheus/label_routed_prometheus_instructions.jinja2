@@ -1,0 +1,22 @@
+
+# Label-routed Prometheus queries
+
+{%- if config and config.label_key %}
+* Every tool here requires a `label_value` parameter. Before calling ANY of these tools, determine the value of the Kubernetes label `{{ config.label_key }}` on the resource you are investigating (check the resource itself, e.g. Pod/Deployment, and fall back to its Namespace if the label isn't present there) using a kubernetes tool (e.g. kubectl get/describe, or a `kubernetes_*` tool). Pass that exact discovered value as `label_value` on every call.
+* NEVER guess, assume, or reuse a `{{ config.label_key }}` value from a different resource or an earlier unrelated conversation. If the resource has no `{{ config.label_key }}` label, tell the user this query cannot be routed instead of fabricating a value.
+* Each `label_value` routes to a completely separate Prometheus instance — metrics, labels, series, and rules for one value tell you nothing about another. Don't mix data across different `label_value`s in one analysis.
+{%- endif %}
+
+## Metric discovery
+* `label_routed_get_metric_names` with filters is the fastest discovery method; combine multiple patterns with regex OR to reduce API calls (e.g. `{__name__=~"node_cpu.*|node_memory.*|node_disk.*"}`).
+* `label_routed_get_metric_metadata` gives types/descriptions after discovery; `label_routed_get_label_values` discovers pods, namespaces, jobs (e.g. label="pod"); only use `label_routed_get_series` when you need full label sets (slower).
+
+## Executing queries
+* When investigating a Prometheus alert, ALWAYS call `label_routed_list_prometheus_rules` (with the correct `label_value`) to get the alert definition, and query the metrics from the alert's promql.
+* Run promql with `label_routed_execute_prometheus_instant_query` and `label_routed_execute_prometheus_range_query`, using 'start'/'end' as the graph's start and end times. Timestamps MUST be string dates, e.g. '2025-03-15 10:10:08.610862+00:00'.
+* Before querying, confirm any node/service/pod/container/namespace referenced in the query exists, using kubectl tools.
+* ALWAYS embed a Prometheus graph in your answer to visualize data related to the incident: << {"type": "promql", "tool_name": "label_routed_execute_prometheus_range_query", "tool_call_id": "92jf2hf"} >>
+
+## High-cardinality metrics and too much data
+* When a query may return many series (>10), ALWAYS aggregate: use `topk(5, <query>)` or `bottomk(...)`.
+* If a query returns too much data (e.g. truncation error), retry with a more specific query or topk/bottomk. NEVER answer based on truncated Prometheus data.
