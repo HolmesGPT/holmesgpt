@@ -665,8 +665,8 @@ class RemoteMCPTool(Tool):
 
     @classmethod
     def _resolve_schema(
-        cls, schema: dict[str, Any], root_schema: dict[str, Any]
-    ) -> dict[str, Any]:
+        cls, schema: bool | dict[str, Any], root_schema: dict[str, Any]
+    ) -> bool | dict[str, Any]:
         """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf."""
         if not isinstance(schema, dict):
             return schema
@@ -754,7 +754,10 @@ class RemoteMCPTool(Tool):
 
     @classmethod
     def _parse_tool_parameter(
-        cls, schema: dict[str, Any], root_schema: dict[str, Any], required: bool = True
+        cls,
+        schema: bool | dict[str, Any],
+        root_schema: dict[str, Any],
+        required: bool = True,
     ) -> ToolParameter:
         """Recursively parse a JSON Schema property into a ToolParameter.
 
@@ -763,6 +766,8 @@ class RemoteMCPTool(Tool):
         complex parameter types (arrays, objects).
         """
         schema = cls._resolve_schema(schema, root_schema)
+        if isinstance(schema, bool):
+            return ToolParameter(required=required, boolean_schema=schema)
 
         # If _resolve_schema preserved a multi-branch anyOf, parse each branch
         # into a ToolParameter and store on the any_of field.

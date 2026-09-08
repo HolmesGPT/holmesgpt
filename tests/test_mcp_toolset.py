@@ -657,6 +657,36 @@ class TestMCPSchemaPreservation:
     """Tests for preserving JSON Schema features from MCP tool schemas."""
 
     @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_boolean_property_schemas_preserved(self) -> None:
+        mcp_tool = Tool(
+            name="query_tool",
+            inputSchema={
+                "type": "object",
+                "properties": {"value": True, "impossible": False},
+                "required": ["value"],
+            },
+            description="Query with an unconstrained filter value",
+            annotations=None,
+        )
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        assert tool.parameters["value"].boolean_schema is True
+        assert tool.parameters["impossible"].boolean_schema is False
+        openai_format = tool.get_openai_format()
+        assert "strict" not in openai_format["function"]
+        assert openai_format["function"]["parameters"]["required"] == ["value"]
+        assert openai_format["function"]["parameters"]["properties"] == {
+            "value": {},
+            "impossible": {"not": {}},
+        }
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
     def test_additional_properties_anyof_preserved(self) -> None:
         """Test that additionalProperties with anyOf is not flattened.
 
