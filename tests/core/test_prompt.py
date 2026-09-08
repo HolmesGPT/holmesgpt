@@ -531,6 +531,21 @@ class TestImpactAndBlastRadius:
             "marked explicitly as unverified",
             # scope words must match observation
             "must match what you actually observed",
+            # a change inside the window is not impact until its reason ties it
+            # to the cause — a controller's SuccessfulCreate is a rollout
+            "Coincidence in time is not causation",
+            "`SuccessfulCreate` from a controller is a rollout",
+            # the write-up sorts entities into four labelled groups, so a pod
+            # that changed for another reason has somewhere to go besides impact
+            "**Changed during the window for another reason**",
+            "it does not go under an impact heading with a time-window qualifier as a substitute for a cause",
+            # every Affected line quotes the reason token that proves it
+            "Every line here quotes the exact reason token that proves it",
+            "`SuccessfulDelete`, `SuccessfulCreate`, `Scheduled`, `Started` and a probe miss at startup are not among them",
+            # kubernetes: eviction/OOM leave marks; controller replacement is not damage
+            "an `Evicted` event from the kubelet, or `OOMKilled` as a container's last termination reason",
+            "was rolled out or rescheduled by that controller, not damaged by the node",
+            "Count a pod as affected only on its own eviction or kill evidence",
         ],
     )
     def test_rules_are_pinned(self, mock_tool_executor, rule):
