@@ -496,6 +496,7 @@ class TestImpactAndBlastRadius:
     exist. These tests pin the guidance that rules it out."""
 
     def _system_prompt(self, mock_tool_executor) -> str:
+        """The rendered system prompt for a plain ask, which is what ships."""
         messages = build_initial_ask_messages(
             "Why did the node go into memory pressure?",
             None,
@@ -507,6 +508,7 @@ class TestImpactAndBlastRadius:
         return messages[0]["content"]
 
     def test_section_is_present(self, mock_tool_executor):
+        """The section reaches the model at all."""
         assert "# Impact and blast radius" in self._system_prompt(mock_tool_executor)
 
     @pytest.mark.parametrize(
@@ -532,6 +534,7 @@ class TestImpactAndBlastRadius:
         ],
     )
     def test_rules_are_pinned(self, mock_tool_executor, rule):
+        """Each rule survives edits to the template around it."""
         assert rule in self._system_prompt(mock_tool_executor)
 
     def test_section_rides_with_general_instructions(self, mock_tool_executor, monkeypatch):
