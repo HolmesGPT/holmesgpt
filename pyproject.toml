@@ -71,16 +71,18 @@ apscheduler = "^3.10.4"
 # silently ignored) and CVE-2026-54282; >= 1.0.1 already fixed CVE-2026-48710 /
 # GHSA-86qp-5c8j-p5mr (Host header validation when reconstructing request.url).
 starlette = ">=1.3.1"
-# cryptography >= 48.0.1 ships a patched OpenSSL in its wheels (GHSA-537c-gmf6-5ccf, HIGH).
-# Use >= (not ^): ^48.0.1 caps at <49 and would downgrade newer majors already on master.
-cryptography = ">=48.0.1"
+# cryptography >= 48.0.1 ships a patched OpenSSL in its wheels (GHSA-537c-gmf6-5ccf, HIGH);
+# >= 50.0.0 fixes CVE-2026-69247 (HIGH).
+# Use >= (not ^): ^ caps at the next major and would downgrade newer majors already on master.
+cryptography = ">=50.0.0"
 # pydantic-settings >= 2.14.2 fixes GHSA-4xgf-cpjx-pc3j (symlink escape out of secrets_dir).
 pydantic-settings = ">=2.14.2"
 # python-multipart >= 0.0.31 fixes CVE-2026-53540 (negative Content-Length buffers the whole body).
 # Use >= (not ^) because Poetry reads ^0.0.31 as ==0.0.31, which would exclude future 0.0.x patches.
 python-multipart = ">=0.0.31"
-# aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x hardening fixes.
-aiohttp = ">=3.14.1"
+# aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x
+# hardening fixes; >= 3.14.3 fixes CVE-2026-69244 (HIGH) and CVE-2026-59881/69243 (Medium).
+aiohttp = ">=3.14.3"
 # pyasn1 >= 0.6.4 fixes CVE-2026-59885 and CVE-2026-59886 (both High).
 # Pulled in transitively via pyasn1-modules -> google-auth.
 pyasn1 = ">=0.6.4"
