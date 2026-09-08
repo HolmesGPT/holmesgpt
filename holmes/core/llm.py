@@ -40,6 +40,7 @@ from holmes.common.env_vars import (
 from holmes.core.azure_token import get_azure_ad_token
 from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.tool_call_recovery import recover_tool_calls_from_text
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
 
@@ -309,6 +310,48 @@ def _count_anthropic_image_tokens(message: dict) -> int:
         else:
             image_tokens += 1600  # conservative fallback
     return image_tokens
+
+
+def _offered_tool_names(tools: Optional[List[Dict[str, Any]]]) -> set:
+    """Names of the function tools offered to the model in this call."""
+    names = set()
+    for tool in tools or []:
+        fn = (tool or {}).get("function") if isinstance(tool, dict) else None
+        name = (fn or {}).get("name") if isinstance(fn, dict) else None
+        if name:
+            names.add(name)
+    return names
+
+
+def _recover_text_tool_calls(
+    result: ModelResponse, tools: Optional[List[Dict[str, Any]]]
+) -> None:
+    """Recover a tool call the model emitted as XML text instead of a structured
+    ``tool_calls`` field (ROB-558), mutating ``result`` in place.
+
+    Only fires when the message has no structured ``tool_calls`` and its content
+    holds tool-call XML for a tool that was actually offered — so a normal answer
+    that merely mentions ``<invoke>`` is never disturbed. See
+    ``tool_call_recovery`` for the parsing details.
+    """
+    offered = _offered_tool_names(tools)
+    if not offered:
+        return
+    try:
+        choices = result.choices or []
+    except AttributeError:
+        return
+    for choice in choices:
+        message = getattr(choice, "message", None)
+        if message is None or getattr(message, "tool_calls", None):
+            continue
+        content = getattr(message, "content", None)
+        if not isinstance(content, str):
+            continue
+        cleaned, recovered = recover_tool_calls_from_text(content, offered)
+        if recovered:
+            message.content = cleaned
+            message.tool_calls = recovered
 
 
 class LLM:
@@ -778,6 +821,7 @@ class DefaultLLM(LLM):
         )
 
         if isinstance(result, ModelResponse):
+            _recover_text_tool_calls(result, tools)
             return result
         elif isinstance(result, CustomStreamWrapper):
             return result
