@@ -517,8 +517,14 @@ class TestImpactAndBlastRadius:
             # no inferring the blast radius from the mechanism
             "Never widen the blast radius by inference",
             "Check each entity before you name it, or do not name it",
+            # sampling a workload's replicas concludes about the workload, not
+            # about replicas that were never looked at
+            "sampling a workload's replicas characterizes the WORKLOAD",
+            "name an individual pod only when you looked at that pod",
             # clearing an entity needs a look too
             'The same discipline applies to clearing entities: "X was unaffected" also needs a look',
+            # an entity checked and found healthy is itself a finding
+            "Entities you checked and found healthy are a finding worth reporting",
             # unobserved consequences: verify or mark unverified
             "marked explicitly as unverified",
             # scope words must match observation

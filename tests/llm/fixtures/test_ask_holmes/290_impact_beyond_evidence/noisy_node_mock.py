@@ -251,6 +251,12 @@ do-node-agent-tm2f9                                    kube-system   {NODE}   3m
 kube-prometheus-stack-prometheus-node-exporter-wfds9   monitoring    {NODE}   4m           23Mi
 """
 
+
+def _age_minutes(age: str) -> int:
+    """Minutes behind `now` for a kubectl-style age like "38m"."""
+    return int(age.rstrip("m"))
+
+
 mcp = FastMCP("noisy-node-mock")
 
 
@@ -304,11 +310,18 @@ def kubectl_get_namespaces() -> str:
 def kubectl_get_events(namespace: str = "", reason: str = "") -> str:
     ns = (namespace or "").strip()
     rs = (reason or "").strip()
-    rows = [
-        e
-        for e in _EVENTS
-        if (not ns or e[0] == ns) and (not rs or e[3].lower() == rs.lower())
-    ]
+    # Oldest first, as kubectl prints them and as the tool description says.
+    # The node's own eviction-threshold events are the OLDEST of the set, so
+    # listing _EVENTS in source order would put the evictions before the
+    # threshold that caused them and invert the causal timeline.
+    rows = sorted(
+        (
+            e
+            for e in _EVENTS
+            if (not ns or e[0] == ns) and (not rs or e[3].lower() == rs.lower())
+        ),
+        key=lambda e: -_age_minutes(e[4]),
+    )
     if not rows:
         applied = ", ".join(
             f
