@@ -468,14 +468,7 @@ class RemoteMCPTool(Tool):
             with lock:
                 tools_result = asyncio.run(self.toolset._get_server_tools_with_context(context.request_context))
 
-            real_tools = [
-                RemoteMCPTool.create(
-                    tool,
-                    self.toolset,
-                    is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX),
-                )
-                for tool in tools_result.tools
-            ]
+            real_tools = self.toolset._create_remote_tools(tools_result.tools)
 
             if real_tools:
                 tool_names = [t.name for t in real_tools]
@@ -665,8 +658,8 @@ class RemoteMCPTool(Tool):
 
     @classmethod
     def _resolve_schema(
-        cls, schema: bool | dict[str, Any], root_schema: dict[str, Any]
-    ) -> bool | dict[str, Any]:
+        cls, schema: Any, root_schema: dict[str, Any]
+    ) -> Any:
         """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf."""
         if not isinstance(schema, dict):
             return schema
@@ -687,7 +680,12 @@ class RemoteMCPTool(Tool):
                 # Recursively resolve the matched definition in case it contains more refs/anyOf
                 resolved_schema = dict(schema)
                 resolved_schema.pop("$ref")
-                resolved_schema.update(cls._resolve_schema(resolved, root_schema))
+                resolved = cls._resolve_schema(resolved, root_schema)
+                if resolved is True:
+                    return resolved_schema or True
+                if not isinstance(resolved, dict):
+                    return resolved
+                resolved_schema.update(resolved)
                 return resolved_schema
 
         # 2. Handle anyOf / oneOf / allOf for nullable or union types
@@ -755,7 +753,7 @@ class RemoteMCPTool(Tool):
     @classmethod
     def _parse_tool_parameter(
         cls,
-        schema: bool | dict[str, Any],
+        schema: Any,
         root_schema: dict[str, Any],
         required: bool = True,
     ) -> ToolParameter:
@@ -768,6 +766,11 @@ class RemoteMCPTool(Tool):
         schema = cls._resolve_schema(schema, root_schema)
         if isinstance(schema, bool):
             return ToolParameter(required=required, boolean_schema=schema)
+        if not isinstance(schema, dict):
+            raise ValueError(
+                "Invalid JSON Schema node: expected an object or boolean, "
+                f"got {type(schema).__name__}"
+            )
 
         # If _resolve_schema preserved a multi-branch anyOf, parse each branch
         # into a ToolParameter and store on the any_of field.
@@ -934,18 +937,33 @@ class RemoteMCPToolset(Toolset):
             return None
         return self._mcp_config.oauth.model_dump(exclude_none=True)
 
+    def _create_remote_tools(self, tools: List[MCP_Tool]) -> List["RemoteMCPTool"]:
+        parsed_tools = []
+        for tool in tools:
+            try:
+                parsed_tools.append(
+                    RemoteMCPTool.create(
+                        tool,
+                        self,
+                        is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX),
+                    )
+                )
+            except Exception as e:
+                logger.warning(
+                    "Skipping invalid MCP tool %s from %s: %s",
+                    tool.name,
+                    self.name,
+                    _extract_root_error_message(e),
+                )
+        return parsed_tools
+
     def _load_remote_tools(self, request_context: Optional[Dict[str, Any]] = None) -> List["RemoteMCPTool"]:
         """Load tools from the MCP server and return as RemoteMCPTool instances."""
         if request_context:
             tools_result = asyncio.run(self._get_server_tools_with_context(request_context))
         else:
             tools_result = asyncio.run(self._get_server_tools())
-        return [
-            RemoteMCPTool.create(
-                tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
-            )
-            for tool in tools_result.tools
-        ]
+        return self._create_remote_tools(tools_result.tools)
 
     def _render_headers(
         self, request_context: Optional[Dict[str, Any]] = None
