@@ -208,6 +208,16 @@ def test_ask_holmes(
             update_property(request, "actual_correctness_score", 0)
             scores["correctness"] = 0
 
+    # Before the raising checks below: an answer they reject is part of the
+    # population too, and dumping after them would bias the sample.
+    dump_eval_answer(
+        test_case.id,
+        output,
+        scores.get("correctness", 0),
+        model=model,
+        env_config=env_config.name,
+    )
+
     if eval_span:
         log_to_braintrust(
             eval_span=eval_span,
@@ -242,8 +252,6 @@ def test_ask_holmes(
             f"an update, or failed to flag the bad skill at all. "
             f"Suggestions:\n{suggested_memories}"
         )
-
-    dump_eval_answer(test_case.id, output, scores.get("correctness", 0))
 
     # Get expected for assertion message
     expected_output = test_case.expected_output
