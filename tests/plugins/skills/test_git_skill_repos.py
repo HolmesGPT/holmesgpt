@@ -1,4 +1,6 @@
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import jwt
@@ -17,6 +19,7 @@ from holmes.plugins.skills.skill_loader import load_filesystem_skills
 from tests.git_skill_repo_utils import (
     commit_all as _commit_all,
     make_skill_repo as _make_skill_repo,
+    run_git as _run_git,
     write_skills as _write_skills,
 )
 
@@ -115,15 +118,63 @@ def test_missing_token_env_is_an_error_not_a_crash(tmp_path: Path, monkeypatch):
     assert "MISSING_SKILL_TOKEN" in manager.last_errors["skills"]
 
 
-def test_token_env_injected_into_fetch_url(monkeypatch):
+def test_token_kept_out_of_fetch_url_argv(monkeypatch):
     monkeypatch.setenv("SKILL_TOKEN", "s3cr3t/+")
     repo = GitSkillRepo(url="https://github.com/acme/skills.git", token_env="SKILL_TOKEN")
 
-    authed = repo.authenticated_url()
+    url, token = repo.fetch_url_and_token()
 
-    assert authed.startswith("https://oauth2:s3cr3t%2F%2B@github.com/")
-    # The stored URL never carries the credential.
+    # The username rides the URL; the token comes back separately so it never
+    # lands on git's command line (it goes to GIT_ASKPASS instead).
+    assert url == "https://oauth2@github.com/acme/skills.git"
+    assert token == "s3cr3t/+"
+    assert "s3cr3t" not in url
     assert "s3cr3t" not in repo.url
+
+
+def test_askpass_helper_hands_git_the_token_from_the_environment(tmp_path: Path):
+    # git calls GIT_ASKPASS for the password; the helper must echo exactly the
+    # token we pass through GIT_SKILL_REPO_TOKEN (and nothing when it is unset).
+    manager = GitSkillRepoManager(
+        [GitSkillRepo(url="https://github.com/acme/skills.git")],
+        root_dir=tmp_path / "checkouts",
+    )
+    askpass = manager._askpass_path()
+
+    with_token = subprocess.run(
+        [str(askpass), "Password for 'https://oauth2@github.com': "],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GIT_SKILL_REPO_TOKEN": "s3cr3t/+"},
+    )
+    assert with_token.stdout == "s3cr3t/+"
+
+    without_token = subprocess.run(
+        [str(askpass), "prompt"],
+        capture_output=True,
+        text=True,
+        env={k: v for k, v in os.environ.items() if k != "GIT_SKILL_REPO_TOKEN"},
+    )
+    assert without_token.stdout == ""
+
+
+def test_resync_gcs_superseded_objects_from_the_store(tmp_path: Path):
+    repo = _make_skill_repo(tmp_path / "repo", {"dns-debug": "v1"})
+    old_sha = _run_git(repo, "rev-parse", "HEAD")
+    manager = _manager_for(repo, tmp_path)
+    manager.skill_paths()  # first sync: checks out v1
+
+    _write_skills(repo, {"dns-debug": "v2"})
+    _commit_all(repo, "update")
+    manager.sync()  # flip to v2; the v1 worktree survives one grace cycle
+    manager.sync()  # prune the v1 worktree, then git gc drops its objects
+
+    git_dir = tmp_path / "checkouts" / "repo" / "git"
+    still_present = subprocess.run(
+        ["git", "--git-dir", str(git_dir), "cat-file", "-e", f"{old_sha}^{{commit}}"],
+        capture_output=True,
+    )
+    assert still_present.returncode != 0
 
 
 def test_repo_for_path_maps_checkout_to_repo(tmp_path: Path):
@@ -206,9 +257,10 @@ def test_github_app_mints_installation_token_for_fetch(monkeypatch, responses):
     )
     repo = _github_app_repo()
 
-    authed = repo.authenticated_url()
+    url, token = repo.fetch_url_and_token()
 
-    assert authed == "https://x-access-token:ghs_minted@github.com/acme/skills.git"
+    assert url == "https://x-access-token@github.com/acme/skills.git"
+    assert token == "ghs_minted"
     # The exchange was authorized with a JWT issued by the App.
     auth_header = responses.calls[0].request.headers["Authorization"]
     assert auth_header.startswith("Bearer ")
@@ -228,8 +280,8 @@ def test_github_app_token_is_cached_across_syncs(monkeypatch, responses):
     )
     repo = _github_app_repo()
 
-    first = repo.authenticated_url()
-    second = repo.authenticated_url()
+    first = repo.fetch_url_and_token()
+    second = repo.fetch_url_and_token()
 
     assert first == second
     assert len(responses.calls) == 1

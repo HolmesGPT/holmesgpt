@@ -9,8 +9,9 @@ symlink once at scan start and walks a stable checkout.
 
 Configured via `skill_repos` in the Holmes config, or the SKILL_REPOS env var
 holding the same list as JSON (how the Helm chart passes it). Credentials are
-never written to disk: the token is read from the env var named by `token_env`
-and injected into the fetch URL per git invocation only.
+never written to disk and never placed on git's command line: the token is read
+from the env var named by `token_env` and handed to git through GIT_ASKPASS per
+invocation, so it stays out of both the checkout and the process's argv.
 """
 
 import json
@@ -19,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -145,8 +147,13 @@ class GitSkillRepo(BaseModel):
             )
         return self
 
-    def authenticated_url(self) -> str:
-        """The fetch URL, with credentials injected from the environment.
+    def fetch_url_and_token(self) -> tuple[str, Optional[str]]:
+        """The fetch URL and the token to hand git out-of-band, if any.
+
+        The returned URL embeds only the (non-secret) username, never the
+        token, so the token never lands on git's argv. The token is supplied
+        through GIT_ASKPASS instead (see GitSkillRepoManager._run_git). Returns
+        (url, None) for a public repo.
 
         Raises when a configured credential cannot be produced (token_env names
         an unset variable, or the GitHub App mint fails): fetching a private
@@ -154,22 +161,26 @@ class GitSkillRepo(BaseModel):
         public repo the fix is to drop the auth fields.
         """
         if self.github_app_id:
-            return self._with_credentials(
-                "x-access-token", self._github_app_installation_token()
+            return (
+                self._url_with_username("x-access-token"),
+                self._github_app_installation_token(),
             )
         if not self.token_env:
-            return self.url
+            return self.url, None
         token = os.environ.get(self.token_env)
         if not token:
             raise RuntimeError(
                 f"skill repo {self.name}: token_env '{self.token_env}' is not set"
             )
-        return self._with_credentials(self.username, token)
+        return self._url_with_username(self.username), token
 
-    def _with_credentials(self, username: str, token: str) -> str:
+    def _url_with_username(self, username: str) -> str:
+        """The repo URL with the username in userinfo but no password."""
         split = urlsplit(self.url)
-        netloc = f"{quote(username, safe='')}:{quote(token, safe='')}@{split.netloc}"
-        return urlunsplit((split.scheme, netloc, split.path, split.query, split.fragment))
+        netloc = f"{quote(username, safe='')}@{split.netloc}"
+        return urlunsplit(
+            (split.scheme, netloc, split.path, split.query, split.fragment)
+        )
 
     def _github_app_installation_token(self) -> str:
         """A GitHub App installation token, minted on demand and cached.
@@ -277,6 +288,9 @@ class GitSkillRepoManager:
         self._lock = threading.Lock()
         self._synced_once = False
         self._last_sync = 0.0
+        # GIT_ASKPASS helper, written on first authenticated fetch (see
+        # _askpass_path); kept off root_dir so a repo name can never collide.
+        self._askpass_script: Optional[Path] = None
         # repo.name -> error string from the last sync attempt (absent when ok)
         self.last_errors: dict[str, str] = {}
 
@@ -369,8 +383,9 @@ class GitSkillRepoManager:
         self._prune_worktrees(git_dir, worktrees_dir, current_link)
 
         ref = repo.branch or "HEAD"
+        fetch_url, token = repo.fetch_url_and_token()
         # Fetch by URL instead of a configured remote so credentials are never
-        # written into .git/config.
+        # written into .git/config; the token rides GIT_ASKPASS, never argv.
         self._run_git(
             [
                 "git",
@@ -380,9 +395,10 @@ class GitSkillRepoManager:
                 "--depth",
                 "1",
                 "--quiet",
-                repo.authenticated_url(),
+                fetch_url,
                 ref,
-            ]
+            ],
+            token=token,
         )
         sha = self._run_git(
             ["git", "--git-dir", str(git_dir), "rev-parse", "FETCH_HEAD"]
@@ -443,14 +459,50 @@ class GitSkillRepoManager:
             self._run_git(["git", "--git-dir", str(git_dir), "worktree", "prune"])
         except Exception as e:
             logging.warning(f"git worktree prune failed for {git_dir}: {e}")
+        # Repack and drop now-unreachable objects so the bare repo's object
+        # store can't grow without bound across re-pulls -- on a small emptyDir
+        # an ever-growing store eventually evicts the pod. git gc keeps whatever
+        # the active worktree references, so the live checkout is safe.
+        try:
+            self._run_git(
+                ["git", "--git-dir", str(git_dir), "gc", "--prune=now", "--quiet"]
+            )
+        except Exception as e:
+            logging.warning(f"git gc failed for {git_dir}: {e}")
 
-    @staticmethod
-    def _run_git(cmd: List[str]) -> str:
+    def _askpass_path(self) -> Path:
+        """Path to a tiny GIT_ASKPASS helper, created once on demand.
+
+        git calls this program for the password; it echoes the token we pass in
+        GIT_SKILL_REPO_TOKEN, so the token reaches git through the environment
+        rather than the command line. It carries the running interpreter's
+        shebang, so it needs neither a packaged executable bit nor a shell on
+        PATH, and lives in the temp dir so no repo name can collide with it.
+        """
+        if self._askpass_script and self._askpass_script.exists():
+            return self._askpass_script
+        fd, path = tempfile.mkstemp(prefix="holmes-git-askpass-")
+        with os.fdopen(fd, "w") as f:
+            f.write(
+                f"#!{sys.executable}\n"
+                "import os, sys\n"
+                "sys.stdout.write(os.environ.get('GIT_SKILL_REPO_TOKEN', ''))\n"
+            )
+        os.chmod(path, 0o700)
+        self._askpass_script = Path(path)
+        return self._askpass_script
+
+    def _run_git(self, cmd: List[str], token: Optional[str] = None) -> str:
         env = {
             **os.environ,
             # Never hang on a credential prompt inside a server.
             "GIT_TERMINAL_PROMPT": "0",
         }
+        if token is not None:
+            # Hand the token to git through the askpass helper's environment,
+            # never on the command line where /proc/<pid>/cmdline exposes it.
+            env["GIT_ASKPASS"] = str(self._askpass_path())
+            env["GIT_SKILL_REPO_TOKEN"] = token
         try:
             result = subprocess.run(
                 cmd,
@@ -460,8 +512,8 @@ class GitSkillRepoManager:
                 env=env,
             )
         except subprocess.TimeoutExpired:
-            # Never re-raise TimeoutExpired: its message embeds the full command
-            # line, credential-bearing fetch URL included.
+            # TimeoutExpired.__str__ embeds the full command line; keep only its
+            # leading, credential-free tokens.
             raise RuntimeError(
                 f"{' '.join(cmd[:3])}... timed out after {GIT_TIMEOUT_SECONDS}s"
             ) from None
