@@ -483,3 +483,62 @@ class TestIsComponentEnabled:
             is False
         )
 
+
+
+class TestImpactAndBlastRadius:
+    """ROB-1233 — the system prompt must constrain impact claims to evidence.
+
+    An audit found an otherwise-correct node-memory-pressure narrative that
+    appended "system DaemonSets (cilium, CSI, node-exporter) also affected" —
+    no eviction event, no pod status, no metric behind it. One invented
+    consequence bolted onto a correct analysis costs a reader more trust than a
+    vaguer answer would, because it sends them chasing a CNI fault that does not
+    exist. These tests pin the guidance that rules it out."""
+
+    def _system_prompt(self, mock_tool_executor) -> str:
+        messages = build_initial_ask_messages(
+            "Why did the node go into memory pressure?",
+            None,
+            mock_tool_executor,
+            None,
+            None,
+        )
+        assert messages[0]["role"] == "system"
+        return messages[0]["content"]
+
+    def test_section_is_present(self, mock_tool_executor):
+        assert "# Impact and blast radius" in self._system_prompt(mock_tool_executor)
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            # per-entity evidence, and name that evidence
+            "only when you observed evidence for THAT entity",
+            # no inferring the blast radius from the mechanism
+            "Never widen the blast radius by inference",
+            "Check each entity before you name it, or do not name it",
+            # clearing an entity needs a look too
+            'The same discipline applies to clearing entities: "X was unaffected" also needs a look',
+            # unobserved consequences: verify or mark unverified
+            "marked explicitly as unverified",
+            # scope words must match observation
+            "must match what you actually observed",
+        ],
+    )
+    def test_rules_are_pinned(self, mock_tool_executor, rule):
+        assert rule in self._system_prompt(mock_tool_executor)
+
+    def test_section_rides_with_general_instructions(self, mock_tool_executor, monkeypatch):
+        """It belongs to the investigation guidelines, so a caller that turns
+        those off does not get it — and one that turns them on does."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "intro")
+        assert "# Impact and blast radius" not in self._system_prompt(mock_tool_executor)
+        monkeypatch.setenv("ENABLED_PROMPTS", "general_instructions")
+        assert "# Impact and blast radius" in self._system_prompt(mock_tool_executor)
+
+    def test_section_precedes_the_kubernetes_guidance(self, mock_tool_executor):
+        """General discipline first, then the k8s specifics that lean on it."""
+        prompt = self._system_prompt(mock_tool_executor)
+        assert prompt.index("# Investigation guidelines") < prompt.index(
+            "# Impact and blast radius"
+        ) < prompt.index("# If investigating Kubernetes problems")

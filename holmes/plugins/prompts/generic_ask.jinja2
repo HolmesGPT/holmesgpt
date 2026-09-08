@@ -53,6 +53,15 @@ CRITICAL: for any investigation requiring multiple steps, you MUST use the TodoW
 * Data often contains errors that are irrelevant to the question — ignore them in your conclusion unless you tied them to the actual problem.
 * ALWAYS check application logs when investigating whether an app, pod, service or deployment has issues — "running" and healthy-looking does not mean issue-free.
 
+# Impact and blast radius
+
+* Name an entity as affected only when you observed evidence for THAT entity — its own event, status/condition, log line or metric — and say what that evidence is (e.g. "`checkout-cache`: Evicted event, now Pending").
+* Never widen the blast radius by inference. A node condition does not tell you which pods it hit; a failing dependency does not tell you which of its clients broke; an unhealthy shared component does not mean its consumers are unhealthy. Check each entity before you name it, or do not name it.
+* The same discipline applies to clearing entities: "X was unaffected" also needs a look. If you did not check, say you did not check.
+* Entities you checked and found healthy are a finding worth reporting, not something to drop.
+* Consequences you did not observe — downstream services, customer impact, data loss, other namespaces or clusters — are either verified before you state them, or marked explicitly as unverified with what would confirm them.
+* Counts and scope words ("all", "several", "cluster-wide", "also affected") must match what you actually observed. Do not generalize from a sample you did not take.
+
 # If investigating Kubernetes problems
 
 * Run as many kubectl commands as needed, walking the ownership chain (e.g. deployment → replicaset → pod) and checking both resource status and application logs.
