@@ -85,6 +85,15 @@ from holmes.utils.stream import (
 from holmes.utils.tags import parse_messages_tags
 
 
+LOGGED_LLM_ARGS = {
+    "max_tokens",
+    "max_completion_tokens",
+    "temperature",
+    "thinking",
+    "reasoning_effort",
+}
+
+
 class LLMInterruptedError(Exception):
     """Raised when the user interrupts an in-progress LLM call (e.g. via Escape key)."""
 
@@ -1337,7 +1346,9 @@ class ToolCallingLLM:
                     logging.warning(
                         f"LLM returned empty final answer on model={self.llm.model} "
                         f"finish_reason={metadata.get('finish_reason')} "
-                        f"completion_tokens={stats.completion_tokens} llm_calls={i}"
+                        f"completion_tokens={response_stats.completion_tokens} "
+                        f"reasoning_tokens={response_stats.reasoning_tokens} "
+                        f"llm_calls={i} llm_args={ {k: v for k, v in self.llm.args.items() if k in LOGGED_LLM_ARGS} }"
                     )
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
