@@ -20,6 +20,7 @@ Off unless ANSWER_DUMP_DIR is set, so normal runs are unaffected.
     ANSWER_DUMP_DIR=/tmp/before poetry run pytest -k my_eval --no-cov
 """
 
+import hashlib
 import os
 import re
 import uuid
@@ -30,9 +31,18 @@ _HEADER_END = "--- answer ---"
 
 
 def _segment(value: Any, fallback: str) -> str:
-    """One safe path segment: no separators, no traversal, bounded length."""
-    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value))[:80].strip(".")
-    return safe or fallback
+    """One safe path segment: no separators, no traversal, bounded length.
+
+    Sanitising is lossy ("a/b" and "a_b" both read a_b), so whenever it changed
+    the value a short digest of the original is appended. Identifiers that were
+    already safe, like `gpt-4.1`, keep their exact name."""
+    original = str(value)
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", original)[:72].strip(".")
+    if not safe:
+        return fallback
+    if safe != original:
+        safe += "-" + hashlib.sha1(original.encode("utf-8")).hexdigest()[:6]
+    return safe
 
 
 def dump_eval_answer(
@@ -60,15 +70,16 @@ def dump_eval_answer(
         name = (
             f"{verdict}-{_segment(test_id, 'unknown-test')}-{uuid.uuid4().hex[:8]}.txt"
         )
+        payload = (
+            f"test_id: {test_id}\n"
+            f"model: {model}\n"
+            f"env_config: {env_config}\n"
+            f"verdict: {verdict}\n"
+            f"tools: {', '.join(str(t) for t in tools)}\n"
+            f"{_HEADER_END}\n"
+            f"{output!s}"
+        )
         with open(os.path.join(target, name), "w", encoding="utf-8") as handle:
-            handle.write(
-                f"test_id: {test_id}\n"
-                f"model: {model}\n"
-                f"env_config: {env_config}\n"
-                f"verdict: {verdict}\n"
-                f"tools: {', '.join(str(t) for t in tools)}\n"
-                f"{_HEADER_END}\n"
-            )
-            handle.write(str(output))
+            handle.write(payload)
     except Exception:  # noqa: BLE001 - never break a run over a debug aid
         pass

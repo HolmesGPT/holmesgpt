@@ -79,7 +79,11 @@ def test_model_and_env_config_become_directories(monkeypatch, tmp_path):
 def test_slashes_in_a_model_name_do_not_nest(monkeypatch, tmp_path):
     """A provider-prefixed model id must stay one directory level, not a tree."""
     _dump(monkeypatch, tmp_path, model="openai/anthropic/claude-opus-4.6")
-    assert os.listdir(tmp_path) == ["openai_anthropic_claude-opus-4.6"]
+    (only,) = os.listdir(tmp_path)
+    assert only.startswith(
+        "openai_anthropic_claude-opus-4.6-"
+    ), "readable name, then the digest"
+    assert "/" not in only
 
 
 def test_traversal_in_metadata_cannot_escape_the_directory(monkeypatch, tmp_path):
@@ -88,7 +92,8 @@ def test_traversal_in_metadata_cannot_escape_the_directory(monkeypatch, tmp_path
     _dump(monkeypatch, root, test_id="../../etc/passwd", model="../..", env_config="..")
     written = _files(root)
     assert len(written) == 1
-    assert os.path.realpath(written[0]).startswith(os.path.realpath(root))
+    real_root = os.path.realpath(root)
+    assert os.path.commonpath([real_root, os.path.realpath(written[0])]) == real_root
     # Neutralized into ordinary name characters, so no segment still traverses.
     assert ".." not in os.path.relpath(written[0], root).split(os.sep)
 
@@ -131,3 +136,14 @@ def test_unstringable_output_is_swallowed(monkeypatch, tmp_path):
 
     monkeypatch.setenv(_VAR, str(tmp_path))
     dump_eval_answer("290_impact", Hostile(), 1, model="gpt-4.1")
+    assert _files(tmp_path) == []
+
+
+def test_identifiers_that_sanitise_alike_stay_distinct(monkeypatch, tmp_path):
+    """Sanitising is lossy, so a digest keeps "a/b" and "a_b" in separate directories."""
+    _dump(monkeypatch, tmp_path, model="a/b")
+    _dump(monkeypatch, tmp_path, model="a_b")
+    dirs = sorted(os.listdir(tmp_path))
+    assert len(dirs) == 2
+    assert "a_b" in dirs, "an already-safe name keeps its exact spelling"
+    assert all(d.startswith("a_b") for d in dirs)
