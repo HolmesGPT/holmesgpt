@@ -69,9 +69,9 @@ def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
-    if param_attributes.boolean_schema is not None:
+    if param_attributes.json_schema_override is not None:
         # Keep the return value mutable because callers may add a description.
-        return {} if param_attributes.boolean_schema else {"not": {}}
+        return dict(param_attributes.json_schema_override)
 
     # Handle union types (anyOf with multiple non-null branches) first.
     if hasattr(param_attributes, "any_of") and param_attributes.any_of:

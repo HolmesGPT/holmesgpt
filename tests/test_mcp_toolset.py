@@ -676,8 +676,8 @@ class TestMCPSchemaPreservation:
 
         tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
 
-        assert tool.parameters["value"].boolean_schema is True
-        assert tool.parameters["impossible"].boolean_schema is False
+        assert tool.parameters["value"].json_schema_override == {}
+        assert tool.parameters["impossible"].json_schema_override == {"not": {}}
         openai_format = tool.get_openai_format()
         assert "strict" not in openai_format["function"]
         assert openai_format["function"]["parameters"]["required"] == ["value"]

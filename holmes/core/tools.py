@@ -217,9 +217,8 @@ class ToolParameter(BaseModel):
     # When set, type_to_open_ai_schema emits {"anyOf": [...]} instead of a
     # single type.  Each entry is a ToolParameter representing one branch.
     any_of: Optional[List["ToolParameter"]] = None
-    # JSON Schema permits boolean schemas: true accepts every value, while
-    # false accepts none. Preserve them instead of assuming every schema is a dict.
-    boolean_schema: Optional[bool] = None
+    # Provider-facing schema for values that cannot be represented by the typed fields.
+    json_schema_override: Optional[Dict[str, Any]] = None
 
     def is_strict_compatible(self) -> bool:
         """Check if this parameter (and all nested parameters) can be used in strict mode.
@@ -228,7 +227,7 @@ class ToolParameter(BaseModel):
         Parameters with dynamic keys (additionalProperties set to a schema dict or True)
         are incompatible with strict mode.
         """
-        if self.boolean_schema is not None:
+        if self.json_schema_override is not None:
             return False
         # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
         if self.additional_properties is not None and self.additional_properties is not False:

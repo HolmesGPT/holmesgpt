@@ -765,7 +765,10 @@ class RemoteMCPTool(Tool):
         """
         schema = cls._resolve_schema(schema, root_schema)
         if isinstance(schema, bool):
-            return ToolParameter(required=required, boolean_schema=schema)
+            return ToolParameter(
+                required=required,
+                json_schema_override={} if schema else {"not": {}},
+            )
         if not isinstance(schema, dict):
             raise ValueError(
                 "Invalid JSON Schema node: expected an object or boolean, "
