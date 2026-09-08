@@ -1,0 +1,202 @@
+.md-banner {
+  background: #000;
+  color: white;
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 0.25rem 1rem;
+  position: relative;
+  z-index: 1000;
+  border: none;
+}
+
+.md-banner__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.md-banner a {
+  color: #00d4aa;
+  text-decoration: none;
+  font-weight: 500;
+  margin-left: 0.5rem;
+}
+
+.md-banner a:hover {
+  color: #00bfa5;
+  text-decoration: underline;
+}
+
+
+/* Community meetup countdown in header */
+.md-header__meetup {
+  display: none;
+  color: hsla(0, 0%, 100%, 0.7);
+  font-size: 0.65rem;
+  white-space: nowrap;
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  text-decoration: none;
+  transition: color 0.25s;
+}
+
+.md-header__meetup:not(:empty) {
+  display: inline-block;
+}
+
+.md-header__meetup:hover {
+  color: white;
+  text-decoration: none;
+}
+
+@media screen and (max-width: 76.1875em) {
+  .md-header__meetup {
+    display: none !important;
+  }
+}
+
+/* Tab styling - full border around tabbed content */
+.tabbed-set {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 1.5em;
+  padding: 0 1em 1em 1em;
+}
+.tabbed-set .tabbed-content {
+  padding-top: 0.5em;
+}
+[data-md-color-scheme="slate"] .tabbed-set {
+  border-color: #404040;
+}
+
+/* ── Deployment picker (docs/javascripts/deploy-picker.js) ─────────────── */
+/* A "Which Holmes are you running?" selector that replaces the native
+   deployment tab strip. Until the reader picks, the configuration is shown
+   behind a semi-transparent overlay carrying the selector. Styles only take
+   effect once the script adds `.is-enhanced`, so a no-JS reader still sees all
+   the content. */
+.tabbed-set.is-enhanced {
+  position: relative;
+}
+/* Hide the native tab strip — the selector replaces it. */
+.tabbed-set.is-enhanced > .tabbed-labels {
+  display: none;
+}
+.deployment-selector {
+  margin: 0 0 0.8em;
+}
+.deployment-selector__question {
+  margin: 0 0 0.55em;
+  font-weight: 700;
+}
+.deployment-selector__control {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+.deployment-selector__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--md-default-fg-color--light);
+}
+/* A dropdown rather than a row of pills: compact, never wraps, and fits the
+   long "HolmesGPT Enterprise — Robusta Helm Chart" label at any width. */
+.deployment-selector__select {
+  max-width: 100%;
+  cursor: pointer;
+  padding: 0.5em 2.1em 0.5em 0.85em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--md-default-fg-color);
+  background-color: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.3rem;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.65em center;
+  background-size: 0.7em;
+}
+.deployment-selector__select:hover {
+  border-color: var(--md-accent-fg-color);
+}
+.deployment-selector__select:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
+  border-color: var(--md-accent-fg-color);
+}
+.deployment-selector__hint {
+  margin: 0.6em 0 0;
+  font-size: 0.72rem;
+  color: var(--md-default-fg-color--light);
+}
+/* Gated state: the dropdown fills the overlay card; drop the inline "for" label. */
+.tabbed-set.is-enhanced.is-gated .deployment-selector__label {
+  display: none;
+}
+.tabbed-set.is-enhanced.is-gated .deployment-selector__select {
+  flex: 1 1 auto;
+}
+/* Chosen state: the selector becomes a compact header band above the content.
+   Drop the question + hint so it isn't noisy above every code block. */
+.tabbed-set.is-enhanced:not(.is-gated) .deployment-selector__question,
+.tabbed-set.is-enhanced:not(.is-gated) .deployment-selector__hint {
+  display: none;
+}
+/* The set has `padding: 0 1em 1em` (no top padding), so style the switcher as
+   a full-width header band: breathing room above, a divider below, bled out to
+   the box edges. */
+.tabbed-set.is-enhanced:not(.is-gated) .deployment-selector {
+  margin: 0 -1em;
+  padding: 0.7em 1em;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+.tabbed-set.is-enhanced:not(.is-gated) > .tabbed-content {
+  padding-top: 0.9em;
+}
+/* Gated state: frost the still-visible content and float the selector over it
+   as a semi-transparent overlay the reader must act on. */
+.tabbed-set.is-gated > .tabbed-content {
+  filter: blur(2px);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+}
+/* Reserve enough height that the overlay card never spills past a short
+   config block (e.g. a one-line CLI snippet). */
+.tabbed-set.is-gated {
+  min-height: 10rem;
+}
+.tabbed-set.is-gated > .deployment-selector {
+  position: absolute;
+  z-index: 3;
+  top: 0.7em;
+  left: 0.7em;
+  right: 0.7em;
+  margin: 0;
+  padding: 1em 1.1em 1.1em;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+  /* Solid card so the selector stays readable over the blurred config. */
+  background: var(--md-default-bg-color);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+}
+[data-md-color-scheme="slate"] .tabbed-set.is-gated > .deployment-selector {
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* Print: drop the picker chrome and reveal the (first) variant unblurred. */
+@media print {
+  .tabbed-set.is-enhanced .deployment-selector {
+    display: none;
+  }
+  .tabbed-set.is-gated {
+    min-height: 0;
+  }
+  .tabbed-set.is-gated > .tabbed-content {
+    filter: none;
+    opacity: 1;
+  }
+}
