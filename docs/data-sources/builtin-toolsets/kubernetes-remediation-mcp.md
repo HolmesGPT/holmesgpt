@@ -1,6 +1,6 @@
 # Kubernetes Remediation (MCP)
 
-The Kubernetes Remediation MCP server is what lets Holmes **act on your cluster** — restart pods, scale deployments, drain nodes, patch and edit resources, and more — plus run **deeper diagnostics** than read-only access allows: reading files and processes *inside* running containers, launching short-lived troubleshooting pods (netshoot/busybox/curl), and running **GPU node diagnostics** (nvidia-smi, DCGM, XID errors, driver state) via debug pods pinned to the node.
+The Kubernetes Remediation MCP server is what lets Holmes **act on your cluster** — restart pods, scale deployments, drain nodes, patch and edit resources, and more — plus run **deeper diagnostics** than read-only access allows: reading files and processes *inside* running containers and launching short-lived troubleshooting pods (netshoot/busybox/curl).
 
 It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md) (which already covers `get`/`describe`/`logs`), extending Holmes from read-only investigation to investigation **and** remediation — with every mutating action gated behind human approval.
 
@@ -11,8 +11,6 @@ It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md)
     | Read resources (`get` / `describe` / `logs`) | ✅ | — *(keep using the built-in)* |
     | Read files & processes inside containers | ❌ | ✅ auto-approved |
     | Run diagnostic pods (netshoot/busybox/curl) | ❌ | ✅ auto-approved |
-    | GPU node diagnostics (nvidia-smi / DCGM) | ❌ | ✅ auto-approved |
-    | GPU kernel/driver diagnostics (dmesg XID, PCIe, driver mismatch) | ❌ | ✅ **human-approved** |
     | Write actions (restart / scale / drain / patch / …) | ❌ | ✅ **human-approved** |
 
 ## Available Tools
@@ -22,12 +20,10 @@ It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md)
 | `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
 | `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
 | `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. By default probe targets are restricted to in-cluster destinations, and cloud metadata is refused for as long as the target policy is enabled ([details](#diagnostic-pod-target-policy)). |
-| `run_gpu_node_diagnostics` | No | Auto | Run a named GPU check on a node (nvidia-smi overview, throttling, ECC, retired pages, GPU-memory-holding processes, optional DCGM checks) via a short-lived pod pinned to that node. Uses the node's NVIDIA driver **without allocating a GPU**, so it works on fully-utilized nodes ([details](#gpu-node-diagnostics)). |
 | `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
 | `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
-| `run_gpu_node_host_diagnostics` | No, but host-level | **Human approval** | Run a named kernel/driver/PCIe GPU check (dmesg XID errors, driver version mismatch, PCIe link state, fabric manager, `/dev/nvidia*` holders) via a privileged pod with the host filesystem mounted read-only ([details](#gpu-node-diagnostics)). |
 
-Each tool is *either* always auto-approved *or* always human-approved — the split is fixed, so the model never has to guess whether an action is safe to take on its own. The read-only and diagnostic tools run immediately; the mutating fallback (`run_kubectl_command`) and the host-access GPU diagnostics (`run_gpu_node_host_diagnostics`) always pause for a human.
+Each tool is *either* always auto-approved *or* always human-approved — the split is fixed, so the model never has to guess whether an action is safe to take on its own. The read-only and diagnostic tools run immediately; the mutating fallback (`run_kubectl_command`) always pauses for a human.
 
 ## Prerequisites
 
@@ -69,11 +65,6 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
         verbs: ["get", "list", "create", "delete"]
       - apiGroups: [""]
         resources: ["pods/exec"]
-        verbs: ["create"]
-      # kubectl run --rm -i (diagnostic and GPU-diagnostic pods) attaches to
-      # the pod to stream output
-      - apiGroups: [""]
-        resources: ["pods/attach"]
         verbs: ["create"]
       - apiGroups: [""]
         resources: ["pods/log"]
@@ -133,7 +124,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           serviceAccountName: k8s-remediation-mcp-sa
           containers:
           - name: k8s-remediation-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.3.0
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.2.0
             imagePullPolicy: IfNotPresent
             ports:
             - containerPort: 8000
@@ -205,10 +196,9 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           mode: streamable-http
         approval_required_tools:
           - "run_kubectl_command"
-          - "run_gpu_node_host_diagnostics"
     ```
 
-    Only the mutating fallback (`run_kubectl_command`) and the host-access GPU diagnostics (`run_gpu_node_host_diagnostics`) are listed under `approval_required_tools`, so they require confirmation before execution. The read-only tools run immediately.
+    Only the mutating fallback (`run_kubectl_command`) is listed under `approval_required_tools`, so it requires confirmation before execution. The four read-only tools run immediately.
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
@@ -228,7 +218,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-    The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command", "run_gpu_node_host_diagnostics"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
+    The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
 
 === "Robusta Helm Chart"
 
@@ -253,9 +243,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 
 | Control | Description |
 |---------|-------------|
-| **Tool separation** | Read-only tools auto-approve; `run_kubectl_command` (mutations) and `run_gpu_node_host_diagnostics` (host access) require human approval |
-| **GPU check catalog** | The GPU tools take a check **name**, never a command — every command string is server-owned, and the only caller values that reach one are a numeric pid, a validated PCI bus id, and a capped DCGM diag level |
-| **GPU host tier gate** | `gpuDiagnostics.allowHostAccess: false` removes `run_gpu_node_host_diagnostics` entirely (it is approval-gated regardless); its pod mounts the host filesystem **read-only** |
+| **Tool separation** | Read-only tools auto-approve; only `run_kubectl_command` (mutations) requires human approval |
 | **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
 | **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
 | **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
@@ -274,7 +262,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 
     The `config` keys in this section are read by the MCP server, not by Holmes.
     On an older image they are passed through and ignored, and probe targets are
-    unrestricted. The Helm chart pins 1.3.0 by default.
+    unrestricted. The Helm chart pins 1.2.0 by default.
 
 `run_preapproved_diagnostic_image` is auto-approved, and the images it launches
 are network-probing tools (`curl`, `dig`, `wget`, `tcpdump`). The image allowlist
@@ -416,51 +404,6 @@ Otherwise, in order of preference:
     control. The image allowlist, shell-metacharacter rejection and
     flag-injection guard are unaffected.
 
-## GPU node diagnostics
-
-!!! warning "Requires MCP server image 1.3.0 or newer"
-
-    The `config.gpuDiagnostics` keys are read by the MCP server; on an older
-    image they are ignored and the GPU tools don't exist. The Helm chart pins
-    1.3.0 by default.
-
-When debugging a GPU node, Holmes can launch short-lived debug pods **pinned to
-that node** (they schedule even on a cordoned node and tolerate GPU taints, and
-are auto-deleted afterwards). The caller — the model — picks a **check by
-name**; the commands themselves are fixed in the server.
-
-**`run_gpu_node_diagnostics`** (auto-approved) covers the nvidia-smi surface.
-Its pod gets the node driver's tooling through the NVIDIA container runtime
-(`NVIDIA_VISIBLE_DEVICES=all`) **without requesting `nvidia.com/gpu`**, so it
-works even when every GPU on the node is allocated — exactly the situation on
-the node you are debugging. Checks:
-
-| Check | What it answers |
-|-------|-----------------|
-| `overview` | `nvidia-smi` — is the driver alive; temperature, power, memory, processes |
-| `details` | `nvidia-smi -q` — full per-GPU detail |
-| `throttling` | temperature/power/clock sections and active throttle reasons |
-| `utilization_samples` | ~30s of csv samples to catch transient spikes |
-| `ecc` | volatile + aggregate ECC error counts |
-| `page_retirement` | retired pages (pending retirement ⇒ the node needs a reboot) |
-| `row_remapper` | A100/H100-generation remapped-rows state |
-| `compute_processes` | which processes hold GPU memory |
-| `dcgm_discovery` / `dcgm_health` / `dcgm_diag` | DCGM checks (optional — `gpuDiagnostics.dcgmEnabled`); `dcgm_diag` levels above `dcgmMaxDiagLevel` are refused (level 3 stress-tests the GPU) |
-
-**`run_gpu_node_host_diagnostics`** (human approval) covers the kernel side via
-a privileged, `hostPID` pod with the host root mounted **read-only** at
-`/host` — the same shape as `kubectl debug node/`. That is effectively node
-root, which is why it always prompts. Checks: `kernel_gpu_errors` (dmesg
-XID/NVRM errors, "GPU has fallen off the bus"), `kernel_log_journal`,
-`driver_info` (loaded vs on-disk vs running driver version — detects
-"Driver/library version mismatch"), `pci`, `pci_link` (takes a `pci_bus_id`),
-`fabric_manager` (NVSwitch/HGX systems), `gpu_device_holders` (host processes
-holding `/dev/nvidia*` open), and `process_info` (takes a `pid`).
-
-If your cluster does not define the `nvidia` RuntimeClass (GPU Operator
-installs do) and your GPU nodes' default runtime already injects the driver,
-set `gpuDiagnostics.runtimeClass: ""`.
-
 ## Configuration Reference
 
 | Helm value (`config.*`) | Default | Purpose |
@@ -476,15 +419,6 @@ set `gpuDiagnostics.runtimeClass: ""`.
 | `fileReadDeniedPaths` | `/var/run/secrets/,/run/secrets/,...` | secret-mount denylist |
 | `allowArbitraryKubectlCommands` | `true` | enable the approval-gated fallback |
 | `timeout` | `60` | per-command timeout (s) |
-| `gpuDiagnostics.enabled` | `true` | master switch for both [GPU node diagnostics](#gpu-node-diagnostics) tools |
-| `gpuDiagnostics.image` | `nvcr.io/nvidia/cuda:12.4.1-base-ubuntu22.04` | image for the non-host GPU checks (`nvidia-smi` itself is injected by the NVIDIA container runtime) |
-| `gpuDiagnostics.dcgmEnabled` | `true` | enable the `dcgm_*` checks |
-| `gpuDiagnostics.dcgmImage` | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | image for the `dcgm_*` checks |
-| `gpuDiagnostics.dcgmMaxDiagLevel` | `"1"` | highest `dcgmi diag -r <level>` allowed (2–3 run long; 3 stress-tests the GPU) |
-| `gpuDiagnostics.runtimeClass` | `nvidia` | RuntimeClass for the non-host GPU pod; `""` to omit |
-| `gpuDiagnostics.allowHostAccess` | `true` | make `run_gpu_node_host_diagnostics` available (it is approval-gated regardless) |
-| `gpuDiagnostics.hostImage` | `busybox:1.37.0` | image for the host-level checks |
-| `gpuDiagnostics.timeout` | `"300"` | per-GPU-check timeout (s), covering image pull and `dcgmi diag` runtime |
 
 ## Common Use Cases
 
@@ -502,10 +436,6 @@ holmes ask "Restart the payment-service deployment in the production namespace"
 
 ```bash
 holmes ask "The checkout-api pods are crashlooping - investigate and fix"
-```
-
-```bash
-holmes ask "Training jobs on node gpu-worker-3 are running slowly - check the GPUs on that node for throttling or ECC errors"
 ```
 
 ## Additional Resources

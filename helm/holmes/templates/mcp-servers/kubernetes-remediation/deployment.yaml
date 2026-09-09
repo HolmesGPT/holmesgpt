@@ -52,20 +52,6 @@ data:
   KUBECTL_ALLOW_ARBITRARY_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowArbitraryKubectlCommands | quote }}
   KUBECTL_TIMEOUT: {{ .Values.mcpAddons.kubernetesRemediation.config.timeout | quote }}
   LOG_LEVEL: {{ .Values.mcpAddons.kubernetesRemediation.config.logLevel | quote }}
-  {{- with .Values.mcpAddons.kubernetesRemediation.config.gpuDiagnostics }}
-  GPU_DIAG_ENABLED: {{ .enabled | quote }}
-  GPU_DIAG_IMAGE: {{ .image | quote }}
-  GPU_DIAG_DCGM_ENABLED: {{ .dcgmEnabled | quote }}
-  GPU_DIAG_DCGM_IMAGE: {{ .dcgmImage | quote }}
-  GPU_DIAG_DCGM_MAX_DIAG_LEVEL: {{ .dcgmMaxDiagLevel | quote }}
-  GPU_DIAG_RUNTIME_CLASS: {{ .runtimeClass | quote }}
-  GPU_DIAG_ALLOW_HOST_ACCESS: {{ .allowHostAccess | quote }}
-  GPU_DIAG_HOST_IMAGE: {{ .hostImage | quote }}
-  GPU_DIAG_TIMEOUT: {{ .timeout | quote }}
-  {{- end }}
-  # GPU diagnostic pods run in the release namespace, where the operator applies
-  # the diagnostic-pod egress NetworkPolicy.
-  GPU_DIAG_NAMESPACE: {{ .Release.Namespace | quote }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -194,23 +180,6 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: LOG_LEVEL
-        {{- range $key := list
-            "GPU_DIAG_ENABLED"
-            "GPU_DIAG_IMAGE"
-            "GPU_DIAG_DCGM_ENABLED"
-            "GPU_DIAG_DCGM_IMAGE"
-            "GPU_DIAG_DCGM_MAX_DIAG_LEVEL"
-            "GPU_DIAG_RUNTIME_CLASS"
-            "GPU_DIAG_ALLOW_HOST_ACCESS"
-            "GPU_DIAG_HOST_IMAGE"
-            "GPU_DIAG_TIMEOUT"
-            "GPU_DIAG_NAMESPACE" }}
-        - name: {{ $key }}
-          valueFrom:
-            configMapKeyRef:
-              name: {{ $.Release.Name }}-k8s-remediation-mcp-config
-              key: {{ $key }}
-        {{- end }}
         {{- if .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
         # Bearer token required on every HTTP request (server image >= 1.2.0).
         # Holmes sends it via the toolset's extra_headers (toolset-config.yaml).

@@ -725,7 +725,7 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.3.0"
+    image: "kubernetes-remediation-mcp:1.2.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -794,43 +794,6 @@ mcpAddons:
       # Log level
       logLevel: "INFO"
 
-      # ---- GPU node diagnostics (server >= 1.3.0) ----
-      # Two tools with server-owned command catalogs (the model picks a check by
-      # NAME; it never composes commands):
-      #   run_gpu_node_diagnostics       auto-approved; node-pinned pod that uses
-      #                                  the node's NVIDIA driver via the NVIDIA
-      #                                  container runtime, WITHOUT allocating a
-      #                                  GPU (works on fully-utilized nodes).
-      #                                  nvidia-smi overview/ECC/throttling/
-      #                                  retired-pages checks + optional DCGM.
-      #   run_gpu_node_host_diagnostics  approval-gated (see approvalRequiredTools
-      #                                  below); privileged hostPID pod with the
-      #                                  host root mounted read-only — dmesg XID
-      #                                  errors, driver version mismatch, PCIe
-      #                                  link state, /dev/nvidia* holders.
-      gpuDiagnostics:
-        # Master switch for both GPU tools
-        enabled: true
-        # Image for the non-host checks. Needs glibc + sh; nvidia-smi itself is
-        # injected by the NVIDIA container runtime.
-        image: "nvcr.io/nvidia/cuda:12.4.1-base-ubuntu22.04"
-        # DCGM checks (dcgmi discovery/health/diag) — optional, the image is large
-        dcgmEnabled: true
-        dcgmImage: "nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04"
-        # Highest `dcgmi diag -r <level>` the auto-approved tool may run
-        # (2-3 run long; 3 stress-tests the GPU)
-        dcgmMaxDiagLevel: "1"
-        # RuntimeClass for the non-host GPU pod. "nvidia" matches GPU Operator
-        # installs; set "" if your default runtime already injects the driver.
-        runtimeClass: "nvidia"
-        # Make run_gpu_node_host_diagnostics available at all. It is
-        # approval-gated regardless; false removes the capability entirely.
-        allowHostAccess: true
-        # Image for the host-level checks (host binaries run via chroot /host)
-        hostImage: "busybox:1.37.0"
-        # Per-check timeout in seconds (covers image pull + dcgmi diag runtime)
-        timeout: "300"
-
     resources:
       requests:
         memory: "64Mi"
@@ -842,14 +805,11 @@ mcpAddons:
     networkPolicy:
       enabled: true          # ingress-only; inert where the CNI doesn't enforce
 
-    # HolmesGPT-side approval mapping. Only the mutating fallback and the
-    # host-access GPU diagnostics (privileged + hostPID = node-root) prompt a
-    # human; the read-only tools (read_file_from_container,
-    # run_preapproved_kubectl_command, run_preapproved_diagnostic_image,
-    # run_gpu_node_diagnostics, get_remediation_mcp_config) run immediately.
+    # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
+    # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
+    # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
     approvalRequiredTools:
       - "run_kubectl_command"
-      - "run_gpu_node_host_diagnostics"
 
     # Optional override of the default LLM instructions
     llmInstructions: ""
