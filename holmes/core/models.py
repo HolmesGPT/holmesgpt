@@ -260,6 +260,17 @@ class ChatRequestBaseModel(BaseModel):
             "conversation_id is non-NULL and not already set."
         ),
     )
+    conversation_link: Optional[str] = Field(
+        default=None,
+        description=(
+            "URL of the surface where this request originated: a Slack thread "
+            "permalink, an MS Teams message link, a platform Ask Holmes chat URL, "
+            "or a triggered-workflow run URL. Unlike the analytics-only fields "
+            "above, this IS rendered into the system prompt so that artifacts "
+            "Holmes creates outside the conversation (pull requests, issues) can "
+            "link back to the request that initiated them."
+        ),
+    )
     meta: Optional[Dict[str, Any]] = Field(
         default=None,
         description=(
