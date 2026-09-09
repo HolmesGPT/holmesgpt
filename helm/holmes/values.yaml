@@ -725,7 +725,7 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.2.0"
+    image: "kubernetes-remediation-mcp:1.3.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -793,6 +793,13 @@ mcpAddons:
       timeout: "60"
       # Log level
       logLevel: "INFO"
+      # GPU node diagnostics (server >= 1.3.0): run_gpu_node_diagnostics runs
+      # the node's own binaries (nvidia-smi, dmesg, lspci, ...) via a read-only
+      # host-filesystem mount — works with no configuration. The dcgm_* checks
+      # are opt-in: enabling them asserts dcgmi (with nv-hostengine) is
+      # installed on the GPU hosts. To gate the tool behind a human, add
+      # "run_gpu_node_diagnostics" to approvalRequiredTools below.
+      dcgmEnabled: false
 
     resources:
       requests:

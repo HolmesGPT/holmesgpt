@@ -29,9 +29,9 @@ def test_values_drop_restricted_tools_and_map_approval():
 def test_values_defaults_are_plug_and_play():
     v = _values()
     assert v["enabled"] is False  # opt-in
-    # 1.2.0 carries the diagnostic-pod target policy (ROB-910); the config keys
-    # asserted below only take effect on that version or newer.
-    assert v["image"] == "kubernetes-remediation-mcp:1.2.0"
+    # 1.3.0 carries the GPU node diagnostics tool; the dcgmEnabled key asserted
+    # below only takes effect on that version or newer.
+    assert v["image"] == "kubernetes-remediation-mcp:1.3.0"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
@@ -99,18 +99,32 @@ def test_deployment_wires_diagnostic_target_policy_env():
 
 
 def test_deployment_configmap_keys_all_reach_the_container():
-    """Every KUBECTL_* key defined in the ConfigMap block must also be referenced
-    as an env var, so a newly added value cannot be dropped on the floor."""
+    """Every KUBECTL_*/DCGM_*/GPU_DIAG_* key defined in the ConfigMap block must
+    also be referenced as an env var, so a newly added value cannot be dropped
+    on the floor."""
     import re
 
+    key_re = r"(KUBECTL_[A-Z_]+|DCGM_[A-Z_]+|GPU_DIAG_[A-Z_]+)"
     text = (TEMPLATE_DIR / "deployment.yaml").read_text()
-    defined = set(re.findall(r"^  (KUBECTL_[A-Z_]+):", text, re.MULTILINE))
-    referenced = set(re.findall(r"key: (KUBECTL_[A-Z_]+)", text))
+    defined = set(re.findall(rf"^  {key_re}:", text, re.MULTILINE))
+    referenced = set(re.findall(rf"key: {key_re}", text))
     assert defined, "no ConfigMap keys found — did the template layout change?"
     assert defined == referenced, (
         f"ConfigMap/env mismatch: only in ConfigMap={defined - referenced}, "
         f"only in env={referenced - defined}"
     )
+
+
+def test_gpu_diagnostics_chart_wiring():
+    """DCGM is opt-in (dcgmEnabled: false wired to DCGM_ENABLED), GPU pods run
+    in the release namespace, and the scoped ClusterRole grants pods/attach —
+    kubectl run --rm -i (used by all pod-launching tools) attaches to stream
+    output."""
+    assert _values()["config"]["dcgmEnabled"] is False
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    assert text.count("DCGM_ENABLED") >= 2, "not wired through both ConfigMap and env"
+    assert "GPU_DIAG_NAMESPACE: {{ .Release.Namespace | quote }}" in text
+    assert "pods/attach" in (TEMPLATE_DIR / "rbac.yaml").read_text()
 
 
 def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():

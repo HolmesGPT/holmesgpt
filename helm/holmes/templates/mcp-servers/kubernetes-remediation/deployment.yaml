@@ -52,6 +52,10 @@ data:
   KUBECTL_ALLOW_ARBITRARY_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowArbitraryKubectlCommands | quote }}
   KUBECTL_TIMEOUT: {{ .Values.mcpAddons.kubernetesRemediation.config.timeout | quote }}
   LOG_LEVEL: {{ .Values.mcpAddons.kubernetesRemediation.config.logLevel | quote }}
+  # GPU node diagnostics (server >= 1.3.0)
+  DCGM_ENABLED: {{ .Values.mcpAddons.kubernetesRemediation.config.dcgmEnabled | quote }}
+  # GPU diagnostic pods run in the release namespace
+  GPU_DIAG_NAMESPACE: {{ .Release.Namespace | quote }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -180,6 +184,16 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: LOG_LEVEL
+        - name: DCGM_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: DCGM_ENABLED
+        - name: GPU_DIAG_NAMESPACE
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: GPU_DIAG_NAMESPACE
         {{- if .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
         # Bearer token required on every HTTP request (server image >= 1.2.0).
         # Holmes sends it via the toolset's extra_headers (toolset-config.yaml).
