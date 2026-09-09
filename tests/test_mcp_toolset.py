@@ -657,6 +657,78 @@ class TestMCPSchemaPreservation:
     """Tests for preserving JSON Schema features from MCP tool schemas."""
 
     @pytest.mark.usefixtures("suppress_migration_warnings")
+    def test_boolean_property_schemas_preserved(self) -> None:
+        mcp_tool = Tool(
+            name="query_tool",
+            inputSchema={
+                "type": "object",
+                "properties": {"value": True, "impossible": False},
+                "required": ["value"],
+            },
+            description="Query with an unconstrained filter value",
+            annotations=None,
+        )
+        mock_toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+
+        tool = RemoteMCPTool.create(mcp_tool, mock_toolset)
+
+        assert tool.parameters["value"].json_schema_override == {}
+        assert tool.parameters["impossible"].json_schema_override == {"not": {}}
+        openai_format = tool.get_openai_format()
+        assert "strict" not in openai_format["function"]
+        assert openai_format["function"]["parameters"]["required"] == ["value"]
+        assert openai_format["function"]["parameters"]["properties"] == {
+            "value": {},
+            "impossible": {"not": {}},
+        }
+
+        malformed_tool = Tool(
+            name="malformed_tool",
+            inputSchema={"type": "object", "properties": {"value": "string"}},
+            description="Tool with an invalid property schema",
+            annotations=None,
+        )
+        with pytest.raises(
+            ValueError, match="expected an object or boolean, got str"
+        ):
+            RemoteMCPTool.create(malformed_tool, mock_toolset)
+
+        parsed_tools = mock_toolset._create_remote_tools([mcp_tool, malformed_tool])
+
+        assert [parsed_tool.name for parsed_tool in parsed_tools] == ["query_tool"]
+
+        referenced_tool = Tool(
+            name="referenced_tool",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "free": {"$ref": "#/$defs/free"},
+                    "integer": {"$ref": "#/$defs/free", "type": "integer"},
+                    "impossible": {
+                        "$ref": "#/$defs/impossible",
+                        "type": "integer",
+                    },
+                },
+                "$defs": {"free": True, "impossible": False},
+            },
+            description="Tool with boolean schema references",
+            annotations=None,
+        )
+
+        referenced_format = RemoteMCPTool.create(
+            referenced_tool, mock_toolset
+        ).get_openai_format()
+        assert referenced_format["function"]["parameters"]["properties"] == {
+            "free": {},
+            "integer": {"type": "integer"},
+            "impossible": {"not": {}},
+        }
+
+    @pytest.mark.usefixtures("suppress_migration_warnings")
     def test_additional_properties_anyof_preserved(self) -> None:
         """Test that additionalProperties with anyOf is not flattened.
 
