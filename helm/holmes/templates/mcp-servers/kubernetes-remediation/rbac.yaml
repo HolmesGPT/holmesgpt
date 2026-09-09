@@ -36,6 +36,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
+  # kubectl run --rm -i (diagnostic-image and GPU-diagnostic pods) attaches to
+  # the pod to stream its output
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["create"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]

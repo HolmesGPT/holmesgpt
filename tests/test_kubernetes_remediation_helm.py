@@ -23,15 +23,20 @@ def _values() -> dict:
 def test_values_drop_restricted_tools_and_map_approval():
     v = _values()
     assert "restrictedTools" not in v
-    assert v["approvalRequiredTools"] == ["run_kubectl_command"]
+    # run_kubectl_command mutates; run_gpu_node_host_diagnostics is node-root
+    # (privileged + hostPID + host filesystem). Both must prompt a human.
+    assert v["approvalRequiredTools"] == [
+        "run_kubectl_command",
+        "run_gpu_node_host_diagnostics",
+    ]
 
 
 def test_values_defaults_are_plug_and_play():
     v = _values()
     assert v["enabled"] is False  # opt-in
-    # 1.2.0 carries the diagnostic-pod target policy (ROB-910); the config keys
-    # asserted below only take effect on that version or newer.
-    assert v["image"] == "kubernetes-remediation-mcp:1.2.0"
+    # 1.3.0 carries the GPU node diagnostics tools; the gpuDiagnostics config
+    # keys asserted below only take effect on that version or newer.
+    assert v["image"] == "kubernetes-remediation-mcp:1.3.0"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
@@ -99,18 +104,66 @@ def test_deployment_wires_diagnostic_target_policy_env():
 
 
 def test_deployment_configmap_keys_all_reach_the_container():
-    """Every KUBECTL_* key defined in the ConfigMap block must also be referenced
-    as an env var, so a newly added value cannot be dropped on the floor."""
+    """Every KUBECTL_*/GPU_DIAG_* key defined in the ConfigMap block must also be
+    referenced as an env var, so a newly added value cannot be dropped on the
+    floor. Env references come in two template shapes: explicit
+    `key: KUBECTL_...` entries and the quoted names in the `range $key := list`
+    block that renders the GPU_DIAG_* entries."""
     import re
 
     text = (TEMPLATE_DIR / "deployment.yaml").read_text()
-    defined = set(re.findall(r"^  (KUBECTL_[A-Z_]+):", text, re.MULTILINE))
-    referenced = set(re.findall(r"key: (KUBECTL_[A-Z_]+)", text))
+    defined = set(re.findall(r"^  ((?:KUBECTL|GPU_DIAG)_[A-Z_]+):", text, re.MULTILINE))
+    referenced = set(re.findall(r"key: ((?:KUBECTL|GPU_DIAG)_[A-Z_]+)", text))
+    referenced |= set(re.findall(r'"((?:KUBECTL|GPU_DIAG)_[A-Z_]+)"', text))
     assert defined, "no ConfigMap keys found — did the template layout change?"
     assert defined == referenced, (
         f"ConfigMap/env mismatch: only in ConfigMap={defined - referenced}, "
         f"only in env={referenced - defined}"
     )
+
+
+def test_values_gpu_diagnostics_defaults():
+    """GPU diagnostics ship enabled with the host tier available (it is
+    approval-gated on the Holmes side) and the DCGM diag level capped at the
+    quick, non-stressing run."""
+    gpu = _values()["config"]["gpuDiagnostics"]
+    assert gpu["enabled"] is True
+    assert gpu["dcgmEnabled"] is True
+    assert gpu["dcgmMaxDiagLevel"] == "1"
+    assert gpu["runtimeClass"] == "nvidia"
+    assert gpu["allowHostAccess"] is True
+    for key in ("image", "dcgmImage", "hostImage", "timeout"):
+        assert gpu[key], key
+    # never a floating tag on a diagnostic image
+    for key in ("image", "dcgmImage", "hostImage"):
+        assert ":latest" not in gpu[key] and ":" in gpu[key], gpu[key]
+
+
+def test_deployment_wires_gpu_diagnostics_env():
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    for key in (
+        "GPU_DIAG_ENABLED",
+        "GPU_DIAG_IMAGE",
+        "GPU_DIAG_DCGM_ENABLED",
+        "GPU_DIAG_DCGM_IMAGE",
+        "GPU_DIAG_DCGM_MAX_DIAG_LEVEL",
+        "GPU_DIAG_RUNTIME_CLASS",
+        "GPU_DIAG_ALLOW_HOST_ACCESS",
+        "GPU_DIAG_HOST_IMAGE",
+        "GPU_DIAG_TIMEOUT",
+        "GPU_DIAG_NAMESPACE",
+    ):
+        assert text.count(key) >= 2, f"{key} not wired through both ConfigMap and env"
+    # GPU pods run in the release namespace, where the operator applies the
+    # diagnostic-pod egress NetworkPolicy
+    assert "GPU_DIAG_NAMESPACE: {{ .Release.Namespace | quote }}" in text
+
+
+def test_rbac_grants_pod_attach_for_diagnostic_pods():
+    """kubectl run --rm -i (diagnostic-image and GPU-diagnostic pods) attaches to
+    the pod to stream output; without pods/attach those tools fail."""
+    text = (TEMPLATE_DIR / "rbac.yaml").read_text()
+    assert "pods/attach" in text
 
 
 def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
@@ -203,3 +256,5 @@ def test_llm_instructions_mention_the_tool_split():
     assert "read_file_from_container" in text
     assert "run_preapproved_diagnostic_image" in text
     assert "run_preapproved_kubectl_command" in text
+    assert "run_gpu_node_diagnostics" in text
+    assert "run_gpu_node_host_diagnostics" in text

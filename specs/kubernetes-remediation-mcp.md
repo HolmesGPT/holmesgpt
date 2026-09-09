@@ -32,8 +32,10 @@ not of its arguments.
 | `read_file_from_container` | No | **Auto** | server path policy |
 | `run_preapproved_kubectl_command` | No | **Auto** | server command allowlist |
 | `run_preapproved_diagnostic_image` | No (data-gathering pod) | **Auto** | server image allowlist |
+| `run_gpu_node_diagnostics` | No (data-gathering pod, no host access) | **Auto** | server check catalog (server-owned commands) |
 | `get_remediation_mcp_config` | No | **Auto** | — |
 | `run_kubectl_command` | Yes | **Human approval** | HolmesGPT `approval_required_tools` + server guards |
+| `run_gpu_node_host_diagnostics` | No, but node-root (privileged + hostPID + host FS read-only) | **Human approval** | HolmesGPT `approval_required_tools` + server check catalog + `GPU_DIAG_ALLOW_HOST_ACCESS` |
 
 ### Division of responsibility
 
@@ -79,6 +81,25 @@ This keeps the agent generic and puts the security-sensitive logic in one place
   `tcpdump`/`ping`/`iperf` still work. Output is captured; the pod is auto-deleted
   (`--rm` plus a best-effort `finally` delete).
 
+**`run_gpu_node_diagnostics(node, check, dcgm_diag_level=1)`** *(server >= 1.3.0)*
+- Runs one **named** GPU check on a node via a short-lived pod pinned there with
+  `spec.nodeName` (bypasses the scheduler, so cordoned nodes stay diagnosable;
+  a blanket toleration survives GPU-node taints). The NVIDIA container runtime
+  injects the host driver's `nvidia-smi` (`NVIDIA_VISIBLE_DEVICES=all`,
+  `NVIDIA_DRIVER_CAPABILITIES=utility`, `runtimeClassName` from
+  `GPU_DIAG_RUNTIME_CLASS`) **without allocating `nvidia.com/gpu`**, so it
+  schedules on fully-utilized nodes. Checks: `overview`, `details`,
+  `throttling`, `utilization_samples`, `ecc`, `page_retirement`,
+  `row_remapper`, `compute_processes`, and (when `GPU_DIAG_DCGM_ENABLED`)
+  `dcgm_discovery`/`dcgm_health`/`dcgm_diag` in the DCGM image with an embedded
+  host engine. Every command string is a server-owned constant; the caller
+  supplies only the node name (identifier-validated), a check name from the
+  catalog, and a `dcgm_diag_level` bounds-checked against
+  `GPU_DIAG_DCGM_MAX_DIAG_LEVEL` (default 1 — level 3 stress-tests the GPU).
+  The pod carries the same hardening as `run_preapproved_diagnostic_image`
+  (no SA token, no privilege escalation, memory-capped, host namespaces off,
+  the `robusta.dev/diagnostic-pod` label) and is auto-deleted.
+
 **`get_remediation_mcp_config()`** — returns the live effective policy for debugging.
 
 ### 3.2 Approval-gated fallback
@@ -94,6 +115,33 @@ of HolmesGPT approval):
 - **Timeout** `KUBECTL_TIMEOUT` (60s).
 - **`KUBECTL_ALLOW_ARBITRARY_COMMANDS`** (default `true`): when `false`, this tool is
   disabled — a fully locked-down mode where only the auto-approved tools work.
+
+**`run_gpu_node_host_diagnostics(node, check, pid=None, pci_bus_id=None)`** *(server >= 1.3.0)*
+— the second approval-gated tool. Runs one **named** kernel/driver/PCIe GPU
+check via a pod that is what `kubectl debug node/` would build: privileged,
+`hostPID: true`, the host root hostPath-mounted **read-only** at `/host`
+(host binaries run through `chroot /host`; host processes and the shared
+kernel are visible through the pod's own `/proc`). Checks: `kernel_gpu_errors`
+(dmesg XID/NVRM), `kernel_log_journal`, `driver_info` (loaded vs on-disk vs
+running driver version), `pci`, `pci_link`, `fabric_manager`,
+`gpu_device_holders` (`/dev/nvidia*` holders), `process_info`. Commands are
+server-owned; the only caller values that reach a command are `pid`
+(numeric-validated) and `pci_bus_id` (`[0-9a-fA-F:.]{1,16}`). It mutates
+nothing, but privileged+hostPID+host-filesystem is node-root, so it sits on
+the gated side of the boundary — `approval_required_tools` lists it alongside
+`run_kubectl_command` — and `GPU_DIAG_ALLOW_HOST_ACCESS=false` (chart:
+`gpuDiagnostics.allowHostAccess`) removes it entirely, mirroring the
+locked-down toggle.
+
+GPU diagnostics config: `GPU_DIAG_ENABLED` (master switch), `GPU_DIAG_IMAGE` /
+`GPU_DIAG_DCGM_IMAGE` / `GPU_DIAG_HOST_IMAGE` (pinned defaults), 
+`GPU_DIAG_DCGM_ENABLED`, `GPU_DIAG_DCGM_MAX_DIAG_LEVEL`,
+`GPU_DIAG_RUNTIME_CLASS`, `GPU_DIAG_ALLOW_HOST_ACCESS`, `GPU_DIAG_NAMESPACE`
+(the chart sets the release namespace, where the diagnostic-pod egress
+NetworkPolicy is applied), `GPU_DIAG_TIMEOUT` (default 300s — image pull +
+`dcgmi diag` runtime). The chart also grants `pods/attach` in the scoped
+ClusterRole: `kubectl run --rm -i` (used by all pod-launching tools) attaches
+to stream output.
 
 ### 3.3 Configuration (env vars)
 
@@ -151,11 +199,14 @@ Net core change is a deletion plus config plumbing.
 ## 5. Helm chart (`helm/holmes/.../kubernetes-remediation/`)
 
 `mcpAddons.kubernetesRemediation`: opt-in (`enabled: false`) but plug-and-play once
-enabled. Image `1.2.0`. Chart renders the scoped ClusterRole when
+enabled. Image `1.3.0`. Chart renders the scoped ClusterRole when
 `serviceAccount.clusterRole` is empty (bring-your-own otherwise), the ingress-only
-NetworkPolicy (on by default), the ConfigMap/env wiring for all the new config keys,
-and `approval_required_tools: ["run_kubectl_command"]` in `toolset-config.yaml`. The
-LLM instructions in `_helpers.tpl` describe the auto-vs-gated split.
+NetworkPolicy (on by default), the ConfigMap/env wiring for all the config keys
+(including the `config.gpuDiagnostics` block → `GPU_DIAG_*` env vars, with
+`GPU_DIAG_NAMESPACE` pinned to the release namespace), and
+`approval_required_tools: ["run_kubectl_command", "run_gpu_node_host_diagnostics"]`
+in `toolset-config.yaml`. The LLM instructions in `_helpers.tpl` describe the
+auto-vs-gated split, including both GPU tools.
 
 ---
 
@@ -275,6 +326,40 @@ to use the FQDN.
 the hard denials, for environments the policy misjudges. It restores the pre-fix
 exposure and is logged loudly at startup and per call; the image allowlist, shell-char
 rejection and flag-injection guard are unaffected.
+
+### 6.4b GPU node diagnostics — where the boundary sits
+
+The GPU tools deliberately expose **no command surface**: the caller picks a
+check name; the server owns every command string. That keeps the auto-approved
+tier honest — prompt-injected content can choose *which* fixed read-only
+diagnostic runs on *which* node, but cannot compose a command, pick an image,
+mount anything, or point a probe anywhere (the GPU checks take no network
+targets at all, so §6.4's target policy is not in play).
+
+Three caller-supplied scalars do reach a shell string inside the throwaway
+pod, each strictly validated first: `pid` (numeric, bounded), `pci_bus_id`
+(`^[0-9a-fA-F:.]{1,16}$` — no shell metacharacter passes), and
+`dcgm_diag_level` (int, capped by `GPU_DIAG_DCGM_MAX_DIAG_LEVEL`, default 1 so
+the GPU-stressing level 3 needs an operator opt-in). Node names go through the
+same `_validate_identifier` flag-injection guard as pods/namespaces (§6.1).
+
+The split between the two tools is the host boundary, not mutation:
+`run_gpu_node_diagnostics` runs an unprivileged pod (no host namespaces, no
+mounts, SA token off, driver tooling via runtime injection) and is
+auto-approved; `run_gpu_node_host_diagnostics` is privileged + `hostPID` with
+the host root mounted read-only — it mutates nothing, but that combination is
+node-root (any host file readable, all host processes visible), so it is
+approval-gated exactly like `run_kubectl_command` and removable outright via
+`GPU_DIAG_ALLOW_HOST_ACCESS=false`. Read-only mounting is a real constraint on
+file tampering but not on secrets exposure — a host mount reaches kubelet
+credentials and every pod's writable layer — which is why "read-only" did not
+argue it onto the auto side.
+
+Both pods bypass the scheduler via `spec.nodeName` (intentional: a cordoned or
+NoSchedule-tainted GPU node must stay diagnosable) and carry a blanket
+`operator: Exists` toleration so NoExecute taints don't evict a check mid-run.
+The resource-exhaustion posture is the same as §6.5's diagnostic-pod point:
+per-pod memory caps and `GPU_DIAG_TIMEOUT`, no global concurrency cap.
 
 ### 6.5 Residual risks (accepted, documented)
 
