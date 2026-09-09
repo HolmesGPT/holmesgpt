@@ -228,12 +228,17 @@ async def on_healthcheck_update(
     ):
         logger.info(f"Re-running HealthCheck: {namespace}/{name}")
 
-        # Trigger re-execution by calling create handler
+        # Trigger re-execution by calling create handler.
+        # kopf also supplies spec/uid in kwargs, and both are passed
+        # explicitly below; forwarding them twice raises TypeError. Keep the
+        # rest of kwargs — the create handler reads `body` from it to attach
+        # events to the resource.
+        forwarded = {k: v for k, v in kwargs.items() if k not in ("spec", "uid")}
         await on_healthcheck_create(
             spec=new.get("spec", {}),
             name=name,
             namespace=namespace,
             uid=new.get("metadata", {}).get("uid", ""),
             logger=logger,
-            **kwargs,
+            **forwarded,
         )
