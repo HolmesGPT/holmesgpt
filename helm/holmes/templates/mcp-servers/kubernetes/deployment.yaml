@@ -113,6 +113,10 @@ spec:
           - "--config"
           - "/etc/kubernetes-mcp/config.toml"
           {{- end }}
+          {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
+          - "--kubeconfig"
+          - "/etc/kubernetes/kubeconfig"
+          {{- end }}
           {{- range .Values.mcpAddons.kubernetes.config.extraArgs }}
           - {{ . | quote }}
           {{- end }}

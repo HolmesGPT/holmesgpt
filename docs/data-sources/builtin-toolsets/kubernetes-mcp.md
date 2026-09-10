@@ -303,13 +303,6 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi-cl
             secretName: "k8s-mcp-kubeconfig"
             secretKey: "kubeconfig"
 
-          # Required — overrides in-cluster auto-detection
-          extraArgs:
-            - "--kubeconfig"
-            - "/etc/kubernetes/kubeconfig"
-            - "--cluster-provider"
-            - "kubeconfig"
-
           serverConfig: |
             disabled_tools = ["configuration_view"]
     ```
@@ -409,12 +402,6 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi-cl
             kubeconfig:
               secretName: "k8s-mcp-kubeconfig"
               secretKey: "kubeconfig"
-
-            extraArgs:
-              - "--kubeconfig"
-              - "/etc/kubernetes/kubeconfig"
-              - "--cluster-provider"
-              - "kubeconfig"
 
             serverConfig: |
               disabled_tools = ["configuration_view"]
@@ -616,31 +603,28 @@ holmes ask "Why is the checkout-api pod not scheduling?"
 
 ### The MCP server reads its own in-cluster kubeconfig
 
-`kubernetes-mcp-server` auto-detects its cluster provider. Inside a pod it finds
-the mounted ServiceAccount token and uses **in-cluster** auth, ignoring the
-`KUBECONFIG` environment variable — so it silently queries the cluster it runs
-on instead of the one in your mounted kubeconfig. With
+`kubernetes-mcp-server` resolves the kubeconfig path from the `--kubeconfig`
+flag only — it never reads the `KUBECONFIG` environment variable. Without that
+flag it falls back to auto-detection, finds the mounted ServiceAccount token
+and uses **in-cluster** auth, silently querying the cluster it runs on instead
+of the one in your mounted kubeconfig. With
 `serviceAccount.createClusterRoleBinding: false` that local identity has no
 permissions and every call fails with `Permission denied - check RBAC
 permissions`.
 
-Pass the kubeconfig path and provider explicitly:
+The chart now passes `--kubeconfig` automatically whenever
+`config.kubeconfig.secretName` is set, so this is handled for you. If you run
+the server outside this chart, pass the path explicitly:
 
 ```yaml
-mcpAddons:
-  kubernetes:
-    config:
-      kubeconfig:
-        secretName: "k8s-mcp-kubeconfig"
-        secretKey: "kubeconfig"
-
-      # Required — overrides in-cluster auto-detection
-      extraArgs:
-        - "--kubeconfig"
-        - "/etc/kubernetes/kubeconfig"
-        - "--cluster-provider"
-        - "kubeconfig"
+extraArgs:
+  - "--kubeconfig"
+  - "/etc/kubernetes/kubeconfig"
 ```
+
+Setting a kubeconfig path is sufficient on its own; `--cluster-provider
+kubeconfig` is redundant, since a configured path already makes the server
+treat itself as out-of-cluster.
 
 ### `configuration_contexts_list` is missing with a single cluster
 
