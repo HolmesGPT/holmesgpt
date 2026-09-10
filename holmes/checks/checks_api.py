@@ -143,7 +143,11 @@ def execute_health_check(
         notifications = []
 
         # Send alerts if check failed and has destinations configured
-        if result.status == CheckStatus.FAIL and request.mode == CheckMode.ALERT and request.destinations:
+        if (
+            result.status == CheckStatus.FAIL
+            and request.mode == CheckMode.ALERT
+            and request.destinations
+        ):
             try:
                 # Create an Issue object for the failed check
                 check_name = result.check_name
@@ -162,6 +166,10 @@ def execute_health_check(
                     result=result.rationale or result.message,
                     tool_calls=[],
                     messages=[],
+                    total_cost=result.total_cost,
+                    total_tokens=result.total_tokens,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
                 )
 
                 # Send to configured destinations

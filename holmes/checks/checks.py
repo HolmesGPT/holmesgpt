@@ -223,24 +223,20 @@ def execute_check(
 
         duration = time.time() - start_time
 
-        if check_response.passed:
-            result = CheckResult(
-                check_name=check.name,
-                status=CheckStatus.PASS,
-                message=f"Check passed. {check_response.rationale}",
-                query=check.query,
-                duration=duration,
-                rationale=check_response.rationale,
-            )
-        else:
-            result = CheckResult(
-                check_name=check.name,
-                status=CheckStatus.FAIL,
-                message=f"Check failed. {check_response.rationale}",
-                query=check.query,
-                duration=duration,
-                rationale=check_response.rationale,
-            )
+        status = CheckStatus.PASS if check_response.passed else CheckStatus.FAIL
+        outcome = "passed" if check_response.passed else "failed"
+        result = CheckResult(
+            check_name=check.name,
+            status=status,
+            message=f"Check {outcome}. {check_response.rationale}",
+            query=check.query,
+            duration=duration,
+            rationale=check_response.rationale,
+            total_cost=response.total_cost,
+            total_tokens=response.total_tokens,
+            prompt_tokens=response.prompt_tokens,
+            completion_tokens=response.completion_tokens,
+        )
 
     except Exception as e:
         if recorder_state is not None:
