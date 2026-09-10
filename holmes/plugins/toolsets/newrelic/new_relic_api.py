@@ -1,7 +1,7 @@
 """NewRelic API wrapper for executing NRQL queries via GraphQL."""
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import requests  # type: ignore
 
@@ -15,13 +15,20 @@ class NewRelicAPI:
     supporting both US and EU datacenters.
     """
 
-    def __init__(self, api_key: str, account_id: str, is_eu_datacenter: bool = False):
+    def __init__(
+        self,
+        api_key: str,
+        account_id: str,
+        is_eu_datacenter: bool = False,
+        timeout_seconds: int = 30,
+    ):
         """Initialize the NewRelic API wrapper.
 
         Args:
             api_key: NewRelic API key
             account_id: NewRelic account ID
             is_eu_datacenter: If True, use EU datacenter URL. Defaults to False (US).
+            timeout_seconds: Default request timeout in seconds for API calls.
         """
         self.api_key = api_key
         # Validate account_id is numeric to prevent injection
@@ -30,6 +37,7 @@ class NewRelicAPI:
         except ValueError:
             raise ValueError(f"Invalid account_id: must be numeric, got '{account_id}'")
         self.is_eu_datacenter = is_eu_datacenter
+        self.timeout_seconds = timeout_seconds
 
     def _get_api_url(self) -> str:
         """Get the appropriate API URL based on datacenter location.
@@ -42,13 +50,14 @@ class NewRelicAPI:
         return "https://api.newrelic.com/graphql"
 
     def _make_request(
-        self, graphql_query: Dict[str, Any], timeout: int = 30
+        self, graphql_query: Dict[str, Any], timeout: Optional[int] = None
     ) -> Dict[str, Any]:
         """Make HTTP POST request to NewRelic GraphQL API.
 
         Args:
             graphql_query: The GraphQL query as a dictionary
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds; falls back to the configured
+                timeout_seconds when not given
 
         Returns:
             JSON response from the API
@@ -67,7 +76,7 @@ class NewRelicAPI:
             url,
             headers=headers,
             json=graphql_query,
-            timeout=timeout,
+            timeout=timeout if timeout is not None else self.timeout_seconds,
         )
         response.raise_for_status()
 

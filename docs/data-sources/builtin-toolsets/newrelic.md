@@ -125,6 +125,7 @@ config: |
 | `account_id` | (required) | New Relic account ID (numeric, e.g. `1234567`). |
 | `is_eu_datacenter` | `false` | Set `true` for the EU region. Controls both the API endpoint (`api.eu.newrelic.com`) and the URL used in clickable links in Holmes's responses. |
 | `enable_multi_account` | `false` | Enable cross-account queries. When true, Holmes exposes an additional `newrelic_list_organization_accounts` tool and lets individual NRQL queries override the account ID. |
+| `timeout_seconds` | `30` | Request timeout in seconds for New Relic API calls. Increase it if large NRQL queries time out. |
 
 ## Capabilities
 
