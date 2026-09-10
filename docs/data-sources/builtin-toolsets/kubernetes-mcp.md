@@ -611,3 +611,40 @@ holmes ask "Show me the resource requests and limits for all deployments in name
 ```bash
 holmes ask "Why is the checkout-api pod not scheduling?"
 ```
+
+## Known Issues
+
+### The MCP server reads its own in-cluster kubeconfig
+
+`kubernetes-mcp-server` auto-detects its cluster provider. Inside a pod it finds
+the mounted ServiceAccount token and uses **in-cluster** auth, ignoring the
+`KUBECONFIG` environment variable — so it silently queries the cluster it runs
+on instead of the one in your mounted kubeconfig. With
+`serviceAccount.createClusterRoleBinding: false` that local identity has no
+permissions and every call fails with `Permission denied - check RBAC
+permissions`.
+
+Pass the kubeconfig path and provider explicitly:
+
+```yaml
+mcpAddons:
+  kubernetes:
+    config:
+      kubeconfig:
+        secretName: "k8s-mcp-kubeconfig"
+        secretKey: "kubeconfig"
+
+      # Required — overrides in-cluster auto-detection
+      extraArgs:
+        - "--kubeconfig"
+        - "/etc/kubernetes/kubeconfig"
+        - "--cluster-provider"
+        - "kubeconfig"
+```
+
+### `configuration_contexts_list` is missing with a single cluster
+
+The tool is registered only when the kubeconfig holds more than one context, so
+a single-cluster setup will not expose it. Add a second context to the
+kubeconfig if you need it. Note that `--disable-multi-cluster` also removes it,
+even when several contexts are present.

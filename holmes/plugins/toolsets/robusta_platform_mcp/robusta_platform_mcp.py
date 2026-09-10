@@ -71,9 +71,7 @@ class RobustaPlatformMCPTool(RemoteMCPTool):
     X-Robusta-* headers.
     """
 
-    def _invoke(
-        self, params: dict, context: ToolInvokeContext
-    ) -> StructuredToolResult:
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         enriched = {
             **(context.request_context or {}),
             "tool_call_id": context.tool_call_id,
@@ -181,6 +179,7 @@ def refresh_platform_mcp_tools(tool_executor: Any) -> bool:
                 exc_info=True,
             )
             return False
+
         def _signature(tools):
             # Names alone are not enough: when a cluster joins, the dynamic
             # remote_* tool keeps its NAME but its schema changes (the
@@ -236,7 +235,10 @@ def make_robusta_platform_mcp_toolset(
 
     # Allow operators to override the MCP endpoint independently of the LLM
     # endpoint in case a region is rolling out the new service incrementally.
-    mcp_base = os.environ.get("ROBUSTA_MCP_ENDPOINT") or f"{ROBUSTA_API_ENDPOINT}/api/platform-mcp"
+    mcp_base = (
+        os.environ.get("ROBUSTA_MCP_ENDPOINT")
+        or f"{ROBUSTA_API_ENDPOINT}/api/platform-mcp"
+    )
 
     config = MCPConfig(
         mode=MCPMode.STREAMABLE_HTTP,
