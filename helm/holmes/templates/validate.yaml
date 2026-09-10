@@ -1,0 +1,32 @@
+{{- /*
+  Chart-render-time validation. Anything here that calls `fail` aborts
+  `helm install` / `helm template` / `helm upgrade` with a clear message,
+  rather than letting a broken ConfigMap ship to the cluster.
+
+  This template intentionally emits no Kubernetes objects — the leading
+  `{{- ` / trailing ` -}}` swallow whitespace so the rendered output for
+  this file is empty when all checks pass.
+*/ -}}
+
+{{- /*
+  modelList envRef: env var name validation.
+
+  `envRef:VAR` in modelList values gets rewritten to `{{ env.VAR }}` in
+  toolset-config.yaml. The rewrite only accepts POSIX env var names
+  ([A-Za-z_][A-Za-z0-9_]*) because Kubernetes silently drops keys that
+  aren't valid env var names from `envFrom.secretRef` mounts — a
+  hyphenated key like `AZURE-API-KEY` never actually appears on the pod.
+
+  Walk the modelList values and fail loudly on any envRef: whose name
+  wouldn't survive that rewrite.
+*/ -}}
+{{- range $modelName, $modelConfig := .Values.modelList }}
+  {{- range $field, $value := $modelConfig }}
+    {{- if and (kindIs "string" $value) (hasPrefix "envRef:" $value) }}
+      {{- $envVar := trimPrefix "envRef:" $value }}
+      {{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $envVar) }}
+        {{- fail (printf "modelList.%s.%s: invalid envRef: env var name %q. Names must match [A-Za-z_][A-Za-z0-9_]* (POSIX env var names — no hyphens, dots, or other punctuation). Kubernetes silently drops non-conforming keys from envFrom.secretRef mounts. Rename the Secret key, or use additionalEnvVars with secretKeyRef to remap it." $modelName $field $envVar) }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}

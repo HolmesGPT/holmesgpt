@@ -1122,8 +1122,9 @@ class TestApprovalViaReinvocation:
 
 EXPECTED_COSTS_KEYS = {
     "total_cost", "total_tokens", "prompt_tokens", "completion_tokens",
-    "cached_tokens", "reasoning_tokens", "max_completion_tokens_per_call",
-    "max_prompt_tokens_per_call", "num_compactions",
+    "cached_tokens", "cache_creation_tokens", "reasoning_tokens",
+    "max_completion_tokens_per_call", "max_prompt_tokens_per_call",
+    "num_compactions",
 }
 
 EXPECTED_TOKEN_COUNT_METADATA_KEYS = {"costs", "usage", "tokens", "max_tokens", "max_output_tokens"}

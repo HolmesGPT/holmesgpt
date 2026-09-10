@@ -11,6 +11,8 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import json
 import logging
+import ssl
+import sys
 import threading
 import time
 from datetime import datetime
@@ -19,6 +21,7 @@ from typing import List, Optional
 
 import colorlog
 import litellm
+from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
 from holmes.core.oauth_utils import _get_token_manager
@@ -32,10 +35,15 @@ from holmes.common.env_vars import (
     DEVELOPMENT_MODE,
     ENABLE_CONNECTION_KEEPALIVE,
     ENABLE_CONVERSATION_WORKER,
+    ENABLE_JSON_LOGS_FORMAT,
     ENABLE_TELEMETRY,
     ENABLED_SCHEDULED_PROMPTS,
     HOLMES_HOST,
     HOLMES_PORT,
+    HOLMES_SSL_CA_CERTS,
+    HOLMES_SSL_CERTFILE,
+    HOLMES_SSL_KEYFILE,
+    HOLMES_SSL_KEYFILE_PASSWORD,
     LOG_PERFORMANCE,
     MCP_RETRY_BACKOFF_SCHEDULE,
     SENTRY_DSN,
@@ -44,6 +52,8 @@ from holmes.common.env_vars import (
     TRACE_TOKEN_USAGE,
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
+from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -65,9 +75,16 @@ from holmes.utils.holmes_status import (
     refresh_holmes_status,
     update_holmes_status_in_db,
 )
+from holmes.utils.holmes_sync_skills import holmes_sync_skills_status
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
-from holmes.utils.log import EndpointFilter
+from holmes.utils.log import (
+    EndpointFilter,
+    JSON_LOG_DATEFMT,
+    JSON_LOG_FMT,
+    JSON_LOG_RENAME_FIELDS,
+    build_json_formatter,
+)
 from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
@@ -75,7 +92,7 @@ from holmes.core.tools_utils.frontend_tools import (
     FrontendToolCollisionError,
     inject_frontend_tools,
 )
-from holmes.core.tracing import TracingFactory
+from holmes.core.tracing import TracingFactory, langfuse_trace_attributes
 from holmes.core.usage_recorder import (
     build_chat_recorder_state,
     record_error,
@@ -92,13 +109,21 @@ def init_logging():
     uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
 
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
-    logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
-    logging_datefmt = "%Y-%m-%d %H:%M:%S"
 
-    print("setting up colored logging")
-    colorlog.basicConfig(
-        format=logging_format, level=logging_level, datefmt=logging_datefmt
-    )
+    if ENABLE_JSON_LOGS_FORMAT:
+        # JSON logs (one object per line) are easier for log scrapers like
+        # Filebeat to index, search, and filter. Avoid printing anything to
+        # stdout here so the JSON stream is not corrupted by a plain-text line.
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(build_json_formatter())
+        logging.basicConfig(handlers=[handler], level=logging_level, force=True)
+    else:
+        logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
+        logging_datefmt = "%Y-%m-%d %H:%M:%S"
+
+        colorlog.basicConfig(
+            format=logging_format, level=logging_level, datefmt=logging_datefmt
+        )
     logging.getLogger().setLevel(logging_level)
 
     httpx_logger = logging.getLogger("httpx")
@@ -180,7 +205,33 @@ def init_config():
 config, dal = init_config()
 
 
+def _warm_skill_repos_and_mirror():
+    """Clone the git skill repos, then publish the skills mirror.
+
+    Runs in a daemon thread so nothing on the startup path performs a network
+    git fetch: the mirror sync reads all_skill_paths, which triggers the first
+    repo sync, and a slow or unreachable remote must delay neither server
+    readiness nor liveness. Ordered so the mirror sees the freshly-cloned
+    skills instead of recording the checkouts as unreadable.
+    """
+    try:
+        config.skill_repo_manager.sync()
+    except Exception:
+        logging.error("Failed to warm git skill repos", exc_info=True)
+    if not dal.enabled:
+        return
+    try:
+        holmes_sync_skills_status(dal, config)
+    except Exception:
+        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
+
+
 def sync_before_server_start():
+    threading.Thread(
+        target=_warm_skill_repos_and_mirror,
+        daemon=True,
+        name="skill-repo-warmup",
+    ).start()
     if not dal.enabled:
         logging.info(
             "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
@@ -258,6 +309,15 @@ def _toolset_status_refresh_loop():
 
             time.sleep(sleep_time)
             try:
+                # Re-read the Robusta model catalog before publishing status, so
+                # the heartbeat advertises what the agent can serve right now:
+                # catalog changes reach a running agent, and an agent that
+                # booted without a catalog heals, without a pod restart.
+                if dal.enabled:
+                    config.llm_model_registry.refresh_robusta_models()
+            except Exception:
+                logging.error("Failed to refresh robusta models", exc_info=True)
+            try:
                 # Heartbeat: re-upsert HolmesStatus so updated_at signals
                 # liveness (platform-mcp filters remote-tool clusters on it),
                 # preserving the verified realtime flag. Skip when the DAL is
@@ -301,6 +361,27 @@ def _toolset_status_refresh_loop():
                 logging.error(
                     "Error during periodic toolset status refresh", exc_info=True
                 )
+            try:
+                # Re-pull git skill repos so pushed skill changes reach a running
+                # agent without a pod restart. Runs before the mirror sync below
+                # so freshly-pulled skills appear in the UI on the same cycle.
+                # The manager rate-limits itself, so the shortened cycles of the
+                # MCP failure backoff do not multiply network git fetches.
+                config.skill_repo_manager.sync()
+            except Exception:
+                logging.error(
+                    "Error during periodic skill repo sync", exc_info=True
+                )
+            try:
+                # Re-read every cycle rather than gating on a change signal: a
+                # ConfigMap/Secret remount changes skills with no toolset status change to
+                # detect. The sync is an idempotent upsert + prune, so repeating is cheap.
+                if dal.enabled:
+                    holmes_sync_skills_status(dal, config)
+            except Exception:
+                logging.error(
+                    "Error during periodic custom skills refresh", exc_info=True
+                )
 
     thread = threading.Thread(target=refresh_loop, daemon=True, name="toolset-refresh")
     thread.start()
@@ -336,6 +417,7 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+_SERVER_START_TIME = time.time()
 
 HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
 
@@ -487,7 +569,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
         open_experiment_from_request(http_request)
 
-        skills = config.get_skill_catalog()
+        # End user's id, so their personal skills are included for this request only.
+        skills = config.get_skill_catalog(user_id=chat_request.user_id)
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -576,6 +659,12 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 skills=skills,
                 images=chat_request.images,
                 prompt_component_overrides=prompt_component_overrides,
+                conversation_link=resolve_conversation_link(
+                    chat_request.request_source,
+                    chat_request.conversation_id,
+                    dal.account_id,
+                    chat_request.conversation_link,
+                ),
             )
 
         try:
@@ -598,9 +687,19 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.stream:
             # Create root investigation span for streaming (same as non-streaming)
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
-            trace_span.log(metadata={
+            trace_span.log(input=chat_request.ask, metadata={
                 "holmesgpt.investigation.question": chat_request.ask[:1024],
                 "holmesgpt.investigation.stream": True,
+                **langfuse_trace_attributes(
+                    chat_request.ask,
+                    user_id=chat_request.user_id,
+                    user_email=chat_request.user_email,
+                    account_id=dal.account_id,
+                    session_id=chat_request.conversation_id,
+                    cluster_id=config.cluster_name,
+                    model=chat_request.model or config.model,
+                    request_source=chat_request.request_source,
+                ),
             })
             otel_metrics = TracingFactory.get_metrics()
             if otel_metrics:
@@ -644,8 +743,18 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span = server_tracer.start_trace(
                         "holmesgpt.investigation",
                     )
-                    trace_span.log(metadata={
+                    trace_span.log(input=chat_request.ask, metadata={
                         "holmesgpt.investigation.question": chat_request.ask[:1024],
+                        **langfuse_trace_attributes(
+                            chat_request.ask,
+                            user_id=chat_request.user_id,
+                            user_email=chat_request.user_email,
+                            account_id=dal.account_id,
+                            session_id=chat_request.conversation_id,
+                            cluster_id=config.cluster_name,
+                            model=chat_request.model or config.model,
+                            request_source=chat_request.request_source,
+                        ),
                     })
 
                 _inv_start = time.time()
@@ -742,9 +851,122 @@ if ENABLE_CONVERSATION_WORKER:
     )
 
 
+@app.on_event("shutdown")
+def stop_conversation_worker():
+    """Retire in-flight conversations before the process goes away.
+
+    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
+    a graceful shutdown, which runs this hook. Without it nothing ever called
+    ConversationWorker.stop(): the worker threads are daemons, so they were
+    simply frozen at interpreter exit and every conversation the pod was
+    mid-turn on stayed 'running' with a dead assignee until the stale-conversation
+    sweep retired it — up to hours of spinner in the UI. stop() now marks those
+    rows 'timeout' with a "Holmes Restarted" error event first.
+
+    Declared as a sync def on purpose: Starlette runs it in a threadpool, and
+    the body is blocking (Supabase writes plus bounded thread joins). SIGKILL /
+    OOM kill still bypass all of this — the pg_cron sweep stays the backstop.
+    """
+    if conversation_worker is None:
+        return
+    try:
+        conversation_worker.stop()
+    except Exception:
+        logging.error("Failed to stop conversation worker", exc_info=True)
+
+
 @app.get("/api/model")
 def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
+
+
+class ToolsetsSummary(BaseModel):
+    """Aggregate toolset counts by status."""
+
+    total: int
+    enabled: int
+    failed: int
+    disabled: int
+
+
+class ToolsetInfo(BaseModel):
+    """Per-toolset detail returned in full info mode."""
+
+    name: str
+    enabled: bool
+    status: str
+    type: Optional[str] = None
+    error: Optional[str] = None
+    tool_count: int
+
+
+class InfoResponse(BaseModel):
+    """Response model for the ``/api/info`` endpoint."""
+
+    version: str
+    uptime_seconds: float
+    auth_enabled: bool
+    models: List[str]
+    toolsets_summary: ToolsetsSummary
+    runbooks_count: int
+    config_path: Optional[str] = None
+    model_list_path: Optional[str] = None
+    toolsets: Optional[List[ToolsetInfo]] = None
+    runbooks: Optional[List[str]] = None
+    mcp_servers: Optional[List[str]] = None
+
+
+@app.get("/api/info", response_model=InfoResponse, response_model_exclude_none=True)
+def get_info(detail: Optional[str] = None) -> InfoResponse:
+    """Return server info. Use ?detail=full for per-toolset breakdown."""
+    executor = config.create_tool_executor(
+        dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED,
+    )
+    all_toolsets = executor.toolsets
+
+    enabled_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.ENABLED)
+    failed_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.FAILED)
+    total = len(all_toolsets)
+    disabled_count = total - enabled_count - failed_count
+
+    runbook_names: List[str] = []
+    for t in all_toolsets:
+        if t.name == "runbook" and t.tools:
+            runbook_names = list(getattr(t.tools[0], "available_runbooks", []) or [])
+            break
+
+    resp = InfoResponse(
+        version=get_version(),
+        uptime_seconds=round(time.time() - _SERVER_START_TIME, 1),
+        auth_enabled=bool(os.environ.get("HOLMES_API_KEY", "")),
+        models=config.get_models_list(),
+        toolsets_summary=ToolsetsSummary(
+            total=total,
+            enabled=enabled_count,
+            failed=failed_count,
+            disabled=disabled_count,
+        ),
+        runbooks_count=len(runbook_names),
+    )
+
+    if detail == "full":
+        resp.config_path = str(config._config_file_path) if config._config_file_path else None
+        resp.model_list_path = MODEL_LIST_FILE_LOCATION
+        resp.toolsets = [
+            ToolsetInfo(
+                name=t.name,
+                enabled=t.enabled,
+                status=t.status.value,
+                type=t.type.value if t.type else None,
+                error=t.error,
+                tool_count=len(t.tools) if t.tools else 0,
+            )
+            for t in all_toolsets
+        ]
+        resp.runbooks = runbook_names
+        resp.mcp_servers = list(config.mcp_servers.keys()) if config.mcp_servers else []
+
+    return resp
 
 
 @app.get("/healthz")
@@ -762,23 +984,93 @@ def readiness_check():
         raise HTTPException(status_code=503, detail="Service not ready")
 
 
+def build_ssl_kwargs() -> dict:
+    """Build uvicorn ssl_* kwargs from the HOLMES_SSL_* env vars.
+
+    Returns an empty dict (plain HTTP) when no TLS config is provided. When TLS is
+    configured we fail fast on partial/invalid config rather than silently serving
+    HTTP, since a misconfiguration that downgrades to plaintext is a security risk.
+    """
+    cert, key = HOLMES_SSL_CERTFILE, HOLMES_SSL_KEYFILE
+    if not cert and not key:
+        # No server cert/key means plain HTTP. But if the user supplied mTLS or
+        # key-password settings they intended TLS, so fail rather than silently
+        # serving plaintext and ignoring those settings.
+        if HOLMES_SSL_CA_CERTS or HOLMES_SSL_KEYFILE_PASSWORD:
+            raise SystemExit(
+                "TLS misconfigured: HOLMES_SSL_CA_CERTS / HOLMES_SSL_KEYFILE_PASSWORD "
+                "require HOLMES_SSL_CERTFILE and HOLMES_SSL_KEYFILE to be set."
+            )
+        return {}  # HTTP mode
+
+    if bool(cert) != bool(key):
+        raise SystemExit(
+            "TLS misconfigured: set BOTH HOLMES_SSL_CERTFILE and HOLMES_SSL_KEYFILE (or neither)."
+        )
+
+    def _require_readable(label: str, path: str) -> None:
+        # is_file() alone only proves the path exists; an unreadable file (e.g.
+        # wrong permissions on a mounted secret) would pass that check and then
+        # fail later inside uvicorn.run, after the slow pre-start sync we're
+        # trying to run behind this fail-fast. Opening it now catches both cases
+        # (FileNotFoundError, IsADirectoryError and PermissionError are all OSError).
+        try:
+            with Path(path).open("rb"):
+                pass
+        except OSError:
+            raise SystemExit(
+                f"TLS misconfigured: {label}={path!r} not found or unreadable."
+            ) from None
+
+    _require_readable("HOLMES_SSL_CERTFILE", cert)
+    _require_readable("HOLMES_SSL_KEYFILE", key)
+
+    kwargs: dict = {"ssl_certfile": cert, "ssl_keyfile": key}
+    if HOLMES_SSL_KEYFILE_PASSWORD:
+        kwargs["ssl_keyfile_password"] = HOLMES_SSL_KEYFILE_PASSWORD
+    if HOLMES_SSL_CA_CERTS:  # mTLS: require & verify client certificates
+        _require_readable("HOLMES_SSL_CA_CERTS", HOLMES_SSL_CA_CERTS)
+        kwargs["ssl_ca_certs"] = HOLMES_SSL_CA_CERTS
+        kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED
+    return kwargs
+
+
 def main():
     """Holmes AI Server entry point"""
+    # Resolve TLS config up front so a misconfiguration fails fast, before the
+    # (potentially slow) pre-start sync below.
+    ssl_kwargs = build_ssl_kwargs()
+    scheme = "HTTPS" if ssl_kwargs else "HTTP"
+
     # Configure uvicorn logging
     log_config = uvicorn.config.LOGGING_CONFIG
-    log_config["formatters"]["access"]["fmt"] = (
-        "%(asctime)s %(levelname)-8s %(message)s"
-    )
-    log_config["formatters"]["default"]["fmt"] = (
-        "%(asctime)s %(levelname)-8s %(message)s"
-    )
+    if ENABLE_JSON_LOGS_FORMAT:
+        # Emit uvicorn's own access/error lines as JSON too, so the whole pod's
+        # stdout is one consistent JSON stream for log scrapers.
+        for formatter_name in ("default", "access"):
+            log_config["formatters"][formatter_name] = {
+                "()": "pythonjsonlogger.json.JsonFormatter",
+                "fmt": JSON_LOG_FMT,
+                "datefmt": JSON_LOG_DATEFMT,
+                "rename_fields": JSON_LOG_RENAME_FIELDS,
+            }
+    else:
+        log_config["formatters"]["access"]["fmt"] = (
+            "%(asctime)s %(levelname)-8s %(message)s"
+        )
+        log_config["formatters"]["default"]["fmt"] = (
+            "%(asctime)s %(levelname)-8s %(message)s"
+        )
 
     # Sync before server start
     sync_before_server_start()
     _toolset_status_refresh_loop()
 
     # Start server
-    uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
+    logging.info(f"Holmes API serving {scheme} on {HOLMES_HOST}:{HOLMES_PORT}")
+    uvicorn.run(
+        app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config, **ssl_kwargs
+    )
 
 
 if __name__ == "__main__":

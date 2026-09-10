@@ -14,9 +14,7 @@ All database connectors use `type: database` and share the same configuration pa
 | ClickHouse | `clickhouse://` or `clickhouse+http://` | [ClickHouse](builtin-toolsets/database-clickhouse.md) |
 | SQL Server | `mssql://` | [SQL Server](builtin-toolsets/database-sqlserver.md) |
 | SQLite | `sqlite:///` | [SQLite](builtin-toolsets/database-sqlite.md) |
-| Azure SQL Database | Specialized toolset | [Azure SQL Database](builtin-toolsets/azure-sql.md) |
 | MongoDB Atlas | Specialized toolset | [MongoDB Atlas](builtin-toolsets/mongodb-atlas.md) |
-| MariaDB (MCP) | MCP server | [MariaDB MCP](builtin-toolsets/mariadb-mcp.md) |
 
 ## Quick Start
 
@@ -121,11 +119,7 @@ sqlite:///path/to/database.db
 
 Some databases have dedicated toolsets with features beyond SQL queries:
 
-- **[Azure SQL Database](builtin-toolsets/azure-sql.md)** -- Uses the Azure management API to provide Query Store analysis, performance metrics, connection monitoring, and storage analysis. Use this alongside or instead of the generic `type: database` connector for deeper Azure SQL insights.
-
 - **[MongoDB Atlas](builtin-toolsets/mongodb-atlas.md)** -- Connects to the Atlas Admin API to analyze logs, alerts, events, slow queries, and cluster metrics. This is a separate toolset (not `type: database`) since MongoDB uses a different query model.
-
-- **[MariaDB MCP](builtin-toolsets/mariadb-mcp.md)** -- An MCP-based alternative for MariaDB that provides schema inspection and query capabilities through the MCP protocol.
 
 ## Common Use Cases
 

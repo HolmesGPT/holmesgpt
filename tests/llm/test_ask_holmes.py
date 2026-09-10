@@ -251,6 +251,20 @@ def test_ask_holmes(
         int(scores.get("correctness", 0)) == 1
     ), f"Test {test_case.id} failed (score: {scores.get('correctness', 0)})\nActual: {output}\nExpected: {expected_output}"
 
+    # Deterministic negative check: assert Holmes did NOT call tools it should
+    # not have (e.g. an unnecessary lookup when the answer was already in the
+    # request). This checks actual tool calls, not prompt content or LLM grading.
+    forbidden_tools = getattr(test_case, "forbidden_tools", None) or []
+    if forbidden_tools:
+        called = [
+            getattr(tc, "tool_name", None) for tc in (result.tool_calls or [])
+        ]
+        offending = sorted({t for t in called if t in forbidden_tools})
+        assert not offending, (
+            f"Test {test_case.id}: Holmes called forbidden tool(s) {offending} "
+            f"when it should not have. All tool calls: {called}"
+        )
+
     # Check token limit if configured
     if test_case.max_tokens is not None:
         actual_tokens = result.total_tokens

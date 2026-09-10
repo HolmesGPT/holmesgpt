@@ -1,0 +1,268 @@
+# =============================================================================
+# Additional standalone Azure MCP server
+# =============================================================================
+#
+# This is a self-contained manifest that deploys an additional, independent
+# Azure MCP server alongside the one managed by the Holmes Helm chart. Use it
+# when you need Holmes to reach another Azure account / tenant / subscription
+# that uses DIFFERENT credentials.
+#
+# It creates everything the server needs:
+#   - Secret          (service-principal credentials: client id + secret)
+#   - ConfigMap        (tenant id, subscription id, auth method, read-only flag)
+#   - ServiceAccount
+#   - Deployment
+#   - Service          (ClusterIP, port 8000)
+#   - NetworkPolicy    (optional isolation; delete this block if you don't use one)
+#
+# =============================================================================
+# BEFORE YOU APPLY  -  two things MUST be replaced, or the deployment will
+# clash with / overwrite another instance, or land in the wrong namespace:
+#
+#   1. `replaceme`            -> a UNIQUE, DNS-safe name for THIS instance
+#                                (lowercase letters, digits and '-'), e.g. prod,
+#                                dev, tenant-a. Every resource name and label
+#                                below is derived from it, so a unique value
+#                                guarantees this instance never overwrites
+#                                another. Deploying a second copy WITHOUT
+#                                changing this WILL overwrite the first.
+#
+#   2. NAMESPACE_REPLACE_ME   -> the namespace Holmes runs in. It is set
+#                                explicitly on every resource so nothing is
+#                                accidentally created in `default`.
+#
+# Replace both in one shot (macOS shown; drop the '' after -i on Linux):
+#   sed -i '' 's/replaceme/prod/g; s/NAMESPACE_REPLACE_ME/holmes/g' \
+#     azure-mcp-additional-instance.yaml
+#
+# Then set the credentials/tenant/subscription placeholders and apply:
+#   kubectl apply -f azure-mcp-additional-instance.yaml
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. Credentials (service principal). These map to the env vars the server
+#    reads when AZ_AUTH_METHOD=service-principal.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-replaceme-secret
+  namespace: NAMESPACE_REPLACE_ME
+  labels:
+    app: azure-replaceme
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/component: mcp-server
+type: Opaque
+stringData:
+  AZURE_CLIENT_ID: "REPLACE_ME_CLIENT_ID"
+  AZURE_CLIENT_SECRET: "REPLACE_ME_CLIENT_SECRET"
+---
+# -----------------------------------------------------------------------------
+# 2. Non-secret config. Tenant, subscription and auth method for this account.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-replaceme-configmap
+  namespace: NAMESPACE_REPLACE_ME
+  labels:
+    app: azure-replaceme
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/component: mcp-server
+data:
+  AZURE_TENANT_ID: "REPLACE_ME_TENANT_ID"
+  AZURE_SUBSCRIPTION_ID: "REPLACE_ME_SUBSCRIPTION_ID"
+  AZ_AUTH_METHOD: "service-principal"
+  READ_ONLY_MODE: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: azure-replaceme-serviceaccount
+  namespace: NAMESPACE_REPLACE_ME
+  labels:
+    app: azure-replaceme
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/component: mcp-server
+---
+# -----------------------------------------------------------------------------
+# 3. The MCP server itself.
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azure-replaceme-deployment
+  namespace: NAMESPACE_REPLACE_ME
+  labels:
+    app: azure-replaceme
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/component: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: azure-replaceme
+  template:
+    metadata:
+      labels:
+        app: azure-replaceme
+        app.kubernetes.io/name: azure-mcp-server
+        app.kubernetes.io/component: mcp-server
+    spec:
+      serviceAccountName: azure-replaceme-serviceaccount
+      containers:
+        - name: azure-mcp
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/azure-cli-mcp:1.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--transport"
+            - "streamable-http"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            - "--readonly"          # remove to allow write operations (use with caution)
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            # ---- from the ConfigMap ----
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: azure-replaceme-configmap
+                  key: AZURE_TENANT_ID
+            - name: AZURE_SUBSCRIPTION_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: azure-replaceme-configmap
+                  key: AZURE_SUBSCRIPTION_ID
+            - name: AZ_AUTH_METHOD
+              valueFrom:
+                configMapKeyRef:
+                  name: azure-replaceme-configmap
+                  key: AZ_AUTH_METHOD
+            # ---- from the Secret (service-principal credentials) ----
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-replaceme-secret
+                  key: AZURE_CLIENT_ID
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: azure-replaceme-secret
+                  key: AZURE_CLIENT_SECRET
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+---
+# -----------------------------------------------------------------------------
+# 4. Service Holmes connects to. The cluster-internal URL is:
+#      http://azure-replaceme-service.NAMESPACE_REPLACE_ME.svc.cluster.local:8000/mcp
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: azure-replaceme-service
+  namespace: NAMESPACE_REPLACE_ME
+  labels:
+    app: azure-replaceme
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/component: mcp-server
+spec:
+  type: ClusterIP
+  selector:
+    app: azure-replaceme
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+---
+# -----------------------------------------------------------------------------
+# 5. (Optional) NetworkPolicy restricting the server to Holmes traffic only.
+#    Delete this block if your cluster does not enforce NetworkPolicies.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: azure-replaceme-networkpolicy
+  namespace: NAMESPACE_REPLACE_ME
+  labels:
+    app: azure-replaceme
+    app.kubernetes.io/name: azure-mcp-server
+    app.kubernetes.io/component: mcp-server
+spec:
+  podSelector:
+    matchLabels:
+      app: azure-replaceme
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        # Holmes pods
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: holmes
+        # any pod explicitly labelled as an MCP client
+        - podSelector:
+            matchLabels:
+              holmes.mcp.client: "true"
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # HTTPS to the Azure APIs
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+# =============================================================================
+# 6. Register this server with Holmes
+# =============================================================================
+# Add the following under `mcp_servers` in your Holmes Helm values (or in
+# ~/.holmes/config.yaml for the CLI). Use a UNIQUE key and match the name +
+# namespace you chose above.
+#
+# mcp_servers:
+#   azure_api_replaceme:
+#     description: "Azure API MCP Server (replaceme account) - comprehensive Azure service access. Execute any Azure CLI commands."
+#     config:
+#       url: "http://azure-replaceme-service.NAMESPACE_REPLACE_ME.svc.cluster.local:8000/mcp"
+#       mode: streamable-http
+#       icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
+# =============================================================================

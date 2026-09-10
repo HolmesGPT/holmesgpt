@@ -19,6 +19,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -54,6 +55,13 @@ class SupabaseFixture:
 
     # Track conversation IDs for cleanup
     _created_conversations: list = field(default_factory=list)
+    # Track RemoteToolCalls IDs created during the test (best-effort only — the
+    # table has no DELETE RLS policy, so rows are reclaimed by the retention job).
+    _created_tool_calls: list = field(default_factory=list)
+    # Lazily-built Supabase client authenticated as relay (STORE_* creds).
+    # RemoteToolCalls INSERT/SELECT are gated on is_relay()/API-role, which the
+    # ordinary UI test user does not satisfy.
+    _relay_client: Any = field(default=None, repr=False)
 
     # Persistent Realtime connection for broadcast mode (lazy-initialized).
     _broadcast_loop: Any = field(default=None, repr=False)
@@ -204,6 +212,125 @@ class SupabaseFixture:
             self._broadcast_loop,
         )
         future.result(timeout=5)
+
+    # ---- remote tool call helpers ----
+
+    def new_relay_client(self) -> Client:
+        """A FRESH (uncached) relay-authenticated client. Each call opens its
+        own connection so concurrent claim RPCs can be driven from separate
+        threads (one connection per thread). Skips if relay creds aren't set."""
+        url = os.environ.get("STORE_URL")
+        key = os.environ.get("STORE_API_KEY")
+        user = os.environ.get("STORE_USER")
+        password = os.environ.get("STORE_PASSWORD")
+        if not all([url, key, user, password]):
+            pytest.skip(
+                "STORE_URL/STORE_API_KEY/STORE_USER/STORE_PASSWORD required for "
+                "relay-authenticated claim tests"
+            )
+        options = ClientOptions(postgrest_client_timeout=60)
+        rc = create_client(url, key, options)
+        res = rc.auth.sign_in_with_password({"email": user, "password": password})
+        rc.auth.set_session(res.session.access_token, res.session.refresh_token)
+        rc.postgrest.auth(res.session.access_token)
+        return rc
+
+    def _relay(self) -> Client:
+        """Cached relay-authenticated client. RemoteToolCalls INSERT/SELECT are
+        gated on is_relay()/API-role, which the UI test user lacks."""
+        if self._relay_client is None:
+            self._relay_client = self.new_relay_client()
+        return self._relay_client
+
+    def create_remote_tool_call(
+        self,
+        tool_name: str = "noop_probe_tool",
+        tool_params: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Insert a pending RemoteToolCalls row and broadcast 'pending_tool_calls'
+        to wake the worker. The default tool is unknown, so the worker resolves
+        it to a terminal result fast — the row still goes pending -> running ->
+        completed. Returns the new row id."""
+        tool_request: Dict[str, Any] = {
+            "tool_name": tool_name,
+            "tool_params": tool_params or {},
+            "tool_call_id": str(uuid.uuid4()),
+            "max_token_count": 1000,
+        }
+        new_id = self._relay().rpc(
+            "post_remote_tool_call_request_and_broadcast",
+            {
+                "_account_id": self.account_id,
+                "_source_cluster": self.cluster_id,
+                "_target_cluster": self.cluster_id,
+                "_tool_request": tool_request,
+                "_user_id": self.user_id,
+                "_metadata": metadata or {},
+            },
+        ).execute().data
+        self._created_tool_calls.append(new_id)
+        return new_id
+
+    def insert_pending_remote_tool_calls(
+        self, count: int, tool_name_prefix: str = "noop_probe_tool"
+    ) -> List[str]:
+        """Bulk-insert ``count`` pending RemoteToolCalls in ONE request, WITHOUT
+        broadcasting — stages a full backlog the worker won't claim until
+        broadcast_pending_tool_calls() wakes it. Returns the new row ids."""
+        rc = self._relay()
+        rows = [
+            {
+                "account_id": self.account_id,
+                "source_cluster": self.cluster_id,
+                "target_cluster": self.cluster_id,
+                "user_id": self.user_id,
+                "status": "pending",
+                "tool_request": {
+                    "tool_name": f"{tool_name_prefix}_{i}",
+                    "tool_params": {},
+                    "tool_call_id": str(uuid.uuid4()),
+                    "max_token_count": 1000,
+                },
+                "metadata": {},
+            }
+            for i in range(count)
+        ]
+        res = rc.table("RemoteToolCalls").insert(rows).execute()
+        ids = [r["id"] for r in (res.data or [])]
+        self._created_tool_calls.extend(ids)
+        return ids
+
+    def broadcast_pending_tool_calls(self) -> None:
+        """Send a 'pending_tool_calls' Broadcast on the Holmes submit channel to
+        wake the ToolCallWorker (mirrors what relay's platform-mcp does)."""
+        self._ensure_broadcast_channel()
+        future = asyncio.run_coroutine_threadsafe(
+            self._broadcast_ch.send_broadcast("pending_tool_calls", {}),
+            self._broadcast_loop,
+        )
+        future.result(timeout=5)
+
+    def get_remote_tool_call(self, tool_call_id: str) -> Dict[str, Any]:
+        return (
+            self._relay()
+            .table("RemoteToolCalls")
+            .select("*")
+            .eq("id", tool_call_id)
+            .single()
+            .execute()
+        ).data
+
+    def get_remote_tool_call_statuses(self, ids: List[str]) -> Dict[str, str]:
+        """Atomic single-query snapshot of many tool calls' statuses."""
+        rows = (
+            self._relay()
+            .table("RemoteToolCalls")
+            .select("id,status")
+            .in_("id", ids)
+            .execute()
+        ).data or []
+        return {r["id"]: r["status"] for r in rows}
 
     def stop_conversation(self, conversation_id: str) -> None:
         self.client.rpc(
@@ -379,3 +506,19 @@ def supabase_fx(request) -> SupabaseFixture:
                 cid,
                 exc_info=True,
             )
+
+    # Best-effort cleanup of RemoteToolCalls rows. The table has no DELETE RLS
+    # policy (rows normally leave only via the retention job), so this may be a
+    # no-op — that's fine for the isolated test cluster. Quiet on failure.
+    if fx._created_tool_calls and fx._relay_client is not None:
+        for tcid in fx._created_tool_calls:
+            try:
+                fx._relay_client.table("RemoteToolCalls").delete().eq(
+                    "id", tcid
+                ).execute()
+            except Exception:  # noqa: BLE001 - best-effort teardown cleanup
+                logging.debug(
+                    "Could not delete remote tool call %s during teardown "
+                    "(expected: no DELETE policy)",
+                    tcid,
+                )

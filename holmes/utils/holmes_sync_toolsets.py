@@ -15,6 +15,7 @@ from holmes.core.tools import (
     ToolsetStatusEnum,
     ToolsetTag,
 )
+from holmes.core.tools_utils.tool_executor import _mcp_tool_name
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.version import get_version
@@ -26,7 +27,18 @@ def _tool_requires_approval(tool_name: str, approval_patterns: List[str]) -> boo
     return any(fnmatch.fnmatch(tool_name, p) for p in approval_patterns or [])
 
 
-def build_remote_tools_meta(toolset: Toolset) -> Any:
+def _exposed_tools(toolset: Toolset, tool_executor: Any) -> List[Any]:
+    """Toolset's tools carrying the executor's exposed (collision-safe) names."""
+    if tool_executor is None:
+        return list(toolset.tools)
+    return [
+        tool_executor.tools_by_name[name]
+        for name, ts in tool_executor._tool_to_toolset.items()
+        if ts is toolset and name in tool_executor.tools_by_name
+    ]
+
+
+def build_remote_tools_meta(toolset: Toolset, tool_executor: Any = None) -> Any:
     """Build the meta.remote_tools payload for a remotely-exposed toolset, or
     None when the toolset must not be published (not exposed, is_core, not
     enabled, or no publishable tools).
@@ -48,8 +60,10 @@ def build_remote_tools_meta(toolset: Toolset) -> Any:
 
     tools = [
         tool.get_openai_format()
-        for tool in toolset.tools
-        if not _tool_requires_approval(tool.name, toolset.approval_required_tools)
+        for tool in _exposed_tools(toolset, tool_executor)
+        if not _tool_requires_approval(
+            _mcp_tool_name(tool) or tool.name, toolset.approval_required_tools
+        )
     ]
     if not tools:
         return None
@@ -127,7 +141,7 @@ def holmes_sync_toolsets_status(dal: SupabaseDal, config: Config) -> None:
             meta = meta or {}
             meta["llm_instructions"] = toolset.llm_instructions
 
-        remote_tools = build_remote_tools_meta(toolset)
+        remote_tools = build_remote_tools_meta(toolset, tool_executor)
         if remote_tools:
             meta = meta or {}
             meta["remote_tools"] = remote_tools

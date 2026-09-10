@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from typing import Optional
@@ -19,10 +20,19 @@ _token_timestamp: float = 0.0
 def get_azure_ad_token() -> str:
     """Return a cached Azure AD bearer token, refreshing if expired.
 
-    The token is obtained via ``get_bearer_token_provider(DefaultAzureCredential(), ...)``
+    If the ``AZURE_AD_TOKEN`` environment variable is set, its value is
+    returned directly.  This allows callers to inject a pre-acquired
+    short-lived token into ephemeral pods that have no Azure identity
+    of their own.
+
+    Otherwise the token is obtained via ``get_bearer_token_provider(DefaultAzureCredential(), ...)``
     and cached for up to TOKEN_EXPIRY_SECONDS (1 hour).
     """
     global _cached_token, _token_timestamp
+
+    pre_acquired = os.environ.get("AZURE_AD_TOKEN")
+    if pre_acquired:
+        return pre_acquired
 
     with _lock:
         now = time.monotonic()

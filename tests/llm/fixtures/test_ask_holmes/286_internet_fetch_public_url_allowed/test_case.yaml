@@ -1,0 +1,27 @@
+# Test: the internet toolset's SSRF guard (ROB-896) must still allow fetching
+# PUBLIC pages. This is the "unaffected path" that AI data-source setup and
+# doc-reading features rely on — they steer Holmes to fetch_webpage on public
+# docs (holmesgpt.dev, vendor docs, the MCP registry). The internal-IP block
+# added for SSRF protection must NOT also block legitimate public fetches.
+#
+# www.example.com is used as a rock-stable public target (RFC 2606 reserved,
+# IANA-maintained, unchanged for years). Anti-hallucination: include_tool_calls
+# surfaces the fetch_webpage tool RESULT to the judge, so the check keys off the
+# tool result (which holds the verbatim page text) rather than the model's
+# prose. A broken guard would make the tool return a "Refusing to fetch" /
+# connection error instead of the page — failing the eval even if the model
+# knows example.com's text; and grading the tool result (not a paraphrase in the
+# answer) keeps it robust to the model summarising the page in its own words.
+user_prompt: "Fetch the web page at https://www.example.com and tell me the exact heading shown on the page and what the page is about."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call the fetch_webpage tool with the URL https://www.example.com"
+  - "The fetch_webpage tool call must succeed: its returned result must contain the actual page content (the heading 'Example Domain' and the text 'This domain is for use in illustrative examples in documents'), and must NOT be an error such as 'Refusing to fetch', 'blocked', 'internal address', or a connection failure"
+  - "Must report that the page heading is 'Example Domain'"
+
+tags:
+  - network
+  - question-answer
+  - easy

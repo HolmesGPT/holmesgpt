@@ -149,6 +149,41 @@ Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the 
       certificate: "<base64-encoded CA cert>"
     ```
 
+### API Server HTTPS (`HOLMES_SSL_*`)
+
+Serve the HolmesGPT API over **HTTPS directly from the application** (in-app TLS — no reverse proxy or ingress required). When both `HOLMES_SSL_CERTFILE` and `HOLMES_SSL_KEYFILE` are set, the server listens with TLS; otherwise it serves plain HTTP. If only one of the two is set, if a referenced file is missing, or if `HOLMES_SSL_CA_CERTS` / `HOLMES_SSL_KEYFILE_PASSWORD` is set without both server-side files, the server **fails to start** rather than silently falling back to HTTP.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `HOLMES_SSL_CERTFILE` | for HTTPS | Path to the PEM server certificate. Setting this **and** `HOLMES_SSL_KEYFILE` enables HTTPS. |
+| `HOLMES_SSL_KEYFILE` | for HTTPS | Path to the PEM private key for the certificate. |
+| `HOLMES_SSL_KEYFILE_PASSWORD` | optional | Password for an encrypted private key. |
+| `HOLMES_SSL_CA_CERTS` | optional | Path to a CA bundle used to **verify client certificates**. Setting it enables mutual TLS (mTLS) — clients without a CA-signed certificate are rejected. |
+
+=== "Holmes CLI"
+
+    ```bash
+    export HOLMES_SSL_CERTFILE=/path/to/tls.crt
+    export HOLMES_SSL_KEYFILE=/path/to/tls.key
+    # optional:
+    export HOLMES_SSL_KEYFILE_PASSWORD=changeit
+    export HOLMES_SSL_CA_CERTS=/path/to/ca.crt   # enables mTLS
+    ```
+
+=== "Holmes Helm Chart"
+
+    Provide a TLS secret and enable `tls` (see the [Kubernetes installation guide](../installation/kubernetes-installation.md)):
+
+    ```yaml
+    tls:
+      enabled: true
+      secretName: holmes-tls   # secret with tls.crt and tls.key
+      # caCertsSecretKey: ca.crt   # optional: key in the secret, enables mTLS
+    ```
+
+!!! note "Certificate rotation"
+    The server reads the certificate once at startup and does not hot-reload it. After rotating the certificate (or its secret), restart the process/pod for the new certificate to take effect.
+
 ## Tool Result Size Limits
 
 These variables control how HolmesGPT handles large tool responses that exceed the LLM context window.
@@ -269,6 +304,16 @@ Controls the logging verbosity of HolmesGPT.
 export LOG_LEVEL="DEBUG"
 ```
 
+### ENABLE_JSON_LOGS_FORMAT
+When enabled, HolmesGPT emits logs as JSON (one object per line) instead of the default colored text format. This makes logs easier to index, search, and filter with log scrapers such as Filebeat.
+
+**Default:** `false`
+
+**Example:**
+```bash
+export ENABLE_JSON_LOGS_FORMAT="true"
+```
+
 ### TRACE_TOKEN_USAGE
 When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed `/api/chat` request at `INFO` level. Useful for debugging token consumption and cost issues.
 
@@ -299,6 +344,33 @@ export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-int
 ```
 
 See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
+
+### HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS
+**Default:** `false`
+
+When set to `true`, the `connectivity_check` toolset's `tcp_check` tool may probe
+private/internal destinations without them being listed in its `allowed_hosts`
+setting. Use it if you don't want to maintain an allowlist — at your own risk:
+the model picks the host and port, and `tcp_check`'s open/refused/filtered
+outcomes make that a usable network scanner if an investigation reads
+attacker-controlled text. A warning is logged at startup while it is on.
+
+Cloud-metadata (`169.254.169.254`), loopback and link-local targets remain
+blocked — this variable never unblocks them. The one setting that does is
+`block_internal_ips: false`, which removes those checks independently of this
+variable; a deployment that sets both gets the unrestricted behaviour of
+`block_internal_ips: false`. `block_private_ips: true` still overrides this.
+While it is on, any
+configured `allowed_hosts` entries are ignored entirely — they neither restrict
+destinations nor exempt one from the metadata/loopback block. Equivalent to
+setting `allow_all_hosts: true` in the toolset config.
+
+**Example:**
+```bash
+export HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS=true
+```
+
+See [Connectivity Check](../data-sources/builtin-toolsets/connectivity-check.md) for details.
 
 ## Data Source Configuration
 

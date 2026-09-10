@@ -1,3 +1,7 @@
+{{- $tls := .Values.tls | default dict -}}
+{{- if and $tls.enabled (not $tls.secretName) }}
+{{- fail "tls.enabled requires tls.secretName (a secret providing tls.crt and tls.key)" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,7 +39,19 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills | toYaml | sha256sum }}
+        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
+        {{- if .Values.skillRepos }}
+        # Rolls the pod when a skill repo credential Secret's DATA rotates —
+        # the token env vars come from secretKeyRef, which a Secret update
+        # alone does not refresh.
+        checksum/skill-repo-secrets: {{ include "holmes.skillRepoSecretsChecksum" . }}
+        {{- end }}
+        {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+        # Roll this pod when the remediation MCP auth token rotates — the token
+        # is read from a Secret into env, so a content change alone would not
+        # restart anything.
+        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.authTokenChecksum" . }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
@@ -107,17 +123,37 @@ spec:
         - containerPort: 5050
           name: http
         livenessProbe:
+          {{- if and $tls.enabled $tls.caCertsSecretKey }}
+          # mTLS requires a client cert; kubelet httpGet probes can't present one,
+          # so the TLS handshake would be rejected. Fall back to a TCP connect check.
+          tcpSocket:
+            port: http
+          {{- else }}
           httpGet:
             path: /healthz
             port: http
+            {{- if $tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          {{- end }}
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 10
         readinessProbe:
+          {{- if and $tls.enabled $tls.caCertsSecretKey }}
+          # mTLS requires a client cert; kubelet httpGet probes can't present one,
+          # so the TLS handshake would be rejected. Fall back to a TCP connect check.
+          tcpSocket:
+            port: http
+          {{- else }}
           httpGet:
             path: /readyz
             port: http
+            {{- if $tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          {{- end }}
           initialDelaySeconds: 15
           periodSeconds: 5
           timeoutSeconds: 3
@@ -125,10 +161,29 @@ spec:
         env:
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
+          - name: ENABLE_JSON_LOGS_FORMAT
+            value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
           - name: SENTRY_DSN
             value: {{ .Values.sentryDSN }}
+          {{- if $tls.enabled }}
+          - name: HOLMES_SSL_CERTFILE
+            value: /etc/holmes/tls/tls.crt
+          - name: HOLMES_SSL_KEYFILE
+            value: /etc/holmes/tls/tls.key
+          {{- if $tls.keyfilePasswordSecretKey }}
+          - name: HOLMES_SSL_KEYFILE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ $tls.secretName }}
+                key: {{ $tls.keyfilePasswordSecretKey }}
+          {{- end }}
+          {{- if $tls.caCertsSecretKey }}
+          - name: HOLMES_SSL_CA_CERTS
+            value: /etc/holmes/tls/ca.crt
+          {{- end }}
+          {{- end }}
           {{ if .Values.certificate -}}
           - name: CERTIFICATE
             value: {{ .Values.certificate }}
@@ -145,15 +200,96 @@ spec:
           - name: CUSTOM_SKILL_PATHS
             value: {{ join "," $skillPaths | quote }}
           {{- end }}
+          {{- if .Values.skillRepos }}
+          {{- /* One pass per repo: build its SKILL_REPOS entry and emit its
+                 secret-backed env vars together, so the env var names and the
+                 token_env / github_app_private_key_env fields referencing them
+                 cannot drift apart. */}}
+          {{- $skillRepos := list }}
+          {{- range $i, $repo := .Values.skillRepos }}
+          {{- if and $repo.tokenSecret $repo.githubApp }}
+          {{- fail (printf "skillRepos[%d]: set either tokenSecret or githubApp, not both" $i) }}
+          {{- end }}
+          {{- /* A url with userinfo would be serialized verbatim into the
+                 SKILL_REPOS env value in the pod spec -- readable by anyone who
+                 can get the Deployment, which is far more common RBAC than
+                 reading Secrets, and kept in Helm release history and any
+                 GitOps repo. Holmes rejects such a url too, but only once the
+                 pod is already running, by which point the token has leaked.
+                 Refuse to render it. */}}
+          {{- if regexMatch "^[A-Za-z][A-Za-z0-9+.-]*://[^/@]*@" (toString $repo.url) }}
+          {{- fail (printf "skillRepos[%d]: url must not embed credentials; put the token in a Secret and reference it via tokenSecret (or use githubApp)" $i) }}
+          {{- end }}
+          {{- $entry := dict "url" (required "skillRepos entries need a url" $repo.url) }}
+          {{- /* `set`, not `merge`: merge leaves an existing key alone, so it
+                 reads as though a later value could be ignored. */}}
+          {{- with $repo.name }}{{- $entry = set $entry "name" . }}{{- end }}
+          {{- with $repo.branch }}{{- $entry = set $entry "branch" . }}{{- end }}
+          {{- with $repo.subPath }}{{- $entry = set $entry "sub_path" . }}{{- end }}
+          {{- with $repo.username }}{{- $entry = set $entry "username" . }}{{- end }}
+          {{- with $repo.tokenSecret }}
+          {{- $entry = set $entry "token_env" (printf "SKILL_REPO_TOKEN_%d" $i) }}
+          - name: SKILL_REPO_TOKEN_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "skillRepos tokenSecret needs a name" .name }}
+                key: {{ required "skillRepos tokenSecret needs a key" .key }}
+          {{- end }}
+          {{- with $repo.githubApp }}
+          {{- $keySecret := required "skillRepos githubApp needs privateKeySecret" .privateKeySecret }}
+          {{- $entry = set $entry "github_app_id" (toString (required "skillRepos githubApp needs appId" .appId) ) }}
+          {{- $entry = set $entry "github_app_installation_id" (toString (required "skillRepos githubApp needs installationId" .installationId)) }}
+          {{- $entry = set $entry "github_app_private_key_env" (printf "SKILL_REPO_GH_APP_KEY_%d" $i) }}
+          {{- with .apiUrl }}{{- $entry = set $entry "github_api_url" . }}{{- end }}
+          - name: SKILL_REPO_GH_APP_KEY_{{ $i }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "skillRepos githubApp privateKeySecret needs a name" $keySecret.name }}
+                key: {{ required "skillRepos githubApp privateKeySecret needs a key" $keySecret.key }}
+          {{- end }}
+          {{- $skillRepos = append $skillRepos $entry }}
+          {{- end }}
+          - name: SKILL_REPOS
+            value: {{ toJson $skillRepos | quote }}
+          # Off /tmp, onto the dedicated volume mounted above.
+          - name: SKILL_REPOS_DIR
+            value: /var/holmes/skill-repos
+          {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
           {{- end }}
           {{- if .Values.additional_env_vars -}}
           {{ toYaml .Values.additional_env_vars | nindent 10 }}
           {{- end }}
-        {{- if .Values.additional_env_froms }}
+          {{- if and .Values.mcpAddons.github.enabled (not .Values.mcpAddons.github.auth.githubApp.secretName) }}
+          # github-mcp-server HTTP mode authenticates per-request via Authorization: Bearer.
+          # toolset-config.yaml renders {{ "{{" }} env.GITHUB_PERSONAL_ACCESS_TOKEN {{ "}}" }} into the header,
+          # so the PAT must live in this pod's env (not the MCP pod, which doesn't read it in HTTP mode).
+          - name: GITHUB_PERSONAL_ACCESS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "mcpAddons.github.auth.secretName is required for PAT auth" .Values.mcpAddons.github.auth.secretName }}
+                key: {{ .Values.mcpAddons.github.auth.secretKey | default "token" }}
+          {{- end }}
+          {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+          # The remediation MCP server requires a bearer token on every HTTP
+          # request. toolset-config.yaml renders {{ "{{" }} env.K8S_REMEDIATION_MCP_TOKEN {{ "}}" }}
+          # into the Authorization header, so the token must live in this pod's env.
+          - name: K8S_REMEDIATION_MCP_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "holmes.kubernetesRemediationMcp.authSecretName" . }}
+                key: token
+          {{- end }}
+        {{- if or .Values.additional_env_froms .Values.extraEnvVarsSecrets }}
         envFrom:
-        {{ toYaml .Values.additional_env_froms | nindent 8 }}
+        {{- range .Values.extraEnvVarsSecrets }}
+        - secretRef:
+            name: {{ . }}
+        {{- end }}
+        {{- with .Values.additional_env_froms }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
         {{- end }}
         lifecycle:
           preStop:
@@ -162,6 +298,18 @@ spec:
         volumeMounts:
           - name: tmp-volume
             mountPath: /tmp
+          {{- if .Values.skillRepos }}
+          # Git checkouts get their own volume rather than sharing /tmp: a repo
+          # bigger than the /tmp sizeLimit would otherwise evict the pod, and
+          # the two have unrelated size needs.
+          - name: skill-repos
+            mountPath: /var/holmes/skill-repos
+          {{- end }}
+          {{- if $tls.enabled }}
+          - name: holmes-tls
+            mountPath: /etc/holmes/tls
+            readOnly: true
+          {{- end }}
           - name: playbooks-config-secret
             mountPath: /etc/robusta/config
           - name: custom-toolsets-configmap
@@ -188,6 +336,31 @@ spec:
         - name: tmp-volume
           emptyDir:
             sizeLimit: 256Mi
+        {{- if .Values.skillRepos }}
+        - name: skill-repos
+          emptyDir:
+            # Holds a bare object store plus up to two worktrees per repo (the
+            # active checkout and the one being retired). Holmes gc's the store
+            # on every update so this does not grow with the number of pushes,
+            # only with repo size -- raise it for large repos.
+            sizeLimit: {{ .Values.skillReposVolumeSize | default "1Gi" }}
+        {{- end }}
+        {{- if $tls.enabled }}
+        - name: holmes-tls
+          secret:
+            secretName: {{ $tls.secretName }}
+            # Project only the files the server reads, so the keyfile password (and
+            # any other keys in the secret) are not written to disk.
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+              {{- if $tls.caCertsSecretKey }}
+              - key: {{ $tls.caCertsSecretKey }}
+                path: ca.crt
+              {{- end }}
+        {{- end }}
         - name: playbooks-config-secret
           secret:
             secretName: robusta-playbooks-config-secret
@@ -230,4 +403,4 @@ spec:
       protocol: TCP
       port: 80
       targetPort: 5050
-      appProtocol: http
+      appProtocol: {{ if $tls.enabled }}https{{ else }}http{{ end }}

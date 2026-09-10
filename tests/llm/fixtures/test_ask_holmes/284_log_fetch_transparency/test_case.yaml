@@ -1,0 +1,122 @@
+# Behavioral guard for the log-fetch transparency mandate in the system
+# prompt (_fetch_logs / _default_log_prompt): when Holmes fetches logs it
+# must tell the user what scope of logs it looked at (time window or amount),
+# without being asked. No other eval asserts this disclosure — the
+# datadog/kubernetes log evals only check that the right log content is found.
+#
+# The user prompt deliberately does NOT mention time windows or ask "what
+# logs did you look at" — the disclosure must come from the prompt mandate,
+# not from the question. The error reference code is unique and only
+# discoverable by actually fetching the pod's logs, ruling out hallucinated
+# answers.
+#
+# Tagged `medium`, not `regression`: measured compliance with the mandate is
+# ~2/3 on BOTH gpt-4.1 and opus-4.6 (3-iteration runs, master prompt wording)
+# — the failing iterations report the error perfectly but never say what log
+# scope was examined. This eval measures/tracks that gap; promote it to
+# regression once the prompt reliably elicits the disclosure.
+
+user_prompt: "Are there any problems with the order-sync deployment in namespace app-284? Include the details of any errors you find."
+
+expected_output:
+  - Must report the failed push to the billing service (upstream 503) including the reference code ORD284-7Q9K3M
+  - Must disclose the scope of logs examined, in either form the transparency mandate allows — the time period/window covered (e.g. "logs from the last hour", an explicit time range) or the amount fetched (e.g. "last 42 lines", "showing N of M lines"). A bare mention that logs were checked, with no window or amount, does not count.
+
+tags:
+  - kubernetes
+  - logs
+  - transparency
+  - medium
+
+before_test: |
+  set -e
+  kubectl create namespace app-284 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -n app-284 -f - <<'EOF'
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: order-sync-app
+  stringData:
+    run.sh: |
+      #!/bin/sh
+      i=1
+      while [ $i -le 16 ]; do
+        echo "$(date -Iseconds) INFO order-sync pushed batch $i to billing (25 orders)"
+        i=$((i+1))
+      done
+      echo "$(date -Iseconds) ERROR order-sync failed to push batch 17 to billing: upstream returned 503 (ref ORD284-7Q9K3M)"
+      echo "$(date -Iseconds) WARN order-sync batch 17 requeued for retry"
+      i=18
+      while [ $i -le 40 ]; do
+        echo "$(date -Iseconds) INFO order-sync pushed batch $i to billing (25 orders)"
+        i=$((i+1))
+      done
+      while true; do
+        echo "$(date -Iseconds) INFO order-sync idle, queue empty"
+        sleep 30
+      done
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: order-sync
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: order-sync
+    template:
+      metadata:
+        labels:
+          app: order-sync
+      spec:
+        containers:
+        - name: order-sync
+          image: busybox:1.36
+          command: ["sh", "/app/run.sh"]
+          volumeMounts:
+          - name: app
+            mountPath: /app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+        volumes:
+        - name: app
+          secret:
+            secretName: order-sync-app
+  EOF
+  POD_READY=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod -l app=order-sync -n app-284 --timeout=5s 2>/dev/null; then
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$POD_READY" = false ]; then
+    echo "❌ order-sync pod not ready after 60s"
+    kubectl get pods -n app-284
+    kubectl logs -l app=order-sync -n app-284 --tail=20 2>/dev/null
+    exit 1
+  fi
+  # Verify the reference code is actually discoverable in the logs
+  LOG_OK=false
+  for i in $(seq 1 30); do
+    if kubectl logs -l app=order-sync -n app-284 --tail=100 2>/dev/null | grep -q "ORD284-7Q9K3M"; then
+      LOG_OK=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$LOG_OK" = false ]; then
+    echo "❌ reference code ORD284-7Q9K3M not found in order-sync logs"
+    kubectl logs -l app=order-sync -n app-284 --tail=50 2>/dev/null
+    exit 1
+  fi
+  echo "✅ order-sync emitting logs with reference code in app-284"
+
+after_test: |
+  kubectl delete namespace app-284 --ignore-not-found

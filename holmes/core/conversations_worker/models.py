@@ -6,16 +6,31 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 class ConversationStatus(str, Enum):
     PENDING = "pending"
+    # DEPRECATED: claims now land directly in RUNNING. Kept (and still accepted
+    # everywhere) for backwards compat with in-flight rows / mixed rollout.
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     STOPPED = "stopped"
+    # Written by the pg_cron stale sweep, and by the worker itself for
+    # conversations still in flight when Holmes shuts down.
+    TIMEOUT = "timeout"
 
     @classmethod
     def updatable_values(cls) -> tuple:
-        """Statuses accepted by ``update_conversation_status``."""
-        return (cls.QUEUED.value, cls.RUNNING.value, cls.COMPLETED.value, cls.FAILED.value)
+        """Statuses accepted by ``update_conversation_status`` (QUEUED kept for compat).
+
+        TIMEOUT requires robusta-storage migration 20260817121606, which is
+        applied before this ships.
+        """
+        return (
+            cls.QUEUED.value,
+            cls.RUNNING.value,
+            cls.COMPLETED.value,
+            cls.FAILED.value,
+            cls.TIMEOUT.value,
+        )
 
 
 class RemoteToolCallStatus(str, Enum):
@@ -29,6 +44,8 @@ class RemoteToolCallStatus(str, Enum):
     """
 
     PENDING = "pending"
+    # DEPRECATED: claims now land directly in RUNNING. Kept for compat — see
+    # ConversationStatus.QUEUED.
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -53,6 +70,13 @@ class ConversationTask(BaseModel):
     # because the runner-side Conversations row already has the value, so
     # the FE has no reason to duplicate it into every per-turn event.
     user_id: Optional[str] = None
+
+    @property
+    def active_key(self) -> tuple:
+        """In-flight key (conversation_id, request_sequence) — keyed by sequence
+        too so overlapping turns of one conversation count independently for
+        capacity."""
+        return (self.conversation_id, self.request_sequence)
 
     # Hydrated post-construction from events; not part of the validated row schema.
     _user_message_data: Dict[str, Any] = PrivateAttr(default_factory=dict)

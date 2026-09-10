@@ -6,10 +6,11 @@ against allow/deny lists, with support for composed commands (pipes, &&, etc.).
 """
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import bashlex
 from bashlex import ast
@@ -25,8 +26,51 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     DEFAULT_DENY_LIST,
     EXTENDED_ALLOW_LIST,
 )
+from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
+from holmes.plugins.toolsets.bash.command_arg_rules import (
+    dangerous_argv_reason,
+    is_argv_checked_command,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Argument-level (argv) security checks.
+#
+# Prefix matching validates only a command's *name*. Some allow-listed commands
+# accept arguments (or shell redirections) that turn a read-only tool into
+# arbitrary code execution, file writes, or deletion. These checks inspect the
+# parsed argv/redirections and DENY those primitives regardless of allow-list
+# membership or prior approval, so they are never auto-executed. (This operates
+# on the parsed AST; commands bashlex cannot parse are routed to approval by
+# validate_command and so are never auto-executed either.)
+#
+# Scope note: `tar`/`zcat`/`zgrep`/`gzip` are intentionally NOT in the builtin
+# allow lists (see default_lists.py); any use of them already requires approval,
+# so they need no argv rule here.
+#
+# The per-command rules (find/sort/uniq) live in command_arg_rules.py and the
+# generic argv/target helpers in argv_utils.py; this module turns a reported
+# reason into a DENY/APPROVAL verdict.
+# ---------------------------------------------------------------------------
+
+
+# bashlex word sub-part kinds that expand at shell runtime into text the static
+# argv check cannot see: `$(...)`/backticks, `$VAR`/`${VAR}`, and `<(...)`.
+# Detecting these from the AST (not the dequoted string) means a *quoted* literal
+# like '*$(x)*' — which the shell never expands — is correctly treated as inert.
+DYNAMIC_WORD_PART_KINDS = frozenset(
+    {"parameter", "commandsubstitution", "processsubstitution"}
+)
+
+
+def _word_node_has_dynamic_expansion(word_node: Any) -> bool:
+    """True if a bashlex WordNode contains a runtime expansion sub-part."""
+    return any(
+        getattr(part, "kind", None) in DYNAMIC_WORD_PART_KINDS
+        for part in (getattr(word_node, "parts", None) or [])
+    )
 
 
 class ValidationStatus(Enum):
@@ -43,6 +87,7 @@ class DenyReason(Enum):
     HARDCODED_BLOCK = "hardcoded_block"
     DENY_LIST = "deny_list"
     PREFIX_NOT_IN_COMMAND = "fabricated_prefix"
+    DANGEROUS_ARGUMENT = "dangerous_argument"
 
 
 @dataclass
@@ -102,21 +147,61 @@ class CommandSegmentExtractor(ast.nodevisitor):
 
     Sets contains_compound_command flag when compound statements are encountered,
     but continues traversal to extract inner command segments.
+
+    Also collects, for argv-level security checks:
+    - command_argvs: the word list (argv) of every simple command node
+    - write_redirect_targets: targets of output redirections to a real file
     """
 
     def __init__(self, command: str):
         self.command = command
         self.segments: List[str] = []
         self.contains_compound_command: bool = False
+        self.command_argvs: List[List[str]] = []
+        # Parallel to command_argvs: True if any *argument* (not argv[0]) contains
+        # a runtime expansion, so the parsed argv may differ from what the shell runs.
+        self.command_arg_dynamic: List[bool] = []
+        self.write_redirect_targets: List[str] = []
 
     def visitcommand(self, node, *args, **kwargs):
         """Extract the command text for simple commands."""
         cmd_text = self.command[node.pos[0] : node.pos[1]].strip()
         self.segments.append(cmd_text)
+        word_parts = [part for part in node.parts if getattr(part, "kind", None) == "word"]
+        if word_parts:
+            self.command_argvs.append([part.word for part in word_parts])
+            self.command_arg_dynamic.append(
+                any(_word_node_has_dynamic_expansion(part) for part in word_parts[1:])
+            )
 
     def visitcompound(self, node, *args, **kwargs):
         """Flag compound statements but continue traversal to extract inner segments."""
         self.contains_compound_command = True
+
+    def visitredirect(self, node, input, type, output, heredoc):  # noqa: A002
+        """Record output redirections whose target is a real file.
+
+        A redirection writes to a file when its type contains '>' and its output
+        is a word (a path) rather than an integer (an fd, e.g. `2>&1`). Writes to
+        /dev/null, /dev/stdout and /dev/stderr are benign and ignored.
+        """
+        if type and ">" in type and hasattr(output, "word"):
+            target = output.word
+            if not is_benign_redirect_target(target):
+                self.write_redirect_targets.append(target)
+
+
+def _build_extractor(command: str) -> CommandSegmentExtractor:
+    """Parse a command and run the segment/argv/redirect extractor over it.
+
+    Raises:
+        bashlex.errors.ParsingError: If bashlex cannot parse the command
+        NotImplementedError: If bashlex encounters unsupported syntax (e.g. case statements)
+    """
+    extractor = CommandSegmentExtractor(command)
+    for part in bashlex.parse(command):
+        extractor.visit(part)
+    return extractor
 
 
 def parse_command_segments(command: str) -> Tuple[List[str], bool]:
@@ -134,11 +219,96 @@ def parse_command_segments(command: str) -> Tuple[List[str], bool]:
         bashlex.errors.ParsingError: If bashlex cannot parse the command
         NotImplementedError: If bashlex encounters unsupported syntax (e.g. case statements)
     """
-    parts = bashlex.parse(command)
-    extractor = CommandSegmentExtractor(command)
-    for part in parts:
-        extractor.visit(part)
+    extractor = _build_extractor(command)
     return (extractor.segments, extractor.contains_compound_command)
+
+
+def _unsafe_arg_result(reason: str, approval_mode: bool) -> ValidationResult:
+    """Block an exec/write vector: DENIED by default, or (in approval mode)
+    APPROVAL_REQUIRED so a human can allow it. Either way it never auto-executes."""
+    if approval_mode:
+        return ValidationResult(
+            status=ValidationStatus.APPROVAL_REQUIRED,
+            message=(
+                f"Command requires approval: {reason}. The bash toolset is "
+                "read-only, so this is not auto-executed."
+            ),
+            prefixes_needing_approval=[],
+        )
+    return ValidationResult(
+        status=ValidationStatus.DENIED,
+        deny_reason=DenyReason.DANGEROUS_ARGUMENT,
+        message=(
+            f"Command blocked for security reasons: {reason}. The bash toolset "
+            "is read-only; this is not auto-executed."
+        ),
+    )
+
+
+def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[ValidationResult]:
+    """Argv-level and redirection security checks that prefix matching cannot see.
+
+    Returns:
+        - DENIED if any command segment uses a dangerous argument primitive or
+          writes to a real file via output redirection (checked first, so a hard
+          deny is never downgraded to approval);
+        - APPROVAL_REQUIRED if an argv-checked command (find/sort/uniq) builds an
+          argument via shell expansion, whose runtime value we cannot inspect
+          statically and which could smuggle a blocked primitive;
+        - None otherwise.
+
+    This inspects the parsed AST, so it applies to commands bashlex can parse.
+    Commands bashlex cannot parse never reach here — validate_command routes them
+    to APPROVAL_REQUIRED (human in the loop), so they are never auto-executed.
+
+    How the exec/write vectors are handled is set by HOLMES_BASH_UNSAFE_ARGS_MODE:
+      - "deny" (default): block them outright (they are never auto-executed and
+        cannot be approved);
+      - "approval": still not auto-executed, but a human may approve a genuinely
+        read-only use (e.g. `find … -exec grep …`).
+    Any other value falls back to "deny". This does NOT auto-run anything either
+    way — it only chooses between blocking and prompting a human.
+    """
+    # Unknown/empty values fail safe to the strict "deny" behaviour.
+    approval_mode = (
+        os.environ.get("HOLMES_BASH_UNSAFE_ARGS_MODE", "deny").strip().lower()
+        == "approval"
+    )
+
+    # DENY (or, in approval mode, gate) checks first, across ALL segments, so a
+    # hard block is never downgraded by an earlier segment that merely contains a
+    # shell expansion.
+    for argv in extractor.command_argvs:
+        reason = dangerous_argv_reason(argv)
+        if reason:
+            return _unsafe_arg_result(reason, approval_mode)
+
+    if extractor.write_redirect_targets:
+        target = extractor.write_redirect_targets[0]
+        return _unsafe_arg_result(
+            f"output redirection to '{target}' writes to the filesystem",
+            approval_mode,
+        )
+
+    # No hard deny. A runtime expansion ($(...), `...`, $VAR/${VAR}, <(...)) in an
+    # argv-checked command's arguments can expand into a blocked primitive that the
+    # static checks above cannot see, so require explicit approval rather than
+    # auto-allowing it.
+    for argv, arg_is_dynamic in zip(
+        extractor.command_argvs, extractor.command_arg_dynamic, strict=True
+    ):
+        if arg_is_dynamic and is_argv_checked_command(os.path.basename(argv[0])):
+            return ValidationResult(
+                status=ValidationStatus.APPROVAL_REQUIRED,
+                message=(
+                    f"'{os.path.basename(argv[0])}' builds an argument via shell "
+                    "expansion, which cannot be verified as read-only and requires "
+                    "approval."
+                ),
+                prefixes_needing_approval=[],
+            )
+
+    return None
 
 
 def check_hardcoded_blocks(segment: str) -> Optional[str]:
@@ -321,7 +491,7 @@ def validate_command(
 
     # Parse command into segments and detect compound statements
     try:
-        segments, contains_compound_command = parse_command_segments(command)
+        extractor = _build_extractor(command)
     except (bashlex.errors.ParsingError, NotImplementedError):
         # Can't parse — do safety checks on raw string, then ask user to approve
         blocked = check_blocked_in_raw_command(command, HARDCODED_BLOCKS)
@@ -344,6 +514,9 @@ def validate_command(
             prefixes_needing_approval=[],
         )
 
+    segments = extractor.segments
+    contains_compound_command = extractor.contains_compound_command
+
     # Validate each segment against deny/allow lists
     unapproved_segments: List[str] = []
 
@@ -356,6 +529,16 @@ def validate_command(
 
         if result.status == ValidationStatus.APPROVAL_REQUIRED:
             unapproved_segments.append(segment)
+
+    # Argv-level security check: code-exec/write primitives and output
+    # redirections that prefix matching cannot see (applies to every command
+    # node, including those inside pipes/compound statements). Runs AFTER the
+    # per-segment loop so a hardcoded-block / deny-list DENY there is never
+    # pre-empted by an argv approval (e.g. the shell-expansion gate, or an
+    # exec/write vector in approval mode).
+    dangerous = check_dangerous_argv(extractor)
+    if dangerous:
+        return dangerous
 
     # Compound commands always require approval, even if all segments are allowed.
     # Only unapproved-segment approvals save prefixes to the allow list —

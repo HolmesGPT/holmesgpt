@@ -50,7 +50,7 @@
         "type": "function",
         "function": {
           "name": "run_bash_command",
-          "arguments": "{\"command\": \"kubectl logs frontend-api-6d8f9b7c5-h9k2m -n production --tail=50 | grep -i 'timeout\\|error'\"}"
+          "arguments": "{\"command\": \"kubectl logs frontend-api-6d8f9b7c5-h9k2m -n production --tail=50 | grep -i 'timeout\\\\|error'\"}"
         }
       }
     ]

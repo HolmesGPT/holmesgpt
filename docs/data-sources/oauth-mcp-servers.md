@@ -55,6 +55,9 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
 
 ## Example: Atlassian
 
+!!! tip "Running Holmes headlessly?"
+    OAuth requires a browser consent screen. To connect the same Atlassian Rovo MCP server with a static credential instead, see [Atlassian Rovo (MCP)](builtin-toolsets/atlassian-rovo-mcp.md).
+
 === "Robusta CLI"
 
     ```yaml

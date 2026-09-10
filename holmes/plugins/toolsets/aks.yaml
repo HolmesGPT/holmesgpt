@@ -111,13 +111,21 @@ toolsets:
       - name: "get_cluster_resource_group"
         description: "Retrieves the resource group name for the AKS cluster"
         user_description: "get resource group for cluster {{ CLUSTER_NAME }}"
-        command: |
-           az aks list --subscription {{ SUBSCRIPTION_ID }} --only-show-errors --query "[?name=='{{ CLUSTER_NAME }}'].resourceGroup | [0]" -o tsv
+        # SECURITY: CLUSTER_NAME is assigned to a shell variable (unquoted slot)
+        # and referenced as "$AKS_CLUSTER" inside the JMESPath query. Embedding
+        # {{ CLUSTER_NAME }} inside the double-quoted --query let the sanitized
+        # value's single quotes stay literal while $(...) stayed active.
+        script: |
+          #!/bin/bash
+          AKS_CLUSTER={{ CLUSTER_NAME }}
+          az aks list --subscription {{ SUBSCRIPTION_ID }} --only-show-errors --query "[?name=='${AKS_CLUSTER}'].resourceGroup | [0]" -o tsv
       - name: "get_node_resource_group"
         description: "Retrieves the node resource group name for the AKS cluster"
         user_description: "get the node resource group name for cluster {{ CLUSTER_NAME }}"
-        command: |
-          az aks list --subscription {{ SUBSCRIPTION_ID }} --only-show-errors --query "[?name=='{{ CLUSTER_NAME }}'].nodeResourceGroup | [0]" -o tsv
+        script: |
+          #!/bin/bash
+          AKS_CLUSTER={{ CLUSTER_NAME }}
+          az aks list --subscription {{ SUBSCRIPTION_ID }} --only-show-errors --query "[?name=='${AKS_CLUSTER}'].nodeResourceGroup | [0]" -o tsv
       - name: "get_api_server_public_ip"
         description: "get the public IP of kube-apiserver for a public AKS cluster"
         user_description: "get the public IP of kube-apiserver for a public AS cluster {{ CLUSTER_NAME }}"

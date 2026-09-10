@@ -22,9 +22,11 @@ jobs:
         poetry config virtualenvs.create false
 
     - name: Update package version
+      env:
+        TAG: ${{ github.ref_name }}
       run: |
-        sed -i 's/__version__ = .*/__version__ = "${{ github.ref_name }}"/g' holmes/__init__.py
-        sed -i 's/version = "0.0.0"/version = "${{ github.ref_name }}"/g' pyproject.toml
+        sed -i "s/__version__ = .*/__version__ = \"$TAG\"/g" holmes/__init__.py
+        sed -i "s/version = \"0.0.0\"/version = \"$TAG\"/g" pyproject.toml
 
     - name: Install dependencies
       run: poetry install --no-root

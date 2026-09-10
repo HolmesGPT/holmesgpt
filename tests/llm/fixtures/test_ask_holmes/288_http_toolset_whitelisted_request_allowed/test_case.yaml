@@ -1,0 +1,40 @@
+# Test: the http toolset's redirect guard (ROB-915) must not break legitimate
+# whitelisted requests. This is the "unaffected path" counterpart to the
+# deterministic regression suite in
+# tests/plugins/toolsets/http/test_http_toolset_ssrf.py.
+#
+# ROB-915 fixed the toolset following 30x responses without re-checking the
+# endpoint whitelist. The fix stops handing redirect decisions to `requests`
+# and drives the chain manually, so EVERY request — including the toolset's
+# own startup health check — now flows through new code. The failure mode a
+# unit test is least likely to notice is over-blocking: a guard that refuses
+# ordinary traffic silently disables the toolset for every operator. This eval
+# covers that end to end, through the real agent loop.
+#
+# www.example.com is used as a rock-stable public target (RFC 2606 reserved,
+# IANA-maintained, unchanged for years), matching eval 286 which does the same
+# for the internet toolset's SSRF guard.
+#
+# Anti-hallucination: include_tool_calls surfaces the tool RESULT to the judge,
+# so the check keys off the returned page text rather than the model's prose —
+# an over-blocking regression returns "Refusing to follow redirect" / "URL not
+# in whitelist" / a connection error instead of the page, failing the eval even
+# though the model knows example.com's content from pretraining.
+#
+# The blocking direction (redirect to metadata/internal hosts refused,
+# credentials stripped across an origin hop) is covered by the unit suite
+# instead: asserting it here would require a public host that emits an
+# attacker-chosen open redirect, which is not something to depend on in CI.
+user_prompt: "Using the example_api HTTP endpoint, fetch https://www.example.com/ and tell me the exact heading shown on the page and what the page is about."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call the example_api http request tool with the URL https://www.example.com/"
+  - "The tool call must succeed with status_code 200: its returned result must contain the actual HTML page content, including the heading 'Example Domain' and the sentence about the domain being for use in documentation examples. It must NOT be an error such as 'Refusing to follow redirect', 'Refusing to request', 'URL not in whitelist', 'blocked', or a connection failure, and must not be empty or null"
+  - "Must report that the page heading is 'Example Domain'"
+
+tags:
+  - network
+  - question-answer
+  - easy

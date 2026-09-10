@@ -1,0 +1,58 @@
+# Regression coverage for the TodoWrite/todos feature (the only eval that
+# runs with `enable_todo: true` — the harness disables todos by default, so
+# without this fixture the TodoWrite prompt instructions, the
+# core_investigation toolset instructions, and task-status tracking have no
+# behavioral eval coverage at all).
+#
+# The task is deliberately multi-step (four namespaces, one lookup each, plus
+# a final summary) so the prompt's "for multi-step questions, use the
+# TodoWrite tool" guidance applies. The audit codes are unique and only
+# discoverable by reading each ConfigMap, ruling out hallucinated answers.
+
+user_prompt: "Run a configuration audit across every namespace that starts with 'app-283': in each one, find the ConfigMap named 'service-manifest' and report its 'audit_code' value. Work through the namespaces one by one and finish with a summary listing every namespace and its code."
+
+enable_todo: true
+include_tool_calls: true
+
+expected_output:
+  - Must call the TodoWrite tool to plan and track the multi-step audit
+  - Must report audit code TDW283-BLX94Q for namespace app-283-billing
+  - Must report audit code TDW283-SRK27M for namespace app-283-search
+  - Must report audit code TDW283-MDP61Z for namespace app-283-media
+  - Must report audit code TDW283-QGF48V for namespace app-283-ledger
+
+tags:
+  - kubernetes
+  - question-answer
+  - regression
+
+before_test: |
+  set -e
+  declare -A CODES=(
+    [billing]=TDW283-BLX94Q
+    [search]=TDW283-SRK27M
+    [media]=TDW283-MDP61Z
+    [ledger]=TDW283-QGF48V
+  )
+  for NS in billing search media ledger; do
+    kubectl create namespace "app-283-$NS" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create configmap service-manifest \
+      --from-literal=audit_code="${CODES[$NS]}" \
+      --from-literal=owner="platform-team" \
+      --from-literal=tier="standard" \
+      -n "app-283-$NS" --dry-run=client -o yaml | kubectl apply -f -
+  done
+  # Verify the exact codes are discoverable - fail setup early otherwise
+  for NS in billing search media ledger; do
+    ACTUAL=$(kubectl get configmap service-manifest -n "app-283-$NS" -o jsonpath='{.data.audit_code}')
+    if [ "$ACTUAL" != "${CODES[$NS]}" ]; then
+      echo "❌ audit_code mismatch in app-283-$NS: expected ${CODES[$NS]}, got '$ACTUAL'"
+      exit 1
+    fi
+  done
+  echo "✅ Test data ready in app-283-*"
+
+after_test: |
+  for NS in billing search media ledger; do
+    kubectl delete namespace "app-283-$NS" --ignore-not-found
+  done

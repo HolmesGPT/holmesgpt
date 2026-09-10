@@ -134,6 +134,7 @@ class OAuthCallbackRequest(BaseModel):
     redirect_uri: str
     client_id: Optional[str] = None
     client_secret: Optional[str] = None  # Required by some IdPs (e.g. Supabase) that don't support public clients
+    resource: Optional[str] = None  # RFC 8707 resource indicator (canonical MCP server URL)
     user_id: Optional[str] = None
 
 
@@ -229,7 +230,8 @@ class ChatRequestBaseModel(BaseModel):
         default=None,
         description=(
             "FE-supplied UI flow label, free-form. Examples: 'freeform', "
-            "'followup_logs', 'alert_investigation', 'resource_chat'."
+            "'followup_logs', 'manual_investigation', 'resource_chat'. "
+            "Taxonomy: relay repo, relay/pkg/model/conversation_request_type.py."
         ),
     )
     source_ref: Optional[str] = Field(
@@ -256,6 +258,17 @@ class ChatRequestBaseModel(BaseModel):
             "'conversations' (worker path) or 'chat_history' (direct /api/chat). "
             "Worker sets it explicitly; chat() defaults to 'chat_history' when "
             "conversation_id is non-NULL and not already set."
+        ),
+    )
+    conversation_link: Optional[str] = Field(
+        default=None,
+        description=(
+            "URL of the surface where this request originated: a Slack thread "
+            "permalink, an MS Teams message link, a platform Ask Holmes chat URL, "
+            "or a triggered-workflow run URL. Unlike the analytics-only fields "
+            "above, this IS rendered into the system prompt so that artifacts "
+            "Holmes creates outside the conversation (pull requests, issues) can "
+            "link back to the request that initiated them."
         ),
     )
     meta: Optional[Dict[str, Any]] = Field(

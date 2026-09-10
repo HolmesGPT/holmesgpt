@@ -1,0 +1,16 @@
+frontend_tools: ../283_slack_channel_history_context/frontend.yaml
+
+user_prompt:
+  - "@holmes cordon node ip-10-0-42-17.eu-west-1.compute.internal"
+
+# The node name is already in the request, so Holmes must NOT pull channel
+# history. This is checked deterministically against the actual tool calls
+# (forbidden_tools), not by the LLM grader.
+forbidden_tools:
+  - "read_slack_channel_history_by_id"
+
+expected_output:
+  - "Cordons node ip-10-0-42-17.eu-west-1.compute.internal (calls cordon_node with that exact node name)"
+
+include_tool_calls: true
+tags: []

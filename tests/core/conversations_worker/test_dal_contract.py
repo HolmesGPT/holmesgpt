@@ -165,22 +165,30 @@ def test_get_conversation_events_returns_empty_list_when_disabled():
     dal.client.rpc.assert_not_called()
 
 
-# ---- claim_conversations ----
+# ---- claim_n_pending_conversations ----
 
 
-def test_claim_conversations_uses_assignee_param():
+def test_claim_n_pending_conversations_forwards_limit():
     dal = _build_dal(rpc_data=[])
-    dal.claim_conversations(holmes_id="my-pod-1")
+    dal.claim_n_pending_conversations(holmes_id="my-pod-1", limit=3)
     args, _ = dal.client.rpc.call_args
-    assert args[0] == "claim_conversations"
+    assert args[0] == "claim_n_pending_conversations"
     params = args[1]
     assert params["_assignee"] == "my-pod-1"
     assert params["_account_id"] == "acc-1"
     assert params["_cluster_id"] == "cluster-1"
+    assert params["_limit"] == 3
 
 
-def test_claim_conversations_retries_transient_error_then_succeeds():
-    """A transient Supabase error should be retried and eventually succeed."""
+def test_claim_n_pending_conversations_skips_rpc_when_limit_not_positive():
+    """A zero/negative limit means no free capacity — don't even hit the RPC."""
+    dal = _build_dal(rpc_data=[])
+    assert dal.claim_n_pending_conversations(holmes_id="h", limit=0) == []
+    assert dal.claim_n_pending_conversations(holmes_id="h", limit=-1) == []
+    dal.client.rpc.assert_not_called()
+
+
+def test_claim_n_pending_conversations_retries_transient_error_then_succeeds():
     dal = _build_dal()
     claimed = [{"conversation_id": "c1"}]
     dal.client.rpc.return_value = MagicMock(
@@ -191,17 +199,62 @@ def test_claim_conversations_retries_transient_error_then_succeeds():
             ]
         )
     )
-    assert dal.claim_conversations(holmes_id="h") == claimed
+    assert dal.claim_n_pending_conversations(holmes_id="h", limit=5) == claimed
     assert dal.client.rpc.return_value.execute.call_count == 2
 
 
-def test_claim_conversations_returns_empty_after_exhausting_retries():
-    """Persistent transient errors exhaust retries and return [] (not raise)."""
+def test_claim_n_pending_conversations_returns_empty_after_exhausting_retries():
     dal = _build_dal()
     dal.client.rpc.return_value = MagicMock(
         execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
     )
-    assert dal.claim_conversations(holmes_id="h") == []
+    assert dal.claim_n_pending_conversations(holmes_id="h", limit=5) == []
+    assert dal.client.rpc.return_value.execute.call_count == 3
+
+
+# ---- claim_n_pending_tool_calls ----
+
+
+def test_claim_n_pending_tool_calls_forwards_limit():
+    dal = _build_dal(rpc_data=[])
+    dal.claim_n_pending_tool_calls(holmes_id="my-pod-1", limit=4)
+    args, _ = dal.client.rpc.call_args
+    assert args[0] == "claim_n_pending_tool_calls"
+    params = args[1]
+    assert params["_assignee"] == "my-pod-1"
+    assert params["_account_id"] == "acc-1"
+    assert params["_cluster_id"] == "cluster-1"
+    assert params["_limit"] == 4
+
+
+def test_claim_n_pending_tool_calls_skips_rpc_when_limit_not_positive():
+    dal = _build_dal(rpc_data=[])
+    assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=0) == []
+    assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=-1) == []
+    dal.client.rpc.assert_not_called()
+
+
+def test_claim_n_pending_tool_calls_retries_transient_error_then_succeeds():
+    dal = _build_dal()
+    claimed = [{"id": "t1"}]
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(
+            side_effect=[
+                Exception("502 Bad Gateway"),
+                MagicMock(data=claimed),
+            ]
+        )
+    )
+    assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=5) == claimed
+    assert dal.client.rpc.return_value.execute.call_count == 2
+
+
+def test_claim_n_pending_tool_calls_returns_empty_after_exhausting_retries():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
+    )
+    assert dal.claim_n_pending_tool_calls(holmes_id="h", limit=5) == []
     assert dal.client.rpc.return_value.execute.call_count == 3
 
 

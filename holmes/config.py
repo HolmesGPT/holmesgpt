@@ -25,6 +25,11 @@ from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetTag
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
+from holmes.plugins.skills.git_skill_repos import (
+    GitSkillRepo,
+    GitSkillRepoManager,
+    parse_skill_repos_env,
+)
 from holmes.plugins.skills.skill_loader import (
     SkillCatalog,
     load_skill_catalog,
@@ -41,8 +46,13 @@ if TYPE_CHECKING:
     from holmes.plugins.sources.pagerduty import PagerDutySource
     from holmes.plugins.sources.prometheus.plugin import AlertManagerSource
 
+from holmes.common.env_vars import TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
 from holmes.core.config import config_path_dir
-from holmes.core.oauth_utils import eager_load_oauth_tools, preload_oauth_tokens, set_oauth_dal
+from holmes.core.oauth_utils import (
+    eager_load_oauth_tools,
+    preload_oauth_tokens,
+    set_oauth_dal,
+)
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.pydantic_utils import (
@@ -50,7 +60,6 @@ from holmes.utils.pydantic_utils import (
     load_model_from_file,
     parse_model_from_file,
 )
-
 
 
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
@@ -74,16 +83,16 @@ def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
     )
 
 
-def _toolset_tools_changed(
-    current: List[Toolset], new: List[Toolset]
-) -> bool:
+def _toolset_tools_changed(current: List[Toolset], new: List[Toolset]) -> bool:
     """Return True if the set of toolsets, or any shared toolset's tool list, changed."""
     current_by_name = {ts.name: ts for ts in current}
     new_by_name = {ts.name: ts for ts in new}
     if current_by_name.keys() != new_by_name.keys():
         return True
     for name, new_ts in new_by_name.items():
-        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(new_ts):
+        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(
+            new_ts
+        ):
             return True
     return False
 
@@ -140,6 +149,10 @@ class Config(RobustaBaseConfig):
     opsgenie_query: Optional[str] = None
 
     custom_skill_paths: List[Union[str, FilePath]] = []
+    # Git repositories to sync skills from (re-pulled periodically by the server's
+    # refresh loop; synced once per run in the CLI). Their checkouts are appended
+    # to the effective skill paths -- see all_skill_paths.
+    skill_repos: List[GitSkillRepo] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -167,6 +180,7 @@ class Config(RobustaBaseConfig):
 
     # TODO: Separate those fields to facade class, this shouldn't be part of the config.
     _toolset_manager: Optional[ToolsetManager] = PrivateAttr(None)
+    _skill_repo_manager: Optional[GitSkillRepoManager] = PrivateAttr(None)
     _llm_model_registry: Optional[LLMModelRegistry] = PrivateAttr(None)
     _dal: Optional[SupabaseDal] = PrivateAttr(None)
     _config_file_path: Optional[Path] = PrivateAttr(None)
@@ -190,11 +204,57 @@ class Config(RobustaBaseConfig):
                 mcp_servers=self.mcp_servers,
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
-                custom_skill_paths=self.custom_skill_paths,
+                custom_skill_paths=self.all_skill_paths,
                 config_file_path=self._config_file_path,
                 additional_toolsets=self.additional_toolsets,
             )
         return self._toolset_manager
+
+    @property
+    def skill_repo_manager(self) -> GitSkillRepoManager:
+        if not self._skill_repo_manager:
+            # The manager rate-limits itself to the refresh cadence, so callers
+            # (the server refresh loop included) can invoke sync() freely.
+            try:
+                self._skill_repo_manager = GitSkillRepoManager(
+                    self.skill_repos,
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
+            except ValueError as e:
+                # ValueError specifically, not Exception: the only thing the
+                # constructor rejects is the repo list itself, and a broad catch
+                # would swallow a genuine bug or filesystem fault here and make
+                # git-synced skills quietly vanish instead of surfacing it.
+                #
+                # A rejected repo list (two repos whose names collide -- easy to
+                # hit, since an omitted name is derived from the URL's last
+                # segment, so .../team-a/skills.git and .../team-b/skills.git
+                # both become "skills") must not take out the request path. This
+                # property is reached per request through all_skill_paths, and a
+                # raise here left the failed construction to be retried on every
+                # chat, turning a skills misconfiguration into a total outage.
+                # Serve no git-synced skills instead, and say so.
+                logging.error(
+                    f"Skill repos are misconfigured, so none will be loaded until "
+                    f"this is fixed: {e}"
+                )
+                self._skill_repo_manager = GitSkillRepoManager(
+                    [],
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
+        return self._skill_repo_manager
+
+    @property
+    def all_skill_paths(self) -> List[Union[str, FilePath]]:
+        """Every path skills load from: configured paths plus git-repo checkouts.
+
+        The repo paths are `current` symlinks that keep pointing at the newest
+        checkout across syncs, so this list is stable even though the content
+        behind it moves. Accessing it clones the repos on first use.
+        """
+        paths: List[Union[str, FilePath]] = list(self.custom_skill_paths)
+        paths.extend(self.skill_repo_manager.skill_paths())
+        return paths
 
     @property
     def dal(self) -> SupabaseDal:
@@ -208,8 +268,6 @@ class Config(RobustaBaseConfig):
             if not self._llm_model_registry:
                 self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
             return self._llm_model_registry
-
-
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
@@ -263,7 +321,7 @@ class Config(RobustaBaseConfig):
         return result
 
     def _apply_env_fallbacks(self) -> None:
-        """Apply MODEL and CUSTOM_SKILL_PATHS when absent after YAML load/reload."""
+        """Apply MODEL, CUSTOM_SKILL_PATHS and SKILL_REPOS when absent after YAML load/reload."""
         if self.model is None:
             model_from_env = os.environ.get("MODEL")
             if model_from_env and model_from_env.strip():
@@ -274,6 +332,11 @@ class Config(RobustaBaseConfig):
             skill_paths = _parse_custom_skill_paths_env()
             if skill_paths:
                 self.custom_skill_paths = skill_paths
+
+        if not self.skill_repos:
+            skill_repos = parse_skill_repos_env()
+            if skill_repos:
+                self.skill_repos = skill_repos
 
     @classmethod
     def load_from_env(cls):
@@ -321,6 +384,9 @@ class Config(RobustaBaseConfig):
             os.environ["CLUSTER_NAME"] = kwargs["cluster_name"]
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
+        # CUSTOM_SKILL_PATHS / SKILL_REPOS share one env-fallback path with
+        # load_from_file, so the two loaders cannot drift.
+        result._apply_env_fallbacks()
         if "model" in kwargs:
             result._model_source = "via $MODEL"
         result.log_useful_info()
@@ -339,7 +405,9 @@ class Config(RobustaBaseConfig):
                 config = RobustaConfig(**yaml_content)
                 return config.global_config.get(key)
         except Exception:
-            logging.warning("Failed to load '%s' from Robusta config", key, exc_info=True)
+            logging.warning(
+                "Failed to load '%s' from Robusta config", key, exc_info=True
+            )
             return None
 
     @staticmethod
@@ -349,17 +417,35 @@ class Config(RobustaBaseConfig):
             return env_cluster_name
         return Config.get_robusta_global_config_value("cluster_name")
 
-    def get_skill_catalog(self) -> Optional[SkillCatalog]:
+    def get_skill_catalog(
+        self, user_id: Optional[str] = None, alert_name: Optional[str] = None
+    ) -> Optional[SkillCatalog]:
+        """Build the per-request skill catalog that feeds the system prompt.
+
+        Rebuilt every request, so this is where the personal tier and the collision hierarchy
+        are applied. `user_id` must be the END USER's id; absent (alert triage, triggered
+        workflows, scheduled prompts) no personal skills load.
+
+        The fetch_skill tool's own id list is NOT built here -- that toolset is cached across
+        requests and users, so per-user skills must never be baked into it. SkillsFetcher
+        resolves them at invoke time instead.
+        """
+        # `self.dal` is a lazily-constructing property, so no truthiness guard: the
+        # not-configured case is handled inside get_skill_hierarchy_config, which is
+        # TTL-cached and so adds no round trip per turn.
+        hierarchy = self.dal.get_skill_hierarchy_config()
         return load_skill_catalog(
-            dal=self.dal, custom_skill_paths=self.custom_skill_paths,
+            dal=self.dal,
+            custom_skill_paths=self.all_skill_paths,
+            user_id=user_id,
+            hierarchy=hierarchy,
+            alert_name=alert_name,
         )
 
     # ── Unified factory methods ──
 
     @staticmethod
-    def _executor_cache_key(
-        tags: List[ToolsetTag], enable_all: bool
-    ) -> tuple:
+    def _executor_cache_key(tags: List[ToolsetTag], enable_all: bool) -> tuple:
         return (tuple(sorted(tags, key=lambda t: t.value)), enable_all)
 
     def create_tool_executor(
@@ -485,7 +571,11 @@ class Config(RobustaBaseConfig):
 
         If neither condition holds, the cached executor is left in place.
         """
-        logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
+        logging.info(
+            "Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s",
+            toolset_tag_filter,
+            enable_all_toolsets_possible,
+        )
         # Normalize early so the same tags are used for both loading and caching.
         tags = toolset_tag_filter or [ToolsetTag.CORE]
 
@@ -507,13 +597,11 @@ class Config(RobustaBaseConfig):
 
         current_toolsets = cached_executor.toolsets
 
-        new_toolsets, changes = (
-            self.toolset_manager.refresh_toolsets_and_get_changes(
-                current_toolsets,
-                dal,
-                toolset_tag_filter=tags,
-                enable_all_toolsets_possible=enable_all_toolsets_possible,
-            )
+        new_toolsets, changes = self.toolset_manager.refresh_toolsets_and_get_changes(
+            current_toolsets,
+            dal,
+            toolset_tag_filter=tags,
+            enable_all_toolsets_possible=enable_all_toolsets_possible,
         )
 
         if changes or _toolset_tools_changed(current_toolsets, new_toolsets):
@@ -544,8 +632,15 @@ class Config(RobustaBaseConfig):
                 self.mcp_servers = fresh.mcp_servers
                 self.custom_toolsets = fresh.custom_toolsets
                 self.custom_skill_paths = fresh.custom_skill_paths
+                previous_skill_repos = self.skill_repos
+                self.skill_repos = fresh.skill_repos
                 self.additional_toolsets = fresh.additional_toolsets
                 self._apply_env_fallbacks()
+                # Keep the manager when the repo config is unchanged: it holds
+                # the synced state and cached GitHub App tokens, and dropping it
+                # would force a full network re-sync on the next request.
+                if self.skill_repos != previous_skill_repos:
+                    self._skill_repo_manager = None
             self._toolset_manager = None
             self._cached_tool_executor = None
             self._cached_executor_key = None
@@ -847,7 +942,11 @@ class Config(RobustaBaseConfig):
         msg = f"Model: {model_name}, {context_size} context, {max_response} max response ({source_hint})"
         display_logger.info(msg)
         if on_event is not None:
-            on_event(StatusEvent(kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg))
+            on_event(
+                StatusEvent(
+                    kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg
+                )
+            )
         return llm
 
     def get_models_list(self) -> List[str]:

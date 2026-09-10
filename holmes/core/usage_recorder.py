@@ -249,7 +249,8 @@ class UsageRecorderState:
     # FE/runner-supplied finer UI flow label. Free-form text — adding new
     # values doesn't need a Holmes migration. Examples:
     #   'freeform'              — user typed a question in the FE
-    #   'alert_investigation'   — chat opened from an alert
+    #   'manual_investigation'  — user-triggered alert investigation run
+    #   'alert_investigation'   — follow-up chat on an investigated alert
     #   'followup_logs'         — user clicked a follow-up action button
     #   'resource_chat'         — chat opened from a Kubernetes resource
     #   'slack' / 'teams'       — auto-detected for messaging-platform

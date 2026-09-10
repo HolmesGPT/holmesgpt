@@ -120,6 +120,68 @@ class SpanType(Enum):
     TOOL = "tool"
 
 
+# Emit Langfuse-vendor-specific ``langfuse.*`` span attributes. Off by default.
+HOLMES_LANGFUSE_ATTRIBUTES = (
+    os.environ.get("HOLMES_LANGFUSE_ATTRIBUTES", "false").lower() == "true"
+)
+
+
+def langfuse_trace_attributes(
+    ask: Optional[str],
+    *,
+    user_id: Optional[str] = None,
+    user_email: Optional[str] = None,
+    account_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    cluster_id: Optional[str] = None,
+    model: Optional[str] = None,
+    request_source: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build Langfuse trace-level root-span attributes; ``{}`` unless enrichment is enabled."""
+    if not HOLMES_LANGFUSE_ATTRIBUTES:
+        return {}
+
+    ask = ask or ""
+    attrs: Dict[str, Any] = {
+        "langfuse.trace.input": ask,
+    }
+    # trace name = conversation id (short + filterable; prompt is in trace.input)
+    if session_id:
+        attrs["langfuse.trace.name"] = session_id
+    # user id (Users view) with fallback
+    uid = user_id or user_email or account_id
+    if uid:
+        attrs["langfuse.user.id"] = uid
+    # session grouping (Sessions view) = conversation id
+    if session_id:
+        attrs["langfuse.session.id"] = session_id
+    # filterable metadata (only langfuse.trace.metadata.* is filterable)
+    for key, val in (
+        ("user_id", user_id),
+        ("user_email", user_email),
+        ("conversation_id", session_id),
+        ("account_id", account_id),
+        ("cluster_id", cluster_id),
+        ("model", model),
+        ("request_source", request_source),
+    ):
+        if val:
+            attrs[f"langfuse.trace.metadata.{key}"] = val
+    # trace tags (Trace Tags facet)
+    tags = [
+        f"{label}:{val}"
+        for label, val in (
+            ("source", request_source),
+            ("cluster", cluster_id),
+            ("model", model),
+        )
+        if val
+    ]
+    if tags:
+        attrs["langfuse.trace.tags"] = tags
+    return attrs
+
+
 class DummySpan:
     """A no-op span implementation for when tracing is disabled."""
 

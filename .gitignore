@@ -175,3 +175,4 @@ config_toolsets.yaml
 .claude/skills/dev-skills/
 .claude-trace/
 eval_results.json
+uv.lock

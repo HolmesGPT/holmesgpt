@@ -161,6 +161,12 @@ def get_context_window_compaction_threshold_pct() -> int:
 
 ROBUSTA_AI_MODEL_NAME = "Robusta"
 
+# Refreshes run every TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS (default 300s); an
+# extended relay outage would otherwise log a failure every cycle. Only the
+# first failure and every Nth one after it get a full log line (review
+# feedback on ROB-795).
+ROBUSTA_REFRESH_FAILURE_LOG_EVERY = 5
+
 
 def _is_gemini_route(litellm_model_name: str) -> bool:
     """True if the model goes through Google's Gemini GenerateContent API.
@@ -348,6 +354,7 @@ class LLM:
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one LLM completion request."""
         pass
 
 
@@ -655,6 +662,7 @@ class DefaultLLM(LLM):
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one litellm completion request with the model's configured args."""
         tools_args = {}
         allowed_openai_params = None
 
@@ -819,9 +827,16 @@ class LLMModelRegistry:
     def __init__(self, config: "Config", dal: SupabaseDal) -> None:
         self.config = config
         self._llms: dict[str, ModelEntry] = {}
-        self._default_robusta_model = None
+        self._default_robusta_model: Optional[str] = None
         self.dal = dal
         self._lock = threading.RLock()
+        self._robusta_refresh_failures = 0
+        # Not an RLock: refresh_robusta_models() only ever tries to acquire
+        # this non-blockingly, so a second overlapping refresh (the periodic
+        # loop and a get_model_params() resync can race) backs off instead of
+        # installing a response that may be older than the one already in
+        # flight (CodeRabbit review on ROB-795).
+        self._robusta_refresh_lock = threading.Lock()
 
         self._init_models()
 
@@ -948,23 +963,137 @@ class LLMModelRegistry:
                 self._load_default_robusta_config()
                 return
 
-            default_model = None
-            for model_name, model_data in robusta_models.models.items():
-                logging.info(f"Loading Robusta AI model: {model_name}")
-                self._llms[model_name] = self._create_robusta_model_entry(
-                    model_name=model_name, model_data=model_data
-                )
-                if model_data.is_default:
-                    default_model = model_name
-
-            if default_model:
-                logging.info(f"Setting default Robusta AI model to: {default_model}")
-                self._default_robusta_model: str = default_model  # type: ignore
+            logging.info(f"Loading Robusta AI models: {list(robusta_models.models)}")
+            self._install_robusta_models(robusta_models)
 
         except Exception:
             logging.exception("Failed to get all robusta models")
             # fallback to default behavior
             self._load_default_robusta_config()
+
+    def refresh_robusta_models(self) -> bool:
+        """Re-read the Robusta-hosted catalog into the running registry.
+
+        Startup is otherwise the only read, so an agent that lost that fetch
+        stays on the legacy fallback and later catalog edits never reach it
+        (ROB-795, ROB-707). A failed or empty fetch leaves the registry alone:
+        downgrading a healthy catalog on every relay blip would be worse than
+        briefly serving a stale list. Returns True when the registry changed.
+
+        Failures are logged on the first occurrence and every
+        `ROBUSTA_REFRESH_FAILURE_LOG_EVERY`th one after that - an outage that
+        outlives several refresh cycles would otherwise log the same failure
+        every cycle.
+
+        At most one refresh actually fetches+installs at a time: the periodic
+        refresh loop and a get_model_params() resync can overlap, and the
+        fetch runs outside `_lock` (it's a network call), so a naive
+        implementation could let an older response install after a newer one
+        and silently revert the catalog. An overlapping call backs off
+        (returns False) rather than waiting, so it can never block behind
+        someone else's network fetch.
+        """
+        with self._lock:
+            # Robusta AI is in play iff something Robusta-hosted is loaded -
+            # startup leaves either the catalog or the legacy fallback behind.
+            serves_robusta_models = any(
+                entry.is_robusta_model for entry in self._llms.values()
+            )
+
+        # cluster_name and LOAD_ALL_ROBUSTA_MODELS are what put an agent in
+        # legacy single-model mode at boot; refreshing must not promote it.
+        if not (
+            serves_robusta_models
+            and self.config.cluster_name
+            and LOAD_ALL_ROBUSTA_MODELS
+            and self.dal.enabled
+        ):
+            return False
+
+        if not self._robusta_refresh_lock.acquire(blocking=False):
+            return False
+        try:
+            log_this_failure = (
+                self._robusta_refresh_failures == 0
+                or self._robusta_refresh_failures % ROBUSTA_REFRESH_FAILURE_LOG_EVERY
+                == 0
+            )
+
+            try:
+                robusta_models = fetch_robusta_models(
+                    *self.dal.get_ai_credentials(), log_failure=log_this_failure
+                )
+            except Exception:
+                self._robusta_refresh_failures += 1
+                if log_this_failure:
+                    logging.exception("Failed to refresh Robusta AI models")
+                return False
+
+            if not robusta_models or not robusta_models.models:
+                self._robusta_refresh_failures += 1
+                if log_this_failure:
+                    logging.warning(
+                        "Keeping the loaded models: the catalog came back empty."
+                    )
+                return False
+
+            self._robusta_refresh_failures = 0
+
+            with self._lock:
+                previous_default = self._default_robusta_model
+                added, removed = self._install_robusta_models(robusta_models)
+                self._register_pricing_for_loaded_models()
+
+            changed = bool(added or removed) or (
+                self._default_robusta_model != previous_default
+            )
+            if changed:
+                logging.info(
+                    f"Refreshed Robusta AI models. added: {added}, removed: {removed}"
+                )
+            return changed
+        finally:
+            self._robusta_refresh_lock.release()
+
+    def _install_robusta_models(
+        self, robusta_models: RobustaModelsResponse
+    ) -> tuple[list[str], list[str]]:
+        """Make the Robusta-hosted entries exactly `robusta_models`, and point
+        the default at whichever one relay flagged. Returns (added, removed).
+
+        Only Robusta-hosted entries are replaced - models the user defined in
+        model_list.yaml or via MODEL aren't ours to touch. Callers holding
+        `_lock` (the refresh path) keep it; startup runs single-threaded before
+        the registry is shared.
+        """
+        incoming = set(robusta_models.models)
+        current = {n for n, entry in self._llms.items() if entry.is_robusta_model}
+
+        # Rebuilt rather than patched: whatever the catalog dropped is simply
+        # not carried over - the legacy `Robusta` entry among it, which is what
+        # heals an agent that booted without a catalog.
+        user_defined = {
+            name: entry
+            for name, entry in self._llms.items()
+            if not entry.is_robusta_model
+        }
+        hosted = {
+            name: self._create_robusta_model_entry(model_name=name, model_data=data)
+            for name, data in robusta_models.models.items()
+        }
+        self._llms = user_defined | hosted
+
+        # Relay flags exactly one model as the account's default.
+        defaults = [
+            name for name, data in robusta_models.models.items() if data.is_default
+        ]
+        if defaults:
+            self._default_robusta_model = defaults[0]
+        elif self._default_robusta_model not in self._llms:
+            # Nothing flagged and the previous default just left the catalog.
+            self._default_robusta_model = None
+
+        return sorted(incoming - current), sorted(current - incoming)
 
     def _load_default_robusta_config(self):
         if self._should_load_robusta_ai():
@@ -997,6 +1126,49 @@ class LLMModelRegistry:
         return True
 
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
+        if model_key:
+            model_params = self._loaded_model(model_key)
+            if model_params is not None:
+                display_logger.info(f"Using selected model: {model_key}")
+                return model_params
+
+            # The catalog may have gained this model since it was last read.
+            # Any name is worth a look: a customer's models carry their own
+            # prefix, so keying on `Robusta/` left exactly those unable to
+            # recover. Unlike _init_models, refreshing never rebuilds from
+            # the model file and never falls back to the legacy entry, so a
+            # fetch that fails here cannot cost us the models we do have.
+            #
+            # Deliberately NOT under `_lock`: this is a network call that can
+            # run ~74s against an unreachable relay (5 attempts x 10s timeout
+            # plus 24s of backoff). `_lock` is reentrant, so holding it across
+            # the refresh silently serialized every other reader behind that
+            # whole window - including ones asking for non-Robusta models
+            # (ROB-795 review).
+            logging.warning(f"Model {model_key} is not loaded; refreshing.")
+            self.refresh_robusta_models()
+
+            # Re-read regardless of what the refresh returned: a refresh
+            # already in flight on another thread makes this one back off
+            # (returning False) yet may have installed exactly what we want.
+            model_params = self._loaded_model(model_key)
+            if model_params is not None:
+                display_logger.info(f"Using selected model: {model_key}")
+                return model_params
+
+            logging.error(f"Couldn't find model: {model_key} in model list")
+
+        return self._fallback_model()
+
+    def _loaded_model(self, model_key: str) -> Optional[ModelEntry]:
+        """Point lookup against the loaded registry; None when it isn't there."""
+        with self._lock:
+            model_params = self._llms.get(model_key)
+            return model_params.model_copy() if model_params is not None else None
+
+    def _fallback_model(self) -> ModelEntry:
+        """The entry to serve when no specific model was asked for, or the
+        requested one couldn't be found even after a refresh."""
         with self._lock:
             if not self._llms:
                 raise Exception(
@@ -1005,22 +1177,6 @@ class LLMModelRegistry:
                     "or MODEL_LIST_FILE_LOCATION/config model list. "
                     "Setting only an API key (for example OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AZURE_API_KEY) is not enough without a model."
                 )
-
-            if model_key:
-                model_params = self._llms.get(model_key)
-                if model_params:
-                    display_logger.info(f"Using selected model: {model_key}")
-                    return model_params.model_copy()
-
-                if model_key.startswith("Robusta/"):
-                    logging.warning("Resyncing Registry and Robusta models.")
-                    self._init_models()
-                    model_params = self._llms.get(model_key)
-                    if model_params:
-                        display_logger.info(f"Using selected model: {model_key}")
-                        return model_params.model_copy()
-
-                logging.error(f"Couldn't find model: {model_key} in model list")
 
             if self._default_robusta_model:
                 model_params = self._llms.get(self._default_robusta_model)

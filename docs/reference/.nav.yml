@@ -7,5 +7,6 @@ nav:
   - HTTP API: http-api.md
   - OpenTelemetry: opentelemetry.md
   - Skills: skills.md
+  - Skills Best Practices: skills-best-practices.md
   - Slash Commands: slash-commands.md
   - Troubleshooting: troubleshooting.md

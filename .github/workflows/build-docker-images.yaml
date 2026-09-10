@@ -32,10 +32,12 @@ jobs:
 
 
     - name: Update package version
+      env:
+        TAG: ${{ github.ref_name }}
       run: |
-        sed -i 's/__version__ = .*/__version__ = "${{github.ref_name}}"/g' holmes/__init__.py
-        sed -i 's/0.0.0/${{github.ref_name}}/g' helm/holmes/Chart.yaml helm/holmes/values.yaml
-        sed -i 's/0.0.1/${{github.ref_name}}/g' helm/holmes/Chart.yaml
+        sed -i "s/__version__ = .*/__version__ = \"$TAG\"/g" holmes/__init__.py
+        sed -i "s/0.0.0/$TAG/g" helm/holmes/Chart.yaml helm/holmes/values.yaml
+        sed -i "s/0.0.1/$TAG/g" helm/holmes/Chart.yaml
 
     - name: Login to Docker Hub
       uses: docker/login-action@v3
@@ -78,18 +80,20 @@ jobs:
     # for prereleases and drafts we don't tag latest
     - name: Tag and push Docker images as latest if applicable
       if: ${{ github.event.release.prerelease == false && github.event.release.draft == false }}
+      env:
+        TAG: ${{ github.ref_name }}
       run: |
         # Tag Holmes as latest (preserves multi-arch manifest)
         docker buildx imagetools create \
           --tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest \
           --tag robustadev/holmes:latest \
-          us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:${{ github.ref_name }}
+          "us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:$TAG"
 
         # Tag Holmes Operator as latest (preserves multi-arch manifest)
         docker buildx imagetools create \
           --tag us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:latest \
           --tag robustadev/holmes-operator:latest \
-          us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:${{ github.ref_name }}
+          "us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes-operator:$TAG"
 
     - name: Save artifact with helm chart
       uses: actions/upload-artifact@v4
@@ -108,6 +112,8 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}   
     - name: Push Helm chart to OCI registry
+      env:
+        TAG: ${{ github.ref_name }}
       run: |
         helm package helm/holmes
-        helm push holmes-${{github.ref_name}}.tgz oci://ghcr.io/holmesgpt/charts
+        helm push "holmes-$TAG.tgz" oci://ghcr.io/holmesgpt/charts

@@ -9,6 +9,7 @@ import unittest
 from io import StringIO
 from unittest.mock import Mock, patch
 
+import pytest
 from rich.console import Console
 
 from holmes.core.feedback import FeedbackMetadata
@@ -19,6 +20,7 @@ from holmes.interactive import (
     SlashCommandCompleter,
     SlashCommands,
     UserFeedback,
+    _LiveLogFilter,
     _make_live,
     _run_inline_menu,
     handle_feedback_command,
@@ -26,6 +28,27 @@ from holmes.interactive import (
 )
 from holmes.utils.stream import StreamEvents, StreamMessage
 from tests.mocks.toolset_mocks import SampleToolset
+
+
+@pytest.fixture(autouse=True)
+def _strip_leaked_live_log_filters():
+    """Guarantee no AgenticProgressRenderer log filter survives a test.
+
+    ``AgenticProgressRenderer.start()`` installs a ``_LiveLogFilter`` on every
+    root-logger handler; ``flush()``/``_stop_live()`` removes it again. Some
+    tests intentionally leave Live active (e.g. ``test_ai_message_keeps_live_active``)
+    and never flush, so the filter — which buffers and then *drops* every log
+    record it sees — stays attached to the root handlers, including pytest's own
+    ``LogCaptureHandler``. Under the parallel (xdist) suite that poisons log
+    capture for unrelated tests that happen to share the worker
+    (``test_otel_tracing``, ``test_mcp_toolset``), making them flaky. Strip any
+    leftover filters after each test so global logging state stays clean.
+    """
+    yield
+    for handler in logging.getLogger().handlers:
+        for log_filter in list(handler.filters):
+            if isinstance(log_filter, _LiveLogFilter):
+                handler.removeFilter(log_filter)
 
 
 class TestAgenticProgressRendererSummary(unittest.TestCase):

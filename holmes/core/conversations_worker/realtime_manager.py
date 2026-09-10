@@ -23,9 +23,11 @@ import logging
 import os
 import ssl
 import threading
+import time
 import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
+import jwt
 import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
@@ -46,6 +48,21 @@ if TYPE_CHECKING:
 # traceback on the first attempt and then every 10th attempt, and just the
 # attempt number on the rest, so a sustained outage doesn't flood the logs.
 _RECONNECT_LOG_FULL_EVERY = 10
+
+# Upper bound on the re-sign-in performed during _full_reconnect (ROB-759).
+# Comfortably above the DAL httpx client's 60s request timeout so it only
+# fires if that bound is bypassed (misconfig/regression), guaranteeing the
+# reconnect loop can never be stalled indefinitely by a hung auth call.
+_RECONNECT_SIGN_IN_TIMEOUT_SECONDS = 90
+
+# Must exceed the auth refresh interval so a tick lands inside it.
+_AUTH_REFRESH_LEEWAY_SECONDS = 300
+
+
+def _expires_within(token: str, seconds: float) -> bool:
+    # Signature is irrelevant; exp is our own claim.
+    exp = jwt.decode(token, options={"verify_signature": False})["exp"]
+    return exp - time.time() <= seconds
 
 
 # ---- channel topic helpers ----
@@ -322,7 +339,9 @@ class RealtimeWorker:
                 # own full teardown/reconnect on any failure signal.
                 unhealthy_reason = self._channel_unhealthy()
                 if unhealthy_reason is not None:
-                    logging.warning(
+                    # A first reconnect is routine and self-healing.
+                    logging.log(
+                        logging.INFO if reconnect_attempts == 0 else logging.WARNING,
                         "Realtime channel unhealthy (%s), reconnecting",
                         unhealthy_reason,
                     )
@@ -469,11 +488,20 @@ class RealtimeWorker:
         self._client = None
         self._channel = None
         self._last_auth_jwt = None
-        await asyncio.to_thread(self.dal.sign_in)
+        # Bound the re-sign-in (ROB-759): sign_in is a sync HTTP call whose
+        # timeout depends on the DAL's httpx client config; a half-open
+        # connection there would otherwise stall this reconnect loop for the
+        # full HTTP timeout (or forever if the config regresses). The bound
+        # keeps the reconnect cadence predictable — on timeout we raise into
+        # the caller's backoff loop like any other reconnect failure.
+        await asyncio.wait_for(
+            asyncio.to_thread(self.dal.sign_in),
+            timeout=_RECONNECT_SIGN_IN_TIMEOUT_SECONDS,
+        )
         await self._connect_and_subscribe()
 
     async def _maybe_refresh_auth(self) -> None:
-        """Re-push the Supabase JWT to the realtime client if it rotated."""
+        """Re-push the Supabase JWT, re-signing in first if it is near expiry."""
         if not self._client:
             return
         try:
@@ -481,6 +509,11 @@ class RealtimeWorker:
             if session is None:
                 return
             new_jwt = session.access_token
+            if new_jwt and _expires_within(new_jwt, _AUTH_REFRESH_LEEWAY_SECONDS):
+                # Nothing else refreshes the JWT on a realtime-only path.
+                await asyncio.to_thread(self.dal.sign_in)
+                session = self.dal.client.auth.get_session()  # type: ignore[attr-defined]
+                new_jwt = session.access_token if session is not None else None
             if not new_jwt or new_jwt == self._last_auth_jwt:
                 return
             await self._client.set_auth(new_jwt)

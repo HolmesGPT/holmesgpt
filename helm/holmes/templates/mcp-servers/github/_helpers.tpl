@@ -82,5 +82,25 @@ Always try to understand how to fix the issue, not just diagnose it.
 - Fetch logs for failed workflow jobs - they contain the actual error messages
 - Use code search to find relevant files before reading them
 - Check PR diffs to understand what changed
-{{- end -}}
+{{- end }}
+
+## Tool Parameter Rules (READ THIS)
+
+The server rejects optional parameters sent as `null` or `""` even when the tool
+schema marks them optional. The MCP layer types them `string`, so a missing
+value must be **omitted from the JSON object entirely** — do NOT send
+`"sha": null`, do NOT send `"sha": ""`.
+
+Affected tools include `list_commits`, `get_file_contents`, `search_code`, and
+any other tool with optional `sha`, `ref`, `path`, `author`, `since`, `until`
+fields. If you don't have a value, leave the field out.
+
+- WRONG: `{"owner":"x","repo":"y","sha":null,"path":""}`
+- RIGHT: `{"owner":"x","repo":"y"}`
+
+{{ if .Values.mcpAddons.github.auth.githubApp.multiOrg -}}
+Always pass the correct `owner`/`org` argument on every call — the server routes
+credentials per organization based on it, so an omitted or wrong owner can hit
+the wrong organization's permissions.
+{{- end }}
 {{- end -}}
