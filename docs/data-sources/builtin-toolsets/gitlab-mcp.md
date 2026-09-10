@@ -335,7 +335,7 @@ curl -H "PRIVATE-TOKEN: <YOUR_GITLAB_PAT>" https://gitlab.com/api/v4/user
 
 ### SSL Certificate Verification Errors
 
-See the [Self-Hosted GitLab](#sslsignedtls-for-self-signed-certificates) section above. Prefer mounting a custom CA over disabling verification.
+See the [SSL/TLS for Self-Signed Certificates](#ssltls-for-self-signed-certificates) section above. Prefer mounting a custom CA over disabling verification.
 
 ### Tool Not Found
 
