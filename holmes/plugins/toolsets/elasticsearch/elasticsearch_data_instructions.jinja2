@@ -1,0 +1,6 @@
+# Elasticsearch/OpenSearch data (logs, metrics, traces, documents)
+
+* Use `elasticsearch_search` to query logs, metrics, distributed traces/spans, and any other documents stored in Elasticsearch/OpenSearch.
+* Use `elasticsearch_list_indices` to discover which index/pattern holds the data you need — prefer a narrow pattern (e.g. `logs-*`) over `*`, since the underlying API returns every matching index with no pagination or size limit. Use `elasticsearch_mappings` to inspect a specific index's fields before writing a query against it.
+* When investigating latency, errors, or service-to-service dependency issues, check traces/spans as well as logs — trace data often shows the actual call chain and timing breakdown that logs alone don't.
+* This is the toolset to use whenever Elasticsearch or OpenSearch is a configured data source for logs, metrics, traces, or application data — prefer it over asking the user for information it can retrieve directly.
