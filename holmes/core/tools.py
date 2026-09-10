@@ -926,7 +926,7 @@ class Toolset(BaseModel):
         return values
 
     @model_validator(mode="after")
-    def link_tools_to_toolset(self):
+    def link_tools_to_toolset(self) -> "Toolset":
         # Tools resolve `approval_required_tools` through this back-reference.
         # Toolsets built in Python wire it up themselves (Tool(toolset=self)),
         # but YAML/config-loaded toolsets construct their tools from dicts, so

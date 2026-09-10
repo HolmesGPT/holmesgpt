@@ -137,4 +137,4 @@ def test_yaml_toolset_tools_are_gated_by_approval_required_tools():
     assert gated.status == StructuredToolResultStatus.APPROVAL_REQUIRED
 
     ungated = _tool(toolset, "safe_action").invoke({}, _context("safe_action"))
-    assert ungated.status != StructuredToolResultStatus.APPROVAL_REQUIRED
+    assert ungated.status == StructuredToolResultStatus.SUCCESS
