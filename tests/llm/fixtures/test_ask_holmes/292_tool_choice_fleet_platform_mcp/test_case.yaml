@@ -1,0 +1,25 @@
+user_prompt: "Which clusters in our fleet are currently connected to Robusta?"
+
+description: |
+  Tool-choice eval 3/3 (fleet -> platform MCP).
+
+  Same three tool sources as 290. The question is about the Robusta FLEET, which
+  only the platform MCP can answer — the kubernetes MCP server knows kubeconfig
+  contexts but nothing about platform connectivity, and bash sees only the local
+  cluster. Holmes must call list_available_clusters.
+
+# Fails deterministically if Holmes mistakes fleet membership for a kubeconfig
+# context listing, or tries to answer locally.
+forbidden_tools:
+  - "bash"
+  - "configuration_contexts_list"
+  - "pods_list_in_namespace"
+
+expected_output:
+  - Reports eu-prod-1 and us-prod-2 as connected
+  - Reports ap-staging-3 as not connected
+  - Answers from the Robusta fleet rather than kubeconfig contexts
+
+include_tool_calls: true
+tags:
+  - question-answer
