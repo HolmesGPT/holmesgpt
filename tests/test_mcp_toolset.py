@@ -809,6 +809,220 @@ class TestMCPSchemaPreservation:
         assert tool.parameters["name"].json_schema_extra is None
 
 
+class TestAzureIncompatibleSchema:
+    """Tests for Azure-incompatible schema detection and exclusion."""
+
+    def test_azure_incompatible_schema_detected(self):
+        """Test that schema with dynamic object in required but not properties is detected."""
+        from holmes.plugins.toolsets.mcp.toolset_mcp import _is_azure_incompatible_schema
+
+        # This is the problematic pattern: 'args' is in required but not in properties
+        schema = {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+            },
+            "required": ["command", "args"],  # 'args' not in properties
+        }
+        assert _is_azure_incompatible_schema(schema) is True
+
+    def test_azure_compatible_schema_not_flagged(self):
+        """Test that normal schema is not flagged as Azure-incompatible."""
+        from holmes.plugins.toolsets.mcp.toolset_mcp import _is_azure_incompatible_schema
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "args": {"type": "object"},
+            },
+            "required": ["command", "args"],
+        }
+        assert _is_azure_incompatible_schema(schema) is False
+
+    def test_empty_required_not_flagged(self):
+        """Test that schema with empty required list is not flagged."""
+        from holmes.plugins.toolsets.mcp.toolset_mcp import _is_azure_incompatible_schema
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+            },
+            "required": [],
+        }
+        assert _is_azure_incompatible_schema(schema) is False
+
+    def test_no_required_not_flagged(self):
+        """Test that schema without required field is not flagged."""
+        from holmes.plugins.toolsets.mcp.toolset_mcp import _is_azure_incompatible_schema
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+            },
+        }
+        assert _is_azure_incompatible_schema(schema) is False
+
+    def test_null_properties_flagged(self):
+        """Test that schema with null properties is flagged as Azure-incompatible."""
+        from holmes.plugins.toolsets.mcp.toolset_mcp import _is_azure_incompatible_schema
+
+        # properties is null - should be treated as incompatible
+        schema = {
+            "type": "object",
+            "properties": None,
+            "required": ["args"],
+        }
+        assert _is_azure_incompatible_schema(schema) is True
+
+    def test_azure_incompatible_tool_excluded_from_loading(self, monkeypatch, suppress_migration_warnings):
+        """Test that Azure-incompatible tools are automatically excluded when loading."""
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={"url": "http://localhost:1234"},
+        )
+
+        # One compatible tool, one Azure-incompatible tool
+        compatible_tool = Tool(
+            name="run_command",
+            inputSchema={
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            },
+            description="Run a command",
+        )
+        incompatible_tool = Tool(
+            name="tools_call",
+            inputSchema={
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command", "args"],  # 'args' not in properties
+            },
+            description="Call tools",
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[compatible_tool, incompatible_tool])
+
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        # Only the compatible tool should be loaded
+        assert len(mcp_toolset.tools) == 1
+        assert mcp_toolset.tools[0].name == "run_command"
+
+    def test_excluded_tools_config_filters_tools(self, monkeypatch, suppress_migration_warnings):
+        """Test that excluded_tools config option filters out specified tools."""
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "excluded_tools": ["unwanted_tool"],
+            },
+        )
+
+        tool1 = Tool(
+            name="useful_tool",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Useful tool",
+        )
+        tool2 = Tool(
+            name="unwanted_tool",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Unwanted tool",
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[tool1, tool2])
+
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        # Only the non-excluded tool should be loaded
+        assert len(mcp_toolset.tools) == 1
+        assert mcp_toolset.tools[0].name == "useful_tool"
+
+    def test_excluded_tools_and_azure_incompatible_combined(self, monkeypatch, suppress_migration_warnings):
+        """Test that both excluded_tools and Azure-incompatible detection work together."""
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "excluded_tools": ["manual_exclude"],
+            },
+        )
+
+        compatible_tool = Tool(
+            name="good_tool",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Good tool",
+        )
+        manually_excluded = Tool(
+            name="manual_exclude",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Manually excluded tool",
+        )
+        azure_incompatible = Tool(
+            name="azure_bad",
+            inputSchema={
+                "type": "object",
+                "properties": {"cmd": {"type": "string"}},
+                "required": ["cmd", "args"],  # 'args' not in properties
+            },
+            description="Azure-incompatible tool",
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[compatible_tool, manually_excluded, azure_incompatible])
+
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        # Only the compatible, non-excluded tool should be loaded
+        assert len(mcp_toolset.tools) == 1
+        assert mcp_toolset.tools[0].name == "good_tool"
+
+    def test_excluded_tools_config_works_for_stdio(self, monkeypatch, suppress_migration_warnings):
+        """Test that excluded_tools works for StdioMCPConfig."""
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "mode": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-everything"],
+                "excluded_tools": ["echo"],
+            },
+        )
+
+        tool1 = Tool(
+            name="add",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Add tool",
+        )
+        tool2 = Tool(
+            name="echo",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            description="Echo tool",
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[tool1, tool2])
+
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        # Only the non-excluded tool should be loaded
+        assert len(mcp_toolset.tools) == 1
+        assert mcp_toolset.tools[0].name == "add"
+
+
 class TestExceptionGroupUnwrapping:
     def test_extract_root_error_from_exception_group(self):
         root_cause = ConnectionRefusedError("Connection refused")
