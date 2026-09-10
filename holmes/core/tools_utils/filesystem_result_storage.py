@@ -32,9 +32,18 @@ def _safe_filename(
     safe_name = re.sub(r"[^\w\-]", "_", tool_name)
     call_id = tool_call_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)[0]
     safe_id = re.sub(r"[^\w\-]", "_", call_id)
-    stem = f"{safe_name}_{safe_id}{suffix}"
-    stem_bytes = stem.encode("utf-8")[: MAX_FILENAME_BYTES - len(extension)]
-    return stem_bytes.decode("utf-8", errors="ignore") + extension
+    base_stem = f"{safe_name}_{safe_id}"
+
+    # Reserve space for the suffix and extension, then truncate only the base
+    # stem so the suffix (e.g. "_img0") is always preserved in full. Truncating
+    # the stem including the suffix could cut the suffix off, giving multiple
+    # images the exact same filename and silently overwriting each other.
+    suffix_bytes = suffix.encode("utf-8")
+    extension_bytes = extension.encode("utf-8")
+    max_base_bytes = MAX_FILENAME_BYTES - len(suffix_bytes) - len(extension_bytes)
+    base_bytes = base_stem.encode("utf-8")[:max_base_bytes]
+
+    return base_bytes.decode("utf-8", errors="ignore") + suffix + extension
 
 
 @contextmanager
