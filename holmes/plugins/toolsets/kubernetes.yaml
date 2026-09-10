@@ -192,7 +192,7 @@ toolsets:
                 - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
 
       - name: "kubernetes_tabular_query"
-        user_description: "filter: kubectl get {{kind}} columns='{{columns}}'{% if filter_pattern %} filter={{filter_pattern}}{% endif %}"
+        user_description: "filter: kubectl get {{kind}} columns='{{columns}}'{% if filter_pattern %} filter={{filter_pattern}}{% endif %}{% if namespace %} ns={{namespace}}{% endif %}"
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
           Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
@@ -201,6 +201,7 @@ toolsets:
           Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
           e.g. NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[0].image
           Optional filter_pattern matches any column (grep regex), e.g. filter_pattern="Running".
+          Optional namespace restricts the query to a single namespace (avoids OOM on large clusters).
 
           LIMITATIONS - not allowed characters in columns: ' / ; and newline.
           Label keys containing dots or slashes (e.g. kubernetes.io/arch, app.kubernetes.io/name)
@@ -216,7 +217,12 @@ toolsets:
           KIND={{ kind }}
           CUSTOM_COLUMNS={{ columns }}
           err_file=$(mktemp)
-          output=$(kubectl get "$KIND" --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
+          NAMESPACE={{ namespace }}
+          if [ -n "$NAMESPACE" ]; then
+            output=$(kubectl get "$KIND" -n "$NAMESPACE" -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
+          else
+            output=$(kubectl get "$KIND" --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
+          fi
           kubectl_exit=$?
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
