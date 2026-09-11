@@ -140,6 +140,9 @@ Configure globally for all checks:
 additionalEnvVars:
   - name: PAGERDUTY_INTEGRATION_KEY
     value: "your-integration-key"
+  # Optional: identify the cluster in PagerDuty incidents
+  - name: CLUSTER_NAME
+    value: "production-eu-west-1"
   # Or from a secret (recommended):
   # - name: PAGERDUTY_INTEGRATION_KEY
   #   valueFrom:
@@ -194,22 +197,32 @@ PagerDuty Events API v2 integration key for the target service.
 PagerDuty Events API endpoint. Rarely needs to be changed.
 
 - Default: `https://events.pagerduty.com/v2/enqueue`
-- Only override for custom PagerDuty instances
+- The only supported endpoints are `events.pagerduty.com` and `events.eu.pagerduty.com`
+- Custom endpoints require an inline `integration_key`; the global key is never sent to them
+
+**CLUSTER_NAME** (environment variable, optional)
+
+Name of the cluster where Holmes Operator is running. Set this environment
+variable on the Holmes pod to include the cluster identity in PagerDuty
+incidents. If it is not set, the incident uses the configured fallback or
+`unknown`.
 
 ### Incident Details
 
 PagerDuty incidents created by Holmes include:
 
 **Basic Information:**
-- **Summary**: `Holmes Check Failed: <check-name>`
+
+- **Summary**: `Holmes Check Failed [<cluster-name>]: <check-name>`
 - **Severity**: `error` (or `critical`, `warning`, `info` based on check tags)
-- **Source**: `holmes`
+- **Source**: Cluster name from `CLUSTER_NAME`
 - **Component**: Check source type
 - **Group**: `health-checks`
 
 **Custom Details:**
 - `holmes_analysis`: Full LLM reasoning and determination
 - `source_type`: Where the check ran (e.g., `kubernetes`)
+- `source_instance`: Cluster name from `CLUSTER_NAME`
 - `check_details`: Raw check data and context
 - `tools_used`: List of data sources queried by the AI
 

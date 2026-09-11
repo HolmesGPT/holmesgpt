@@ -14,6 +14,10 @@ from holmes.core.issue import Issue, IssueStatus
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
+from holmes.plugins.destinations.pagerduty.plugin import (
+    DEFAULT_PAGERDUTY_API_URL,
+    PagerDutyDestination,
+)
 from holmes.plugins.destinations.slack.plugin import SlackDestination
 
 checks_app = FastAPI()
@@ -150,7 +154,11 @@ def execute_health_check(
                 issue = Issue(
                     id=f"healthcheck-{check_name}-{int(time.time())}",
                     name=f"Health Check Failed: {check_name}",
-                    source_instance_id=_CONFIG.cluster_name or "unknown",
+                    source_instance_id=(
+                        os.environ.get("CLUSTER_NAME")
+                        or _CONFIG.cluster_name
+                        or "unknown"
+                    ),
                     source_type="HealthCheck",
                     presentation_status=IssueStatus.OPEN,
                     presentation_key_metadata=f"*Check:* `{check_name}`\n*Query:* {request.query}",
@@ -214,7 +222,63 @@ def execute_health_check(
                             )
 
                         notifications.append(notification)
-                    # Add other destination types here (pagerduty, etc.) as needed
+                    elif dest_type == "pagerduty":
+                        notification = NotificationStatus(
+                            type="pagerduty", status="pending"
+                        )
+
+                        try:
+                            inline_integration_key = dest_config.get("integration_key")
+                            custom_api_url = dest_config.get("api_url")
+                            if custom_api_url and not inline_integration_key:
+                                notification.status = "skipped"
+                                notification.error = (
+                                    "Custom PagerDuty API URLs require an inline integration_key"
+                                )
+                                logging.warning(
+                                    "Custom PagerDuty API URL requires an inline integration key, "
+                                    "skipping notification"
+                                )
+                                notifications.append(notification)
+                                continue
+
+                            integration_key = inline_integration_key or os.environ.get(
+                                "PAGERDUTY_INTEGRATION_KEY"
+                            )
+                            if not integration_key:
+                                notification.status = "skipped"
+                                notification.error = (
+                                    "PAGERDUTY_INTEGRATION_KEY not configured"
+                                )
+                                logging.warning(
+                                    "PAGERDUTY_INTEGRATION_KEY not configured, "
+                                    "skipping PagerDuty notification"
+                                )
+                            else:
+                                pagerduty_dest = PagerDutyDestination(
+                                    integration_key=integration_key,
+                                    api_url=custom_api_url or DEFAULT_PAGERDUTY_API_URL,
+                                )
+                                if pagerduty_dest.send_issue(issue, llm_result):
+                                    notification.status = "sent"
+                                    logging.info(
+                                        f"Sent PagerDuty notification for check "
+                                        f"{check_name}"
+                                    )
+                                else:
+                                    notification.status = "failed"
+                                    notification.error = (
+                                        "PagerDuty notification failed"
+                                    )
+                        except Exception as e:
+                            notification.status = "failed"
+                            notification.error = "PagerDuty notification failed"
+                            logging.error(
+                                "Failed to send PagerDuty notification: %s",
+                                type(e).__name__,
+                            )
+
+                        notifications.append(notification)
 
             except Exception as e:
                 logging.error(
