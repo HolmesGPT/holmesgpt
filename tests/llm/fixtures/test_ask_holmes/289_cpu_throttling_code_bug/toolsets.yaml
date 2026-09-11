@@ -1,0 +1,32 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+
+  # Application logs must come from Loki (the scenario's log pipeline),
+  # not from kubectl logs.
+  kubernetes/logs:
+    enabled: false
+
+  grafana/loki:
+    enabled: true
+    config:
+      api_url: http://localhost:10289
+      api_key: ""
+
+  # Port-forwarded to the cluster's kube-prometheus-stack, which scrapes
+  # real cAdvisor metrics (container_cpu_cfs_throttled_periods_total).
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:11289
+      fetch_metadata_with_series_api: true
+      fetch_labels_with_labels_api: false
+      tool_calls_return_data: true
+
+  gitlab-mcp:
+    type: mcp
+    enabled: true
+    description: "Read-only GitLab access for the logistics platform — list projects, browse repository trees, read source files and commit history"
+    config:
+      mode: streamable-http
+      url: http://localhost:12289
