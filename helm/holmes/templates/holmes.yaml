@@ -114,14 +114,18 @@ spec:
           {{- with .Values.containerSecurityContext }}
           {{- toYaml . | nindent 10 }}
           {{- end }}
-        command: ["python3", "-u", "server.py"]
-        {{- if .Values.args }}
+        {{- with .Values.command }}
+        command:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.args }}
         args:
-        {{- toYaml .Values.args | nindent 8 }}
+          {{- toYaml . | nindent 10 }}
         {{- end }}
         ports:
         - containerPort: 5050
           name: http
+        {{- if .Values.livenessProbe.enabled }}
         livenessProbe:
           {{- if and $tls.enabled $tls.caCertsSecretKey }}
           # mTLS requires a client cert; kubelet httpGet probes can't present one,
@@ -136,10 +140,12 @@ spec:
             scheme: HTTPS
             {{- end }}
           {{- end }}
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 10
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+        {{- end }}
+        {{- if .Values.readinessProbe.enabled }}
         readinessProbe:
           {{- if and $tls.enabled $tls.caCertsSecretKey }}
           # mTLS requires a client cert; kubelet httpGet probes can't present one,
@@ -154,10 +160,11 @@ spec:
             scheme: HTTPS
             {{- end }}
           {{- end }}
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+          initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+        {{- end }}
         env:
           - name: LOG_LEVEL
             value: {{ .Values.logLevel }}
