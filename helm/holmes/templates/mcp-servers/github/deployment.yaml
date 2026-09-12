@@ -41,9 +41,14 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
+  {{- $commonAnnotations := include "holmes.commonAnnotations" . | default "{}" | fromYaml }}
+  {{- $deploymentAnnotations := .Values.mcpAddons.github.deploymentAnnotations | default dict }}
+  {{- $mergedAnnotations := mergeOverwrite (deepCopy $commonAnnotations) $deploymentAnnotations }}
+  {{- if $mergedAnnotations }}
   annotations:
-    {{- . | nindent 4 }}
+    {{- range $key, $value := $mergedAnnotations }}
+    {{ $key }}: {{ $value | toString | quote }}
+    {{- end }}
   {{- end }}
 spec:
   replicas: 1
