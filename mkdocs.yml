@@ -42,6 +42,7 @@ nav:
           - "Google Vertex AI": ai-providers/google-vertex-ai.md
           - Ollama: ai-providers/ollama.md
           - OpenRouter: ai-providers/openrouter.md
+          - OrcaRouter: ai-providers/orcarouter.md
           - OpenAI: ai-providers/openai.md
           - "OpenAI-Compatible": ai-providers/openai-compatible.md
           - Other: ai-providers/other.md
