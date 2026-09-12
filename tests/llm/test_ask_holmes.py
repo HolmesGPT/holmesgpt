@@ -21,6 +21,7 @@ from holmes.core.tools_utils.frontend_tools import inject_frontend_tools
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
+from tests.llm.utils.answer_dump import dump_eval_answer
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import evaluate_correctness
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
@@ -206,6 +207,17 @@ def test_ask_holmes(
         if missing_skill_updates:
             update_property(request, "actual_correctness_score", 0)
             scores["correctness"] = 0
+
+    # Before the raising checks below: an answer they reject is part of the
+    # population too, and dumping after them would bias the sample.
+    dump_eval_answer(
+        test_case.id,
+        output,
+        scores.get("correctness", 0),
+        model=model,
+        env_config=env_config.name,
+        tools=[getattr(tc, "tool_name", "?") for tc in (result.tool_calls or [])],
+    )
 
     if eval_span:
         log_to_braintrust(
