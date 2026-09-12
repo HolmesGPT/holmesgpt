@@ -43,6 +43,7 @@ from holmes.plugins.toolsets.elasticsearch.elasticsearch import (
 from holmes.plugins.toolsets.elasticsearch.opensearch_query_assist import (
     OpenSearchQueryAssistToolset,
 )
+from holmes.plugins.toolsets.f5xc.f5xc import F5XCToolset
 from holmes.plugins.toolsets.grafana.loki.toolset_grafana_loki import GrafanaLokiToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana import GrafanaToolset
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import GrafanaTempoToolset
@@ -125,6 +126,7 @@ def load_python_toolsets(
         multi_instance(MongoDBAtlasToolset),
         SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),
         multi_instance(ServiceNowTablesToolset),
+        multi_instance(F5XCToolset),
         multi_instance(VictoriaLogsToolset),
         DatabaseToolset(),
         multi_instance(ElasticsearchDataToolset),
