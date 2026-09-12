@@ -597,6 +597,17 @@ class RemoteMCPTool(Tool):
         structured_text = json.dumps(structured_content, default=str)
         if not merged_text or merged_text.strip() == structured_text.strip():
             return structured_text
+        # The spec only *recommends* that a server also serialize the payload
+        # into a text block, but the servers that do (including the reference
+        # Python SDK, which uses indent=2) pick their own separators and key
+        # order, so an exact string compare misses the common well-behaved case
+        # and doubles the whole payload in the model's context.  Compare the
+        # parsed values instead and keep the compact serialization.
+        try:
+            if json.loads(merged_text) == structured_content:
+                return structured_text
+        except (json.JSONDecodeError, ValueError):
+            pass
         return f"{merged_text}\n{structured_text}"
 
     async def _invoke_async(

@@ -3446,6 +3446,65 @@ class TestMCPStructuredContent:
         assert result.data == serialized
         assert result.data.count("run-1") == 1
 
+    def test_pretty_printed_duplicate_is_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Dedup must survive the serialization the reference SDK actually uses.
+
+        The MCP Python SDK serializes structuredContent into the text block with
+        ``json.dumps(..., indent=2)``, and other servers emit compact JSON with
+        no spaces after the separators.  Comparing raw strings only dedups the
+        one case where the server happens to match Python's json.dumps defaults,
+        so every real well-behaved server would get its whole payload twice.
+        """
+        structured = {"runs": [{"id": "run-1", "attributes": {"outcome": "failed"}}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=json.dumps(structured, indent=2))],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data.count("run-1") == 1
+        assert result.data == json.dumps(structured, default=str)
+
+    def test_compact_duplicate_is_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A non-Python server's compact JSON text block must also dedup."""
+        structured = {"runs": [{"id": "run-1"}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [
+                TextContent(
+                    type="text", text=json.dumps(structured, separators=(",", ":"))
+                )
+            ],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data.count("run-1") == 1
+
+    def test_json_text_that_differs_is_still_kept(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A text block that is valid JSON but *not* the payload must be kept.
+
+        Dedup by parsed equality must not swallow a genuinely different JSON
+        text block, or content[] data would be lost.
+        """
+        structured = {"runs": [{"id": "run-1"}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=json.dumps({"summary": "5 runs"}))],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "summary" in result.data
+        assert "run-1" in result.data
+
     def test_null_optional_param_is_dropped(
         self, monkeypatch, suppress_migration_warnings
     ):
