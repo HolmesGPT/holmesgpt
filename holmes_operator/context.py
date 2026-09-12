@@ -61,6 +61,7 @@ async def initialize() -> OperatorConfig:
     api_client = HolmesAPIClient(
         base_url=config.holmes_api_url,
         timeout=config.holmes_api_timeout,
+        api_key=config.holmes_api_key,
     )
 
     # Initialize and start scheduler manager
