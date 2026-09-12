@@ -1,12 +1,15 @@
-import json
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import requests  # type:ignore
 
 from holmes.core.issue import Issue
 from holmes.core.tool_calling_llm import LLMResult
 from holmes.plugins.interfaces import DestinationPlugin
+
+DEFAULT_PAGERDUTY_API_URL = "https://events.pagerduty.com/v2/enqueue"
+PAGERDUTY_API_HOSTS = {"events.pagerduty.com", "events.eu.pagerduty.com"}
 
 
 class PagerDutyDestination(DestinationPlugin):
@@ -25,9 +28,19 @@ class PagerDutyDestination(DestinationPlugin):
             api_url: PagerDuty Events API endpoint (default: production URL)
         """
         self.integration_key = integration_key
+        parsed_url = urlparse(api_url)
+        if parsed_url.scheme.lower() != "https":
+            raise ValueError("PagerDuty API URL must use HTTPS")
+        if (
+            parsed_url.hostname not in PAGERDUTY_API_HOSTS
+            or parsed_url.username
+            or parsed_url.password
+            or parsed_url.port not in (None, 443)
+        ):
+            raise ValueError("PagerDuty API URL must use an approved PagerDuty hostname")
         self.api_url = api_url
 
-    def send_issue(self, issue: Issue, result: LLMResult) -> None:
+    def send_issue(self, issue: Issue, result: LLMResult) -> bool:
         """
         Send an issue to PagerDuty as an incident.
 
@@ -45,9 +58,16 @@ class PagerDutyDestination(DestinationPlugin):
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
+                allow_redirects=False,
             )
 
             response.raise_for_status()
+            if not 200 <= response.status_code < 300:
+                logging.error(
+                    "PagerDuty API returned a non-success HTTP status: %s",
+                    response.status_code,
+                )
+                return False
 
             result_data = response.json()
             if result_data.get("status") == "success":
@@ -55,19 +75,16 @@ class PagerDutyDestination(DestinationPlugin):
                     f"Successfully sent issue to PagerDuty. "
                     f"Dedup key: {result_data.get('dedup_key')}"
                 )
+                return True
             else:
-                logging.error(
-                    f"PagerDuty API returned non-success status: {result_data}"
-                )
+                logging.error("PagerDuty API returned a non-success status")
+                return False
 
         except requests.exceptions.RequestException as e:
-            logging.error(f"Failed to send issue to PagerDuty: {e}")
-            if hasattr(e, "response") and e.response is not None:
-                try:
-                    error_details = e.response.json()
-                    logging.error(f"PagerDuty error response: {error_details}")
-                except json.JSONDecodeError:
-                    logging.error(f"PagerDuty error response: {e.response.text}")
+            logging.error(
+                "Failed to send issue to PagerDuty: %s", type(e).__name__
+            )
+            return False
 
     def _create_event_payload(self, issue: Issue, result: LLMResult) -> dict:
         """
@@ -81,7 +98,8 @@ class PagerDutyDestination(DestinationPlugin):
             PagerDuty event payload
         """
         # Extract summary and details
-        summary = f"Holmes Check Failed: {issue.name}"
+        cluster_name = issue.source_instance_id or "unknown"
+        summary = f"Holmes Check Failed [{cluster_name}]: {issue.name}"
 
         # Build custom details
         custom_details: dict = {
@@ -116,7 +134,7 @@ class PagerDutyDestination(DestinationPlugin):
             "payload": {
                 "summary": summary,
                 "severity": self._get_severity(issue),
-                "source": "holmes",
+                "source": cluster_name,
                 "component": issue.source_type,
                 "group": "health-checks",
                 "class": "health-check-failure",

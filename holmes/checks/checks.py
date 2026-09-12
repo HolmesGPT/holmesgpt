@@ -586,7 +586,11 @@ class CheckRunner:
                     continue
 
                 try:
-                    pagerduty = PagerDutyDestination(pagerduty_config.integration_key)
+                    pagerduty = PagerDutyDestination(
+                        pagerduty_config.integration_key,
+                        api_url=pagerduty_config.api_url
+                        or "https://events.pagerduty.com/v2/enqueue",
+                    )
                     pagerduty.send_issue(issue, llm_result)
 
                     if self.verbose:
