@@ -56,6 +56,61 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## Repetition Loop Detection
+
+HolmesGPT watches for investigations that stop making progress and repeat themselves. When a loop is detected it first pushes a message into the conversation telling the model it is repeating itself and to change approach or answer; if the loop continues, the tools are withdrawn so the next call must produce a final answer. This is most useful with self-hosted models served near-greedily (low temperature), where reasoning models are prone to repetition loops.
+
+Loop shapes detected:
+
+- The same tool call(s) issued several turns in a row
+- Two tool calls alternating in a ping-pong pattern
+- Every tool call failing, several turns in a row
+- The model restating the same intent turn after turn ("Let me examine the API", "I will now search the API", ...)
+- A single response collapsing into repeated text — this text is also trimmed before it re-enters the context, so the model does not feed on its own repetition
+
+### LOOP_DETECTION_ENABLED
+**Default:** `true`
+
+Set to `false` to disable all of the above. The `max_steps` cap still applies.
+
+```bash
+export LOOP_DETECTION_ENABLED=false
+```
+
+### Loop detection thresholds
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LOOP_DETECTION_REPEAT_THRESHOLD` | `3` | Consecutive turns making the identical set of tool calls |
+| `LOOP_DETECTION_ALTERNATION_CYCLES` | `3` | Full A,B cycles before an alternating loop is flagged |
+| `LOOP_DETECTION_ERROR_STREAK` | `3` | Consecutive turns in which every tool call failed |
+| `LOOP_DETECTION_NARRATION_REPEATS` | `3` | Consecutive turns restating the same intent |
+| `LOOP_DETECTION_NARRATION_SIMILARITY` | `0.8` | How similar (0–1) the text must be to count as a restatement |
+| `LOOP_DETECTION_DEGENERATE_RATIO` | `0.5` | Fraction of repeated 8-grams that marks a single response as degenerate |
+| `LOOP_DETECTION_DEGENERATE_MIN_WORDS` | `120` | Minimum response length before the degenerate check applies |
+| `LOOP_DETECTION_MAX_NUDGES` | `2` | In-band warnings before tools are withdrawn to force a final answer |
+| `LOOP_DETECTION_WINDOW` | `8` | Turns retained in the sliding window |
+
+Lower the thresholds to intervene sooner, raise them if a legitimate investigation is being cut short. Every intervention is logged at `WARNING` with the loop kind and the reason, and is reported in the response metadata under `loop_detected`.
+
+**Helm example:**
+
+```yaml
+additionalEnvVars:
+  # Intervene after two identical turns instead of three
+  - name: LOOP_DETECTION_REPEAT_THRESHOLD
+    value: "2"
+  # Warn once, then force a final answer
+  - name: LOOP_DETECTION_MAX_NUDGES
+    value: "1"
+```
+
+### Related settings
+
+- `TOOL_CALL_SAFEGUARDS_ENABLED` (default `true`) — blocks a tool call whose name and parameters are byte-identical to an earlier call in the same session. Complements loop detection but does not catch loops where a parameter varies slightly.
+- `RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION` (default `true`) — clears that identical-call history after a context compaction, since re-fetching data that is no longer in context is legitimate. Loop detection is unaffected by compaction because it looks at consecutive turns.
+- `TEMPERATURE` (default `0.00000001`) — near-greedy decoding by default. Greedy decoding is a common cause of repetition loops on reasoning models; if your provider recommends a higher temperature (DeepSeek suggests `1.0`), set it here.
+
 ## Server Security
 
 ### HOLMES_API_KEY
