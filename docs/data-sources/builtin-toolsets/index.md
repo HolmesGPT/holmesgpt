@@ -92,6 +92,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
 -   [:simple-redhatopenshift:{ .lg .middle } **OpenShift**](openshift.md)
 -   [:simple-kubernetes:{ .lg .middle } **KubeVela**](kubevela.md)
+-   [:simple-kubernetes:{ .lg .middle } **Kueue**](kueue.md)
 -   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
 -   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
 -   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
