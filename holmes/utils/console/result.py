@@ -46,3 +46,7 @@ def handle_result(
     elif destination == DestinationType.SLACK:
         slack = config.create_slack_destination()
         slack.send_issue(issue, result)
+
+    elif destination == DestinationType.MATTERMOST:
+        mattermost = config.create_mattermost_destination()
+        mattermost.send_issue(issue, result)
