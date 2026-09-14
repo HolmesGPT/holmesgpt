@@ -71,6 +71,8 @@ spec:
     - type: slack
       config:
         channel: "#production-alerts"
+        # Optional: post failures into an existing Slack thread (same fields as HealthCheck)
+        # thread_ts: "1715098123.000200"
 ```
 
 ## Cron Schedule Syntax
@@ -146,7 +148,7 @@ Override default LLM model for all scheduled checks.
 
 **destinations** (array, optional)
 
-Alert destinations (only used with `mode: alert`).
+Alert destinations (only used with `mode: alert`). Each entry is copied onto every spawned `HealthCheck` unchanged (including optional Slack `thread_ts` — see [Alert destinations](destinations.md)).
 
 Example:
 
@@ -155,6 +157,7 @@ destinations:
   - type: slack
     config:
       channel: "#alerts"
+      # thread_ts: "1715098123.000200"
 ```
 
 ## Status Fields

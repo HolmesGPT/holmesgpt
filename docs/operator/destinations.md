@@ -102,6 +102,12 @@ Slack Bot Token. If not provided, uses the global `SLACK_TOKEN` environment vari
 - Format: `xoxb-*`
 - Source: Slack App OAuth Token
 
+**thread_ts** (string, optional)
+
+Post alerts as replies in an existing Slack thread (same channel). Use the parent message's timestamp string.
+
+- Applies to both `HealthCheck` and `ScheduledHealthCheck` (`destinations` are copied verbatim onto each spawned check).
+
 ### Message Format
 
 Example Slack message:

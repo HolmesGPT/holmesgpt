@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Optional
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -10,9 +11,16 @@ from holmes.plugins.interfaces import DestinationPlugin
 
 
 class SlackDestination(DestinationPlugin):
-    def __init__(self, token, channel):
+    def __init__(
+        self,
+        token,
+        channel,
+        thread_ts: Optional[str] = None,
+    ):
         self.token = token
         self.channel = channel
+        # Post into an existing thread (Slack thread parent message timestamp)
+        self.thread_ts = thread_ts
         self.client = WebClient(token=self.token)
 
     def send_issue(self, issue: Issue, result: LLMResult) -> None:
@@ -53,19 +61,26 @@ class SlackDestination(DestinationPlugin):
             )
 
         try:
-            response = self.client.chat_postMessage(
-                channel=self.channel,
-                text=text,
-                attachments=[
+            post_kwargs = {
+                "channel": self.channel,
+                "text": text,
+                "attachments": [
                     {
                         "color": color,
                         "blocks": blocks,
                     }
                 ],
-            )
-            self.__send_tool_usage(response["ts"], result)
-            self.__send_issue_metadata(response["ts"], issue)
-            self.__send_prompt_for_debugging(response["ts"], result)
+            }
+            if self.thread_ts:
+                post_kwargs["thread_ts"] = self.thread_ts
+
+            response = self.client.chat_postMessage(**post_kwargs)
+            # For follow-ups in the same thread: existing thread uses self.thread_ts as root;
+            # new top-level message uses this message's ts as the thread root.
+            root_thread_ts = self.thread_ts or response["ts"]
+            self.__send_tool_usage(root_thread_ts, result)
+            self.__send_issue_metadata(root_thread_ts, issue)
+            self.__send_prompt_for_debugging(root_thread_ts, result)
 
         except SlackApiError as e:
             if e.response.data["error"] == "channel_not_found":
