@@ -1,0 +1,25 @@
+user_prompt: "Why is invoice-worker crashlooping in the billing namespace on this cluster?"
+
+description: |
+  Tool-choice eval 1/3 (local cluster -> bash).
+
+  All three tool sources are enabled: bash (local cluster), the kubernetes MCP
+  server (remote clusters via kubeconfig contexts) and the platform MCP
+  (the fleet via remote_*). The question is about the cluster Holmes RUNS ON,
+  so it must use bash and must NOT reach for either remote path.
+
+# Fails deterministically if Holmes routes a local question to a remote tool.
+forbidden_tools:
+  - "pods_list_in_namespace"
+  - "configuration_contexts_list"
+  - "remote_kubernetes_tabular_query"
+  - "list_available_clusters"
+
+expected_output:
+  - Identifies invoice-worker-84cd-x2k9 in the billing namespace as CrashLoopBackOff
+  - Answers using the local cluster, without querying another cluster or the fleet
+
+include_tool_calls: true
+tags:
+  - kubernetes
+  - question-answer
