@@ -1,0 +1,29 @@
+# Tests the new aggregation_key filter on fetch_resource_issues_metadata
+# (relay/pkg/apps/mcp/tools/platform_data.py, added to reduce token usage and
+# stop noisy unrelated events from crowding OOM kills out of a size-capped
+# result). The mock (mock_issues_mcp.py) enforces a hard row cap regardless of
+# the requested limit, with 15 recent unrelated events ahead of one older
+# OOMKilled event in recency order: an UNFILTERED query can never reach the
+# OOM row, only aggregation_key=["PodOOMKilled"] (or an equivalent value)
+# does. Holmes must derive that value from the tool description's examples
+# alone - there is no separate instructions doc backing this in the test
+# (the `robusta` toolset carrying robusta_instructions.jinja2 is disabled).
+#
+# This mirrors the real customer pattern this filter was built for: a broad
+# "did we have any OOM kills" question failing because the query returned
+# everything else in the window first.
+
+user_prompt: |
+  Did the checkout-worker pod in the checkout-service namespace get OOM
+  killed at any point during July 2026? If so, report the exact
+  verification_code from that event's description.
+
+expected_output:
+  - "Must report the verification code OOM-EVAL-7f3k9x"
+
+include_tool_calls: true
+
+tags:
+  - mcp
+  - medium
+  - question-answer

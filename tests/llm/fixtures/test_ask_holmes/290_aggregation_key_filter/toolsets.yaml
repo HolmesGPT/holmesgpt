@@ -1,0 +1,30 @@
+# Mock of fetch_resource_issues_metadata's new aggregation_key filter
+# (relay/pkg/apps/mcp/tools/platform_data.py) as a local stdio MCP server, so
+# this eval can verify Holmes actually uses the filter without a live
+# platform-mcp stack. See mock_issues_mcp.py for the fixture data/mechanics.
+toolsets:
+  issues_metadata:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/290_aggregation_key_filter/mock_issues_mcp.py"]
+
+  # The sandbox/CI runner for these evals needs no Kubernetes: disable the
+  # default-enabled toolsets whose prerequisites (kubectl, helm) would fail,
+  # and the real robusta toolset so nothing competes with the mock tool name.
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false
+  internet:
+    enabled: false
+  robusta:
+    enabled: false
+  connectivity_check:
+    enabled: false

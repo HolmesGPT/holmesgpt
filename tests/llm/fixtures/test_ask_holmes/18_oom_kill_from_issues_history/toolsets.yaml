@@ -1,4 +1,18 @@
+# fetch_resource_issues_metadata now lives server-side in relay's platform-mcp
+# app (ROB-415) and is mocked here as a local stdio MCP server - see
+# mock_issues_mcp.py. `robusta` stays enabled for its LLM instructions
+# (robusta_instructions.jinja2), which tell Holmes to fall back to historical
+# issue lookup when live investigation turns up nothing; it no longer defines
+# fetch_resource_issues_metadata itself, so there's no name collision with the
+# mock.
 toolsets:
+  issues_metadata:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "python"
+      args: ["tests/llm/fixtures/test_ask_holmes/18_oom_kill_from_issues_history/mock_issues_mcp.py"]
   kubernetes/core:
     enabled: true
   robusta:
