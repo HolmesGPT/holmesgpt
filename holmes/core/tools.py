@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
 import tempfile
 import threading
@@ -40,6 +41,7 @@ from pydantic import (
 from rich.console import Console
 from rich.table import Table
 
+from holmes.common.env_vars import TOOL_SUBPROCESS_TIMEOUT_SECONDS
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.core.transformers import (
@@ -658,20 +660,42 @@ class YAMLTool(Tool, BaseModel):
             logger.debug(f"Running `{cmd}`")
             protected_cmd = get_ulimit_prefix() + cmd
 
-            result = subprocess.run(
+            # start_new_session=True puts the shell (and everything it spawns,
+            # e.g. `kubectl`) in its own process group so a timeout can kill the
+            # whole tree with os.killpg() instead of leaving orphaned
+            # grandchildren running forever if the shell's direct child exits
+            # but a subprocess it started does not.
+            process = subprocess.Popen(
                 protected_cmd,
                 shell=True,
                 executable="/bin/bash",
                 text=True,
-                check=False,  # do not throw error, we just return the error code
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
+            try:
+                stdout, _ = process.communicate(timeout=TOOL_SUBPROCESS_TIMEOUT_SECONDS)
+                return_code = process.returncode
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    f"Command `{cmd}` did not complete within "
+                    f"{TOOL_SUBPROCESS_TIMEOUT_SECONDS}s, killing it"
+                )
+                stdout = self.__kill_process_group_and_collect_output(process)
+                # 124 is the conventional timeout exit code (matches GNU `timeout`)
+                return_code = 124
+                timeout_notice = (
+                    f"Command timed out after {TOOL_SUBPROCESS_TIMEOUT_SECONDS} "
+                    "seconds and was killed."
+                )
+                output = f"{stdout}\n{timeout_notice}" if stdout else timeout_notice
+                return output, return_code
 
-            output = result.stdout.strip()
-            output = check_oom_and_append_hint(output, result.returncode)
-            return output, result.returncode
+            output = (stdout or "").strip()
+            output = check_oom_and_append_hint(output, return_code)
+            return output, return_code
         except Exception as e:
             logger.error(
                 f"An unexpected error occurred while running '{cmd}': {e}",
@@ -679,6 +703,25 @@ class YAMLTool(Tool, BaseModel):
             )
             output = f"Command execution failed with error: {e}"
             return output, 1
+
+    @staticmethod
+    def __kill_process_group_and_collect_output(
+        process: "subprocess.Popen[str]",
+    ) -> str:
+        """Kill a timed-out process's entire process group and return whatever
+        output it had produced. Best-effort: the process group may already be
+        gone (race with natural exit), which is not an error."""
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # process (group) already exited on its own
+
+        try:
+            stdout, _ = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            # Extremely unlikely after SIGKILL, but never block forever here.
+            stdout = ""
+        return (stdout or "").strip()
 
 
 class StaticPrerequisite(BaseModel):
