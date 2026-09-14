@@ -1167,7 +1167,8 @@ class ToolCallingLLM:
 
             try:
                 limit_result = compact_if_necessary(
-                    llm=self.llm, messages=messages, tools=tools
+                    llm=self.llm, messages=messages, tools=tools,
+                    request_context=request_context,
                 )
             except CompactionInsufficientError as e:
                 yield from e.events
@@ -1221,6 +1222,7 @@ class ToolCallingLLM:
                     temperature=TEMPERATURE,
                     stream=False,
                     drop_params=True,
+                    request_context=request_context,
                 )
 
                 # Accumulate cost information for this iteration

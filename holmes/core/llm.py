@@ -353,6 +353,7 @@ class LLM:
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         """Execute one LLM completion request."""
         pass
@@ -393,6 +394,11 @@ class DefaultLLM(LLM):
     def update_custom_args(self):
         self.max_context_size = self.args.get("custom_args", {}).get("max_context_size")
         self.args.pop("custom_args", None)
+        # modelList ``passthrough_headers``: inbound request_context headers to
+        # echo on the outgoing LiteLLM call (see completion()). HolmesGPT-internal
+        # config, not a litellm kwarg — consume it once here so it persists across
+        # requests on this shared instance and never leaks into **self.args.
+        self.passthrough_headers = self.args.pop("passthrough_headers", None)
 
     def check_llm(
         self,
@@ -661,6 +667,7 @@ class DefaultLLM(LLM):
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
+        request_context: Optional[Dict[str, Any]] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         """Execute one litellm completion request with the model's configured args."""
         tools_args = {}
@@ -675,6 +682,38 @@ class DefaultLLM(LLM):
 
         if EXTRA_HEADERS:
             self.args.setdefault("extra_headers", json.loads(EXTRA_HEADERS))
+
+        # Per-request header passthrough: copy the whitelisted inbound headers
+        # (the modelList ``passthrough_headers`` allowlist, consumed in
+        # update_custom_args) from the request context into this call's
+        # extra_headers, so callers (e.g. an API gateway in front of HolmesGPT)
+        # can tag every LiteLLM request with business dimensions for spend/usage
+        # reporting. NEVER mutate self.args["extra_headers"] in place — a shared
+        # DefaultLLM serves many requests, so in-place mutation would leak one
+        # request's headers into the next. Static EXTRA_HEADERS above remain the
+        # baseline; per-request values override on key collision.
+        passthrough_headers = getattr(self, "passthrough_headers", None)
+        request_extra_headers: Optional[Dict[str, Any]] = None
+        if passthrough_headers and request_context:
+            inbound = (request_context or {}).get("headers") or {}
+            # Header names are case-insensitive; the ASGI server preserves the
+            # client-sent case while HTTP/2 lowercases — normalise for lookup.
+            lower_inbound = {str(k).lower(): v for k, v in inbound.items()}
+            merged = dict(self.args.get("extra_headers") or {})
+            for header_name in passthrough_headers:
+                normalized_name = str(header_name).lower()
+                value = lower_inbound.get(normalized_name)
+                if value:
+                    # Remove any static key matching case-insensitively first:
+                    # HTTP header names are case-insensitive, so leaving a
+                    # differently-cased static key (e.g. X-Cz-Platform) would send
+                    # two logical headers and the proxy could keep the static value.
+                    for existing_name in list(merged):
+                        if str(existing_name).lower() == normalized_name:
+                            del merged[existing_name]
+                    merged[header_name] = value
+            if merged != (self.args.get("extra_headers") or {}):
+                request_extra_headers = merged
 
         litellm.modify_params = True
 
@@ -760,6 +799,14 @@ class DefaultLLM(LLM):
                 }
             ]
 
+        # Per-request passthrough headers override any static extra_headers from
+        # self.args. Build the model-args dict first and set extra_headers on it
+        # exactly once — spreading **self.args AND an extra_headers kwarg into the
+        # same call raises "multiple values for keyword argument".
+        call_args: Dict[str, Any] = dict(self.args)
+        if request_extra_headers is not None:
+            call_args["extra_headers"] = request_extra_headers
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
@@ -773,7 +820,7 @@ class DefaultLLM(LLM):
             timeout=LLM_REQUEST_TIMEOUT,
             **azure_ad_kwargs,
             **tools_args,
-            **self.args,
+            **call_args,
             **cache_kwargs,
         )
 
