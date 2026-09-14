@@ -41,6 +41,24 @@
   align-items: center;
 }
 
+.chat-run-stats {
+  padding: 0.4rem 1rem;
+  font-size: 0.75rem;
+  color: #6c757d;
+  background-color: #f1f3f5;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.chat-run-stats .run-stats-tokens,
+.chat-run-stats .run-stats-cost,
+.chat-run-stats .run-stats-latency {
+  white-space: nowrap;
+}
+
 .auto-scroll-checkbox {
   display: flex;
   align-items: center;
@@ -347,6 +365,22 @@
 .message-time {
   font-size: 0.75rem;
   opacity: 0.7;
+}
+
+.message-run-stats {
+  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  color: #6c757d;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.message-run-stats .run-stats-tokens,
+.message-run-stats .run-stats-cost,
+.message-run-stats .run-stats-latency {
+  white-space: nowrap;
 }
 
 .chat-input {
