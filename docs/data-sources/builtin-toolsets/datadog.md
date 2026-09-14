@@ -352,18 +352,37 @@ toolsets:
 
       # Optional
       max_response_size: 10485760  # Max response size in bytes (default: 10MB)
-      allow_custom_endpoints: false  # Allow non-whitelisted endpoints (default: false)
 ```
 
 **Capabilities**
 
 | Tool | Description |
 |------|-------------|
-| `datadog_api_get` | Perform GET requests to whitelisted Datadog API endpoints |
-| `datadog_api_post_search` | Perform POST search operations on whitelisted endpoints |
-| `list_datadog_api_resources` | List available API resource categories and endpoints |
+| `datadog_api_get` | Perform GET requests to valid Datadog API endpoints using schema-constrained templates |
+| `datadog_api_post_search` | Perform POST search operations using schema-constrained endpoint templates |
+| `list_datadog_api_resources` | List available API endpoint templates and their descriptions |
 
-**Supported API Endpoints**
+**Schema-Constrained Endpoint Templates**
+
+The general toolset uses schema-constrained endpoint templates to prevent invalid API calls. Instead of accepting freeform endpoint strings, tools accept:
+
+- `endpoint_template`: A predefined endpoint template (e.g., `/api/v1/monitor/{monitor_id}`)
+- `resource_id`: An optional parameter to fill in template placeholders
+
+This approach ensures only valid Datadog API endpoints can be called, preventing hallucinated endpoints.
+
+**Example endpoint templates:**
+
+| Template | Description | Requires resource_id |
+|----------|-------------|---------------------|
+| `/api/v1/monitor` | List all monitors | No |
+| `/api/v1/monitor/{monitor_id}` | Get a specific monitor | Yes |
+| `/api/v1/dashboard` | List all dashboards | No |
+| `/api/v1/dashboard/{dashboard_id}` | Get a specific dashboard | Yes |
+| `/api/v2/incidents` | List all incidents | No |
+| `/api/v2/incidents/{incident_id}` | Get incident details | Yes |
+
+**Supported API Categories**
 
 The general toolset provides access to the following read-only API categories:
 
