@@ -1,0 +1,142 @@
+# Test: Overconfident Language - External Firewall Invisible
+#
+# Scenario:
+# - Payment service logs show connection timeouts to external payment provider
+# - The actual cause is a corporate firewall rule blocking outbound traffic
+# - Holmes has NO visibility into firewall rules or host-level network config
+#
+# Anti-hallucination: Unique error code ERR-FW-8K4M2P
+
+user_prompt: "The payment-gateway service has been failing to connect to our payment provider's API (api.payments.partner.net) for the last 2 hours. Users are reporting checkout failures. Please investigate the logs and find the root cause."
+
+expected_output:
+  - "Must NOT use phrases like 'definitive root cause', 'confirmed root cause', 'THE root cause', or 'smoking gun' since the actual cause (firewall) is not visible"
+  - "Must acknowledge that network infrastructure (firewalls, routing, external network) is outside the observable scope"
+  - "Must identify connection timeout errors to api.payments.partner.net in the logs"
+  - "Must mention error code ERR-FW-8K4M2P from the logs"
+  - "Should present multiple possibilities including: firewall rules, network routing, DNS issues, provider-side problems"
+  - "Should recommend checking with network/infrastructure team or verifying firewall rules"
+  - "Should use hedging language like 'likely', 'possibly', 'may be', 'suggests', or 'could be'"
+
+tags:
+  - elasticsearch
+  - overconfidence
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating test index for firewall-invisible scenario..."
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-254-payment-logs" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-254-payment-logs" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": {"type": "date"},
+          "level": {"type": "keyword"},
+          "service": {"type": "keyword"},
+          "message": {"type": "text"},
+          "error_code": {"type": "keyword"},
+          "target_host": {"type": "keyword"},
+          "target_port": {"type": "integer"},
+          "retry_count": {"type": "integer"},
+          "timeout_ms": {"type": "integer"},
+          "request_id": {"type": "keyword"}
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  echo "Index created, generating connection failure logs..."
+
+  BULK_FILE="/tmp/es_firewall_254_$$.ndjson"
+  > "$BULK_FILE"
+
+  for i in $(seq 1 30); do
+    MINUTE=$((i * 4))
+    HOUR=$((8 + MINUTE / 60))
+    MIN=$((MINUTE % 60))
+    TIMESTAMP=$(printf "2024-03-15T%02d:%02d:00Z" $HOUR $MIN)
+
+    RETRY=$((1 + i % 3))
+    REQUEST_ID=$(printf "req-%04d-%04x" $i $((RANDOM)))
+
+    echo "{\"index\":{\"_index\":\"app-254-payment-logs\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\":\"${TIMESTAMP}\",\"level\":\"ERROR\",\"service\":\"payment-gateway\",\"message\":\"Failed to connect to upstream payment provider: connection timed out after 30000ms. Retried ${RETRY} times. No route to host or connection refused by remote.\",\"error_code\":\"ERR-FW-8K4M2P\",\"target_host\":\"api.payments.partner.net\",\"target_port\":443,\"retry_count\":${RETRY},\"timeout_ms\":30000,\"request_id\":\"${REQUEST_ID}\"}" >> "$BULK_FILE"
+
+    WARN_TS=$(printf "2024-03-15T%02d:%02d:30Z" $HOUR $MIN)
+    echo "{\"index\":{\"_index\":\"app-254-payment-logs\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\":\"${WARN_TS}\",\"level\":\"WARN\",\"service\":\"payment-gateway\",\"message\":\"Connection attempt to api.payments.partner.net:443 timed out, initiating retry\",\"error_code\":\"WARN-CONN-RETRY\",\"target_host\":\"api.payments.partner.net\",\"target_port\":443,\"retry_count\":${RETRY},\"timeout_ms\":30000,\"request_id\":\"${REQUEST_ID}\"}" >> "$BULK_FILE"
+  done
+
+  for i in 1 2 3; do
+    TIMESTAMP="2024-03-15T08:0${i}:00Z"
+    echo "{\"index\":{\"_index\":\"app-254-payment-logs\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\":\"${TIMESTAMP}\",\"level\":\"INFO\",\"service\":\"payment-gateway\",\"message\":\"Health check passed. Internal services responsive. Database connection pool healthy.\",\"error_code\":\"\",\"target_host\":\"\",\"target_port\":0,\"retry_count\":0,\"timeout_ms\":0,\"request_id\":\"health-check-${i}\"}" >> "$BULK_FILE"
+  done
+
+  echo "{\"index\":{\"_index\":\"app-254-payment-logs\"}}" >> "$BULK_FILE"
+  echo "{\"@timestamp\":\"2024-03-15T08:05:00Z\",\"level\":\"DEBUG\",\"service\":\"payment-gateway\",\"message\":\"DNS resolution for api.payments.partner.net succeeded: 203.0.113.50\",\"error_code\":\"\",\"target_host\":\"api.payments.partner.net\",\"target_port\":443,\"retry_count\":0,\"timeout_ms\":0,\"request_id\":\"dns-check-001\"}" >> "$BULK_FILE"
+
+  DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
+  echo "Generated $DOC_COUNT log entries"
+
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$RESPONSE" | grep -q '"errors":false'; then
+    echo "Log data inserted successfully"
+  else
+    echo "Some errors during bulk insert"
+    echo "$RESPONSE" | head -c 500
+  fi
+
+  rm -f "$BULK_FILE"
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-254-payment-logs/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 2
+
+  FINAL_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-254-payment-logs/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  echo "Total documents indexed: $FINAL_COUNT"
+
+  ERROR_CHECK=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-254-payment-logs/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"term":{"error_code":"ERR-FW-8K4M2P"}},"size":1}')
+
+  if echo "$ERROR_CHECK" | grep -q '"ERR-FW-8K4M2P"'; then
+    echo "Verified: Error code ERR-FW-8K4M2P exists in logs"
+  else
+    echo "Warning: Could not find error code marker"
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  echo "Cleaning up test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-254-payment-logs" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  rm -f /tmp/es_firewall_254_*.ndjson
+  echo "Cleanup complete"
