@@ -1,0 +1,73 @@
+user_prompt: "Check disk usage inside all cache-worker pods in namespace app-214. List ALL pods that have /tmp usage over 50MB."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must identify ALL 9 pods with high disk usage: cache-worker-1, cache-worker-12, cache-worker-23, cache-worker-34, cache-worker-45, cache-worker-56, cache-worker-67, cache-worker-78, cache-worker-89"
+  - "Must not miss any of the 9 scattered pods"
+
+description: |
+  TDD test: 100 pods with disk issues scattered non-sequentially.
+  Bad pods use formula (ordinal*7+3)%11==0: pods 1, 12, 23, 34, 45, 56, 67, 78, 89
+  Holmes CANNOT guess which pods are bad - must check every pod.
+  Without bash loops, checking 100 pods individually will fail/timeout.
+
+tags:
+  - kubernetes
+  - regression
+  - bash-resource-checker
+
+before_test: |
+  kubectl create namespace app-214 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  # Wait for all pods to be ready
+  PODS_READY=false
+  for i in {1..180}; do
+    READY_COUNT=$(kubectl get pods -n app-214 -l app=cache-worker --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    echo "Attempt $i: $READY_COUNT/100 pods ready"
+    if [ "$READY_COUNT" -ge 100 ]; then
+      echo "All 100 pods ready!"
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$PODS_READY" = false ]; then
+    echo "Not all pods ready"
+    kubectl get pods -n app-214
+    exit 1
+  fi
+
+  # Wait for files to be created - check pod 1 (one of the bad pods)
+  FILES_READY=false
+  for i in {1..30}; do
+    LARGE_SIZE=$(kubectl exec -n app-214 cache-worker-1 -- du -sm /tmp 2>/dev/null | cut -f1 || echo "0")
+    echo "Attempt $i: cache-worker-1 /tmp size: ${LARGE_SIZE}MB"
+    if [ "$LARGE_SIZE" -gt 50 ]; then
+      echo "Large files created in bad pod!"
+      FILES_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$FILES_READY" = false ]; then
+    echo "Files not created properly in bad pods"
+    kubectl exec -n app-214 cache-worker-1 -- du -sh /tmp
+    exit 1
+  fi
+
+  # Verify a good pod has small files
+  GOOD_SIZE=$(kubectl exec -n app-214 cache-worker-0 -- du -sm /tmp 2>/dev/null | cut -f1 || echo "999")
+  echo "cache-worker-0 (good pod) /tmp size: ${GOOD_SIZE}MB"
+  if [ "$GOOD_SIZE" -gt 10 ]; then
+    echo "ERROR: Good pod has unexpectedly large files"
+    exit 1
+  fi
+
+  echo "Setup complete - bad pods scattered at: 1, 12, 23, 34, 45, 56, 67, 78, 89"
+
+after_test: |
+  kubectl delete namespace app-214 --ignore-not-found

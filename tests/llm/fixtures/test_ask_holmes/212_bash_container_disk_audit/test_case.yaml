@@ -1,0 +1,71 @@
+user_prompt: "The file-processor pod in namespace app-212 might have disk space issues. Check which files in /var/data are larger than 10MB and report the total disk usage of that directory."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call bash tool with kubectl exec"
+  - "Must identify files larger than 10MB (should find files like large_91.dat through large_100.dat)"
+  - "Must report disk usage information"
+
+description: |
+  Tests that Holmes can use bash to run kubectl exec and inspect filesystem inside a container.
+  The pod has 100 files in /var/data: 90 small files (1KB each) and 10 large files (15MB each).
+  Holmes must use bash with 'kubectl exec' since no existing toolset can access container filesystems.
+
+tags:
+  - kubernetes
+  - regression
+  - bash-resource-checker
+
+before_test: |
+  kubectl create namespace app-212 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  # Wait for pod to be ready
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod/file-processor -n app-212 --timeout=2s 2>/dev/null; then
+      echo "Pod ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "Pod not ready after 60 seconds"
+    kubectl get pods -n app-212
+    kubectl describe pod/file-processor -n app-212
+    exit 1
+  fi
+
+  # Wait for files to be created
+  FILES_READY=false
+  for i in {1..30}; do
+    FILE_COUNT=$(kubectl exec -n app-212 file-processor -- ls /var/data 2>/dev/null | wc -l)
+    echo "Attempt $i: $FILE_COUNT files in /var/data"
+    if [ "$FILE_COUNT" -ge 100 ]; then
+      echo "All 100 files created!"
+      FILES_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$FILES_READY" = false ]; then
+    echo "Files not created properly"
+    kubectl exec -n app-212 file-processor -- ls -la /var/data
+    exit 1
+  fi
+
+  # Verify large files exist
+  LARGE_COUNT=$(kubectl exec -n app-212 file-processor -- find /var/data -size +10M 2>/dev/null | wc -l)
+  echo "Large files (>10MB): $LARGE_COUNT"
+  if [ "$LARGE_COUNT" -lt 10 ]; then
+    echo "Not enough large files created"
+    exit 1
+  fi
+  echo "Setup complete"
+
+after_test: |
+  kubectl delete namespace app-212 --ignore-not-found

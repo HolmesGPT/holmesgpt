@@ -1,0 +1,58 @@
+# StatefulSet with 100 cache-worker pods
+# Pods with disk issues are scattered non-sequentially using formula: (ordinal * 7 + 3) % 11 == 0
+# Bad pods: 1, 12, 23, 34, 45, 56, 67, 78, 89 (9 scattered pods)
+# Holmes MUST check every pod to find all of them - can't guess or sample
+apiVersion: v1
+kind: Service
+metadata:
+  name: cache-worker
+  namespace: app-214
+spec:
+  clusterIP: None
+  selector:
+    app: cache-worker
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cache-worker
+  namespace: app-214
+spec:
+  serviceName: cache-worker
+  replicas: 100
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: cache-worker
+  template:
+    metadata:
+      labels:
+        app: cache-worker
+    spec:
+      containers:
+        - name: worker
+          image: alpine:3.19
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              POD_ID=$(hostname | sed 's/cache-worker-//')
+              # Non-sequential pattern: (ordinal * 7 + 3) % 11 == 0 means disk issue
+              # This creates scattered bad pods: 1, 12, 23, 34, 45, 56, 67, 78, 89
+              HASH=$(( (POD_ID * 7 + 3) % 11 ))
+              if [ "$HASH" -eq 0 ]; then
+                # This pod has disk issue - create 60MB file
+                dd if=/dev/zero of=/tmp/cache.dat bs=1M count=60 2>/dev/null
+                echo "DISK_STATUS=CRITICAL" > /tmp/status
+              else
+                # Normal pod - small file
+                dd if=/dev/zero of=/tmp/cache.dat bs=1K count=100 2>/dev/null
+                echo "DISK_STATUS=OK" > /tmp/status
+              fi
+              sleep 3600
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "50m"
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
