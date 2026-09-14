@@ -1,0 +1,18 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
+
+mcp_servers:
+  grafana:
+    description: "Grafana MCP server for Prometheus queries"
+    config:
+      url: "http://localhost:12160/sse"
+      mode: sse
+    icon_url: "https://cdn.simpleicons.org/grafana/F46800"
+    llm_instructions: |
+      Always use Grafana tools (e.g. query_prometheus) for metrics/PromQL. Do not use kubectl top or prometheus/metrics toolset.
+      NEVER answer based on truncated data. Retry with topk/bottomk or more filters until the query succeeds.
+      For high-cardinality metrics (>10 series), ALWAYS use topk(5, <query>). Check cardinality first with count() if unsure.
+      Standard metrics: CPU=container_cpu_usage_seconds_total, Memory=container_memory_working_set_bytes, Throttling=container_cpu_cfs_throttled_periods_total.

@@ -11,11 +11,19 @@ tags:
   - chain-of-causation
   - prometheus
 
+toolsets_matrix:
+  - toolsets_builtin.yaml
+  - toolsets_mcp.yaml
+
 port_forwards:
   - namespace: app-124
     service: prometheus
     local_port: 10124
     remote_port: 9090
+  - namespace: app-124
+    service: grafana-mcp
+    local_port: 11124
+    remote_port: 8000
 
 before_test: |
   set -e  # Exit immediately if any command fails
@@ -46,6 +54,9 @@ before_test: |
   echo "🧹 Cleaning up k6 job and pods to prevent AI detection"
   kubectl delete job k6-coupon-split -n app-124 --ignore-not-found=true
   kubectl delete pods -n app-124 -l job-name=k6-coupon-split --ignore-not-found=true
+  # Deploy Grafana + Prometheus datasource + MCP server for MCP variant
+  NS=app-124 PROM_URL=http://prometheus:9090 source ../../shared/setup-grafana-prometheus-mcp.sh
+
   echo "✅ Test setup completed successfully"
 
 after_test: |

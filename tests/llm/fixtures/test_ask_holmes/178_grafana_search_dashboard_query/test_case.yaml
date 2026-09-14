@@ -8,6 +8,10 @@ expected_output:
   - 'The Request Rate panel contains the Prometheus query: rate(http_requests_total[1m])'
   - 'The Error Rate panel contains the Prometheus query: rate(http_requests_total{status=~"5.."}[5m])'
 
+toolsets_matrix:
+  - toolsets_builtin.yaml
+  - toolsets_mcp.yaml
+
 before_test: |
   set -e  # Exit immediately if any command fails
   kubectl create namespace app-178 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
@@ -97,6 +101,9 @@ before_test: |
     exit 1
   fi
   
+  # Deploy Grafana MCP server for MCP variant
+  NS=app-178 source ../../shared/setup-grafana-mcp.sh
+
   echo "✅ Test setup completed successfully - Application Metrics dashboard created and verified!"
 
 after_test: |
@@ -107,6 +114,10 @@ port_forwards:
     service: grafana
     local_port: 10178
     remote_port: 3000
+  - namespace: app-178
+    service: grafana-mcp
+    local_port: 11178
+    remote_port: 8000
 
 tags:
   - easy
