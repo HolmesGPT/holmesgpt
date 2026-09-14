@@ -28,6 +28,7 @@ class DestinationConfig(BaseModel):
     webhook_url: Optional[str] = None
     channel: Optional[str] = None
     integration_key: Optional[str] = None
+    api_url: Optional[str] = None
 
 
 class Check(BaseModel):
