@@ -1,38 +1,39 @@
+/* ============================================================
+   GRAPH VISUALIZATION — Dark Theme
+   ============================================================ */
 .graph-visualization {
   margin: 1rem 0;
-  border: 1px solid #e9ecef;
-  border-radius: 0.5rem;
-  background: #fff;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
   overflow: hidden;
   width: 100%;
   max-width: 100%;
 }
 
-.graph-container {
-  padding: 1rem;
-}
+.graph-container { padding: 1rem; }
 
 .graph-header {
   margin-bottom: 1rem;
-  border-bottom: 1px solid #e9ecef;
+  border-bottom: 1px solid var(--border-default);
   padding-bottom: 0.5rem;
 }
 
 .graph-header h4 {
   margin: 0 0 0.5rem 0;
-  color: #333;
-  font-size: 1.1rem;
+  color: var(--text-primary);
+  font-size: 1.05rem;
 }
 
-.query {
+.graph-visualization .query {
   display: block;
-  background: #f8f9fa;
+  background: var(--bg-inset);
   padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.85rem;
-  color: #666;
-  border: 1px solid #e9ecef;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--accent-blue);
+  border: 1px solid var(--border-default);
+  font-family: var(--font-mono);
   overflow-x: auto;
   white-space: nowrap;
 }
@@ -45,60 +46,58 @@
   overflow: hidden;
 }
 
-.no-data {
+.chart-container canvas {
+  background: var(--bg-inset);
+  border-radius: var(--radius-sm);
+}
+
+.graph-visualization .no-data {
   text-align: center;
-  color: #666;
+  color: var(--text-faint);
   font-style: italic;
   padding: 2rem;
-  background: #f8f9fa;
-  border-radius: 0.25rem;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
   margin: 1rem 0;
+  border: 1px dashed var(--border-subtle);
 }
 
 .graph-metadata {
   margin-top: 1rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #e9ecef;
-  color: #666;
-  font-size: 0.8rem;
+  border-top: 1px solid var(--border-default);
+  color: var(--text-faint);
+  font-size: 0.75rem;
   line-height: 1.4;
 }
 
-/* Grafana-like styling for the chart area */
-.chart-container canvas {
-  background: #fafafa;
-  border-radius: 0.25rem;
-}
-
-/* Custom scrollable legend */
+/* ── Legend ── */
 .custom-legend {
   margin-top: 1rem;
-  border-top: 1px solid #e9ecef;
+  border-top: 1px solid var(--border-default);
   padding-top: 0.75rem;
 }
 
 .legend-items {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
   max-height: 120px;
   overflow-y: auto;
   overflow-x: auto;
   padding: 4px;
-  border: 1px solid #e9ecef;
-  border-radius: 4px;
-  background: #fafafa;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
   width: 100%;
-  max-width: 100%;
   box-sizing: border-box;
 }
 
-/* Vertical legend layout for many series or long labels */
 .legend-items.vertical {
   flex-direction: column !important;
   flex-wrap: nowrap !important;
   max-height: 200px;
-  gap: 6px;
+  gap: 4px;
 }
 
 .legend-items.vertical .legend-item {
@@ -107,83 +106,48 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 2px;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  background: white;
-  border-radius: 4px;
-  border: 1px solid #dee2e6;
-  font-size: 12px;
+  padding: 3px 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
 }
 
 .legend-item:hover {
-  background: #f8f9fa;
-  border-color: #adb5bd;
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
 }
 
 .legend-color {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .legend-label {
-  color: #495057;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
-/* Scrollbar styling for legend */
-.legend-items::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+/* ── Scrollbar ── */
+.legend-items::-webkit-scrollbar { width: 5px; height: 5px; }
+.legend-items::-webkit-scrollbar-track { background: var(--bg-card); border-radius: 3px; }
+.legend-items::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+.legend-items::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
 
-.legend-items::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
-
-.legend-items::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
-}
-
-.legend-items::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-
-/* For Firefox */
-.legend-items {
-  scrollbar-width: thin;
-  scrollbar-color: #c1c1c1 #f1f1f1;
-}
-
-/* Responsive legend */
 @media (max-width: 768px) {
-  .legend-items {
-    max-height: 100px;
-  }
-
-  .legend-items.vertical {
-    max-height: 150px;
-  }
-
-  .legend-item {
-    font-size: 11px;
-    padding: 3px 6px;
-  }
-
-  .legend-color {
-    width: 10px;
-    height: 10px;
-  }
+  .legend-items { max-height: 100px; }
+  .legend-item { font-size: 10px; padding: 2px 6px; }
+  .legend-color { width: 8px; height: 8px; }
 }

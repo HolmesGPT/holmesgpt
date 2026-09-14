@@ -1,0 +1,267 @@
+/* ============================================================
+   LAYOUT — App Shell & Main Content Structure
+   ============================================================ */
+.app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
+  background:
+    radial-gradient(ellipse at 10% 20%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 80%, rgba(52, 211, 153, 0.04) 0%, transparent 50%),
+    var(--bg-primary);
+}
+
+/* ── Main Content Area ── */
+.main-content {
+  flex: 1;
+  min-width: 0;
+  background-color: transparent;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.observability-platform {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  flex: 1;
+  background-color: transparent;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+/* ── Page transition fade ── */
+.page-content {
+  animation: pageFadeIn 0.35s ease;
+}
+
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Content max-width container ── */
+.content-inner {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 var(--space-xl);
+}
+
+/* ── Platform Header ── */
+.platform-header {
+  background: var(--glass-bg-heavy);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  color: white;
+  padding: 2rem var(--space-3xl);
+  border-bottom: 1px solid var(--border-muted);
+  width: 100%;
+}
+
+.header-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+.header-breadcrumb span {
+  color: var(--text-muted);
+}
+
+.header-breadcrumb .breadcrumb-separator {
+  color: var(--text-faint);
+}
+
+.header-content h1 {
+  margin: 0 0 0.5rem 0;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-purple-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header-content p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* ── Connection Status Bar ── */
+.connection-status-bar {
+  background: rgba(13, 17, 23, 0.6);
+  border-bottom: 1px solid var(--border-muted);
+  padding: 0.6rem var(--space-3xl);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* Red tint when disconnected */
+.connection-status-bar.disconnected-bar {
+  background: rgba(239, 68, 68, 0.06);
+  border-bottom-color: rgba(239, 68, 68, 0.15);
+}
+
+.connection-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.connection-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.connection-url {
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-default);
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-pill);
+  color: var(--accent-blue);
+  font-size: 0.75rem;
+}
+
+.connection-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--status-disconnected);
+  flex-shrink: 0;
+}
+
+.connection-indicator.checking .status-dot {
+  background-color: var(--status-checking);
+  box-shadow: 0 0 8px var(--status-checking-glow);
+  animation: statusPulse 1.5s infinite ease-in-out;
+}
+
+.connection-indicator.connected .status-dot {
+  background-color: var(--status-connected);
+  box-shadow: 0 0 8px var(--status-connected-glow);
+}
+
+.connection-indicator.disconnected .status-dot {
+  background-color: var(--status-error);
+  box-shadow: 0 0 8px var(--status-error-glow);
+}
+
+.status-text {
+  font-weight: 600;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+}
+
+.connection-indicator.connected .status-text { color: var(--status-connected); }
+.connection-indicator.disconnected .status-text { color: var(--status-error); }
+.connection-indicator.checking .status-text { color: var(--status-checking); }
+
+/* Retry icon button */
+.retry-connection-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--status-error);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.retry-connection-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  transform: rotate(45deg);
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ── Chat Panel Wrapper (collapsible) ── */
+.chat-panel-wrapper {
+  display: flex;
+  flex-shrink: 0;
+  width: auto;
+  overflow: hidden;
+  transition: width 0.3s ease, opacity 0.2s ease;
+}
+
+.chat-panel-wrapper.collapsed {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Floating Chat Open Button ── */
+.chat-open-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1A1A2E;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+}
+
+.chat-open-btn:hover {
+  background: #252547;
+  color: var(--text-primary);
+  transform: scale(1.08);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .platform-header,
+  .query-section,
+  .results-section,
+  .connection-status-bar {
+    padding-left: var(--space-xl);
+    padding-right: var(--space-xl);
+  }
+}
