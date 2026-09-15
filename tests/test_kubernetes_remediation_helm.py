@@ -30,8 +30,9 @@ def test_values_defaults_are_plug_and_play():
     v = _values()
     assert v["enabled"] is False  # opt-in
     # 1.2.0 carries the diagnostic-pod target policy (ROB-910); the config keys
-    # asserted below only take effect on that version or newer.
-    assert v["image"] == "kubernetes-remediation-mcp:1.2.0"
+    # asserted below only take effect on that version or newer. 1.3.1 adds the
+    # `ps` argument policy (ROB-974: environment-display flags refused).
+    assert v["image"] == "kubernetes-remediation-mcp:1.3.1"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
