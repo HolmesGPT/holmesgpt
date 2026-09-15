@@ -12,6 +12,8 @@ from holmes.core.conversations import (
     build_chat_messages,
 )
 from holmes.core.prompt import (
+    DISABLED_BY_DEFAULT,
+    TODOWRITE_COMPONENTS,
     PromptComponent,
     append_all_files_to_user_prompt,
     append_file_to_user_prompt,
@@ -19,7 +21,10 @@ from holmes.core.prompt import (
     generate_user_prompt,
     get_tasks_management_system_reminder,
     is_component_enabled,
+    todowrite_overrides,
 )
+
+TODOWRITE_SYSTEM_PROMPT_HEADER = "# Task management (TodoWrite)"
 from holmes.utils.global_instructions import generate_skills_args
 
 
@@ -218,7 +223,8 @@ class TestBuildInitialAskMessages:
             expected_skills=skills is not None,
         )
 
-        assert get_tasks_management_system_reminder() in user_content
+        # Fast mode is the default: no TodoWrite reminder unless opted in
+        assert get_tasks_management_system_reminder() not in user_content
 
         if test_files:
             for test_file in test_files:
@@ -264,7 +270,7 @@ class TestBuildInitialAskMessages:
         assert messages[1]["role"] == "user"
         user_content = messages[1]["content"]
         assert "Test prompt" in user_content
-        assert get_tasks_management_system_reminder() in user_content
+        assert get_tasks_management_system_reminder() not in user_content
         assert "The current UTC timestamp in seconds is" in user_content
 
 
@@ -530,48 +536,188 @@ def test_append_all_files_to_user_prompt_no_files():
 
 
 class TestIsComponentEnabled:
-    """Test is_component_enabled function with overrides."""
+    """Test is_component_enabled: env var > API override > default."""
 
-    def test_no_overrides_returns_env_var_result(self, monkeypatch):
-        """Without overrides, should return is_prompt_allowed_by_env result."""
+    def test_todowrite_disabled_by_default(self, monkeypatch):
         monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
-        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+        assert set(TODOWRITE_COMPONENTS) == DISABLED_BY_DEFAULT
+        for component in TODOWRITE_COMPONENTS:
+            assert is_component_enabled(component) is False
 
-    def test_override_can_disable_component(self, monkeypatch):
-        """API override can disable a component that env var allows."""
+    @pytest.mark.parametrize(
+        "component",
+        [c for c in PromptComponent if c not in DISABLED_BY_DEFAULT],
+    )
+    def test_other_components_enabled_by_default(self, monkeypatch, component):
         monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
-        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
-        assert (
-            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
-            is False
-        )
+        assert is_component_enabled(component) is True
 
-    def test_override_cannot_enable_env_disabled_component(self, monkeypatch):
-        """API override cannot enable a component that env var disabled."""
-        monkeypatch.setenv("ENABLED_PROMPTS", "none")
-        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
-        assert (
-            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
-            is False
-        )
+    @pytest.mark.parametrize("raw", ["", "   ", ",", " , ,"])
+    def test_blank_env_var_is_treated_as_unset(self, monkeypatch, raw):
+        monkeypatch.setenv("ENABLED_PROMPTS", raw)
+        assert is_component_enabled(PromptComponent.INTRO) is True
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is False
 
-    def test_override_true_keeps_enabled(self, monkeypatch):
-        """API override with True keeps component enabled."""
+    def test_override_can_enable_disabled_by_default_component(self, monkeypatch):
         monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
         overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
         assert (
             is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
             is True
         )
+        # Only the overridden component flips
+        assert is_component_enabled(PromptComponent.TODOWRITE_REMINDER, overrides) is False
 
-    def test_env_var_selective_enable_with_override(self, monkeypatch):
-        """When env var selectively enables, override can still disable."""
-        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions,intro")
-        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
-
+    def test_override_false_keeps_disabled(self, monkeypatch):
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
         overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
         assert (
             is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
             is False
         )
 
+    def test_override_can_disable_component(self, monkeypatch):
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+        overrides = {PromptComponent.INTRO: False}
+        assert is_component_enabled(PromptComponent.INTRO, overrides) is False
+
+    def test_override_cannot_enable_env_disabled_component(self, monkeypatch):
+        monkeypatch.setenv("ENABLED_PROMPTS", "none")
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: True}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+        assert is_component_enabled(PromptComponent.INTRO, {PromptComponent.INTRO: True}) is False
+
+    @pytest.mark.parametrize("raw", ["none", "NONE", " None "])
+    def test_env_none_disables_everything(self, monkeypatch, raw):
+        monkeypatch.setenv("ENABLED_PROMPTS", raw)
+        for component in PromptComponent:
+            assert is_component_enabled(component) is False
+
+    def test_env_var_explicit_list_enables_disabled_by_default_component(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions, INTRO")
+        assert is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS) is True
+        assert is_component_enabled(PromptComponent.INTRO) is True
+        # Not listed -> disabled, even components enabled by default
+        assert is_component_enabled(PromptComponent.TODOWRITE_REMINDER) is False
+        assert is_component_enabled(PromptComponent.STYLE_GUIDE) is False
+
+    def test_env_var_selective_enable_with_override(self, monkeypatch):
+        monkeypatch.setenv("ENABLED_PROMPTS", "todowrite_instructions,intro")
+        overrides = {PromptComponent.TODOWRITE_INSTRUCTIONS: False}
+        assert (
+            is_component_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS, overrides)
+            is False
+        )
+        # Override cannot enable a component the env var left out
+        overrides = {PromptComponent.STYLE_GUIDE: True}
+        assert is_component_enabled(PromptComponent.STYLE_GUIDE, overrides) is False
+
+
+class TestTodowriteOverrides:
+    def test_enabled(self):
+        assert todowrite_overrides(True) == {
+            PromptComponent.TODOWRITE_INSTRUCTIONS: True,
+            PromptComponent.TODOWRITE_REMINDER: True,
+        }
+
+    def test_disabled(self):
+        assert todowrite_overrides(False) == {
+            PromptComponent.TODOWRITE_INSTRUCTIONS: False,
+            PromptComponent.TODOWRITE_REMINDER: False,
+        }
+
+
+class TestFastModeDefault:
+    """ROB-574: the TodoWrite planning phase is off unless a caller opts in."""
+
+    @pytest.fixture(autouse=True)
+    def _no_env(self, monkeypatch):
+        monkeypatch.delenv("ENABLED_PROMPTS", raising=False)
+
+    def test_cli_default_has_no_todowrite(self, mock_tool_executor):
+        messages = build_initial_ask_messages("Test prompt", None, mock_tool_executor)
+        assert TODOWRITE_SYSTEM_PROMPT_HEADER not in messages[0]["content"]
+        assert get_tasks_management_system_reminder() not in messages[1]["content"]
+
+    def test_cli_extended_planning_restores_todowrite(self, mock_tool_executor):
+        messages = build_initial_ask_messages(
+            "Test prompt",
+            None,
+            mock_tool_executor,
+            prompt_component_overrides=todowrite_overrides(True),
+        )
+        assert TODOWRITE_SYSTEM_PROMPT_HEADER in messages[0]["content"]
+        assert get_tasks_management_system_reminder() in messages[1]["content"]
+
+    def test_cli_explicit_fast_mode_still_works(self, mock_tool_executor):
+        messages = build_initial_ask_messages(
+            "Test prompt",
+            None,
+            mock_tool_executor,
+            prompt_component_overrides=todowrite_overrides(False),
+        )
+        assert TODOWRITE_SYSTEM_PROMPT_HEADER not in messages[0]["content"]
+
+    def test_chat_api_default_has_no_todowrite(self, mock_ai, mock_config):
+        """A /api/chat or conversation-worker request without behavior_controls
+        (Slack bot, REST API, triggered workflows) runs in fast mode."""
+        messages = build_chat_messages(
+            ask="Why is my pod crashing?",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+        )
+        assert messages[0]["role"] == "system"
+        assert TODOWRITE_SYSTEM_PROMPT_HEADER not in messages[0]["content"]
+        assert "TodoWrite" not in messages[0]["content"]
+
+    def test_chat_api_can_opt_in_to_todowrite(self, mock_ai, mock_config):
+        """behavior_controls: {"todowrite_instructions": true} (the UI's Extended
+        Planning toggle) brings the planning phase back."""
+        messages = build_chat_messages(
+            ask="Why is my pod crashing?",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+            prompt_component_overrides={PromptComponent.TODOWRITE_INSTRUCTIONS: True},
+        )
+        assert TODOWRITE_SYSTEM_PROMPT_HEADER in messages[0]["content"]
+
+    def test_chat_api_explicit_fast_mode_unchanged(self, mock_ai, mock_config):
+        messages = build_chat_messages(
+            ask="Why is my pod crashing?",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+            prompt_component_overrides=todowrite_overrides(False),
+        )
+        assert TODOWRITE_SYSTEM_PROMPT_HEADER not in messages[0]["content"]
+
+    def test_env_var_can_force_todowrite_on(self, monkeypatch, mock_ai, mock_config):
+        monkeypatch.setenv(
+            "ENABLED_PROMPTS",
+            ",".join(c.value for c in PromptComponent),
+        )
+        messages = build_chat_messages(
+            ask="Why is my pod crashing?",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+        )
+        assert TODOWRITE_SYSTEM_PROMPT_HEADER in messages[0]["content"]
+
+    def test_other_system_prompt_sections_still_rendered(self, mock_ai, mock_config):
+        messages = build_chat_messages(
+            ask="Why is my pod crashing?",
+            conversation_history=None,
+            ai=mock_ai,
+            config=mock_config,
+        )
+        system_prompt = messages[0]["content"]
+        assert "https://holmesgpt.dev/data-sources/permissions/" in system_prompt
+        assert "test-cluster" in system_prompt
