@@ -20,6 +20,7 @@ It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md)
 | `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
 | `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
 | `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. By default probe targets are restricted to in-cluster destinations, and cloud metadata is refused for as long as the target policy is enabled ([details](#diagnostic-pod-target-policy)). |
+| `run_gpu_node_diagnostics` | No | Auto | Run named GPU/driver checks on a node — nvidia-smi state, throttling, ECC, dmesg XID errors, driver version mismatch, PCIe link, optional DCGM ([details](#gpu-node-diagnostics)). |
 | `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
 | `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
 
@@ -236,6 +237,29 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     ```bash
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
+
+## GPU node diagnostics
+
+!!! warning "Requires MCP server image 1.3.0 or newer"
+
+Holmes can debug GPU nodes with `run_gpu_node_diagnostics` (server >= 1.3.0): it launches a short-lived pod pinned to the node and runs the **node's own binaries** through a read-only host-filesystem mount — nvidia-smi, dmesg, lspci, journalctl; no GPU is allocated and no GPU-specific image is pulled, so it works even on fully-utilized or cordoned nodes. The caller picks checks by name only (`overview`, `details`, `throttling`, `utilization_samples`, `ecc`, `page_retirement`, `row_remapper`, `compute_processes`, `kernel_gpu_errors`, `kernel_log_journal`, `driver_info`, `pci`, `pci_link`, `fabric_manager`, `gpu_device_holders`, `process_info`, `dcgm_*`) — every command is fixed in the server, which is why the tool is auto-approved.
+
+It is **off by default** — enable it via `gpuDiagnosticsEnabled`:
+
+```yaml
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    config:
+      gpuDiagnosticsEnabled: true
+      dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
+```
+
+For custom nvidia-smi/dcgmi locations or other server knobs (`GPU_DIAG_NVIDIA_SMI_PATH`, `GPU_DIAG_TIMEOUT`, ...), use `additionalEnvVars`.
+
+```bash
+holmes ask "Training jobs on node gpu-worker-3 are slow - check the GPUs for throttling or ECC errors"
+```
 
 ## Security Controls
 

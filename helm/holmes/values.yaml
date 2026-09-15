@@ -725,7 +725,7 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.2.0"
+    image: "kubernetes-remediation-mcp:1.3.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -793,6 +793,10 @@ mcpAddons:
       timeout: "60"
       # Log level
       logLevel: "INFO"
+      # Enable GPU node diagnostics (run_gpu_node_diagnostics)
+      gpuDiagnosticsEnabled: false
+      # Enable the dcgm_* GPU checks — requires dcgmi installed on the GPU hosts
+      dcgmEnabled: false
 
     resources:
       requests:
@@ -813,6 +817,8 @@ mcpAddons:
 
     # Optional override of the default LLM instructions
     llmInstructions: ""
+
+    additionalEnvVars: []
 
     nodeSelector: {}
     tolerations: []
