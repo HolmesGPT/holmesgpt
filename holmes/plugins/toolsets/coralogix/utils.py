@@ -125,8 +125,10 @@ class CoralogixConfig(ToolsetConfig):
         deprecated = []
 
         # team_hostname was renamed to team_slug
-        if "team_hostname" in extra and not self.team_slug:
-            self.team_slug = extra["team_hostname"]
+        if "team_hostname" in extra:
+            if not self.team_slug:
+                self.team_slug = extra["team_hostname"]
+            extra.pop("team_hostname")
             deprecated.append("team_hostname -> team_slug")
 
         if deprecated:

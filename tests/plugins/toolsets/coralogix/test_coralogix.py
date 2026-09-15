@@ -168,7 +168,20 @@ class TestUIPermalinkBaseURL:
             api_key="k", domain="us2.coralogix.com", team_hostname="acme"
         )
         assert config.team_slug == "acme"
+        assert "team_hostname" not in (config.model_extra or {})
         assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
+
+    def test_team_slug_wins_over_deprecated_team_hostname(self):
+        """team_slug is preferred and the deprecated field is dropped when both are set."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="us2.coralogix.com",
+            team_slug="new-team",
+            team_hostname="old-team",
+        )
+        assert config.team_slug == "new-team"
+        assert "team_hostname" not in config.model_dump()
+        assert get_ui_base_url(config) == "https://new-team.app.cx498.coralogix.com"
 
 
 class TestUIPermalinkToolURL:
