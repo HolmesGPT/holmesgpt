@@ -372,6 +372,62 @@ class TestApprovalCallbackFlow:
 
 
 # ---------------------------------------------------------------------------
+# Test 3b: Approval required but no approval flow available
+# ---------------------------------------------------------------------------
+
+
+class TestApprovalNotAvailable:
+    """With enable_tool_approval=False, an APPROVAL_REQUIRED tool result is
+    converted to an explicit rejection fed back to the LLM and the stream must
+    NOT pause. The rejection must say nothing was executed or queued: a bare
+    "requires approval" makes models tell the user the command was submitted
+    and is waiting for a human to approve it, which is false."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_rejection_is_explicit_and_stream_does_not_pause(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        tc = _make_mock_tool_call(tool_call_id="tc_del", tool_name="kubectl_delete")
+        resp_with_tool = _make_llm_response(content="Deleting pod", tool_calls=[tc])
+        resp_final = _make_llm_response(
+            content="I cannot run this command here", tool_calls=None
+        )
+        mock_llm.completion.side_effect = [resp_with_tool, resp_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(
+            return_value=_make_tool_call_result_approval(
+                tool_call_id="tc_del", tool_name="kubectl_delete"
+            )
+        )
+
+        events = _collect_stream_events(
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "Delete the pod"}],
+                enable_tool_approval=False,
+            )
+        )
+
+        # The stream never pauses for approval and reaches a final answer.
+        assert not _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
+        answer_end = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_end) == 1
+
+        # The tool message fed back to the LLM states nothing is pending.
+        tool_messages = [
+            m for m in answer_end[0].data["messages"] if m.get("role") == "tool"
+        ]
+        assert len(tool_messages) == 1
+        content = tool_messages[0]["content"]
+        assert "Tool call rejected" in content
+        assert "NOT executed and NOT submitted or queued for approval" in content
+        assert (
+            "Do not tell the user the command was submitted or is awaiting approval"
+            in content
+        )
+
+
+# ---------------------------------------------------------------------------
 # Test 4: Cost accumulation across multiple iterations
 # ---------------------------------------------------------------------------
 
