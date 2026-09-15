@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CheckMode(str, Enum):
@@ -25,9 +25,17 @@ class CheckStatus(str, Enum):
 class DestinationConfig(BaseModel):
     """Configuration for alert destinations."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     webhook_url: Optional[str] = None
     channel: Optional[str] = None
     integration_key: Optional[str] = None
+    # Mattermost-specific fields (the bot token travels via config.mattermost_token
+    # or the MATTERMOST_TOKEN env var — not inside the YAML destinations block).
+    # Aliases match the documented per-destination YAML keys (url, channel_id, verify_ssl).
+    mattermost_url: Optional[str] = Field(default=None, alias="url")
+    mattermost_channel_id: Optional[str] = Field(default=None, alias="channel_id")
+    mattermost_verify_ssl: Optional[bool] = Field(default=None, alias="verify_ssl")
 
 
 class Check(BaseModel):
