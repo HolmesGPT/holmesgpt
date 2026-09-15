@@ -365,6 +365,8 @@ class DefaultLLM(LLM):
     api_version: Optional[str]
     args: Dict
     is_robusta_model: bool
+    max_context_size: Optional[int]
+    max_tools: Optional[int]
 
     def __init__(
         self,
@@ -391,7 +393,15 @@ class DefaultLLM(LLM):
         )
 
     def update_custom_args(self):
-        self.max_context_size = self.args.get("custom_args", {}).get("max_context_size")
+        custom_args = self.args.get("custom_args", {})
+        self.max_context_size = custom_args.get("max_context_size")
+        self.max_tools = custom_args.get("max_tools")
+        if self.max_tools is not None and (
+            isinstance(self.max_tools, bool)
+            or not isinstance(self.max_tools, int)
+            or self.max_tools <= 0
+        ):
+            raise ValueError("custom_args.max_tools must be a positive integer")
         self.args.pop("custom_args", None)
 
     def check_llm(
@@ -667,6 +677,14 @@ class DefaultLLM(LLM):
         allowed_openai_params = None
 
         if tools and len(tools) > 0 and tool_choice == "auto":
+            max_tools = getattr(self, "max_tools", None)
+            if max_tools is not None and len(tools) > max_tools:
+                raise ValueError(
+                    f"Model '{self.model}' is configured with max_tools={max_tools}, "
+                    f"but this request includes {len(tools)} tools. Reduce the enabled "
+                    "toolsets or MCP tools, or raise custom_args.max_tools only if the "
+                    "provider supports it. The request was not sent."
+                )
             tools_args["tools"] = tools
             tools_args["tool_choice"] = tool_choice  # type: ignore
 
