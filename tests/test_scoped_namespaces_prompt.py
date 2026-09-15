@@ -2,17 +2,17 @@
 injects namespace-scope instructions into the system prompt, so Holmes doesn't waste
 tool calls discovering its RBAC scope from Forbidden errors."""
 
-from holmes.core.prompt import build_system_prompt, get_scoped_namespaces
+from holmes.core.prompt import PromptComponent, build_system_prompt, get_scoped_namespaces
 
 
-def _build_prompt() -> str:
+def _build_prompt(prompt_component_overrides=None) -> str:
     prompt = build_system_prompt(
         toolsets=[],
         skills=None,
         system_prompt_additions=None,
         cluster_name=None,
         ask_user_enabled=False,
-        prompt_component_overrides={},
+        prompt_component_overrides=prompt_component_overrides or {},
     )
     assert prompt is not None
     return prompt
@@ -48,3 +48,13 @@ def test_system_prompt_has_no_scope_instructions_by_default(monkeypatch):
     monkeypatch.delenv("SCOPED_NAMESPACES", raising=False)
     prompt = _build_prompt()
     assert "Namespace-scoped access" not in prompt
+
+
+def test_scope_instructions_survive_intro_disabled(monkeypatch):
+    # the scope block must not be nested inside the intro component - disabling intro
+    # must not silently drop the RBAC restrictions from the prompt
+    monkeypatch.setenv("SCOPED_NAMESPACES", "ns1")
+    prompt = _build_prompt({PromptComponent.INTRO: False})
+    assert "You are HolmesGPT" not in prompt
+    assert "Namespace-scoped access" in prompt
+    assert '"ns1"' in prompt
