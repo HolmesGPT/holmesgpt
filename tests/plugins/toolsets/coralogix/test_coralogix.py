@@ -85,6 +85,7 @@ class TestUIPermalinkBaseURL:
         ],
     )
     def test_maps_api_domain_to_team_ui_hostname(self, domain, expected_host):
+        """Each documented Coralogix domain maps to its official team UI hostname."""
         config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
         assert get_ui_base_url(config) == f"https://acme.{expected_host}"
 
@@ -99,20 +100,24 @@ class TestUIPermalinkBaseURL:
         ],
     )
     def test_domain_is_normalized_before_mapping(self, domain):
+        """Domain casing/whitespace/scheme/trailing chars are normalized before lookup."""
         config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
         assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
 
     def test_unknown_domain_falls_back_to_domain_itself(self):
+        """Unrecognized domains keep the previous {team_slug}.{domain} behavior."""
         config = CoralogixConfig(
             api_key="k", team_slug="acme", domain="logs.my-company.internal"
         )
         assert get_ui_base_url(config) == "https://acme.logs.my-company.internal"
 
     def test_no_team_slug_and_no_ui_url_returns_none(self):
+        """Without team_slug or ui_url there is no UI base URL."""
         config = CoralogixConfig(api_key="k", domain="us2.coralogix.com")
         assert get_ui_base_url(config) is None
 
     def test_ui_url_override_is_used_verbatim(self):
+        """A configured ui_url is used as the permalink base."""
         config = CoralogixConfig(
             api_key="k",
             domain="us2.coralogix.com",
@@ -121,6 +126,7 @@ class TestUIPermalinkBaseURL:
         assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
 
     def test_ui_url_override_wins_over_team_slug_and_domain(self):
+        """ui_url takes precedence over team_slug + domain derivation."""
         config = CoralogixConfig(
             api_key="k",
             domain="eu2.coralogix.com",
@@ -130,6 +136,7 @@ class TestUIPermalinkBaseURL:
         assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
 
     def test_ui_url_trailing_slash_is_stripped(self):
+        """A trailing slash on ui_url is stripped."""
         config = CoralogixConfig(
             api_key="k",
             domain="us2.coralogix.com",
@@ -138,6 +145,7 @@ class TestUIPermalinkBaseURL:
         assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
 
     def test_ui_url_without_scheme_gets_https(self):
+        """A scheme-less ui_url gets an https:// prefix."""
         config = CoralogixConfig(
             api_key="k",
             domain="us2.coralogix.com",
@@ -145,7 +153,17 @@ class TestUIPermalinkBaseURL:
         )
         assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
 
+    def test_ui_url_with_uppercase_scheme_is_not_double_prefixed(self):
+        """An uppercase scheme is recognized; no second https:// is prepended."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="us2.coralogix.com",
+            ui_url="HTTPS://acme.app.cx498.coralogix.com",
+        )
+        assert get_ui_base_url(config) == "HTTPS://acme.app.cx498.coralogix.com"
+
     def test_deprecated_team_hostname_field_gets_mapped_hostname(self):
+        """Deprecated team_hostname configs also get the mapped UI hostname."""
         config = CoralogixConfig(
             api_key="k", domain="us2.coralogix.com", team_hostname="acme"
         )
@@ -165,6 +183,7 @@ class TestUIPermalinkToolURL:
     }
 
     def _invoke(self, config: CoralogixConfig):
+        """Invoke the tool with the DataPrime API stubbed out."""
         toolset = CoralogixToolset()
         toolset.config = config
         tool = ExecuteDataPrimeQuery(toolset)
@@ -175,6 +194,7 @@ class TestUIPermalinkToolURL:
             return tool._invoke(self.PARAMS, Mock())
 
     def test_us2_permalink_points_to_team_ui_hostname(self):
+        """US2 tool invocations produce permalinks on the official UI hostname."""
         result = self._invoke(
             CoralogixConfig(api_key="k", team_slug="acme", domain="us2.coralogix.com")
         )
@@ -187,6 +207,7 @@ class TestUIPermalinkToolURL:
         assert "us2.coralogix.com" not in result.url
 
     def test_ui_url_override_used_for_permalink(self):
+        """ui_url override is reflected in the tool result URL."""
         result = self._invoke(
             CoralogixConfig(
                 api_key="k",
@@ -200,6 +221,7 @@ class TestUIPermalinkToolURL:
         )
 
     def test_no_team_slug_no_ui_url_yields_no_permalink_but_succeeds(self):
+        """Missing team_slug/ui_url yields no URL but the tool still succeeds."""
         result = self._invoke(CoralogixConfig(api_key="k", domain="us2.coralogix.com"))
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.url is None

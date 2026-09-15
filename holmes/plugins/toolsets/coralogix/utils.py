@@ -149,7 +149,7 @@ def get_ui_base_url(config: CoralogixConfig) -> Optional[str]:
     """
     if config.ui_url:
         ui_url = config.ui_url.strip().rstrip("/")
-        if not ui_url.startswith(("https://", "http://")):
+        if not ui_url.lower().startswith(("https://", "http://")):
             ui_url = f"https://{ui_url}"
         return ui_url
 
