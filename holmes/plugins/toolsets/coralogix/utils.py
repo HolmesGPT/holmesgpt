@@ -169,10 +169,12 @@ def get_ui_base_url(config: CoralogixConfig) -> Optional[str]:
     domain = domain.strip("/").rstrip(".")
     team_hostname_suffix = CORALOGIX_TEAM_HOSTNAME_SUFFIXES.get(domain)
     if team_hostname_suffix is None:
-        if "coralogix" in domain and not domain.startswith("app."):
-            team_hostname_suffix = f"app.{domain}"
-        else:
-            team_hostname_suffix = domain
+        # only subdomains of Coralogix-owned apexes get the app. inference;
+        # anything else (custom/proxied domains) is used as-is
+        is_coralogix_regional = domain.endswith(
+            (".coralogix.com", ".coralogixgov.us")
+        ) and not domain.startswith("app.")
+        team_hostname_suffix = f"app.{domain}" if is_coralogix_regional else domain
     return f"https://{config.team_slug}.{team_hostname_suffix}"
 
 

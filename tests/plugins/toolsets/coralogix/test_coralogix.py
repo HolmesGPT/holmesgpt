@@ -121,12 +121,20 @@ class TestUIPermalinkBaseURL:
             ("us4.coralogix.com", "app.us4.coralogix.com"),
             ("eu3.coralogix.com", "app.eu3.coralogix.com"),
             ("me1.coralogix.com", "app.me1.coralogix.com"),
+            ("gov2.coralogixgov.us", "app.gov2.coralogixgov.us"),
         ],
     )
     def test_unknown_coralogix_domain_assumes_app_prefix(self, domain, expected_host):
         """Unmapped Coralogix regions get the modern app.<domain> UI hostname."""
         config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
         assert get_ui_base_url(config) == f"https://acme.{expected_host}"
+
+    def test_custom_domain_containing_coralogix_is_not_app_prefixed(self):
+        """A custom domain that merely contains 'coralogix' is used as-is."""
+        config = CoralogixConfig(
+            api_key="k", team_slug="acme", domain="logs.coralogix-proxy.internal"
+        )
+        assert get_ui_base_url(config) == "https://acme.logs.coralogix-proxy.internal"
 
     def test_domain_already_app_prefixed_is_not_double_prefixed(self):
         """A domain mistakenly set to the UI hostname doesn't get a second app. prefix."""
