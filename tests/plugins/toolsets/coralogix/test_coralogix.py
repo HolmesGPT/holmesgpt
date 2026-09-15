@@ -82,6 +82,8 @@ class TestUIPermalinkBaseURL:
             ("coralogixsg.com", "app.coralogixsg.com"),
             # AP3 (Jakarta)
             ("ap3.coralogix.com", "app.ap3.coralogix.com"),
+            # GOV1 (AWS GovCloud, FedRAMP)
+            ("gov1.coralogixgov.us", "app.gov1.coralogixgov.us"),
         ],
     )
     def test_maps_api_domain_to_team_ui_hostname(self, domain, expected_host):

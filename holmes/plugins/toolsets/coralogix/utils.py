@@ -71,6 +71,8 @@ CORALOGIX_TEAM_HOSTNAME_SUFFIXES: Dict[str, str] = {
     "coralogixsg.com": "app.coralogixsg.com",
     # AP3 - AWS ap-southeast-3 (Jakarta)
     "ap3.coralogix.com": "app.ap3.coralogix.com",
+    # GOV1 - AWS GovCloud us-gov-west-1 (FedRAMP)
+    "gov1.coralogixgov.us": "app.gov1.coralogixgov.us",
 }
 
 
