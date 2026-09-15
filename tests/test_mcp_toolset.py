@@ -3525,7 +3525,7 @@ class TestMCPStructuredContent:
             "required": ["projectSlug"],
         }
         params = {
-            "projectSlug": "gh/Twingate/devops",
+            "projectSlug": "gh/example-org/example-repo",
             "branch": None,
             "status": None,
         }
@@ -3537,7 +3537,7 @@ class TestMCPStructuredContent:
         )
 
         mock_session.call_tool.assert_awaited_once_with(
-            "list_runs", {"projectSlug": "gh/Twingate/devops"}
+            "list_runs", {"projectSlug": "gh/example-org/example-repo"}
         )
         # The trace still shows what the model actually asked for.
         assert result.params == params
