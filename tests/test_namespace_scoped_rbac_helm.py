@@ -77,3 +77,34 @@ def test_namespace_scoped_renders_role_and_rolebinding():
 def test_namespace_scoped_skips_openshift_cluster_monitoring_binding():
     docs = render_rbac(["--set", "namespaceScopedRBAC=true", "--set", "openshift=true"])
     assert get_doc(docs, "ClusterRoleBinding") is None
+
+
+def render_deployment(extra_args: Optional[List[str]] = None) -> dict:
+    cmd = [
+        "helm",
+        "template",
+        "test-release",
+        str(HELM_DIR),
+        "-s",
+        "templates/holmes.yaml",
+    ] + (extra_args or [])
+    output = subprocess.check_output(cmd, text=True)
+    docs = [doc for doc in yaml.safe_load_all(output) if doc]
+    deployment = get_doc(docs, "Deployment")
+    assert deployment is not None
+    return deployment
+
+
+def _env_map(deployment: dict) -> dict:
+    env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+    return {e["name"]: e.get("value") for e in env}
+
+
+def test_namespace_scoped_sets_scoped_namespaces_env():
+    env = _env_map(render_deployment(["--set", "namespaceScopedRBAC=true"]))
+    assert env["SCOPED_NAMESPACES"] == "default"
+
+
+def test_default_has_no_scoped_namespaces_env():
+    env = _env_map(render_deployment())
+    assert "SCOPED_NAMESPACES" not in env
