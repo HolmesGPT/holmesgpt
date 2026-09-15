@@ -69,6 +69,34 @@ class TestSaveImages:
         assert len(paths) == 1
         assert "img1" in paths[0]
 
+    def test_save_with_litellm_thought_signature(self, tmp_path):
+        """Long thought signatures embedded by LiteLLM do not exceed NAME_MAX."""
+        images = [{"data": base64.b64encode(b"data").decode(), "mimeType": "image/png"}]
+        call_id = "call_123__thought__" + "A" * 3000
+
+        paths = save_images(tmp_path, "tool", call_id, images)
+
+        assert len(paths) == 1
+        assert __import__("pathlib").Path(paths[0]).read_bytes() == b"data"
+
+    def test_long_call_id_preserves_image_suffixes(self, tmp_path):
+        """Long call IDs must not truncate the _imgN suffix into a filename collision."""
+        images = [
+            {"data": base64.b64encode(b"data1").decode(), "mimeType": "image/png"},
+            {"data": base64.b64encode(b"data2").decode(), "mimeType": "image/png"},
+        ]
+        call_id = "call_" + "A" * 3000
+
+        paths = save_images(tmp_path, "tool", call_id, images)
+
+        assert len(paths) == 2
+        assert paths[0] != paths[1]
+        assert paths[0].endswith("_img0.png")
+        assert paths[1].endswith("_img1.png")
+        assert __import__("pathlib").Path(paths[0]).read_bytes() == b"data1"
+        assert __import__("pathlib").Path(paths[1]).read_bytes() == b"data2"
+        assert len(__import__("pathlib").Path(paths[0]).name.encode("utf-8")) <= 200
+
 
 class TestSaveLargeResult:
     def test_save_text_result(self, tmp_path):
@@ -85,3 +113,12 @@ class TestSaveLargeResult:
         )
         assert path is not None
         assert path.endswith(".json")
+
+    def test_save_with_litellm_thought_signature(self, tmp_path):
+        """Long thought signatures embedded by LiteLLM do not exceed NAME_MAX."""
+        call_id = "call_123__thought__" + "A" * 3000
+
+        path = save_large_result(tmp_path, "tool", call_id, "result")
+
+        assert path is not None
+        assert __import__("pathlib").Path(path).read_text() == "result"
