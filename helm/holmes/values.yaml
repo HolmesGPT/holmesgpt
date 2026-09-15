@@ -492,6 +492,11 @@ mcpAddons:
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
+    # Optional annotations added to the GitHub MCP server Deployment metadata.
+    # Useful for integrations such as stakater/Reloader to roll pods when
+    # referenced Secrets change.
+    deploymentAnnotations: {}
+
     # Authentication - choose ONE of the two methods below
     auth:
       # Option 1: Personal Access Token (PAT)
