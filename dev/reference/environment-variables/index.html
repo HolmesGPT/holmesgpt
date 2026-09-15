@@ -5486,6 +5486,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#scoped_namespaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SCOPED_NAMESPACES
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#trace_token_usage" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6450,6 +6461,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#scoped_namespaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SCOPED_NAMESPACES
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#trace_token_usage" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7049,13 +7071,13 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p>Overrides the URL LiteLLM fetches the model catalog (<code>model_prices_and_context_window.json</code>) from. LiteLLM uses that catalog to know each model's context window, max output tokens, and pricing. By default LiteLLM pulls it from <code>raw.githubusercontent.com</code>, which is unreachable from networks that block GitHub egress.</p>
 <p>Robusta hosts a mirror of the same file in each region. Pick the URL matching your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630_1" name="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630" type="radio">
-<input id="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630_2" name="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630" type="radio">
-<input id="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630_3" name="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630" type="radio">
+<input checked="checked" id="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe_1" name="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe" type="radio">
+<input id="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe_2" name="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe" type="radio">
+<input id="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe_3" name="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630_1">US</label>
-<label for="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630_2">EU</label>
-<label for="__tabbed_a07d888c_e18c_434d_8659_5130ff75b630_3">AP</label>
+<label for="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe_1">US</label>
+<label for="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe_2">EU</label>
+<label for="__tabbed_83ade8b2_8042_4912_8d1e_b6fc74a16cbe_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://api.robusta.dev/litellm/model_prices_and_context_window.json</code></pre></div>
@@ -7066,13 +7088,13 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p>The mirror is cached and falls back to its last-known-good copy if the upstream is temporarily unreachable, so pointing at it gives the same freshness as the default URL without requiring egress to <code>raw.githubusercontent.com</code>.</p>
 <p><strong>Helm example:</strong></p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03_1" name="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03" type="radio">
-<input id="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03_2" name="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03" type="radio">
-<input id="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03_3" name="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03" type="radio">
+<input checked="checked" id="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e_1" name="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e" type="radio">
+<input id="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e_2" name="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e" type="radio">
+<input id="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e_3" name="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03_1">US</label>
-<label for="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03_2">EU</label>
-<label for="__tabbed_f63b5b67_c1d8_43cb_8980_862c1fcb3f03_3">AP</label>
+<label for="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e_1">US</label>
+<label for="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e_2">EU</label>
+<label for="__tabbed_9800382f_f3c3_4840_ae91_7da6fd59930e_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml">additionalEnvVars:
@@ -7104,14 +7126,21 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p><strong>Example:</strong>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ENABLE_JSON_LOGS_FORMAT</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>
 </span></code></pre></div></p>
+<h3 id="scoped_namespaces">SCOPED_NAMESPACES<a class="headerlink" href="#scoped_namespaces" title="Permanent link">&para;</a></h3>
+<p>Comma-separated list of namespaces this Holmes instance's Kubernetes RBAC is limited to. When set, Holmes is told its access scope in the system prompt, so investigations start scoped to those namespaces instead of discovering the restriction from <code>Forbidden</code> errors. The Helm chart sets it automatically when <code>namespaceScopedRBAC</code> is enabled; set it yourself when scoping RBAC manually.</p>
+<p><strong>Default:</strong> unset (cluster-wide access assumed)</p>
+<p><strong>Example:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SCOPED_NAMESPACES</span><span class="o">=</span><span class="s2">&quot;monitoring&quot;</span><span class="w">        </span><span class="c1"># single namespace</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SCOPED_NAMESPACES</span><span class="o">=</span><span class="s2">&quot;monitoring,default&quot;</span><span class="w">  </span><span class="c1"># multiple namespaces</span>
+</span></code></pre></div></p>
 <h3 id="trace_token_usage">TRACE_TOKEN_USAGE<a class="headerlink" href="#trace_token_usage" title="Permanent link">&para;</a></h3>
 <p>When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed <code>/api/chat</code> request at <code>INFO</code> level. Useful for debugging token consumption and cost issues.</p>
 <p><strong>Default:</strong> <code>false</code></p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TRACE_TOKEN_USAGE</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TRACE_TOKEN_USAGE</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>
 </span></code></pre></div></p>
 <p><strong>Sample output:</strong>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
 </span></code></pre></div></p>
 <h3 id="holmes_cache_dir">HOLMES_CACHE_DIR<a class="headerlink" href="#holmes_cache_dir" title="Permanent link">&para;</a></h3>
 <p>Directory for caching HolmesGPT data and temporary files.</p>
@@ -7119,8 +7148,8 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p><strong>Default:</strong> <code>"authorization,cookie,set-cookie"</code></p>
 <p>Comma-separated list of HTTP header names that should <strong>not</strong> be forwarded from incoming requests to toolsets via <code>request_context</code>. Case-insensitive.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># Also block a custom internal header</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_PASSTHROUGH_BLOCKED_HEADERS</span><span class="o">=</span><span class="s2">&quot;authorization,cookie,set-cookie,x-internal-only&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># Also block a custom internal header</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_PASSTHROUGH_BLOCKED_HEADERS</span><span class="o">=</span><span class="s2">&quot;authorization,cookie,set-cookie,x-internal-only&quot;</span>
 </span></code></pre></div></p>
 <p>See <a href="../../data-sources/header-propagation/">HTTP Header Propagation</a> for details.</p>
 <h3 id="holmes_connectivity_check_allow_all_hosts">HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS<a class="headerlink" href="#holmes_connectivity_check_allow_all_hosts" title="Permanent link">&para;</a></h3>
@@ -7141,7 +7170,7 @@ configured <code>allowed_hosts</code> entries are ignored entirely — they neit
 destinations nor exempt one from the metadata/loopback block. Equivalent to
 setting <code>allow_all_hosts: true</code> in the toolset config.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS</span><span class="o">=</span><span class="nb">true</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS</span><span class="o">=</span><span class="nb">true</span>
 </span></code></pre></div></p>
 <p>See <a href="../../data-sources/builtin-toolsets/connectivity-check/">Connectivity Check</a> for details.</p>
 <h2 id="data-source-configuration">Data Source Configuration<a class="headerlink" href="#data-source-configuration" title="Permanent link">&para;</a></h2>
@@ -7186,28 +7215,28 @@ setting <code>allow_all_hosts: true</code> in the toolset config.</p>
 <p>Per-request timeout, in seconds, for MCP tool calls. Forwarded to the MCP SDK's <code>ClientSession.call_tool(read_timeout_seconds=...)</code>, which enforces it via <code>anyio.fail_after</code> around the response-stream receive. Without a bound here, streamable-http tool calls can hang indefinitely if the MCP server dies mid-response (the httpx/anyio stream EOF does not reliably wake pending response futures).</p>
 <p>On expiry the SDK raises <code>McpError(code=REQUEST_TIMEOUT)</code>, which Holmes surfaces as a <code>StructuredToolResultStatus.ERROR</code> result with the message <code>Timed out while waiting for response to ClientRequest. Waited N seconds.</code></p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MCP_TOOL_CALL_TIMEOUT_SEC</span><span class="o">=</span><span class="m">60</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MCP_TOOL_CALL_TIMEOUT_SEC</span><span class="o">=</span><span class="m">60</span>
 </span></code></pre></div></p>
 <h2 id="testing-and-development">Testing and Development<a class="headerlink" href="#testing-and-development" title="Permanent link">&para;</a></h2>
 <h3 id="run_live">RUN_LIVE<a class="headerlink" href="#run_live" title="Permanent link">&para;</a></h3>
 <p>Enables live execution of commands in tests. Defaults to <code>true</code>.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RUN_LIVE</span><span class="o">=</span><span class="nb">true</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">RUN_LIVE</span><span class="o">=</span><span class="nb">true</span>
 </span></code></pre></div></p>
 <h3 id="model">MODEL<a class="headerlink" href="#model" title="Permanent link">&para;</a></h3>
 <p>Override the default LLM model for testing.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL</span><span class="o">=</span><span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL</span><span class="o">=</span><span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span>
 </span></code></pre></div></p>
 <h3 id="classifier_model">CLASSIFIER_MODEL<a class="headerlink" href="#classifier_model" title="Permanent link">&para;</a></h3>
 <p>Model to use for scoring test answers (defaults to MODEL if not set). Required when using Anthropic models as the primary model since Anthropic models cannot be used as classifiers.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLASSIFIER_MODEL</span><span class="o">=</span><span class="s2">&quot;gpt-4.1&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLASSIFIER_MODEL</span><span class="o">=</span><span class="s2">&quot;gpt-4.1&quot;</span>
 </span></code></pre></div></p>
 <h3 id="iterations">ITERATIONS<a class="headerlink" href="#iterations" title="Permanent link">&para;</a></h3>
 <p>Number of times to run each test for reliability testing.</p>
 <p><strong>Example:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ITERATIONS</span><span class="o">=</span><span class="m">10</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ITERATIONS</span><span class="o">=</span><span class="m">10</span>
 </span></code></pre></div></p>
 <h3 id="braintrust_api_key">BRAINTRUST_API_KEY<a class="headerlink" href="#braintrust_api_key" title="Permanent link">&para;</a></h3>
 <p>API key for Braintrust integration to track test results.</p>
