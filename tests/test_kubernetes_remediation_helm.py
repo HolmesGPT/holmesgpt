@@ -41,10 +41,27 @@ def test_values_defaults_are_plug_and_play():
         "diagnosticImages",
         "fileReadAllowedPaths",
         "fileReadDeniedPaths",
+        "fileReadRequireCanonicalization",
     ):
         assert key in v["config"], key
     # Old run_image image allowlist is gone
     assert "allowedImages" not in v["config"]
+
+
+def test_values_file_read_policy_is_not_rooted_at_slash():
+    """ROB-973: with "/" as the allow root the policy degrades to a denylist, and
+    the auto-approved read_file_from_container tool can return any credential
+    file the denylist did not anticipate. The default must be explicit roots,
+    never "/", and canonicalization must fail closed."""
+    cfg = _values()["config"]
+    roots = [r.strip() for r in cfg["fileReadAllowedPaths"].split(",")]
+    assert "/" not in roots
+    assert roots, "allow roots must not be empty"
+    for root in ("/app", "/etc", "/var/log"):
+        assert root in roots, root
+    for root in ("/root", "/var/secrets", "/run", "/mnt"):
+        assert root not in roots, root
+    assert cfg["fileReadRequireCanonicalization"] is True
 
 
 def test_values_default_to_the_restrictive_diagnostic_target_policy():
@@ -79,6 +96,7 @@ def test_deployment_binding_has_no_cluster_admin_default():
         "KUBECTL_DIAGNOSTIC_IMAGES",
         "KUBECTL_FILE_READ_ALLOWED_PATHS",
         "KUBECTL_FILE_READ_DENIED_PATHS",
+        "KUBECTL_FILE_READ_REQUIRE_CANONICALIZATION",
         "KUBECTL_ALLOW_ARBITRARY_COMMANDS",
     ):
         assert key in text, key
