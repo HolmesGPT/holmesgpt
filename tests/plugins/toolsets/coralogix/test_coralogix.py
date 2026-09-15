@@ -176,9 +176,7 @@ class TestUIPermalinkToolURL:
 
     def test_us2_permalink_points_to_team_ui_hostname(self):
         result = self._invoke(
-            CoralogixConfig(
-                api_key="k", team_slug="acme", domain="us2.coralogix.com"
-            )
+            CoralogixConfig(api_key="k", team_slug="acme", domain="us2.coralogix.com")
         )
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.url is not None
@@ -202,9 +200,7 @@ class TestUIPermalinkToolURL:
         )
 
     def test_no_team_slug_no_ui_url_yields_no_permalink_but_succeeds(self):
-        result = self._invoke(
-            CoralogixConfig(api_key="k", domain="us2.coralogix.com")
-        )
+        result = self._invoke(CoralogixConfig(api_key="k", domain="us2.coralogix.com"))
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.url is None
 

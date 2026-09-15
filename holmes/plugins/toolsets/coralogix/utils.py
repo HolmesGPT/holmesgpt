@@ -130,7 +130,9 @@ class CoralogixConfig(ToolsetConfig):
             deprecated.append("team_hostname -> team_slug")
 
         if deprecated:
-            logging.warning(f"Coralogix: deprecated config field names: {', '.join(deprecated)}")
+            logging.warning(
+                f"Coralogix: deprecated config field names: {', '.join(deprecated)}"
+            )
         return self
 
 
