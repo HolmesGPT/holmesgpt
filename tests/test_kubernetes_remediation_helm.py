@@ -27,6 +27,8 @@ def test_values_drop_restricted_tools_and_map_approval():
 
 
 def test_values_defaults_are_plug_and_play():
+    """A fresh install with only `enabled: true` gets the scoped role, the
+    NetworkPolicy, and every config key the pinned server version reads."""
     v = _values()
     assert v["enabled"] is False  # opt-in
     # 1.2.0 carries the diagnostic-pod target policy (ROB-910); the config keys
@@ -87,6 +89,8 @@ def test_rbac_template_is_scoped_not_cluster_admin():
 
 
 def test_deployment_binding_has_no_cluster_admin_default():
+    """The Deployment binds the chart's scoped ClusterRole by default and wires
+    every policy env var the server reads."""
     text = (TEMPLATE_DIR / "deployment.yaml").read_text()
     assert 'default "cluster-admin"' not in text
     assert "k8s-remediation-mcp-role" in text
