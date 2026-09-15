@@ -1759,3 +1759,46 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Test: request_context forwarding to the LLM
+# ---------------------------------------------------------------------------
+
+
+class TestRequestContextForwarding:
+    """ToolCallingLLM.call_stream forwards request_context to the LLM instance.
+
+    Guards the per-request header passthrough (x-cz-* business dimensions):
+    the context must reach DefaultLLM.completion so allowlisted inbound headers
+    can be echoed onto the outgoing LiteLLM call.
+    """
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_stream_forwards_request_context(self, _mock_limit, make_ai, mock_llm):
+        resp = _make_llm_response(content="done", tool_calls=None)
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        ctx = {"headers": {"x-cz-platform": "katee"}}
+        _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "hi"}], request_context=ctx)
+        )
+
+        call_kwargs = mock_llm.completion.call_args
+        forwarded = call_kwargs.kwargs.get("request_context")
+        assert forwarded is ctx
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_stream_forwards_none_when_absent(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        resp = _make_llm_response(content="done", tool_calls=None)
+        mock_llm.completion.return_value = resp
+
+        ai = make_ai()
+        _collect_stream_events(ai.call_stream(msgs=[{"role": "user", "content": "hi"}]))
+
+        call_kwargs = mock_llm.completion.call_args
+        # request_context is always passed; defaults to None when not provided.
+        assert call_kwargs.kwargs.get("request_context") is None
