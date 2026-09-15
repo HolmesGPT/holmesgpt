@@ -147,7 +147,11 @@ def get_ui_base_url(config: CoralogixConfig) -> Optional[str]:
     Resolution order:
     1. `ui_url`, when configured (explicit override).
     2. `team_slug` + the official team hostname suffix for the configured domain.
-    3. `team_slug` + the domain as-is, for unrecognized domains.
+    3. `team_slug` + "app." + domain for unrecognized Coralogix domains: every
+       region added since the regional naming scheme (us3, eu2, ap3) serves its
+       team UI at app.<domain>, so assume future regions follow the same
+       convention; the pre-scheme exceptions are pinned in the map above.
+    4. `team_slug` + the domain as-is, for non-Coralogix (custom) domains.
     """
     if config.ui_url:
         ui_url = config.ui_url.strip().rstrip("/")
@@ -161,7 +165,12 @@ def get_ui_base_url(config: CoralogixConfig) -> Optional[str]:
     domain = config.domain.strip().lower()
     domain = domain.removeprefix("https://").removeprefix("http://")
     domain = domain.strip("/").rstrip(".")
-    team_hostname_suffix = CORALOGIX_TEAM_HOSTNAME_SUFFIXES.get(domain, domain)
+    team_hostname_suffix = CORALOGIX_TEAM_HOSTNAME_SUFFIXES.get(domain)
+    if team_hostname_suffix is None:
+        if "coralogix" in domain and not domain.startswith("app."):
+            team_hostname_suffix = f"app.{domain}"
+        else:
+            team_hostname_suffix = domain
     return f"https://{config.team_slug}.{team_hostname_suffix}"
 
 

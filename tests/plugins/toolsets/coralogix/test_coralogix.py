@@ -104,12 +104,34 @@ class TestUIPermalinkBaseURL:
         config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
         assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
 
-    def test_unknown_domain_falls_back_to_domain_itself(self):
-        """Unrecognized domains keep the previous {team_slug}.{domain} behavior."""
+    def test_unknown_non_coralogix_domain_falls_back_to_domain_itself(self):
+        """Non-Coralogix (custom) domains keep the {team_slug}.{domain} behavior."""
         config = CoralogixConfig(
             api_key="k", team_slug="acme", domain="logs.my-company.internal"
         )
         assert get_ui_base_url(config) == "https://acme.logs.my-company.internal"
+
+    @pytest.mark.parametrize(
+        "domain,expected_host",
+        [
+            # hypothetical future regions: assume the modern app.<domain> scheme
+            # that us3/eu2/ap3 follow
+            ("us4.coralogix.com", "app.us4.coralogix.com"),
+            ("eu3.coralogix.com", "app.eu3.coralogix.com"),
+            ("me1.coralogix.com", "app.me1.coralogix.com"),
+        ],
+    )
+    def test_unknown_coralogix_domain_assumes_app_prefix(self, domain, expected_host):
+        """Unmapped Coralogix regions get the modern app.<domain> UI hostname."""
+        config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
+        assert get_ui_base_url(config) == f"https://acme.{expected_host}"
+
+    def test_domain_already_app_prefixed_is_not_double_prefixed(self):
+        """A domain mistakenly set to the UI hostname doesn't get a second app. prefix."""
+        config = CoralogixConfig(
+            api_key="k", team_slug="acme", domain="app.us4.coralogix.com"
+        )
+        assert get_ui_base_url(config) == "https://acme.app.us4.coralogix.com"
 
     def test_no_team_slug_and_no_ui_url_returns_none(self):
         """Without team_slug or ui_url there is no UI base URL."""
