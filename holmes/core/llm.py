@@ -525,12 +525,17 @@ class DefaultLLM(LLM):
             )
             return OVERRIDE_MAX_CONTENT_SIZE
 
-        # Try each name variant
+        # Try each name variant. A model registered only with custom pricing
+        # (input/output_cost_per_token from model_list.yaml) gets normalized
+        # by litellm into a full ModelInfo whose max_input_tokens is None -
+        # treat that like a missing entry rather than returning None.
         for name in self._get_model_name_variants_for_lookup():
             try:
-                return litellm.model_cost[name]["max_input_tokens"]
+                max_input_tokens = litellm.model_cost[name]["max_input_tokens"]
             except Exception:
                 continue
+            if max_input_tokens:
+                return max_input_tokens
 
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_input_tokens")
@@ -799,17 +804,21 @@ class DefaultLLM(LLM):
             )
             return OVERRIDE_MAX_OUTPUT_TOKEN
 
-        # Try each name variant
+        # Try each name variant. As in get_context_window_size, a custom-priced
+        # model can be present in litellm.model_cost with max_output_tokens=None;
+        # skip it and fall through to the computed budget.
         for name in self._get_model_name_variants_for_lookup():
             try:
                 litellm_max_output_tokens = litellm.model_cost[name][
                     "max_output_tokens"
                 ]
-                if litellm_max_output_tokens < max_output_tokens:
-                    max_output_tokens = litellm_max_output_tokens
-                return max_output_tokens
             except Exception:
                 continue
+            if not litellm_max_output_tokens:
+                continue
+            if litellm_max_output_tokens < max_output_tokens:
+                max_output_tokens = litellm_max_output_tokens
+            return max_output_tokens
 
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_output_tokens")
