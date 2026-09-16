@@ -225,10 +225,12 @@ REFUSAL_STATUS_CODES = (401, 403)
 
 def _message_from_body(body: Any) -> Optional[str]:
     """The human sentence inside an error body, whichever shape it arrived in:
-    FastAPI's `{"detail": ...}` or OpenAI's `{"error": {"message": ...}}`."""
+    FastAPI's `{"detail": ...}`, relay's `{"msg": ..., "error_code": ...}`, or
+    OpenAI's `{"error": {"message": ...}}` (which litellm hands over already
+    unwrapped to `{"message": ..., "type": ...}`)."""
     if not isinstance(body, dict):
         return None
-    for key in ("detail", "message", "error"):
+    for key in ("detail", "msg", "message", "error"):
         value = body.get(key)
         if isinstance(value, dict):
             value = value.get("message")
@@ -299,7 +301,11 @@ def _as_refusal_error(error: Exception) -> Exception:
         refusal = AuthenticationError(
             message=message, llm_provider=llm_provider, model=model
         )
+    # litellm's classes build their `message` - and with it `args` - by
+    # prefixing their own name onto what they were given. That prefix is the
+    # thing being removed, so both carry relay's words instead.
     refusal.message = message  # type: ignore[attr-defined]
+    refusal.args = (message,)
     return refusal
 
 
@@ -1377,20 +1383,12 @@ class ToolCallingLLM:
                         },
                     )
 
-              # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
-              except BadRequestError as e:
-                if "Unrecognized request arguments supplied: tool_choice, tools" in str(
-                    e
-                ):
-                    raise Exception(
-                        "The Azure model you chose is not supported. Model version 1106 and higher required."
-                    ) from e
-                else:
-                    logging.error(
-                        f"LLM BadRequestError on model={self.llm.model} (streaming iteration {i}): {e}",
-                        exc_info=True,
-                    )
-                    raise
+              # One clause, because the checks are ordered rather than typed:
+              # litellm maps a refusal by the body's error *type*, so a 401
+              # whose body says `invalid_request_error` arrives as a
+              # BadRequestError carrying status 401. The refusal is therefore
+              # recognised by status before anything keyed on the class runs;
+              # the Azure case below is a 400, so it can never be taken first.
               except Exception as e:
                 # A refusal on a Robusta-hosted model is the platform talking
                 # to the user, not a provider failure: its body says what to do
@@ -1401,6 +1399,23 @@ class ToolCallingLLM:
                         f"(status {getattr(e, 'status_code', None)}): {e}"
                     )
                     raise _as_refusal_error(e) from e
+
+                # a known error that occurs with Azure, replaced with something
+                # more obvious to the user
+                if isinstance(e, BadRequestError):
+                    if (
+                        "Unrecognized request arguments supplied: tool_choice, tools"
+                        in str(e)
+                    ):
+                        raise Exception(
+                            "The Azure model you chose is not supported. Model version 1106 and higher required."
+                        ) from e
+                    logging.error(
+                        f"LLM BadRequestError on model={self.llm.model} (streaming iteration {i}): {e}",
+                        exc_info=True,
+                    )
+                    raise
+
                 logging.error(
                     f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
                     f"{type(e).__name__}: {e}",

@@ -13,7 +13,11 @@ from unittest.mock import MagicMock, patch
 import httpx
 import openai
 import pytest
-from litellm.exceptions import AuthenticationError, PermissionDeniedError
+from litellm.exceptions import (
+    AuthenticationError,
+    BadRequestError,
+    PermissionDeniedError,
+)
 from litellm.litellm_core_utils.exception_mapping_utils import exception_type
 
 from holmes.core.llm import LLM, ContextWindowUsage
@@ -56,22 +60,16 @@ def _passthrough_limiter(messages, **_kwargs):
     )
 
 
-def _mapped_error(status_code: int, message: str, code: str, model: str) -> Exception:
-    """The exception holmes actually sees: the provider error relay's proxy
-    returns, run through litellm's own exception mapping."""
-    body = {"error": {"message": message, "type": "invalid_request_error", "code": code}}
+def _from_response(status_code: int, body: dict, model: str) -> Exception:
+    """The exception holmes actually sees for a body relay returned: built by
+    the OpenAI client exactly as it builds it from a real response, then run
+    through litellm's own exception mapping."""
     response = httpx.Response(
         status_code,
         request=httpx.Request("POST", f"https://api.robusta.dev/llm/{model}"),
         json=body,
     )
-    error_class = {
-        401: openai.AuthenticationError,
-        403: openai.PermissionDeniedError,
-    }[status_code]
-    original = error_class(
-        f"Error code: {status_code}", response=response, body=body["error"]
-    )
+    original = openai.OpenAI(api_key="dummy")._make_status_error_from_response(response)
     try:
         exception_type(
             model=model, original_exception=original, custom_llm_provider="openai"
@@ -79,6 +77,20 @@ def _mapped_error(status_code: int, message: str, code: str, model: str) -> Exce
     except Exception as mapped:
         return mapped
     raise AssertionError("litellm's exception mapping did not raise")
+
+
+def _mapped_error(
+    status_code: int,
+    message: str,
+    code: str,
+    model: str,
+    error_type: str = "permission_denied",
+) -> Exception:
+    return _from_response(
+        status_code,
+        {"error": {"message": message, "type": error_type, "code": code}},
+        model,
+    )
 
 
 @pytest.fixture
@@ -120,14 +132,25 @@ def _ask(ai):
     return ai.call([{"role": "user", "content": "what is wrong?"}])
 
 
-def test_litellm_maps_a_403_to_an_api_error_not_an_auth_error():
-    """The premise the handler rests on: only 401 becomes AuthenticationError,
-    so keying on the class alone would miss the disabled-account case."""
-    error = _mapped_error(403, DISABLED, "robusta_ai_disabled", "Robusta/gpt-5")
+def test_litellm_maps_refusals_by_body_type_not_by_status():
+    """The premise the handler rests on: litellm picks the class from the
+    body's error type, so neither the class nor the clause order can decide
+    what a refusal is - only the status can. A 403 is not an
+    AuthenticationError, and a 401 typed `invalid_request_error` arrives as a
+    BadRequestError, the same class the Azure 400 case is keyed on."""
+    denied = _mapped_error(403, DISABLED, "robusta_ai_disabled", "Robusta/gpt-5")
+    assert not isinstance(denied, AuthenticationError)
+    assert getattr(denied, "status_code", None) == 403
 
-    assert not isinstance(error, AuthenticationError)
-    assert getattr(error, "status_code", None) == 403
-    assert "litellm." in error.message
+    unauthorized = _mapped_error(
+        401,
+        STALE_TOKEN,
+        "invalid_session_token",
+        "Robusta/gpt-5",
+        error_type="invalid_request_error",
+    )
+    assert isinstance(unauthorized, BadRequestError)
+    assert getattr(unauthorized, "status_code", None) == 401
 
 
 @patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
@@ -147,7 +170,7 @@ def test_disabled_account_refusal_reaches_the_user(_mock_limit, make_ai, mock_ll
 @patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
 def test_stale_token_refusal_stays_a_401(_mock_limit, make_ai, mock_llm):
     mock_llm.completion.side_effect = _mapped_error(
-        401, STALE_TOKEN, "invalid_session_token", "Robusta/gpt-5"
+        401, STALE_TOKEN, "invalid_api_key", "Robusta/gpt-5"
     )
 
     with pytest.raises(AuthenticationError) as excinfo:
@@ -210,3 +233,82 @@ def test_non_robusta_models_keep_the_original_error(_mock_limit, make_ai, mock_l
 
     assert excinfo.value is error
     assert "litellm." in excinfo.value.message
+
+
+@patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
+def test_a_bad_request_shaped_401_is_still_a_refusal(_mock_limit, make_ai, mock_llm):
+    """litellm maps a 401 whose body says `invalid_request_error` to
+    BadRequestError - the class the Azure case is keyed on - so recognising the
+    refusal has to happen on the status, before any class-keyed handling."""
+    mock_llm.completion.side_effect = _mapped_error(
+        401,
+        DISABLED,
+        "robusta_ai_disabled",
+        "Robusta/gpt-5",
+        error_type="invalid_request_error",
+    )
+
+    with pytest.raises(AuthenticationError) as excinfo:
+        _ask(make_ai())
+
+    assert excinfo.value.message == DISABLED
+    assert excinfo.value.status_code == 401
+
+
+@patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
+def test_relays_own_401_body_shape_is_read(_mock_limit, make_ai, mock_llm):
+    """Relay's own error responses are `{"msg": ..., "error_code": ...}`; the
+    user must read the sentence, not the dict."""
+    mock_llm.completion.side_effect = _from_response(
+        401, {"msg": "Unauthorized", "error_code": 5001}, "Robusta/gpt-5"
+    )
+
+    with pytest.raises(AuthenticationError) as excinfo:
+        _ask(make_ai())
+
+    assert excinfo.value.message == "Unauthorized"
+    assert "error_code" not in str(excinfo.value)
+
+
+@patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
+def test_the_refusal_carries_the_clean_message_everywhere(
+    _mock_limit, make_ai, mock_llm
+):
+    """Anything that renders the exception - str(), repr(), args - has to show
+    relay's sentence, not litellm's decoration of it."""
+    mock_llm.completion.side_effect = _mapped_error(
+        403, DISABLED, "robusta_ai_disabled", "Robusta/gpt-5"
+    )
+
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        _ask(make_ai())
+
+    error = excinfo.value
+    assert error.args == (DISABLED,)
+    assert str(error) == DISABLED
+    assert repr(error) == DISABLED
+    assert "litellm." not in repr(error)
+
+
+@patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
+def test_the_azure_bad_request_message_still_wins_on_a_400(
+    _mock_limit, make_ai, mock_llm
+):
+    """The refusal check runs first, so the 400-keyed Azure case must still be
+    reached - on a Robusta-hosted model too."""
+    mock_llm.completion.side_effect = _from_response(
+        400,
+        {
+            "error": {
+                "message": "Unrecognized request arguments supplied: tool_choice, tools",
+                "type": "invalid_request_error",
+                "code": None,
+            }
+        },
+        "Robusta/gpt-5",
+    )
+
+    with pytest.raises(Exception) as excinfo:
+        _ask(make_ai())
+
+    assert "Model version 1106 and higher required" in str(excinfo.value)

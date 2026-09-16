@@ -126,7 +126,11 @@ The endpoint must match the region your cluster is connected to in the Robusta p
 
     A platform that does not serve v3 yet answers this with 404, and HolmesGPT falls back to the legacy single-model behavior - deploy the platform side first.
 
-4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `${ROBUSTA_API_ENDPOINT}/llm/{model_name}` (default: `https://api.robusta.dev/llm/{model_name}`)
+4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `${ROBUSTA_API_ENDPOINT}/llm/{model_name}` - pick your region:
+
+    ```robusta-region
+    https://api.robusta.dev/llm/{model_name}
+    ```
 
 5. **Automatic refresh**: Authentication tokens are automatically refreshed when they expire
 
