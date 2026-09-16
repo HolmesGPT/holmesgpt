@@ -24,6 +24,7 @@ class PromptComponent(str, Enum):
     GENERAL_INSTRUCTIONS = "general_instructions"
     STYLE_GUIDE = "style_guide"
     CLUSTER_NAME = "cluster_name"
+    SCOPED_NAMESPACES = "scoped_namespaces"
     CONVERSATION_LINK = "conversation_link"
     SYSTEM_PROMPT_ADDITIONS = "system_prompt_additions"
 
@@ -74,6 +75,16 @@ def build_vision_content(
                 image_url_obj["format"] = image_item["format"]
             content.append({"type": "image_url", "image_url": image_url_obj})
     return content
+
+
+def get_scoped_namespaces() -> List[str]:
+    """
+    Namespaces this Holmes instance's RBAC is limited to (comma-separated in the
+    SCOPED_NAMESPACES env var; the helm chart sets it when namespaceScopedRBAC is on).
+    Empty means cluster-wide access - no scope instructions are added to the prompt.
+    """
+    scoped_namespaces = os.environ.get("SCOPED_NAMESPACES", "")
+    return [ns.strip() for ns in scoped_namespaces.split(",") if ns.strip()]
 
 
 def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
@@ -210,6 +221,9 @@ def build_system_prompt(
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
         else None,
+        "scoped_namespaces": get_scoped_namespaces()
+        if is_enabled(PromptComponent.SCOPED_NAMESPACES)
+        else [],
         "conversation_link": sanitize_conversation_link(conversation_link)
         if is_enabled(PromptComponent.CONVERSATION_LINK)
         else None,
