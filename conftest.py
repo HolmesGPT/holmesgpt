@@ -275,6 +275,8 @@ def responses():
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.com"))
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.us"))
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.in"))
+        # Coralogix docs site (domain-table drift check in test_domain_map_sync.py)
+        rsps.add_passthru("https://coralogix.com")
 
         # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
         rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
