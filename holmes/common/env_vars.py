@@ -229,6 +229,28 @@ CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS", 1800)
 )
 
+# Conversation executors (ROB-1369). Each Conversations row names the executor
+# that must run it (`executor` column: 'manual' for live user asks, 'auto' for
+# background work such as alert triage and triggered workflows). Holmes creates
+# an executor pool lazily the first time a pending conversation names it, sized
+# from this JSON map (name -> max concurrent conversations). Names missing from
+# the map get CONVERSATION_WORKER_DEFAULT_EXECUTOR_MAX_CONCURRENT threads, so
+# a new executor name can be introduced by callers without a Holmes release.
+CONVERSATION_WORKER_EXECUTORS = os.environ.get(
+    "CONVERSATION_WORKER_EXECUTORS", ""
+)
+CONVERSATION_WORKER_AUTO_MAX_CONCURRENT = int(
+    os.environ.get("CONVERSATION_WORKER_AUTO_MAX_CONCURRENT", 3)
+)
+CONVERSATION_WORKER_DEFAULT_EXECUTOR_MAX_CONCURRENT = int(
+    os.environ.get("CONVERSATION_WORKER_DEFAULT_EXECUTOR_MAX_CONCURRENT", 2)
+)
+# Upper bound on distinct executor pools one Holmes process will create on
+# demand; a bogus broadcast must not be able to spawn unbounded thread pools.
+CONVERSATION_WORKER_MAX_EXECUTORS = int(
+    os.environ.get("CONVERSATION_WORKER_MAX_EXECUTORS", 16)
+)
+
 # Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
 # Tool calls run in their own pool so they never compete with user chats.
 TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10))
