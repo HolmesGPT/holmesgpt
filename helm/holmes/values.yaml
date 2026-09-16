@@ -84,6 +84,12 @@ k8sRBAC: false
 
 customClusterRoleRules: []
 
+# Render the Holmes RBAC as a namespaced Role + RoleBinding instead of a
+# ClusterRole + ClusterRoleBinding, restricting Holmes to the release namespace.
+# Namespace-scoped installs in different namespaces then cannot collide on
+# cluster-scoped RBAC names. Default false = cluster-wide, as always.
+namespaceScopedRBAC: false
+
 # CRD permissions for common Kubernetes operators and tools
 crdPermissions:
   argo: true
