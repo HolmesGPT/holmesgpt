@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
 import sentry_sdk
+from litellm.exceptions import AuthenticationError
 from openai import BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
     ChatCompletionMessageToolCall,
@@ -203,6 +204,33 @@ class ToolCallWithDecision(BaseModel):
     message_index: int
     tool_call: ChatCompletionMessageToolCall
     decision: Optional[ToolApprovalDecision]
+
+
+def _refusal_message(error: Exception) -> str:
+    """The text the server put in the body of its refusal.
+
+    litellm renders an HTTP error as `litellm.<Class>: <Class>: <Provider>Exception
+    - <body>`, so the sentence written for the user is the JSON body at the end
+    of that string. Falls back to the whole error when there is nothing to
+    unwrap.
+    """
+    text = str(error)
+    start = text.find("{")
+    if start == -1:
+        return text
+    try:
+        body = json.loads(text[start:])
+    except ValueError:
+        return text
+    if not isinstance(body, dict):
+        return text
+    for key in ("detail", "message", "error"):
+        value = body.get(key)
+        if isinstance(value, dict):
+            value = value.get("message")
+        if isinstance(value, str) and value:
+            return value
+    return text
 
 
 class ToolCallingLLM:
@@ -1278,6 +1306,20 @@ class ToolCallingLLM:
                             "tool_calls": _tool_calls_out,
                         },
                     )
+
+              # Relay answers a call on a Robusta-hosted model with 401/403 when
+              # the account may not use one - it opted out of Robusta-hosted
+              # models, or the session token went stale. Its body says what to
+              # do about it; litellm's wrapper buries that behind its own
+              # class names, so hand the user relay's own words (ROB-1389).
+              except AuthenticationError as e:
+                if getattr(self.llm, "is_robusta_model", False):
+                    raise Exception(_refusal_message(e)) from e
+                logging.error(
+                    f"LLM AuthenticationError on model={self.llm.model} (streaming iteration {i}): {e}",
+                    exc_info=True,
+                )
+                raise
 
               # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
               except BadRequestError as e:
