@@ -11,9 +11,15 @@ import holmes.clients.robusta_client as robusta_client
 from holmes.clients.robusta_client import FETCH_MODELS_ATTEMPTS, fetch_robusta_models
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 
-MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2"
+MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
 MODELS_PAYLOAD = {
-    "Robusta/gpt-5": {"model": "azure/gpt-5", "holmes_args": {}, "is_default": True}
+    "models": {
+        "Robusta/gpt-5": {"model": "azure/gpt-5", "holmes_args": {}, "is_default": True}
+    },
+    "default_model": "Robusta/gpt-5",
+    "fallback_model": None,
+    "platform_default_model": "Robusta/gpt-5",
+    "robusta_ai_disabled": False,
 }
 
 
@@ -100,3 +106,52 @@ def test_retries_rate_limiting(mocked_responses):
 
     assert result is not None
     assert len(mocked_responses.calls) == 2
+
+
+def test_parses_an_opted_out_account(mocked_responses):
+    """An account with the Robusta AI opt-out set gets an empty catalog and no
+    defaults - the flag is what tells the agent this is deliberate rather than
+    a relay hiccup."""
+    mocked_responses.post(
+        MODELS_URL,
+        json={
+            "models": {},
+            "default_model": None,
+            "fallback_model": None,
+            "platform_default_model": None,
+            "robusta_ai_disabled": True,
+        },
+        status=200,
+    )
+
+    result = fetch_robusta_models("account-id", "token")
+
+    assert result is not None
+    assert result.models == {}
+    assert result.robusta_ai_disabled
+    assert result.default_model is None
+    assert result.fallback_model is None
+    assert result.platform_default_model is None
+
+
+def test_parses_an_enabled_account(mocked_responses):
+    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+
+    result = fetch_robusta_models("account-id", "token")
+
+    assert result is not None
+    assert not result.robusta_ai_disabled
+    assert result.models["Robusta/gpt-5"].is_default
+    assert result.default_model == "Robusta/gpt-5"
+    assert result.platform_default_model == "Robusta/gpt-5"
+
+
+def test_ignores_unknown_response_fields(mocked_responses):
+    mocked_responses.post(
+        MODELS_URL, json={**MODELS_PAYLOAD, "something_new": 1}, status=200
+    )
+
+    result = fetch_robusta_models("account-id", "token")
+
+    assert result is not None
+    assert set(result.models) == {"Robusta/gpt-5"}

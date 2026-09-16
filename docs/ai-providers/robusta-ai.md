@@ -116,7 +116,7 @@ The endpoint must match the region your cluster is connected to in the Robusta p
 
 1. **Authentication**: HolmesGPT reads your Robusta token from the cluster configuration
 2. **Session creation**: A session token is created with the Robusta platform
-3. **Model discovery**: Available models are fetched from `${ROBUSTA_API_ENDPOINT}/api/llm/models/v2` (default: `https://api.robusta.dev/api/llm/models/v2`)
+3. **Model discovery**: Available models are fetched from `${ROBUSTA_API_ENDPOINT}/api/llm/models/v3` (default: `https://api.robusta.dev/api/llm/models/v3`)
 4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `${ROBUSTA_API_ENDPOINT}/llm/{model_name}` (default: `https://api.robusta.dev/llm/{model_name}`)
 5. **Automatic refresh**: Authentication tokens are automatically refreshed when they expire
 

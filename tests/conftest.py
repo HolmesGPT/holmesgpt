@@ -58,8 +58,8 @@ def clear_all_caches():
 @pytest.fixture(autouse=False)
 def server_config(tmp_path, monkeypatch, responses):
     responses.post(
-        "https://api.robusta.dev/api/llm/models/v2",
-        json=ROBUSTA_MODELS,
+        "https://api.robusta.dev/api/llm/models/v3",
+        json={"models": ROBUSTA_MODELS},
     )
     temp_config_file = tmp_path / "custom_toolset.yaml"
     data = {
