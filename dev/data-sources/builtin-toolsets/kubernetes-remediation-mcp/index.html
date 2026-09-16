@@ -5865,7 +5865,7 @@
 <td><code>read_file_from_container</code></td>
 <td>No</td>
 <td>Auto</td>
-<td>Read a single file from inside a running container. Secret/token mounts are always refused.</td>
+<td>Read a single file from inside a running container, under the configured allow roots. Secret/token mounts, credential files and <code>/proc</code>, <code>/sys</code>, <code>/dev</code> are always refused.</td>
 </tr>
 <tr>
 <td><code>run_preapproved_kubectl_command</code></td>
@@ -6116,7 +6116,7 @@
 </tr>
 <tr>
 <td><strong>Path policy</strong></td>
-<td><code>read_file_from_container</code> resolves symlinks in-container and re-checks them; secret/token mounts (<code>/var/run/secrets/</code>, <code>/run/secrets/</code>) and the <code>/proc</code>, <code>/sys</code>, <code>/dev</code> pseudo-filesystems are always denied</td>
+<td><code>read_file_from_container</code> checks the literal path, resolves it in-container with <code>readlink -f</code>, re-checks the canonical target and reads that target. Secret/token mounts (<code>/var/run/secrets</code>, <code>/run/secrets</code>, <code>/var/secrets</code>, <code>/etc/secrets</code>, <code>/vault/secrets</code>, ...), credential files (<code>.aws</code>, <code>.config/gcloud</code>, <code>.kube</code>, <code>.ssh</code>, <code>.env</code>, <code>*credentials*</code>, <code>*.pem</code>, <code>*.key</code>, <code>id_rsa*</code>, ...) and the <code>/proc</code>, <code>/sys</code>, <code>/dev</code> pseudo-filesystems are always denied regardless of configuration. A path that cannot be canonicalized (image without <code>readlink</code>) is refused (server &gt;= 1.4.0)</td>
 </tr>
 <tr>
 <td><strong>Command allowlist</strong></td>
@@ -6340,13 +6340,18 @@ flag-injection guard are unaffected.</p>
 </tr>
 <tr>
 <td><code>fileReadAllowedPaths</code></td>
-<td><code>/</code></td>
-<td><code>read_file_from_container</code> allow roots</td>
+<td><code>/app,/config,/data,/etc,/home,/opt,/srv,/tmp,/usr,/var/lib,/var/log,/var/tmp,/var/www,/workspace</code></td>
+<td><code>read_file_from_container</code> allow roots (explicit; avoid <code>/</code>)</td>
 </tr>
 <tr>
 <td><code>fileReadDeniedPaths</code></td>
 <td><code>/var/run/secrets/,/run/secrets/,...</code></td>
-<td>secret-mount denylist</td>
+<td>operator denylist, applied on top of the server's built-in hard-denied roots and credential patterns</td>
+</tr>
+<tr>
+<td><code>fileReadRequireCanonicalization</code></td>
+<td><code>true</code></td>
+<td>refuse reads the container cannot resolve with <code>readlink -f</code> (server &gt;= 1.4.0); <code>false</code> restores fail-open</td>
 </tr>
 <tr>
 <td><code>allowArbitraryKubectlCommands</code></td>
