@@ -11,6 +11,8 @@ def append_custom_certificate(custom_ca: str) -> None:
         outfile.write(base64.b64decode(custom_ca))
 
     os.environ["WEBSOCKET_CLIENT_CA_BUNDLE"] = certifi.where()
+    os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+    os.environ["SSL_CERT_FILE"] = certifi.where()
 
 
 def create_temporary_certificate(custom_ca: str) -> None:
@@ -23,6 +25,7 @@ def create_temporary_certificate(custom_ca: str) -> None:
 
     os.environ["REQUESTS_CA_BUNDLE"] = CUSTOM_CERTIFICATE_PATH
     os.environ["WEBSOCKET_CLIENT_CA_BUNDLE"] = CUSTOM_CERTIFICATE_PATH
+    os.environ["SSL_CERT_FILE"] = CUSTOM_CERTIFICATE_PATH
     certifi.where = lambda: CUSTOM_CERTIFICATE_PATH
 
 
