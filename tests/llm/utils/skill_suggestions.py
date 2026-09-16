@@ -99,6 +99,44 @@ def count_fetch_skill_calls(tool_calls: Optional[List[Any]]) -> int:
     )
 
 
+def join_frontend_tool_turn_content(
+    final_answer: Optional[str],
+    messages: Optional[List[Dict[str, Any]]],
+    frontend_tool_names: Optional[set],
+) -> str:
+    """Recover an answer the model wrote in the same turn as a frontend tool call.
+
+    Frontend tools break the `LLMResult.result` response: Anthropic models may
+    emit their final answer as content *alongside* the tool call, and since
+    SuggestSkills replies "continue naturally as if this tool was never called"
+    the model then adds only a short trailing remark. `LLMResult.result` keeps
+    just that last turn, so the real answer is lost. The UI renders it correctly
+    (the content goes out as an `ai_message` event, which the frontend collects
+    into `intermediateMessages`), so this is reconstructed eval-side rather than
+    changed in product code.
+
+    Only turns whose tool calls are *all* frontend tools qualify. Content beside
+    an ordinary tool call is mid-investigation narration the model summarizes
+    later, so joining it would duplicate text.
+    """
+    stranded: List[str] = []
+    if messages and frontend_tool_names:
+        for message in messages:
+            if message.get("role") != "assistant":
+                continue
+            content = message.get("content")
+            tool_calls = message.get("tool_calls")
+            if not content or not isinstance(content, str) or not tool_calls:
+                continue
+            names = {
+                (tc.get("function") or {}).get("name") for tc in tool_calls
+            }
+            if names and names <= frontend_tool_names:
+                stranded.append(content)
+
+    return "\n\n".join(stranded + [final_answer or ""]).strip()
+
+
 def write_suggestions_as_skill_files(
     suggestions: List[Dict[str, Any]], target_dir: str
 ) -> List[str]:
