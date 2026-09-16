@@ -5714,6 +5714,7 @@
 <p>You can find your <code>domain</code> and <code>team_slug</code> from the URL you use to access Coralogix. For example, if you access Coralogix at <code>https://my-team.app.eu2.coralogix.com/</code> then <code>team_slug</code> is <code>my-team</code> and <code>domain</code> is <code>eu2.coralogix.com</code>.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
 <p>Configure both the Coralogix DataPrime toolset (for logs/traces) and the Prometheus metrics toolset (for metrics) using the same API key. The <code>team_slug</code> field is optional — it's only used to generate clickable permalink URLs that open query results in the Coralogix UI.</p>
+<p>Holmes automatically derives the UI hostname for permalinks from your <code>domain</code> — the Coralogix UI uses a different hostname than the API in most regions. For example, with the US2 domain (<code>us2.coralogix.com</code> or <code>cx498.coralogix.com</code>) permalinks point to <code>https://&lt;team_slug&gt;.app.cx498.coralogix.com</code>. If your team's UI lives at a non-standard address, set the optional <code>ui_url</code> field to its full base URL (e.g. <code>ui_url: "https://my-team.app.cx498.coralogix.com"</code>) to override the derived hostname.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="configuration-holmes-cli" name="__tabbed_1" type="radio" /><input id="configuration-holmes-helm-chart" name="__tabbed_1" type="radio" /><input id="configuration-robusta-helm-chart" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="configuration-holmes-cli">Holmes CLI</label><label for="configuration-holmes-helm-chart">Holmes Helm Chart</label><label for="configuration-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
@@ -5839,13 +5840,13 @@
 <li>
 <p>Open the Robusta platform — pick your region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11_1" name="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11" type="radio">
-<input id="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11_2" name="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11" type="radio">
-<input id="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11_3" name="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11" type="radio">
+<input checked="checked" id="__tabbed_f921959b_0cf3_461b_8929_5257881811d8_1" name="__tabbed_f921959b_0cf3_461b_8929_5257881811d8" type="radio">
+<input id="__tabbed_f921959b_0cf3_461b_8929_5257881811d8_2" name="__tabbed_f921959b_0cf3_461b_8929_5257881811d8" type="radio">
+<input id="__tabbed_f921959b_0cf3_461b_8929_5257881811d8_3" name="__tabbed_f921959b_0cf3_461b_8929_5257881811d8" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11_1">US</label>
-<label for="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11_2">EU</label>
-<label for="__tabbed_daa69f97_9445_4c47_a899_c94bd4fc1d11_3">AP</label>
+<label for="__tabbed_f921959b_0cf3_461b_8929_5257881811d8_1">US</label>
+<label for="__tabbed_f921959b_0cf3_461b_8929_5257881811d8_2">EU</label>
+<label for="__tabbed_f921959b_0cf3_461b_8929_5257881811d8_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><p><a href="https://platform.robusta.dev/">platform.robusta.dev</a></p></div>
