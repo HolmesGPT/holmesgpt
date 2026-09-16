@@ -39,6 +39,7 @@ from tests.llm.utils.property_manager import (
 from tests.llm.utils.skill_suggestions import (
     count_fetch_skill_calls,
     extract_suggested_skills,
+    join_frontend_tool_turn_content,
     write_suggestions_as_skill_files,
 )
 from tests.llm.utils.retry_handler import retry_on_throttle
@@ -147,7 +148,19 @@ def test_ask_holmes(
         )
         raise
 
-    output = result.result
+    # Models may write their final answer as content on the same turn as a
+    # frontend tool call. SuggestSkills replies "continue naturally as if this
+    # tool was never called", so the model then adds only a short trailing
+    # remark - and result.result keeps just that last turn, losing the answer.
+    # The UI renders it correctly (the content ships as an ai_message event,
+    # collected into intermediateMessages), so we rejoin it here instead of
+    # changing product code.
+    frontend_payload = load_frontend_tools(test_case)
+    output = join_frontend_tool_turn_content(
+        result.result,
+        result.messages,
+        {t.name for t in frontend_payload.tools} if frontend_payload else None,
+    )
 
     suggested_memories = extract_suggested_skills(result.tool_calls)
     update_property(request, "suggested_memories", suggested_memories)
