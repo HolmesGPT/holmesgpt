@@ -145,9 +145,11 @@ Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the 
 === "Robusta Helm Chart"
 
     ```yaml
-    holmes:
-      certificate: "<base64-encoded CA cert>"
+    global:
+      certificate: "<base64-encoded CA cert>"  # applies to the Robusta runner and Holmes
     ```
+
+    To set it for Holmes only, use `holmes.certificate`, which overrides `global.certificate`.
 
 ### API Server HTTPS (`HOLMES_SSL_*`)
 

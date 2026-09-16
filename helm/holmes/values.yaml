@@ -1,3 +1,5 @@
+# base64 encoded CA bundle appended to the SSL trust store for outbound HTTPS.
+# In the Robusta umbrella chart, global.certificate applies to Holmes too.
 certificate: "" # base64 encoded
 logLevel: INFO
 # When true, logs are emitted as JSON (one object per line) instead of colored

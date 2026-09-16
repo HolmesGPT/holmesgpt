@@ -190,9 +190,9 @@ spec:
             value: /etc/holmes/tls/ca.crt
           {{- end }}
           {{- end }}
-          {{ if .Values.certificate -}}
+          {{- with (.Values.certificate | default .Values.global.certificate) }}
           - name: CERTIFICATE
-            value: {{ .Values.certificate }}
+            value: {{ . }}
           {{- end }}
           {{ if .Values.openshift }}
           - name: IS_OPENSHIFT
