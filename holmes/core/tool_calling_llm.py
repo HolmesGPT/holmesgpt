@@ -12,9 +12,10 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 # In interactive mode this logger is silenced; the CLI renders from stream events instead.
 display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
+import httpx
 import sentry_sdk
-from litellm.exceptions import AuthenticationError
-from openai import BadRequestError
+from litellm.exceptions import AuthenticationError, PermissionDeniedError
+from openai import APIError, BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
     ChatCompletionMessageToolCall,
 )
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field
 from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
+    ROBUSTA_API_ENDPOINT,
     TEMPERATURE,
     load_bool,
 )
@@ -206,31 +208,99 @@ class ToolCallWithDecision(BaseModel):
     decision: Optional[ToolApprovalDecision]
 
 
-def _refusal_message(error: Exception) -> str:
-    """The text the server put in the body of its refusal.
+# litellm renders a provider error as
+# `litellm.<Class>: <Class>: <Provider>Exception - <body>`, and appends
+# ` LiteLLM Retried: N times` to `str(e)` when it retried. Neither belongs in
+# what the user is asked to act on.
+_LITELLM_PREFIX_RE = re.compile(
+    r"^(?:litellm\.\w+:\s*)?(?:\w*Error:\s*)?(?:\w*Exception\s*-\s*)?"
+)
+_LITELLM_RETRY_SUFFIX_RE = re.compile(
+    r"\s*LiteLLM Retried: \d+ times(?:, LiteLLM Max Retries: \d+)?\s*$"
+)
+# Relay refuses a call on a Robusta-hosted model with 401 (the session token
+# went stale) or 403 (the account disabled Robusta-hosted models).
+REFUSAL_STATUS_CODES = (401, 403)
 
-    litellm renders an HTTP error as `litellm.<Class>: <Class>: <Provider>Exception
-    - <body>`, so the sentence written for the user is the JSON body at the end
-    of that string. Falls back to the whole error when there is nothing to
-    unwrap.
-    """
-    text = str(error)
-    start = text.find("{")
-    if start == -1:
-        return text
-    try:
-        body = json.loads(text[start:])
-    except ValueError:
-        return text
+
+def _message_from_body(body: Any) -> Optional[str]:
+    """The human sentence inside an error body, whichever shape it arrived in:
+    FastAPI's `{"detail": ...}` or OpenAI's `{"error": {"message": ...}}`."""
     if not isinstance(body, dict):
-        return text
+        return None
     for key in ("detail", "message", "error"):
         value = body.get(key)
         if isinstance(value, dict):
             value = value.get("message")
         if isinstance(value, str) and value:
             return value
-    return text
+    return None
+
+
+def _refusal_message(error: Exception) -> str:
+    """The text the server put in the body of its refusal.
+
+    The structured body is the source: litellm keeps it on the exception, or on
+    the httpx response it wrapped. Only when neither carries one do we fall
+    back to unwrapping litellm's own decoration of the message.
+    """
+    body = getattr(error, "body", None)
+    if body is None:
+        response = getattr(error, "response", None)
+        if response is not None:
+            try:
+                body = response.json()
+            except Exception:
+                body = None
+
+    message = _message_from_body(body)
+    if message:
+        return message
+
+    text = getattr(error, "message", None) or str(error)
+    text = _LITELLM_RETRY_SUFFIX_RE.sub("", text)
+    return _LITELLM_PREFIX_RE.sub("", text).strip()
+
+
+def _is_robusta_refusal(llm: LLM, error: Exception) -> bool:
+    return (
+        isinstance(error, APIError)
+        and getattr(error, "status_code", None) in REFUSAL_STATUS_CODES
+        and bool(getattr(llm, "is_robusta_model", False))
+    )
+
+
+def _as_refusal_error(error: Exception) -> Exception:
+    """Relay's refusal, re-raised with relay's own words.
+
+    The status is preserved on an exception of the same family, so callers that
+    map it to an HTTP response (the checks API) keep answering 401 for a stale
+    token and 403 for a disabled account. litellm's own classes prepend their
+    name to whatever message they are given, so the message is put back
+    afterwards - that prefix is exactly what we are removing.
+    """
+    message = _refusal_message(error)
+    llm_provider = getattr(error, "llm_provider", None) or "openai"
+    model = getattr(error, "model", None) or ""
+
+    refusal: Exception
+    if getattr(error, "status_code", None) == 403:
+        response = getattr(error, "response", None) or httpx.Response(
+            status_code=403,
+            request=httpx.Request(method="POST", url=ROBUSTA_API_ENDPOINT),
+        )
+        refusal = PermissionDeniedError(
+            message=message,
+            llm_provider=llm_provider,
+            model=model,
+            response=response,
+        )
+    else:
+        refusal = AuthenticationError(
+            message=message, llm_provider=llm_provider, model=model
+        )
+    refusal.message = message  # type: ignore[attr-defined]
+    return refusal
 
 
 class ToolCallingLLM:
@@ -1307,20 +1377,6 @@ class ToolCallingLLM:
                         },
                     )
 
-              # Relay answers a call on a Robusta-hosted model with 401/403 when
-              # the account may not use one - it opted out of Robusta-hosted
-              # models, or the session token went stale. Its body says what to
-              # do about it; litellm's wrapper buries that behind its own
-              # class names, so hand the user relay's own words (ROB-1389).
-              except AuthenticationError as e:
-                if getattr(self.llm, "is_robusta_model", False):
-                    raise Exception(_refusal_message(e)) from e
-                logging.error(
-                    f"LLM AuthenticationError on model={self.llm.model} (streaming iteration {i}): {e}",
-                    exc_info=True,
-                )
-                raise
-
               # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
               except BadRequestError as e:
                 if "Unrecognized request arguments supplied: tool_choice, tools" in str(
@@ -1336,6 +1392,15 @@ class ToolCallingLLM:
                     )
                     raise
               except Exception as e:
+                # A refusal on a Robusta-hosted model is the platform talking
+                # to the user, not a provider failure: its body says what to do
+                # about it, and litellm's rendering buries that (ROB-1389).
+                if _is_robusta_refusal(self.llm, e):
+                    logging.warning(
+                        f"Relay refused the call on model={self.llm.model} "
+                        f"(status {getattr(e, 'status_code', None)}): {e}"
+                    )
+                    raise _as_refusal_error(e) from e
                 logging.error(
                     f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
                     f"{type(e).__name__}: {e}",

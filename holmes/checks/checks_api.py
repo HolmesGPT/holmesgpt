@@ -4,7 +4,7 @@ import time
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from litellm.exceptions import AuthenticationError
+from litellm.exceptions import AuthenticationError, PermissionDeniedError
 from pydantic import BaseModel, Field
 
 from holmes.checks.checks import execute_check
@@ -237,6 +237,11 @@ def execute_health_check(
 
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
+    except PermissionDeniedError as e:
+        # The platform refused the model rather than the credentials - e.g. the
+        # account disabled Robusta-hosted models. Its message says what to do,
+        # so it must reach the caller instead of becoming a generic 500.
+        raise HTTPException(status_code=403, detail=e.message)
     except Exception as e:
         logging.error(f"Error in /api/checks/execute: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -1018,17 +1018,19 @@ class LLMModelRegistry:
         with self._lock:
             # Robusta AI is in play iff something Robusta-hosted is loaded -
             # startup leaves either the catalog or the legacy fallback behind.
-            serves_robusta_models = any(
-                entry.is_robusta_model for entry in self._llms.values()
+            # An opted-out agent serves nothing Robusta-hosted, so the catalog
+            # can no longer tell us: it must keep polling for the account to be
+            # re-enabled. Both reads are of the same registry state, so they
+            # are taken together.
+            robusta_ai_in_play = (
+                any(entry.is_robusta_model for entry in self._llms.values())
+                or self._robusta_ai_disabled
             )
 
         # cluster_name and LOAD_ALL_ROBUSTA_MODELS are what put an agent in
         # legacy single-model mode at boot; refreshing must not promote it.
-        # An opted-out agent serves nothing Robusta-hosted, so the catalog can
-        # no longer tell us Robusta AI is in play - it must keep polling for
-        # the account to be re-enabled.
         if not (
-            (serves_robusta_models or self._robusta_ai_disabled)
+            robusta_ai_in_play
             and self.config.cluster_name
             and LOAD_ALL_ROBUSTA_MODELS
             and self.dal.enabled
