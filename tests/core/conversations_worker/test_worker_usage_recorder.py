@@ -76,7 +76,7 @@ def _chat_request():
     )
 
 
-def _run(worker, ai):
+def _run(worker, ai, task=None, chat_request=None):
     """Drive _run_chat_and_publish with all heavy collaborators mocked.
 
     Returns the captured (raw_stream, recorder_state, wrapped_stream) so
@@ -124,10 +124,11 @@ def _run(worker, ai):
         mock_wrap.return_value = wrapped_stream_sentinel
 
         worker._run_chat_and_publish(
-            task=_task(),
-            chat_request=_chat_request(),
+            task=task or _task(),
+            chat_request=chat_request or _chat_request(),
             publisher=publisher,
         )
+        captured["call_stream_call"] = ai.call_stream.call_args
 
         captured["raw_stream"] = raw_stream
         captured["wrap_call"] = mock_wrap.call_args
@@ -362,6 +363,40 @@ def test_metadata_oauth_enabled_false_drops_user_id():
     cr, fail = _process_and_capture(task, {"ask": "q"})
     fail.assert_not_called()
     assert cr is not None and cr.user_id is None
+
+
+def test_request_context_carries_owner_when_oauth_opt_out_drops_user_id():
+    worker, ai = _bare_worker()
+    task = ConversationTask(
+        conversation_id="c1", account_id="a1", cluster_id="cl1", origin="chat",
+        request_sequence=1, user_id="u-owner", metadata={"oauth_enabled": False},
+    )
+    cr = _chat_request()
+    cr.user_id = None
+    captured = _run(worker, ai, task=task, chat_request=cr)
+    ctx = captured["call_stream_call"].kwargs["request_context"]
+    assert ctx["conversation_owner_id"] == "u-owner"
+    assert "user_id" not in ctx
+
+
+def test_request_context_carries_owner_and_user_id_normally():
+    worker, ai = _bare_worker()
+    task = ConversationTask(
+        conversation_id="c1", account_id="a1", cluster_id="cl1", origin="chat",
+        request_sequence=1, user_id="u-1",
+    )
+    captured = _run(worker, ai, task=task)
+    ctx = captured["call_stream_call"].kwargs["request_context"]
+    assert ctx["user_id"] == "u-1" and ctx["conversation_owner_id"] == "u-1"
+
+
+def test_request_context_has_no_owner_for_ownerless_row():
+    worker, ai = _bare_worker()
+    cr = _chat_request()
+    cr.user_id = None
+    captured = _run(worker, ai, task=_task(user_id=None), chat_request=cr)
+    ctx = captured["call_stream_call"].kwargs["request_context"]
+    assert "conversation_owner_id" not in ctx and "user_id" not in ctx
 
 
 def test_request_source_falls_back_to_conversations_metadata():

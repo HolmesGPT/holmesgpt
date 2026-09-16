@@ -1207,6 +1207,11 @@ class ConversationWorker:
             request_context: Optional[Dict[str, Any]] = None
             if chat_request.user_id:
                 request_context = {"user_id": chat_request.user_id}
+            if task.user_id:
+                # Row owner, sent to relay for RBAC even when user_id was
+                # dropped by the OAuth opt-out.
+                request_context = request_context or {}
+                request_context["conversation_owner_id"] = task.user_id
             if task.conversation_id:
                 request_context = request_context or {}
                 request_context["conversation_id"] = task.conversation_id
