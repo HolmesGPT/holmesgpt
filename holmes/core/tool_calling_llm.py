@@ -1418,10 +1418,28 @@ class ToolCallingLLM:
                                 data=tool_result_dict,
                             )
                         else:
+                            # No approval flow exists in this conversation, so
+                            # the error must state that nothing was executed OR
+                            # queued: a bare "requires approval" reads as if an
+                            # approval is now pending, and the model then tells
+                            # the user the command is waiting for a human to
+                            # approve it, which is false.
+                            original_error = (
+                                tool_call_result.result.error
+                                or "This tool call requires approval."
+                            )
                             tool_call_result.result.status = (
                                 StructuredToolResultStatus.ERROR
                             )
-                            tool_call_result.result.error = f"Tool call rejected for security reasons: {tool_call_result.result.error}"
+                            tool_call_result.result.error = (
+                                "Tool call rejected: it requires human approval, "
+                                "and approval is not available in this conversation. "
+                                f"({original_error}) "
+                                "The command was NOT executed and NOT submitted or queued for approval - "
+                                "nothing is waiting for anyone's approval. "
+                                "Do not tell the user the command was submitted or is awaiting approval. "
+                                "Instead, explain that you cannot run this command in this conversation and why."
+                            )
                             tool_result_dict = tool_call_result.to_client_dict()
 
                             tool_calls.append(tool_result_dict)
