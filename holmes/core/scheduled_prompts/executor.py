@@ -18,6 +18,7 @@ from holmes.common.env_vars import (
     SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS,
 )
 from holmes.core.models import ChatRequest, ChatResponse
+from holmes.core.prompt import TODOWRITE_COMPONENTS
 from holmes.core.scheduled_prompts.heartbeat_tracer import (
     ScheduledPromptsHeartbeatSpan,
 )
@@ -191,11 +192,10 @@ class ScheduledPromptsExecutor:
         # Create heartbeat span
         heartbeat_span = ScheduledPromptsHeartbeatSpan(sp=sp, dal=self.dal)
 
-        behavior_controls = (
-            {"todowrite_instructions": False, "todowrite_reminder": False}
-            if ENABLE_SCHEDULED_PROMPTS_FAST_MODE
-            else None
-        )
+        behavior_controls = {
+            component.value: not ENABLE_SCHEDULED_PROMPTS_FAST_MODE
+            for component in TODOWRITE_COMPONENTS
+        }
         chat_request = ChatRequest(
             ask=self._extract_prompt_text(sp.prompt),
             model=sp.model_name,

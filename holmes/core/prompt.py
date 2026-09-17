@@ -29,8 +29,19 @@ class PromptComponent(str, Enum):
     SYSTEM_PROMPT_ADDITIONS = "system_prompt_additions"
 
 
-# Components that are disabled by default (can be explicitly enabled via overrides or env var)
-DISABLED_BY_DEFAULT: set = set()
+# Fast mode is the default (ROB-574): the TodoWrite planning phase is off unless a
+# caller opts in via behavior_controls / --extended-planning, or ENABLED_PROMPTS
+# lists the component explicitly.
+TODOWRITE_COMPONENTS: Tuple[PromptComponent, ...] = (
+    PromptComponent.TODOWRITE_INSTRUCTIONS,
+    PromptComponent.TODOWRITE_REMINDER,
+)
+DISABLED_BY_DEFAULT: set = set(TODOWRITE_COMPONENTS)
+
+
+def todowrite_overrides(enabled: bool) -> Dict[PromptComponent, bool]:
+    """Prompt component overrides that turn the TodoWrite planning phase on or off."""
+    return {component: enabled for component in TODOWRITE_COMPONENTS}
 
 
 class InvalidImageDictError(ValueError):
@@ -87,24 +98,27 @@ def get_scoped_namespaces() -> List[str]:
     return [ns.strip() for ns in scoped_namespaces.split(",") if ns.strip()]
 
 
+def _env_enabled_prompts() -> Optional[set]:
+    """
+    Parse the ENABLED_PROMPTS environment variable.
+
+    - Unset or blank: None (no restriction; per-component defaults apply)
+    - "none": empty set (every component disabled)
+    - Comma-separated names (e.g., "files,time_skills"): the listed components
+    """
+    raw = os.environ.get("ENABLED_PROMPTS", "").strip()
+    if not raw:
+        return None
+    if raw.lower() == "none":
+        return set()
+    names = {x.strip().lower() for x in raw.split(",") if x.strip()}
+    return names or None
+
+
 def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
-    """
-    Check if a prompt component is allowed by the ENABLED_PROMPTS environment variable.
-
-    Environment variable: ENABLED_PROMPTS
-    - If not set: all prompts are ENABLED (production default)
-    - If set to "none": all prompts are disabled
-    - Comma-separated names (e.g., "files,time_skills")
-    """
-    enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
-
-    if not enabled_prompts:
-        return True  # Default: all enabled
-    if enabled_prompts.lower() == "none":
-        return False
-
-    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
-    return component.value in enabled_names
+    """Check if a prompt component is allowed by the ENABLED_PROMPTS environment variable."""
+    allowed = _env_enabled_prompts()
+    return allowed is None or component.value in allowed
 
 
 def is_component_enabled(
@@ -115,16 +129,19 @@ def is_component_enabled(
     Check if a prompt component is enabled, considering both env var and API overrides.
 
     Precedence: env var > API override > default
-    - If env var disables component: always disabled (API can't override)
-    - If env var allows component: API override decides, or use default
-    - Default is enabled for most components, except those in DISABLED_BY_DEFAULT
+    - ENABLED_PROMPTS set and component not listed: always disabled (API can't override)
+    - API override present: it decides
+    - ENABLED_PROMPTS lists the component: enabled
+    - Otherwise: enabled unless the component is in DISABLED_BY_DEFAULT
     """
-    env_allowed = is_prompt_allowed_by_env(component)
-    if not env_allowed:
-        return False  # env var wins, can't override to enabled
+    allowed = _env_enabled_prompts()
+    if allowed is not None and component.value not in allowed:
+        return False
     if overrides and component in overrides:
-        return overrides[component]  # env allows, API decides
-    return component not in DISABLED_BY_DEFAULT  # env allows, no override, use default
+        return overrides[component]
+    if allowed is not None:
+        return True
+    return component not in DISABLED_BY_DEFAULT
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
