@@ -104,32 +104,6 @@ holmes:
 |-----------|-------------|
 | get_prometheus_target | Fetch the definition of a Prometheus target via kubectl proxy |
 
-### Resource Lineage
-
-!!! note "Not Enabled by Default"
-    This toolset must be explicitly enabled. Requires [kube-lineage](https://github.com/tohjustin/kube-lineage) installed either via `kubectl krew` or built from source.
-
-Provides tools to fetch children/dependents and parents/dependencies of Kubernetes resources. Two variations are available depending on how kube-lineage is installed.
-
-**Configuration:**
-
-```yaml
-holmes:
-    toolsets:
-        kubernetes/kube-lineage-extras:
-            enabled: true
-        # OR if installed via krew:
-        kubernetes/krew-extras:
-            enabled: true
-```
-
-**Capabilities:**
-
-| Tool Name | Description |
-|-----------|-------------|
-| kubectl_lineage_children | Get child/dependent resources of a Kubernetes resource |
-| kubectl_lineage_parents | Get parent/dependency resources of a Kubernetes resource |
-
 ## Permissions
 
 !!! important "Read-Only by Default"
