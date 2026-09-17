@@ -49,6 +49,7 @@ data:
   KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticInternalDnsSuffixes | quote }}
   KUBECTL_FILE_READ_ALLOWED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadAllowedPaths | quote }}
   KUBECTL_FILE_READ_DENIED_PATHS: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadDeniedPaths | quote }}
+  KUBECTL_FILE_READ_REQUIRE_CANONICALIZATION: {{ .Values.mcpAddons.kubernetesRemediation.config.fileReadRequireCanonicalization | quote }}
   KUBECTL_ALLOW_ARBITRARY_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.allowArbitraryKubectlCommands | quote }}
   KUBECTL_TIMEOUT: {{ .Values.mcpAddons.kubernetesRemediation.config.timeout | quote }}
   LOG_LEVEL: {{ .Values.mcpAddons.kubernetesRemediation.config.logLevel | quote }}
@@ -175,6 +176,11 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: KUBECTL_FILE_READ_DENIED_PATHS
+        - name: KUBECTL_FILE_READ_REQUIRE_CANONICALIZATION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_FILE_READ_REQUIRE_CANONICALIZATION
         - name: KUBECTL_ALLOW_ARBITRARY_COMMANDS
           valueFrom:
             configMapKeyRef:

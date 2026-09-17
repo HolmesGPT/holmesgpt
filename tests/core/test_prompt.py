@@ -575,3 +575,86 @@ class TestIsComponentEnabled:
             is False
         )
 
+
+
+class TestImpactAndBlastRadius:
+    """ROB-1233 — the system prompt must constrain impact claims to evidence.
+
+    An audit found an otherwise-correct node-memory-pressure narrative that
+    appended "system DaemonSets (cilium, CSI, node-exporter) also affected" —
+    no eviction event, no pod status, no metric behind it. One invented
+    consequence bolted onto a correct analysis costs a reader more trust than a
+    vaguer answer would, because it sends them chasing a CNI fault that does not
+    exist. These tests pin the guidance that rules it out."""
+
+    def _system_prompt(self, mock_tool_executor) -> str:
+        """The rendered system prompt for a plain ask, which is what ships."""
+        messages = build_initial_ask_messages(
+            "Why did the node go into memory pressure?",
+            None,
+            mock_tool_executor,
+            None,
+            None,
+        )
+        assert messages[0]["role"] == "system"
+        return messages[0]["content"]
+
+    def test_section_is_present(self, mock_tool_executor):
+        """The section reaches the model at all."""
+        assert "# Impact and blast radius" in self._system_prompt(mock_tool_executor)
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            # per-entity evidence, and name that evidence
+            "only when you observed evidence for THAT entity",
+            # no inferring the blast radius from the mechanism
+            "Never widen the blast radius by inference",
+            "Check each entity before you name it, or do not name it",
+            # sampling a workload's replicas concludes about the workload, not
+            # about replicas that were never looked at
+            "sampling a workload's replicas characterizes the WORKLOAD",
+            "name an individual pod only when you looked at that pod",
+            # clearing an entity needs a look too
+            'The same discipline applies to clearing entities: "X was unaffected" also needs a look',
+            # an entity checked and found healthy is itself a finding
+            "Entities you checked and found healthy are a finding worth reporting",
+            # unobserved consequences: verify or mark unverified
+            "marked explicitly as unverified",
+            # scope words must match observation
+            "must match what you actually observed",
+            # a change inside the window is not impact until its reason ties it
+            # to the cause — a controller's SuccessfulCreate is a rollout
+            "Coincidence in time is not causation",
+            "`SuccessfulCreate` from a controller is a rollout",
+            # the write-up sorts entities into four labelled groups, so a pod
+            # that changed for another reason has somewhere to go besides impact
+            "**Changed during the window for another reason**",
+            "it does not go under an impact heading with a time-window qualifier as a substitute for a cause",
+            # every Affected line quotes the reason token that proves it
+            "Every line here quotes the exact reason token that proves it",
+            "`SuccessfulDelete`, `SuccessfulCreate`, `Scheduled`, `Started` and a probe miss at startup are not among them",
+            # kubernetes: eviction/OOM leave marks; controller replacement is not damage
+            "an `Evicted` event from the kubelet, or `OOMKilled` as a container's last termination reason",
+            "was rolled out or rescheduled by that controller, not damaged by the node",
+            "Count a pod as affected only on its own eviction or kill evidence",
+        ],
+    )
+    def test_rules_are_pinned(self, mock_tool_executor, rule):
+        """Each rule survives edits to the template around it."""
+        assert rule in self._system_prompt(mock_tool_executor)
+
+    def test_section_rides_with_general_instructions(self, mock_tool_executor, monkeypatch):
+        """It belongs to the investigation guidelines, so a caller that turns
+        those off does not get it — and one that turns them on does."""
+        monkeypatch.setenv("ENABLED_PROMPTS", "intro")
+        assert "# Impact and blast radius" not in self._system_prompt(mock_tool_executor)
+        monkeypatch.setenv("ENABLED_PROMPTS", "general_instructions")
+        assert "# Impact and blast radius" in self._system_prompt(mock_tool_executor)
+
+    def test_section_precedes_the_kubernetes_guidance(self, mock_tool_executor):
+        """General discipline first, then the k8s specifics that lean on it."""
+        prompt = self._system_prompt(mock_tool_executor)
+        assert prompt.index("# Investigation guidelines") < prompt.index(
+            "# Impact and blast radius"
+        ) < prompt.index("# If investigating Kubernetes problems")
