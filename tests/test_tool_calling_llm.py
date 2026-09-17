@@ -13,6 +13,7 @@ Mocking strategy:
   of compact_if_necessary (e.g., after tool results, at final response)
 """
 
+import contextlib
 import json
 import threading
 from typing import Any, Dict, List, Optional
@@ -1949,6 +1950,36 @@ class TestRepetitionLoopDetection:
 
         answer = _events_of_type(events, StreamEvents.ANSWER_END)[0]
         assert "loop_detected" not in answer.data["metadata"]
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_loop_breaker_marker_never_reaches_the_provider(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        """The out-of-band marker is stripped in LLM.completion (alongside
+        token_count), so a provider never sees a non-schema message field."""
+        from holmes.core.llm import DefaultLLM
+        from holmes.core.loop_detection import (
+            LOOP_BREAKER_FIELD,
+            LoopSignal,
+            build_loop_breaker_message,
+        )
+
+        nudge = build_loop_breaker_message(
+            LoopSignal(kind="repeated_tool_calls", detail="d", nudge_count=0)
+        )
+        assert LOOP_BREAKER_FIELD in nudge  # precondition: it is set
+
+        llm = DefaultLLM(model="gpt-4o", api_key="k")
+        with patch("holmes.core.llm.litellm.completion") as mock_completion:
+            # completion() validates the response type; we only care about what
+            # was sent, so let the return-type check raise and move on.
+            with contextlib.suppress(Exception):
+                llm.completion(messages=[nudge], tools=[], tool_choice=None)
+
+        sent = mock_completion.call_args.kwargs["messages"]
+        assert LOOP_BREAKER_FIELD not in sent[0]
+        assert sent[0]["role"] == "user"
+        assert sent[0]["content"] == nudge["content"]
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_final_answer_is_never_trimmed(self, _mock_limit, make_ai, mock_llm):

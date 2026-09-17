@@ -1162,8 +1162,9 @@ class ToolCallingLLM:
         # winning a fresh window and a fresh escalation budget on every pause.
         loop_detector.seed_from_messages(messages)
         # Set once nudging has failed: withdraws the tools so the next call has
-        # no choice but to produce a final answer.
-        force_final_answer = False
+        # no choice but to produce a final answer. Seeded from the transcript so
+        # a run cannot get its tools back by pausing after the forced answer.
+        force_final_answer = loop_detector.tools_withdrawn
         metadata: Dict[Any, Any] = {}
         stats = RequestStats()
         if iteration_offset < 0:

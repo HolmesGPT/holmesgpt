@@ -62,11 +62,16 @@ KIND_DEGENERATE_OUTPUT = "degenerate_output"
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
-# Phrases that identify a loop-breaker message in a transcript. They are used to
-# BUILD the messages below and to RECOGNISE them in seed_from_messages(), so the
-# two can never drift apart. Changing one changes both.
-NUDGE_SIGNATURE = "Do not repeat that step."
-FORCE_ANSWER_SIGNATURE = "no further tool calls will be executed"
+# Loop-breaker messages are marked with an out-of-band field rather than
+# recognised by their wording. Message CONTENT is untrusted: an alert body, a
+# pasted log or a ticket description arrives as user content, and any of it could
+# contain the phrasing we use. Matching on text would let that input inflate the
+# escalation budget and withdraw Holmes's tools early. The field is stripped
+# before the request reaches the provider (see _INTERNAL_FIELDS in llm.py), the
+# same way token_count is.
+LOOP_BREAKER_FIELD = "holmes_loop_breaker"
+LOOP_BREAKER_NUDGE = "nudge"
+LOOP_BREAKER_FORCE = "force"
 
 
 @dataclass
@@ -208,14 +213,24 @@ class LoopDetector:
     """
 
     def __init__(self) -> None:
-        """Start with an empty window and a full escalation budget."""
+        """Start with an empty window, a full escalation budget, and tools available."""
         self._turns: List[_Turn] = []
         self._nudges = 0
+        self._tools_withdrawn = False
 
     @property
     def nudge_count(self) -> int:
         """How many interventions have already been issued in this run."""
         return self._nudges
+
+    @property
+    def tools_withdrawn(self) -> bool:
+        """True when this run already had its tools withdrawn to force an answer.
+
+        Survives a resume, so a run cannot get its tools back by pausing after
+        the forced answer and continuing to loop.
+        """
+        return self._tools_withdrawn
 
     def seed_from_messages(self, messages: Sequence[Dict[str, Any]]) -> None:
         """Rebuild detector state by replaying an existing transcript.
@@ -243,23 +258,27 @@ class LoopDetector:
         try:
             turns: List[_Turn] = []
             nudges = 0
+            withdrawn = False
             for message in messages:
                 role = message.get("role")
                 if role == "user":
-                    text = _message_text(message)
-                    if FORCE_ANSWER_SIGNATURE in text:
+                    marker = message.get(LOOP_BREAKER_FIELD)
+                    if marker == LOOP_BREAKER_FORCE:
                         # Tools were withdrawn; the runtime kept the window.
                         nudges += 1
-                    elif NUDGE_SIGNATURE in text:
+                        withdrawn = True
+                    elif marker == LOOP_BREAKER_NUDGE:
                         # The runtime calls reset() after a nudge, giving the
                         # corrected approach a clean window.
                         nudges += 1
                         turns = []
                     else:
                         # A genuine new question from the user: a fresh run
-                        # deserves a fresh window and a fresh budget.
+                        # deserves a fresh window, a fresh budget, and its tools
+                        # back.
                         turns = []
                         nudges = 0
+                        withdrawn = False
                 elif role == "assistant":
                     turns.append(
                         _Turn(
@@ -282,11 +301,13 @@ class LoopDetector:
 
             self._turns = turns[-_window_size() :] if turns else []
             self._nudges = nudges
+            self._tools_withdrawn = withdrawn
         except Exception:
             # Seeding is an optimisation; a failure must not break the run.
             logging.error("Loop detection failed to seed from messages", exc_info=True)
             self._turns = []
             self._nudges = 0
+            self._tools_withdrawn = False
 
     def record_turn(
         self,
@@ -474,9 +495,10 @@ def build_loop_breaker_message(signal: LoopSignal) -> Dict[str, str]:
     if signal.should_force_answer:
         return {
             "role": "user",
+            LOOP_BREAKER_FIELD: LOOP_BREAKER_FORCE,
             "content": (
                 f"STOP. {preamble} You have already been warned about this once, "
-                f"and {FORCE_ANSWER_SIGNATURE}.\n\n"
+                "and no further tool calls will be executed.\n\n"
                 "Write your final answer now, using only what you have already "
                 "gathered. State plainly which parts of the question you could "
                 "not answer and why, rather than repeating the attempt."
@@ -485,9 +507,10 @@ def build_loop_breaker_message(signal: LoopSignal) -> Dict[str, str]:
 
     return {
         "role": "user",
+        LOOP_BREAKER_FIELD: LOOP_BREAKER_NUDGE,
         "content": (
             f"{preamble} ({signal.detail}.)\n\n"
-            f"{NUDGE_SIGNATURE} Choose exactly one of the following and "
+            "Do not repeat that step. Choose exactly one of the following and "
             "act on it in your next message:\n"
             "1. Use a DIFFERENT tool, or the same tool with MATERIALLY different "
             "arguments (a different resource, namespace, time range or query - "

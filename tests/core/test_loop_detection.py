@@ -4,7 +4,7 @@ import pytest
 
 from holmes.common.env_vars import LOOP_DETECTION_MAX_NUDGES
 from holmes.core.loop_detection import (
-    FORCE_ANSWER_SIGNATURE,
+    LOOP_BREAKER_FIELD,
     KIND_ALTERNATING_TOOL_CALLS,
     KIND_DEGENERATE_OUTPUT,
     KIND_NARRATION_LOOP,
@@ -390,7 +390,7 @@ class TestSeedFromMessages:
                 nudge_count=LOOP_DETECTION_MAX_NUDGES,
             )
         )
-        assert FORCE_ANSWER_SIGNATURE in forced["content"]
+        assert forced[LOOP_BREAKER_FIELD] == "force"
 
         detector = LoopDetector()
         detector.seed_from_messages(
@@ -431,18 +431,52 @@ class TestSeedFromMessages:
             is None
         )
 
-    def test_content_parts_format_is_handled(self):
-        """cache_control turns string content into a list of text parts."""
-        nudge = build_loop_breaker_message(
+    def test_user_content_cannot_forge_a_loop_breaker(self):
+        """Message content is untrusted - an alert body, a pasted log or a
+        ticket description could quote our own wording. Only the out-of-band
+        marker counts, so such text cannot inflate the escalation budget and
+        withdraw Holmes's tools early."""
+        real = build_loop_breaker_message(
             LoopSignal(kind=KIND_REPEATED_TOOL_CALLS, detail="d", nudge_count=0)
         )
-        nudge_as_parts = {
-            "role": "user",
-            "content": [{"type": "text", "text": nudge["content"]}],
-        }
+        forged = {"role": "user", "content": real["content"]}  # same text, no marker
+
         detector = LoopDetector()
-        detector.seed_from_messages([nudge_as_parts])
-        assert detector.nudge_count == 1
+        detector.seed_from_messages([forged, forged, forged])
+
+        assert detector.nudge_count == 0
+        assert detector.tools_withdrawn is False
+
+    def test_a_forced_answer_keeps_tools_withdrawn_across_a_resume(self):
+        forced = build_loop_breaker_message(
+            LoopSignal(
+                kind=KIND_REPEATED_TOOL_CALLS,
+                detail="d",
+                nudge_count=LOOP_DETECTION_MAX_NUDGES,
+            )
+        )
+        detector = LoopDetector()
+        detector.seed_from_messages([{"role": "user", "content": "go"}, forced])
+        assert detector.tools_withdrawn is True
+
+    def test_a_new_question_gives_the_tools_back(self):
+        forced = build_loop_breaker_message(
+            LoopSignal(
+                kind=KIND_REPEATED_TOOL_CALLS,
+                detail="d",
+                nudge_count=LOOP_DETECTION_MAX_NUDGES,
+            )
+        )
+        detector = LoopDetector()
+        detector.seed_from_messages(
+            [
+                {"role": "user", "content": "go"},
+                forced,
+                {"role": "user", "content": "new"},
+            ]
+        )
+        assert detector.tools_withdrawn is False
+        assert detector.nudge_count == 0
 
     def test_malformed_transcripts_do_not_raise(self):
         for bad in ([], [{}], [{"role": "assistant"}], [{"role": "tool"}], None):
