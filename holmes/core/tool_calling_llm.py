@@ -12,9 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 # In interactive mode this logger is silenced; the CLI renders from stream events instead.
 display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
-import httpx
 import sentry_sdk
-from litellm.exceptions import AuthenticationError, PermissionDeniedError
 from openai import APIError, BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
     ChatCompletionMessageToolCall,
@@ -24,7 +22,6 @@ from pydantic import BaseModel, Field
 from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
-    ROBUSTA_API_ENDPOINT,
     TEMPERATURE,
     load_bool,
 )
@@ -92,6 +89,22 @@ class LLMInterruptedError(Exception):
     """Raised when the user interrupts an in-progress LLM call (e.g. via Escape key)."""
 
     pass
+
+
+class RelayRefusal(Exception):
+    """Relay refusing a call on a Robusta-hosted model: 403 when the account
+    disabled Robusta-hosted models, 401 when the session token went stale.
+
+    This is the platform talking to the user, not a provider failure, so it is
+    holmes' own exception rather than one of litellm's: the message is relay's
+    sentence verbatim - what `str()` and `args[0]` give - and the status is
+    what an HTTP consumer answers with (ROB-1389).
+    """
+
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
 
 
 # Create a named logger for cost tracking
@@ -270,43 +283,6 @@ def _is_robusta_refusal(llm: LLM, error: Exception) -> bool:
         and getattr(error, "status_code", None) in REFUSAL_STATUS_CODES
         and bool(getattr(llm, "is_robusta_model", False))
     )
-
-
-def _as_refusal_error(error: Exception) -> Exception:
-    """Relay's refusal, re-raised with relay's own words.
-
-    The status is preserved on an exception of the same family, so callers that
-    map it to an HTTP response (the checks API) keep answering 401 for a stale
-    token and 403 for a disabled account. litellm's own classes prepend their
-    name to whatever message they are given, so the message is put back
-    afterwards - that prefix is exactly what we are removing.
-    """
-    message = _refusal_message(error)
-    llm_provider = getattr(error, "llm_provider", None) or "openai"
-    model = getattr(error, "model", None) or ""
-
-    refusal: Exception
-    if getattr(error, "status_code", None) == 403:
-        response = getattr(error, "response", None) or httpx.Response(
-            status_code=403,
-            request=httpx.Request(method="POST", url=ROBUSTA_API_ENDPOINT),
-        )
-        refusal = PermissionDeniedError(
-            message=message,
-            llm_provider=llm_provider,
-            model=model,
-            response=response,
-        )
-    else:
-        refusal = AuthenticationError(
-            message=message, llm_provider=llm_provider, model=model
-        )
-    # litellm's classes build their `message` - and with it `args` - by
-    # prefixing their own name onto what they were given. That prefix is the
-    # thing being removed, so both carry relay's words instead.
-    refusal.message = message  # type: ignore[attr-defined]
-    refusal.args = (message,)
-    return refusal
 
 
 class ToolCallingLLM:
@@ -1394,11 +1370,14 @@ class ToolCallingLLM:
                 # to the user, not a provider failure: its body says what to do
                 # about it, and litellm's rendering buries that (ROB-1389).
                 if _is_robusta_refusal(self.llm, e):
+                    # _is_robusta_refusal already established the status is one
+                    # of REFUSAL_STATUS_CODES.
+                    status_code = e.status_code  # type: ignore[attr-defined]
                     logging.warning(
                         f"Relay refused the call on model={self.llm.model} "
-                        f"(status {getattr(e, 'status_code', None)}): {e}"
+                        f"(status {status_code}): {e}"
                     )
-                    raise _as_refusal_error(e) from e
+                    raise RelayRefusal(_refusal_message(e), status_code) from e
 
                 # a known error that occurs with Azure, replaced with something
                 # more obvious to the user

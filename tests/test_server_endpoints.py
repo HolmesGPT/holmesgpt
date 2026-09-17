@@ -4,12 +4,49 @@ import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
+from holmes.core.tool_calling_llm import RelayRefusal
 from server import app, extract_passthrough_headers
 
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+DISABLED_MESSAGE = (
+    "Robusta-hosted models are disabled for this account. Configure a model on "
+    "the cluster, or enable Robusta-hosted models in Settings > LLM Models."
+)
+
+
+@pytest.mark.parametrize(
+    "status_code, message",
+    [
+        (403, DISABLED_MESSAGE),
+        (401, "Your session has expired. Reconnect the cluster to the platform."),
+    ],
+)
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_answers_a_relay_refusal_with_its_own_status(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+    status_code,
+    message,
+):
+    """Relay refusing the call on a Robusta-hosted model is the platform
+    talking to the user: /api/chat passes its status and sentence through
+    rather than turning them into a 500 (ROB-1389)."""
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.side_effect = RelayRefusal(message, status_code)
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?"})
+
+    assert response.status_code == status_code
+    assert response.json()["detail"] == message
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")

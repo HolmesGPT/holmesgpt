@@ -65,6 +65,7 @@ from holmes.core.models import (
     OAuthCallbackResponse,
 )
 from holmes.core.prompt import PromptComponent
+from holmes.core.tool_calling_llm import RelayRefusal
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
@@ -829,6 +830,11 @@ def chat(chat_request: ChatRequest, http_request: Request):
     except HTTPException:
         # The generic ``except Exception`` below would otherwise rewrite these as 500.
         raise
+    except RelayRefusal as e:
+        # Relay's own refusal of a Robusta-hosted model carries the status to
+        # answer with (401 stale token, 403 account opted out) and the sentence
+        # the user has to act on (ROB-1389).
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:

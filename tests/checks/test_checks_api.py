@@ -1,12 +1,10 @@
 import json
-import httpx
 import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from litellm.exceptions import AuthenticationError, PermissionDeniedError
 from server import app
 
-from holmes.core.tool_calling_llm import LLMResult
+from holmes.core.tool_calling_llm import LLMResult, RelayRefusal
 
 
 @pytest.fixture
@@ -59,24 +57,10 @@ DISABLED_MESSAGE = (
 )
 
 
-def _refusal(status_code: int, message: str):
-    """A refusal as ToolCallingLLM re-raises it: the platform's own message on
-    an exception of the family litellm uses for that status (ROB-1389)."""
-    if status_code == 403:
-        error = PermissionDeniedError(
-            message=message,
-            llm_provider="openai",
-            model="Robusta/gpt-5",
-            response=httpx.Response(
-                403, request=httpx.Request("POST", "https://api.robusta.dev")
-            ),
-        )
-    else:
-        error = AuthenticationError(
-            message=message, llm_provider="openai", model="Robusta/gpt-5"
-        )
-    error.message = message
-    return error
+def _refusal(status_code: int, message: str) -> RelayRefusal:
+    """A refusal as ToolCallingLLM re-raises it: the platform's own message
+    and the status it refused with (ROB-1389)."""
+    return RelayRefusal(message, status_code)
 
 
 def _execute(client):

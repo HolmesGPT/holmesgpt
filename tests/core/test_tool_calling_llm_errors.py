@@ -5,7 +5,9 @@ disabled Robusta-hosted models, and with 401 when the session token went
 stale; the body of both carries the sentence the user has to act on. litellm
 maps those to its own exception classes and renders the message as
 `litellm.<Class>: <Class>: OpenAIException - <body>`, which buries it - so the
-errors here are built through litellm's real mapping rather than by hand.
+errors here are built through litellm's real mapping rather than by hand. What
+holmes re-raises is its own `RelayRefusal`, carrying relay's sentence and the
+status an HTTP consumer answers with.
 """
 
 from unittest.mock import MagicMock, patch
@@ -13,16 +15,12 @@ from unittest.mock import MagicMock, patch
 import httpx
 import openai
 import pytest
-from litellm.exceptions import (
-    AuthenticationError,
-    BadRequestError,
-    PermissionDeniedError,
-)
+from litellm.exceptions import AuthenticationError, BadRequestError
 from litellm.litellm_core_utils.exception_mapping_utils import exception_type
 
 from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.llm_usage import RequestStats
-from holmes.core.tool_calling_llm import ToolCallingLLM
+from holmes.core.tool_calling_llm import RelayRefusal, ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.truncation.input_context_window_limiter import (
     ContextWindowLimiterOutput,
@@ -159,7 +157,7 @@ def test_disabled_account_refusal_reaches_the_user(_mock_limit, make_ai, mock_ll
         403, DISABLED, "robusta_ai_disabled", "Robusta/gpt-5"
     )
 
-    with pytest.raises(PermissionDeniedError) as excinfo:
+    with pytest.raises(RelayRefusal) as excinfo:
         _ask(make_ai())
 
     assert excinfo.value.message == DISABLED
@@ -173,7 +171,7 @@ def test_stale_token_refusal_stays_a_401(_mock_limit, make_ai, mock_llm):
         401, STALE_TOKEN, "invalid_api_key", "Robusta/gpt-5"
     )
 
-    with pytest.raises(AuthenticationError) as excinfo:
+    with pytest.raises(RelayRefusal) as excinfo:
         _ask(make_ai())
 
     assert excinfo.value.message == STALE_TOKEN
@@ -188,7 +186,7 @@ def test_a_retried_refusal_keeps_only_relay_text(_mock_limit, make_ai, mock_llm)
     error.num_retries = 3
     mock_llm.completion.side_effect = error
 
-    with pytest.raises(PermissionDeniedError) as excinfo:
+    with pytest.raises(RelayRefusal) as excinfo:
         _ask(make_ai())
 
     assert str(excinfo.value) == DISABLED
@@ -211,7 +209,7 @@ def test_a_fastapi_shaped_body_is_read_too(_mock_limit, make_ai, mock_llm):
         "Error code: 403", response=response, body=body
     )
 
-    with pytest.raises(PermissionDeniedError) as excinfo:
+    with pytest.raises(RelayRefusal) as excinfo:
         _ask(make_ai())
 
     assert excinfo.value.message == DISABLED
@@ -248,7 +246,7 @@ def test_a_bad_request_shaped_401_is_still_a_refusal(_mock_limit, make_ai, mock_
         error_type="invalid_request_error",
     )
 
-    with pytest.raises(AuthenticationError) as excinfo:
+    with pytest.raises(RelayRefusal) as excinfo:
         _ask(make_ai())
 
     assert excinfo.value.message == DISABLED
@@ -263,10 +261,11 @@ def test_relays_own_401_body_shape_is_read(_mock_limit, make_ai, mock_llm):
         401, {"msg": "Unauthorized", "error_code": 5001}, "Robusta/gpt-5"
     )
 
-    with pytest.raises(AuthenticationError) as excinfo:
+    with pytest.raises(RelayRefusal) as excinfo:
         _ask(make_ai())
 
     assert excinfo.value.message == "Unauthorized"
+    assert excinfo.value.status_code == 401
     assert "error_code" not in str(excinfo.value)
 
 
@@ -280,13 +279,13 @@ def test_the_refusal_carries_the_clean_message_everywhere(
         403, DISABLED, "robusta_ai_disabled", "Robusta/gpt-5"
     )
 
-    with pytest.raises(PermissionDeniedError) as excinfo:
+    with pytest.raises(RelayRefusal) as excinfo:
         _ask(make_ai())
 
     error = excinfo.value
     assert error.args == (DISABLED,)
     assert str(error) == DISABLED
-    assert repr(error) == DISABLED
+    assert repr(error) == f"RelayRefusal({DISABLED!r})"
     assert "litellm." not in repr(error)
 
 
