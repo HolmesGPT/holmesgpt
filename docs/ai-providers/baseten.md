@@ -21,7 +21,7 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
     **Create Kubernetes Secret:**
     ```bash
     kubectl create secret generic holmes-secrets \
-      --from-literal=baseten-api-key="..." \
+      --from-file=baseten-api-key=/path/to/baseten-api-key \
       -n <namespace>
     ```
 
@@ -55,7 +55,7 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
     **Create Kubernetes Secret:**
     ```bash
     kubectl create secret generic robusta-holmes-secret \
-      --from-literal=baseten-api-key="..." \
+      --from-file=baseten-api-key=/path/to/baseten-api-key \
       -n <namespace>
     ```
 
