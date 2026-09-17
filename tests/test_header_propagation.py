@@ -16,9 +16,11 @@ from unittest.mock import Mock, patch
 import pytest
 
 from holmes.core.tools import (
+    _SHELL_METACHARACTERS,
     StructuredToolResultStatus,
     ToolInvokeContext,
     YAMLTool,
+    _describe_chars,
 )
 from holmes.utils.header_rendering import render_header_templates
 
@@ -468,6 +470,24 @@ class TestRequestContextShellInjection:
             tool._build_context(
                 {}, request_context={"headers": {"X-Val": "; rm -rf /"}}
             )
+
+    def test_error_message_lists_every_disallowed_character(self):
+        """A single rejection names the whole disallowed set, so a caller fixes
+        a value in one pass instead of rediscovering the set a character at a
+        time across successive failed requests."""
+        tool = YAMLTool(
+            name="t", description="t",
+            command="echo {{ request_context.headers['X-Val'] }}",
+        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Val": "a;b"}}))
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        error = result.error or ""
+        # the character that actually tripped this request...
+        assert "metacharacter(s): ;" in error
+        # ...and every other one, so the retry cannot fail on a new character.
+        for char in _SHELL_METACHARACTERS:
+            assert _describe_chars([char]) in error
 
     def test_benign_header_with_whitespace_is_allowed(self):
         """A legitimate multi-word token (e.g. `Bearer <jwt>`) is permitted."""
