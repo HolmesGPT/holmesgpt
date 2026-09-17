@@ -36,8 +36,8 @@ KUBERNETES_YAML = os.path.join(
 )
 
 # Toolsets whose tools shell out with attacker-influenceable params and must be
-# proven safe. (live-metrics/kube-lineage take no free-form string params that
-# reach a quoted slot; they are covered by the exhaustive param loop anyway.)
+# proven safe. (live-metrics takes no free-form string params that reach a
+# quoted slot; it is covered by the exhaustive param loop anyway.)
 TARGET_TOOLSETS = {
     "kubernetes/core",
     "kubernetes/kube-prometheus-stack",
