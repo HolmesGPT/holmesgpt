@@ -194,8 +194,8 @@ def test_a_retried_refusal_keeps_only_relay_text(_mock_limit, make_ai, mock_llm)
 
 @patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
 def test_a_fastapi_shaped_body_is_read_too(_mock_limit, make_ai, mock_llm):
-    """Relay is FastAPI, so a refusal it raises itself carries its text in
-    `detail` rather than in OpenAI's `error.message`. This one is the provider
+    """A `{"detail": ...}` body, the shape FastAPI-based services answer with,
+    carries its text in `detail` rather than in OpenAI's `error.message`. This one is the provider
     error as the OpenAI client raises it - litellm's mapping keeps neither the
     body nor the response for a `detail`-shaped 403, so a refusal that has to
     survive the mapping must use the OpenAI error shape."""
