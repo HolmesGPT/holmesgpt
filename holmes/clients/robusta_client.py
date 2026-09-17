@@ -47,15 +47,13 @@ class RobustaModel(BaseModel):
 
 class RobustaModelsResponse(BaseModel):
     # Relay's v3 envelope carries the account's effective catalog plus the
-    # flags that explain it. `robusta_ai_disabled` tells an agent that an
+    # flag that explains it: `robusta_ai_disabled` tells an agent that an
     # empty catalog is the account's choice rather than a relay blip, so it
-    # must not fall back to the legacy Robusta entry.
+    # must not fall back to the legacy Robusta entry. The envelope's other
+    # fields are the platform's own bookkeeping and are dropped here.
     model_config = ConfigDict(extra="ignore")
     models: Dict[str, RobustaModel]
     robusta_ai_disabled: bool = False
-    default_model: Optional[str] = None
-    fallback_model: Optional[str] = None
-    platform_default_model: Optional[str] = None
 
 
 def _is_retryable_fetch_error(exc: BaseException) -> bool:

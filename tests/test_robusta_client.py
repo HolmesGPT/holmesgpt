@@ -128,9 +128,6 @@ def test_parses_an_opted_out_account(mocked_responses):
     assert result is not None
     assert result.models == {}
     assert result.robusta_ai_disabled
-    assert result.default_model is None
-    assert result.fallback_model is None
-    assert result.platform_default_model is None
 
 
 def test_parses_an_enabled_account(mocked_responses):
@@ -141,8 +138,18 @@ def test_parses_an_enabled_account(mocked_responses):
     assert result is not None
     assert not result.robusta_ai_disabled
     assert result.models["Robusta/gpt-5"].is_default
-    assert result.default_model == "Robusta/gpt-5"
-    assert result.platform_default_model == "Robusta/gpt-5"
+
+
+def test_ignores_the_envelope_fields_holmes_does_not_read(mocked_responses):
+    """The v3 payload above already carries relay's own bookkeeping fields;
+    they are dropped rather than modelled."""
+    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+
+    result = fetch_robusta_models("account-id", "token")
+
+    assert result is not None
+    assert not hasattr(result, "default_model")
+    assert not hasattr(result, "platform_default_model")
 
 
 def test_ignores_unknown_response_fields(mocked_responses):
