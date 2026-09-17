@@ -17,7 +17,6 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
-    Iterable,
     List,
     Optional,
     OrderedDict,
@@ -179,31 +178,14 @@ class ShellInjectionError(ValueError):
 # permitted values render exactly as they did before this fix. See ROB-1104.
 _SHELL_METACHARACTERS = frozenset("`$\\\"'();|&<>*?[]{}\n\r")
 
-_CHAR_NAMES = {"\n": "newline", "\r": "carriage return", "\t": "tab"}
-
-
-def _describe_chars(chars: Iterable[str]) -> str:
-    """Render metacharacters readably, naming the ones that print as nothing."""
-    chars = set(chars)
-    printable = sorted(c for c in chars if c not in _CHAR_NAMES)
-    named = [_CHAR_NAMES[c] for c in sorted(chars & _CHAR_NAMES.keys())]
-    return " ".join(printable + named)
-
-
-# Rendered once so every rejection can name the whole disallowed set. Reporting
-# only the characters that happened to be found makes a caller fix them one per
-# failed request, rediscovering the set a character at a time.
-_SHELL_METACHARACTERS_DESCRIPTION = _describe_chars(_SHELL_METACHARACTERS)
-
 
 def reject_shell_metacharacters(value: str, source: str) -> str:
-    found = {c for c in value if c in _SHELL_METACHARACTERS}
+    found = sorted({c for c in value if c in _SHELL_METACHARACTERS})
     if found:
         raise ShellInjectionError(
-            f"{source} contains disallowed shell metacharacter(s): "
-            f"{_describe_chars(found)}. Refusing to run it in a shell command. "
-            f"None of these may appear in the value: "
-            f"{_SHELL_METACHARACTERS_DESCRIPTION}"
+            f"{source} contains disallowed shell metacharacter(s) "
+            f"{''.join(found)!r}; refusing to run it in a shell command. "
+            f"Disallowed: {''.join(sorted(_SHELL_METACHARACTERS))!r}"
         )
     return value
 
