@@ -76,7 +76,7 @@ def _chat_request():
     )
 
 
-def _run(worker, ai):
+def _run(worker, ai, task=None, chat_request=None):
     """Drive _run_chat_and_publish with all heavy collaborators mocked.
 
     Returns the captured (raw_stream, recorder_state, wrapped_stream) so
@@ -124,10 +124,11 @@ def _run(worker, ai):
         mock_wrap.return_value = wrapped_stream_sentinel
 
         worker._run_chat_and_publish(
-            task=_task(),
-            chat_request=_chat_request(),
+            task=task or _task(),
+            chat_request=chat_request or _chat_request(),
             publisher=publisher,
         )
+        captured["call_stream_call"] = ai.call_stream.call_args
 
         captured["raw_stream"] = raw_stream
         captured["wrap_call"] = mock_wrap.call_args
@@ -186,16 +187,17 @@ def test_recorder_state_uses_workers_dal_and_streaming_flag():
 
 
 # --------------------------------------------------------------------------
-# user_id / request_source fallback into Conversations row + metadata.
+# user_id comes from the Conversations row; request_source falls back to
+# Conversations.metadata.
 #
 # The FE writes user_id (column) and request_source (under metadata) onto
-# the Conversations row when it creates a chat. It does NOT necessarily
-# repeat them in every per-turn user_message event's data. Without these
-# fallbacks, follow-up turns produce HolmesUsageEvents rows with NULL
-# user_id and request_source even though the values are sitting on the
-# Conversations row the worker already loaded. These tests pin the
-# fallback behavior so a future refactor can't silently re-introduce the
-# NULL-row bug the user reported.
+# the Conversations row when it creates a chat and does not repeat them in
+# per-turn user_message events. user_id is an authorization key (OAuth,
+# personal skills, relay RBAC) and the row is RLS-bound to the creator, so
+# it is the ONLY source -- an event user_id that disagrees fails the turn
+# (ROB-1107). request_source is an attribution hint and keeps the
+# event-then-row fallback. These tests pin both so a refactor can't
+# reintroduce the NULL-row bug or the event-first precedence.
 # --------------------------------------------------------------------------
 
 def _capture_chat_request_from_process(task, user_message_data):
@@ -236,24 +238,165 @@ def test_user_id_falls_back_to_conversations_row_when_event_omits_it():
     assert cr.user_id == "u-conversations-row"
 
 
-def test_event_user_id_wins_over_conversations_row():
-    # If the FE DOES repeat user_id in the event data, that value wins —
-    # so a future flow that lets users hand-off a chat could still record
-    # the per-turn rater. The Conversations-row value is a fallback, not
-    # an override.
-    task = ConversationTask(
+def _process_and_capture(task, user_message_data):
+    """Like _capture_chat_request_from_process but also returns the worker so
+    tests can assert on the failure path (no ChatRequest, error event)."""
+    worker, _ = _bare_worker()
+    worker.dal.get_conversation_events = MagicMock(
+        return_value=[{"event": "user_message", "data": user_message_data, "ts": "1"}]
+    )
+    captured = {}
+
+    def capture(self, t, chat_request, publisher, resume_only=False):
+        captured["chat_request"] = chat_request
+
+    with patch.object(ConversationWorker, "_run_chat_and_publish", capture), \
+            patch.object(ConversationWorker, "_fail_conversation") as fail:
+        worker._process_conversation(task)
+
+    return captured.get("chat_request"), fail
+
+
+def _task(user_id="u-conversations-row"):
+    return ConversationTask(
         conversation_id="c1",
         account_id="a1",
         cluster_id="cl1",
         origin="chat",
         request_sequence=1,
-        user_id="u-conversations-row",
+        user_id=user_id,
     )
-    cr = _capture_chat_request_from_process(
-        task, {"ask": "q", "user_id": "u-from-event"}
+
+
+def test_event_user_id_mismatch_rejects_turn():
+    # ROB-1107: the user_message event's data is a client-controlled blob.
+    # A user_id there that differs from the RLS-bound Conversations row
+    # owner must never be acted on (OAuth tokens, personal skills, relay
+    # RBAC header, usage attribution all key on ChatRequest.user_id). The
+    # turn fails instead of running under either identity.
+    cr, fail = _process_and_capture(_task(), {"ask": "q", "user_id": "u-victim"})
+    assert cr is None, "ChatRequest must not be built for a spoofed identity"
+    fail.assert_called_once()
+    assert fail.call_args.args[0].conversation_id == "c1"
+    assert "owner" in fail.call_args.args[1]
+
+
+def test_event_user_id_mismatch_rejected_when_row_has_no_owner():
+    # Shared / automated conversations (user_id NULL on the row, e.g.
+    # triggered workflows) must not be upgraded to a named user by whoever
+    # posts the follow-up.
+    cr, fail = _process_and_capture(_task(user_id=None), {"ask": "q", "user_id": "u-victim"})
+    assert cr is None
+    fail.assert_called_once()
+
+
+def test_event_user_id_matching_row_is_accepted():
+    # Redundant but consistent user_id in the event is harmless.
+    cr, fail = _process_and_capture(
+        _task(), {"ask": "q", "user_id": "u-conversations-row"}
     )
+    fail.assert_not_called()
     assert cr is not None
-    assert cr.user_id == "u-from-event"
+    assert cr.user_id == "u-conversations-row"
+
+
+def test_event_user_id_never_reaches_chat_request():
+    # Even when accepted (matching), ChatRequest.user_id comes from the row,
+    # not from the event -- pin the source, not just the value.
+    task = _task()
+    cr, _ = _process_and_capture(task, {"ask": "q", "user_id": task.user_id})
+    assert cr is not None
+    assert cr.user_id is task.user_id or cr.user_id == task.user_id
+
+
+def test_empty_event_user_id_is_ignored():
+    cr, fail = _process_and_capture(_task(), {"ask": "q", "user_id": ""})
+    fail.assert_not_called()
+    assert cr is not None and cr.user_id == "u-conversations-row"
+
+
+def test_no_owner_and_no_event_user_id_runs_unattributed():
+    cr, fail = _process_and_capture(_task(user_id=None), {"ask": "q"})
+    fail.assert_not_called()
+    assert cr is not None and cr.user_id is None
+
+
+def test_spoofed_user_id_on_tool_decision_resume_is_rejected():
+    worker, _ = _bare_worker()
+    worker.dal.get_conversation_events = MagicMock(return_value=[
+        {"event": "user_message", "data": {"ask": "first"}, "ts": "1"},
+        {"event": "approval_required", "ts": "2", "data": {"messages": [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "t1"}]},
+        ]}},
+        {"event": "user_message", "ts": "3", "data": {
+            "tool_decisions": [{"tool_call_id": "t1", "approved": True}],
+            "user_id": "u-victim",
+        }},
+    ])
+    with patch.object(ConversationWorker, "_run_chat_and_publish") as run, \
+            patch.object(ConversationWorker, "_fail_conversation") as fail:
+        worker._process_conversation(_task())
+    run.assert_not_called()
+    fail.assert_called_once()
+
+
+def test_mismatch_posts_error_event_and_marks_failed():
+    worker, _ = _bare_worker()
+    worker.dal.get_conversation_events = MagicMock(
+        return_value=[{"event": "user_message", "data": {"ask": "q", "user_id": "u-victim"}, "ts": "1"}]
+    )
+    with patch.object(ConversationWorker, "_run_chat_and_publish") as run:
+        worker._process_conversation(_task())
+    run.assert_not_called()
+    posted = worker.dal.post_conversation_events.call_args
+    assert posted is not None
+    events = posted.kwargs.get("events") or posted.args[-1]
+    assert any(e.get("event") == "error" and "owner" in e["data"]["description"] for e in events)
+    status_call = worker.dal.update_conversation_status.call_args
+    assert status_call.kwargs.get("status") == "failed"
+
+
+def test_metadata_oauth_enabled_false_drops_user_id():
+    task = _task()
+    task.metadata = {"oauth_enabled": False}
+    cr, fail = _process_and_capture(task, {"ask": "q"})
+    fail.assert_not_called()
+    assert cr is not None and cr.user_id is None
+
+
+def test_request_context_carries_owner_when_oauth_opt_out_drops_user_id():
+    worker, ai = _bare_worker()
+    task = ConversationTask(
+        conversation_id="c1", account_id="a1", cluster_id="cl1", origin="chat",
+        request_sequence=1, user_id="u-owner", metadata={"oauth_enabled": False},
+    )
+    cr = _chat_request()
+    cr.user_id = None
+    captured = _run(worker, ai, task=task, chat_request=cr)
+    ctx = captured["call_stream_call"].kwargs["request_context"]
+    assert ctx["conversation_owner_id"] == "u-owner"
+    assert "user_id" not in ctx
+
+
+def test_request_context_carries_owner_and_user_id_normally():
+    worker, ai = _bare_worker()
+    task = ConversationTask(
+        conversation_id="c1", account_id="a1", cluster_id="cl1", origin="chat",
+        request_sequence=1, user_id="u-1",
+    )
+    captured = _run(worker, ai, task=task)
+    ctx = captured["call_stream_call"].kwargs["request_context"]
+    assert ctx["user_id"] == "u-1" and ctx["conversation_owner_id"] == "u-1"
+
+
+def test_request_context_has_no_owner_for_ownerless_row():
+    worker, ai = _bare_worker()
+    cr = _chat_request()
+    cr.user_id = None
+    captured = _run(worker, ai, task=_task(user_id=None), chat_request=cr)
+    ctx = captured["call_stream_call"].kwargs["request_context"]
+    assert "conversation_owner_id" not in ctx and "user_id" not in ctx
 
 
 def test_request_source_falls_back_to_conversations_metadata():
@@ -384,3 +527,85 @@ def test_slack_prefix_in_event_ask_routes_to_slack_chat_via_helper():
     assert cr.ask.startswith("**@user_U0AKMP2CZ97**")
     # And request_type is None so the helper's auto-detect runs.
     assert cr.request_type is None
+
+
+def test_conversation_link_read_from_conversations_metadata():
+    # conversation_link is conversation-level: the surface a chat originated
+    # from (Slack thread, Teams message, workflow run) does not change between
+    # turns, so relay stamps it once on the Conversations row's metadata.
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={"conversation_link": "https://acme.slack.com/archives/C1/p123"},
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "follow-up?"})
+    assert cr is not None
+    assert cr.conversation_link == "https://acme.slack.com/archives/C1/p123"
+
+
+def test_freeform_chat_conversation_link_is_server_derived(monkeypatch):
+    # For freeform platform chats the worker derives the link itself from the
+    # task's own ids — a client-writable metadata value must not pick the
+    # destination.
+    monkeypatch.setattr(
+        "holmes.core.conversation_links.ROBUSTA_UI_DOMAIN",
+        "https://platform.robusta.dev",
+    )
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={
+            "request_source": "freeform",
+            "conversation_link": "https://evil.example/spoof",
+        },
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "q"})
+    assert cr is not None
+    assert cr.conversation_link == (
+        "https://platform.robusta.dev/holmes/chat/c1?account_id=a1"
+    )
+
+
+def test_freeform_chat_gets_no_link_when_derivation_fails(monkeypatch):
+    # A freeform chat's link is server-derived or nothing: when derivation
+    # can't run (here: no UI domain configured), the client-writable metadata
+    # value must not slip in as a fallback.
+    monkeypatch.setattr("holmes.core.conversation_links.ROBUSTA_UI_DOMAIN", "")
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={
+            "request_source": "freeform",
+            "conversation_link": "https://acme.slack.com/archives/C1/p123",
+        },
+    )
+    cr = _capture_chat_request_from_process(task, {"ask": "q"})
+    assert cr is not None
+    assert cr.conversation_link is None
+
+
+def test_event_conversation_link_is_ignored():
+    # Only relay legitimately sets this key, and it stamps metadata — a
+    # per-turn event value is a client-side override attempt and is ignored.
+    task = ConversationTask(
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        metadata={"conversation_link": "https://acme.slack.com/archives/C1/p123"},
+    )
+    cr = _capture_chat_request_from_process(
+        task, {"ask": "q", "conversation_link": "https://evil.example/override"}
+    )
+    assert cr is not None
+    assert cr.conversation_link == "https://acme.slack.com/archives/C1/p123"

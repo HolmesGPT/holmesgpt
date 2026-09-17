@@ -21,6 +21,7 @@ from holmes.core.tools_utils.frontend_tools import inject_frontend_tools
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
+from tests.llm.utils.answer_dump import dump_eval_answer
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import evaluate_correctness
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
@@ -39,6 +40,7 @@ from tests.llm.utils.property_manager import (
 from tests.llm.utils.skill_suggestions import (
     count_fetch_skill_calls,
     extract_suggested_skills,
+    join_frontend_tool_turn_content,
     write_suggestions_as_skill_files,
 )
 from tests.llm.utils.retry_handler import retry_on_throttle
@@ -147,7 +149,19 @@ def test_ask_holmes(
         )
         raise
 
-    output = result.result
+    # Models may write their final answer as content on the same turn as a
+    # frontend tool call. SuggestSkills replies "continue naturally as if this
+    # tool was never called", so the model then adds only a short trailing
+    # remark - and result.result keeps just that last turn, losing the answer.
+    # The UI renders it correctly (the content ships as an ai_message event,
+    # collected into intermediateMessages), so we rejoin it here instead of
+    # changing product code.
+    frontend_payload = load_frontend_tools(test_case)
+    output = join_frontend_tool_turn_content(
+        result.result,
+        result.messages,
+        {t.name for t in frontend_payload.tools} if frontend_payload else None,
+    )
 
     suggested_memories = extract_suggested_skills(result.tool_calls)
     update_property(request, "suggested_memories", suggested_memories)
@@ -206,6 +220,17 @@ def test_ask_holmes(
         if missing_skill_updates:
             update_property(request, "actual_correctness_score", 0)
             scores["correctness"] = 0
+
+    # Before the raising checks below: an answer they reject is part of the
+    # population too, and dumping after them would bias the sample.
+    dump_eval_answer(
+        test_case.id,
+        output,
+        scores.get("correctness", 0),
+        model=model,
+        env_config=env_config.name,
+        tools=[getattr(tc, "tool_name", "?") for tc in (result.tool_calls or [])],
+    )
 
     if eval_span:
         log_to_braintrust(

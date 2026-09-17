@@ -32,6 +32,7 @@ from holmes.core.conversations_worker.models import (
 from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
 from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.supabase_dal import SupabaseDnsException
 from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
@@ -676,10 +677,7 @@ class ConversationWorker:
                 request_sequence=int(conv.get("request_sequence", 1)),
                 metadata=conv.get("metadata") or {},
                 title=conv.get("title"),
-                # Conversations.user_id (set by the FE when it created the row)
-                # — surfaced on the task so per-turn ChatRequest construction
-                # can use it as a fallback when the user_message event's data
-                # doesn't carry user_id explicitly.
+                # RLS-bound owner; the per-turn identity (see _process_conversation).
                 user_id=conv.get("user_id"),
             )
         except Exception:
@@ -897,16 +895,23 @@ class ConversationWorker:
         if data.get("tool_decisions"):
             enable_tool_approval = True
 
-        # AI usage tracking (HolmesUsageEvents) — resolve user_id and
-        # request_source with row-level fallbacks. The FE writes both onto
-        # the Conversations row when it creates the chat (user_id as a
-        # column, request_source under metadata) but doesn't necessarily
-        # repeat them in every user_message event's data. Without this
-        # fallback, follow-up turns produce HolmesUsageEvents rows with
-        # NULL user_id / request_source even though the values are known.
-        # Per-event data still wins so the FE can override per-turn (e.g.
-        # an alert-investigation chat that pivots to a freeform question).
-        resolved_user_id = data.get("user_id") or task.user_id
+        # Identity comes from the RLS-bound Conversations row only. The event's
+        # data is client-controlled; a user_id there that disagrees with the
+        # row is rejected rather than trusted (ROB-1107).
+        event_user_id = data.get("user_id")
+        if event_user_id not in (None, "") and str(event_user_id) != str(
+            task.user_id or ""
+        ):
+            logging.warning(
+                "Conversation %s: user_message event user_id does not match "
+                "the Conversations row owner; rejecting turn",
+                task.conversation_id,
+            )
+            self._fail_conversation(
+                task, "Conversation event identity does not match the conversation owner"
+            )
+            return
+        resolved_user_id = task.user_id
         # Per-conversation OAuth opt-out. When a Conversations row carries
         # `metadata.oauth_enabled = false` (e.g. triggered workflows that
         # don't want Holmes acting under the workflow creator's per-user
@@ -917,38 +922,35 @@ class ConversationWorker:
         )
         if not oauth_enabled:
             resolved_user_id = None
-        # Per-event presence wins, not truthiness — so an explicit empty
-        # value from the FE (e.g. "" to deliberately clear a field) keeps
-        # priority over the row-level metadata fallback and we don't
-        # reintroduce stale Conversation-row values. Only fall back to
-        # task.metadata when the per-turn event omits the key entirely.
-        resolved_user_email = (
-            data["user_email"]
-            if "user_email" in data
-            else (task.metadata.get("user_email") if task.metadata else None)
-        )
-        resolved_request_source = (
-            data["request_source"]
-            if "request_source" in data
-            else (task.metadata.get("request_source") if task.metadata else None)
-        )
-        # source_ref is conversation-level for alert investigations (the
-        # whole chat is about one alert id), so the FE puts it on the
-        # Conversations row's metadata, not in each per-turn event.
-        resolved_source_ref = (
-            data["source_ref"]
-            if "source_ref" in data
-            else (task.metadata.get("source_ref") if task.metadata else None)
-        )
-        # request_type may also live under Conversations.metadata when the
-        # FE classifies a whole chat once at creation time. Same key-presence
-        # semantics — leaving the resolved value None when neither source
-        # supplies it preserves build_chat_recorder_state's auto-detection
-        # (Slack-prefix → 'slack_chat', fallback → 'user_chat').
-        resolved_request_type = (
-            data["request_type"]
-            if "request_type" in data
-            else (task.metadata.get("request_type") if task.metadata else None)
+        def from_event_or_conversation(key: str) -> Any:
+            # Per-event presence wins, not truthiness — so an explicit empty
+            # value from the FE (e.g. "" to deliberately clear a field) keeps
+            # priority over the row-level metadata fallback and we don't
+            # reintroduce stale Conversation-row values. Only fall back to
+            # task.metadata when the per-turn event omits the key entirely.
+            if key in data:
+                return data[key]
+            return task.metadata.get(key) if task.metadata else None
+
+        resolved_user_email = from_event_or_conversation("user_email")
+        resolved_request_source = from_event_or_conversation("request_source")
+        # source_ref, request_type, and conversation_link are conversation-level
+        # (one alert id / one creation-time classification / one originating
+        # surface per chat), so the FE may put them on the Conversations row's
+        # metadata instead of each per-turn event. A resolved None for
+        # request_type still lets build_chat_recorder_state's auto-detection
+        # run (Slack-prefix → 'slack_chat', fallback → 'user_chat').
+        resolved_source_ref = from_event_or_conversation("source_ref")
+        resolved_request_type = from_event_or_conversation("request_type")
+        # Unlike its sibling fields, conversation_link deliberately ignores
+        # per-turn events: nothing legitimately sends it per-event, so honoring
+        # one would only let a client override the link relay stamped onto the
+        # Conversations metadata (triggered workflows, alert triage).
+        resolved_conversation_link = resolve_conversation_link(
+            resolved_request_source,
+            task.conversation_id,
+            task.account_id,
+            task.metadata.get("conversation_link") if task.metadata else None,
         )
 
         chat_request = ChatRequest(
@@ -978,6 +980,7 @@ class ConversationWorker:
             source_ref=resolved_source_ref,
             conversation_id=task.conversation_id,
             conversation_source="conversations",
+            conversation_link=resolved_conversation_link,
             meta=data.get("meta"),
             is_internal=data.get("is_internal"),
         )
@@ -1170,6 +1173,7 @@ class ConversationWorker:
                     skills=skills,
                     images=chat_request.images,
                     prompt_component_overrides=prompt_component_overrides,
+                    conversation_link=chat_request.conversation_link,
                 )
 
             # Write an initial ai_message event (optional) - skip; call_stream will emit events
@@ -1203,6 +1207,11 @@ class ConversationWorker:
             request_context: Optional[Dict[str, Any]] = None
             if chat_request.user_id:
                 request_context = {"user_id": chat_request.user_id}
+            if task.user_id:
+                # Row owner, sent to relay for RBAC even when user_id was
+                # dropped by the OAuth opt-out.
+                request_context = request_context or {}
+                request_context["conversation_owner_id"] = task.user_id
             if task.conversation_id:
                 request_context = request_context or {}
                 request_context["conversation_id"] = task.conversation_id

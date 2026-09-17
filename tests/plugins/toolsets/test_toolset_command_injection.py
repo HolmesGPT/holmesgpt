@@ -52,8 +52,8 @@ YAML_FILES = sorted(
 # built-in toolset command/script (coreutils are intentionally left real).
 STUB_BINS = [
     "kubectl", "oc", "az", "gcloud", "aws", "vela", "ig", "helm", "curl",
-    "wget", "dig", "nslookup", "host", "tcpdump", "jq", "kube-lineage",
-    "kubectl-lineage", "docker", "nc", "ping", "psql", "mysql", "argocd",
+    "wget", "dig", "nslookup", "host", "tcpdump", "jq",
+    "docker", "nc", "ping", "psql", "mysql", "argocd",
     "cilium", "hubble", "timeout",
 ]
 

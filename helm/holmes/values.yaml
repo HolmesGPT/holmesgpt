@@ -84,6 +84,12 @@ k8sRBAC: false
 
 customClusterRoleRules: []
 
+# Render the Holmes RBAC as a namespaced Role + RoleBinding instead of a
+# ClusterRole + ClusterRoleBinding, restricting Holmes to the release namespace.
+# Namespace-scoped installs in different namespaces then cannot collide on
+# cluster-scoped RBAC names. Default false = cluster-wide, as always.
+namespaceScopedRBAC: false
+
 # CRD permissions for common Kubernetes operators and tools
 crdPermissions:
   argo: true
@@ -167,6 +173,36 @@ customSkills: {}
   #     ---
   #     ## Goal
   #     ...
+
+# Git repositories to sync skills from. Holmes clones each repo at startup and
+# re-pulls it periodically (every TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+# default 5 minutes), so pushed skill changes reach a running agent without a
+# pod restart. The chart sets SKILL_REPOS in the Holmes pod from this list and,
+# for entries with tokenSecret, injects the token env var from that Secret.
+# After rotating a credential Secret, run `helm upgrade`: the chart checksums
+# the Secret data into the pod template, so the upgrade rolls the pod with the
+# new credential. A Secret edit alone does not reach running pods (env comes
+# from secretKeyRef); without an upgrade, restart the Deployment yourself.
+skillRepos: []
+# Size of the emptyDir holding the git checkouts (only created when skillRepos
+# is set). Holmes gc's the object store on every update, so this needs to fit
+# roughly two checkouts of your largest repo, not one per push.
+skillReposVolumeSize: 1Gi
+  # - name: team-skills            # optional; defaults to the repo name from the URL
+  #   url: https://github.com/acme/holmes-skills.git
+  #   branch: main                 # optional; defaults to the repo's default branch
+  #   subPath: skills              # optional; subdirectory holding the SKILL.md dirs
+  #   username: oauth2             # optional; "x-token-auth" for Bitbucket tokens
+  #   tokenSecret:                 # omit for public repos / GitHub App auth
+  #     name: holmes-skills-git-credentials
+  #     key: token
+  #   githubApp:                   # alternative to tokenSecret: GitHub App auth.
+  #     appId: "123456"            # Holmes mints short-lived installation tokens
+  #     installationId: "7890"     # from the App's private key on every sync.
+  #     privateKeySecret:
+  #       name: holmes-github-app
+  #       key: GITHUB_APP_PRIVATE_KEY
+  #     apiUrl: https://api.github.com   # optional; override for GitHub Enterprise
 
 resources:
   requests:
@@ -695,7 +731,7 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.2.0"
+    image: "kubernetes-remediation-mcp:1.3.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -754,15 +790,32 @@ mcpAddons:
       # DNS suffixes counted as cluster-internal. Set this if you run a custom
       # cluster domain (e.g. ".svc,.svc.mycorp.internal").
       diagnosticInternalDnsSuffixes: ".svc,.svc.cluster.local,.cluster.local"
-      # read_file_from_container path policy (allow roots minus secret/token mounts)
-      fileReadAllowedPaths: "/"
+      # ---- read_file_from_container path policy (ROB-973) ----
+      # The tool is auto-approved and runs with cluster-wide pods/exec, so the
+      # path policy is the only control between a prompt-injected investigation
+      # and every file in every container. Allow roots are an explicit list of
+      # application/config/log locations, never "/". Secret mounts
+      # (/var/run/secrets, /var/secrets, /vault/secrets, ...), credential
+      # files (.aws, .kube, .env, *.pem, *.key, *credentials*, ...) and
+      # /proc,/sys,/dev are denied by the server unconditionally on top of
+      # these lists and cannot be re-enabled here.
+      fileReadAllowedPaths: "/app,/config,/data,/etc,/home,/opt,/srv,/tmp,/usr,/var/lib,/var/log,/var/tmp,/var/www,/workspace"
       fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
+      # Refuse a read when the path cannot be resolved with `readlink -f` inside
+      # the target container (images without coreutils/busybox), instead of
+      # falling back to the unverified literal path. Server >= 1.4.0; ignored
+      # by older images. false restores the fail-open behaviour.
+      fileReadRequireCanonicalization: true
       # Enable the approval-gated fallback (set false for a fully locked-down mode)
       allowArbitraryKubectlCommands: true
       # Command timeout in seconds
       timeout: "60"
       # Log level
       logLevel: "INFO"
+      # Enable GPU node diagnostics (run_gpu_node_diagnostics)
+      gpuDiagnosticsEnabled: false
+      # Enable the dcgm_* GPU checks — requires dcgmi installed on the GPU hosts
+      dcgmEnabled: false
 
     resources:
       requests:
@@ -778,11 +831,15 @@ mcpAddons:
     # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
     # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
     # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
+    # Add "read_file_from_container" here to require a human for every in-pod
+    # file read (the server path policy above still applies either way).
     approvalRequiredTools:
       - "run_kubectl_command"
 
     # Optional override of the default LLM instructions
     llmInstructions: ""
+
+    additionalEnvVars: []
 
     nodeSelector: {}
     tolerations: []

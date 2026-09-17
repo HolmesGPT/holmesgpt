@@ -1,6 +1,7 @@
 import logging
 import textwrap
-from typing import List, Optional
+import uuid
+from typing import List, Optional, Tuple
 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
@@ -16,9 +17,18 @@ from holmes.plugins.skills.skill_loader import (
     Skill,
     SkillCatalog,
     SkillSource,
+    load_filesystem_skills,
     load_skill_catalog,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
 class SkillsFetcher(Tool):
@@ -26,12 +36,14 @@ class SkillsFetcher(Tool):
     available_skills: List[str] = []
     _skill_catalog: Optional[SkillCatalog] = None
     _dal: Optional[SupabaseDal] = None
+    _search_paths: Optional[List[str]] = None
 
     def __init__(
         self,
         toolset: "SkillsToolset",
         skill_catalog: Optional[SkillCatalog] = None,
         dal: Optional[SupabaseDal] = None,
+        search_paths: Optional[List[str]] = None,
     ):
         available_skills: List[str] = []
         if skill_catalog:
@@ -64,6 +76,7 @@ class SkillsFetcher(Tool):
         )
         self._skill_catalog = skill_catalog
         self._dal = dal
+        self._search_paths = search_paths
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         skill_id: str = params.get("skill_id", "")
@@ -80,12 +93,31 @@ class SkillsFetcher(Tool):
         # Resolved per invocation, not baked into the cached toolset -- see __init__.
         user_id = (context.request_context or {}).get("user_id")
 
-        # Look up in skill catalog by name — remote skills have empty content
-        # (catalog only stores metadata), so fetch full content from Supabase
-        skill = self._find_skill(skill_id)
-        if skill and skill.source == SkillSource.REMOTE:
+        # Remote skills are keyed by UUID and can never be on disk, so resolve
+        # them from the cached catalog first and skip the filesystem scan (their
+        # catalog entry is metadata-only; content comes from Supabase anyway).
+        cached = self._find_skill(skill_id)
+        if cached and cached.source == SkillSource.REMOTE:
             return self._get_robusta_skill(skill_id, params)
-        elif skill:
+
+        # Filesystem skills (builtin + custom, including git-synced repos) are
+        # re-read from disk per invocation, never served from the cached catalog:
+        # the catalog is a snapshot from toolset construction, and skill files
+        # change under a running server (a git repo re-pull, a ConfigMap
+        # remount). The per-request prompt catalog already re-scans disk, so
+        # without this a freshly-advertised skill would 404 here and an edited
+        # one would serve its old content until restart.
+        #
+        # When the scan is authoritative, a miss is a real miss and must NOT
+        # fall back to the snapshot: a skill DELETED upstream would otherwise
+        # stay fetchable for the life of the process, which matters most for the
+        # skill someone deleted precisely because it was wrong. The snapshot is
+        # only a fallback when disk is not the source of truth (an SDK caller
+        # handed us a catalog with no search paths) or the scan itself failed.
+        skill, disk_was_authoritative = self._find_filesystem_skill(skill_id)
+        if skill is None and not disk_was_authoritative:
+            skill = cached
+        if skill:
             return self._format_skill_result(skill, params)
 
         # Not in the cached catalog -- the expected case for a personal skill. User-scoped
@@ -98,8 +130,14 @@ class SkillsFetcher(Tool):
             if personal_result is not None:
                 return personal_result
 
-        # Fallback: try Supabase for UUID-style IDs not in catalog
-        if self._dal and self._dal.enabled:
+        # Fallback: try Supabase for UUID-style IDs not in catalog. Gated on the
+        # id actually looking like a UUID -- the remote table is keyed by one, so
+        # a plain name can only come back as a Postgres cast error ("invalid
+        # input syntax for type uuid"), which tells the model nothing about the
+        # real problem: there is no such skill. Reachable for any missing name
+        # now that a deleted filesystem skill is no longer served from the
+        # startup snapshot.
+        if self._dal and self._dal.enabled and _looks_like_uuid(skill_id):
             result = self._get_robusta_skill(skill_id, params)
             # Report the personal miss too, or that path is invisible when debugging.
             if result.status == StructuredToolResultStatus.ERROR and personal_miss:
@@ -116,6 +154,32 @@ class SkillsFetcher(Tool):
             error=err_msg,
             params=params,
         )
+
+    def _find_filesystem_skill(self, name: str) -> Tuple[Optional[Skill], bool]:
+        """Fresh disk lookup by normalized name, and whether disk was decisive.
+
+        The second element says whether a None means "not on disk" (True) or
+        "could not tell" (False) -- the caller uses it to decide whether the
+        cached snapshot may answer instead.
+        """
+        if self._search_paths is None:
+            # No search paths: the catalog came from an SDK caller, so disk is
+            # not the source of truth and a miss here says nothing.
+            return None, False
+        try:
+            # load_filesystem_skills, not ..._by_name: a configured path that is
+            # missing or unreadable does not raise, it just contributes nothing,
+            # so a scan can come back INCOMPLETE and still look like a clean
+            # miss. Only sources_ok distinguishes them, and treating a partial
+            # scan as decisive made a skill that still exists upstream report
+            # "not found" during a ConfigMap remount -- with the snapshot right
+            # there holding it.
+            loaded = load_filesystem_skills(self._search_paths)
+            skill = next((s for s in loaded.skills if s.name == name), None)
+            return skill, loaded.sources_ok
+        except Exception as e:
+            logging.warning(f"Failed to re-scan filesystem skills for '{name}': {e}")
+            return None, False
 
     def _find_skill(self, name: str) -> Optional[Skill]:
         if not self._skill_catalog:
@@ -268,7 +332,12 @@ class SkillsToolset(Toolset):
             description="Fetch skills",
             icon_url="https://platform.robusta.dev/demos/runbook.svg",
             tools=[
-                SkillsFetcher(self, skill_catalog=skill_catalog, dal=dal),
+                SkillsFetcher(
+                    self,
+                    skill_catalog=skill_catalog,
+                    dal=dal,
+                    search_paths=additional_search_paths,
+                ),
             ],
             docs_url="https://holmesgpt.dev/data-sources/",
             tags=[

@@ -53,6 +53,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -204,7 +205,33 @@ def init_config():
 config, dal = init_config()
 
 
+def _warm_skill_repos_and_mirror():
+    """Clone the git skill repos, then publish the skills mirror.
+
+    Runs in a daemon thread so nothing on the startup path performs a network
+    git fetch: the mirror sync reads all_skill_paths, which triggers the first
+    repo sync, and a slow or unreachable remote must delay neither server
+    readiness nor liveness. Ordered so the mirror sees the freshly-cloned
+    skills instead of recording the checkouts as unreadable.
+    """
+    try:
+        config.skill_repo_manager.sync()
+    except Exception:
+        logging.error("Failed to warm git skill repos", exc_info=True)
+    if not dal.enabled:
+        return
+    try:
+        holmes_sync_skills_status(dal, config)
+    except Exception:
+        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
+
+
 def sync_before_server_start():
+    threading.Thread(
+        target=_warm_skill_repos_and_mirror,
+        daemon=True,
+        name="skill-repo-warmup",
+    ).start()
     if not dal.enabled:
         logging.info(
             "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
@@ -218,10 +245,6 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
-    try:
-        holmes_sync_skills_status(dal, config)
-    except Exception:
-        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
     if conversation_worker is not None:
         try:
             conversation_worker.start()
@@ -337,6 +360,17 @@ def _toolset_status_refresh_loop():
             except Exception:
                 logging.error(
                     "Error during periodic toolset status refresh", exc_info=True
+                )
+            try:
+                # Re-pull git skill repos so pushed skill changes reach a running
+                # agent without a pod restart. Runs before the mirror sync below
+                # so freshly-pulled skills appear in the UI on the same cycle.
+                # The manager rate-limits itself, so the shortened cycles of the
+                # MCP failure backoff do not multiply network git fetches.
+                config.skill_repo_manager.sync()
+            except Exception:
+                logging.error(
+                    "Error during periodic skill repo sync", exc_info=True
                 )
             try:
                 # Re-read every cycle rather than gating on a change signal: a
@@ -625,6 +659,12 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 skills=skills,
                 images=chat_request.images,
                 prompt_component_overrides=prompt_component_overrides,
+                conversation_link=resolve_conversation_link(
+                    chat_request.request_source,
+                    chat_request.conversation_id,
+                    dal.account_id,
+                    chat_request.conversation_link,
+                ),
             )
 
         try:

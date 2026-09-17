@@ -41,15 +41,6 @@
 #   Revert to upstream binary when Helm releases a version built with
 #   Go >= 1.26.6, containerd >= 1.7.33, grpc >= 1.82.1 and oras-go >= 2.6.2.
 #
-# kube-lineage: built with grpc replaced to v1.82.1 (GHSA-hrxh-6v49-42gf),
-#   spdystream replaced to v0.5.1 (CVE-2026-35469), containerd replaced
-#   to v1.7.33 (CVE-2026-53488), oras-go replaced to v2.6.2
-#   (CVE-2026-50151/50163), and helm replaced to v3.20.2 (CVE-2026-35206).
-#   robusta-dev/kube-lineage v2.2.5 ships with Go 1.24.13 + grpc 1.64.1 + spdystream 0.5.0.
-#   Revert when kube-lineage releases a version built with Go >= 1.26.6,
-#   grpc >= 1.82.1, spdystream >= 0.5.1, containerd >= 1.7.33, oras-go >= 2.6.2,
-#   and helm >= 3.20.2.
-#
 # kubectl is NOT built here — the official dl.k8s.io binary (pinned via
 #   KUBECTL_VERSION in the Dockerfile) is used instead. v1.37.0 is built with
 #   Go 1.26.6 and vendors x/net v0.57.0 / x/sys v0.47.0 / x/text v0.40.0, so it
@@ -132,10 +123,7 @@ GO_GIT_PATCHED_VERSION=v5.19.2
 GO_BILLY_PATCHED_VERSION=v5.9.0
 HELM_VERSION=v3.21.0
 GRPC_PATCHED_VERSION=v1.82.1
-KUBE_LINEAGE_VERSION=v2.2.5
-SPDYSTREAM_PATCHED_VERSION=v0.5.1
 CONTAINERD_PATCHED_VERSION=v1.7.33
-HELM_IN_LINEAGE_PATCHED_VERSION=v3.20.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
 X_NET_PATCHED_VERSION=v0.57.0
 X_CRYPTO_PATCHED_VERSION=v0.55.0
@@ -211,36 +199,9 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
   -ldflags "$HELM_LDFLAGS" \
   -o "$OUTDIR/arm64/helm" ./cmd/helm
 
-echo "==> Cloning kube-lineage $KUBE_LINEAGE_VERSION..."
-git clone --depth 1 --branch "$KUBE_LINEAGE_VERSION" https://github.com/robusta-dev/kube-lineage.git "$TMPDIR/kube-lineage"
-
-echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (GHSA-hrxh-6v49-42gf), spdystream to $SPDYSTREAM_PATCHED_VERSION (CVE-2026-35469), containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-53488/47262), and oras-go to $ORAS_GO_PATCHED_VERSION (CVE-2026-50151/50163)..."
-cd "$TMPDIR/kube-lineage"
-go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
-go mod edit -replace="github.com/moby/spdystream=github.com/moby/spdystream@$SPDYSTREAM_PATCHED_VERSION"
-go mod edit -replace="github.com/containerd/containerd=github.com/containerd/containerd@$CONTAINERD_PATCHED_VERSION"
-go mod edit -replace="oras.land/oras-go/v2=oras.land/oras-go/v2@$ORAS_GO_PATCHED_VERSION"
-# embedded helm v3.19.0 has CVE-2026-35206 (Medium); fixed in v3.20.2
-go mod edit -replace="helm.sh/helm/v3=helm.sh/helm/v3@$HELM_IN_LINEAGE_PATCHED_VERSION"
-apply_x_replaces
-GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "github.com/moby/spdystream" "$SPDYSTREAM_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "github.com/containerd/containerd" "$CONTAINERD_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "oras.land/oras-go/v2" "$ORAS_GO_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_module_version "helm.sh/helm/v3" "$HELM_IN_LINEAGE_PATCHED_VERSION"
-GOFLAGS=-mod=mod assert_x_replaces
-
-echo "==> Building kube-lineage for linux/amd64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-mod=mod go build \
-  -o "$OUTDIR/amd64/kube-lineage" ./cmd/kube-lineage
-
-echo "==> Building kube-lineage for linux/arm64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
-  -o "$OUTDIR/arm64/kube-lineage" ./cmd/kube-lineage
-
 echo "==> Compressing binaries..."
 for arch in amd64 arm64; do
-  for f in argocd helm kube-lineage; do
+  for f in argocd helm; do
     gzip -f "$OUTDIR/$arch/$f"
   done
 done
@@ -253,7 +214,7 @@ else
   SHA256_CMD="shasum -a 256"
 fi
 for arch in amd64 arm64; do
-  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kube-lineage.gz; do
+  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz; do
     $SHA256_CMD "$f" > "$f.sha256"
   done)
 done

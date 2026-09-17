@@ -3,6 +3,7 @@ nav:
 - Anthropic: anthropic.md
 - AWS Bedrock: aws-bedrock.md
 - Azure AI Foundry: azure-ai-foundry.md
+- Baseten: baseten.md
 - Gemini: gemini.md
 - GitHub Copilot: github-copilot.md
 - GitHub Models: github.md

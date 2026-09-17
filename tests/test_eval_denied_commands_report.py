@@ -41,7 +41,7 @@ def test_extract_denied_commands_picks_up_denials_and_approval_required():
             "2",
             "rm -rf /tmp/foo",
             StructuredToolResultStatus.ERROR,
-            "Tool call rejected for security reasons: Command requires approval.",
+            "Tool call rejected: it requires human approval, and approval is not available in this conversation.",
         ),
         # Raw APPROVAL_REQUIRED status.
         _bash_tc(

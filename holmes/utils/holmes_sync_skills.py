@@ -8,15 +8,19 @@ from holmes.plugins.skills.skill_loader import (
     load_filesystem_skills,
 )
 
-# How a SkillSource is labelled in the HolmesCustomSkills.source column. Every filesystem
-# skill -- from a GitHub repo, inline Helm values, or a ConfigMap/Secret mount -- loads as
-# SkillSource.USER and Holmes keeps no origin metadata, so they are all reported as
-# "custom". Distinguishing github/inline/configmap would require new origin tagging.
 # HolmesCustomSkills.status values. The column exists to surface a malformed SKILL.md, so
 # both are reachable: "ok" for a skill that parsed, "error" for one that did not.
 STATUS_OK = "ok"
 STATUS_ERROR = "error"
 
+# Prefix marking a row as synced from a git repo; the rest of the value is the repo URL.
+# Parsed by the UI (robusta-frontend custom-skill-source.ts) -- keep the format in sync.
+GIT_SOURCE_PREFIX = "git:"
+
+# How a SkillSource is labelled in the HolmesCustomSkills.source column. Filesystem skills
+# load as SkillSource.USER and are reported as "custom" -- except skills whose path belongs
+# to a configured git skill repo, which are reported as "git:<repo url>" so the UI can show
+# which repo they sync from (older UIs treat the unrecognised value as plain custom).
 SOURCE_LABELS = {
     SkillSource.USER: "custom",
     SkillSource.BUILTIN: "builtin",
@@ -46,7 +50,22 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
         # Reports whether every skill source was readable, which the prune below depends on.
         # An empty result alone cannot distinguish "the last skill was deleted" from "the
         # ConfigMap is not mounted yet" -- and only the first should prune the mirror.
-        loaded = load_filesystem_skills(config.custom_skill_paths)
+        loaded = load_filesystem_skills(config.all_skill_paths)
+
+        repo_manager = config.skill_repo_manager
+
+        # A repo with no checkout contributes no rows, so it cannot be reported
+        # per-skill; log it here so the reason a configured repo's skills are
+        # missing from the page is visible next to the sync that omitted them.
+        for name, reason in repo_manager.unsynced_repos().items():
+            logging.warning(
+                f"Skill repo '{name}' has no checkout, so none of its skills are "
+                f"mirrored to the platform: {reason}"
+            )
+
+        def source_label(source: SkillSource, source_path) -> str:
+            repo = repo_manager.repo_for_path(source_path)
+            return f"{GIT_SOURCE_PREFIX}{repo.url}" if repo else SOURCE_LABELS[source]
 
         # UTC-aware: a naive timestamp would be interpreted in the database session's
         # timezone, so updated_at would not reflect the real sync time off-UTC.
@@ -76,10 +95,13 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
             if skill.source in SOURCE_LABELS:
                 by_name[skill.name] = row(
                     skill.name,
-                    SOURCE_LABELS[skill.source],
+                    source_label(skill.source, skill.source_path),
                     skill.description,
                     skill.content,
-                    skill.source_path,
+                    # Stable published path, not the sha-bearing worktree the
+                    # scan resolved to -- that changes on every push and the UI
+                    # shows it verbatim.
+                    repo_manager.display_path(skill.source_path),
                     STATUS_OK,
                     None,
                 )
@@ -96,15 +118,18 @@ def holmes_sync_skills_status(dal: SupabaseDal, config: Config) -> None:
         # the thing worth surfacing -- a broken skill the user cannot see is exactly what
         # this feature exists to fix.
         for failure in loaded.failed_skills:
-            if failure.source in SOURCE_LABELS:
-                by_name[failure.skill_name] = row(
-                    failure.skill_name,
-                    SOURCE_LABELS[failure.source],
+            # failed_skills only yields problems that carry a skill_name, but the
+            # field is Optional on the model, so bind it for the type checker.
+            skill_name = failure.skill_name
+            if skill_name and failure.source in SOURCE_LABELS:
+                by_name[skill_name] = row(
+                    skill_name,
+                    source_label(failure.source, failure.source_path),
                     # Nullable, and there is nothing trustworthy to put here -- the parse
                     # that would have produced them is what failed.
                     None,
                     None,
-                    failure.source_path,
+                    repo_manager.display_path(failure.source_path),
                     STATUS_ERROR,
                     failure.error,
                 )
