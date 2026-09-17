@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://holmesgpt.dev/dev/installation/docker-compose-installation/">
+        <link rel="canonical" href="https://holmesgpt.dev/dev/ai-providers/baseten/">
       
       
-        <link rel="prev" href="../k9s-installation/">
+        <link rel="prev" href="../azure-ai-foundry/">
       
       
-        <link rel="next" href="../kubernetes-installation/">
+        <link rel="next" href="../gemini/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>HTTP Server (Docker) - HolmesGPT Documentation</title>
+        <title>Baseten - HolmesGPT Documentation</title>
       
     
     
@@ -89,7 +89,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#install-http-server-docker" class="md-skip">
+        <a href="#baseten" class="md-skip">
           Skip to content
         </a>
       
@@ -140,7 +140,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              HTTP Server (Docker)
+              Baseten
             
           </span>
         </div>
@@ -392,10 +392,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -423,11 +421,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -448,7 +446,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -466,7 +464,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cli-installation/" class="md-nav__link">
+      <a href="../../installation/cli-installation/" class="md-nav__link">
         
   
   
@@ -494,7 +492,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ui-installation/" class="md-nav__link">
+      <a href="../../installation/ui-installation/" class="md-nav__link">
         
   
   
@@ -522,7 +520,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../slack-installation/" class="md-nav__link">
+      <a href="../../installation/slack-installation/" class="md-nav__link">
         
   
   
@@ -550,7 +548,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../teams-installation/" class="md-nav__link">
+      <a href="../../installation/teams-installation/" class="md-nav__link">
         
   
   
@@ -578,7 +576,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backstage-integration/" class="md-nav__link">
+      <a href="../../installation/backstage-integration/" class="md-nav__link">
         
   
   
@@ -606,7 +604,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../k9s-installation/" class="md-nav__link">
+      <a href="../../installation/k9s-installation/" class="md-nav__link">
         
   
   
@@ -631,37 +629,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    HTTP Server (Docker)
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../installation/docker-compose-installation/" class="md-nav__link">
         
   
   
@@ -677,126 +648,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Installation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Configuration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#serve-the-api-over-https" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Serve the API over HTTPS
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#api-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        API Reference
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Next Steps
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Next Steps">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#customize-holmes-settings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Customize Holmes Settings
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#learn-more" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Learn More
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -809,7 +660,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../kubernetes-installation/" class="md-nav__link">
+      <a href="../../installation/kubernetes-installation/" class="md-nav__link">
         
   
   
@@ -837,7 +688,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../python-installation/" class="md-nav__link">
+      <a href="../../installation/python-installation/" class="md-nav__link">
         
   
   
@@ -865,7 +716,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../namespace-scoped-access/" class="md-nav__link">
+      <a href="../../installation/namespace-scoped-access/" class="md-nav__link">
         
   
   
@@ -1365,6 +1216,8 @@
       
   
   
+    
+  
   
   
     
@@ -1408,15 +1261,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../ai-providers/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -1440,7 +1293,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1460,7 +1313,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/anthropic/" class="md-nav__link">
+      <a href="../anthropic/" class="md-nav__link">
         
   
   
@@ -1488,7 +1341,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/aws-bedrock/" class="md-nav__link">
+      <a href="../aws-bedrock/" class="md-nav__link">
         
   
   
@@ -1516,7 +1369,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/azure-ai-foundry/" class="md-nav__link">
+      <a href="../azure-ai-foundry/" class="md-nav__link">
         
   
   
@@ -1541,10 +1394,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../ai-providers/baseten/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baseten
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1560,6 +1440,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models-missing-from-litellm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Models missing from LiteLLM
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1572,7 +1505,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/gemini/" class="md-nav__link">
+      <a href="../gemini/" class="md-nav__link">
         
   
   
@@ -1600,7 +1533,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/github-copilot/" class="md-nav__link">
+      <a href="../github-copilot/" class="md-nav__link">
         
   
   
@@ -1628,7 +1561,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/github/" class="md-nav__link">
+      <a href="../github/" class="md-nav__link">
         
   
   
@@ -1656,7 +1589,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/google-vertex-ai/" class="md-nav__link">
+      <a href="../google-vertex-ai/" class="md-nav__link">
         
   
   
@@ -1684,7 +1617,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/ollama/" class="md-nav__link">
+      <a href="../ollama/" class="md-nav__link">
         
   
   
@@ -1712,7 +1645,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/openrouter/" class="md-nav__link">
+      <a href="../openrouter/" class="md-nav__link">
         
   
   
@@ -1740,7 +1673,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/openai/" class="md-nav__link">
+      <a href="../openai/" class="md-nav__link">
         
   
   
@@ -1768,7 +1701,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/openai-compatible/" class="md-nav__link">
+      <a href="../openai-compatible/" class="md-nav__link">
         
   
   
@@ -1796,7 +1729,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/other/" class="md-nav__link">
+      <a href="../other/" class="md-nav__link">
         
   
   
@@ -1824,7 +1757,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/robusta-ai/" class="md-nav__link">
+      <a href="../robusta-ai/" class="md-nav__link">
         
   
   
@@ -1852,7 +1785,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ai-providers/using-multiple-providers/" class="md-nav__link">
+      <a href="../using-multiple-providers/" class="md-nav__link">
         
   
   
@@ -5611,28 +5544,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Installation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5641,30 +5552,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Configuration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#serve-the-api-over-https" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Serve the API over HTTPS
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
-  <a href="#api-reference" class="md-nav__link">
+  <a href="#models-missing-from-litellm" class="md-nav__link">
     <span class="md-ellipsis">
       
-        API Reference
+        Models missing from LiteLLM
       
     </span>
   </a>
@@ -5672,41 +5566,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
+  <a href="#rate-limits" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Rate limits
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Next Steps">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#customize-holmes-settings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Customize Holmes Settings
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#learn-more" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Learn More
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -5753,10 +5619,10 @@
     
     
       <li class="md-path__item">
-        <a href="../cli-installation/" class="md-path__link">
+        <a href="../" class="md-path__link">
           
   <span class="md-ellipsis">
-    Installation
+    AI Providers
   </span>
 
         </a>
@@ -5775,7 +5641,7 @@
 
 
   
-    <a href="https://github.com/HolmesGPT/holmesgpt/edit/master/docs/installation/docker-compose-installation.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/HolmesGPT/holmesgpt/edit/master/docs/ai-providers/baseten.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -5784,110 +5650,103 @@
     
       
     
-    <a href="https://github.com/HolmesGPT/holmesgpt/raw/master/docs/installation/docker-compose-installation.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/HolmesGPT/holmesgpt/raw/master/docs/ai-providers/baseten.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="install-http-server-docker">Install HTTP Server (Docker)<a class="headerlink" href="#install-http-server-docker" title="Permanent link">&para;</a></h1>
-<p>Run the HolmesGPT HTTP API server locally using Docker Compose — no Kubernetes required.</p>
-<p>To deploy the HTTP server on Kubernetes, see the <a href="../kubernetes-installation/">Helm Chart</a> instead.</p>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Docker and Docker Compose</li>
-<li>Supported <a href="../../ai-providers/">AI Provider</a> API key</li>
-</ul>
-<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<ol>
-<li>
-<p><strong>Clone the repository</strong> (or just download <code>docker-compose.yaml</code>):
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/HolmesGPT/holmesgpt.git
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>holmesgpt
-</span></code></pre></div></p>
-</li>
-<li>
-<p><strong>Set your API key:</strong>
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
-</span></code></pre></div></p>
-</li>
-<li>
-<p><strong>Start the server:</strong>
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up
-</span></code></pre></div></p>
-</li>
-<li>
-<p><strong>Verify it's running:</strong>
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>http://localhost:5050/healthz
-</span></code></pre></div></p>
-</li>
-</ol>
-<p>The API is available at <code>http://localhost:5050</code>.</p>
+<h1 id="baseten">Baseten<a class="headerlink" href="#baseten" title="Permanent link">&para;</a></h1>
+<p>Configure HolmesGPT to use <a href="https://docs.baseten.co/inference/model-apis/overview" target="_blank">Baseten Model APIs</a> for hosted open-weight models such as Kimi K3 and GLM 5.3.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
-<p>Edit <code>docker-compose.yaml</code> to configure your setup:</p>
-<ul>
-<li><strong>LLM provider</strong>: Uncomment the environment variables for your provider (Anthropic, Gemini, Azure, AWS Bedrock)</li>
-<li><strong>Kubernetes access</strong>: The compose file mounts <code>~/.kube/config</code> so Holmes can query your cluster</li>
-<li><strong>Cloud credentials</strong>: AWS and GCloud credential directories are mounted read-only</li>
-<li><strong>Holmes config</strong>: <code>~/.holmes</code> is mounted for custom configuration</li>
-</ul>
-<div class="admonition info">
-<p class="admonition-title">Kubeconfig with localhost clusters</p>
-<p>If your kubeconfig points to <code>127.0.0.1</code> or <code>localhost</code> (common with Docker Desktop, minikube, kind), the container automatically rewrites the Kubernetes API server address to <code>host.docker.internal</code> on startup so the cluster is reachable. Remote clusters (EKS, GKE, AKS, etc.) are not affected.</p>
+<p>Use LiteLLM's native <code>baseten/</code> prefix with the Baseten model slug (<code>baseten/&lt;organization&gt;/&lt;model&gt;</code>). Only <code>BASETEN_API_KEY</code> is required: LiteLLM fills in the <code>https://inference.baseten.co/v1</code> endpoint itself.</p>
+<div class="admonition warning">
+<p class="admonition-title">Do not use the <code>openai/</code> prefix</p>
+<p>Baseten's endpoint is OpenAI-compatible, so <code>model: openai/zai-org/GLM-5.3</code> with <code>api_base: https://inference.baseten.co/v1</code> also answers requests. But HolmesGPT then cannot find the model in LiteLLM's registry: the registry keys Baseten models as <code>baseten/&lt;slug&gt;</code>, and an <code>openai/</code> model is looked up as <code>openai/&lt;slug&gt;</code> and <code>&lt;slug&gt;</code>. HolmesGPT falls back to a 200K context window, a 64K output budget and zero cost per token, which do not match the model.</p>
 </div>
-<h3 id="serve-the-api-over-https">Serve the API over HTTPS<a class="headerlink" href="#serve-the-api-over-https" title="Permanent link">&para;</a></h3>
-<p>The server serves HTTPS directly when you point it at a certificate and key — no reverse proxy needed. Mount the certificates and set the <code>HOLMES_SSL_*</code> environment variables on the service:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">services</span><span class="p">:</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">holmes</span><span class="p">:</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="c1"># ...</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./certs:/certs:ro</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOLMES_SSL_CERTFILE=/certs/tls.crt</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOLMES_SSL_KEYFILE=/certs/tls.key</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">      </span><span class="c1"># - HOLMES_SSL_KEYFILE_PASSWORD=changeit   # optional, for an encrypted key</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="c1"># - HOLMES_SSL_CA_CERTS=/certs/ca.crt       # optional, enables mTLS</span>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="configuration-holmes-cli" name="__tabbed_1" type="radio" /><input id="configuration-holmes-helm-chart" name="__tabbed_1" type="radio" /><input id="configuration-robusta-helm-chart" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="configuration-holmes-cli">Holmes CLI</label><label for="configuration-holmes-helm-chart">Holmes Helm Chart</label><label for="configuration-robusta-helm-chart">Robusta Helm Chart</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">BASETEN_API_KEY</span><span class="o">=</span><span class="s2">&quot;...&quot;</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what pods are failing?&quot;</span><span class="w"> </span>--model<span class="o">=</span><span class="s2">&quot;baseten/zai-org/GLM-5.3&quot;</span>
 </span></code></pre></div>
-<p>Then verify over HTTPS (use <code>-k</code> for a self-signed/private-CA certificate):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-k<span class="w"> </span>https://localhost:5050/healthz
-</span></code></pre></div>
-<p>See <a href="../../reference/environment-variables/#api-server-https-holmes_ssl_"><code>HOLMES_SSL_*</code></a> for the full variable reference.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Setting only one of <code>HOLMES_SSL_CERTFILE</code> / <code>HOLMES_SSL_KEYFILE</code>, or pointing at a missing file, makes the server <strong>fail to start</strong> rather than silently serving HTTP. The certificate is read once at startup and not hot-reloaded — restart the container after rotating it. If you add a Compose <code>healthcheck</code>, it must use <code>https:// --insecure</code> once TLS is enabled.</p>
 </div>
-<h2 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h2>
-<p>See the <a href="../../reference/http-api/">HTTP API Reference</a> for full documentation on available endpoints, request/response formats, and usage examples.</p>
-<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
-<h3 id="customize-holmes-settings">Customize Holmes Settings<a class="headerlink" href="#customize-holmes-settings" title="Permanent link">&para;</a></h3>
-<p>The Docker Compose file mounts <code>~/.holmes</code> into the container. Create <code>~/.holmes/config.yaml</code> to customize Holmes behavior:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Change the LLM model</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;anthropic/claude-sonnet-4-5-20250929&quot;</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Limit the number of tool-calling steps per investigation</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="nt">max_steps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Enable a builtin integration (e.g. Confluence)</span>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">  </span><span class="nt">confluence</span><span class="p">:</span>
-</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://yourcompany.atlassian.net&quot;</span>
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">      </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-email@example.com&quot;</span>
-</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-api-token&quot;</span>
-</span></code></pre></div>
-<p>For configuring additional data sources, see <a href="../../data-sources/builtin-toolsets/">Toolset Configuration</a>.</p>
-<p>After editing, restart the container to apply changes:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>restart
-</span></code></pre></div>
-<p>For the full list of environment variables and options, see the <a href="../../reference/environment-variables/">Environment Variables</a> reference.</p>
-<h3 id="learn-more">Learn More<a class="headerlink" href="#learn-more" title="Permanent link">&para;</a></h3>
+<div class="tabbed-block">
+<p><strong>Create Kubernetes Secret:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>holmes-secrets<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--from-file<span class="o">=</span>baseten-api-key<span class="o">=</span>/path/to/baseten-api-key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>-n<span class="w"> </span>&lt;namespace&gt;
+</span></code></pre></div></p>
+<p><strong>Configure Helm Values:</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># values.yaml</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BASETEN_API_KEY</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">      </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-secrets</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">baseten-api-key</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="nt">modelList</span><span class="p">:</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nt">glm-5-3</span><span class="p">:</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">baseten/zai-org/GLM-5.3</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="nt">kimi-k3</span><span class="p">:</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">baseten/moonshotai/Kimi-K3</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="c1"># Kimi K3 is not in LiteLLM&#39;s registry yet; see &quot;Models missing from LiteLLM&quot; below.</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">input_cost_per_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.000003</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">output_cost_per_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.000015</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="nt">custom_args</span><span class="p">:</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="nt">max_context_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1048576</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;glm-5-3&quot;</span><span class="w">  </span><span class="c1"># modelList key name</span>
+</span></code></pre></div></p>
+</div>
+<div class="tabbed-block">
+<p><strong>Create Kubernetes Secret:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>robusta-holmes-secret<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--from-file<span class="o">=</span>baseten-api-key<span class="o">=</span>/path/to/baseten-api-key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>-n<span class="w"> </span>&lt;namespace&gt;
+</span></code></pre></div></p>
+<p><strong>Configure Helm Values:</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># values.yaml</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">additionalEnvVars</span><span class="p">:</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BASETEN_API_KEY</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">        </span><span class="nt">secretKeyRef</span><span class="p">:</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">robusta-holmes-secret</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">          </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">baseten-api-key</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">  </span><span class="nt">modelList</span><span class="p">:</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="nt">glm-5-3</span><span class="p">:</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">      </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">baseten/zai-org/GLM-5.3</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="nt">kimi-k3</span><span class="p">:</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">      </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">baseten/moonshotai/Kimi-K3</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">      </span><span class="c1"># Kimi K3 is not in LiteLLM&#39;s registry yet; see &quot;Models missing from LiteLLM&quot; below.</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">      </span><span class="nt">input_cost_per_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.000003</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">      </span><span class="nt">output_cost_per_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.000015</span>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">      </span><span class="nt">custom_args</span><span class="p">:</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">        </span><span class="nt">max_context_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1048576</span>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">  </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;glm-5-3&quot;</span><span class="w">  </span><span class="c1"># modelList key name</span>
+</span></code></pre></div></p>
+</div>
+</div>
+</div>
+<h2 id="models-missing-from-litellm">Models missing from LiteLLM<a class="headerlink" href="#models-missing-from-litellm" title="Permanent link">&para;</a></h2>
+<p>LiteLLM's registry covers only some Baseten models, and most of its Baseten entries carry pricing but no context window. HolmesGPT downloads the registry from GitHub at startup, so it sees entries added after the bundled LiteLLM release; <code>baseten/zai-org/GLM-5.3</code> is one of those. When HolmesGPT falls back to the bundled copy (GitHub unreachable and no <a href="../../reference/environment-variables/#litellm_model_cost_map_url"><code>LITELLM_MODEL_COST_MAP_URL</code></a> mirror, or <code>LITELLM_LOCAL_MODEL_COST_MAP=true</code>), GLM-5.3 needs the overrides below as well. When HolmesGPT logs <code>Couldn't find model ... in litellm's model list</code> or <code>has no entry in litellm's cost map</code>, set the values on the model's <code>modelList</code> entry:</p>
 <ul>
-<li><strong><a href="../../reference/http-api/">HTTP API Reference</a></strong> — Full API documentation</li>
-<li><strong><a href="../kubernetes-installation/">Helm Chart</a></strong> — Deploy the HTTP server on Kubernetes</li>
-<li><strong><a href="../cli-installation/">CLI Installation</a></strong> — Run HolmesGPT as a command-line tool instead</li>
+<li><code>custom_args.max_context_size</code>: the model's context window, in tokens.</li>
+<li><code>input_cost_per_token</code> and <code>output_cost_per_token</code>: USD per token. Both must be set.</li>
 </ul>
+<p>Take the numbers from Baseten's model catalog, which reports <code>context_length</code>, <code>max_completion_tokens</code> and <code>pricing</code> per model:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>https://inference.baseten.co/v1/models<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$BASETEN_API_KEY</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.data[] | {id, context_length, max_completion_tokens, pricing}&#39;</span>
+</span></code></pre></div>
+<h2 id="rate-limits">Rate limits<a class="headerlink" href="#rate-limits" title="Permanent link">&para;</a></h2>
+<p>Baseten enforces requests-per-minute and tokens-per-minute limits per account tier and returns <code>429 Too Many Requests</code> when either is exceeded; an unverified Basic account gets 15 requests and 100,000 tokens per minute. An investigation sends the whole conversation on every step, so a few tool-calling steps can exhaust the token budget of a low tier within a minute. See <a href="https://docs.baseten.co/inference/model-apis/pricing-and-limits" target="_blank">Baseten's pricing and limits</a> for the tiers and how to raise them.</p>
 
 
 
@@ -5925,7 +5784,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../k9s-installation/" class="md-footer__link md-footer__link--prev" aria-label="Previous: K9s">
+          <a href="../azure-ai-foundry/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Azure AI Foundry">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -5935,20 +5794,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                K9s
+                Azure AI Foundry
               </div>
             </div>
           </a>
         
         
           
-          <a href="../kubernetes-installation/" class="md-footer__link md-footer__link--next" aria-label="Next: Helm Chart">
+          <a href="../gemini/" class="md-footer__link md-footer__link--next" aria-label="Next: Gemini">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Helm Chart
+                Gemini
               </div>
             </div>
             <div class="md-footer__button md-icon">
