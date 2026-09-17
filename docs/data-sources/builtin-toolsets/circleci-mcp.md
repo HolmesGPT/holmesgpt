@@ -25,8 +25,8 @@ A CircleCI Personal API Token with access to the projects you want Holmes to inv
       circleci:
         description: "CircleCI CI/CD - pipelines, workflows, jobs, and deployments"
         config:
-          url: "https://mcp.circleci.com/sse"
-          mode: sse
+          url: "https://mcp.circleci.com/v1/mcp"
+          mode: streamable-http
           extra_headers:
             Authorization: "Bearer <YOUR_CIRCLECI_API_TOKEN>"
         icon_url: "https://cdn.simpleicons.org/circleci/343434"
