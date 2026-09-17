@@ -648,6 +648,26 @@ mcpAddons:
     tolerations: []
     affinity: {}
 
+  # CircleCI MCP Server Configuration
+  # Connects Holmes to the CircleCI-hosted MCP server (no self-hosted pod required).
+  # Provides access to pipelines, workflows, jobs, logs, artifacts, and deployments.
+  #
+  # AUTHENTICATION:
+  # Create a CircleCI Personal API Token at https://app.circleci.com/settings/user/tokens
+  # Store it in a Kubernetes secret:
+  #   kubectl create secret generic circleci-mcp-token --from-literal=token=<YOUR_API_TOKEN> -n <NAMESPACE>
+  circleciMcp:
+    enabled: false
+
+    auth:
+      # K8s secret holding the CircleCI Personal API Token.
+      # kubectl create secret generic circleci-mcp-token --from-literal=token=<TOKEN> -n <NAMESPACE>
+      secretName: ""      # Required when enabled=true
+      secretKey: "token"  # Key in secret (default: "token")
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
   # Sentry MCP Server Configuration
   # Provides access to Sentry error tracking and monitoring
   # Authentication: Create a Sentry Auth Token with appropriate scopes
