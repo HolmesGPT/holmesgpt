@@ -87,7 +87,7 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
 
 ## Models missing from LiteLLM
 
-LiteLLM's registry covers only some Baseten models, and most of its Baseten entries carry pricing but no context window. When HolmesGPT logs `Couldn't find model ... in litellm's model list` or `has no entry in litellm's cost map`, set the values on the model's `modelList` entry:
+LiteLLM's registry covers only some Baseten models, and most of its Baseten entries carry pricing but no context window. HolmesGPT downloads the registry from GitHub at startup, so it sees entries added after the bundled LiteLLM release; `baseten/zai-org/GLM-5.3` is one of those. When HolmesGPT falls back to the bundled copy (GitHub unreachable and no [`LITELLM_MODEL_COST_MAP_URL`](../reference/environment-variables.md#litellm_model_cost_map_url) mirror, or `LITELLM_LOCAL_MODEL_COST_MAP=true`), GLM-5.3 needs the overrides below as well. When HolmesGPT logs `Couldn't find model ... in litellm's model list` or `has no entry in litellm's cost map`, set the values on the model's `modelList` entry:
 
 - `custom_args.max_context_size`: the model's context window, in tokens.
 - `input_cost_per_token` and `output_cost_per_token`: USD per token. Both must be set.
