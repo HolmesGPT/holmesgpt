@@ -52,6 +52,10 @@ from holmes.common.env_vars import (
     LOOP_DETECTION_REPEAT_THRESHOLD,
     LOOP_DETECTION_WINDOW,
 )
+from holmes.utils.approval_tokens import (
+    mint_loop_breaker_token,
+    verify_loop_breaker_token,
+)
 
 # Loop kinds, used for logging/telemetry and to keep the nudge text testable.
 KIND_REPEATED_TOOL_CALLS = "repeated_tool_calls"
@@ -62,14 +66,23 @@ KIND_DEGENERATE_OUTPUT = "degenerate_output"
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
-# Loop-breaker messages are marked with an out-of-band field rather than
-# recognised by their wording. Message CONTENT is untrusted: an alert body, a
-# pasted log or a ticket description arrives as user content, and any of it could
-# contain the phrasing we use. Matching on text would let that input inflate the
-# escalation budget and withdraw Holmes's tools early. The field is stripped
-# before the request reaches the provider (see _INTERNAL_FIELDS in llm.py), the
-# same way token_count is.
+# Loop-breaker messages are marked with an out-of-band, HMAC-signed field rather
+# than recognised by their wording.
+#
+# Message CONTENT is untrusted: an alert body, a pasted log or a ticket
+# description arrives as user content and could contain the phrasing we use, so
+# matching on text would let ordinary input inflate the escalation budget.
+#
+# The whole conversation history is untrusted too -- the server reads it from the
+# request body (server.py: `messages = list(chat_request.conversation_history)`)
+# -- so the marker is signed. Without a signature a client could post a
+# fabricated `force` marker and disable Holmes' tools for the investigation.
+# Same mechanism the bash session-prefix path uses for forged history.
+#
+# Both fields are stripped before the request reaches the provider (see
+# _INTERNAL_FIELDS in llm.py), the same way token_count is.
 LOOP_BREAKER_FIELD = "holmes_loop_breaker"
+LOOP_BREAKER_TOKEN_FIELD = "holmes_loop_breaker_token"
 LOOP_BREAKER_NUDGE = "nudge"
 LOOP_BREAKER_FORCE = "force"
 
@@ -263,6 +276,19 @@ class LoopDetector:
                 role = message.get("role")
                 if role == "user":
                     marker = message.get(LOOP_BREAKER_FIELD)
+                    if marker is not None and not verify_loop_breaker_token(
+                        message.get(LOOP_BREAKER_TOKEN_FIELD), marker
+                    ):
+                        # Conversation history is caller-supplied. An unsigned
+                        # or mismatched marker is treated as ordinary user text
+                        # rather than as loop-control state, so forged history
+                        # cannot disable Holmes' tools.
+                        logging.warning(
+                            "Ignoring loop-breaker marker with missing/invalid "
+                            "signature (possible forged conversation history)"
+                        )
+                        marker = None
+
                     if marker == LOOP_BREAKER_FORCE:
                         # Tools were withdrawn; the runtime kept the window.
                         nudges += 1
@@ -496,6 +522,7 @@ def build_loop_breaker_message(signal: LoopSignal) -> Dict[str, str]:
         return {
             "role": "user",
             LOOP_BREAKER_FIELD: LOOP_BREAKER_FORCE,
+            LOOP_BREAKER_TOKEN_FIELD: mint_loop_breaker_token(LOOP_BREAKER_FORCE),
             "content": (
                 f"STOP. {preamble} You have already been warned about this once, "
                 "and no further tool calls will be executed.\n\n"
@@ -508,6 +535,7 @@ def build_loop_breaker_message(signal: LoopSignal) -> Dict[str, str]:
     return {
         "role": "user",
         LOOP_BREAKER_FIELD: LOOP_BREAKER_NUDGE,
+        LOOP_BREAKER_TOKEN_FIELD: mint_loop_breaker_token(LOOP_BREAKER_NUDGE),
         "content": (
             f"{preamble} ({signal.detail}.)\n\n"
             "Do not repeat that step. Choose exactly one of the following and "

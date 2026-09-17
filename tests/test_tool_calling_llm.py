@@ -2016,6 +2016,7 @@ class TestRepetitionLoopDetection:
         from holmes.core.llm import DefaultLLM
         from holmes.core.loop_detection import (
             LOOP_BREAKER_FIELD,
+            LOOP_BREAKER_TOKEN_FIELD,
             LoopSignal,
             build_loop_breaker_message,
         )
@@ -2023,7 +2024,8 @@ class TestRepetitionLoopDetection:
         nudge = build_loop_breaker_message(
             LoopSignal(kind="repeated_tool_calls", detail="d", nudge_count=0)
         )
-        assert LOOP_BREAKER_FIELD in nudge  # precondition: it is set
+        assert LOOP_BREAKER_FIELD in nudge  # precondition: both are set
+        assert LOOP_BREAKER_TOKEN_FIELD in nudge
 
         llm = DefaultLLM(model="gpt-4o", api_key="k")
         with patch("holmes.core.llm.litellm.completion") as mock_completion:
@@ -2034,6 +2036,7 @@ class TestRepetitionLoopDetection:
 
         sent = mock_completion.call_args.kwargs["messages"]
         assert LOOP_BREAKER_FIELD not in sent[0]
+        assert LOOP_BREAKER_TOKEN_FIELD not in sent[0]
         assert sent[0]["role"] == "user"
         assert sent[0]["content"] == nudge["content"]
 
