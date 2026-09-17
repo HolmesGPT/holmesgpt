@@ -2,6 +2,11 @@
 
 The CircleCI MCP server connects Holmes to the CircleCI-hosted MCP endpoint — no self-hosted pod required. It provides access to pipelines, workflows, jobs, logs, artifacts, and deployments.
 
+!!! note "Two ways to authenticate"
+    This page covers **Personal API Token** authentication, which is the right choice for Holmes running in Kubernetes or any other non-interactive environment: the credential is static and no browser login is involved.
+
+    If you want each user to authenticate with their own CircleCI account through a browser consent screen, use the OAuth 2.1 flow described in [OAuth MCP Servers](../oauth-mcp-servers.md) instead.
+
 ## Prerequisites
 
 A CircleCI Personal API Token with access to the projects you want Holmes to investigate.
