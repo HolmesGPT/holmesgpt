@@ -4,12 +4,12 @@ import pytest
 
 from holmes.common.env_vars import LOOP_DETECTION_MAX_NUDGES
 from holmes.core.loop_detection import (
-    LOOP_BREAKER_FIELD,
     KIND_ALTERNATING_TOOL_CALLS,
     KIND_DEGENERATE_OUTPUT,
     KIND_NARRATION_LOOP,
     KIND_REPEATED_ERRORS,
     KIND_REPEATED_TOOL_CALLS,
+    LOOP_BREAKER_FIELD,
     LoopDetector,
     LoopSignal,
     _window_size,
