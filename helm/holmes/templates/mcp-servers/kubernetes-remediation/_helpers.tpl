@@ -62,7 +62,7 @@ Use this server ONLY for things the built-in tools can't do. NEVER use it for `g
 
 These run immediately, no human needed:
 
-- `read_file_from_container` — read a single file from inside a container (config files, on-disk logs, /proc). Secret/token mounts are always refused.
+- `read_file_from_container` — read a single file from inside a container (config files, on-disk logs under the allowed roots). Secret/token mounts, credential files (.aws, .kube, .env, *.pem, *.key, ...) and /proc, /sys, /dev are always refused, and a path the container cannot resolve with `readlink` is refused — use `run_kubectl_command` for those.
 - `run_preapproved_kubectl_command` — run a read-only diagnostic command (ps/top/df/ls/netstat/ss via exec). Use `read_file_from_container` instead of `cat`.
 - `run_preapproved_diagnostic_image` — launch a short-lived pod from a pre-approved troubleshooting image (nicolaka/netshoot, busybox, curlimages/curl) for network/DNS/HTTP probing. The pod is auto-deleted.
 - `get_remediation_mcp_config` — inspect the live effective policy.

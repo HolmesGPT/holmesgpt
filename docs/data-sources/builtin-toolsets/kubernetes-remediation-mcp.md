@@ -17,9 +17,10 @@ It runs **alongside** your existing [built-in Kubernetes toolset](kubernetes.md)
 
 | Tool | Mutating | Approval | What it does |
 |------|----------|----------|--------------|
-| `read_file_from_container` | No | Auto | Read a single file from inside a running container. Secret/token mounts are always refused. |
+| `read_file_from_container` | No | Auto | Read a single file from inside a running container, under the configured allow roots. Secret/token mounts, credential files and `/proc`, `/sys`, `/dev` are always refused. |
 | `run_preapproved_kubectl_command` | No | Auto | Run a read-only diagnostic command from the allowlist (`ps`/`top`/`df`/`ls`/`netstat`/`ss` via exec). |
 | `run_preapproved_diagnostic_image` | No | Auto | Launch a short-lived pod from a pre-approved troubleshooting image (netshoot/busybox/curl), capture output, auto-delete. By default probe targets are restricted to in-cluster destinations, and cloud metadata is refused for as long as the target policy is enabled ([details](#diagnostic-pod-target-policy)). |
+| `run_gpu_node_diagnostics` | No | Auto | Run named GPU/driver checks on a node — nvidia-smi state, throttling, ECC, dmesg XID errors, driver version mismatch, PCIe link, optional DCGM ([details](#gpu-node-diagnostics)). |
 | `get_remediation_mcp_config` | No | Auto | Return the live effective policy for debugging. |
 | `run_kubectl_command` | Yes | **Human approval** | Catch-all for everything not pre-approved: all mutations, arbitrary exec, non-allowlisted images. |
 
@@ -237,6 +238,29 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
     ```
 
+## GPU node diagnostics
+
+!!! warning "Requires MCP server image 1.3.0 or newer"
+
+Holmes can debug GPU nodes with `run_gpu_node_diagnostics` (server >= 1.3.0): it launches a short-lived pod pinned to the node and runs the **node's own binaries** through a read-only host-filesystem mount — nvidia-smi, dmesg, lspci, journalctl; no GPU is allocated and no GPU-specific image is pulled, so it works even on fully-utilized or cordoned nodes. The caller picks checks by name only (`overview`, `details`, `throttling`, `utilization_samples`, `ecc`, `page_retirement`, `row_remapper`, `compute_processes`, `kernel_gpu_errors`, `kernel_log_journal`, `driver_info`, `pci`, `pci_link`, `fabric_manager`, `gpu_device_holders`, `process_info`, `dcgm_*`) — every command is fixed in the server, which is why the tool is auto-approved.
+
+It is **off by default** — enable it via `gpuDiagnosticsEnabled`:
+
+```yaml
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    config:
+      gpuDiagnosticsEnabled: true
+      dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
+```
+
+For custom nvidia-smi/dcgmi locations or other server knobs (`GPU_DIAG_NVIDIA_SMI_PATH`, `GPU_DIAG_TIMEOUT`, ...), use `additionalEnvVars`.
+
+```bash
+holmes ask "Training jobs on node gpu-worker-3 are slow - check the GPUs for throttling or ECC errors"
+```
+
 ## Security Controls
 
 All policy lives in the MCP server; Holmes only maps tool name → approval.
@@ -244,7 +268,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | Control | Description |
 |---------|-------------|
 | **Tool separation** | Read-only tools auto-approve; only `run_kubectl_command` (mutations) requires human approval |
-| **Path policy** | `read_file_from_container` resolves symlinks in-container and re-checks them; secret/token mounts (`/var/run/secrets/`, `/run/secrets/`) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied |
+| **Path policy** | `read_file_from_container` checks the literal path, resolves it in-container with `readlink -f`, re-checks the canonical target and reads that target. Secret/token mounts (`/var/run/secrets`, `/run/secrets`, `/var/secrets`, `/etc/secrets`, `/vault/secrets`, ...), credential files (`.aws`, `.config/gcloud`, `.kube`, `.ssh`, `.env`, `*credentials*`, `*.pem`, `*.key`, `id_rsa*`, ...) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied regardless of configuration. A path that cannot be canonicalized (image without `readlink`) is refused (server >= 1.4.0) |
 | **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
 | **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
 | **Diagnostic target policy** | With the defaults, `run_preapproved_diagnostic_image` probes are restricted to in-cluster targets; cloud-metadata/link-local addresses are refused and cannot be re-enabled by config while the policy is on. `diagnosticAllowExternalTargets: true` permits external targets, and `diagnosticTargetPolicyEnabled: false` removes the whole layer — see [Diagnostic-pod target policy](#diagnostic-pod-target-policy) |
@@ -415,8 +439,9 @@ Otherwise, in order of preference:
 | `diagnosticTargetPolicyEnabled` | `true` | master switch for the [target policy](#diagnostic-pod-target-policy); `false` disables **all** target checks |
 | `diagnosticAllowExternalTargets` | `false` | allow diagnostic probes to reach hosts outside the cluster |
 | `diagnosticInternalDnsSuffixes` | `.svc,.svc.cluster.local,.cluster.local` | DNS suffixes counted as cluster-internal (set for a custom cluster domain) |
-| `fileReadAllowedPaths` | `/` | `read_file_from_container` allow roots |
-| `fileReadDeniedPaths` | `/var/run/secrets/,/run/secrets/,...` | secret-mount denylist |
+| `fileReadAllowedPaths` | `/app,/config,/data,/etc,/home,/opt,/srv,/tmp,/usr,/var/lib,/var/log,/var/tmp,/var/www,/workspace` | `read_file_from_container` allow roots (explicit; avoid `/`) |
+| `fileReadDeniedPaths` | `/var/run/secrets/,/run/secrets/,...` | operator denylist, applied on top of the server's built-in hard-denied roots and credential patterns |
+| `fileReadRequireCanonicalization` | `true` | refuse reads the container cannot resolve with `readlink -f` (server >= 1.4.0); `false` restores fail-open |
 | `allowArbitraryKubectlCommands` | `true` | enable the approval-gated fallback |
 | `timeout` | `60` | per-command timeout (s) |
 
