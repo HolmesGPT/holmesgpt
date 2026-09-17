@@ -92,13 +92,15 @@ class LLMInterruptedError(Exception):
 
 
 class RelayRefusal(Exception):
-    """Relay refusing a call on a Robusta-hosted model: 403 when the account
-    disabled Robusta-hosted models, 401 when the session token went stale.
+    """Relay refusing a call on a Robusta-hosted model.
 
-    This is the platform talking to the user, not a provider failure, so it is
-    holmes' own exception rather than one of litellm's: the message is relay's
-    sentence verbatim - what `str()` and `args[0]` give - and the status is
-    what an HTTP consumer answers with (ROB-1389).
+    Relay answers 401 or 403 for more than the account-level opt-out: the
+    feature not being enabled, a free-account gate, or a stale session token
+    are all refusals too, and the opt-out is just one of them. Whatever the
+    reason, this is the platform talking to the user, not a provider failure,
+    so it is holmes' own exception rather than one of litellm's: the message
+    is relay's sentence verbatim - what `str()` and `args[0]` give - and the
+    status is what an HTTP consumer answers with (ROB-1389).
     """
 
     def __init__(self, message: str, status_code: int):
@@ -1366,9 +1368,12 @@ class ToolCallingLLM:
               # recognised by status before anything keyed on the class runs;
               # the Azure case below is a 400, so it can never be taken first.
               except Exception as e:
-                # A refusal on a Robusta-hosted model is the platform talking
-                # to the user, not a provider failure: its body says what to do
-                # about it, and litellm's rendering buries that (ROB-1389).
+                # Relay refuses a Robusta-hosted model call for more than the
+                # account opt-out - a disabled feature, a free-account gate, a
+                # stale token are refusals too. Whatever the reason, this is
+                # the platform talking to the user, not a provider failure:
+                # its body says what to do about it, and litellm's rendering
+                # buries that (ROB-1389).
                 if _is_robusta_refusal(self.llm, e):
                     # _is_robusta_refusal already established the status is one
                     # of REFUSAL_STATUS_CODES.

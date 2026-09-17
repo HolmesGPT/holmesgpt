@@ -141,7 +141,7 @@ An account can turn Robusta-hosted models off for everyone in it, from **Setting
 With it set:
 
 - Model discovery returns no Robusta-hosted models, so HolmesGPT loads only the models configured on the cluster itself (`MODEL`, `MODEL_LIST_FILE_LOCATION`, or the model list) - `ROBUSTA_AI: "true"` does not put it back.
-- A cluster with no models of its own has nothing to run on, and HolmesGPT says so instead of failing on a missing model.
+- A cluster with no models of its own has nothing to run on, and each request fails with an error naming that: no models are configured and Robusta-hosted models are disabled for the account.
 - Turning the setting back off is picked up by the periodic model refresh - running agents do not need a restart.
 - Agents older than the release that added this keep their previous behaviour: they still load Robusta-hosted models, and the platform refuses each call they make on one.
 
