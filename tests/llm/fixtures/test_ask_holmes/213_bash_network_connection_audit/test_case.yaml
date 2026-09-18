@@ -1,0 +1,64 @@
+user_prompt: "The connection-pool pod in namespace app-213 may have connection leaks. Check how many TCP connections it has and group them by state (ESTABLISHED, TIME_WAIT, LISTEN, etc.)."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call bash tool with kubectl exec"
+  - "Must report TCP connection states"
+  - "Must identify LISTEN connections on ports 8001-8050"
+  - "Must identify ESTABLISHED connections"
+
+description: |
+  Tests that Holmes can use bash to run kubectl exec and inspect network connections inside a container.
+  The pod creates 50 TCP listeners and 50 established connections.
+  Holmes must use bash with 'kubectl exec' to run ss/netstat since no toolset inspects container network state.
+
+tags:
+  - kubernetes
+  - regression
+  - bash-resource-checker
+
+before_test: |
+  kubectl create namespace app-213 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  # Wait for pod to be ready
+  POD_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod/connection-pool -n app-213 --timeout=2s 2>/dev/null; then
+      echo "Pod ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$POD_READY" = false ]; then
+    echo "Pod not ready after 60 seconds"
+    kubectl get pods -n app-213
+    kubectl describe pod/connection-pool -n app-213
+    exit 1
+  fi
+
+  # Wait for connections to be established
+  CONN_READY=false
+  for i in {1..30}; do
+    LISTEN_COUNT=$(kubectl exec -n app-213 connection-pool -- ss -tln 2>/dev/null | grep -c LISTEN || echo "0")
+    echo "Attempt $i: $LISTEN_COUNT LISTEN connections"
+    if [ "$LISTEN_COUNT" -ge 40 ]; then
+      echo "Connections established!"
+      CONN_READY=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$CONN_READY" = false ]; then
+    echo "Connections not established properly"
+    kubectl exec -n app-213 connection-pool -- ss -tan
+    exit 1
+  fi
+  echo "Setup complete"
+
+after_test: |
+  kubectl delete namespace app-213 --ignore-not-found

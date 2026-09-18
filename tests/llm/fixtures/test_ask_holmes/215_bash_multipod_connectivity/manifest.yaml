@@ -1,0 +1,273 @@
+# Database pod and service
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: database
+  namespace: app-215
+  labels:
+    app: database
+    role: db
+spec:
+  containers:
+    - name: db
+      image: alpine:3.19
+      command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache netcat-openbsd >/dev/null 2>&1
+          while true; do nc -l -p 5432; done
+      ports:
+        - containerPort: 5432
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: database
+  namespace: app-215
+spec:
+  selector:
+    app: database
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# NetworkPolicy: Only allow pods with label "db-access: allowed" to reach database
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-access
+  namespace: app-215
+spec:
+  podSelector:
+    matchLabels:
+      app: database
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              db-access: allowed
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# StatefulSet: 90 worker pods WITH db-access label (can connect)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-worker
+  namespace: app-215
+spec:
+  clusterIP: None
+  selector:
+    app: api-worker
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: api-worker
+  namespace: app-215
+spec:
+  serviceName: api-worker
+  replicas: 90
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: api-worker
+      db-access: allowed
+  template:
+    metadata:
+      labels:
+        app: api-worker
+        db-access: allowed
+    spec:
+      containers:
+        - name: worker
+          image: alpine:3.19
+          command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+---
+# 10 individual pods WITHOUT db-access label (blocked by NetworkPolicy)
+# Named api-worker-90 through api-worker-99 to continue the sequence
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-90
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-91
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-92
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-93
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-94
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-95
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-96
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-97
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-98
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-worker-99
+  namespace: app-215
+  labels:
+    app: api-worker
+spec:
+  containers:
+    - name: worker
+      image: alpine:3.19
+      command: ["/bin/sh", "-c", "apk add --no-cache netcat-openbsd >/dev/null 2>&1; sleep 3600"]
+      resources:
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
