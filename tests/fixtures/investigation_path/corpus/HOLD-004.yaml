@@ -1,0 +1,42 @@
+# Held-out case: should ABSTAIN with no_candidates. Nothing in the corpus
+# resembles a certificate expiry, and the correct behaviour is silence rather
+# than borrowing checks from an unrelated cause.
+incident_id: HOLD-004
+occurred_at: "2026-07-19"
+source_type: prometheus
+title: Ingress serving an expired certificate
+subject: public-ingress
+split: holdout
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - tls
+  - certificate
+  - expired
+  - ingress
+  - handshake
+  - browser
+  - untrusted
+
+root_cause:
+  label: certificate_expired
+  summary: >-
+    Certificate renewal had been failing silently for weeks. The certificate
+    expired and every browser began rejecting the handshake.
+
+reference_path:
+  - intent: describe
+    entity: {kind: ingress, name: "<subject>"}
+    weight: 0.9
+    rationale: Names the secret the certificate is read from.
+  - intent: events
+    entity: {kind: ingress, name: "<subject>"}
+    weight: 0.8
+    rationale: Renewal failures are reported as events, not as workload health.
+
+observed_path:
+  - intent: describe
+    entity: {kind: ingress, name: "<subject>"}
+    weight: 0.9
+    rationale: Ran.
