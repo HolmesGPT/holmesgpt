@@ -57,6 +57,10 @@ const MainContent: React.FC<MainContentProps> = ({
   const [opensearchUser] = useState(process.env.REACT_APP_OPENSEARCH_USER);
   const [opensearchPassword] = useState(process.env.REACT_APP_OPENSEARCH_PASSWORD);
 
+  // Connection error messages for prominent display
+  const [prometheusError, setPrometheusError] = useState<string | null>(null);
+  const [opensearchError, setOpensearchError] = useState<string | null>(null);
+
   // Indices discovery state
   const [availableIndices, setAvailableIndices] = useState<string[]>([]);
 
@@ -421,9 +425,11 @@ const MainContent: React.FC<MainContentProps> = ({
       if (response.ok) {
         console.log('Setting Prometheus status to connected');
         setPrometheusStatus('connected');
+        setPrometheusError(null);
       } else {
         console.log('Setting Prometheus status to disconnected');
         setPrometheusStatus('disconnected');
+        setPrometheusError(`Prometheus returned HTTP ${response.status} (${response.statusText || 'Unknown Error'}). Verify that Prometheus is running at ${prometheusUrl} and is accessible from this browser.`);
       }
     } catch (error: any) {
       console.warn('Prometheus connection check failed:', error);
@@ -431,9 +437,12 @@ const MainContent: React.FC<MainContentProps> = ({
       // Clear safety timeout if it exists
       if (safetyTimeout) clearTimeout(safetyTimeout);
 
-      // Handle specific error types
+      // Handle specific error types and set descriptive error message
       if (error.name === 'AbortError') {
         console.warn('Prometheus connection check timed out');
+        setPrometheusError(`Connection to Prometheus at ${prometheusUrl} timed out. The server may be unreachable or slow to respond.`);
+      } else {
+        setPrometheusError(`Unable to connect to Prometheus at ${prometheusUrl}. ${error.message || 'Check that the server is running and the URL is correct.'}`);
       }
 
       setPrometheusStatus('disconnected');
@@ -486,12 +495,15 @@ const MainContent: React.FC<MainContentProps> = ({
 
       if (response.ok) {
         setOpensearchStatus('connected');
+        setOpensearchError(null);
       } else {
         setOpensearchStatus('disconnected');
+        setOpensearchError(`OpenSearch returned HTTP ${response.status} (${response.statusText || 'Unknown Error'}). Verify that OpenSearch is running at ${opensearchUrl} and is accessible from this browser.`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.warn('OpenSearch connection check failed:', error);
       setOpensearchStatus('disconnected');
+      setOpensearchError(`Unable to connect to OpenSearch at ${opensearchUrl}. ${error.message || 'Check that the server is running and the URL is correct.'}`);
     }
   }, [opensearchUrl, selectedPage, getOpensearchHeaders]);
 
@@ -917,6 +929,25 @@ const MainContent: React.FC<MainContentProps> = ({
         </div>
       )}
 
+      {selectedPage === 'metrics' && prometheusStatus === 'disconnected' && prometheusError && (
+        <div className="connection-error-banner">
+          <div className="connection-error-banner-content">
+            <span className="connection-error-banner-icon">&#9888;</span>
+            <div className="connection-error-banner-text">
+              <strong>Prometheus Connection Error</strong>
+              <p>{prometheusError}</p>
+            </div>
+            <button
+              className="connection-error-banner-dismiss"
+              onClick={() => setPrometheusError(null)}
+              title="Dismiss"
+            >
+              &#10005;
+            </button>
+          </div>
+        </div>
+      )}
+
       {selectedPage === 'logs' && (
         <div className="connection-status-bar">
           <div className="connection-info">
@@ -939,6 +970,25 @@ const MainContent: React.FC<MainContentProps> = ({
               Retry
             </button>
           )}
+        </div>
+      )}
+
+      {selectedPage === 'logs' && opensearchStatus === 'disconnected' && opensearchError && (
+        <div className="connection-error-banner">
+          <div className="connection-error-banner-content">
+            <span className="connection-error-banner-icon">&#9888;</span>
+            <div className="connection-error-banner-text">
+              <strong>OpenSearch Connection Error</strong>
+              <p>{opensearchError}</p>
+            </div>
+            <button
+              className="connection-error-banner-dismiss"
+              onClick={() => setOpensearchError(null)}
+              title="Dismiss"
+            >
+              &#10005;
+            </button>
+          </div>
         </div>
       )}
 
