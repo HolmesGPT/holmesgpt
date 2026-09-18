@@ -34,6 +34,10 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ .Release.Name }}-operator
+      {{- if .Values.operator.imagePullSecrets }}
+      imagePullSecrets:
+      {{- toYaml .Values.operator.imagePullSecrets | nindent 6 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:
