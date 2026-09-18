@@ -1478,17 +1478,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#rate-limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Rate limits
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -5565,17 +5554,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#rate-limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Rate limits
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -5745,8 +5723,6 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>https://inference.baseten.co/v1/models<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$BASETEN_API_KEY</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.data[] | {id, context_length, max_completion_tokens, pricing}&#39;</span>
 </span></code></pre></div>
-<h2 id="rate-limits">Rate limits<a class="headerlink" href="#rate-limits" title="Permanent link">&para;</a></h2>
-<p>Baseten enforces requests-per-minute and tokens-per-minute limits per account tier and returns <code>429 Too Many Requests</code> when either is exceeded; an unverified Basic account gets 15 requests and 100,000 tokens per minute. An investigation sends the whole conversation on every step, so a few tool-calling steps can exhaust the token budget of a low tier within a minute. See <a href="https://docs.baseten.co/inference/model-apis/pricing-and-limits" target="_blank">Baseten's pricing and limits</a> for the tiers and how to raise them.</p>
 
 
 
