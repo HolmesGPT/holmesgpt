@@ -1,0 +1,71 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: app-295-low-priority
+value: 100
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: app-295-high-priority
+value: 1000
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-295
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: app-295-flavor
+spec: {}
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: app-295-cq
+spec:
+  namespaceSelector: {}
+  preemption:
+    withinClusterQueue: LowerPriority
+  resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+        - name: app-295-flavor
+          resources:
+            - name: "cpu"
+              nominalQuota: "1"
+            - name: "memory"
+              nominalQuota: 2Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: preempt-queue
+  namespace: app-295
+spec:
+  clusterQueue: app-295-cq
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lowpri-sweep
+  namespace: app-295
+  labels:
+    kueue.x-k8s.io/queue-name: preempt-queue
+    kueue.x-k8s.io/priority-class: app-295-low-priority
+spec:
+  suspend: true
+  template:
+    spec:
+      containers:
+        - name: main
+          image: busybox:1.36
+          command: ["sh", "-c", "echo sweep && sleep 3600"]
+          resources:
+            requests:
+              cpu: "800m"
+              memory: 1Gi
+      restartPolicy: Never
+  backoffLimit: 0

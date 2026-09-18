@@ -1,0 +1,80 @@
+user_prompt: "Job 'provision-gpu' in namespace 'app-292' has been stuck in Pending for over 20 minutes. Investigate using the available tools and determine the root cause."
+expected_output:
+  - The Workload has reserved quota (QuotaReserved is True) but is not Admitted
+  - An admission check named app-292-fake-check is in Pending state
+  - The root cause is a stuck/pending admission check, not insufficient quota or a queue misconfiguration
+
+tags:
+  - kubernetes
+  - easy
+  - question-answer
+
+evaluation:
+  correctness: 1
+
+# This test registers an AdmissionCheck whose controller ("fake-controller")
+# never actually runs. We patch the AdmissionCheck's own status to Active so
+# the ClusterQueue accepts it as usable (otherwise Kueue marks the whole
+# ClusterQueue inactive rather than leaving individual workloads waiting) -
+# but nothing ever resolves the per-workload admission check state, so the
+# workload sits with QuotaReserved=True, Admitted=False forever.
+before_test: |
+  KUEUE_VERSION=v0.19.0
+  if kubectl get crd workloads.kueue.x-k8s.io >/dev/null 2>&1; then
+    INSTALLED_IMAGE=$(kubectl get deployment/kueue-controller-manager -n kueue-system -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    if [[ "$INSTALLED_IMAGE" != *"$KUEUE_VERSION"* ]]; then
+      echo "❌ an existing Kueue install (image: ${INSTALLED_IMAGE:-none}) does not match the expected ${KUEUE_VERSION}; refusing to reuse it"
+      exit 1
+    fi
+  else
+    kubectl apply --server-side -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
+  fi
+  for i in {1..60}; do
+    kubectl get deployment/kueue-controller-manager -n kueue-system >/dev/null 2>&1 && break
+    sleep 1
+  done
+  kubectl wait --for=condition=Available deployment/kueue-controller-manager -n kueue-system --timeout=60s
+
+  kubectl apply -f ./manifest.yaml
+  kubectl patch admissioncheck app-292-fake-check --type=merge --subresource=status \
+    -p '{"status":{"conditions":[{"type":"Active","status":"True","reason":"Active","message":"fake controller registered","lastTransitionTime":"2026-01-01T00:00:00Z","observedGeneration":1}]}}'
+  # Wait for the Workload to reserve quota, remain un-Admitted, and have the
+  # fake admission check specifically sitting in Pending (60s total). Checking
+  # QuotaReserved alone isn't enough - it would also pass if the workload had
+  # already been fully Admitted, or if the check we depend on isn't present in
+  # status yet.
+  READY=false
+  for i in {1..60}; do
+    WORKLOAD=$(kubectl get workload -n app-292 -o name 2>/dev/null | head -1)
+    if [ -n "$WORKLOAD" ]; then
+      QUOTA_RESERVED=$(kubectl get "$WORKLOAD" -n app-292 -o jsonpath='{.status.conditions[?(@.type=="QuotaReserved")].status}' 2>/dev/null)
+      ADMITTED=$(kubectl get "$WORKLOAD" -n app-292 -o jsonpath='{.status.conditions[?(@.type=="Admitted")].status}' 2>/dev/null)
+      CHECK_STATE=$(kubectl get "$WORKLOAD" -n app-292 -o jsonpath='{.status.admissionChecks[?(@.name=="app-292-fake-check")].state}' 2>/dev/null)
+      if [ "$QUOTA_RESERVED" = "True" ] && [ "$ADMITTED" != "True" ] && [ "$CHECK_STATE" = "Pending" ]; then
+        echo "✅ Workload reserved quota and is waiting on a Pending admission check!"
+        READY=true
+        break
+      fi
+    fi
+    echo "⏳ Attempt $i/60: waiting for Kueue to reconcile the Workload (QuotaReserved=$QUOTA_RESERVED Admitted=$ADMITTED check=$CHECK_STATE), checking in 1s..."
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "❌ Workload did not reach the expected QuotaReserved=True/Admitted!=True/check=Pending state after 60s"
+    kubectl get workload -n app-292 -o yaml
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-292 --ignore-not-found
+  for i in {1..60}; do
+    kubectl get namespace app-292 >/dev/null 2>&1 || break
+    sleep 1
+  done
+  kubectl delete clusterqueue app-292-cq --ignore-not-found
+  kubectl delete resourceflavor app-292-flavor --ignore-not-found
+  kubectl delete admissioncheck app-292-fake-check --ignore-not-found
+  if kubectl get namespace app-292 >/dev/null 2>&1; then
+    echo "❌ namespace app-292 still exists after bounded teardown wait"
+    exit 1
+  fi
