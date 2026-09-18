@@ -29,6 +29,12 @@ def _catalog(*model_names: str, default: str = "") -> RobustaModelsResponse:
     )
 
 
+def _opted_out() -> RobustaModelsResponse:
+    """What relay serves an account with the Robusta AI opt-out set: no models,
+    no defaults, and the flag that says so."""
+    return RobustaModelsResponse(models={}, robusta_ai_disabled=True)
+
+
 def _config() -> MagicMock:
     config = MagicMock()
     config.cluster_name = "test-cluster"
@@ -55,17 +61,19 @@ def build_registry(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("MODEL", raising=False)
 
-    def factory(boot_catalog, file_models=None, robusta_ai=True):
+    def factory(boot_catalog, file_models=None, robusta_ai=True, config_model=None):
         monkeypatch.setattr(
             LLMModelRegistry,
             "_parse_models_file",
             lambda self, path: dict(file_models or {}),
         )
+        config = _config()
+        config.model = config_model
         with (
             patch("holmes.core.llm.ROBUSTA_AI", robusta_ai),
             patch("holmes.core.llm.fetch_robusta_models", return_value=boot_catalog),
         ):
-            return LLMModelRegistry(_config(), _dal())
+            return LLMModelRegistry(config, _dal())
 
     return factory
 
@@ -371,3 +379,73 @@ def test_heartbeat_advertises_the_refreshed_catalog(mock_cluster, monkeypatch):
 
     advertised = json.loads(dal.upsert_holmes_status.call_args[0][0]["model"])
     assert advertised == ["Playtika-sonnet-5"]
+
+
+# ---------------------------------------------------------------------------
+# Account-level Robusta AI opt-out (ROB-1389)
+# ---------------------------------------------------------------------------
+
+
+def test_opt_out_at_boot_serves_only_the_cluster_models(build_registry):
+    """An opted-out account gets no Robusta-hosted entries at all - not even
+    the legacy fallback, which is what an empty catalog would otherwise mean."""
+    registry = build_registry(
+        _opted_out(),
+        file_models={
+            "my-azure-gpt4": ModelEntry(model="azure/gpt-4", name="my-azure-gpt4")
+        },
+    )
+
+    assert set(registry.models) == {"my-azure-gpt4"}
+    assert registry.default_robusta_model is None
+    assert registry.robusta_ai_disabled
+    assert registry.get_model_params().name == "my-azure-gpt4"
+
+
+def test_opt_out_at_boot_with_no_cluster_models_explains_itself(build_registry):
+    registry = build_registry(_opted_out())
+
+    assert registry.models == {}
+    with pytest.raises(Exception) as excinfo:
+        registry.get_model_params()
+
+    assert "Robusta-hosted models are disabled for this account" in str(excinfo.value)
+    assert "Settings > LLM Models" in str(excinfo.value)
+
+
+def test_opt_out_at_boot_serves_the_config_model(build_registry):
+    registry = build_registry(_opted_out(), config_model="azure/gpt-4.1")
+
+    assert set(registry.models) == {"azure/gpt-4.1"}
+    assert registry.get_model_params().name == "azure/gpt-4.1"
+
+
+def test_refresh_applies_a_new_opt_out(build_registry):
+    registry = build_registry(
+        _catalog("Robusta/opus-4-6", default="Robusta/opus-4-6"),
+        file_models={
+            "my-azure-gpt4": ModelEntry(model="azure/gpt-4", name="my-azure-gpt4")
+        },
+    )
+
+    changed = _refresh_with(registry, _opted_out())
+
+    assert changed
+    assert set(registry.models) == {"my-azure-gpt4"}
+    assert registry.default_robusta_model is None
+    assert registry.robusta_ai_disabled
+
+
+def test_an_opted_out_agent_keeps_polling_and_recovers(build_registry):
+    """Re-enabling the account must reach a running agent: it has no Robusta
+    entries left, so the refresh gate can't key on those alone."""
+    registry = build_registry(_opted_out())
+
+    changed = _refresh_with(
+        registry, _catalog("Robusta/opus-4-6", default="Robusta/opus-4-6")
+    )
+
+    assert changed
+    assert set(registry.models) == {"Robusta/opus-4-6"}
+    assert registry.default_robusta_model == "Robusta/opus-4-6"
+    assert not registry.robusta_ai_disabled

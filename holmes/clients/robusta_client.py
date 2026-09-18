@@ -24,6 +24,12 @@ TIMEOUT = 0.5
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 FETCH_MODELS_ATTEMPTS = 5
 
+MODELS_V3_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
+MODELS_V2_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2"
+# A platform that predates v3 answers it with 404 (no such route) or 405 (the
+# path is known for another method); either way v2 is what it serves.
+_MISSING_ENDPOINT_STATUS_CODES = {404, 405}
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +46,14 @@ class RobustaModel(BaseModel):
 
 
 class RobustaModelsResponse(BaseModel):
+    # Relay's v3 envelope carries the account's effective catalog plus the
+    # flag that explains it: `robusta_ai_disabled` tells an agent that an
+    # empty catalog is the account's choice rather than a relay blip, so it
+    # must not fall back to the legacy Robusta entry. The envelope's other
+    # fields are the platform's own bookkeeping and are dropped here.
+    model_config = ConfigDict(extra="ignore")
     models: Dict[str, RobustaModel]
+    robusta_ai_disabled: bool = False
 
 
 def _is_retryable_fetch_error(exc: BaseException) -> bool:
@@ -51,6 +64,13 @@ def _is_retryable_fetch_error(exc: BaseException) -> bool:
         )
     return isinstance(
         exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    )
+
+
+def _is_missing_endpoint(exc: requests.exceptions.HTTPError) -> bool:
+    return (
+        exc.response is not None
+        and exc.response.status_code in _MISSING_ENDPOINT_STATUS_CODES
     )
 
 
@@ -107,14 +127,40 @@ def fetch_supabase_api_key(account_id: str, cluster: str) -> Optional[str]:
     before_sleep=_log_fetch_retry,
     reraise=True,
 )
-def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
+def _post_models(url: str, account_id: str, token: str) -> Any:
     resp = requests.post(
-        f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2",
+        url,
         json={"session_token": token, "account_id": account_id},
         timeout=10,
     )
     resp.raise_for_status()
-    return RobustaModelsResponse(models=resp.json())
+    return resp.json()
+
+
+def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
+    """The account's catalog, negotiated with whatever the platform serves.
+
+    v3 is the envelope that carries the account's opt-out; a platform that
+    predates it has no opt-out to report, so its bare v2 catalog is read as an
+    enabled account. A 5xx is a blip on a platform that does serve v3 - it is
+    retried rather than falling back, because falling back there would hide
+    the opt-out.
+    """
+    try:
+        body = _post_models(MODELS_V3_URL, account_id, token)
+    except requests.exceptions.HTTPError as e:
+        if not _is_missing_endpoint(e):
+            raise
+        logger.info(
+            "The platform does not serve %s; reading the model catalog from %s",
+            MODELS_V3_URL,
+            MODELS_V2_URL,
+        )
+        return RobustaModelsResponse(
+            models=_post_models(MODELS_V2_URL, account_id, token),
+            robusta_ai_disabled=False,
+        )
+    return RobustaModelsResponse.model_validate(body)
 
 
 def fetch_robusta_models(

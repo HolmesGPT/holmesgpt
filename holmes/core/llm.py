@@ -837,6 +837,10 @@ class LLMModelRegistry:
         self.config = config
         self._llms: dict[str, ModelEntry] = {}
         self._default_robusta_model: Optional[str] = None
+        # Set when relay says the account opted out of Robusta-hosted models:
+        # the registry then serves only what the cluster configured, and an
+        # empty catalog must not be healed with the legacy fallback entry.
+        self._robusta_ai_disabled: bool = False
         self.dal = dal
         self._lock = threading.RLock()
         self._robusta_refresh_failures = 0
@@ -852,6 +856,10 @@ class LLMModelRegistry:
     @property
     def default_robusta_model(self) -> Optional[str]:
         return self._default_robusta_model
+
+    @property
+    def robusta_ai_disabled(self) -> bool:
+        return self._robusta_ai_disabled
 
     def _init_models(self):
         # Precedence for the model list file:
@@ -968,6 +976,11 @@ class LLMModelRegistry:
             robusta_models: RobustaModelsResponse | None = fetch_robusta_models(
                 account_id, token
             )
+            if robusta_models and robusta_models.robusta_ai_disabled:
+                # Deliberate, not a blip: never fall back to the legacy entry.
+                self._apply_robusta_ai_disabled()
+                return
+
             if not robusta_models or not robusta_models.models:
                 self._load_default_robusta_config()
                 return
@@ -1005,14 +1018,19 @@ class LLMModelRegistry:
         with self._lock:
             # Robusta AI is in play iff something Robusta-hosted is loaded -
             # startup leaves either the catalog or the legacy fallback behind.
-            serves_robusta_models = any(
-                entry.is_robusta_model for entry in self._llms.values()
+            # An opted-out agent serves nothing Robusta-hosted, so the catalog
+            # can no longer tell us: it must keep polling for the account to be
+            # re-enabled. Both reads are of the same registry state, so they
+            # are taken together.
+            robusta_ai_in_play = (
+                any(entry.is_robusta_model for entry in self._llms.values())
+                or self._robusta_ai_disabled
             )
 
         # cluster_name and LOAD_ALL_ROBUSTA_MODELS are what put an agent in
         # legacy single-model mode at boot; refreshing must not promote it.
         if not (
-            serves_robusta_models
+            robusta_ai_in_play
             and self.config.cluster_name
             and LOAD_ALL_ROBUSTA_MODELS
             and self.dal.enabled
@@ -1037,6 +1055,10 @@ class LLMModelRegistry:
                 if log_this_failure:
                     logging.exception("Failed to refresh Robusta AI models")
                 return False
+
+            if robusta_models and robusta_models.robusta_ai_disabled:
+                self._robusta_refresh_failures = 0
+                return self._apply_robusta_ai_disabled()
 
             if not robusta_models or not robusta_models.models:
                 self._robusta_refresh_failures += 1
@@ -1064,6 +1086,33 @@ class LLMModelRegistry:
         finally:
             self._robusta_refresh_lock.release()
 
+    def _apply_robusta_ai_disabled(self) -> bool:
+        """Drop every Robusta-hosted entry and remember why.
+
+        Returns True when this changed the registry, so a refresh can report
+        it. Logged once: the refresh loop re-reads the flag every cycle.
+        """
+        with self._lock:
+            hosted = [
+                name for name, entry in self._llms.items() if entry.is_robusta_model
+            ]
+            changed = bool(hosted) or not self._robusta_ai_disabled
+            self._llms = {
+                name: entry
+                for name, entry in self._llms.items()
+                if not entry.is_robusta_model
+            }
+            self._default_robusta_model = None
+            first_time = not self._robusta_ai_disabled
+            self._robusta_ai_disabled = True
+
+        if first_time:
+            logging.info(
+                "Robusta-hosted models are disabled for this account; "
+                "serving only the models configured on this cluster."
+            )
+        return changed
+
     def _install_robusta_models(
         self, robusta_models: RobustaModelsResponse
     ) -> tuple[list[str], list[str]]:
@@ -1075,6 +1124,7 @@ class LLMModelRegistry:
         `_lock` (the refresh path) keep it; startup runs single-threaded before
         the registry is shared.
         """
+        self._robusta_ai_disabled = False
         incoming = set(robusta_models.models)
         current = {n for n, entry in self._llms.items() if entry.is_robusta_model}
 
@@ -1180,6 +1230,14 @@ class LLMModelRegistry:
         requested one couldn't be found even after a refresh."""
         with self._lock:
             if not self._llms:
+                if self._robusta_ai_disabled:
+                    raise Exception(
+                        "No LLM models are configured on this cluster and "
+                        "Robusta-hosted models are disabled for this account. "
+                        "Configure a model on the cluster (MODEL, "
+                        "MODEL_LIST_FILE_LOCATION or the model list), or enable "
+                        "Robusta-hosted models in Settings > LLM Models."
+                    )
                 raise Exception(
                     "No LLM models were loaded. Configure a model using one of: "
                     "--model '<provider/model>', export MODEL='<provider/model>', "
