@@ -46,3 +46,7 @@ def handle_result(
     elif destination == DestinationType.SLACK:
         slack = config.create_slack_destination()
         slack.send_issue(issue, result)
+
+    elif destination == DestinationType.WEBHOOK:
+        webhook = config.create_webhook_destination()
+        webhook.send_issue(issue, result)
