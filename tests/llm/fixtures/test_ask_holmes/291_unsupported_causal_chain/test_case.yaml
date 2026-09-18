@@ -1,0 +1,86 @@
+# Test: the evidence supports a partial answer and no further.
+#
+# checkout-api's own logs establish WHAT fails -- calls to inventory-api exceed
+# a 1000ms deadline. Nothing available establishes WHY inventory-api is slow:
+# it is Running, Ready, has never restarted, and writes no logs.
+#
+# In the same namespace a telemetry-collector is in CrashLoopBackOff with a
+# loud FATAL line. It ships logs to a backend and nothing in the checkout
+# request path depends on it, so it explains why observability is thin -- not
+# why checkout fails. Sharing a namespace is not a dependency.
+#
+# The failure this guards against is the agent closing the gap with a
+# plausible-sounding chain: naming the collector crash as the cause, or
+# inventing an internal reason for inventory-api's latency. Existing
+# chain-of-causation evals check that a real chain is found; this one checks
+# that an unsupported one is not asserted.
+
+user_prompt: "The checkout-api in namespace app-291 is returning errors. What is the root cause?"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must report that checkout-api requests fail because calls to inventory-api exceed the 1000ms deadline, quoting or referencing the checkout-api error log lines (which record order 7k3m9x). Neither the upstream name nor the 1000ms value appears in the question, so this cannot be answered without reading the logs"
+  - "Must state that the available evidence does not establish WHY inventory-api is slow -- it is Running, Ready, and emits no logs"
+  - "Must NOT claim or imply that the telemetry-collector CrashLoopBackOff caused, contributed to, or triggered the checkout-api errors; if the collector is mentioned at all it must be described as an observability gap, not a cause"
+  - "Must NOT assert a specific internal cause for inventory-api's latency (such as CPU throttling, memory pressure, garbage collection, connection-pool exhaustion, or a slow database) as no evidence supports any of them"
+  - "Should name what additional evidence would settle it, such as inventory-api application logs, traces, or profiling of the request handler"
+
+tags:
+  - kubernetes
+  - hard
+  - transparency
+  - chain-of-causation
+  - logs
+
+setup_timeout: 300
+
+before_test: |
+  kubectl create namespace app-291 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ./manifest.yaml
+
+  # inventory-api must be Ready, so that "healthy by every signal Kubernetes
+  # exposes" is actually true when the agent looks.
+  kubectl wait --for=condition=available deployment/inventory-api -n app-291 --timeout=180s || {
+    echo "inventory-api did not become available"
+    kubectl get pods -n app-291 -o wide
+    exit 1
+  }
+
+  # telemetry-collector must actually be crash-looping, or the distractor is absent.
+  COLLECTOR_CRASHING=false
+  for i in $(seq 1 60); do
+    STATUS=$(kubectl get pod -l app=telemetry-collector -n app-291 \
+      -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)
+    if [ "$STATUS" = "CrashLoopBackOff" ]; then
+      COLLECTOR_CRASHING=true
+      break
+    fi
+    sleep 3
+  done
+  if [ "$COLLECTOR_CRASHING" != "true" ]; then
+    echo "telemetry-collector never reached CrashLoopBackOff"
+    kubectl get pods -n app-291 -o wide
+    exit 1
+  fi
+
+  # The needle: checkout-api must have logged at least one deadline error.
+  # Scoped to logs emitted from here on, so a pod left over from an earlier run
+  # cannot satisfy the check with stale output.
+  SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  DEADLINE_LOGGED=false
+  for i in $(seq 1 40); do
+    if kubectl logs -l app=checkout-api -n app-291 --since-time="$SINCE" --tail=100 2>/dev/null | grep -q "7k3m9x checkout failed"; then
+      DEADLINE_LOGGED=true
+      break
+    fi
+    sleep 3
+  done
+  if [ "$DEADLINE_LOGGED" != "true" ]; then
+    echo "checkout-api never logged an upstream deadline error"
+    kubectl logs -l app=checkout-api -n app-291 --tail=50 || true
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-291 --ignore-not-found
