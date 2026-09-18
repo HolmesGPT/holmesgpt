@@ -1,0 +1,78 @@
+# Test: Triggered Workflow setup assistant — produce the Helm values that wire
+# Jira into Robusta so Holmes can post its analysis back as a comment on the
+# ticket. This mirrors the Robusta frontend "Triggered Workflow setup assistant"
+# (buildWorkflowSetupPrompt + the Jira known-integration hint), where Jira is a
+# `helm-mcp` delivery target connected via Atlassian's Rovo MCP server.
+#
+# The setup-assistant instructions (role, the remote-MCP `helmValues` shape, the
+# `<env.NAME>` secret shorthand, and the Jira-specific connection note) are given
+# to Holmes as context — exactly as the production system prompt does. The eval
+# checks that Holmes correctly *assembles* that information into valid Helm
+# values and surfaces the non-obvious setup steps. The graded specifics
+# (streamable-http transport, Basic auth = base64(email:token) NOT Bearer, the
+# easy-to-miss "enable API-token access to the Rovo MCP in admin settings" step,
+# addCommentToJiraIssue, secretKeyRef) cannot be produced by a vaguely-correct
+# guess.
+
+user_prompt: |
+  You are the Triggered Workflow setup assistant in Robusta. The user is wiring
+  up an event-driven workflow whose result must be DELIVERED back to Jira. Jira
+  is connected as a remote MCP server (connectMethod `helm-mcp`), so you must
+  produce the Helm values (`helmValues`) that add it, plus the human setup steps.
+
+  Rules for a `helm-mcp` data source:
+  - Provide Helm values under `holmes.mcp_servers.<name>` with a short
+    `description`, a `config` block (`url`, `mode: streamable-http`, and a
+    `config.headers` auth header), and `llm_instructions` telling Holmes how to
+    use the server. Declare any token under `holmes.additionalEnvVars` with a
+    `secretKeyRef`.
+  - Write EVERY environment-variable reference as the shorthand `<env.NAME>`
+    (e.g. `<env.JIRA_TOKEN>`) — copy that angle-bracket form verbatim; it is
+    converted to Robusta's real interpolation syntax automatically. Never put a
+    raw secret value in the YAML.
+  - When a token is used, also give the kubectl command to create the secret in
+    the Robusta runner's namespace `robusta`.
+
+  Jira integration note (use Atlassian's official Rovo MCP server, GA, transport
+  streamable-http): The MCP server URL is `https://mcp.atlassian.com/v1/mcp` —
+  use it verbatim, do NOT guess (it is NOT under api.atlassian.com).
+  (1) Create a scoped Atlassian API token and scope it to Rovo / MCP access.
+  (2) CRITICAL and easy to miss — in Jira's Rovo / Agents admin settings you
+  must explicitly ALLOW API-token (API key) access to the Rovo MCP server; it
+  is DISABLED by default, so the token will NOT work until this is turned on.
+  (3) Auth is HTTP Basic, NOT Bearer: the credential is the base64 encoding of
+  `<your-atlassian-email>:<api-token>`, and the MCP header must be
+  `Authorization: Basic <env.JIRA_TOKEN>`. The Kubernetes secret must store that
+  base64 string. Primary tool: addCommentToJiraIssue (to comment on the issue);
+  to change status, first fetch the issue's available workflow transitions and
+  only use a valid one.
+
+  The user's intent: "When a ticket comes in, investigate the described problem
+  and post the analysis back as a comment on that same Jira ticket."
+
+  Give me the Helm values to connect Jira and the short list of setup steps.
+
+include_tool_calls: false
+
+expected_output:
+  - "Must provide Helm values with an `holmes.mcp_servers` entry for the Atlassian/Jira MCP server (any sensible server name) whose `config.url` is exactly `https://mcp.atlassian.com/v1/mcp` and whose `config.mode` is `streamable-http`"
+  - "The MCP `config.headers` auth header must be HTTP Basic (e.g. `Authorization: Basic <env.JIRA_TOKEN>`), NOT Bearer"
+  - "Must declare the token under `holmes.additionalEnvVars` using a `secretKeyRef`, and reference it via the `<env.NAME>` angle-bracket shorthand rather than a raw secret value"
+  - "The mcp_servers entry should include a `description` and `llm_instructions` describing how Holmes uses the Atlassian tools (e.g. commenting on the issue)"
+  - "Must give a kubectl command that creates the secret in the `robusta` namespace, storing the base64 encoding of `<atlassian-email>:<api-token>` (i.e. the Basic credential), not a raw token"
+  - "Must surface the easy-to-miss step: in Jira's Rovo / Agents admin settings, API-token (API key) access to the Rovo MCP server must be explicitly enabled because it is DISABLED by default"
+  - "Must indicate that Holmes posts the result back using the Jira MCP (e.g. the addCommentToJiraIssue tool) as a comment on the originating ticket"
+  - "Must NOT invent a raw bearer token, hardcode a secret value in the YAML, or claim Jira is already connected"
+
+tags:
+  - mcp
+  - fast
+  - medium
+
+setup_timeout: 60
+
+before_test: |
+  echo "No setup needed — this is a pure config-generation eval (no infrastructure)"
+
+after_test: |
+  echo "Nothing to clean up"
