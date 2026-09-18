@@ -1,0 +1,94 @@
+# Supporting services — healthy decoys adding noise
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: route-cache
+  namespace: app-216
+  labels:
+    app: route-cache
+    tier: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: route-cache
+  template:
+    metadata:
+      labels:
+        app: route-cache
+        tier: infra
+    spec:
+      containers:
+      - name: redis
+        image: registry.k8s.io/pause:3.9
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: route-cache
+  namespace: app-216
+  labels:
+    app: route-cache
+    tier: infra
+spec:
+  selector:
+    app: route-cache
+  ports:
+  - port: 6379
+    targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatch-db
+  namespace: app-216
+  labels:
+    app: dispatch-db
+    tier: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dispatch-db
+  template:
+    metadata:
+      labels:
+        app: dispatch-db
+        tier: infra
+    spec:
+      containers:
+      - name: postgres
+        image: registry.k8s.io/pause:3.9
+        ports:
+        - containerPort: 5432
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatch-db
+  namespace: app-216
+  labels:
+    app: dispatch-db
+    tier: infra
+spec:
+  selector:
+    app: dispatch-db
+  ports:
+  - port: 5432
+    targetPort: 5432
