@@ -19,6 +19,7 @@ class StreamEvents(str, Enum):
     TOOL_RESULT = "tool_calling_result"
     ERROR = "error"
     AI_MESSAGE = "ai_message"
+    AI_REASONING = "ai_reasoning"
     APPROVAL_REQUIRED = "approval_required"
     TOKEN_COUNT = "token_count"
     CONVERSATION_HISTORY_COMPACTION_START = "conversation_history_compaction_start"
