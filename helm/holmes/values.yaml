@@ -731,7 +731,7 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.3.0"
+    image: "kubernetes-remediation-mcp:1.4.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
