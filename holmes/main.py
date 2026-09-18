@@ -261,7 +261,12 @@ def ask(
     fast_mode: bool = typer.Option(
         False,
         "--fast-mode",
-        help="Skip TodoWrite planning phase for faster responses",
+        help="[Deprecated] TodoWrite is now disabled by default. Use --enable-todos to enable it.",
+    ),
+    enable_todos: bool = typer.Option(
+        False,
+        "--enable-todos",
+        help="Enable TodoWrite planning phase for structured task tracking",
     ),
 ):
     """
@@ -340,12 +345,14 @@ def ask(
     if echo_request and not interactive and prompt:
         console.print(f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {prompt}")
 
-    # Build prompt component overrides for fast mode
+    # Build prompt component overrides
+    # TodoWrite is disabled by default. Use --enable-todos to enable it.
+    # --fast-mode is deprecated but still supported for backwards compatibility.
     prompt_component_overrides = None
-    if fast_mode:
+    if enable_todos:
         prompt_component_overrides = {
-            PromptComponent.TODOWRITE_INSTRUCTIONS: False,
-            PromptComponent.TODOWRITE_REMINDER: False,
+            PromptComponent.TODOWRITE_INSTRUCTIONS: True,
+            PromptComponent.TODOWRITE_REMINDER: True,
         }
 
     with tool_result_storage() as tool_results_dir:

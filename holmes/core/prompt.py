@@ -30,7 +30,10 @@ class PromptComponent(str, Enum):
 
 
 # Components that are disabled by default (can be explicitly enabled via overrides or env var)
-DISABLED_BY_DEFAULT: set = set()
+DISABLED_BY_DEFAULT: set = {
+    PromptComponent.TODOWRITE_INSTRUCTIONS,
+    PromptComponent.TODOWRITE_REMINDER,
+}
 
 
 class InvalidImageDictError(ValueError):
@@ -103,7 +106,7 @@ def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     if enabled_prompts.lower() == "none":
         return False
 
-    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
+    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",") if x.strip()]
     return component.value in enabled_names
 
 
