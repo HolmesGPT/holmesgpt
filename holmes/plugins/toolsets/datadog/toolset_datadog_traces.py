@@ -246,10 +246,11 @@ class GetSpans(BaseDatadogTracesTool):
 
             query: str = params.get("query") if params.get("query") else "*"  # type: ignore
             limit = params.get("limit") if params.get("limit") else 10
-            if params.get("sort") is not None:
-                sort = "-timestamp" if params.get("sort") else True
-            else:
-                sort = "-timestamp"
+            # Datadog Spans API: "-timestamp" = descending (newest first),
+            # "timestamp" = ascending (oldest first). Default to descending.
+            # NB: read the declared "sort_desc" parameter (this previously read a
+            # non-existent "sort" key, so the parameter was silently ignored).
+            sort = "-timestamp" if params.get("sort_desc", True) else "timestamp"
 
             # Use POST endpoint for more complex searches
             url = f"{self.toolset.dd_config.api_url}/api/v2/spans/events/search"
