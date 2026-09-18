@@ -1,0 +1,36 @@
+## Freshservice (ITSM)
+
+Use the freshservice_* tools to read data from a Freshservice (Freshworks) service desk: tickets, problems, changes, releases, assets, requesters, agents, service catalog, knowledge base and more.
+
+* Call `freshservice_list_object_types` first if you are unsure which object_type, include values or sub-resources exist.
+* Use `freshservice_search_objects` to find records by field values (server-side filtering). Only some object types are searchable; others must be listed with `freshservice_list_objects` and filtered client-side using the `jq` parameter.
+* Use `freshservice_get_object` for full details of one record, and `freshservice_list_related_objects` for a record's conversations, tasks, time_entries or notes.
+
+### IDs
+
+* NEVER guess or fabricate IDs. IDs must come from the user or from a previous tool response.
+* Assets and service catalog items are addressed by their `display_id` field, all other objects by `id`.
+* Reference fields (requester_id, agent_id, group_id, department_id, ...) contain IDs of other objects; resolve them with `freshservice_get_object` when the user needs names/emails.
+
+### Search query syntax (freshservice_search_objects)
+
+* Conditions: `field:value`, combined with `AND` / `OR`. String values in single quotes, e.g. `status:2 AND priority:4`, `email:'jane@example.com'`, `asset_state:'IN USE'`.
+* Date comparisons: `created_at:>'2025-01-01'`, `updated_at:<'2025-06-30'`.
+* Tickets/problems/changes use numeric status and priority codes (listed by freshservice_list_object_types). Ticket status: 2=Open, 3=Pending, 4=Resolved, 5=Closed. Priority: 1=Low, 2=Medium, 3=High, 4=Urgent.
+
+### Response size
+
+* Results are paginated (default {{ config.default_page_size if config else 30 }} per page); a `_pagination` entry indicates more pages. Fetch further pages only when needed.
+* Ticket descriptions and conversations can be large. Use the `jq` parameter to project only needed fields when listing many records, e.g. `jq='.tickets[] | {id, subject, status, priority}'`.
+* An HTTP 403 error means the API key or plan lacks access to that object type - report this instead of retrying.
+{% if config and config.enable_write_tools %}
+
+### Writing data (create/update/delete)
+
+* `freshservice_create_object` / `freshservice_update_object` / `freshservice_delete_object` modify whole objects; the `*_related_object` variants manage notes, replies, tasks, time entries and custom object records.
+* Pass fields as a JSON object string in `object_data`. On update, include ONLY the fields to change.
+* Before updating or deleting, fetch the object first to confirm it is the right one. Never guess IDs.
+* Creating a ticket requires `subject`, `description`, a requester (`email` or `requester_id`), `status` and `priority` (numeric codes).
+* To document investigation findings on a ticket, prefer adding a note (`relation: notes`, body in HTML, `"private": true` unless asked otherwise) over editing the description.
+* Deletes are destructive: tickets go to trash, requesters/agents are deactivated. Only delete when the user explicitly asks.
+{% endif %}

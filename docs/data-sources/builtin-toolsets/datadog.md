@@ -397,3 +397,72 @@ holmes ask "find recent incidents in Datadog"
 # Get synthetic test results
 holmes ask "show me the latest synthetic test results for our homepage"
 ```
+
+## Restricting Holmes to a Single Environment
+
+If your Datadog organization contains data from multiple environments (e.g. production and staging) and Holmes should only see one of them, restrict access in two layers. The first layer is the actual security boundary; the second is defence in depth inside Holmes.
+
+**Layer 1: Restrict the Datadog credential (the security boundary)**
+
+Datadog enforces data access at the role level, so the strongest guarantee is a credential that cannot read the other environments at all:
+
+1. In Datadog, create a role with a [restriction query](https://docs.datadoghq.com/account_management/rbac/) of `env:staging` (adjust the tag to your environment).
+2. Create a service account holding only that role, and issue an API key and Application key pair for it.
+3. Point the Holmes toolset config at those keys — Datadog then filters logs and traces server-side, regardless of what Holmes queries.
+
+Note that Datadog restriction queries do not cover the metrics query API, which is why the Holmes-side layer below matters for metrics.
+
+**Layer 2: Configure `scope` in Holmes (defence in depth)**
+
+All Datadog toolsets accept an optional `scope` block:
+
+```yaml-toolset-config
+toolsets:
+  datadog/logs:
+    enabled: true
+    config:
+      api_key: "{{ env.DATADOG_API_KEY }}"
+      app_key: "{{ env.DATADOG_APP_KEY }}"
+      api_url: https://api.datadoghq.eu
+      scope:
+        tags:
+          env: staging
+  datadog/metrics:
+    enabled: true
+    config:
+      api_key: "{{ env.DATADOG_API_KEY }}"
+      app_key: "{{ env.DATADOG_APP_KEY }}"
+      api_url: https://api.datadoghq.eu
+      scope:
+        tags:
+          env: staging
+  datadog/traces:
+    enabled: true
+    config:
+      api_key: "{{ env.DATADOG_API_KEY }}"
+      app_key: "{{ env.DATADOG_APP_KEY }}"
+      api_url: https://api.datadoghq.eu
+      scope:
+        tags:
+          env: staging
+  datadog/general:
+    enabled: false  # Required when a scope is configured — see below
+```
+
+With a scope configured:
+
+- **`datadog/logs`** and **`datadog/traces`**: every search query is wrapped and combined with the scope — `(your query) AND (env:staging)` — so no query, including ones containing `OR`, can reach data outside the scope. The Datadog deep links returned alongside results carry the same scoped query.
+- **`datadog/metrics`**: metric queries are validated, not rewritten. Every metric selector must include the scope tag as a plain `tag:value` term (e.g. `system.cpu.user{env:staging,host:web-1}`); queries with unscoped selectors such as `{*}`, boolean operators inside selectors, or anything unparseable are rejected before reaching Datadog, with an error telling the model how to fix the query. `list_active_datadog_metrics` is forced to filter by the scope tag. `get_datadog_metric_metadata` and `list_datadog_metric_tags` remain available: they return metric and tag names (no timeseries data), and the model needs them to construct correctly scoped queries.
+- **`datadog/general`** must be disabled. Most of its endpoints — dashboards, monitors, incidents, hosts, containers, org and user data — have no environment dimension, so there is nothing to scope them by. If a scope is configured while `datadog/general` is enabled, the toolset fails its prerequisites with an explanatory message rather than silently serving unscoped data. Setting both `scope` and `allow_custom_endpoints: true` is rejected at config validation.
+
+Scope tag values are matched exactly: `staging` does not match `staging-eu` or `stag*`. A tag may list multiple allowed values:
+
+```yaml
+scope:
+  tags:
+    env: [staging, dev]
+```
+
+When `scope` is not set, all toolsets behave exactly as before — the feature is fully backwards compatible.
+
+Empty results under a scope explicitly say the search was limited to the configured scope, so an out-of-scope service is reported as "not visible" rather than "healthy".

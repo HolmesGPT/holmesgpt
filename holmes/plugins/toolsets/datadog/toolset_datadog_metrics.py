@@ -29,6 +29,11 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     get_headers,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import DatadogMetricsConfig
+from holmes.plugins.toolsets.datadog.datadog_scope import (
+    build_metrics_tag_filter,
+    no_data_suffix,
+    validate_metric_query,
+)
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
     generate_datadog_metric_metadata_url,
     generate_datadog_metric_tags_url,
@@ -120,7 +125,14 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             if params.get("host"):
                 query_params["host"] = params["host"]
 
-            if params.get("tag_filter"):
+            scope = self.toolset.dd_config.scope
+            if scope is not None:
+                # /api/v1/metrics accepts a single tag:value filter, not a boolean
+                # expression, so the scope has to replace any filter the model
+                # supplied rather than being ANDed with it. The model can still
+                # narrow the result client-side with metric_name_filter.
+                query_params["tag_filter"] = build_metrics_tag_filter(scope)
+            elif params.get("tag_filter"):
                 query_params["tag_filter"] = params["tag_filter"]
 
             data = execute_datadog_http_request(
@@ -135,7 +147,8 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             if not metrics:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
-                    data="Your filter returned no metrics. Change your filter and try again",
+                    data="Your filter returned no metrics. Change your filter and try again"
+                    + no_data_suffix(self.toolset.dd_config.scope),
                     params=params,
                 )
 
@@ -311,6 +324,16 @@ class QueryMetrics(BaseDatadogMetricsTool):
         try:
             query = get_param_or_raise(params, "query")
 
+            # Validate rather than rewrite: a parser bug in a query rewriter would
+            # be a silent leak of out-of-scope data, whereas validation fails closed.
+            scope_error = validate_metric_query(self.toolset.dd_config.scope, query)
+            if scope_error:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=scope_error,
+                    params=params,
+                )
+
             (from_time, to_time) = process_timestamps_to_int(
                 start=params.get("from_time"),
                 end=params.get("to_time"),
@@ -357,6 +380,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
                     f"Query: {params.get('query', 'not specified')}\n"
                     f"Time range: {from_desc} to {to_desc}\n"
                     f"Please check your query syntax and ensure data exists for this time range."
+                    + no_data_suffix(self.toolset.dd_config.scope)
                 )
 
                 return StructuredToolResult(
@@ -765,6 +789,13 @@ class DatadogMetricsToolset(Toolset):
         try:
             dd_config = DatadogMetricsConfig(**config)
             self.dd_config = dd_config
+
+            if dd_config.scope is not None:
+                # Re-render the LLM instructions now that the config is known, so
+                # the scope guidance in the template is included. This is UX (the
+                # model stops retrying rejected queries), not the enforcement —
+                # that lives in validate_metric_query.
+                self._reload_instructions()
 
             success, error_msg = self._perform_healthcheck(dd_config)
             return success, error_msg
