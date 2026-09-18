@@ -11,6 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -265,6 +266,10 @@ class ToolInvokeContext(BaseModel):
         str
     ] = []  # Bash prefixes approved during this session
     request_context: Optional[Dict[str, Any]] = None
+    # Per-session directory where large tool results are spilled to disk. When the
+    # bash tool runs inside a sandbox, this directory is bind-mounted into the jail
+    # at the same absolute path so the LLM can `cat`/`grep` spilled results.
+    tool_results_dir: Optional[Path] = None
 
     def model_dump(self, **kwargs):
         """Override to exclude sensitive context from serialization"""
