@@ -227,6 +227,24 @@ class TestHealthAggregation:
         assert ok is True
         assert "failed:" in msg
 
+    def test_explicit_empty_instances_yields_zero_instances(self):
+        # `instances: []` must mean "zero instances", not collapse into a synthetic
+        # `default` built from top-level globals. Otherwise an explicitly-emptied
+        # config would silently leave a routable endpoint enabled.
+        ts = multi_instance(_FakeToolset)
+        ok, msg = ts.prerequisites_callable({"api_url": "http://global", "instances": []})
+        assert ok is False
+        assert "No instances configured" in msg
+        assert list(ts._children) == []
+        assert ts.tools == []
+
+    def test_missing_instances_key_still_flat_default(self):
+        # Absence of the `instances` key keeps the backwards-compatible flat shape.
+        ts = multi_instance(_FakeToolset)
+        ok, _ = ts.prerequisites_callable({"api_url": "http://one"})
+        assert ok is True
+        assert list(ts._children) == ["default"]
+
 
 class TestOfflineInstances:
     def _wrap_one_bad(self):
