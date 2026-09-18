@@ -163,19 +163,29 @@ toolsets:
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
 
-          # Output results as a JSON object with metadata
+          # Output results as a JSON object with metadata.
+          # Write the matches to a temp file and feed jq via --slurpfile
+          # instead of --argjson. --argjson puts the whole JSON on jq's
+          # argv, which fails with E2BIG ("Argument list too long") when
+          # matches exceed Linux ARG_MAX (~128 KiB) — easy to hit on
+          # clusters with many resources of the queried kind, since the
+          # pagination loop above has no cap on $ALL_MATCHES size.
+          # --slurpfile reads the file and wraps its contents in an outer
+          # array, which we unwrap with $results[0] in the expression.
+          results_file=$(mktemp)
           if [ -n "$ALL_MATCHES" ]; then
-            RESULTS=$(echo "$ALL_MATCHES" | jq -s '.')
+            echo "$ALL_MATCHES" | jq -s '.' > "$results_file"
           else
-            RESULTS="[]"
+            echo '[]' > "$results_file"
           fi
 
           jq -n \
-            --argjson results "$RESULTS" \
+            --slurpfile results "$results_file" \
             --argjson total_items_processed "$PROCESSED" \
             --argjson matches_found "$TOTAL_MATCHES" \
             --arg stderr "$err_content" \
-            '{total_items_processed: $total_items_processed, matches_found: $matches_found, results: $results, stderr: (if $stderr == "" then null else $stderr end)}'
+            '{total_items_processed: $total_items_processed, matches_found: $matches_found, results: $results[0], stderr: (if $stderr == "" then null else $stderr end)}'
+          rm -f "$results_file"
         transformers:
           - name: llm_summarize
             config:
