@@ -49,6 +49,8 @@ from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.otel_tracing import (
     ATTR_GEN_AI_REQUEST_MODEL,
     ATTR_GEN_AI_SYSTEM,
+    ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+    ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
     ATTR_GEN_AI_USAGE_INPUT_TOKENS,
     ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
     ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
@@ -1251,13 +1253,22 @@ class ToolCallingLLM:
                     llm_duration = time.time() - _llm_call_start
                     otel_metrics.llm_call_duration.record(llm_duration, model_attrs)
 
-                # Log GenAI semantic convention attributes on the LLM child span
+                # Log GenAI semantic convention attributes on the LLM child span.
+                # Per-ITERATION usage (response_stats), not the request accumulator
+                # (stats): each gen_ai.chat span is one LLM call, and backends such
+                # as Langfuse sum spans — stamping the running total on every span
+                # over-counts an n-iteration request roughly n/2 times.
+                # input_tokens is litellm's prompt_tokens, i.e. INCLUSIVE of the
+                # cache buckets; the cache attributes let backends price cache
+                # reads/writes at their own rates instead of the full input rate.
                 llm_span.log(metadata={
                     ATTR_GEN_AI_SYSTEM: "litellm",
                     ATTR_GEN_AI_REQUEST_MODEL: self.llm.model,
-                    ATTR_GEN_AI_USAGE_INPUT_TOKENS: stats.prompt_tokens,
-                    ATTR_GEN_AI_USAGE_OUTPUT_TOKENS: stats.completion_tokens,
-                    ATTR_GEN_AI_USAGE_TOTAL_TOKENS: stats.total_tokens,
+                    ATTR_GEN_AI_USAGE_INPUT_TOKENS: response_stats.prompt_tokens,
+                    ATTR_GEN_AI_USAGE_OUTPUT_TOKENS: response_stats.completion_tokens,
+                    ATTR_GEN_AI_USAGE_TOTAL_TOKENS: response_stats.total_tokens,
+                    ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS: response_stats.cached_tokens or 0,
+                    ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS: response_stats.cache_creation_tokens or 0,
                     "holmesgpt.iteration": i,
                 })
 
