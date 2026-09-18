@@ -586,3 +586,86 @@ def test_first_reconnect_logs_info_and_repeat_logs_warning(caplog):
     assert len(unhealthy) >= 2
     assert unhealthy[0].levelno == logging.INFO
     assert unhealthy[1].levelno == logging.WARNING
+
+
+# ---------------------------------------------------------------------------
+# ROB-1369: broadcast payloads name the executor to wake
+# ---------------------------------------------------------------------------
+
+from holmes.core.conversations_worker.realtime_manager import extract_executor  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "payload, expected",
+    [
+        ({"event": "pending_conversations", "payload": {"conversation_id": "c", "executor": "auto"}}, "auto"),
+        ({"conversation_id": "c", "executor": "manual"}, "manual"),
+        ({"event": "pending_conversations", "payload": {"conversation_id": "c"}}, None),
+        ({"payload": {"executor": ""}}, None),
+        ({"payload": {"executor": 7}}, None),
+        ({"payload": None, "executor": "auto"}, "auto"),
+        ("not-a-dict", None),
+        (None, None),
+    ],
+)
+def test_extract_executor(payload, expected):
+    assert extract_executor(payload) == expected
+
+
+def _broadcast_callbacks(worker):
+    """Drive _subscribe_via_broadcast with a fake client and return the
+    registered on_broadcast callbacks keyed by event name."""
+    import asyncio
+
+    callbacks = {}
+    channel = MagicMock()
+
+    def on_broadcast(event, callback):
+        callbacks[event] = callback
+
+    channel.on_broadcast.side_effect = on_broadcast
+
+    async def subscribe(cb):
+        cb("SUBSCRIBED")
+
+    channel.subscribe.side_effect = subscribe
+    worker._client = MagicMock()
+    worker._client.channel.return_value = channel
+    asyncio.run(worker._subscribe_via_broadcast())
+    return callbacks
+
+
+def test_broadcast_with_executor_routes_the_name_to_the_worker():
+    wakes = []
+
+    def on_new_pending(executor=None):
+        wakes.append(executor)
+
+    dal = MagicMock()
+    dal.account_id = "acc"
+    dal.cluster = "cl"
+    rw = RealtimeWorker(dal=dal, holmes_id="h", on_new_pending=on_new_pending)
+    callbacks = _broadcast_callbacks(rw)
+    # The SUBSCRIBED drain wakes without a name (discovery).
+    assert wakes == [None]
+
+    callbacks["pending_conversations"](
+        {"event": "pending_conversations", "payload": {"conversation_id": "c1", "executor": "auto"}}
+    )
+    callbacks["pending_conversations"](
+        {"event": "pending_conversations", "payload": {"conversation_id": "c2"}}
+    )
+    assert wakes == [None, "auto", None]
+
+
+def test_broadcast_without_executor_keeps_working_with_zero_arg_callback():
+    """Legacy publishers omit ``executor``; a plain no-arg callback (as the
+    low-level test override) must still be invoked."""
+    calls = []
+    dal = MagicMock()
+    dal.account_id = "acc"
+    dal.cluster = "cl"
+    rw = RealtimeWorker(dal=dal, holmes_id="h", on_new_pending=lambda: calls.append(1))
+    callbacks = _broadcast_callbacks(rw)
+    callbacks["pending_conversations"]({"event": "pending_conversations", "payload": {}})
+    assert len(calls) == 2

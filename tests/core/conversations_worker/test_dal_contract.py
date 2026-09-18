@@ -441,3 +441,98 @@ def test_post_remote_tool_call_result_does_not_retry_mismatch():
     )
     assert _post_result(dal) is False
     assert dal.client.rpc.return_value.execute.call_count == 1
+
+
+# ---- ROB-1369: executor-aware claim + discovery ----
+
+from holmes.core.supabase_dal import ExecutorRpcUnsupportedError  # noqa: E402
+from postgrest.exceptions import APIError as PGAPIError  # noqa: E402
+
+
+def _pgrst202():
+    return PGAPIError(
+        {
+            "code": "PGRST202",
+            "message": "Could not find the function public.claim_n_pending_conversations(_account_id, _assignee, _cluster_id, _executor, _limit) in the schema cache",
+            "hint": None,
+            "details": None,
+        }
+    )
+
+
+def test_claim_n_pending_conversations_omits_executor_param_by_default():
+    dal = _build_dal(rpc_data=[])
+    dal.claim_n_pending_conversations(holmes_id="h", limit=3)
+    params = dal.client.rpc.call_args[0][1]
+    assert "_executor" not in params
+
+
+def test_claim_n_pending_conversations_forwards_executor():
+    dal = _build_dal(rpc_data=[])
+    dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="auto")
+    params = dal.client.rpc.call_args[0][1]
+    assert params["_executor"] == "auto"
+    assert params["_limit"] == 3
+
+
+def test_claim_with_executor_raises_unsupported_on_missing_rpc_without_retry():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=_pgrst202()))
+    with pytest.raises(ExecutorRpcUnsupportedError):
+        dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="manual")
+    assert dal.client.rpc.return_value.execute.call_count == 1
+
+
+def test_claim_without_executor_treats_missing_rpc_as_transient():
+    """The legacy signature has existed for a long time; a PGRST202 there is an
+    ordinary failure — retried and swallowed like any other transport error."""
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=_pgrst202()))
+    assert dal.claim_n_pending_conversations(holmes_id="h", limit=3) == []
+    assert dal.client.rpc.return_value.execute.call_count == 3
+
+
+def test_claim_with_executor_still_retries_other_errors():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(side_effect=[Exception("502 Bad Gateway"), MagicMock(data=[{"conversation_id": "c1"}])])
+    )
+    assert dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="auto") == [
+        {"conversation_id": "c1"}
+    ]
+    assert dal.client.rpc.return_value.execute.call_count == 2
+
+
+def test_list_pending_conversation_executors_contract():
+    dal = _build_dal(rpc_data=["auto", "manual"])
+    assert dal.list_pending_conversation_executors() == ["auto", "manual"]
+    args, _ = dal.client.rpc.call_args
+    assert args[0] == "pending_conversation_executors"
+    assert args[1] == {"_account_id": "acc-1", "_cluster_id": "cluster-1"}
+
+
+def test_list_pending_conversation_executors_accepts_row_dicts_and_drops_junk():
+    dal = _build_dal(rpc_data=[{"executor": "auto"}, {"executor": ""}, 5, None, "manual"])
+    assert dal.list_pending_conversation_executors() == ["auto", "manual"]
+
+
+def test_list_pending_conversation_executors_empty_and_disabled():
+    dal = _build_dal(rpc_data=[])
+    assert dal.list_pending_conversation_executors() == []
+    dal.enabled = False
+    assert dal.list_pending_conversation_executors() == []
+
+
+def test_list_pending_conversation_executors_raises_unsupported_on_missing_rpc():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=_pgrst202()))
+    with pytest.raises(ExecutorRpcUnsupportedError):
+        dal.list_pending_conversation_executors()
+    assert dal.client.rpc.return_value.execute.call_count == 1
+
+
+def test_list_pending_conversation_executors_swallows_transient_errors():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=Exception("502")))
+    assert dal.list_pending_conversation_executors() == []
+    assert dal.client.rpc.return_value.execute.call_count == 3
