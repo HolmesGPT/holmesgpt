@@ -6,11 +6,15 @@ expected_output:
   - The dashboard contains a "Dashboards" panel showing recently viewed dashboards
   - The dashboard time range is "now-6h to now" (last 6 hours)
 
+toolsets_matrix:
+  - toolsets_builtin.yaml
+  - toolsets_mcp.yaml
+
 before_test: |
   set -e  # Exit immediately if any command fails
   kubectl create namespace app-177 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
   kubectl apply -f ../../shared/grafana.yaml -n app-177
-  
+
   # Wait for Grafana pod to be ready
   echo "⏳ Waiting for Grafana pod to be ready..."
   POD_READY=false
@@ -24,14 +28,14 @@ before_test: |
       sleep 1
     fi
   done
-  
+
   if [ "$POD_READY" = false ]; then
     echo "❌ Grafana pod failed to become ready after 60 seconds"
     kubectl get pods -n app-177
     kubectl describe pod -l app=grafana -n app-177
     exit 1
   fi
-  
+
   # Verify Grafana API is working using kubectl exec (no port forward needed for setup)
   echo "⏳ Verifying Grafana API..."
   API_READY=false
@@ -47,14 +51,17 @@ before_test: |
       sleep 1
     fi
   done
-  
+
   if [ "$API_READY" = false ]; then
     echo "❌ Grafana home dashboard API failed verification"
     echo "Checking pod logs..."
     kubectl logs -l app=grafana -n app-177 --tail=20
     exit 1
   fi
-  
+
+  # Deploy Grafana MCP server for MCP variant
+  NS=app-177 source ../../shared/setup-grafana-mcp.sh
+
   echo "✅ Test setup completed successfully - Grafana home dashboard verified!"
 
 after_test: |
@@ -65,6 +72,10 @@ port_forwards:
     service: grafana
     local_port: 10177
     remote_port: 3000
+  - namespace: app-177
+    service: grafana-mcp
+    local_port: 11177
+    remote_port: 8000
 
 tags:
   - easy
