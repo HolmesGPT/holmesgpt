@@ -320,11 +320,18 @@ class ReadImageFile(Tool):
                 "Read an image file from disk and return it for visual analysis. "
                 "Use this when a previous tool result was too large and its images "
                 "were saved to disk. The file path is provided in the spill message. "
+                "Only files inside the tool-result spill storage directory can be read "
+                "(arbitrary paths are rejected with 'Access denied'), the path must be "
+                "absolute, and the file must be 20MB or smaller. "
                 "Supported formats: PNG, JPEG, GIF, WebP."
             ),
             parameters={
                 "file_path": ToolParameter(
-                    description="Absolute path to the image file on disk.",
+                    description=(
+                        "Absolute path to the image file on disk, as provided in the spill "
+                        "message. Must resolve to a location inside the tool-result spill "
+                        "storage directory."
+                    ),
                     type="string",
                     required=True,
                 ),
