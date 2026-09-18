@@ -51,6 +51,22 @@ class SlackDestination(DestinationPlugin):
                     ],
                 }
             )
+        if result.total_tokens or result.total_cost:
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": (
+                                f"*Investigation cost:* ${result.total_cost:.4f} "
+                                f"• *Tokens:* {result.prompt_tokens:,} input / "
+                                f"{result.completion_tokens:,} output"
+                            ),
+                        }
+                    ],
+                }
+            )
 
         try:
             response = self.client.chat_postMessage(
