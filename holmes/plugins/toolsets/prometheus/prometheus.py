@@ -1022,6 +1022,43 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
         )
 
 
+def metadata_limit_param() -> ToolParameter:
+    """The model-overridable `limit` parameter shared by the metadata APIs."""
+    return ToolParameter(
+        description=(
+            f"Maximum number of results to return. Default: {PROMETHEUS_METADATA_API_LIMIT}. "
+            "Increase when a previous call reported _truncated=true and you need the complete list."
+        ),
+        type="integer",
+        required=False,
+    )
+
+
+def get_metadata_limit(params: dict) -> int:
+    limit = params.get("limit")
+    if limit is None:
+        limit = PROMETHEUS_METADATA_API_LIMIT
+    return max(1, int(limit))
+
+
+def mark_metadata_truncation(data: Any, limit: int, refine_hint: str) -> None:
+    """Flag a metadata API response whose result filled the limit.
+
+    Tells the model both recovery paths: raise the limit, or refine the query.
+    The result is a list for most endpoints; /api/v1/metadata returns a dict.
+    """
+    if (
+        "data" in data
+        and isinstance(data["data"], (list, dict))
+        and len(data["data"]) == limit
+    ):
+        data["_truncated"] = True
+        data["_message"] = (
+            f"Results truncated at limit={limit}. Re-run with a higher 'limit' "
+            f"parameter to see more results, or {refine_hint}"
+        )
+
+
 class GetMetricNames(BasePrometheusTool):
     """Thin wrapper around /api/v1/label/__name__/values - the fastest way to discover metric names"""
 
@@ -1031,8 +1068,8 @@ class GetMetricNames(BasePrometheusTool):
             description=(
                 "Get list of metric names using /api/v1/label/__name__/values. "
                 "FASTEST method for metric discovery when you need to explore available metrics. "
-                f"Returns up to {PROMETHEUS_METADATA_API_LIMIT} unique metric names (limit={PROMETHEUS_METADATA_API_LIMIT}). If {PROMETHEUS_METADATA_API_LIMIT} results returned, more may exist - use a more specific filter. "
-                f"ALWAYS use match[] parameter to filter metrics - without it you'll get random {PROMETHEUS_METADATA_API_LIMIT} metrics which is rarely useful. "
+                f"Returns up to 'limit' unique metric names (default {PROMETHEUS_METADATA_API_LIMIT}). If the response reports _truncated=true, raise 'limit' or use a more specific filter. "
+                f"ALWAYS use match[] parameter to filter metrics - without it you'll get arbitrary metrics which is rarely useful. "
                 "Note: Does not return metric metadata (type, description, labels). "
                 "By default returns metrics active in the last 1 hour (configurable via default_metadata_time_window_hrs)."
             ),
@@ -1060,6 +1097,7 @@ class GetMetricNames(BasePrometheusTool):
                     type="string",
                     required=False,
                 ),
+                "limit": metadata_limit_param(),
             },
             toolset=toolset,
         )
@@ -1083,8 +1121,9 @@ class GetMetricNames(BasePrometheusTool):
             url = urljoin(
                 self.toolset.config.prometheus_url, "api/v1/label/__name__/values"
             )
+            limit = get_metadata_limit(params)
             query_params = {
-                "limit": str(PROMETHEUS_METADATA_API_LIMIT),
+                "limit": str(limit),
                 "match[]": match_param,
             }
 
@@ -1115,16 +1154,9 @@ class GetMetricNames(BasePrometheusTool):
             response.raise_for_status()
             data = response.json()
 
-            # Check if results were truncated
-            if (
-                "data" in data
-                and isinstance(data["data"], list)
-                and len(data["data"]) == PROMETHEUS_METADATA_API_LIMIT
-            ):
-                data["_truncated"] = True
-                data["_message"] = (
-                    f"Results truncated at limit={PROMETHEUS_METADATA_API_LIMIT}. Use a more specific match filter to see additional metrics."
-                )
+            mark_metadata_truncation(
+                data, limit, "use a more specific match filter."
+            )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -1151,7 +1183,7 @@ class GetLabelValues(BasePrometheusTool):
             description=(
                 "Get all values for a specific label using /api/v1/label/{label}/values. "
                 "Use this to discover pods, namespaces, jobs, instances, etc. "
-                f"Returns up to {PROMETHEUS_METADATA_API_LIMIT} unique values (limit={PROMETHEUS_METADATA_API_LIMIT}). If {PROMETHEUS_METADATA_API_LIMIT} results returned, more may exist - use match[] to filter. "
+                f"Returns up to 'limit' unique values (default {PROMETHEUS_METADATA_API_LIMIT}). If the response reports _truncated=true, raise 'limit' or use match[] to filter. "
                 "Supports optional match[] parameter to filter. "
                 "By default returns values from metrics active in the last 1 hour (configurable via default_metadata_time_window_hrs)."
             ),
@@ -1179,6 +1211,7 @@ class GetLabelValues(BasePrometheusTool):
                     type="string",
                     required=False,
                 ),
+                "limit": metadata_limit_param(),
             },
             toolset=toolset,
         )
@@ -1202,7 +1235,8 @@ class GetLabelValues(BasePrometheusTool):
             url = urljoin(
                 self.toolset.config.prometheus_url, f"api/v1/label/{label}/values"
             )
-            query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
+            limit = get_metadata_limit(params)
+            query_params = {"limit": str(limit)}
             if params.get("match"):
                 query_params["match[]"] = params["match"]
 
@@ -1233,16 +1267,9 @@ class GetLabelValues(BasePrometheusTool):
             response.raise_for_status()
             data = response.json()
 
-            # Check if results were truncated
-            if (
-                "data" in data
-                and isinstance(data["data"], list)
-                and len(data["data"]) == PROMETHEUS_METADATA_API_LIMIT
-            ):
-                data["_truncated"] = True
-                data["_message"] = (
-                    f"Results truncated at limit={PROMETHEUS_METADATA_API_LIMIT}. Use match[] parameter to filter label '{label}' values."
-                )
+            mark_metadata_truncation(
+                data, limit, f"use match[] parameter to filter label '{label}' values."
+            )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -1270,7 +1297,7 @@ class GetAllLabels(BasePrometheusTool):
             description=(
                 "Get list of all label names using /api/v1/labels. "
                 "Use this to discover what labels are available across all metrics. "
-                f"Returns up to {PROMETHEUS_METADATA_API_LIMIT} label names (limit={PROMETHEUS_METADATA_API_LIMIT}). If {PROMETHEUS_METADATA_API_LIMIT} results returned, more may exist - use match[] to filter. "
+                f"Returns up to 'limit' label names (default {PROMETHEUS_METADATA_API_LIMIT}). If the response reports _truncated=true, raise 'limit' or use match[] to filter. "
                 "Supports optional match[] parameter to filter. "
                 "By default returns labels from metrics active in the last 1 hour (configurable via default_metadata_time_window_hrs)."
             ),
@@ -1293,6 +1320,7 @@ class GetAllLabels(BasePrometheusTool):
                     type="string",
                     required=False,
                 ),
+                "limit": metadata_limit_param(),
             },
             toolset=toolset,
         )
@@ -1306,7 +1334,8 @@ class GetAllLabels(BasePrometheusTool):
             )
         try:
             url = urljoin(self.toolset.config.prometheus_url, "api/v1/labels")
-            query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
+            limit = get_metadata_limit(params)
+            query_params = {"limit": str(limit)}
             if params.get("match"):
                 query_params["match[]"] = params["match"]
 
@@ -1337,16 +1366,9 @@ class GetAllLabels(BasePrometheusTool):
             response.raise_for_status()
             data = response.json()
 
-            # Check if results were truncated
-            if (
-                "data" in data
-                and isinstance(data["data"], list)
-                and len(data["data"]) == PROMETHEUS_METADATA_API_LIMIT
-            ):
-                data["_truncated"] = True
-                data["_message"] = (
-                    f"Results truncated at limit={PROMETHEUS_METADATA_API_LIMIT}. Use match[] parameter to filter labels."
-                )
+            mark_metadata_truncation(
+                data, limit, "use match[] parameter to filter labels."
+            )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -1374,7 +1396,7 @@ class GetSeries(BasePrometheusTool):
                 "Get time series using /api/v1/series. "
                 "Returns label sets for all time series matching the selector. "
                 "SLOWER than other discovery methods - use only when you need full label sets. "
-                f"Returns up to {PROMETHEUS_METADATA_API_LIMIT} series (limit={PROMETHEUS_METADATA_API_LIMIT}). If {PROMETHEUS_METADATA_API_LIMIT} results returned, more series exist - use more specific selector. "
+                f"Returns up to 'limit' series (default {PROMETHEUS_METADATA_API_LIMIT}). If the response reports _truncated=true, raise 'limit' or use a more specific selector. "
                 "Requires match[] parameter with PromQL selector. "
                 "By default returns series active in the last 1 hour (configurable via default_metadata_time_window_hrs)."
             ),
@@ -1398,6 +1420,7 @@ class GetSeries(BasePrometheusTool):
                     type="string",
                     required=False,
                 ),
+                "limit": metadata_limit_param(),
             },
             toolset=toolset,
         )
@@ -1419,9 +1442,10 @@ class GetSeries(BasePrometheusTool):
                 )
 
             url = urljoin(self.toolset.config.prometheus_url, "api/v1/series")
+            limit = get_metadata_limit(params)
             query_params = {
                 "match[]": match,
-                "limit": str(PROMETHEUS_METADATA_API_LIMIT),
+                "limit": str(limit),
             }
 
             # Add time parameters - use provided values or defaults
@@ -1451,16 +1475,9 @@ class GetSeries(BasePrometheusTool):
             response.raise_for_status()
             data = response.json()
 
-            # Check if results were truncated
-            if (
-                "data" in data
-                and isinstance(data["data"], list)
-                and len(data["data"]) == PROMETHEUS_METADATA_API_LIMIT
-            ):
-                data["_truncated"] = True
-                data["_message"] = (
-                    f"Results truncated at limit={PROMETHEUS_METADATA_API_LIMIT}. Use a more specific match selector to see additional series."
-                )
+            mark_metadata_truncation(
+                data, limit, "use a more specific match selector to see additional series."
+            )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -1488,7 +1505,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 "Get metric metadata using /api/v1/metadata. "
                 "Returns type, help text, and unit for metrics. "
                 "Use after discovering metric names to get their descriptions. "
-                f"Returns up to {PROMETHEUS_METADATA_API_LIMIT} metrics (limit={PROMETHEUS_METADATA_API_LIMIT}). If {PROMETHEUS_METADATA_API_LIMIT} results returned, more may exist - filter by specific metric name. "
+                f"Returns up to 'limit' metrics (default {PROMETHEUS_METADATA_API_LIMIT}). If the response reports _truncated=true, raise 'limit' or filter by specific metric name. "
                 "Supports optional metric name filter."
             ),
             parameters={
@@ -1500,6 +1517,7 @@ class GetMetricMetadata(BasePrometheusTool):
                     type="string",
                     required=False,
                 ),
+                "limit": metadata_limit_param(),
             },
             toolset=toolset,
         )
@@ -1513,7 +1531,8 @@ class GetMetricMetadata(BasePrometheusTool):
             )
         try:
             url = urljoin(self.toolset.config.prometheus_url, "api/v1/metadata")
-            query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
+            limit = get_metadata_limit(params)
+            query_params = {"limit": str(limit)}
 
             if params.get("metric"):
                 query_params["metric"] = params["metric"]
@@ -1530,16 +1549,9 @@ class GetMetricMetadata(BasePrometheusTool):
             response.raise_for_status()
             data = response.json()
 
-            # Check if results were truncated (metadata endpoint returns a dict, not a list)
-            if (
-                "data" in data
-                and isinstance(data["data"], dict)
-                and len(data["data"]) == PROMETHEUS_METADATA_API_LIMIT
-            ):
-                data["_truncated"] = True
-                data["_message"] = (
-                    f"Results truncated at limit={PROMETHEUS_METADATA_API_LIMIT}. Use metric parameter to filter by specific metric name."
-                )
+            mark_metadata_truncation(
+                data, limit, "use metric parameter to filter by specific metric name."
+            )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
