@@ -21,6 +21,9 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
+from holmes.plugins.toolsets.code_execution.code_execution_toolset import (
+    CodeExecutionToolset,
+)
 from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
@@ -120,6 +123,7 @@ def load_python_toolsets(
         multi_instance(CoralogixToolset),
         RabbitMQToolset(),
         BashExecutorToolset(),
+        CodeExecutionToolset(),
         KubectlRunToolset(),
         multi_instance(ConfluenceToolset),
         multi_instance(MongoDBAtlasToolset),

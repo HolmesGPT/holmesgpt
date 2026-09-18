@@ -221,6 +221,28 @@ class ToolCallingLLM:
         self.tracer = tracer
         self.llm = llm
         self.tool_results_dir = tool_results_dir
+        self._wire_toolset_executors()
+
+    def _wire_toolset_executors(self) -> None:
+        """Give toolsets that opt in (via a ``set_tool_executor`` method) a
+        back-reference to the ToolExecutor so they can dispatch sibling tool
+        calls — used by the code_execution ("code mode") toolset. Generic hook:
+        no code-mode-specific coupling here.
+        """
+        toolsets = getattr(self.tool_executor, "toolsets", None)
+        if not isinstance(toolsets, (list, tuple)):
+            return  # e.g. a mocked tool_executor in tests
+        for toolset in toolsets:
+            setter = getattr(toolset, "set_tool_executor", None)
+            if callable(setter):
+                try:
+                    setter(self.tool_executor)
+                except Exception:
+                    logging.warning(
+                        "failed wiring tool_executor into toolset %s",
+                        getattr(toolset, "name", "?"),
+                        exc_info=True,
+                    )
 
     def with_executor(self, tool_executor: ToolExecutor) -> "ToolCallingLLM":
         """Return a shallow copy with a different ToolExecutor.
@@ -826,6 +848,7 @@ class ToolCallingLLM:
                 tool_call_id=tool_call_id,
                 session_approved_prefixes=session_approved_prefixes or [],
                 request_context=request_context,
+                tool_executor=self.tool_executor,
             )
             tool_response = tool.invoke(tool_params, context=invoke_context)
 
