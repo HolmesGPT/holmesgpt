@@ -1,0 +1,555 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-262
+---
+# This manifest defines only the running application (config + code). It is kept
+# intentionally free of any comment describing the scenario or its conclusion.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalog-config
+  namespace: app-262
+data:
+  pricing-service-url: "http://pricing-service.app-262.svc:8080/v1/price"
+  pricing-retry-max: "5"
+  pricing-retry-backoff-ms: "0"
+  pricing-timeout-ms: "250"
+  circuit-breaker: "disabled"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalog-service-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import os, time, random, datetime
+
+    RMAX = os.environ.get("PRICING_RETRY_MAX", "?")
+    BACK = os.environ.get("PRICING_RETRY_BACKOFF_MS", "?")
+    CB = os.environ.get("CIRCUIT_BREAKER", "?")
+    TMO = os.environ.get("PRICING_TIMEOUT_MS", "?")
+
+    def log(level, msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {level} {msg}", flush=True)
+
+    VERSION = os.environ.get("APP_VERSION", "unknown")
+    log("INFO", f"catalog-service v{VERSION} starting; pricing client configured timeout_ms={TMO} retry_max={RMAX} retry_backoff_ms={BACK} circuit_breaker={CB}")
+    log("INFO", "upstream pricing-service.app-262.svc:8080 resolved; ready")
+
+    n = 0
+    while True:
+        n += 1
+        rid = f"RX-{random.randint(100000, 999999)}"
+        if random.random() < 0.62:
+            for a in range(2, 6):
+                log("WARN", f"pricing-service call exceeded {TMO}ms, retrying (attempt {a}/{RMAX}) req_id={rid} upstream=pricing-service.app-262.svc")
+            log("INFO", f"product rendered req_id={rid} (price resolved after {RMAX} attempts)")
+        else:
+            log("INFO", f"product rendered req_id={rid} price_ms={random.randint(8,40)}")
+        if n % 11 == 0:
+            log("INFO", f"fanout stats (1s window): user_requests=40 pricing_calls_emitted={random.randint(195,210)} inflight_retries={random.randint(120,150)}")
+        time.sleep(0.4)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-service
+  namespace: app-262
+  labels:
+    app: catalog-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog-service
+  template:
+    metadata:
+      labels:
+        app: catalog-service
+    spec:
+      containers:
+        - name: catalog-service
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          env:
+            - name: APP_VERSION
+              value: "4.2.0"
+            - name: PRICING_RETRY_MAX
+              valueFrom:
+                configMapKeyRef:
+                  name: catalog-config
+                  key: pricing-retry-max
+            - name: PRICING_RETRY_BACKOFF_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: catalog-config
+                  key: pricing-retry-backoff-ms
+            - name: PRICING_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: catalog-config
+                  key: pricing-timeout-ms
+            - name: CIRCUIT_BREAKER
+              valueFrom:
+                configMapKeyRef:
+                  name: catalog-config
+                  key: circuit-breaker
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+      volumes:
+        - name: app
+          secret:
+            secretName: catalog-service-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pricing-service-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, random, datetime
+
+    def log(level, msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {level} {msg}", flush=True)
+
+    log("INFO", "pricing-service starting; worker pool size=64; db=pricing-db.app-262.svc:5432")
+    i = 0
+    while True:
+        i += 1
+        r = random.random()
+        if r < 0.45:
+            log("ERROR", f"worker pool exhausted (active=64/64), rejecting request code=PRICE_POOL_FULL req=PR-{i}")
+        elif r < 0.66:
+            log("ERROR", f"context deadline exceeded waiting on pricing-db connection (db_wait_ms>250) req=PR-{i}")
+        else:
+            log("INFO", f"price computed req=PR-{i} compute_ms={random.randint(3,18)}")
+        if i % 9 == 0:
+            log("WARN", f"sustained inbound request rate ~{random.randint(195,210)}/s against worker pool size=64 — saturated")
+        time.sleep(0.3)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pricing-service
+  namespace: app-262
+  labels:
+    app: pricing-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pricing-service
+  template:
+    metadata:
+      labels:
+        app: pricing-service
+    spec:
+      containers:
+        - name: pricing-service
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+      volumes:
+        - name: app
+          secret:
+            secretName: pricing-service-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pricing-service
+  namespace: app-262
+spec:
+  selector:
+    app: pricing-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pricing-db-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, random, datetime
+
+    def log(msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f UTC")
+        print(f"{ts} [postgres] {msg}", flush=True)
+
+    log("LOG:  database system is ready to accept connections")
+    log("LOG:  parameter max_connections=100")
+    log("WARNING:  checkpoint sync stalled: wrote buffers in 5210ms (transient I/O pressure) [evt CKPT_8x3k]")
+    log("LOG:  checkpoint complete; recovered, subsequent checkpoints nominal")
+    while True:
+        r = random.random()
+        if r < 0.5:
+            log("FATAL:  sorry, too many clients already (active=100 max_connections=100)")
+        elif r < 0.68:
+            log("LOG:  could not receive data from client: Connection reset by peer")
+        elif r < 0.82:
+            log("LOG:  checkpoint complete: wrote 39 buffers (0.2%) sync=110ms")
+        else:
+            log("LOG:  statement: SELECT price,currency FROM catalog_prices WHERE sku=$1")
+        time.sleep(0.6)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pricing-db
+  namespace: app-262
+  labels:
+    app: pricing-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pricing-db
+  template:
+    metadata:
+      labels:
+        app: pricing-db
+    spec:
+      containers:
+        - name: pricing-db
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+      volumes:
+        - name: app
+          secret:
+            secretName: pricing-db-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pricing-db
+  namespace: app-262
+spec:
+  selector:
+    app: pricing-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: storefront-gateway-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, random, datetime
+
+    def log(level, msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {level} {msg}", flush=True)
+
+    log("INFO", "storefront-gateway started; upstream=catalog-service.app-262.svc:8080")
+    paths = ["/product", "/product", "/category", "/search", "/cart", "/checkout"]
+    i = 0
+    while True:
+        i += 1
+        p = random.choice(paths)
+        if p == "/product" and random.random() < 0.32:
+            log("ERROR", f"503 Service Unavailable GET {p}/{random.randint(1000,9999)} upstream=catalog-service (timed out after 1000ms)")
+        else:
+            log("INFO", f"200 GET {p} latency_ms={random.randint(20,140)}")
+        if i % 13 == 0:
+            log("INFO", f"ingress summary: user_traffic=40 req/s; error_rate={random.randint(9,15)}% on /product")
+        time.sleep(0.25)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront-gateway
+  namespace: app-262
+  labels:
+    app: storefront-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storefront-gateway
+  template:
+    metadata:
+      labels:
+        app: storefront-gateway
+    spec:
+      containers:
+        - name: storefront-gateway
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests: {cpu: 10m, memory: 24Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+      volumes:
+        - name: app
+          secret:
+            secretName: storefront-gateway-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: recommendation-engine-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, datetime
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    print(f"{ts} INFO recommendation-engine starting; loading embeddings into memory", flush=True)
+    blocks = []
+    while True:
+        blocks.append(bytearray(3 * 1024 * 1024))
+        time.sleep(0.1)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendation-engine
+  namespace: app-262
+  labels: {app: recommendation-engine}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: recommendation-engine}}
+  template:
+    metadata: {labels: {app: recommendation-engine}}
+    spec:
+      containers:
+        - name: recommendation-engine
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          env: [{name: APP_VERSION, value: "2.9.0"}]
+          volumeMounts: [{name: app, mountPath: /app}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 48Mi}}
+      volumes: [{name: app, secret: {secretName: recommendation-engine-app}}]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: analytics-collector-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, random, datetime
+    def log(level, msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {level} {msg}", flush=True)
+    log("INFO", "analytics-collector starting")
+    i = 0
+    while True:
+        i += 1
+        if random.random() < 0.6:
+            log("ERROR", f"failed to publish event to kafka topic clickstream.v2: broker events-kafka.app-262.svc:9092 not available (code=KAFKA_DOWN) — buffering event ev-{i}")
+        else:
+            log("INFO", f"buffered clickstream event ev-{i}")
+        time.sleep(0.5)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-collector
+  namespace: app-262
+  labels: {app: analytics-collector}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: analytics-collector}}
+  template:
+    metadata: {labels: {app: analytics-collector}}
+    spec:
+      containers:
+        - name: analytics-collector
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts: [{name: app, mountPath: /app}]
+          resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
+      volumes: [{name: app, secret: {secretName: analytics-collector-app}}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-sync-config
+  namespace: app-262
+data:
+  db-pool-max: "30"
+  sync-interval-ms: "1000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: inventory-sync-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, random, datetime
+    def log(level, msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {level} {msg}", flush=True)
+    log("INFO", "inventory-sync starting; db pool initialised max=30")
+    while True:
+        if random.random() < 0.3:
+            log("WARN", f"connection pool nearing limit (active={random.randint(24,29)} max=30)")
+        else:
+            log("INFO", f"inventory sync ok rows={random.randint(1,40)}")
+        time.sleep(0.8)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-sync
+  namespace: app-262
+  labels: {app: inventory-sync}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: inventory-sync}}
+  template:
+    metadata: {labels: {app: inventory-sync}}
+    spec:
+      containers:
+        - name: inventory-sync
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts: [{name: app, mountPath: /app}]
+          resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
+      volumes: [{name: app, secret: {secretName: inventory-sync-app}}]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: email-dispatcher-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import sys, time, datetime
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    print(f"{ts} INFO email-dispatcher starting", flush=True)
+    time.sleep(1)
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    print(f"{ts} FATAL cannot connect to smtp relay smtp.internal.svc:587: no route to host", flush=True)
+    sys.exit(1)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-dispatcher
+  namespace: app-262
+  labels: {app: email-dispatcher}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: email-dispatcher}}
+  template:
+    metadata: {labels: {app: email-dispatcher}}
+    spec:
+      containers:
+        - name: email-dispatcher
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts: [{name: app, mountPath: /app}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 32Mi}}
+      volumes: [{name: app, secret: {secretName: email-dispatcher-app}}]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ledger-api-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, random, datetime
+    def log(level, msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {level} {msg}", flush=True)
+    log("INFO", "ledger-api starting listen=:8080")
+    n = 0
+    while True:
+        n += 1
+        if random.random() < 0.35:
+            log("WARN", f"settlement upstream slow, retrying with backoff (attempt 2/3) txn=LG-{n}")
+            log("INFO", f"settlement committed on retry txn=LG-{n} latency_ms={random.randint(300,700)}")
+        else:
+            log("INFO", f"settlement committed txn=LG-{n} latency_ms={random.randint(30,90)}")
+        time.sleep(0.6)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-api
+  namespace: app-262
+  labels: {app: ledger-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: ledger-api}}
+  template:
+    metadata: {labels: {app: ledger-api}}
+    spec:
+      containers:
+        - name: ledger-api
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts: [{name: app, mountPath: /app}]
+          resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
+      volumes: [{name: app, secret: {secretName: ledger-api-app}}]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: edge-router-app
+  namespace: app-262
+stringData:
+  app.py: |
+    import time, random, datetime
+    paths = ["/assets", "/api/v1/cart", "/api/v1/search", "/healthz", "/api/v1/recos", "/api/v1/checkout"]
+    def log(line):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {line}", flush=True)
+    log("INFO edge-router started worker_processes=4")
+    while True:
+        p = random.choice(paths)
+        c = random.choices([200,200,200,200,304,502,504,499], k=1)[0]
+        lvl = "INFO" if c < 400 else "WARN"
+        log(f"{lvl} {c} GET {p} upstream_time={random.randint(2,800)}ms")
+        time.sleep(0.25)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-router
+  namespace: app-262
+  labels: {app: edge-router}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: edge-router}}
+  template:
+    metadata: {labels: {app: edge-router}}
+    spec:
+      containers:
+        - name: edge-router
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts: [{name: app, mountPath: /app}]
+          resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {cpu: 100m, memory: 64Mi}}
+      volumes: [{name: app, secret: {secretName: edge-router-app}}]
