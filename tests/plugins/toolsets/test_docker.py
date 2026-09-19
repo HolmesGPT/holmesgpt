@@ -12,4 +12,4 @@ def test_docker_events_is_a_bounded_snapshot():
         tool for tool in docker_toolset.tools if tool.name == "docker_events"
     )
 
-    assert docker_events.command == "docker events --since 10m --until 1s"
+    assert docker_events.command == "docker events --since 10m --until 1s | tail -n 500"
