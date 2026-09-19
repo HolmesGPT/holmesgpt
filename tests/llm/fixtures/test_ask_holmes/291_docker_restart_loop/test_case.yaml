@@ -1,0 +1,58 @@
+user_prompt: |
+  Why is holmes-eval-restart-loop-291 restarting? State the supported cause,
+  safe next step, and uncertainty.
+
+description: |
+  Docker-only diagnosis eval. The container fails three times and then remains
+  exited, so the evidence must be discovered through Docker container state and
+  logs. The error establishes that port 8080 is already in use, but does not
+  establish which process or configuration owns it.
+
+expected_output:
+  - "Must call docker_ps_all to find the holmes-eval-restart-loop-291 container"
+  - "Must call docker_inspect to confirm its restart count and exit code"
+  - "Must call docker_logs to investigate the container failure"
+  - "Must identify the repeated EADDRINUSE address-in-use error as the supported failure"
+  - "Must describe the container as repeatedly failing or restarting"
+  - "Must recommend safely identifying the process or configuration using port 8080 before making changes"
+  - "Must not claim why port 8080 is already in use without additional evidence"
+
+include_tool_calls: true
+
+tags:
+  - fast
+  - medium
+
+setup_timeout: 60
+
+before_test: |
+  set -e
+  CONTAINER=holmes-eval-restart-loop-291
+
+  # Make reruns idempotent and keep the test scoped to its own container.
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+  docker run -d --name "$CONTAINER" --restart=on-failure:3 alpine:3.21 \
+    sh -c 'echo "Error: listen EADDRINUSE: address already in use 0.0.0.0:8080"; exit 1' \
+    >/dev/null
+
+  # Verify the bounded restart loop reached its stable, exited final state.
+  RESTART_LOOP_COMPLETE=false
+  for i in $(seq 1 30); do
+    STATE=$(docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null || true)
+    RESTART_COUNT=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo 0)
+    if [ "$STATE" = "exited" ] && [ "$RESTART_COUNT" -ge 3 ]; then
+      RESTART_LOOP_COMPLETE=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$RESTART_LOOP_COMPLETE" != "true" ]; then
+    echo "ERROR: $CONTAINER did not complete its three restart attempts"
+    docker inspect "$CONTAINER" || true
+    docker logs "$CONTAINER" || true
+    exit 1
+  fi
+
+after_test: |
+  docker rm -f holmes-eval-restart-loop-291 >/dev/null 2>&1 || true
