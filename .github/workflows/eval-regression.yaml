@@ -56,7 +56,9 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // Check commenter has write access
+            // author_association is a relationship label, not permission:
+            // COLLABORATOR includes read/triage outside collaborators
+            // and MEMBER is public org membership. Query the real level.
             const actor = context.payload.comment.user.login;
             const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
               owner: context.repo.owner,
@@ -145,7 +147,9 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // Check commenter has write access
+            // author_association is a relationship label, not permission:
+            // COLLABORATOR includes read/triage outside collaborators
+            // and MEMBER is public org membership. Query the real level.
             const actor = context.payload.comment.user.login;
             const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
               owner: context.repo.owner,
@@ -187,6 +191,7 @@ jobs:
                 core.setFailed('Fork PRs require trusted: true to run /eval or /rerun');
                 return;
               }
+              // Whoever releases secrets to fork code must not be its author
               if (actor === pr.data.user.login) {
                 core.setFailed('The PR author cannot mark their own fork PR trusted - another maintainer must run /eval');
                 return;
