@@ -73,10 +73,11 @@ before_test: |
   CMD ["python", "app.py"]
   DOCKERFILE
 
-  docker build --tag "$IMAGE" "$BUILD_CONTEXT" >/dev/null
-
-  # Make reruns idempotent and keep the test scoped to its own container.
+  # Make reruns idempotent and reclaim artifacts left by interrupted runs.
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  docker image rm -f "$IMAGE" >/dev/null 2>&1 || true
+
+  docker build --tag "$IMAGE" "$BUILD_CONTEXT" >/dev/null
 
   docker run -d --name "$CONTAINER" --restart=on-failure:3 "$IMAGE" \
     >/dev/null
