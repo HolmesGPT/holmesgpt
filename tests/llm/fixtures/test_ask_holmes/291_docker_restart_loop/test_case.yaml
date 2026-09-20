@@ -1,15 +1,16 @@
 user_prompt: |
-  Why is holmes-eval-restart-loop-291 restarting? State the supported cause,
+  Why is inventory-api-291 restarting? State the supported cause,
   safe next step, and uncertainty.
 
 description: |
   Docker-only diagnosis eval. The container fails three times and then remains
   exited, so the evidence must be discovered through Docker container state and
   logs. The error establishes that port 8080 is already in use, but does not
-  establish which process or configuration owns it.
+  establish which process or configuration owns it. Its inspected command is a
+  normal application entrypoint, not a test-specific error stub.
 
 expected_output:
-  - "Must call docker_ps_all to find the holmes-eval-restart-loop-291 container"
+  - "Must call docker_ps_all to find the inventory-api-291 container"
   - "Must call docker_inspect to confirm its restart count and exit code"
   - "Must call docker_logs to investigate the container failure"
   - "Must identify the repeated EADDRINUSE address-in-use error as the supported failure"
@@ -27,13 +28,57 @@ setup_timeout: 60
 
 before_test: |
   set -e
-  CONTAINER=holmes-eval-restart-loop-291
+  CONTAINER=inventory-api-291
+  IMAGE=inventory-api:291
+  BUILD_CONTEXT=$(mktemp -d)
+
+  cleanup_build_context() {
+    rm -rf "$BUILD_CONTEXT"
+  }
+  trap cleanup_build_context EXIT
+
+  cat <<'PYTHON' | sed 's/^  //' > "$BUILD_CONTEXT/app.py"
+  import os
+  import socket
+  import sys
+  import time
+
+  parent_ready, child_ready = os.pipe()
+  child_pid = os.fork()
+
+  if child_pid == 0:
+      os.close(parent_ready)
+      listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+      listener.bind(("0.0.0.0", 8080))
+      listener.listen()
+      os.write(child_ready, b"ready")
+      while True:
+          time.sleep(60)
+
+  os.close(child_ready)
+  os.read(parent_ready, 5)
+  listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  try:
+      listener.bind(("0.0.0.0", 8080))
+  except OSError as error:
+      print(f"Error: listen EADDRINUSE: {error}", file=sys.stderr)
+      raise
+  PYTHON
+
+  cat <<'DOCKERFILE' | sed 's/^  //' > "$BUILD_CONTEXT/Dockerfile"
+  FROM python:3.13-alpine
+  WORKDIR /srv/inventory
+  COPY app.py ./app.py
+  CMD ["python", "app.py"]
+  DOCKERFILE
+
+  docker build --tag "$IMAGE" "$BUILD_CONTEXT" >/dev/null
 
   # Make reruns idempotent and keep the test scoped to its own container.
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
-  docker run -d --name "$CONTAINER" --restart=on-failure:3 alpine:3.21 \
-    sh -c 'echo "Error: listen EADDRINUSE: address already in use 0.0.0.0:8080"; exit 1' \
+  docker run -d --name "$CONTAINER" --restart=on-failure:3 "$IMAGE" \
     >/dev/null
 
   # Verify the bounded restart loop reached its stable, exited final state.
@@ -55,4 +100,5 @@ before_test: |
   fi
 
 after_test: |
-  docker rm -f holmes-eval-restart-loop-291 >/dev/null 2>&1 || true
+  docker rm -f inventory-api-291 >/dev/null 2>&1 || true
+  docker image rm -f inventory-api:291 >/dev/null 2>&1 || true
