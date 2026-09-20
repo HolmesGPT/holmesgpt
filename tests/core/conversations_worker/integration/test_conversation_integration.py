@@ -15,6 +15,7 @@ process them, and asserts on the resulting ConversationEvents and status.
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from typing import Dict, List
@@ -794,3 +795,73 @@ class TestRemoteToolCallStress:
             f"All {num} remote tool calls should have completed; these did not: "
             f"{not_completed}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Identity binding (ROB-1107): the user_message event's data is client-written;
+# a user_id there must not override the RLS-bound Conversations row owner.
+# ---------------------------------------------------------------------------
+SPOOFED_USER_ID = "11111111-1111-4111-8111-111111111111"
+
+
+class TestIdentityBinding:
+
+    def _assert_rejected(self, supabase_fx: SupabaseFixture, cid: str, seq: int) -> None:
+        result = supabase_fx.wait_for_terminal(cid, request_sequence=seq, timeout=120)
+        assert result["status"] == "failed", result
+        assert result["user_id"] == supabase_fx.user_id
+
+        terminal = supabase_fx.find_terminal_event(cid)
+        assert terminal is not None and terminal["event"] == "error"
+        assert "owner" in (terminal.get("data") or {}).get("description", "")
+        types = supabase_fx.flat_event_types(cid)
+        after_last_ask = types[len(types) - types[::-1].index("user_message"):]
+        assert "ai_answer_end" not in after_last_ask, types
+
+        if os.environ.get("STORE_USER") and os.environ.get("STORE_PASSWORD"):
+            rows = (
+                supabase_fx._relay()
+                .table("HolmesUsageEvents")
+                .select("user_id")
+                .eq("conversation_id", cid)
+                .execute()
+            ).data or []
+            assert not any(r["user_id"] == SPOOFED_USER_ID for r in rows), rows
+
+    def test_spoofed_user_id_on_first_turn_is_rejected(self, supabase_fx: SupabaseFixture):
+        conv = supabase_fx.create_conversation(
+            ask="Reply with exactly: PONG",
+            title="integ: spoofed user_id (first turn)",
+            extra_user_message_data={"user_id": SPOOFED_USER_ID},
+        )
+        self._assert_rejected(supabase_fx, conv["conversation_id"], seq=1)
+
+    def test_spoofed_user_id_on_followup_is_rejected(self, supabase_fx: SupabaseFixture):
+        conv = supabase_fx.create_conversation(
+            ask="Reply with exactly: PONG",
+            title="integ: spoofed user_id (follow-up)",
+        )
+        cid = conv["conversation_id"]
+        first = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
+        assert first["status"] == "completed"
+
+        supabase_fx.post_followup(
+            cid,
+            events=[{
+                "event": "user_message",
+                "data": {"ask": "Reply with exactly: PONG", "user_id": SPOOFED_USER_ID},
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }],
+        )
+        self._assert_rejected(supabase_fx, cid, seq=2)
+
+    def test_matching_user_id_in_event_is_accepted(self, supabase_fx: SupabaseFixture):
+        conv = supabase_fx.create_conversation(
+            ask="Reply with exactly: PONG",
+            title="integ: matching user_id",
+            extra_user_message_data={"user_id": supabase_fx.user_id},
+        )
+        cid = conv["conversation_id"]
+        result = supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
+        assert result["status"] == "completed"
+        assert "ai_answer_end" in supabase_fx.flat_event_types(cid)

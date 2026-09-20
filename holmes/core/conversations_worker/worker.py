@@ -677,10 +677,7 @@ class ConversationWorker:
                 request_sequence=int(conv.get("request_sequence", 1)),
                 metadata=conv.get("metadata") or {},
                 title=conv.get("title"),
-                # Conversations.user_id (set by the FE when it created the row)
-                # — surfaced on the task so per-turn ChatRequest construction
-                # can use it as a fallback when the user_message event's data
-                # doesn't carry user_id explicitly.
+                # RLS-bound owner; the per-turn identity (see _process_conversation).
                 user_id=conv.get("user_id"),
             )
         except Exception:
@@ -898,16 +895,23 @@ class ConversationWorker:
         if data.get("tool_decisions"):
             enable_tool_approval = True
 
-        # AI usage tracking (HolmesUsageEvents) — resolve user_id and
-        # request_source with row-level fallbacks. The FE writes both onto
-        # the Conversations row when it creates the chat (user_id as a
-        # column, request_source under metadata) but doesn't necessarily
-        # repeat them in every user_message event's data. Without this
-        # fallback, follow-up turns produce HolmesUsageEvents rows with
-        # NULL user_id / request_source even though the values are known.
-        # Per-event data still wins so the FE can override per-turn (e.g.
-        # an alert-investigation chat that pivots to a freeform question).
-        resolved_user_id = data.get("user_id") or task.user_id
+        # Identity comes from the RLS-bound Conversations row only. The event's
+        # data is client-controlled; a user_id there that disagrees with the
+        # row is rejected rather than trusted (ROB-1107).
+        event_user_id = data.get("user_id")
+        if event_user_id not in (None, "") and str(event_user_id) != str(
+            task.user_id or ""
+        ):
+            logging.warning(
+                "Conversation %s: user_message event user_id does not match "
+                "the Conversations row owner; rejecting turn",
+                task.conversation_id,
+            )
+            self._fail_conversation(
+                task, "Conversation event identity does not match the conversation owner"
+            )
+            return
+        resolved_user_id = task.user_id
         # Per-conversation OAuth opt-out. When a Conversations row carries
         # `metadata.oauth_enabled = false` (e.g. triggered workflows that
         # don't want Holmes acting under the workflow creator's per-user
@@ -1203,6 +1207,11 @@ class ConversationWorker:
             request_context: Optional[Dict[str, Any]] = None
             if chat_request.user_id:
                 request_context = {"user_id": chat_request.user_id}
+            if task.user_id:
+                # Row owner, sent to relay for RBAC even when user_id was
+                # dropped by the OAuth opt-out.
+                request_context = request_context or {}
+                request_context["conversation_owner_id"] = task.user_id
             if task.conversation_id:
                 request_context = request_context or {}
                 request_context["conversation_id"] = task.conversation_id
