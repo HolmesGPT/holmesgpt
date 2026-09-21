@@ -36,6 +36,7 @@ from holmes.core.models import (
 )
 from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
 from holmes.core.oauth_utils import _get_token_manager
+from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
     StructuredToolResult,
@@ -89,24 +90,6 @@ class LLMInterruptedError(Exception):
     """Raised when the user interrupts an in-progress LLM call (e.g. via Escape key)."""
 
     pass
-
-
-class RelayRefusal(Exception):
-    """Relay refusing a call on a Robusta-hosted model.
-
-    Relay answers 401 or 403 for more than the account-level opt-out: the
-    feature not being enabled, a free-account gate, or a stale session token
-    are all refusals too, and the opt-out is just one of them. Whatever the
-    reason, this is the platform talking to the user, not a provider failure,
-    so it is holmes' own exception rather than one of litellm's: the message
-    is relay's sentence verbatim - what `str()` and `args[0]` give - and the
-    status is what an HTTP consumer answers with (ROB-1389).
-    """
-
-    def __init__(self, message: str, status_code: int):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
 
 
 # Create a named logger for cost tracking
@@ -234,7 +217,7 @@ _LITELLM_RETRY_SUFFIX_RE = re.compile(
     r"\s*LiteLLM Retried: \d+ times(?:, LiteLLM Max Retries: \d+)?\s*$"
 )
 # The statuses relay refuses with; see RelayRefusal.
-REFUSAL_STATUS_CODES = (401, 403)
+REFUSAL_STATUS_CODES = tuple(RELAY_REFUSAL_ERROR_CODES)
 
 
 def _message_from_body(body: Any) -> Optional[str]:

@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import json
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
@@ -47,6 +48,49 @@ def test_api_chat_answers_a_relay_refusal_with_its_own_status(
 
     assert response.status_code == status_code
     assert response.json()["detail"] == message
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_stream_carries_a_relay_refusal_in_the_error_event(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+    status_code,
+):
+    """A stream has committed HTTP 200 before the LLM call runs, so the
+    refusal rides the SSE error event: relay's sentence as the text and a code
+    per status the client can key on (ROB-1389)."""
+    from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES
+
+    mock_get_global_instructions.return_value = []
+    message = "Robusta-hosted models are disabled for this account."
+
+    def refused_stream(*args, **kwargs):
+        raise RelayRefusal(message, status_code)
+        yield  # a generator, like the real call_stream
+
+    mock_ai = MagicMock()
+    mock_ai.call_stream.return_value = refused_stream()
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?", "stream": True})
+
+    assert response.status_code == 200
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events == [
+        {
+            "description": message,
+            "error_code": RELAY_REFUSAL_ERROR_CODES[status_code],
+            "msg": message,
+            "success": False,
+        }
+    ]
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")

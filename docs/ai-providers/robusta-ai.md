@@ -142,6 +142,7 @@ With it set:
 
 - Model discovery returns no Robusta-hosted models, so HolmesGPT loads only the models configured on the cluster itself (`MODEL`, `MODEL_LIST_FILE_LOCATION`, or the model list) - `ROBUSTA_AI: "true"` does not put it back.
 - A cluster with no models of its own has nothing to run on, and each request fails with an error naming that: no models are configured and Robusta-hosted models are disabled for the account.
+- A call the platform refuses on a Robusta-hosted model fails with the platform's own message. `/api/chat` answers with the platform's status (401 or 403) when `stream` is false; a streamed chat has already answered 200, so the refusal arrives as an `error` event whose `error_code` is 5206 for a 401 and 5207 for a 403.
 - Turning the setting back off is picked up by the periodic model refresh - running agents do not need a restart.
 - Agents older than the release that added this keep their previous behaviour: they still load Robusta-hosted models, and the platform refuses each call they make on one.
 
