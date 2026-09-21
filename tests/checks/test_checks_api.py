@@ -57,12 +57,6 @@ DISABLED_MESSAGE = (
 )
 
 
-def _refusal(status_code: int, message: str) -> RelayRefusal:
-    """A refusal as ToolCallingLLM re-raises it: the platform's own message
-    and the status it refused with (ROB-1389)."""
-    return RelayRefusal(message, status_code)
-
-
 def _execute(client):
     return client.post(
         "/api/checks/execute",
@@ -72,40 +66,16 @@ def _execute(client):
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")
-def test_execute_check_maps_a_disabled_account_to_403(
+def test_a_relay_refusal_is_reported_as_a_check_error(
     mock_create_toolcalling_llm, client
 ):
-    """Setting up the LLM is refused when the account disabled Robusta-hosted
-    models: the caller gets 403 and the platform's own remedy, not a 500."""
-    mock_create_toolcalling_llm.side_effect = _refusal(403, DISABLED_MESSAGE)
-
-    response = _execute(client)
-
-    assert response.status_code == 403
-    assert response.json()["detail"] == DISABLED_MESSAGE
-
-
-@patch("holmes.config.Config.create_toolcalling_llm")
-def test_execute_check_maps_a_stale_token_to_401(mock_create_toolcalling_llm, client):
-    message = "Your session has expired. Reconnect the cluster to the platform."
-    mock_create_toolcalling_llm.side_effect = _refusal(401, message)
-
-    response = _execute(client)
-
-    assert response.status_code == 401
-    assert response.json()["detail"] == message
-
-
-@patch("holmes.config.Config.create_toolcalling_llm")
-def test_a_refusal_during_the_call_is_reported_as_a_check_error(
-    mock_create_toolcalling_llm, client
-):
-    """execute_check turns any failure of the LLM call into an ERROR result
-    rather than an HTTP status, so what matters there is that the message the
-    user reads is the platform's, not litellm's rendering of it."""
+    """A check's LLM call runs inside execute_check, which turns any failure
+    into an ERROR result rather than an HTTP status. The platform's refusal is
+    one such failure; what reaches the caller is its own sentence (ROB-1389),
+    not litellm's rendering of it."""
     mock_ai = MagicMock()
     mock_ai.llm.model = "Robusta/gpt-5"
-    mock_ai.call.side_effect = _refusal(403, DISABLED_MESSAGE)
+    mock_ai.call.side_effect = RelayRefusal(DISABLED_MESSAGE, 403)
     mock_create_toolcalling_llm.return_value = mock_ai
 
     response = _execute(client)

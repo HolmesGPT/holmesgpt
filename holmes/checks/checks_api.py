@@ -11,7 +11,7 @@ from holmes.checks.checks import execute_check
 from holmes.checks.models import Check, CheckMode, CheckResult, CheckStatus
 from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
-from holmes.core.tool_calling_llm import LLMResult, RelayRefusal, ToolCallingLLM
+from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
 from holmes.plugins.destinations.slack.plugin import SlackDestination
@@ -235,12 +235,6 @@ def execute_health_check(
             ),  # Include notification statuses
         )
 
-    except RelayRefusal as e:
-        # The platform refused the call on a Robusta-hosted model - a stale
-        # session token (401) or an account that disabled them (403). Its
-        # message says what to do, so it must reach the caller with relay's
-        # own status instead of becoming a generic 500.
-        raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except Exception as e:
