@@ -377,8 +377,11 @@ def test_heartbeat_advertises_the_refreshed_catalog(mock_cluster, monkeypatch):
 
     update_holmes_status_in_db(dal, config)
 
-    advertised = json.loads(dal.upsert_holmes_status.call_args[0][0]["model"])
-    assert advertised == ["Playtika-sonnet-5"]
+    upserted = dal.upsert_holmes_status.call_args[0][0]
+    assert json.loads(upserted["model"]) == ["Playtika-sonnet-5"]
+    # The platform's settings page reads this to tell agents that honour the
+    # opt-out from older ones, so every heartbeat carries it.
+    assert json.loads(upserted["metadata"])["honors_robusta_ai_disabled"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -61,6 +61,12 @@ class HolmesMetadata:
     supports_realtime_conversations: bool = False
     requires_realtime_broadcast: bool = False
     namespace: Optional[str] = None
+    # This agent reads `robusta_ai_disabled` from the platform's model catalog
+    # and drops its Robusta-hosted models when the account has opted out. The
+    # platform's settings page lists the agents whose heartbeat lacks this flag
+    # as the ones that cannot answer while the opt-out is on. Always true here;
+    # its absence is what identifies an older agent.
+    honors_robusta_ai_disabled: bool = True
 
 
 # Last realtime_available value passed to update_holmes_status_in_db. The
