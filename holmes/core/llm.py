@@ -312,6 +312,10 @@ def _count_anthropic_image_tokens(message: dict) -> int:
 
 
 class LLM:
+    # Whether calls go through the Robusta platform, whose refusals are its own
+    # (see RelayRefusal) rather than a provider's.
+    is_robusta_model: bool = False
+
     @abstractmethod
     def __init__(self):
         self.model: str  # type: ignore
@@ -1090,23 +1094,22 @@ class LLMModelRegistry:
         """Drop every Robusta-hosted entry and remember why.
 
         Returns True when this changed the registry, so a refresh can report
-        it. Logged once: the refresh loop re-reads the flag every cycle.
+        it. The flag is the whole state: while it is set nothing Robusta-hosted
+        is loaded (installing a catalog clears it first), so re-applying an
+        opt-out the registry already holds changes nothing and logs nothing -
+        the refresh loop re-reads the flag every cycle.
         """
         with self._lock:
-            hosted = [
-                name for name, entry in self._llms.items() if entry.is_robusta_model
-            ]
-            changed = bool(hosted) or not self._robusta_ai_disabled
+            changed = not self._robusta_ai_disabled
             self._llms = {
                 name: entry
                 for name, entry in self._llms.items()
                 if not entry.is_robusta_model
             }
             self._default_robusta_model = None
-            first_time = not self._robusta_ai_disabled
             self._robusta_ai_disabled = True
 
-        if first_time:
+        if changed:
             logging.info(
                 "Robusta-hosted models are disabled for this account; "
                 "serving only the models configured on this cluster."

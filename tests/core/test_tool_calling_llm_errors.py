@@ -216,6 +216,55 @@ def test_a_fastapi_shaped_body_is_read_too(_mock_limit, make_ai, mock_llm):
 
 
 @patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
+def test_a_refusal_without_a_json_body_falls_back_to_the_error_text(
+    _mock_limit, make_ai, mock_llm
+):
+    """A 403 answered by something in front of relay (an HTML error page) has
+    no body to read; the user still gets the status and the error's text,
+    without litellm's decoration."""
+    response = httpx.Response(
+        403,
+        request=httpx.Request("POST", "https://api.robusta.dev/llm/Robusta%2Fgpt-5"),
+        text="<html>Forbidden</html>",
+    )
+    mock_llm.completion.side_effect = openai.PermissionDeniedError(
+        "PermissionDeniedError: OpenAIException - Forbidden",
+        response=response,
+        body=None,
+    )
+
+    with pytest.raises(RelayRefusal) as excinfo:
+        _ask(make_ai())
+
+    assert excinfo.value.message == "Forbidden"
+    assert excinfo.value.status_code == 403
+
+
+@patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
+def test_a_non_azure_bad_request_on_a_robusta_model_is_raised_as_is(
+    _mock_limit, make_ai, mock_llm
+):
+    """A 400 is not a refusal: it stays the provider's error, as before."""
+    error = _from_response(
+        400,
+        {
+            "error": {
+                "message": "max_tokens is too large",
+                "type": "invalid_request_error",
+                "code": None,
+            }
+        },
+        "Robusta/gpt-5",
+    )
+    mock_llm.completion.side_effect = error
+
+    with pytest.raises(BadRequestError) as excinfo:
+        _ask(make_ai())
+
+    assert excinfo.value is error
+
+
+@patch(LIMIT_PATCH, side_effect=_passthrough_limiter)
 def test_non_robusta_models_keep_the_original_error(_mock_limit, make_ai, mock_llm):
     """A user's own key being wrong is the provider's error, and the user needs
     to see it as such - litellm's rendering and all."""

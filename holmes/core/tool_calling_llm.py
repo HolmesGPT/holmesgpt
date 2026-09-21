@@ -233,8 +233,7 @@ _LITELLM_PREFIX_RE = re.compile(
 _LITELLM_RETRY_SUFFIX_RE = re.compile(
     r"\s*LiteLLM Retried: \d+ times(?:, LiteLLM Max Retries: \d+)?\s*$"
 )
-# Relay refuses a call on a Robusta-hosted model with 401 (the session token
-# went stale) or 403 (the account disabled Robusta-hosted models).
+# The statuses relay refuses with; see RelayRefusal.
 REFUSAL_STATUS_CODES = (401, 403)
 
 
@@ -243,15 +242,12 @@ def _message_from_body(body: Any) -> Optional[str]:
     FastAPI's `{"detail": ...}`, relay's `{"msg": ..., "error_code": ...}`, or
     OpenAI's `{"error": {"message": ...}}` (which litellm hands over already
     unwrapped to `{"message": ..., "type": ...}`)."""
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        body = body["error"]
     if not isinstance(body, dict):
         return None
-    for key in ("detail", "msg", "message", "error"):
-        value = body.get(key)
-        if isinstance(value, dict):
-            value = value.get("message")
-        if isinstance(value, str) and value:
-            return value
-    return None
+    candidates = (body.get(key) for key in ("detail", "msg", "message"))
+    return next((c for c in candidates if isinstance(c, str) and c), None)
 
 
 def _refusal_message(error: Exception) -> str:
@@ -283,7 +279,7 @@ def _is_robusta_refusal(llm: LLM, error: Exception) -> bool:
     return (
         isinstance(error, APIError)
         and getattr(error, "status_code", None) in REFUSAL_STATUS_CODES
-        and bool(getattr(llm, "is_robusta_model", False))
+        and llm.is_robusta_model
     )
 
 
@@ -1368,12 +1364,6 @@ class ToolCallingLLM:
               # recognised by status before anything keyed on the class runs;
               # the Azure case below is a 400, so it can never be taken first.
               except Exception as e:
-                # Relay refuses a Robusta-hosted model call for more than the
-                # account opt-out - a disabled feature, a free-account gate, a
-                # stale token are refusals too. Whatever the reason, this is
-                # the platform talking to the user, not a provider failure:
-                # its body says what to do about it, and litellm's rendering
-                # buries that (ROB-1389).
                 if _is_robusta_refusal(self.llm, e):
                     # _is_robusta_refusal already established the status is one
                     # of REFUSAL_STATUS_CODES.

@@ -1146,7 +1146,7 @@ class ConversationWorker:
                 tracer=server_tracer,
                 tool_results_dir=tool_results_dir,
             )
-            is_robusta_model = bool(getattr(ai.llm, "is_robusta_model", False))
+            is_robusta_model = ai.llm.is_robusta_model
 
             request_ai = self._inject_frontend_tools(ai, chat_request, task)
             if request_ai is None:

@@ -325,9 +325,9 @@ def test_unknown_model_lookup_does_not_block_other_readers(build_registry):
         reader = threading.Thread(target=unrelated_reader, daemon=True)
         reader.start()
 
-        assert reader_done.wait(timeout=5), (
-            "a reader of an unrelated model blocked behind the in-flight refresh"
-        )
+        assert reader_done.wait(
+            timeout=5
+        ), "a reader of an unrelated model blocked behind the in-flight refresh"
         assert served["entry"].model == "azure/gpt-4"
         reader.join(timeout=5)
     finally:
@@ -433,6 +433,16 @@ def test_refresh_applies_a_new_opt_out(build_registry):
     assert changed
     assert set(registry.models) == {"my-azure-gpt4"}
     assert registry.default_robusta_model is None
+    assert registry.robusta_ai_disabled
+
+
+def test_a_repeated_opt_out_is_not_a_change(build_registry):
+    """The refresh loop re-reads the flag every cycle; an account that stays
+    opted out must not be reported as changed on each one."""
+    registry = build_registry(_opted_out())
+
+    assert not _refresh_with(registry, _opted_out())
+    assert registry.models == {}
     assert registry.robusta_ai_disabled
 
 
