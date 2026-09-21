@@ -44,6 +44,7 @@ nav:
           - OpenRouter: ai-providers/openrouter.md
           - OpenAI: ai-providers/openai.md
           - "OpenAI-Compatible": ai-providers/openai-compatible.md
+          - "EmpirioLabs AI": ai-providers/empiriolabs.md
           - Other: ai-providers/other.md
           - "Robusta AI": ai-providers/robusta-ai.md
           - "Using Multiple Providers": ai-providers/using-multiple-providers.md
