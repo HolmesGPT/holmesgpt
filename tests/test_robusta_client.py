@@ -12,7 +12,6 @@ from holmes.clients.robusta_client import FETCH_MODELS_ATTEMPTS, fetch_robusta_m
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 
 MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
-MODELS_V2_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2"
 MODELS_PAYLOAD = {
     "models": {
         "Robusta/gpt-5": {"model": "azure/gpt-5", "holmes_args": {}, "is_default": True}
@@ -26,7 +25,9 @@ MODELS_PAYLOAD = {
 
 @pytest.fixture(autouse=True)
 def instant_retries(monkeypatch):
-    monkeypatch.setattr(robusta_client._post_models.retry, "wait", wait_none())
+    monkeypatch.setattr(
+        robusta_client._request_robusta_models.retry, "wait", wait_none()
+    )
 
 
 @pytest.fixture
@@ -68,8 +69,11 @@ def test_gives_up_after_max_attempts(mocked_responses):
     assert len(mocked_responses.calls) == FETCH_MODELS_ATTEMPTS
 
 
-def test_does_not_retry_client_errors(mocked_responses):
-    mocked_responses.add(responses.POST, MODELS_URL, status=401)
+@pytest.mark.parametrize("status", [401, 404])
+def test_does_not_retry_client_errors(mocked_responses, status):
+    """404 is a relay older than 0.29.0, which has no v3: the registry then
+    loads its legacy single-model entry, the same as after any failed fetch."""
+    mocked_responses.add(responses.POST, MODELS_URL, status=status)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -167,70 +171,3 @@ def test_ignores_unknown_response_fields(mocked_responses):
 
     assert result is not None
     assert set(result.models) == {"Robusta/gpt-5"}
-
-
-def test_falls_back_to_v2_when_the_platform_has_no_v3(mocked_responses):
-    """A platform that predates v3 has no opt-out to report, so its bare
-    catalog is read as an enabled account."""
-    mocked_responses.add(responses.POST, MODELS_URL, status=404)
-    mocked_responses.add(
-        responses.POST, MODELS_V2_URL, json=MODELS_PAYLOAD["models"], status=200
-    )
-
-    result = fetch_robusta_models("account-id", "token")
-
-    assert result is not None
-    assert set(result.models) == {"Robusta/gpt-5"}
-    assert result.models["Robusta/gpt-5"].is_default
-    assert not result.robusta_ai_disabled
-    assert len(mocked_responses.calls) == 2
-    assert mocked_responses.calls[0].request.url == MODELS_URL
-    assert mocked_responses.calls[1].request.url == MODELS_V2_URL
-
-
-def test_returns_none_when_neither_version_is_served(mocked_responses):
-    mocked_responses.add(responses.POST, MODELS_URL, status=404)
-    mocked_responses.add(responses.POST, MODELS_V2_URL, status=404)
-
-    result = fetch_robusta_models("account-id", "token")
-
-    assert result is None
-    assert len(mocked_responses.calls) == 2
-
-
-def test_a_v3_client_error_is_not_read_as_a_missing_endpoint(mocked_responses):
-    """Only 404 means the platform has no v3. A 403 on v3 is v3 refusing this
-    request, and reading v2 instead would hide whatever it refused."""
-    mocked_responses.add(responses.POST, MODELS_URL, status=403)
-
-    result = fetch_robusta_models("account-id", "token")
-
-    assert result is None
-    assert len(mocked_responses.calls) == 1
-
-
-def test_a_v3_server_error_is_retried_rather_than_falling_back(mocked_responses):
-    """A 500 is a blip on a platform that does serve v3; dropping to v2 there
-    would silently hide the opt-out."""
-    for _ in range(FETCH_MODELS_ATTEMPTS):
-        mocked_responses.add(responses.POST, MODELS_URL, status=500)
-
-    result = fetch_robusta_models("account-id", "token")
-
-    assert result is None
-    assert len(mocked_responses.calls) == FETCH_MODELS_ATTEMPTS
-    assert all(call.request.url == MODELS_URL for call in mocked_responses.calls)
-
-
-def test_v2_is_retried_on_its_own_after_the_fallback(mocked_responses):
-    mocked_responses.add(responses.POST, MODELS_URL, status=404)
-    mocked_responses.add(responses.POST, MODELS_V2_URL, status=502)
-    mocked_responses.add(
-        responses.POST, MODELS_V2_URL, json=MODELS_PAYLOAD["models"], status=200
-    )
-
-    result = fetch_robusta_models("account-id", "token")
-
-    assert result is not None
-    assert set(result.models) == {"Robusta/gpt-5"}
-    assert len(mocked_responses.calls) == 3

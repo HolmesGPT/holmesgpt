@@ -124,7 +124,7 @@ The endpoint must match the region your cluster is connected to in the Robusta p
     https://api.robusta.dev/api/llm/models/v3
     ```
 
-    The version is negotiated: a platform that does not serve v3 yet answers it with 404, and HolmesGPT reads the catalog from `/api/llm/models/v2` instead. v2 carries the models alone, so an agent talking to such a platform cannot see the account-level opt-out below.
+    Self-hosted platforms need relay 0.29.0 or newer, which is where this endpoint first shipped. Against an older relay the fetch fails and HolmesGPT falls back to its single legacy Robusta model, without the account's model catalog, until the relay is upgraded.
 
 4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `${ROBUSTA_API_ENDPOINT}/llm/{model_name}` - pick your region:
 

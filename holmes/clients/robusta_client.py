@@ -24,8 +24,10 @@ TIMEOUT = 0.5
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 FETCH_MODELS_ATTEMPTS = 5
 
-MODELS_V3_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
-MODELS_V2_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2"
+# The v3 catalog is an envelope that carries the account's opt-out; relay has
+# served it since 0.29.0. An older relay answers 404, the fetch fails like any
+# other client error, and the registry loads its legacy single-model entry.
+MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
 
 logger = logging.getLogger(__name__)
 
@@ -117,39 +119,14 @@ def fetch_supabase_api_key(account_id: str, cluster: str) -> Optional[str]:
     before_sleep=_log_fetch_retry,
     reraise=True,
 )
-def _post_models(url: str, account_id: str, token: str) -> Any:
+def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
     resp = requests.post(
-        url,
+        MODELS_URL,
         json={"session_token": token, "account_id": account_id},
         timeout=10,
     )
     resp.raise_for_status()
-    return resp.json()
-
-
-def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
-    """The account's catalog, negotiated with whatever the platform serves.
-
-    v3 is the envelope that carries the account's opt-out. A platform that
-    predates it answers 404, and its bare v2 catalog is read as an enabled
-    account: it has no opt-out to report. Any other failure is v3's own and
-    is not a reason to read v2 - a 5xx there is a blip to retry, and falling
-    back on it would hide the opt-out.
-    """
-    try:
-        body = _post_models(MODELS_V3_URL, account_id, token)
-    except requests.exceptions.HTTPError as e:
-        if e.response is None or e.response.status_code != 404:
-            raise
-        logger.info(
-            "The platform does not serve %s; reading the model catalog from %s",
-            MODELS_V3_URL,
-            MODELS_V2_URL,
-        )
-        return RobustaModelsResponse(
-            models=_post_models(MODELS_V2_URL, account_id, token)
-        )
-    return RobustaModelsResponse.model_validate(body)
+    return RobustaModelsResponse.model_validate(resp.json())
 
 
 def fetch_robusta_models(
