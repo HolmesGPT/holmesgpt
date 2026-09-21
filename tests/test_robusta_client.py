@@ -36,7 +36,7 @@ def mocked_responses():
 
 
 def test_returns_models_on_first_success(mocked_responses):
-    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, json=MODELS_PAYLOAD, status=200)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -47,9 +47,9 @@ def test_returns_models_on_first_success(mocked_responses):
 
 
 def test_recovers_from_transient_gateway_errors(mocked_responses):
-    mocked_responses.post(MODELS_URL, status=502)
-    mocked_responses.post(MODELS_URL, status=502)
-    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, status=502)
+    mocked_responses.add(responses.POST, MODELS_URL, status=502)
+    mocked_responses.add(responses.POST, MODELS_URL, json=MODELS_PAYLOAD, status=200)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -60,7 +60,7 @@ def test_recovers_from_transient_gateway_errors(mocked_responses):
 
 def test_gives_up_after_max_attempts(mocked_responses):
     for _ in range(FETCH_MODELS_ATTEMPTS):
-        mocked_responses.post(MODELS_URL, status=502)
+        mocked_responses.add(responses.POST, MODELS_URL, status=502)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -69,7 +69,7 @@ def test_gives_up_after_max_attempts(mocked_responses):
 
 
 def test_does_not_retry_client_errors(mocked_responses):
-    mocked_responses.post(MODELS_URL, status=401)
+    mocked_responses.add(responses.POST, MODELS_URL, status=401)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -78,8 +78,10 @@ def test_does_not_retry_client_errors(mocked_responses):
 
 
 def test_retries_connection_errors(mocked_responses):
-    mocked_responses.post(MODELS_URL, body=requests.exceptions.ConnectionError())
-    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+    mocked_responses.add(
+        responses.POST, MODELS_URL, body=requests.exceptions.ConnectionError()
+    )
+    mocked_responses.add(responses.POST, MODELS_URL, json=MODELS_PAYLOAD, status=200)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -88,8 +90,8 @@ def test_retries_connection_errors(mocked_responses):
 
 
 def test_retries_timeouts(mocked_responses):
-    mocked_responses.post(MODELS_URL, body=requests.exceptions.Timeout())
-    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, body=requests.exceptions.Timeout())
+    mocked_responses.add(responses.POST, MODELS_URL, json=MODELS_PAYLOAD, status=200)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -98,8 +100,8 @@ def test_retries_timeouts(mocked_responses):
 
 
 def test_retries_rate_limiting(mocked_responses):
-    mocked_responses.post(MODELS_URL, status=429)
-    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, status=429)
+    mocked_responses.add(responses.POST, MODELS_URL, json=MODELS_PAYLOAD, status=200)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -111,7 +113,8 @@ def test_parses_an_opted_out_account(mocked_responses):
     """An account with the Robusta AI opt-out set gets an empty catalog and no
     defaults - the flag is what tells the agent this is deliberate rather than
     a relay hiccup."""
-    mocked_responses.post(
+    mocked_responses.add(
+        responses.POST,
         MODELS_URL,
         json={
             "models": {},
@@ -131,7 +134,7 @@ def test_parses_an_opted_out_account(mocked_responses):
 
 
 def test_parses_an_enabled_account(mocked_responses):
-    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, json=MODELS_PAYLOAD, status=200)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -143,7 +146,7 @@ def test_parses_an_enabled_account(mocked_responses):
 def test_ignores_the_envelope_fields_holmes_does_not_read(mocked_responses):
     """The v3 payload above already carries relay's own bookkeeping fields;
     they are dropped rather than modelled."""
-    mocked_responses.post(MODELS_URL, json=MODELS_PAYLOAD, status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, json=MODELS_PAYLOAD, status=200)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -153,8 +156,11 @@ def test_ignores_the_envelope_fields_holmes_does_not_read(mocked_responses):
 
 
 def test_ignores_unknown_response_fields(mocked_responses):
-    mocked_responses.post(
-        MODELS_URL, json={**MODELS_PAYLOAD, "something_new": 1}, status=200
+    mocked_responses.add(
+        responses.POST,
+        MODELS_URL,
+        json={**MODELS_PAYLOAD, "something_new": 1},
+        status=200,
     )
 
     result = fetch_robusta_models("account-id", "token")
@@ -166,8 +172,10 @@ def test_ignores_unknown_response_fields(mocked_responses):
 def test_falls_back_to_v2_when_the_platform_has_no_v3(mocked_responses):
     """A platform that predates v3 has no opt-out to report, so its bare
     catalog is read as an enabled account."""
-    mocked_responses.post(MODELS_URL, status=404)
-    mocked_responses.post(MODELS_V2_URL, json=MODELS_PAYLOAD["models"], status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, status=404)
+    mocked_responses.add(
+        responses.POST, MODELS_V2_URL, json=MODELS_PAYLOAD["models"], status=200
+    )
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -181,8 +189,8 @@ def test_falls_back_to_v2_when_the_platform_has_no_v3(mocked_responses):
 
 
 def test_returns_none_when_neither_version_is_served(mocked_responses):
-    mocked_responses.post(MODELS_URL, status=404)
-    mocked_responses.post(MODELS_V2_URL, status=404)
+    mocked_responses.add(responses.POST, MODELS_URL, status=404)
+    mocked_responses.add(responses.POST, MODELS_V2_URL, status=404)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -193,7 +201,7 @@ def test_returns_none_when_neither_version_is_served(mocked_responses):
 def test_a_v3_client_error_is_not_read_as_a_missing_endpoint(mocked_responses):
     """Only 404 means the platform has no v3. A 403 on v3 is v3 refusing this
     request, and reading v2 instead would hide whatever it refused."""
-    mocked_responses.post(MODELS_URL, status=403)
+    mocked_responses.add(responses.POST, MODELS_URL, status=403)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -205,7 +213,7 @@ def test_a_v3_server_error_is_retried_rather_than_falling_back(mocked_responses)
     """A 500 is a blip on a platform that does serve v3; dropping to v2 there
     would silently hide the opt-out."""
     for _ in range(FETCH_MODELS_ATTEMPTS):
-        mocked_responses.post(MODELS_URL, status=500)
+        mocked_responses.add(responses.POST, MODELS_URL, status=500)
 
     result = fetch_robusta_models("account-id", "token")
 
@@ -215,9 +223,11 @@ def test_a_v3_server_error_is_retried_rather_than_falling_back(mocked_responses)
 
 
 def test_v2_is_retried_on_its_own_after_the_fallback(mocked_responses):
-    mocked_responses.post(MODELS_URL, status=404)
-    mocked_responses.post(MODELS_V2_URL, status=502)
-    mocked_responses.post(MODELS_V2_URL, json=MODELS_PAYLOAD["models"], status=200)
+    mocked_responses.add(responses.POST, MODELS_URL, status=404)
+    mocked_responses.add(responses.POST, MODELS_V2_URL, status=502)
+    mocked_responses.add(
+        responses.POST, MODELS_V2_URL, json=MODELS_PAYLOAD["models"], status=200
+    )
 
     result = fetch_robusta_models("account-id", "token")
 
