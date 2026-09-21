@@ -965,13 +965,21 @@ class LLMModelRegistry:
 
         return False
 
+    def reads_robusta_catalog(self) -> bool:
+        """Whether this agent fetches the account's model catalog from the
+        platform, and with it the account's Robusta AI opt-out. Otherwise it
+        runs the legacy single Robusta entry and never sees the setting; the
+        heartbeat advertises this so the platform can tell the two apart."""
+        return bool(
+            self.config.cluster_name
+            and LOAD_ALL_ROBUSTA_MODELS
+            and self.dal.enabled
+            and self.dal.account_id
+        )
+
     def configure_robusta_ai_model(self) -> None:
         try:
-            if not self.config.cluster_name or not LOAD_ALL_ROBUSTA_MODELS:
-                self._load_default_robusta_config()
-                return
-
-            if not self.dal.account_id or not self.dal.enabled:
+            if not self.reads_robusta_catalog():
                 self._load_default_robusta_config()
                 return
 
@@ -1031,14 +1039,9 @@ class LLMModelRegistry:
                 or self._robusta_ai_disabled
             )
 
-        # cluster_name and LOAD_ALL_ROBUSTA_MODELS are what put an agent in
-        # legacy single-model mode at boot; refreshing must not promote it.
-        if not (
-            robusta_ai_in_play
-            and self.config.cluster_name
-            and LOAD_ALL_ROBUSTA_MODELS
-            and self.dal.enabled
-        ):
+        # An agent that does not read the catalog is in legacy single-model
+        # mode from boot; refreshing must not promote it.
+        if not (robusta_ai_in_play and self.reads_robusta_catalog()):
             return False
 
         if not self._robusta_refresh_lock.acquire(blocking=False):

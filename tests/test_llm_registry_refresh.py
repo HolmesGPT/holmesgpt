@@ -379,9 +379,35 @@ def test_heartbeat_advertises_the_refreshed_catalog(mock_cluster, monkeypatch):
 
     upserted = dal.upsert_holmes_status.call_args[0][0]
     assert json.loads(upserted["model"]) == ["Playtika-sonnet-5"]
-    # The platform's settings page reads this to tell agents that honour the
-    # opt-out from older ones, so every heartbeat carries it.
+    # This agent reads the catalog, so it reads the opt-out; the platform's
+    # settings page tells such agents from the rest by this flag.
     assert json.loads(upserted["metadata"])["honors_robusta_ai_disabled"] is True
+
+
+@patch("holmes.core.llm.ROBUSTA_AI", True)
+@patch("holmes.core.llm.LOAD_ALL_ROBUSTA_MODELS", False)
+@patch("holmes.config.Config._Config__get_cluster_name", return_value="test-cluster")
+def test_heartbeat_does_not_claim_the_opt_out_when_the_catalog_is_not_read(
+    mock_cluster, monkeypatch
+):
+    """LOAD_ALL_ROBUSTA_MODELS=false keeps the agent on the legacy single
+    Robusta entry: it never fetches the catalog, so it never sees the account's
+    opt-out and must not be listed as honouring it."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.setattr(LLMModelRegistry, "_parse_models_file", lambda self, path: {})
+
+    dal = _dal()
+    with patch("holmes.core.llm.fetch_robusta_models") as fetch:
+        config = Config.load_from_env()
+        config._dal = dal
+        assert set(config.llm_model_registry.models) == {ROBUSTA_AI_MODEL_NAME}
+        fetch.assert_not_called()
+
+        update_holmes_status_in_db(dal, config)
+
+    upserted = dal.upsert_holmes_status.call_args[0][0]
+    assert json.loads(upserted["metadata"])["honors_robusta_ai_disabled"] is False
 
 
 # ---------------------------------------------------------------------------

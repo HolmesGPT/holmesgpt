@@ -63,10 +63,11 @@ class HolmesMetadata:
     namespace: Optional[str] = None
     # This agent reads `robusta_ai_disabled` from the platform's model catalog
     # and drops its Robusta-hosted models when the account has opted out. The
-    # platform's settings page lists the agents whose heartbeat lacks this flag
-    # as the ones that cannot answer while the opt-out is on. Always true here;
-    # its absence is what identifies an older agent.
-    honors_robusta_ai_disabled: bool = True
+    # platform's settings page lists the agents whose heartbeat does not carry
+    # a true value as the ones that cannot answer while the opt-out is on: an
+    # older agent has no such key, and an agent that never reads the catalog
+    # (see LLMModelRegistry.reads_robusta_catalog) says so with False.
+    honors_robusta_ai_disabled: bool = False
 
 
 # Last realtime_available value passed to update_holmes_status_in_db. The
@@ -119,6 +120,7 @@ def update_holmes_status_in_db(
         supports_realtime_conversations=supports_realtime,
         requires_realtime_broadcast=requires_broadcast,
         namespace=_detect_runner_namespace(),
+        honors_robusta_ai_disabled=config.llm_model_registry.reads_robusta_catalog(),
     )
 
     dal.upsert_holmes_status(
