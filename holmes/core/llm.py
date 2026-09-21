@@ -993,6 +993,13 @@ class LLMModelRegistry:
                 self._apply_robusta_ai_disabled()
                 return
 
+            # A fetch that failed at boot (the platform unreachable, or its
+            # settings store unreadable) cannot say whether the account opted
+            # out, so the legacy entry is loaded and the periodic refresh
+            # reads the catalog again. Until that refresh lands, an opted-out
+            # account's agent holds a Robusta-hosted entry it must not use;
+            # the platform refuses every call on it, so nothing leaves the
+            # account, and the refresh replaces the entry with the opt-out.
             if not robusta_models or not robusta_models.models:
                 self._load_default_robusta_config()
                 return
