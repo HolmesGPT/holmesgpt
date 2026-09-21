@@ -71,8 +71,8 @@ def test_gives_up_after_max_attempts(mocked_responses):
 
 @pytest.mark.parametrize("status", [401, 404])
 def test_does_not_retry_client_errors(mocked_responses, status):
-    """404 is a relay older than 0.29.0, which has no v3: the registry then
-    loads its legacy single-model entry, the same as after any failed fetch."""
+    """404 is a platform that does not serve v3: the registry then loads its
+    legacy single-model entry, the same as after any failed fetch."""
     mocked_responses.add(responses.POST, MODELS_URL, status=status)
 
     result = fetch_robusta_models("account-id", "token")

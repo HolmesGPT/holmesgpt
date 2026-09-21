@@ -24,9 +24,9 @@ TIMEOUT = 0.5
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 FETCH_MODELS_ATTEMPTS = 5
 
-# The v3 catalog is an envelope that carries the account's opt-out; relay has
-# served it since 0.29.0. An older relay answers 404, the fetch fails like any
-# other client error, and the registry loads its legacy single-model entry.
+# The v3 catalog is an envelope that carries the account's opt-out. A platform
+# that does not serve it answers 404, the fetch fails like any other client
+# error, and the registry loads its legacy single-model entry.
 MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
 
 logger = logging.getLogger(__name__)
