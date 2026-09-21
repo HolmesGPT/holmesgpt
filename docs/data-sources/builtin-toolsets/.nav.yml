@@ -8,6 +8,7 @@ nav:
   - Azure Kubernetes Service: aks.md
   - Bash: bash.md
   - Cilium: cilium.md
+  - CircleCI (MCP): circleci-mcp.md
   - ClickHouse: database-clickhouse.md
   - Confluence: confluence.md
   - Confluence (MCP): confluence-mcp.md
