@@ -521,35 +521,3 @@ toolsets:
           TARGET_NAME={{ target_name }}
           kubectl get --raw "/api/v1/namespaces/${PROM_NAMESPACE}/services/${PROM_SERVICE}:9090/proxy/api/v1/targets" \
             | jq --arg target "$TARGET_NAME" '.data.activeTargets[] | select(.labels.job == $target)'
-
-  kubernetes/krew-extras: # To make this work, install kube-lineage with krew
-    description: "Fetches children/dependents and parents/dependencies resources using kube-lineage installed via `kubectl krew`"
-    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
-    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
-    tags:
-      - cli
-    prerequisites:
-      - command: "kubectl version --client && kubectl lineage --version"
-    tools:
-      - name: "kubectl_lineage_children"
-        description: "Get all children/dependents of a Kubernetes resource, recursively, including their status"
-        command: "kubectl lineage {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-      - name: "kubectl_lineage_parents"
-        description: "Get all parents/dependencies of a Kubernetes resource, recursively, including their status"
-        command: "kubectl lineage {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %} -D"
-
-  kubernetes/kube-lineage-extras: # To make this work, build kube-lineage from source
-    description: "Fetches children/dependents and parents/dependencies resources using kube-lineage"
-    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
-    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
-    tags:
-      - cluster
-    prerequisites:
-      - command: "kubectl version --client && kube-lineage --version"
-    tools:
-      - name: "kubectl_lineage_children"
-        description: "Get all children/dependents of a Kubernetes resource, recursively, including their status"
-        command: "kube-lineage {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %}"
-      - name: "kubectl_lineage_parents"
-        description: "Get all parents/dependencies of a Kubernetes resource, recursively, including their status"
-        command: "kube-lineage {{ kind }} {{ name }}{% if namespace %} -n {{ namespace }}{% endif %} -D"
