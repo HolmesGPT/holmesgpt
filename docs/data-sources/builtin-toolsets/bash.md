@@ -17,8 +17,6 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
         enabled: true
         config:
           builtin_allowlist: "core"  # "none", "core", or "extended"
-          # Extra prefixes, merged with the builtins. Examples - a prefix is
-          # not an egress control, see "Prefix Matching" below:
           # allow:
           #   - "helm list"
           #   - "kubectl rollout history"
@@ -46,8 +44,6 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
           enabled: true
           config:
             builtin_allowlist: "extended"
-            # Extra prefixes, merged with the builtins. Examples - a prefix
-            # is not an egress control, see "Prefix Matching" below:
             # allow:
             #   - "helm list"
             #   - "kubectl rollout history"
