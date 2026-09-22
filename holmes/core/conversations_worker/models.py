@@ -72,11 +72,8 @@ class ConversationTask(BaseModel):
     executor: str = DEFAULT_EXECUTOR
     metadata: Dict[str, Any] = Field(default_factory=dict)
     title: Optional[str] = None
-    # The Conversations row's user_id column (the human who started the
-    # chat). Used as a fallback for HolmesUsageEvents.user_id when the FE
-    # didn't include user_id in the user_message event's data — common
-    # because the runner-side Conversations row already has the value, so
-    # the FE has no reason to duplicate it into every per-turn event.
+    # Conversations.user_id (RLS-bound owner). The only identity source for
+    # the turn: OAuth tokens, personal skills, relay RBAC, usage attribution.
     user_id: Optional[str] = None
 
     @property
