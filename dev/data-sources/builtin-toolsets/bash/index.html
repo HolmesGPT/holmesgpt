@@ -5815,11 +5815,13 @@
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">      </span><span class="nt">builtin_allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;core&quot;</span><span class="w">  </span><span class="c1"># &quot;none&quot;, &quot;core&quot;, or &quot;extended&quot;</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w">                     </span><span class="c1"># additional prefixes (merged with builtins)</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;my-custom-tool&quot;</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">      </span><span class="nt">deny</span><span class="p">:</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;kubectl</span><span class="nv"> </span><span class="s">get</span><span class="nv"> </span><span class="s">secret&quot;</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;kubectl</span><span class="nv"> </span><span class="s">describe</span><span class="nv"> </span><span class="s">secret&quot;</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="c1"># allow:</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">      </span><span class="c1">#   - &quot;helm list&quot;</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">      </span><span class="c1">#   - &quot;kubectl rollout history&quot;</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">      </span><span class="c1">#   - &quot;curl https://prometheus.monitoring.svc:9090/api/v1&quot;</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="nt">deny</span><span class="p">:</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;kubectl</span><span class="nv"> </span><span class="s">get</span><span class="nv"> </span><span class="s">secret&quot;</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;kubectl</span><span class="nv"> </span><span class="s">describe</span><span class="nv"> </span><span class="s">secret&quot;</span>
 </span></code></pre></div>
 <p>Approved commands are saved to <code>~/.holmes/bash_approved_prefixes.yaml</code> and persist across sessions.</p>
 <p><strong>CLI Flags:</strong></p>
@@ -5849,10 +5851,12 @@
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">        </span><span class="nt">builtin_allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;extended&quot;</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">        </span><span class="nt">allow</span><span class="p">:</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;my-custom-command&quot;</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">        </span><span class="nt">deny</span><span class="p">:</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;kubectl</span><span class="nv"> </span><span class="s">get</span><span class="nv"> </span><span class="s">secret&quot;</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">        </span><span class="c1"># allow:</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">        </span><span class="c1">#   - &quot;helm list&quot;</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">        </span><span class="c1">#   - &quot;kubectl rollout history&quot;</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">        </span><span class="c1">#   - &quot;curl https://prometheus.monitoring.svc:9090/api/v1&quot;</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">        </span><span class="nt">deny</span><span class="p">:</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;kubectl</span><span class="nv"> </span><span class="s">get</span><span class="nv"> </span><span class="s">secret&quot;</span>
 </span></code></pre></div>
 <p><code>extended</code> is recommended for Helm deployments where Holmes runs in a container with a minimal filesystem.</p>
 </div>
@@ -5965,6 +5969,50 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>error<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-10
 </span></code></pre></div>
 <p>This requires <code>kubectl get</code>, <code>grep</code>, and <code>head</code> to all be allowed.</p>
+<p>A prefix can be as narrow as you like — it is matched against the start of the
+command and must end on a whitespace or <code>/</code> boundary, so it can pin a subcommand
+or the leading part of a URL. It constrains the start of the command and nothing
+else; read the warning under the table before relying on a URL-scoped entry.</p>
+<table>
+<thead>
+<tr>
+<th>Allow entry</th>
+<th>Allows</th>
+<th>Still needs approval</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>helm list</code></td>
+<td><code>helm list -A</code>, <code>helm list -n prod -o json</code></td>
+<td><code>helm upgrade my-release ./chart</code></td>
+</tr>
+<tr>
+<td><code>kubectl rollout history</code></td>
+<td><code>kubectl rollout history deployment/nginx</code></td>
+<td><code>kubectl rollout restart deployment/nginx</code></td>
+</tr>
+<tr>
+<td><code>curl https://prometheus.monitoring.svc:9090/api/v1</code></td>
+<td><code>curl https://prometheus.monitoring.svc:9090/api/v1/targets</code></td>
+<td><code>curl https://example.com</code></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">A prefix does not restrict where a command goes</p>
+<p>It constrains the start of the command and nothing else. With the <code>curl</code>
+entry above, <code>curl https://prometheus.monitoring.svc:9090/api/v1/targets
+https://example.com</code> also matches, and so does the same command with
+<code>--next</code> or <code>-o</code>, because each still <em>starts</em> with the allowed prefix.
+<code>deny</code> entries are matched the same way, so they don't catch it either.
+A URL-scoped prefix cuts approval prompts for the endpoint you use most;
+it is not an egress control. If Holmes must not reach other destinations,
+leave <code>curl</code> out of the allow list and approve each command as it comes up.</p>
+</div>
+<p>Because matching starts at the beginning of the command, put the part you are
+scoping on first and flags last — <code>curl https://host/api/v1/targets -s</code> matches
+the prefix above, <code>curl -s https://host/api/v1/targets</code> does not.</p>
 <h2 id="large-tool-result-storage">Large Tool Result Storage<a class="headerlink" href="#large-tool-result-storage" title="Permanent link">&para;</a></h2>
 <p>When a tool response exceeds the LLM context window limit, Holmes saves the result to disk and gives the LLM a file path. The bash toolset automatically allows read-only commands (<code>cat</code>, <code>head</code>, <code>tail</code>, <code>wc</code>, <code>jq</code>) on the storage directory so the LLM can access saved results without approval prompts.</p>
 <table>
