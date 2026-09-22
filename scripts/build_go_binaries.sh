@@ -7,18 +7,22 @@
 #
 # Two x/* replaces are applied to every binary that pulls them in, because the
 # same advisories hit all of them:
-#   golang.org/x/net    -> v0.57.0  CVE-2026-33814 (fixed 0.53.0) plus
+#   golang.org/x/net    -> v0.59.0  CVE-2026-33814 (fixed 0.53.0) plus
 #                                   CVE-2026-25681/27136/39821 (High) and
 #                                   CVE-2026-25680/42502/42506 (Medium, >60d),
 #                                   all fixed in 0.55.0; 0.56.0 adds the
-#                                   CVE-2026-46600 fix.
-#   golang.org/x/crypto -> v0.55.0  CVE-2026-39828/39829/39830/39831/39832/39835/
+#                                   CVE-2026-46600 fix. 0.59.0 is not
+#                                   CVE-driven: grpc v1.83.2 requires x/net
+#                                   >= 0.58.0, so the pin must stay at or
+#                                   above that.
+#   golang.org/x/crypto -> v0.56.0  CVE-2026-39828/39829/39830/39831/39832/39835/
 #                                   42508/46595/46597 (High) and CVE-2026-39827/
 #                                   39833/39834/46598 (Medium, >60d), all fixed
 #                                   in 0.52.0; 0.55.0 adds the CVE-2026-56854
-#                                   fix and stays >= what x/net v0.57.0 requires.
-# Bumping x/net to 0.57.0 also drags x/sys to 0.47.0 and x/text to 0.40.0 through
-# MVS, which clears CVE-2026-39824 (x/sys) and CVE-2026-56852 (x/text).
+#                                   fix; 0.56.0 adds the SSH mux deadlock fixes
+#                                   CVE-2026-56855/78662 (GO-2026-6355/6354, High).
+# Bumping x/net to >= 0.57.0 also drags x/sys to 0.47.0 and x/text to 0.40.0
+# through MVS, which clears CVE-2026-39824 (x/sys) and CVE-2026-56852 (x/text).
 #
 # ArgoCD: rebuilt from v3.3.11 source with go-git replaced to v5.19.2 and
 #   go-billy replaced to v5.9.0. ArgoCD pins go-git v5.14.0 upstream
@@ -29,17 +33,25 @@
 #   CVE-2026-71556 (High) / CVE-2026-71557 (Medium) (both fixed 5.19.2);
 #   go-billy v5.6.2 is vulnerable to CVE-2026-44973 (fixed 5.9.0).
 #   v3.3.11 already ships otel/sdk 1.43.0 so the old otel replace was dropped.
-#   Also replaced: grpc -> v1.82.1 (GHSA-hrxh-6v49-42gf), oras-go -> v2.6.2
-#   (CVE-2026-50151/50163), mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d).
+#   Also replaced: grpc -> v1.83.2 (GHSA-hrxh-6v49-42gf, plus CVE-2026-84304
+#   HTTP/2 DATA-frame heap exhaustion fixed 1.83.1 and CVE-2026-84445 xDS
+#   server panic fixed 1.83.2), oras-go -> v2.6.2 (CVE-2026-50151/50163),
+#   mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d).
 #   Revert to plain upstream binary when ArgoCD ships go-git >= 5.19.2 and
 #   go-billy >= 5.9.0 (blocked on go-git/go-git#1551 upstream).
 #
-# Helm: built from v3.21.0 with containerd replaced to v1.7.33 (CVE-2026-53488
-#   High + CVE-2026-47262; v3.21.0 ships v1.7.30), grpc replaced to v1.82.1
-#   (GHSA-hrxh-6v49-42gf; v3.21.0 ships v1.80.0) and oras-go replaced to v2.6.2
-#   (CVE-2026-50151/50163).
+# Helm: built from v3.22.0 with grpc replaced to v1.83.2 (GHSA-hrxh-6v49-42gf,
+#   CVE-2026-84304/84445; v3.22.0 lists v1.82.1 as an indirect dep, but grpc is
+#   no longer compiled into the helm binary at all since containerd went away,
+#   so this replace is only a floor) and oras-go replaced to v2.6.2
+#   (CVE-2026-50151/50163; v3.22.0 already ships v2.6.2, the replace is kept as
+#   a floor). v3.22.0 dropped the github.com/containerd/containerd dependency
+#   entirely, so the old containerd -> v1.7.33 replace (CVE-2026-53488/47262)
+#   is gone; that also removes the containerd v1 false positives
+#   GO-2026-5064/5338 (CVE-2026-53492/50195, CRI checkpoint code Helm never
+#   linked) that scanners flagged as Critical.
 #   Revert to upstream binary when Helm releases a version built with
-#   Go >= 1.26.6, containerd >= 1.7.33, grpc >= 1.82.1 and oras-go >= 2.6.2.
+#   Go >= 1.26.6, grpc >= 1.83.2, x/crypto >= 0.56.0 and oras-go >= 2.6.2.
 #
 # kubectl is NOT built here — the official dl.k8s.io binary (pinned via
 #   KUBECTL_VERSION in the Dockerfile) is used instead. v1.37.0 is built with
@@ -107,7 +119,7 @@ assert_module_version() {
 # binary we ship, so every tool gets the same two replaces. Run from the module
 # root of the tool being built.
 apply_x_replaces() {
-  echo "==> Pinning x/net to $X_NET_PATCHED_VERSION (CVE-2026-33814/25681/27136/39821) and x/crypto to $X_CRYPTO_PATCHED_VERSION (CVE-2026-39828/39829/39830/39831/39832/39835/42508/46595/46597)..."
+  echo "==> Pinning x/net to $X_NET_PATCHED_VERSION (CVE-2026-33814/25681/27136/39821; >= 0.58.0 required by grpc $GRPC_PATCHED_VERSION) and x/crypto to $X_CRYPTO_PATCHED_VERSION (CVE-2026-39828/39829/39830/39831/39832/39835/42508/46595/46597/56855/78662)..."
   go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
   go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
 }
@@ -121,12 +133,11 @@ ARGOCD_VERSION=v3.3.11
 ARGOCD_VERSION_NO_V="${ARGOCD_VERSION#v}"
 GO_GIT_PATCHED_VERSION=v5.19.2
 GO_BILLY_PATCHED_VERSION=v5.9.0
-HELM_VERSION=v3.21.0
-GRPC_PATCHED_VERSION=v1.82.1
-CONTAINERD_PATCHED_VERSION=v1.7.33
+HELM_VERSION=v3.22.0
+GRPC_PATCHED_VERSION=v1.83.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
-X_NET_PATCHED_VERSION=v0.57.0
-X_CRYPTO_PATCHED_VERSION=v0.55.0
+X_NET_PATCHED_VERSION=v0.59.0
+X_CRYPTO_PATCHED_VERSION=v0.56.0
 ORAS_GO_PATCHED_VERSION=v2.6.2
 MONGO_DRIVER_PATCHED_VERSION=v1.17.7
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -177,12 +188,10 @@ echo "==> Cloning Helm $HELM_VERSION..."
 git clone --depth 1 --branch "$HELM_VERSION" https://github.com/helm/helm.git "$TMPDIR/helm"
 
 cd "$TMPDIR/helm"
-echo "==> Pinning containerd to $CONTAINERD_PATCHED_VERSION (CVE-2026-53488/47262), grpc to $GRPC_PATCHED_VERSION (GHSA-hrxh-6v49-42gf), and oras-go to $ORAS_GO_PATCHED_VERSION (CVE-2026-50151/50163)..."
-go mod edit -replace="github.com/containerd/containerd=github.com/containerd/containerd@$CONTAINERD_PATCHED_VERSION"
+echo "==> Pinning grpc to $GRPC_PATCHED_VERSION (GHSA-hrxh-6v49-42gf, CVE-2026-84304/84445) and oras-go to $ORAS_GO_PATCHED_VERSION (CVE-2026-50151/50163)..."
 go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHED_VERSION"
 go mod edit -replace="oras.land/oras-go/v2=oras.land/oras-go/v2@$ORAS_GO_PATCHED_VERSION"
 apply_x_replaces
-GOFLAGS=-mod=mod assert_module_version "github.com/containerd/containerd" "$CONTAINERD_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "oras.land/oras-go/v2" "$ORAS_GO_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_x_replaces
