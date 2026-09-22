@@ -150,13 +150,6 @@ toolsets:
     enabled: true
     config:
       builtin_allowlist: "extended"
-      # Extra command prefixes to pre-approve, on top of the builtin list. A
-      # prefix matches the start of the command, so it can pin a subcommand or a
-      # single endpoint:
-      # allow:
-      #   - "helm list"
-      #   - "kubectl rollout history"
-      #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
 mcp_servers: {}
 
 # Paths inside the Holmes container to scan for custom skills (SKILL.md files).
