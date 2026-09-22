@@ -3,6 +3,7 @@
 Verifies the RPC contract: parameter names, default values, and that the DAL
 just forwards the response from the RPC.
 """
+
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
@@ -495,11 +496,16 @@ def test_claim_without_executor_treats_missing_rpc_as_transient():
 def test_claim_with_executor_still_retries_other_errors():
     dal = _build_dal()
     dal.client.rpc.return_value = MagicMock(
-        execute=MagicMock(side_effect=[Exception("502 Bad Gateway"), MagicMock(data=[{"conversation_id": "c1"}])])
+        execute=MagicMock(
+            side_effect=[
+                Exception("502 Bad Gateway"),
+                MagicMock(data=[{"conversation_id": "c1"}]),
+            ]
+        )
     )
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="auto") == [
-        {"conversation_id": "c1"}
-    ]
+    assert dal.claim_n_pending_conversations(
+        holmes_id="h", limit=3, executor="auto"
+    ) == [{"conversation_id": "c1"}]
     assert dal.client.rpc.return_value.execute.call_count == 2
 
 
@@ -512,7 +518,9 @@ def test_list_pending_conversation_executors_contract():
 
 
 def test_list_pending_conversation_executors_accepts_row_dicts_and_drops_junk():
-    dal = _build_dal(rpc_data=[{"executor": "auto"}, {"executor": ""}, 5, None, "manual"])
+    dal = _build_dal(
+        rpc_data=[{"executor": "auto"}, {"executor": ""}, 5, None, "manual"]
+    )
     assert dal.list_pending_conversation_executors() == ["auto", "manual"]
 
 
@@ -533,6 +541,80 @@ def test_list_pending_conversation_executors_raises_unsupported_on_missing_rpc()
 
 def test_list_pending_conversation_executors_swallows_transient_errors():
     dal = _build_dal()
-    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=Exception("502")))
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(side_effect=Exception("502"))
+    )
     assert dal.list_pending_conversation_executors() == []
     assert dal.client.rpc.return_value.execute.call_count == 3
+
+
+# ---- get_conversation_executor_sizes (AccountSettings.settings.conversation_executors) ----
+
+from cachetools import TTLCache  # noqa: E402
+
+
+def _settings_dal(settings_rows):
+    dal = SupabaseDal.__new__(SupabaseDal)
+    dal.enabled = True
+    dal.account_id = "acc-1"
+    dal.cluster = "cluster-1"
+    dal.executor_sizes_cache = TTLCache(maxsize=1, ttl=60)
+    dal.client = MagicMock()
+    execute = dal.client.table.return_value.select.return_value.eq.return_value.execute
+    execute.return_value = MagicMock(data=settings_rows)
+    return dal, execute
+
+
+def test_executor_sizes_parses_valid_entries_and_drops_junk():
+    dal, _ = _settings_dal(
+        [
+            {
+                "settings": {
+                    "conversation_executors": {
+                        "manual": 12,
+                        "auto": "3",
+                        "bad": 0,
+                        "x": "y",
+                        "b": True,
+                    }
+                }
+            }
+        ]
+    )
+    assert dal.get_conversation_executor_sizes() == {"manual": 12, "auto": 3}
+
+
+def test_executor_sizes_empty_when_missing_or_malformed():
+    dal, _ = _settings_dal([])
+    assert dal.get_conversation_executor_sizes() == {}
+    dal, _ = _settings_dal([{"settings": {"conversation_executors": [1, 2]}}])
+    assert dal.get_conversation_executor_sizes() == {}
+    dal, _ = _settings_dal([{"settings": {}}])
+    assert dal.get_conversation_executor_sizes() == {}
+
+
+def test_executor_sizes_are_cached():
+    dal, execute = _settings_dal(
+        [{"settings": {"conversation_executors": {"auto": 4}}}]
+    )
+    assert dal.get_conversation_executor_sizes() == {"auto": 4}
+    assert dal.get_conversation_executor_sizes() == {"auto": 4}
+    assert execute.call_count == 1
+
+
+def test_executor_sizes_read_failure_returns_empty_and_is_not_cached():
+    dal, execute = _settings_dal([])
+    execute.side_effect = Exception("502")
+    assert dal.get_conversation_executor_sizes() == {}
+    execute.side_effect = None
+    execute.return_value = MagicMock(
+        data=[{"settings": {"conversation_executors": {"manual": 2}}}]
+    )
+    assert dal.get_conversation_executor_sizes() == {"manual": 2}
+
+
+def test_executor_sizes_disabled_dal():
+    dal, execute = _settings_dal([])
+    dal.enabled = False
+    assert dal.get_conversation_executor_sizes() == {}
+    execute.assert_not_called()

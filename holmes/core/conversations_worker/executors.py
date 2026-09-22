@@ -6,18 +6,17 @@ conversation names it, so live user asks ('manual') and background work
 ('auto': alert triage, triggered workflows) never compete for the same slots.
 """
 
-import json
 import logging
+import os
 import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Mapping, Optional
 
 from holmes.common.env_vars import (
-    CONVERSATION_WORKER_AUTO_MAX_CONCURRENT,
-    CONVERSATION_WORKER_DEFAULT_EXECUTOR_MAX_CONCURRENT,
-    CONVERSATION_WORKER_EXECUTORS,
+    CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX,
+    CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING,
     CONVERSATION_WORKER_MAX_CONCURRENT,
     CONVERSATION_WORKER_MAX_EXECUTORS,
     CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
@@ -44,71 +43,90 @@ def is_valid_executor_name(name: object) -> bool:
     return isinstance(name, str) and bool(_EXECUTOR_NAME_RE.match(name))
 
 
-class ExecutorSettings:
-    """Pool size per executor name, from env.
+# Built-in per-executor defaults, used when neither the account settings nor a
+# per-name env var says otherwise.
+BUILTIN_EXECUTOR_SIZES: Dict[str, int] = {DEFAULT_EXECUTOR: 10, AUTO_EXECUTOR: 2}
 
-    ``CONVERSATION_WORKER_EXECUTORS`` is a JSON object ``{name: size}``. It is
-    overlaid on the built-in defaults ('manual' keeps honoring
-    CONVERSATION_WORKER_MAX_CONCURRENT so existing tuning carries over). Names
-    absent from the map get ``default_size``.
+
+def _positive_int(value: object) -> Optional[int]:
+    """``value`` as a positive int, or None when it is not one (bool excluded:
+    a stray ``true`` must not become 1 thread)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    try:
+        n = int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+class ExecutorSettings:
+    """Pool size per executor name.
+
+    ``size_for(name, account_sizes)`` resolves, in order:
+      1. ``account_sizes[name]`` — AccountSettings.settings.conversation_executors,
+         written from the UI (Settings → LLM Models sets 'manual', Settings →
+         AI Triage sets 'auto');
+      2. env ``CONVERSATION_WORKER_MAX_CONCURRENT_<NAME>`` (upper-cased name);
+      3. the built-in default for the name (manual=10, auto=2);
+      4. env ``CONVERSATION_WORKER_MAX_CONCURRENT`` (5) for any other name.
     """
 
     def __init__(
         self,
-        sizes: Dict[str, int],
-        default_size: int,
-        max_executors: int,
+        base_size: int = CONVERSATION_WORKER_MAX_CONCURRENT,
+        max_executors: int = CONVERSATION_WORKER_MAX_EXECUTORS,
+        thread_ceiling: int = CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING,
+        builtin_sizes: Optional[Mapping[str, int]] = None,
+        env: Optional[Mapping[str, str]] = None,
     ):
-        self.sizes = dict(sizes)
-        self.default_size = max(1, int(default_size))
-        self.max_executors = max(1, int(max_executors))
+        self.base_size = _positive_int(base_size) or 1
+        self.max_executors = _positive_int(max_executors) or 1
+        self.thread_ceiling = _positive_int(thread_ceiling) or 1
+        self.builtin_sizes = dict(
+            BUILTIN_EXECUTOR_SIZES if builtin_sizes is None else builtin_sizes
+        )
+        self._env = env if env is not None else os.environ
 
     @classmethod
     def from_env(cls) -> "ExecutorSettings":
-        sizes: Dict[str, int] = {
-            DEFAULT_EXECUTOR: CONVERSATION_WORKER_MAX_CONCURRENT,
-            AUTO_EXECUTOR: CONVERSATION_WORKER_AUTO_MAX_CONCURRENT,
-        }
-        raw = (CONVERSATION_WORKER_EXECUTORS or "").strip()
-        if raw:
-            try:
-                parsed = json.loads(raw)
-                if not isinstance(parsed, dict):
-                    raise ValueError("expected a JSON object")
-            except ValueError:
-                logging.error(
-                    "CONVERSATION_WORKER_EXECUTORS is not a JSON object of "
-                    "name -> size; ignoring it (%r)",
-                    raw,
-                )
-                parsed = {}
-            for name, size in parsed.items():
-                if not is_valid_executor_name(name):
-                    logging.error(
-                        "CONVERSATION_WORKER_EXECUTORS: invalid executor name %r ignored",
-                        name,
-                    )
-                    continue
-                try:
-                    size_int = int(size)
-                except (TypeError, ValueError):
-                    size_int = 0
-                if size_int <= 0:
-                    logging.error(
-                        "CONVERSATION_WORKER_EXECUTORS: executor %r has invalid size %r; ignored",
-                        name,
-                        size,
-                    )
-                    continue
-                sizes[name] = size_int
-        return cls(
-            sizes=sizes,
-            default_size=CONVERSATION_WORKER_DEFAULT_EXECUTOR_MAX_CONCURRENT,
-            max_executors=CONVERSATION_WORKER_MAX_EXECUTORS,
-        )
+        return cls()
 
-    def size_for(self, name: str) -> int:
-        return self.sizes.get(name, self.default_size)
+    def env_size_for(self, name: str) -> Optional[int]:
+        raw = self._env.get(
+            f"{CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX}{name.upper()}"
+        )
+        if raw is None:
+            return None
+        size = _positive_int(raw)
+        if size is None:
+            logging.error(
+                "Ignoring invalid %s%s=%r (expected a positive integer)",
+                CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX,
+                name.upper(),
+                raw,
+            )
+        return size
+
+    def size_for(
+        self, name: str, account_sizes: Optional[Mapping[str, object]] = None
+    ) -> int:
+        if account_sizes:
+            size = _positive_int(account_sizes.get(name))
+            if size is not None:
+                return size
+            if name in account_sizes:
+                logging.warning(
+                    "Ignoring invalid account setting conversation_executors[%r]=%r",
+                    name,
+                    account_sizes.get(name),
+                )
+        size = self.env_size_for(name)
+        if size is not None:
+            return size
+        return self.builtin_sizes.get(name, self.base_size)
 
 
 class _ActiveTask:
@@ -129,9 +147,19 @@ class ConversationExecutor:
     claim + dispatch so the DB contract stays in the worker.
     """
 
-    def __init__(self, name: str, max_concurrent: int):
+    def __init__(
+        self,
+        name: str,
+        max_concurrent: int,
+        thread_ceiling: int = CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING,
+    ):
         self.name = name
         self.max_concurrent = max(1, int(max_concurrent))
+        # The pool holds up to thread_ceiling threads so set_max_concurrent()
+        # can raise the limit live; only max_concurrent tasks are ever
+        # submitted (claims are bounded by free_slots()), so extra threads
+        # are never spawned.
+        self.thread_ceiling = max(self.max_concurrent, int(thread_ceiling))
         self._pool: Optional[ThreadPoolExecutor] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -155,7 +183,7 @@ class ConversationExecutor:
             return
         self._running = True
         self._pool = ThreadPoolExecutor(
-            max_workers=self.max_concurrent,
+            max_workers=self.thread_ceiling,
             thread_name_prefix=f"conversation-executor-{self.name}",
         )
         self._thread = threading.Thread(
@@ -185,6 +213,23 @@ class ConversationExecutor:
 
     def wake(self) -> None:
         self.notify_event.set()
+
+    def set_max_concurrent(self, value: int) -> bool:
+        """Apply a new size (from account settings) without recreating the
+        pool. Capped at the thread ceiling. Returns True when it changed."""
+        new = max(1, min(int(value), self.thread_ceiling))
+        if new == self.max_concurrent:
+            return False
+        logging.info(
+            "Conversation executor %r max_concurrent %d -> %d",
+            self.name,
+            self.max_concurrent,
+            new,
+        )
+        self.max_concurrent = new
+        # Slots may have opened up.
+        self.notify_event.set()
+        return True
 
     def _loop(self, claim_fn: Callable[["ConversationExecutor"], None]) -> None:
         while self._running:

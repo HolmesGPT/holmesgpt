@@ -36,6 +36,7 @@ from tenacity import (
 
 from holmes.clients.robusta_client import fetch_supabase_api_key
 from holmes.common.env_vars import (
+    CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC,
     ROBUSTA_ACCOUNT_ID,
     ROBUSTA_CONFIG_PATH,
     STORE_API_KEY,
@@ -314,6 +315,9 @@ class SupabaseDal:
             )
             hierarchy_ttl = 60
         self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
+        self.executor_sizes_cache: TTLCache = TTLCache(
+            maxsize=1, ttl=max(1, CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC)
+        )
         self.lock = threading.Lock()
 
     def __connect(self, options: ClientOptions):
@@ -868,6 +872,60 @@ class SupabaseDal:
                 exc_info=True,
             )
             return None
+
+    def get_conversation_executor_sizes(self) -> Dict[str, int]:
+        """Per-account executor pool sizes (ROB-1369):
+        ``AccountSettings.settings.conversation_executors`` — ``{name: size}``
+        written from the UI. Invalid entries are dropped; any read failure
+        returns {} so the worker falls back to env / built-in sizes. Cached.
+        """
+        if not self.enabled:
+            return {}
+        cached = self.executor_sizes_cache.get("sizes")
+        if cached is not None:
+            return cached
+        sizes: Dict[str, int] = {}
+        try:
+            res = (
+                self.client.table(ACCOUNT_SETTINGS_TABLE)
+                .select("settings")
+                .eq("account_id", self.account_id)
+                .execute()
+            )
+            settings = (res.data[0].get("settings") or {}) if res.data else {}
+            raw = settings.get("conversation_executors") or {}
+            if not isinstance(raw, dict):
+                logging.warning(
+                    "Ignoring malformed conversation_executors account setting: %r",
+                    raw,
+                )
+                raw = {}
+            for name, value in raw.items():
+                if isinstance(value, bool) or (
+                    isinstance(value, float) and not value.is_integer()
+                ):
+                    value = None
+                try:
+                    size = int(value)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    size = 0
+                if isinstance(name, str) and size > 0:
+                    sizes[name] = size
+                else:
+                    logging.warning(
+                        "Ignoring invalid conversation_executors entry %r=%r",
+                        name,
+                        value,
+                    )
+        except Exception:
+            logging.warning(
+                "Failed to read conversation_executors from AccountSettings; "
+                "using env/built-in executor sizes",
+                exc_info=True,
+            )
+            return {}
+        self.executor_sizes_cache["sizes"] = sizes
+        return sizes
 
     def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:
         """Read the per-account skill name-collision policy from AccountSettings.

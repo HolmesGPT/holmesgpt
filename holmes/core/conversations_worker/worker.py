@@ -251,13 +251,15 @@ class ConversationWorker:
 
         logging.info(
             "ConversationWorker active (holmes_id=%s, account=%s, cluster=%s, "
-            "realtime=%s, executor_sizes=%s, default_executor_size=%d)",
+            "realtime=%s, builtin_executor_sizes=%s, base_size=%d, "
+            "account_executor_sizes=%s)",
             self.holmes_id,
             self.dal.account_id,
             self.dal.cluster,
             self._realtime_manager is not None,
-            self._executor_settings.sizes,
-            self._executor_settings.default_size,
+            self._executor_settings.builtin_sizes,
+            self._executor_settings.base_size,
+            self._account_executor_sizes(),
         )
 
     def stop(self) -> None:
@@ -462,11 +464,37 @@ class ConversationWorker:
                 )
                 return None
             ex = ConversationExecutor(
-                name=name, max_concurrent=self._executor_settings.size_for(name)
+                name=name,
+                max_concurrent=self._executor_settings.size_for(
+                    name, self._account_executor_sizes()
+                ),
+                thread_ceiling=self._executor_settings.thread_ceiling,
             )
             self._executors[name] = ex
             ex.start(self._try_claim_and_dispatch)
             return ex
+
+    def _account_executor_sizes(self) -> Dict[str, int]:
+        try:
+            return self.dal.get_conversation_executor_sizes() or {}
+        except Exception:
+            logging.warning(
+                "Could not read account executor sizes; using env/built-in",
+                exc_info=True,
+            )
+            return {}
+
+    def _refresh_executor_sizes(self) -> None:
+        """Apply account-setting changes (Settings → LLM Models / AI Triage) to
+        running pools; called on every discovery tick."""
+        executors = list(self._executors.values()) if self._executors else []
+        if not executors:
+            return
+        account_sizes = self._account_executor_sizes()
+        for ex in executors:
+            ex.set_max_concurrent(
+                self._executor_settings.size_for(ex.name, account_sizes)
+            )
 
     def _log_executor_reject(self, msg: str, *args: Any) -> None:
         now = time.monotonic()
@@ -562,6 +590,7 @@ class ConversationWorker:
             except ExecutorRpcUnsupportedError:
                 self._enter_legacy_claim_mode()
                 names = [DEFAULT_EXECUTOR]
+        self._refresh_executor_sizes()
         for name in set(names) | set(self.executor_names()):
             ex = self._get_or_create_executor(name)
             if ex is not None:

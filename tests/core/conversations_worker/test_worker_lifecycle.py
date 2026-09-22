@@ -36,10 +36,14 @@ def _bare_worker(sizes=None, default_size=2, max_executors=16):
     w.holmes_id = "h-test"
     w._running = True
     w._active_started = True
+    w.dal.get_conversation_executor_sizes = MagicMock(return_value={})
+    # `sizes` are the built-in per-name defaults, `default_size` the base size
+    # for any other name; env is empty so tests are hermetic.
     w._executor_settings = ExecutorSettings(
-        sizes if sizes is not None else {"manual": 5, "auto": 3},
-        default_size,
-        max_executors,
+        base_size=default_size,
+        max_executors=max_executors,
+        builtin_sizes=sizes if sizes is not None else {"manual": 5, "auto": 3},
+        env={},
     )
     w._executors = {}
     w._executors_lock = threading.Lock()
@@ -1088,4 +1092,62 @@ def test_timeout_active_conversations_stops_at_the_budget(caplog):
         "budget" in r.getMessage() and "2 conversation(s)" in r.getMessage()
         for r in caplog.records
         if r.levelno == logging.WARNING
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pool sizes from account settings (Settings → LLM Models / AI Triage)
+# ---------------------------------------------------------------------------
+
+
+def test_executor_created_with_account_setting_size():
+    w = _bare_worker(sizes={"manual": 10, "auto": 2})
+    w.dal.get_conversation_executor_sizes.return_value = {"manual": 4}
+    try:
+        w.claim_pending_conversations("manual")
+        w.claim_pending_conversations("auto")
+        assert w._executors["manual"].max_concurrent == 4  # account setting wins
+        assert w._executors["auto"].max_concurrent == 2  # built-in default
+    finally:
+        w.stop()
+
+
+def test_discovery_applies_changed_account_sizes_live():
+    """Changing the concurrency in the UI must not need a Holmes restart: the
+    next discovery tick resizes running pools."""
+    w = _bare_worker(sizes={"manual": 10, "auto": 2})
+    manual = _fake_executor(w, "manual", max_concurrent=10)
+    auto = _fake_executor(w, "auto", max_concurrent=2)
+    manual.notify_event.clear()
+    w.dal.get_conversation_executor_sizes.return_value = {"manual": 3, "auto": 6}
+    w.dal.list_pending_conversation_executors.return_value = []
+    w._discover_and_wake()
+    assert manual.max_concurrent == 3
+    assert auto.max_concurrent == 6
+    # A resize wakes the pool so newly freed/added slots are claimed.
+    assert manual.notify_event.is_set()
+    # Removing the setting falls back to env/built-in.
+    w.dal.get_conversation_executor_sizes.return_value = {}
+    w._discover_and_wake()
+    assert manual.max_concurrent == 10 and auto.max_concurrent == 2
+
+
+def test_account_sizes_read_failure_falls_back_to_defaults():
+    w = _bare_worker(sizes={"manual": 10})
+    w.dal.get_conversation_executor_sizes.side_effect = RuntimeError("db down")
+    try:
+        w.claim_pending_conversations("manual")
+        assert w._executors["manual"].max_concurrent == 10
+    finally:
+        w.stop()
+
+
+def test_new_size_takes_effect_in_claim_limit():
+    w = _bare_worker(sizes={"manual": 5})
+    ex = _fake_executor(w, "manual", max_concurrent=5)
+    ex.set_max_concurrent(2)
+    _slot(ex, 0.0, "busy")
+    w._try_claim_and_dispatch(ex)
+    w.dal.claim_n_pending_conversations.assert_called_once_with(
+        "h-test", 1, executor="manual"
     )
