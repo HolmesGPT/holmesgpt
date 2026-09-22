@@ -120,7 +120,7 @@ This requires `kubectl get`, `grep`, and `head` to all be allowed.
 
 A prefix can be as narrow as you like — it is matched against the start of the
 command and must end on a whitespace or `/` boundary, so it can pin a subcommand
-or even a single URL path:
+or a URL path:
 
 | Allow entry | Allows | Still needs approval |
 |-------------|--------|----------------------|
@@ -131,6 +131,15 @@ or even a single URL path:
 Because matching starts at the beginning of the command, put the part you are
 scoping on first and flags last — `curl https://host/api/v1/targets -s` matches
 the prefix above, `curl -s https://host/api/v1/targets` does not.
+
+!!! warning "A prefix constrains only the start of a command"
+    Everything after it is unconstrained. With the `curl` entry above,
+    `curl https://prometheus.monitoring.svc:9090/api/v1/targets https://example.com`
+    also matches, because it still *starts* with the allowed prefix — and `deny`
+    entries are matched the same way, so they don't catch it either. A URL-scoped
+    prefix reduces approval prompts for the endpoint you care about; it is not an
+    egress control. If Holmes must not reach other destinations, leave `curl` out
+    of the allow list and approve each command as it comes up.
 
 ## Large Tool Result Storage
 
