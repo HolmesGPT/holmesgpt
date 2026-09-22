@@ -11,7 +11,6 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import sys
 from holmes.utils.colors import USER_COLOR
-import json
 import logging
 import socket
 import uuid
@@ -34,7 +33,6 @@ from holmes.core.prompt import (
     build_system_prompt,
     generate_user_prompt,
 )
-from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag, pretty_print_toolset_status
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
@@ -140,24 +138,6 @@ opt_json_output_file: Optional[str] = typer.Option(
     help="Save the complete output in json format in to a file",
     envvar="HOLMES_JSON_OUTPUT_FILE",
 )
-
-opt_documents: Optional[str] = typer.Option(
-    None,
-    "--documents",
-    help="Additional documents to provide the LLM (typically URLs to runbooks)",
-)
-
-
-def parse_documents(documents: Optional[str]) -> List[ResourceInstructionDocument]:
-    resource_documents = []
-
-    if documents is not None:
-        data = json.loads(documents)
-        for item in data:
-            resource_document = ResourceInstructionDocument(**item)
-            resource_documents.append(resource_document)
-
-    return resource_documents
 
 
 def _investigate_issue(
@@ -981,7 +961,6 @@ def opsgenie(
 
     max_steps: Optional[int] = opt_max_steps,
     verbose: Optional[List[bool]] = opt_verbose,
-    documents: Optional[str] = opt_documents,
 ):
     """
     Investigate an OpsGenie alert

@@ -43,11 +43,11 @@ def mock_k8s_api():
 def setup_context(mock_config, mock_k8s_api):
     context.config = mock_config
     context.k8s_api = mock_k8s_api
-    trigger_executor.clear_rollout_cache()
+    trigger_executor._last_template.clear()
     yield
     context.config = None
     context.k8s_api = None
-    trigger_executor.clear_rollout_cache()
+    trigger_executor._last_template.clear()
 
 
 def _deployment(images, labels=None):

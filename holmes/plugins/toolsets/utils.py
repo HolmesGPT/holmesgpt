@@ -20,15 +20,6 @@ def is_int(val):
         return True
 
 
-def is_rfc3339(timestamp_str: str) -> bool:
-    """Check if a string is in RFC3339 format."""
-    try:
-        parser.parse(timestamp_str)
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
 def to_unix(timestamp_str: str) -> int:
     dt = parser.parse(timestamp_str)
     if dt.tzinfo is None:
@@ -41,16 +32,6 @@ def to_unix_ms(timestamp_str: str) -> int:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=datetime.timezone.utc)
     return int(dt.timestamp() * 1000)
-
-
-def unix_nano_to_rfc3339(unix_nano: int | float) -> str:
-    unix_seconds = int(unix_nano) / 1_000_000_000
-
-    seconds_part = int(unix_seconds)
-    milliseconds_part = int((unix_seconds - seconds_part) * 1000)
-
-    dt = datetime.datetime.fromtimestamp(seconds_part, datetime.timezone.utc)
-    return f"{dt.strftime('%Y-%m-%dT%H:%M:%S')}.{milliseconds_part:03d}Z"
 
 
 def datetime_to_unix(timestamp_or_datetime_str):

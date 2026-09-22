@@ -206,7 +206,3 @@ class KubectlRunToolset(Toolset):
     def prerequisites_callable(self, config: dict[str, Any]) -> tuple[bool, str]:
         self.config = KubectlRunConfig(**config) if config else KubectlRunConfig()
         return True, ""
-
-    def get_example_config(self):
-        example_config = KubectlRunConfig()
-        return example_config.model_dump()

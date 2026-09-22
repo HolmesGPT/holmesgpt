@@ -13,7 +13,6 @@ from holmes.config import Config
 from holmes.core.llm import DefaultLLM
 from holmes.core.models import FrontendToolDefinition, FrontendToolMode
 from holmes.core.prompt import append_file_to_user_prompt
-from holmes.core.resource_instruction import ResourceInstructions
 from tests.llm.utils.constants import ALLOWED_EVAL_TAGS, get_allowed_tags_list
 from tests.llm.utils.test_env_vars import (
     CLASSIFIER_MODEL,
@@ -592,19 +591,6 @@ def load_issue_data(test_case_folder: Path) -> Optional[Dict]:
     issue_data_mock_path = test_case_folder.joinpath(Path("issue_data.json"))
     if issue_data_mock_path.exists():
         return json.loads(read_file(issue_data_mock_path))
-    return None
-
-
-def load_resource_instructions(
-    test_case_folder: Path,
-) -> Optional[ResourceInstructions]:
-    resource_instructions_mock_path = test_case_folder.joinpath(
-        Path("resource_instructions.json")
-    )
-    if resource_instructions_mock_path.exists():
-        return TypeAdapter(ResourceInstructions).validate_json(
-            read_file(Path(resource_instructions_mock_path))
-        )
     return None
 
 

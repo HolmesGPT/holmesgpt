@@ -8,7 +8,6 @@ import hashlib
 import logging
 import os
 import threading
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
@@ -213,25 +212,11 @@ class OAuthTokenManager:
             return True
         return token_resource == requested_resource
 
-    def has_token(
-        self,
-        oauth_config: Any,
-        request_context: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """Check if any token (access or refreshable) is available in cache."""
-        user_id = _get_user_id(request_context)
-        if not user_id:
-            return False
-        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
-        return self._cache.has_token_or_refresh(cache_key)
-
     def store_token(
         self,
         oauth_config: Any,
         token_data: Dict[str, Any],
         request_context: Optional[Dict[str, Any]] = None,
-        disk_key: Optional[str] = None,
-        store_to_disk: bool = False,
     ) -> None:
         """Store a token to cache and persistent store."""
         user_id = _get_user_id(request_context)
@@ -495,11 +480,6 @@ class OAuthTokenManager:
         """Build a cache key from user_id and authorization_url."""
         idp_key = hashlib.sha256((authorization_url or "").encode()).hexdigest()[:12]
         return f"{user_id}:{idp_key}"
-
-    @staticmethod
-    def _default_disk_key(oauth_config: Any) -> str:
-        """Derive a disk store key from the oauth config."""
-        return oauth_config.authorization_url or "unknown"
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────

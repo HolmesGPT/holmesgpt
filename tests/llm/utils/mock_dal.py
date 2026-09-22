@@ -6,7 +6,6 @@ from typing import Dict, List, Optional
 
 from pydantic import TypeAdapter
 
-from holmes.core.resource_instruction import ResourceInstructions
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.global_instructions import Instructions
@@ -20,7 +19,6 @@ class TestSupabaseDal(SupabaseDal):
         self,
         test_case_folder: Path,
         issue_data: Optional[Dict] = None,
-        resource_instructions: Optional[ResourceInstructions] = None,
         initialize_base: bool = True,
     ):
         if initialize_base:
@@ -37,20 +35,12 @@ class TestSupabaseDal(SupabaseDal):
             self.cluster = "test"
 
         self._issue_data = issue_data
-        self._resource_instructions = resource_instructions
         self._test_case_folder = test_case_folder
 
     def get_issue_data(self, issue_id: Optional[str]) -> Optional[Dict]:
         if self._issue_data is not None:
             return self._issue_data
         return super().get_issue_data(issue_id)
-
-    def get_resource_instructions(
-        self, type: str, name: Optional[str]
-    ) -> Optional[ResourceInstructions]:
-        if self._resource_instructions is not None:
-            return self._resource_instructions
-        return None
 
     def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
         # Fixture files keep the "runbook_" prefix to match existing test data
@@ -99,7 +89,6 @@ class TestSupabaseDal(SupabaseDal):
 # Backwards-compatible aliases
 MockSupabaseDal = TestSupabaseDal
 
-pydantic_resource_instructions = TypeAdapter(ResourceInstructions)
 pydantic_instructions = TypeAdapter(Instructions)
 
 
@@ -112,19 +101,9 @@ def load_test_dal(
     if issue_data_path.exists():
         issue_data = json.loads(read_file(issue_data_path))
 
-    resource_instructions_path = test_case_folder.joinpath(
-        Path("resource_instructions.json")
-    )
-    resource_instructions = None
-    if resource_instructions_path.exists():
-        resource_instructions = pydantic_resource_instructions.validate_json(
-            read_file(Path(resource_instructions_path))
-        )
-
     return TestSupabaseDal(
         test_case_folder=test_case_folder,
         issue_data=issue_data,
-        resource_instructions=resource_instructions,
         initialize_base=initialize_base,
     )
 

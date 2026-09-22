@@ -7,16 +7,10 @@ _connect placeholders.
 
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from holmes.core.oauth_config import (
-    OAuthDecisionCode,
-    OAuthTokenExchangeError,
-    _get_exchange_manager,
-    parse_oauth_decision,
-)
 from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.tools import Tool
 
@@ -37,60 +31,6 @@ class OAuthToolConnector:
         self._user_tool_to_toolset: Dict[str, Dict[str, Any]] = {}
 
     # ── Decision processing ────────────────────────────────────────────
-
-    def process_oauth_decision(
-        self,
-        tool_call_id: str,
-        decision: Optional[Dict[str, Any]],
-        request_context: Optional[Dict[str, Any]],
-        toolset: Any = None,
-    ) -> Optional[Tuple[str, List[Tool]]]:
-        """Try to process a tool approval decision as an OAuth code exchange.
-
-        If the decision contains an OAuth authorization code, exchanges it for
-        a token and loads real tools from the MCP server.
-
-        Args:
-            tool_call_id: The tool call being approved.
-            decision: The structured decision data from the frontend.
-            request_context: Request context with user_id.
-            toolset: The RemoteMCPToolset to load tools from.
-
-        Returns:
-            (toolset_name, tools) on success, None if not an OAuth decision.
-        Raises:
-            OAuthTokenExchangeError if the code exchange fails.
-        """
-        oauth_code = parse_oauth_decision(decision)
-        if not oauth_code:
-            return None
-
-        # Exchange auth code for token
-        success = self._try_exchange(tool_call_id, oauth_code, request_context)
-        if not success:
-            raise OAuthTokenExchangeError(0, "OAuth code exchange failed")
-
-        # Load real tools now that we have a token
-        user_id = _get_token_manager().require_user_id(request_context)
-        if toolset:
-            tools = self.load_tools_for_user(user_id, toolset, request_context)
-            return (toolset.name, tools)
-
-        return None
-
-    @staticmethod
-    def _try_exchange(
-        tool_call_id: str,
-        oauth_code: OAuthDecisionCode,
-        request_context: Optional[Dict[str, Any]],
-    ) -> bool:
-        """Exchange an OAuth authorization code for tokens. Returns True on success."""
-        try:
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
-            return True
-        except Exception as e:
-            logger.error("Failed to process OAuth decision: %s", e, exc_info=True)
-            return False
 
     # ── Tool loading and storage ───────────────────────────────────────
 

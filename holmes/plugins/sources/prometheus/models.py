@@ -58,19 +58,6 @@ class PrometheusAlert(BaseModel):
         return unquote(q_expr[0])
 
 
-class PrometheusAlertGroup(BaseModel):
-    receiver: str
-    status: str
-    alerts: List[PrometheusAlert]
-    groupLabels: Dict[str, str]
-    commonLabels: Dict[str, str]
-    commonAnnotations: Dict[str, str]
-    externalURL: str
-    version: str
-    groupKey: str
-    truncatedAlerts: int
-
-
 # these models are used by AlertManager's pull API (when pulling alerts from alertmanager via API)
 class PrometheusReceiver(BaseModel):
     name: str
