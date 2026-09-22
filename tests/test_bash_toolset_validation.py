@@ -30,6 +30,7 @@ from holmes.plugins.toolsets.bash.validation import (
     validate_command,
     validate_segment,
 )
+from holmes.plugins.toolsets.bash.shell_parser import ShellParseError
 
 
 class TestMatchPrefix:
@@ -174,9 +175,7 @@ class TestParseCommandSegments:
 
     def test_invalid_pipe_syntax_raises(self):
         """Test that invalid pipe syntax raises a parsing error."""
-        import bashlex
-
-        with pytest.raises(bashlex.errors.ParsingError):
+        with pytest.raises(ShellParseError):
             parse_command_segments("  |  kubectl get pods  |  ")
 
     def test_for_loop_extracts_inner_segments(self):
@@ -193,8 +192,8 @@ class TestParseCommandSegments:
         assert len(segments) > 0
 
     def test_case_statement_raises(self):
-        """Case statement (unsupported by bashlex) raises NotImplementedError."""
-        with pytest.raises(NotImplementedError):
+        """Case statement (unsupported syntax) raises ShellParseError."""
+        with pytest.raises(ShellParseError):
             parse_command_segments("case $x in 1) echo one;; 2) echo two;; esac")
 
 
