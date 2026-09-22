@@ -17,12 +17,12 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
         enabled: true
         config:
           builtin_allowlist: "core"  # "none", "core", or "extended"
-          # Examples only - replace with the commands your team needs.
-          # A prefix is not an egress control; see "Prefix Matching" below.
-          allow:                     # additional prefixes (merged with builtins)
-            - "helm list"
-            - "kubectl rollout history"
-            - "curl https://prometheus.monitoring.svc:9090/api/v1"
+          # Extra prefixes, merged with the builtins. Examples - a prefix is
+          # not an egress control, see "Prefix Matching" below:
+          # allow:
+          #   - "helm list"
+          #   - "kubectl rollout history"
+          #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
           deny:
             - "kubectl get secret"
             - "kubectl describe secret"
@@ -46,12 +46,12 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
           enabled: true
           config:
             builtin_allowlist: "extended"
-            # Examples only - replace with the commands your team needs.
-            # A prefix is not an egress control; see "Prefix Matching" below.
-            allow:
-              - "helm list"
-              - "kubectl rollout history"
-              - "curl https://prometheus.monitoring.svc:9090/api/v1"
+            # Extra prefixes, merged with the builtins. Examples - a prefix
+            # is not an egress control, see "Prefix Matching" below:
+            # allow:
+            #   - "helm list"
+            #   - "kubectl rollout history"
+            #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
             deny:
               - "kubectl get secret"
     ```
@@ -124,7 +124,8 @@ This requires `kubectl get`, `grep`, and `head` to all be allowed.
 
 A prefix can be as narrow as you like — it is matched against the start of the
 command and must end on a whitespace or `/` boundary, so it can pin a subcommand
-or a URL path:
+or the leading part of a URL. It constrains the start of the command and nothing
+else; read the warning under the table before relying on a URL-scoped entry.
 
 | Allow entry | Allows | Still needs approval |
 |-------------|--------|----------------------|
@@ -132,18 +133,19 @@ or a URL path:
 | `kubectl rollout history` | `kubectl rollout history deployment/nginx` | `kubectl rollout restart deployment/nginx` |
 | `curl https://prometheus.monitoring.svc:9090/api/v1` | `curl https://prometheus.monitoring.svc:9090/api/v1/targets` | `curl https://example.com` |
 
+!!! warning "A prefix does not restrict where a command goes"
+    It constrains the start of the command and nothing else. With the `curl`
+    entry above, `curl https://prometheus.monitoring.svc:9090/api/v1/targets
+    https://example.com` also matches, and so does the same command with
+    `--next` or `-o`, because each still *starts* with the allowed prefix.
+    `deny` entries are matched the same way, so they don't catch it either.
+    A URL-scoped prefix cuts approval prompts for the endpoint you use most;
+    it is not an egress control. If Holmes must not reach other destinations,
+    leave `curl` out of the allow list and approve each command as it comes up.
+
 Because matching starts at the beginning of the command, put the part you are
 scoping on first and flags last — `curl https://host/api/v1/targets -s` matches
 the prefix above, `curl -s https://host/api/v1/targets` does not.
-
-!!! warning "A prefix constrains only the start of a command"
-    Everything after it is unconstrained. With the `curl` entry above,
-    `curl https://prometheus.monitoring.svc:9090/api/v1/targets https://example.com`
-    also matches, because it still *starts* with the allowed prefix — and `deny`
-    entries are matched the same way, so they don't catch it either. A URL-scoped
-    prefix reduces approval prompts for the endpoint you care about; it is not an
-    egress control. If Holmes must not reach other destinations, leave `curl` out
-    of the allow list and approve each command as it comes up.
 
 ## Large Tool Result Storage
 
