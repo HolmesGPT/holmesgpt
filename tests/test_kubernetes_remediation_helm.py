@@ -27,11 +27,15 @@ def test_values_drop_restricted_tools_and_map_approval():
 
 
 def test_values_defaults_are_plug_and_play():
+    """A fresh install with only `enabled: true` gets the scoped role, the
+    NetworkPolicy, and every config key the pinned server version reads."""
     v = _values()
     assert v["enabled"] is False  # opt-in
-    # 1.3.0 carries the GPU node diagnostics tool; the dcgmEnabled key asserted
-    # below only takes effect on that version or newer.
-    assert v["image"] == "kubernetes-remediation-mcp:1.3.0"
+    # 1.2.0 carries the diagnostic-pod target policy (ROB-910), 1.3.0 the GPU
+    # node diagnostics tool (dcgmEnabled), 1.4.0 the `ps` argument policy
+    # (ROB-974) and the fail-closed file-read policy (ROB-973); the config keys
+    # asserted below only take effect on the version that introduced them.
+    assert v["image"] == "kubernetes-remediation-mcp:1.4.0"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
@@ -41,10 +45,27 @@ def test_values_defaults_are_plug_and_play():
         "diagnosticImages",
         "fileReadAllowedPaths",
         "fileReadDeniedPaths",
+        "fileReadRequireCanonicalization",
     ):
         assert key in v["config"], key
     # Old run_image image allowlist is gone
     assert "allowedImages" not in v["config"]
+
+
+def test_values_file_read_policy_is_not_rooted_at_slash():
+    """ROB-973: with "/" as the allow root the policy degrades to a denylist, and
+    the auto-approved read_file_from_container tool can return any credential
+    file the denylist did not anticipate. The default must be explicit roots,
+    never "/", and canonicalization must fail closed."""
+    cfg = _values()["config"]
+    roots = [r.strip() for r in cfg["fileReadAllowedPaths"].split(",")]
+    assert "/" not in roots
+    assert roots, "allow roots must not be empty"
+    for root in ("/app", "/etc", "/var/log"):
+        assert root in roots, root
+    for root in ("/root", "/var/secrets", "/run", "/mnt"):
+        assert root not in roots, root
+    assert cfg["fileReadRequireCanonicalization"] is True
 
 
 def test_values_default_to_the_restrictive_diagnostic_target_policy():
@@ -70,6 +91,8 @@ def test_rbac_template_is_scoped_not_cluster_admin():
 
 
 def test_deployment_binding_has_no_cluster_admin_default():
+    """The Deployment binds the chart's scoped ClusterRole by default and wires
+    every policy env var the server reads."""
     text = (TEMPLATE_DIR / "deployment.yaml").read_text()
     assert 'default "cluster-admin"' not in text
     assert "k8s-remediation-mcp-role" in text
@@ -79,6 +102,7 @@ def test_deployment_binding_has_no_cluster_admin_default():
         "KUBECTL_DIAGNOSTIC_IMAGES",
         "KUBECTL_FILE_READ_ALLOWED_PATHS",
         "KUBECTL_FILE_READ_DENIED_PATHS",
+        "KUBECTL_FILE_READ_REQUIRE_CANONICALIZATION",
         "KUBECTL_ALLOW_ARBITRARY_COMMANDS",
     ):
         assert key in text, key

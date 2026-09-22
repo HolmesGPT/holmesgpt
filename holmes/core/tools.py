@@ -161,6 +161,35 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
+class ShellInjectionError(ValueError):
+    """Raised when an untrusted value would inject shell syntax into a command."""
+
+
+# Characters that can start a subshell/command substitution, break out of a
+# quote, or trigger word-splitting/globbing once interpolated into a shell
+# command. request_context values are attacker controlled (arbitrary HTTP
+# headers, unauthenticated by default) and reach a /bin/bash sink, so we reject
+# any value containing these. Rejecting (rather than shlex.quote'ing) is what
+# makes the value inert regardless of how the tool template quotes it: the
+# documented `-H "X-Token: {{ ... }}"` pattern nests the value inside double
+# quotes, where `$(...)`/backticks still execute and shlex.quote's single-quote
+# wrapping would only be inserted as literal characters. Legitimate tokens
+# (JWTs, API keys, tenant ids, `Bearer <token>`) contain none of these, so
+# permitted values render exactly as they did before this fix. See ROB-1104.
+_SHELL_METACHARACTERS = frozenset("`$\\\"'();|&<>*?[]{}\n\r")
+
+
+def reject_shell_metacharacters(value: str, source: str) -> str:
+    found = sorted({c for c in value if c in _SHELL_METACHARACTERS})
+    if found:
+        raise ShellInjectionError(
+            f"{source} contains disallowed shell metacharacter(s) "
+            f"{''.join(found)!r}; refusing to run it in a shell command. "
+            f"Disallowed: {''.join(sorted(_SHELL_METACHARACTERS))!r}"
+        )
+    return value
+
+
 class PrerequisiteCacheMode(str, Enum):
     """Controls how prerequisite check results are cached.
 
@@ -573,8 +602,26 @@ class YAMLTool(Tool, BaseModel):
         context: Dict[str, Any] = {**params}
         context["env"] = os.environ
         if request_context:
-            ctx_copy = dict(request_context)
-            ctx_copy["headers"] = CaseInsensitiveDict(ctx_copy.get("headers") or {})
+            # request_context (propagated HTTP headers, user_id, ...) is attacker
+            # controlled and reaches the same /bin/bash sink as tool params, but
+            # unlike params it is never something the tool author designed for.
+            # Reject shell metacharacters outright; permitted values are passed
+            # through unchanged so legitimate tokens render exactly as before
+            # this fix, in whatever quoting the template uses (ROB-1104).
+            def _clean(value: Any, source: str) -> Any:
+                if not isinstance(value, str):
+                    return value
+                return reject_shell_metacharacters(value, source)
+
+            ctx_copy = {
+                k: _clean(v, f"request_context.{k}") for k, v in request_context.items()
+            }
+            ctx_copy["headers"] = CaseInsensitiveDict(
+                {
+                    k: _clean(v, f"request header {k!r}")
+                    for k, v in (request_context.get("headers") or {}).items()
+                }
+            )
             context["request_context"] = ctx_copy
         else:
             context["request_context"] = {"headers": CaseInsensitiveDict()}
@@ -594,13 +641,20 @@ class YAMLTool(Tool, BaseModel):
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        if self.command is not None:
-            raw_output, return_code, invocation = self.__invoke_command(
-                params, context.request_context
-            )
-        else:
-            raw_output, return_code, invocation = self.__invoke_script(
-                params, context.request_context
+        try:
+            if self.command is not None:
+                raw_output, return_code, invocation = self.__invoke_command(
+                    params, context.request_context
+                )
+            else:
+                raw_output, return_code, invocation = self.__invoke_script(
+                    params, context.request_context
+                )
+        except ShellInjectionError as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(e),
+                params=params,
             )
 
         error = (
