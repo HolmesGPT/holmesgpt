@@ -122,13 +122,6 @@ class ToolsetManager:
         """
         return [ToolsetTag.CORE, ToolsetTag.CLI]
 
-    @property
-    def server_tool_tags(self) -> List[ToolsetTag]:
-        """
-        Returns the list of toolset tags that are relevant for server tools.
-        """
-        return [ToolsetTag.CORE, ToolsetTag.CLUSTER]
-
     def _list_all_toolsets(
         self,
         dal: Optional[SupabaseDal] = None,

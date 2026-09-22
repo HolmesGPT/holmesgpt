@@ -45,7 +45,6 @@ class OAuthToolConnector:
         Single entry point for all OAuth tool loading — called from:
         - Startup preload (token exists in DB or disk)
         - OAuth callback (frontend browser flow)
-        - process_oauth_decision (after code exchange)
 
         Returns the loaded tools, or empty list on failure.
         """

@@ -30,12 +30,6 @@ def test_cli_tool_tags(toolset_manager):
     assert ToolsetTag.CLI in tags
 
 
-def test_server_tool_tags(toolset_manager):
-    tags = toolset_manager.server_tool_tags
-    assert ToolsetTag.CORE in tags
-    assert ToolsetTag.CLUSTER in tags
-
-
 @patch("holmes.core.toolset_manager.load_builtin_toolsets")
 @patch("holmes.core.toolset_manager.load_toolsets_from_config")
 def test__list_all_toolsets_merges_configs(
