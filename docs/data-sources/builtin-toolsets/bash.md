@@ -18,7 +18,9 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
         config:
           builtin_allowlist: "core"  # "none", "core", or "extended"
           allow:                     # additional prefixes (merged with builtins)
-            - "my-custom-tool"
+            - "helm list"
+            - "kubectl rollout history"
+            - "curl https://prometheus.monitoring.svc:9090/api/v1"
           deny:
             - "kubectl get secret"
             - "kubectl describe secret"
@@ -43,7 +45,9 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
           config:
             builtin_allowlist: "extended"
             allow:
-              - "my-custom-command"
+              - "helm list"
+              - "kubectl rollout history"
+              - "curl https://prometheus.monitoring.svc:9090/api/v1"
             deny:
               - "kubectl get secret"
     ```
@@ -113,6 +117,20 @@ kubectl get pods | grep error | head -10
 ```
 
 This requires `kubectl get`, `grep`, and `head` to all be allowed.
+
+A prefix can be as narrow as you like — it is matched against the start of the
+command and must end on a whitespace or `/` boundary, so it can pin a subcommand
+or even a single URL path:
+
+| Allow entry | Allows | Still needs approval |
+|-------------|--------|----------------------|
+| `helm list` | `helm list -A`, `helm list -n prod -o json` | `helm upgrade my-release ./chart` |
+| `kubectl rollout history` | `kubectl rollout history deployment/nginx` | `kubectl rollout restart deployment/nginx` |
+| `curl https://prometheus.monitoring.svc:9090/api/v1` | `curl https://prometheus.monitoring.svc:9090/api/v1/targets` | `curl https://example.com` |
+
+Because matching starts at the beginning of the command, put the part you are
+scoping on first and flags last — `curl https://host/api/v1/targets -s` matches
+the prefix above, `curl -s https://host/api/v1/targets` does not.
 
 ## Large Tool Result Storage
 
