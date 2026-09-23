@@ -803,3 +803,54 @@ def parse_command(command: str) -> ParsedCommand:
         return _CommandVisitor(command).run()
     except RecursionError:
         raise ShellParseError("command is nested too deeply")
+
+
+def scan_for_deny_checks(command: str) -> Tuple[List[List[str]], List[str]]:
+    """Best-effort (argvs, write redirect targets) for a command that
+    parse_command() refused. The tree may be wrong, so callers may only use the
+    result to DENY a command, never to allow one."""
+    visitor = _CommandVisitor(command)
+    argvs: List[List[str]] = []
+    targets: List[str] = []
+
+    def text(n: Node) -> str:
+        try:
+            return visitor.unquote(n)
+        except ShellParseError:
+            return visitor.node_text(n)
+
+    def redirect_parts(r: Node) -> Tuple[str, List[Node]]:
+        op = next((c.type for c in r.children if not c.is_named), "")
+        return op, [c for c in r.named_children if c.type != "file_descriptor"]
+
+    def extra_words(r: Node) -> List[Node]:
+        # tree-sitter puts words after a redirect target into the redirect
+        op, dests = redirect_parts(r)
+        if r.type != "file_redirect" or not dests:
+            return []
+        return dests if op in (">&-", "<&-") else dests[1:]
+
+    stack = [_PARSER.parse(visitor.src).root_node]
+    while stack:
+        n = stack.pop()
+        stack.extend(n.children)
+        if n.type == "file_redirect":
+            op, dests = redirect_parts(n)
+            if dests and ">" in op and op not in (">&-", "<&-") and not (op in (">&", "<&") and dests[0].type == "number"):
+                path = text(dests[0])
+                if not is_benign_redirect_target(path):
+                    targets.append(path)
+        elif n.type == "command":
+            redirects = [c for c in n.named_children if c.type.endswith("redirect")]
+            if n.parent is not None and n.parent.type == "redirected_statement":
+                redirects += [c for c in n.parent.named_children if c.type.endswith("redirect")]
+            words = [
+                c.named_children[0] if c.type == "command_name" and c.named_children else c
+                for c in n.named_children
+                if not c.type.endswith("redirect") and c.type != "variable_assignment"
+            ]
+            for r in redirects:
+                words += extra_words(r)
+            words.sort(key=lambda w: w.start_byte)
+            argvs.append([text(w) for w in words])
+    return argvs, targets
