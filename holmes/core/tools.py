@@ -147,6 +147,13 @@ class ApprovalRequirement(BaseModel):
     prefixes_to_save: Optional[List[str]] = None
 
 
+GO_TEMPLATE_VARIABLE = re.compile(r"\{\{(\s*\.[^}]*)\}\}")
+
+
+def escape_go_template_variables(template: Optional[str]) -> Optional[str]:
+    return template and GO_TEMPLATE_VARIABLE.sub(r"{% raw %}{{\1}}{% endraw %}", template)
+
+
 def sanitize(param):
     # allow empty strings to be unquoted - useful for optional params
     # it is up to the user to ensure that the command they are using is ok with empty strings
@@ -565,6 +572,8 @@ class YAMLTool(Tool, BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
+        self.command = escape_go_template_variables(self.command)
+        self.script = escape_go_template_variables(self.script)
         self.__infer_parameters()
 
     def __infer_parameters(self):
