@@ -125,7 +125,9 @@ class ElasticsearchBaseToolset(Toolset):
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         """Check if the Elasticsearch configuration is valid and the cluster is reachable."""
         try:
-            config_class = self.config_classes[0] if self.config_classes else ElasticsearchConfig
+            config_class = (
+                self.config_classes[0] if self.config_classes else ElasticsearchConfig
+            )
             self.config = config_class(**config)
             return self._perform_health_check()
         except Exception as e:
@@ -159,7 +161,10 @@ class ElasticsearchBaseToolset(Toolset):
                 )
         except requests.exceptions.SSLError as e:
             error_msg = str(e)
-            if "certificate required" in error_msg.lower() or "sslcertverificationerror" in error_msg.lower():
+            if (
+                "certificate required" in error_msg.lower()
+                or "sslcertverificationerror" in error_msg.lower()
+            ):
                 return (
                     False,
                     f"Elasticsearch SSL/TLS error: {error_msg}. "
@@ -209,7 +214,10 @@ class ElasticsearchBaseToolset(Toolset):
 
     def _get_client_cert(self) -> Optional[Tuple[str, str]]:
         """Return client certificate tuple for mTLS if configured."""
-        if self.elasticsearch_config.client_cert and self.elasticsearch_config.client_key:
+        if (
+            self.elasticsearch_config.client_cert
+            and self.elasticsearch_config.client_key
+        ):
             return (
                 self.elasticsearch_config.client_cert,
                 self.elasticsearch_config.client_key,
@@ -487,13 +495,13 @@ class ElasticsearchSearch(BaseElasticsearchTool):
                         "Fields to include/exclude in response. Supported formats:\n"
                         "• Array: ['field1', 'field2'] - Include only these fields\n"
                         "• String: 'field1' - Include single field\n"
-                        "• Object: {\"includes\": [\"trace.*\", \"span.*\"], \"excludes\": [\"*.body\", \"*.stack_trace\"]}\n"
+                        '• Object: {"includes": ["trace.*", "span.*"], "excludes": ["*.body", "*.stack_trace"]}\n'
                         "  - Use wildcards (*) for pattern matching\n"
                         "  - Excludes are useful for filtering large fields (http.request.body, error.stack_trace, http.response.*)\n"
                         "• Boolean: false - Exclude all source (metadata only)\n\n"
                         "Examples:\n"
-                        "- Trace query: {\"includes\": [\"trace.*\", \"span.*\", \"service.*\"], \"excludes\": [\"*.request.*\", \"*.response.*\"]}\n"
-                        "- Logs: [\"@timestamp\", \"message\", \"level\", \"service.name\"]"
+                        '- Trace query: {"includes": ["trace.*", "span.*", "service.*"], "excludes": ["*.request.*", "*.response.*"]}\n'
+                        '- Logs: ["@timestamp", "message", "level", "service.name"]'
                     ),
                     type="object",
                     required=False,

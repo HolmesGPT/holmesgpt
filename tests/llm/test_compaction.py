@@ -141,12 +141,12 @@ def test_compaction(
             # is stored as a user message) and no non-leading system message —
             # both shapes break Bedrock-translating gateways (ROB-425/ROB-665).
             for i, msg in enumerate(compacted_history):
-                assert msg.get("role") != "assistant", (
-                    "Compacted history must not contain an assistant message"
-                )
-                assert i == 0 or msg.get("role") != "system", (
-                    "Compacted history must not contain a non-leading system message"
-                )
+                assert (
+                    msg.get("role") != "assistant"
+                ), "Compacted history must not contain an assistant message"
+                assert (
+                    i == 0 or msg.get("role") != "system"
+                ), "Compacted history must not contain a non-leading system message"
 
             compacted_tokens = llm.count_tokens(messages=compacted_history)
 

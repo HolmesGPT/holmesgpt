@@ -67,11 +67,15 @@ class TestAtlasMultiInstance:
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             rsps.add(
                 responses.GET,
-                re.compile(r"https://cloud\.mongodb\.com/api/atlas/v2/groups/[^/]+/alerts"),
+                re.compile(
+                    r"https://cloud\.mongodb\.com/api/atlas/v2/groups/[^/]+/alerts"
+                ),
                 json={"results": []},
                 status=200,
             )
             tool = next(t for t in ts.tools if t.name == "atlas_return_project_alerts")
-            tool.invoke({INSTANCE_PARAM_NAME: instance}, create_mock_tool_invoke_context())
+            tool.invoke(
+                {INSTANCE_PARAM_NAME: instance}, create_mock_tool_invoke_context()
+            )
             last = rsps.calls[-1].request
             assert f"/groups/{project}/alerts" in last.url

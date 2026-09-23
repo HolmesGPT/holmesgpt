@@ -29,7 +29,9 @@ def get_toolset_oauth_config(
     """
     toolset = None
     for ts in toolsets:
-        if isinstance(ts, RemoteMCPToolset) and (ts.name == toolset_name or ts.connect_tool_name == toolset_name):
+        if isinstance(ts, RemoteMCPToolset) and (
+            ts.name == toolset_name or ts.connect_tool_name == toolset_name
+        ):
             toolset = ts
             break
 
@@ -37,11 +39,15 @@ def get_toolset_oauth_config(
         raise OAuthConfigLookupError(f"Toolset '{toolset_name}' not found")
 
     if not toolset.is_oauth_enabled:
-        raise OAuthConfigLookupError(f"Toolset '{toolset_name}' does not have OAuth enabled")
+        raise OAuthConfigLookupError(
+            f"Toolset '{toolset_name}' does not have OAuth enabled"
+        )
 
     oauth = toolset._mcp_config.oauth
     if not oauth.token_url:
-        raise OAuthConfigLookupError(f"OAuth config for '{toolset_name}' missing token_url")
+        raise OAuthConfigLookupError(
+            f"OAuth config for '{toolset_name}' missing token_url"
+        )
 
     client_id = client_id_override or oauth.client_id
     if not client_id:
@@ -63,7 +69,10 @@ def process_oauth_callback(
     subsequent requests skip the _connect placeholder.
     """
     oauth, client_id, mgr, toolset = get_toolset_oauth_config(
-        toolsets, request.toolset_name, token_manager, request.client_id,
+        toolsets,
+        request.toolset_name,
+        token_manager,
+        request.client_id,
     )
 
     # Use DCR client_id from frontend for this exchange without mutating the
@@ -77,9 +86,15 @@ def process_oauth_callback(
     # RFC 8707 resource indicator: frontend value wins, else the toolset's
     # configured resource (defaults to the MCP server url). None-based precedence
     # so an explicit empty-string override is preserved.
-    effective_resource = request.resource if request.resource is not None else oauth.resource
+    effective_resource = (
+        request.resource if request.resource is not None else oauth.resource
+    )
 
-    logger.info("OAuth exchange: token_url=%s client_id=%s", oauth.token_url, effective_client_id)
+    logger.info(
+        "OAuth exchange: token_url=%s client_id=%s",
+        oauth.token_url,
+        effective_client_id,
+    )
     token_data = exchange_code_for_tokens(
         token_url=oauth.token_url,
         code=request.code,
@@ -101,8 +116,14 @@ def process_oauth_callback(
     # Load and cache real tools so subsequent requests skip _connect
     if request.user_id and executor and toolset:
         try:
-            executor.oauth_connector.load_tools_for_user(request.user_id, toolset, request_context)
+            executor.oauth_connector.load_tools_for_user(
+                request.user_id, toolset, request_context
+            )
         except Exception:
-            logger.warning("Failed to preload tools after OAuth for %s", toolset.name, exc_info=True)
+            logger.warning(
+                "Failed to preload tools after OAuth for %s",
+                toolset.name,
+                exc_info=True,
+            )
 
     return OAuthCallbackResponse(success=True)

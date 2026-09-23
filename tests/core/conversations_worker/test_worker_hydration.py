@@ -6,6 +6,7 @@ There is no row/seq nesting at this level — the RPC flattens all events from
 all matching ConversationEvents rows into a single list ordered by
 ``(seq, ord)``. Turn boundaries are detected by the ``user_message`` event.
 """
+
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.worker import ConversationWorker
 
@@ -32,7 +33,11 @@ def test_hydrate_first_turn_ask_only():
     worker = _make_worker()
     task = _task()
     events = [
-        {"event": "user_message", "data": {"ask": "hello"}, "ts": "2026-04-13T00:00:00Z"}
+        {
+            "event": "user_message",
+            "data": {"ask": "hello"},
+            "ts": "2026-04-13T00:00:00Z",
+        }
     ]
     worker._hydrate_task_from_events(task, events)
     assert task.user_message_data["ask"] == "hello"
@@ -99,7 +104,10 @@ def test_hydrate_detects_already_answered_user_message():
     question."""
     worker = _make_worker()
     task = _task(request_sequence=2)
-    history_turn_1 = [{"role": "system", "content": "s"}, {"role": "user", "content": "q1"}]
+    history_turn_1 = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "q1"},
+    ]
     stale_history_turn_2 = [{"role": "system", "content": "stale"}]
     events = [
         {"event": "user_message", "data": {"ask": "q1"}, "ts": "1"},
@@ -139,7 +147,10 @@ def test_extract_last_user_ask():
             "role": "user",
             "content": [
                 {"type": "text", "text": "look at this"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,..."},
+                },
             ],
         },
     ]

@@ -67,7 +67,10 @@ def test_count_fetch_skill_calls():
 
 def test_write_suggestions_as_skill_files(tmp_path):
     written = write_suggestions_as_skill_files(
-        [SUGGESTION, dict(SUGGESTION, title="Second skill", alerts=["KubePodCrashLooping"])],
+        [
+            SUGGESTION,
+            dict(SUGGESTION, title="Second skill", alerts=["KubePodCrashLooping"]),
+        ],
         str(tmp_path),
     )
     assert len(written) == 2

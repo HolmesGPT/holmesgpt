@@ -279,7 +279,10 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
 
     # Mock _execute_tool_decisions to simulate approval and execution
     ai._execute_tool_decisions = MagicMock(
-        side_effect=lambda messages, tool_decisions, request_context=None, trace_span=None: (
+        side_effect=lambda messages,
+        tool_decisions,
+        request_context=None,
+        trace_span=None: (
             messages
             + [
                 {
@@ -432,7 +435,10 @@ def test_streaming_chat_approval_workflow_reject_command(
 
     # Mock _execute_tool_decisions to simulate rejection
     ai._execute_tool_decisions = MagicMock(
-        side_effect=lambda messages, tool_decisions, request_context=None, trace_span=None: (
+        side_effect=lambda messages,
+        tool_decisions,
+        request_context=None,
+        trace_span=None: (
             messages
             + [
                 {
@@ -621,6 +627,5 @@ def test_chat_with_empty_ask_and_tool_decisions_does_not_append_empty_user_messa
     )
 
     assert not any(
-        m.get("role") == "user" and not m.get("content")
-        for m in msgs
+        m.get("role") == "user" and not m.get("content") for m in msgs
     ), "An empty user message was appended to messages on resume_only path"

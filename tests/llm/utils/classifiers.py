@@ -48,9 +48,7 @@ def get_classifier_model_params() -> ClassifierModelParams:
             model_for_api = model_for_api.split("/", 1)[1]
             # Fall back to OpenRouter's public endpoint if model_list didn't pin one.
             if not client_base_url:
-                client_base_url = (
-                    OPENROUTER_API_BASE or "https://openrouter.ai/api/v1"
-                )
+                client_base_url = OPENROUTER_API_BASE or "https://openrouter.ai/api/v1"
     else:
         if not OPENAI_API_KEY and not AZURE_API_KEY and not OPENROUTER_API_KEY:
             raise ValueError(
@@ -251,5 +249,3 @@ Possible choices:
         return classifier(
             input=prompt_prefix, output=output or "", expected=expected_elements_str
         )
-
-

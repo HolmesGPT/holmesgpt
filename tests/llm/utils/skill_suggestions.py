@@ -128,9 +128,7 @@ def join_frontend_tool_turn_content(
             tool_calls = message.get("tool_calls")
             if not content or not isinstance(content, str) or not tool_calls:
                 continue
-            names = {
-                (tc.get("function") or {}).get("name") for tc in tool_calls
-            }
+            names = {(tc.get("function") or {}).get("name") for tc in tool_calls}
             if names and names <= frontend_tool_names:
                 stranded.append(content)
 
@@ -165,10 +163,7 @@ def write_suggestions_as_skill_files(
         # the name is quoted so numeric/boolean-looking slugs stay strings.
         safe_description = symptoms.replace("'", "''").replace("\n", " ")
         frontmatter = (
-            "---\n"
-            f"name: '{slug}'\n"
-            f"description: '{safe_description}'\n"
-            "---\n"
+            "---\n" f"name: '{slug}'\n" f"description: '{safe_description}'\n" "---\n"
         )
 
         body_parts: List[str] = [

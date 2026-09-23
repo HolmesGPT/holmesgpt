@@ -3,7 +3,6 @@ import os
 import re
 import shutil
 import tempfile
-import threading
 import time
 import unittest
 from io import StringIO
@@ -57,6 +56,7 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
     def _get_printed_panels(self, console):
         """Extract Panel objects from console.print calls."""
         from rich.panel import Panel
+
         panels = []
         for call in console.print.call_args_list:
             args = call[0] if call[0] else []
@@ -71,8 +71,26 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
 
         # Simulate tool completion (what TOOL_RESULT handler does)
-        renderer._tool_history.append(("kubectl_get_pods", "get pods in namespace default", "kubernetes", 1.2, 500, False))
-        renderer._tool_history.append(("kubectl_top_pods", "get resource usage for pods", "kubernetes", 0.8, 300, False))
+        renderer._tool_history.append(
+            (
+                "kubectl_get_pods",
+                "get pods in namespace default",
+                "kubernetes",
+                1.2,
+                500,
+                False,
+            )
+        )
+        renderer._tool_history.append(
+            (
+                "kubectl_top_pods",
+                "get resource usage for pods",
+                "kubernetes",
+                0.8,
+                300,
+                False,
+            )
+        )
         renderer._total_bytes = 800
         renderer._total_queries = 2
 
@@ -92,7 +110,16 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
             {"content": "Check pods", "status": "completed"},
             {"content": "Check logs", "status": "in_progress"},
         ]
-        renderer._tool_history.append(("kubectl_get_pods", "get pods in namespace default", "kubernetes", 1.0, 100, False))
+        renderer._tool_history.append(
+            (
+                "kubectl_get_pods",
+                "get pods in namespace default",
+                "kubernetes",
+                1.0,
+                100,
+                False,
+            )
+        )
 
         renderer.flush()
 
@@ -104,7 +131,16 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
         console = Mock(spec=Console)
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
 
-        renderer._tool_history.append(("kubectl_get_pods", "get pods in namespace default", "kubernetes", 1.0, 100, False))
+        renderer._tool_history.append(
+            (
+                "kubectl_get_pods",
+                "get pods in namespace default",
+                "kubernetes",
+                1.0,
+                100,
+                False,
+            )
+        )
 
         # Simulate AI_MESSAGE calling _print_investigation_summary
         renderer._print_investigation_summary()
@@ -112,9 +148,9 @@ class TestAgenticProgressRendererSummary(unittest.TestCase):
 
         # Now flush - should NOT re-print
         renderer.flush()
-        assert console.print.call_count == first_print_count, (
-            "Summary was printed twice"
-        )
+        assert (
+            console.print.call_count == first_print_count
+        ), "Summary was printed twice"
 
     def test_flush_no_output_when_no_tools(self):
         """flush() should not print anything when no tools ran."""
@@ -428,6 +464,7 @@ class TestRunInteractiveLoop(unittest.TestCase):
                     "costs": {},
                 },
             )
+
         self.mock_ai.call_stream = Mock(side_effect=_mock_call_stream)
 
         self.mock_console = Mock(spec=Console)
@@ -960,7 +997,13 @@ class TestRendererEndToEnd(unittest.TestCase):
     """
 
     def _make_console(self):
-        return Console(width=100, record=True, force_terminal=True, color_system=None, file=StringIO())
+        return Console(
+            width=100,
+            record=True,
+            force_terminal=True,
+            color_system=None,
+            file=StringIO(),
+        )
 
     def _make_event(self, event_type, data=None):
         return StreamMessage(event=event_type, data=data or {})
@@ -977,44 +1020,58 @@ class TestRendererEndToEnd(unittest.TestCase):
         # Tool 1: start
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "kubectl_get"}),
-            all_tool_calls, history,
+            all_tool_calls,
+            history,
         )
 
         # Tool 1: complete with output
         renderer.handle_event(
-            self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "kubectl_get",
-                "description": "kubectl get pods --all-namespaces",
-                "toolset_name": "kubernetes/core",
-                "result": {
-                    "data": "NAMESPACE  NAME       READY  STATUS\ndefault    nginx-abc  1/1    Running",
-                    "elapsed_seconds": 1.5,
+            self._make_event(
+                StreamEvents.TOOL_RESULT,
+                {
+                    "tool_name": "kubectl_get",
+                    "description": "kubectl get pods --all-namespaces",
+                    "toolset_name": "kubernetes/core",
+                    "result": {
+                        "data": "NAMESPACE  NAME       READY  STATUS\ndefault    nginx-abc  1/1    Running",
+                        "elapsed_seconds": 1.5,
+                    },
                 },
-            }),
-            all_tool_calls, history,
+            ),
+            all_tool_calls,
+            history,
         )
 
         # Tool 2: start + complete with empty output (error)
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "fetch_skill"}),
-            all_tool_calls, history,
+            all_tool_calls,
+            history,
         )
         renderer.handle_event(
-            self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "fetch_skill",
-                "description": "Fetch Skill cluster-problems.md",
-                "toolset_name": "skills",
-                "result": {"data": "", "elapsed_seconds": 0.0},
-            }),
-            all_tool_calls, history,
+            self._make_event(
+                StreamEvents.TOOL_RESULT,
+                {
+                    "tool_name": "fetch_skill",
+                    "description": "Fetch Skill cluster-problems.md",
+                    "toolset_name": "skills",
+                    "result": {"data": "", "elapsed_seconds": 0.0},
+                },
+            ),
+            all_tool_calls,
+            history,
         )
 
         # AI message triggers summary
         renderer.handle_event(
-            self._make_event(StreamEvents.AI_MESSAGE, {
-                "content": "All pods are running normally.",
-            }),
-            all_tool_calls, history,
+            self._make_event(
+                StreamEvents.AI_MESSAGE,
+                {
+                    "content": "All pods are running normally.",
+                },
+            ),
+            all_tool_calls,
+            history,
         )
 
         renderer.flush()
@@ -1022,54 +1079,80 @@ class TestRendererEndToEnd(unittest.TestCase):
         output = console.export_text()
 
         # Verify tools summary is printed
-        assert "kubectl get pods --all-namespaces" in output, f"Tool description not in output:\n{output}"
-        assert "Fetch Skill cluster-problems.md" in output, f"Error tool not in output:\n{output}"
+        assert (
+            "kubectl get pods --all-namespaces" in output
+        ), f"Tool description not in output:\n{output}"
+        assert (
+            "Fetch Skill cluster-problems.md" in output
+        ), f"Error tool not in output:\n{output}"
         assert "(error)" in output, f"Error marker not in output:\n{output}"
 
         # Verify AI message content is printed
-        assert "All pods are running normally." in output, f"AI message not in output:\n{output}"
+        assert (
+            "All pods are running normally." in output
+        ), f"AI message not in output:\n{output}"
 
         # Verify stats line
         assert "tokens" in output.lower(), f"Stats line not in output:\n{output}"
 
     def test_no_data_pane_before_tool_output(self):
         """Data pane should not appear until tools produce output."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
 
         # Initial state: no data pane
         display_text = self._render_to_text(renderer)
-        assert "Data" not in display_text, f"Data pane appeared too early:\n{display_text}"
+        assert (
+            "Data" not in display_text
+        ), f"Data pane appeared too early:\n{display_text}"
 
         # Add tasks — still no data pane
         renderer._live_tasks = [
             {"content": "Check pods", "status": "pending"},
         ]
         display_text = self._render_to_text(renderer)
-        assert "Data" not in display_text, f"Data pane appeared with only tasks:\n{display_text}"
+        assert (
+            "Data" not in display_text
+        ), f"Data pane appeared with only tasks:\n{display_text}"
         assert "Check pods" in display_text, f"Tasks not shown:\n{display_text}"
 
         # Add in-flight tool — still no data pane
         renderer._in_flight[1] = ("kubectl_get", time.time())
         renderer._thinking = False
         display_text = self._render_to_text(renderer)
-        assert "Data" not in display_text, f"Data pane appeared during in-flight tool:\n{display_text}"
-        assert "kubectl_get" in display_text, f"In-flight tool not shown:\n{display_text}"
+        assert (
+            "Data" not in display_text
+        ), f"Data pane appeared during in-flight tool:\n{display_text}"
+        assert (
+            "kubectl_get" in display_text
+        ), f"In-flight tool not shown:\n{display_text}"
 
         # Now add output — data pane should appear
         del renderer._in_flight[1]
         renderer._thinking = True
-        renderer._tool_history.append(("kubectl_get", "get pods", "k8s", 1.0, 100, False))
-        renderer._ingest_output("kubectl_get", "some output data", description="get pods")
+        renderer._tool_history.append(
+            ("kubectl_get", "get pods", "k8s", 1.0, 100, False)
+        )
+        renderer._ingest_output(
+            "kubectl_get", "some output data", description="get pods"
+        )
         display_text = self._render_to_text(renderer)
-        assert "Data" in display_text, f"Data pane did not appear after output:\n{display_text}"
-        assert "some output data" in display_text, f"Output not in data pane:\n{display_text}"
+        assert (
+            "Data" in display_text
+        ), f"Data pane did not appear after output:\n{display_text}"
+        assert (
+            "some output data" in display_text
+        ), f"Output not in data pane:\n{display_text}"
 
     def test_data_pane_fixed_width(self):
         """Data pane should take 50% of terminal width regardless of content."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
@@ -1081,7 +1164,7 @@ class TestRendererEndToEnd(unittest.TestCase):
         display_text = self._render_to_text(renderer)
 
         # The data panel border should be ~50 chars (50% of 100)
-        data_lines = [l for l in display_text.split("\n") if "Data" in l]
+        data_lines = [line for line in display_text.split("\n") if "Data" in line]
         assert data_lines, f"No Data header line found:\n{display_text}"
         data_header = data_lines[0]
         # With ratio=1:1, data pane should be close to 50 chars, not shrunk
@@ -1092,26 +1175,33 @@ class TestRendererEndToEnd(unittest.TestCase):
 
     def test_error_tool_shows_token_count(self):
         """Error tools with output should show both token count and (error)."""
-        console = Console(width=120, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=120, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         all_tool_calls = []
 
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "bad_query"}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
         renderer.handle_event(
-            self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "bad_query",
-                "description": "bad query that returned error",
-                "toolset_name": "test",
-                "result": {
-                    "data": "Error: connection refused to database server",
-                    "elapsed_seconds": 0.5,
-                    "error": True,
+            self._make_event(
+                StreamEvents.TOOL_RESULT,
+                {
+                    "tool_name": "bad_query",
+                    "description": "bad query that returned error",
+                    "toolset_name": "test",
+                    "result": {
+                        "data": "Error: connection refused to database server",
+                        "elapsed_seconds": 0.5,
+                        "error": True,
+                    },
                 },
-            }),
-            all_tool_calls, [],
+            ),
+            all_tool_calls,
+            [],
         )
 
         # Tool should have output_len > 0 AND is_error
@@ -1122,19 +1212,23 @@ class TestRendererEndToEnd(unittest.TestCase):
 
         # Render the left pane and verify both token count and (error) appear
         display_text = self._render_to_text(renderer)
-        assert "tokens" in display_text.lower() or "token" in display_text.lower(), (
-            f"Token count not shown for error tool:\n{display_text}"
-        )
+        assert (
+            "tokens" in display_text.lower() or "token" in display_text.lower()
+        ), f"Token count not shown for error tool:\n{display_text}"
         assert "(error)" in display_text, f"Error marker not shown:\n{display_text}"
 
     def test_empty_output_shows_red_marker(self):
         """Empty tool output should show a visible red marker, not dim text."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
 
-        renderer._tool_history.append(("bad_tool", "bad tool call", "test", 0.0, 0, True))
+        renderer._tool_history.append(
+            ("bad_tool", "bad tool call", "test", 0.0, 0, True)
+        )
         renderer._ingest_output("bad_tool", "", description="bad tool call")
 
         display_text = self._render_to_text(renderer)
@@ -1153,9 +1247,9 @@ class TestRendererEndToEnd(unittest.TestCase):
             test_logger = logging.getLogger("test.interactive.buffering")
             test_logger.error("This should be buffered")
 
-            assert len(renderer._log_buffer) >= 1, (
-                f"Expected at least 1 buffered log record, got {len(renderer._log_buffer)}"
-            )
+            assert (
+                len(renderer._log_buffer) >= 1
+            ), f"Expected at least 1 buffered log record, got {len(renderer._log_buffer)}"
             assert renderer._log_buffer[0].getMessage() == "This should be buffered"
         finally:
             for handler in root.handlers:
@@ -1171,17 +1265,13 @@ class TestRendererEndToEnd(unittest.TestCase):
         renderer.start()
         try:
             # Filter should be on at least one handler
-            has_filter = any(
-                renderer._log_filter in h.filters for h in root.handlers
-            )
+            has_filter = any(renderer._log_filter in h.filters for h in root.handlers)
             assert has_filter, "Log filter not installed on any handler after start()"
         finally:
             renderer.flush()
 
         # After flush, filter should be removed from all handlers
-        has_filter = any(
-            renderer._log_filter in h.filters for h in root.handlers
-        )
+        has_filter = any(renderer._log_filter in h.filters for h in root.handlers)
         assert not has_filter, "Log filter still on handlers after flush"
 
     def test_handle_event_tool_result_populates_data(self):
@@ -1193,23 +1283,28 @@ class TestRendererEndToEnd(unittest.TestCase):
         # Start a tool
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "my_tool"}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
         assert len(renderer._in_flight) == 1
         assert renderer._thinking is False
 
         # Complete the tool
         renderer.handle_event(
-            self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "my_tool",
-                "description": "do something useful",
-                "toolset_name": "test_toolset",
-                "result": {
-                    "data": "line 1\nline 2\nline 3",
-                    "elapsed_seconds": 2.0,
+            self._make_event(
+                StreamEvents.TOOL_RESULT,
+                {
+                    "tool_name": "my_tool",
+                    "description": "do something useful",
+                    "toolset_name": "test_toolset",
+                    "result": {
+                        "data": "line 1\nline 2\nline 3",
+                        "elapsed_seconds": 2.0,
+                    },
                 },
-            }),
-            all_tool_calls, [],
+            ),
+            all_tool_calls,
+            [],
         )
 
         assert len(renderer._in_flight) == 0, "Tool still in flight after completion"
@@ -1217,7 +1312,7 @@ class TestRendererEndToEnd(unittest.TestCase):
         assert len(renderer._tool_history) == 1
         assert renderer._tool_history[0][1] == "do something useful"
         assert len(renderer._data_lines) > 0, "Data buffer should have content"
-        assert any("line 1" in l for l in renderer._data_lines)
+        assert any("line 1" in line for line in renderer._data_lines)
 
     def test_ai_message_keeps_live_active(self):
         """AI_MESSAGE should keep Live running so the data pane survives for subsequent tools."""
@@ -1230,29 +1325,42 @@ class TestRendererEndToEnd(unittest.TestCase):
         # Run a tool through the full cycle
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "test_tool"}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
         renderer.handle_event(
-            self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "test_tool",
-                "description": "test tool description",
-                "toolset_name": "testing",
-                "result": {"data": "some output", "elapsed_seconds": 0.5},
-            }),
-            all_tool_calls, [],
+            self._make_event(
+                StreamEvents.TOOL_RESULT,
+                {
+                    "tool_name": "test_tool",
+                    "description": "test tool description",
+                    "toolset_name": "testing",
+                    "result": {"data": "some output", "elapsed_seconds": 0.5},
+                },
+            ),
+            all_tool_calls,
+            [],
         )
 
         # AI message should NOT stop Live — summary is deferred to flush()
         renderer.handle_event(
-            self._make_event(StreamEvents.AI_MESSAGE, {
-                "content": "Here is my analysis.",
-            }),
-            all_tool_calls, [],
+            self._make_event(
+                StreamEvents.AI_MESSAGE,
+                {
+                    "content": "Here is my analysis.",
+                },
+            ),
+            all_tool_calls,
+            [],
         )
 
         # Live should still be running (never stopped)
-        assert renderer._live is not None, "Live display should remain active after AI_MESSAGE"
-        assert renderer._summary_printed is False, "Summary should be deferred to flush()"
+        assert (
+            renderer._live is not None
+        ), "Live display should remain active after AI_MESSAGE"
+        assert (
+            renderer._summary_printed is False
+        ), "Summary should be deferred to flush()"
 
         output = console.export_text()
         assert "Here is my analysis." in output, f"AI message not printed:\n{output}"
@@ -1269,22 +1377,31 @@ class TestRendererEndToEnd(unittest.TestCase):
         for tool_name in ["tool_a", "tool_b"]:
             renderer.handle_event(
                 self._make_event(StreamEvents.START_TOOL, {"tool_name": tool_name}),
-                all_tool_calls, [],
+                all_tool_calls,
+                [],
             )
             renderer.handle_event(
-                self._make_event(StreamEvents.TOOL_RESULT, {
-                    "tool_name": tool_name,
-                    "description": f"run {tool_name}",
-                    "toolset_name": "test",
-                    "result": {"data": f"output from {tool_name}", "elapsed_seconds": 0.1},
-                }),
-                all_tool_calls, [],
+                self._make_event(
+                    StreamEvents.TOOL_RESULT,
+                    {
+                        "tool_name": tool_name,
+                        "description": f"run {tool_name}",
+                        "toolset_name": "test",
+                        "result": {
+                            "data": f"output from {tool_name}",
+                            "elapsed_seconds": 0.1,
+                        },
+                    },
+                ),
+                all_tool_calls,
+                [],
             )
 
         # AI message
         renderer.handle_event(
             self._make_event(StreamEvents.AI_MESSAGE, {"content": "Done."}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
 
         # flush should print summary exactly once
@@ -1305,38 +1422,49 @@ class TestRendererEndToEnd(unittest.TestCase):
 
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "TodoWrite"}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
         renderer.handle_event(
-            self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "TodoWrite",
-                "description": "TodoWrite",
-                "toolset_name": "",
-                "result": {
-                    "data": "Tasks updated",
-                    "elapsed_seconds": 0.0,
-                    "params": {
-                        "todos": [
-                            {"content": "Check pods", "status": "in_progress"},
-                            {"content": "Check logs", "status": "pending"},
-                        ]
+            self._make_event(
+                StreamEvents.TOOL_RESULT,
+                {
+                    "tool_name": "TodoWrite",
+                    "description": "TodoWrite",
+                    "toolset_name": "",
+                    "result": {
+                        "data": "Tasks updated",
+                        "elapsed_seconds": 0.0,
+                        "params": {
+                            "todos": [
+                                {"content": "Check pods", "status": "in_progress"},
+                                {"content": "Check logs", "status": "pending"},
+                            ]
+                        },
                     },
                 },
-            }),
-            all_tool_calls, [],
+            ),
+            all_tool_calls,
+            [],
         )
 
         assert renderer._live_tasks is not None, "Tasks not set"
         assert len(renderer._live_tasks) == 2
         assert renderer._live_tasks[0]["content"] == "Check pods"
         # TodoWrite should NOT appear in tool history
-        assert len(renderer._tool_history) == 0, "TodoWrite should not be in tool history"
+        assert (
+            len(renderer._tool_history) == 0
+        ), "TodoWrite should not be in tool history"
         # TodoWrite should NOT be in data buffer
-        assert not any("TodoWrite" in l for l in renderer._data_lines), "TodoWrite in data buffer"
+        assert not any(
+            "TodoWrite" in line for line in renderer._data_lines
+        ), "TodoWrite in data buffer"
 
     def test_approval_pending_shows_paused_status(self):
         """When approval is pending, status line should show static paused text."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
@@ -1352,12 +1480,18 @@ class TestRendererEndToEnd(unittest.TestCase):
         renderer._approval_pending = True
         renderer._thinking = False
         display_text = self._render_to_text(renderer)
-        assert "Approval required" in display_text, f"Should show paused:\n{display_text}"
-        assert "Analyzing" not in display_text, f"Should not show Analyzing:\n{display_text}"
+        assert (
+            "Approval required" in display_text
+        ), f"Should show paused:\n{display_text}"
+        assert (
+            "Analyzing" not in display_text
+        ), f"Should not show Analyzing:\n{display_text}"
 
     def test_approval_pending_replaces_data_pane(self):
         """When approval is pending, data pane should show 'Waiting for approval'."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
@@ -1371,12 +1505,18 @@ class TestRendererEndToEnd(unittest.TestCase):
         # Set approval pending: data replaced
         renderer._approval_pending = True
         display_text = self._render_to_text(renderer)
-        assert "real tool output here" not in display_text, f"Should not show data:\n{display_text}"
-        assert "Approve bash command?" in display_text, f"Should show approval prompt:\n{display_text}"
+        assert (
+            "real tool output here" not in display_text
+        ), f"Should not show data:\n{display_text}"
+        assert (
+            "Approve bash command?" in display_text
+        ), f"Should show approval prompt:\n{display_text}"
 
     def test_approval_pending_dims_task_panel(self):
         """When approval is pending, tasks should all be dim (no bold yellow)."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
@@ -1394,27 +1534,37 @@ class TestRendererEndToEnd(unittest.TestCase):
 
     def test_approval_clears_on_new_tool(self):
         """APPROVAL_REQUIRED then START_TOOL should clear the pending state."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         all_tool_calls = []
 
         # First tool
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "tool1"}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
         renderer.handle_event(
-            self._make_event(StreamEvents.TOOL_RESULT, {
-                "tool_name": "tool1", "description": "tool1", "toolset_name": "ts",
-                "result": {"data": "out", "elapsed_seconds": 0.5},
-            }),
-            all_tool_calls, [],
+            self._make_event(
+                StreamEvents.TOOL_RESULT,
+                {
+                    "tool_name": "tool1",
+                    "description": "tool1",
+                    "toolset_name": "ts",
+                    "result": {"data": "out", "elapsed_seconds": 0.5},
+                },
+            ),
+            all_tool_calls,
+            [],
         )
 
         # Approval required
         renderer.handle_event(
             self._make_event(StreamEvents.APPROVAL_REQUIRED, {}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
         assert renderer._approval_pending is True
         assert renderer._thinking is False
@@ -1422,13 +1572,16 @@ class TestRendererEndToEnd(unittest.TestCase):
         # New tool starts (approval was granted)
         renderer.handle_event(
             self._make_event(StreamEvents.START_TOOL, {"tool_name": "tool2"}),
-            all_tool_calls, [],
+            all_tool_calls,
+            [],
         )
         assert renderer._approval_pending is False
 
     def test_approval_shows_command_description(self):
         """When approval is pending with descriptions, the command should be shown."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
@@ -1440,27 +1593,41 @@ class TestRendererEndToEnd(unittest.TestCase):
         renderer._pending_approval_descriptions = ["egrep -r 'error' /var/log"]
         display_text = self._render_to_text(renderer)
         assert "egrep -r" in display_text, f"Should show command:\n{display_text}"
-        assert "Approve bash command?" in display_text, f"Should show title:\n{display_text}"
+        assert (
+            "Approve bash command?" in display_text
+        ), f"Should show title:\n{display_text}"
 
     def test_approval_event_stores_descriptions(self):
         """APPROVAL_REQUIRED event should store descriptions from pending_approvals."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
 
-        event = self._make_event(StreamEvents.APPROVAL_REQUIRED, {
-            "pending_approvals": [
-                {"description": "kubectl get pods", "tool_name": "bash", "tool_call_id": "1", "params": {}},
-            ]
-        })
+        event = self._make_event(
+            StreamEvents.APPROVAL_REQUIRED,
+            {
+                "pending_approvals": [
+                    {
+                        "description": "kubectl get pods",
+                        "tool_name": "bash",
+                        "tool_call_id": "1",
+                        "params": {},
+                    },
+                ]
+            },
+        )
         renderer.handle_event(event, [], [])
         assert renderer._approval_pending is True
         assert renderer._pending_approval_descriptions == ["kubectl get pods"]
 
     def test_approval_pending_hides_data_stats(self):
         """When approval is pending, data pane title should not show stats."""
-        console = Console(width=100, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=100, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer._thinking = True
         renderer._start_time = time.time()
@@ -1471,11 +1638,19 @@ class TestRendererEndToEnd(unittest.TestCase):
 
         renderer._approval_pending = True
         display_text = self._render_to_text(renderer)
-        assert "tokens across" not in display_text, f"Stats should be hidden:\n{display_text}"
+        assert (
+            "tokens across" not in display_text
+        ), f"Stats should be hidden:\n{display_text}"
 
     def _render_to_text(self, renderer):
         """Render the display to plain text using a recording console."""
-        capture = Console(width=100, record=True, force_terminal=True, color_system=None, file=StringIO())
+        capture = Console(
+            width=100,
+            record=True,
+            force_terminal=True,
+            color_system=None,
+            file=StringIO(),
+        )
         display = renderer._build_display()
         capture.print(display)
         return capture.export_text()
@@ -1505,9 +1680,16 @@ class TestLiveDisplayNoGhostFrames(unittest.TestCase):
         from rich.text import Text
 
         buf = StringIO()
-        console = Console(file=buf, force_terminal=True, width=80, color_system="truecolor")
+        console = Console(
+            file=buf, force_terminal=True, width=80, color_system="truecolor"
+        )
 
-        live = _make_live(Text("line 0\nline 1\nline 2"), console=console, transient=True, auto_refresh=False)
+        live = _make_live(
+            Text("line 0\nline 1\nline 2"),
+            console=console,
+            transient=True,
+            auto_refresh=False,
+        )
         live.start()
         live.refresh()
 
@@ -1552,7 +1734,9 @@ class TestLiveDisplayNoGhostFrames(unittest.TestCase):
         """AgenticProgressRenderer.start() should use the _FixedLive subclass."""
         from rich.live import Live
 
-        console = Console(width=120, force_terminal=True, color_system=None, file=StringIO())
+        console = Console(
+            width=120, force_terminal=True, color_system=None, file=StringIO()
+        )
         renderer = AgenticProgressRenderer(console, tool_number_offset=0)
         renderer.start()
         try:
@@ -1584,12 +1768,18 @@ class TestModelMessageFormat(unittest.TestCase):
         if config._model_source:
             source_hint = f"configured {config._model_source}"
         else:
-            source_hint = "default, change with --model, see https://holmesgpt.dev/ai-providers"
+            source_hint = (
+                "default, change with --model, see https://holmesgpt.dev/ai-providers"
+            )
         msg = f"Model: test-model, {context} context, {max_resp} max response ({source_hint})"
 
         self.assertNotIn(")(", msg, f"Double parens found in: {msg}")
-        self.assertEqual(msg.count("("), 1, f"Should have exactly one opening paren: {msg}")
-        self.assertEqual(msg.count(")"), 1, f"Should have exactly one closing paren: {msg}")
+        self.assertEqual(
+            msg.count("("), 1, f"Should have exactly one opening paren: {msg}"
+        )
+        self.assertEqual(
+            msg.count(")"), 1, f"Should have exactly one closing paren: {msg}"
+        )
 
     def test_env_model_no_double_parens(self):
         """$MODEL sourced model should have clean format."""
@@ -1603,7 +1793,9 @@ class TestModelMessageFormat(unittest.TestCase):
         if config._model_source:
             source_hint = f"configured {config._model_source}"
         else:
-            source_hint = "default, change with --model, see https://holmesgpt.dev/ai-providers"
+            source_hint = (
+                "default, change with --model, see https://holmesgpt.dev/ai-providers"
+            )
         msg = f"Model: test-model, {context} context, {max_resp} max response ({source_hint})"
 
         self.assertNotIn(")(", msg, f"Double parens found in: {msg}")
@@ -1730,14 +1922,16 @@ class TestDataPaneScrollAndWidth(unittest.TestCase):
         long_line = "x" * (line_max + 50)
         r._ingest_output("tool1", long_line)
         # Find the data line (skip header)
-        data_lines = [l for l in r._data_lines if not l.startswith(r._TOOL_HEADER_PREFIX)]
+        data_lines = [
+            line for line in r._data_lines if not line.startswith(r._TOOL_HEADER_PREFIX)
+        ]
         self.assertEqual(len(data_lines), 1)
         self.assertEqual(len(data_lines[0]), line_max)
         self.assertTrue(data_lines[0].endswith("…"))
 
     def test_layout_data_pane_wider_than_left(self):
         """Data pane column should be wider than the left pane on wide terminals."""
-        r = self._make_renderer(width=120)
+        self._make_renderer(width=120)
         tw = 120
         left_width = min(52, tw // 2)
         right_width = max(tw - left_width - 3, 40)
@@ -1758,10 +1952,10 @@ class TestInlineMenu(unittest.TestCase):
             pipe_input.send_text(keys)
             # Patch prompt_toolkit to use our pipe input/output
             with patch("holmes.interactive.Application") as MockApp:
-                captured_result = [None]
 
                 def fake_run(self_app):
                     from prompt_toolkit.application import Application as RealApp
+
                     real_app = RealApp(
                         layout=self_app.layout,
                         key_bindings=self_app.key_bindings,
@@ -1774,7 +1968,8 @@ class TestInlineMenu(unittest.TestCase):
                     real_app.run()
 
                 MockApp.side_effect = lambda **kwargs: type(
-                    "_FakeApp", (),
+                    "_FakeApp",
+                    (),
                     {**kwargs, "run": lambda self: fake_run(self)},
                 )()
 
@@ -1805,7 +2000,9 @@ class TestInlineMenu(unittest.TestCase):
         result = self._run_menu("\x1b", ["Yes", "No", "Cancel"])
         self.assertIsNone(result)
 
-    def _run_menu_with_default(self, keys: str, options: list[str], default_index: int) -> int | None:
+    def _run_menu_with_default(
+        self, keys: str, options: list[str], default_index: int
+    ) -> int | None:
         """Run the menu with simulated keystrokes and a default_index."""
         from prompt_toolkit.input import create_pipe_input
         from prompt_toolkit.output import DummyOutput
@@ -1818,6 +2015,7 @@ class TestInlineMenu(unittest.TestCase):
 
                 def fake_run(self_app):
                     from prompt_toolkit.application import Application as RealApp
+
                     real_app = RealApp(
                         layout=self_app.layout,
                         key_bindings=self_app.key_bindings,
@@ -1830,7 +2028,8 @@ class TestInlineMenu(unittest.TestCase):
                     real_app.run()
 
                 MockApp.side_effect = lambda **kwargs: type(
-                    "_FakeApp", (),
+                    "_FakeApp",
+                    (),
                     {**kwargs, "run": lambda self: fake_run(self)},
                 )()
 
@@ -1843,7 +2042,9 @@ class TestInlineMenu(unittest.TestCase):
 
     def test_default_index_up_then_enter(self):
         """Up arrow from default_index=2 selects the second option."""
-        result = self._run_menu_with_default("\x1b[A\r", ["A", "B", "C"], default_index=2)
+        result = self._run_menu_with_default(
+            "\x1b[A\r", ["A", "B", "C"], default_index=2
+        )
         self.assertEqual(result, 1)
 
 
@@ -1853,7 +2054,8 @@ class TestSampleQuestionsMenu(unittest.TestCase):
     def test_returns_none_when_last_option_selected(self):
         """Selecting 'Ask my own question' returns None."""
         with patch("holmes.interactive._run_inline_menu", return_value=5) as mock_menu:
-            from holmes.interactive import _show_sample_questions_menu, SAMPLE_QUESTIONS
+            from holmes.interactive import SAMPLE_QUESTIONS, _show_sample_questions_menu
+
             console = Console(file=StringIO(), force_terminal=True, width=120)
             result = _show_sample_questions_menu(console)
             self.assertIsNone(result)
@@ -1864,7 +2066,8 @@ class TestSampleQuestionsMenu(unittest.TestCase):
     def test_returns_question_when_sample_selected(self):
         """Selecting a sample question returns the question text."""
         with patch("holmes.interactive._run_inline_menu", return_value=0):
-            from holmes.interactive import _show_sample_questions_menu, SAMPLE_QUESTIONS
+            from holmes.interactive import SAMPLE_QUESTIONS, _show_sample_questions_menu
+
             console = Console(file=StringIO(), force_terminal=True, width=120)
             result = _show_sample_questions_menu(console)
             self.assertEqual(result, SAMPLE_QUESTIONS[0])
@@ -1873,6 +2076,7 @@ class TestSampleQuestionsMenu(unittest.TestCase):
         """Pressing Escape (None result) returns None."""
         with patch("holmes.interactive._run_inline_menu", return_value=None):
             from holmes.interactive import _show_sample_questions_menu
+
             console = Console(file=StringIO(), force_terminal=True, width=120)
             result = _show_sample_questions_menu(console)
             self.assertIsNone(result)

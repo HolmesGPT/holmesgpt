@@ -43,7 +43,11 @@ def _build_toolset_counts(config: Config, executor: ToolExecutor) -> Dict[str, i
     enabled = len(executor.enabled_toolsets)
     catalog = config.get_skill_catalog()
     skills_count = len(catalog.list_available_skills()) if catalog else 0
-    return {"toolsets_total": total, "toolsets_enabled": enabled, "skills": skills_count}
+    return {
+        "toolsets_total": total,
+        "toolsets_enabled": enabled,
+        "skills": skills_count,
+    }
 
 
 def _reload_and_rebuild_toolsets() -> ToolExecutor:

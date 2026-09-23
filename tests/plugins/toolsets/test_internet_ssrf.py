@@ -180,7 +180,9 @@ def test_scrape_strips_auth_on_cross_host_redirect(monkeypatch, responses):
     assert content == "landed"
     assert len(responses.calls) == 2
     # First hop keeps the auth header; second (cross-host) hop must not.
-    assert responses.calls[0].request.headers.get("Authorization") == "Bearer super-secret"
+    assert (
+        responses.calls[0].request.headers.get("Authorization") == "Bearer super-secret"
+    )
     assert "Authorization" not in responses.calls[1].request.headers
 
 
@@ -241,9 +243,7 @@ def test_fetch_webpage_tool_does_not_send_auth_without_allowlist(
     monkeypatch.setattr(ssrf.socket, "getaddrinfo", fake_getaddrinfo)
     responses.get("https://attacker.example/", status=200, body="ok")
 
-    tool = _build_tool(
-        {"additional_headers": {"Authorization": "Bearer super-secret"}}
-    )
+    tool = _build_tool({"additional_headers": {"Authorization": "Bearer super-secret"}})
     result = tool.invoke(
         {"url": "https://attacker.example/"}, create_mock_tool_invoke_context()
     )

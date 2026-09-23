@@ -119,10 +119,12 @@ class TestFlatShape:
 class TestMultiShape:
     def test_instances_expose_param_and_list_tool(self):
         ts = _wrap(
-            {"instances": [
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]}
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a"},
+                    {"name": "b", "api_url": "http://b"},
+                ]
+            }
         )
         names = [t.name for t in ts.tools]
         assert "fake_do" in names
@@ -132,20 +134,24 @@ class TestMultiShape:
 
     def test_routing_selects_the_named_child(self):
         ts = _wrap(
-            {"instances": [
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]}
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a"},
+                    {"name": "b", "api_url": "http://b"},
+                ]
+            }
         )
         r = _call(ts, {INSTANCE_PARAM_NAME: "b"})
         assert r.data["api_url"] == "http://b"
 
     def test_missing_instance_param_errors(self):
         ts = _wrap(
-            {"instances": [
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]}
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a"},
+                    {"name": "b", "api_url": "http://b"},
+                ]
+            }
         )
         r = _call(ts, {})
         assert r.status is StructuredToolResultStatus.ERROR
@@ -155,10 +161,12 @@ class TestMultiShape:
         ts = _wrap({"instances": [{"name": "a", "api_url": "http://a"}]})
         # single instance -> auto-selects, so force >1 to require the param
         ts = _wrap(
-            {"instances": [
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]}
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a"},
+                    {"name": "b", "api_url": "http://b"},
+                ]
+            }
         )
         r = _call(ts, {INSTANCE_PARAM_NAME: "zzz"})
         assert r.status is StructuredToolResultStatus.ERROR
@@ -166,10 +174,12 @@ class TestMultiShape:
 
     def test_list_instances_returns_summaries(self):
         ts = _wrap(
-            {"instances": [
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]}
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a"},
+                    {"name": "b", "api_url": "http://b"},
+                ]
+            }
         )
         tool = next(t for t in ts.tools if isinstance(t, ListInstancesTool))
         r = tool._invoke({}, create_mock_tool_invoke_context())
@@ -179,10 +189,12 @@ class TestMultiShape:
     def test_duplicate_names_rejected(self):
         ts = multi_instance(_FakeToolset)
         ok, msg = ts.prerequisites_callable(
-            {"instances": [
-                {"name": "dup", "api_url": "http://a"},
-                {"name": "dup", "api_url": "http://b"},
-            ]}
+            {
+                "instances": [
+                    {"name": "dup", "api_url": "http://a"},
+                    {"name": "dup", "api_url": "http://b"},
+                ]
+            }
         )
         assert ok is False
         assert "Duplicate instance name" in msg
@@ -202,7 +214,12 @@ class TestGlobalFallthrough:
             {
                 "api_key": "GLOBAL",
                 "instances": [
-                    {"name": "a", "api_url": "http://a", "username": "u", "password": "p"},
+                    {
+                        "name": "a",
+                        "api_url": "http://a",
+                        "username": "u",
+                        "password": "p",
+                    },
                 ],
             }
         )
@@ -232,15 +249,17 @@ class TestOfflineInstances:
     def _wrap_one_bad(self):
         # "good" is healthy; "bad" has no api_url -> fails prereqs -> offline.
         return _wrap(
-            {"instances": [
-                {"name": "good", "api_url": "http://good"},
-                {"name": "bad"},
-            ]}
+            {
+                "instances": [
+                    {"name": "good", "api_url": "http://good"},
+                    {"name": "bad"},
+                ]
+            }
         )
 
     def test_offline_instance_not_routable(self):
         ts = self._wrap_one_bad()
-        assert list(ts._children) == ["good"]            # only healthy is routable
+        assert list(ts._children) == ["good"]  # only healthy is routable
         assert "bad" in ts._offline_instances
 
     def test_param_and_list_tool_present_despite_offline(self):
@@ -268,10 +287,12 @@ class TestOfflineInstances:
 class TestInstanceStampAndMeta:
     def test_result_stamped_with_instance_when_multi(self):
         ts = _wrap(
-            {"instances": [
-                {"name": "a", "api_url": "http://a"},
-                {"name": "b", "api_url": "http://b"},
-            ]}
+            {
+                "instances": [
+                    {"name": "a", "api_url": "http://a"},
+                    {"name": "b", "api_url": "http://b"},
+                ]
+            }
         )
         r = _call(ts, {INSTANCE_PARAM_NAME: "b"})
         assert r.params[INSTANCE_PARAM_NAME] == "b"
@@ -289,10 +310,12 @@ class TestInstanceStampAndMeta:
 
     def test_meta_instances_published(self):
         ts = _wrap(
-            {"instances": [
-                {"name": "good", "api_url": "http://good"},
-                {"name": "bad"},
-            ]}
+            {
+                "instances": [
+                    {"name": "good", "api_url": "http://good"},
+                    {"name": "bad"},
+                ]
+            }
         )
         by_name = {i["name"]: i for i in ts.meta["instances"]}
         assert by_name["good"]["healthy"] is True
@@ -336,10 +359,12 @@ class TestLlmInstructionsPropagation:
     def test_runtime_instructions_labelled_per_instance_when_multi(self):
         ts = multi_instance(_RuntimeInstructionsToolset)
         ts.prerequisites_callable(
-            {"instances": [
-                {"name": "eu", "api_url": "http://eu"},
-                {"name": "us", "api_url": "http://us"},
-            ]}
+            {
+                "instances": [
+                    {"name": "eu", "api_url": "http://eu"},
+                    {"name": "us", "api_url": "http://us"},
+                ]
+            }
         )
         assert "### Instance `eu`" in ts.llm_instructions
         assert "Base URL: http://eu" in ts.llm_instructions
@@ -357,10 +382,12 @@ class TestLlmInstructionsPropagation:
     def test_offline_instances_contribute_no_instructions(self):
         ts = multi_instance(_RuntimeInstructionsToolset)
         ts.prerequisites_callable(
-            {"instances": [
-                {"name": "good", "api_url": "http://good"},
-                {"name": "bad"},
-            ]}
+            {
+                "instances": [
+                    {"name": "good", "api_url": "http://good"},
+                    {"name": "bad"},
+                ]
+            }
         )
         assert "http://good" in ts.llm_instructions
         assert "bad" not in ts.llm_instructions

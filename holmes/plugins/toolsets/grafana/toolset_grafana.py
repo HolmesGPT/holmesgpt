@@ -264,7 +264,9 @@ class BaseGrafanaTool(Tool, ABC):
         try:
             response = _do_request()
         except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code if e.response is not None else "unknown"
+            status_code = (
+                e.response.status_code if e.response is not None else "unknown"
+            )
             body = e.response.text[:1000] if e.response is not None else ""
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,

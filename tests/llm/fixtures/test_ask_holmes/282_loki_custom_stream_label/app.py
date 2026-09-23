@@ -38,9 +38,7 @@ warns = [
     "Slow database response from orders_db (1.2s)",
     "Rate limiter near threshold for /v1/checkout",
 ]
-infos = [
-    f"Checkout flow completed for cart {i}" for i in range(1, 11)
-]
+infos = [f"Checkout flow completed for cart {i}" for i in range(1, 11)]
 
 for msg in errors:
     emit("ERROR", msg)

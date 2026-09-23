@@ -12,10 +12,16 @@ import yaml
 
 from holmes.core.tools import ToolsetType
 from holmes.plugins.toolsets import load_toolsets_from_config
-from holmes.plugins.toolsets.mcp.toolset_mcp import MCPMode, RemoteMCPToolset, StdioMCPConfig
+from holmes.plugins.toolsets.mcp.toolset_mcp import (
+    MCPMode,
+    RemoteMCPToolset,
+    StdioMCPConfig,
+)
 
 
-def _prepare_mcp_servers(mcp_servers: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def _prepare_mcp_servers(
+    mcp_servers: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
     """Simulate ToolsetManager preprocessing: set type=mcp and enabled=true.
 
     In the real codebase, ToolsetManager and load_toolsets_from_file inject
@@ -57,7 +63,10 @@ def test_load_aws_mcp_stdio_config():
     toolset = definitions[0]
     assert isinstance(toolset, RemoteMCPToolset)
     assert toolset.name == "aws_api"
-    assert toolset.description == "AWS API - execute AWS CLI commands for investigating infrastructure issues"
+    assert (
+        toolset.description
+        == "AWS API - execute AWS CLI commands for investigating infrastructure issues"
+    )
     assert "CloudTrail" in toolset.llm_instructions
 
 
@@ -299,4 +308,3 @@ def test_mcp_config_preserves_multiline_llm_instructions():
     assert "CloudTrail" in toolset.llm_instructions
     assert "CloudWatch" in toolset.llm_instructions
     assert "1. Gather current resource state" in toolset.llm_instructions
-

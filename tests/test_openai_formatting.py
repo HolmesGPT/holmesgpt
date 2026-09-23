@@ -1,8 +1,10 @@
 import pytest
 
-from holmes.core.openai_formatting import type_to_open_ai_schema, format_tool_to_open_ai_standard
+from holmes.core.openai_formatting import (
+    format_tool_to_open_ai_standard,
+    type_to_open_ai_schema,
+)
 from holmes.core.tools import ToolParameter
-
 from tests.mocks.toolset_mocks import DummyTool
 
 
@@ -118,7 +120,9 @@ def test_format_tool_no_strict_for_dynamic_keys(monkeypatch):
 
 
 def test_format_tool_disabled_via_env(monkeypatch):
-    monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", False)
+    monkeypatch.setattr(
+        "holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", False
+    )
     params = {
         "query": ToolParameter(type="string", required=True, description="The query"),
     }
@@ -134,7 +138,9 @@ class TestParameterCoercion:
         return DummyTool(parameters=parameters)
 
     def test_coerce_stringified_array(self):
-        tool = self._make_tool({"metrics": ToolParameter(type="array", items=ToolParameter(type="string"))})
+        tool = self._make_tool(
+            {"metrics": ToolParameter(type="array", items=ToolParameter(type="string"))}
+        )
         result = tool._coerce_params({"metrics": '["cpu", "memory"]'})
         assert result["metrics"] == ["cpu", "memory"]
 

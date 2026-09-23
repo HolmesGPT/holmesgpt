@@ -1,10 +1,8 @@
 # type: ignore
 import os
 import subprocess
-from typing import Any, Dict, List
+from typing import Dict, List
 from unittest.mock import Mock, call, patch
-
-import pytest
 
 from holmes.core.tools import (
     CallablePrerequisite,

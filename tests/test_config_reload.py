@@ -141,6 +141,7 @@ class TestReloadModels:
 
     def test_resets_model_registry(self, config):
         """After reload, a fresh LLMModelRegistry instance is created."""
+
         def make_registry(*_args, **_kwargs):
             r = MagicMock()
             r.models = {"gpt-4": MagicMock()}
@@ -228,7 +229,9 @@ class TestAdminEndpoints:
     @patch("holmes.config.Config.get_skill_catalog", return_value=None)
     @patch("holmes.config.Config.reload_toolsets")
     @patch("holmes.config.Config.create_tool_executor")
-    def test_reload_toolsets_endpoint(self, mock_create, mock_reload, _mock_catalog, client):
+    def test_reload_toolsets_endpoint(
+        self, mock_create, mock_reload, _mock_catalog, client
+    ):
         """POST /reload/toolsets returns 200 with toolset and skill counts."""
         mock_reload.return_value = {"reloaded": True}
         mock_toolset = MagicMock()

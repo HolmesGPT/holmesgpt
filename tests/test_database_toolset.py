@@ -10,14 +10,14 @@ from pydantic import ValidationError
 sqlalchemy = pytest.importorskip("sqlalchemy")
 
 from holmes.plugins.toolsets.database.database import (  # noqa: E402
-    DatabaseConfig,
-    DatabaseSubtype,
-    DatabaseToolset,
     _DEFAULT_DATABASE_ICON_URL,
     _READONLY_PATTERN,
     _SUBTYPE_ICON_URLS,
     _WRITE_ANYWHERE_PATTERN,
     _WRITE_PATTERN,
+    DatabaseConfig,
+    DatabaseSubtype,
+    DatabaseToolset,
     _detect_subtype,
     _icon_url_for_subtype,
     _lookup_driver_info,
@@ -273,8 +273,7 @@ class TestSubtypeIcons:
 
     def test_icon_for_subtype_falls_back_for_unknown(self):
         assert (
-            _icon_url_for_subtype(DatabaseSubtype.UNKNOWN)
-            == _DEFAULT_DATABASE_ICON_URL
+            _icon_url_for_subtype(DatabaseSubtype.UNKNOWN) == _DEFAULT_DATABASE_ICON_URL
         )
 
     @pytest.mark.parametrize("subtype", ["mssql", "mysql", "mariadb", "postgresql"])
@@ -458,19 +457,31 @@ class TestToolOneLiners:
 
 class TestDetectSubtype:
     def test_postgresql(self):
-        assert _detect_subtype("postgresql://user:pass@host/db") == DatabaseSubtype.POSTGRESQL
+        assert (
+            _detect_subtype("postgresql://user:pass@host/db")
+            == DatabaseSubtype.POSTGRESQL
+        )
 
     def test_postgres_short(self):
-        assert _detect_subtype("postgres://user:pass@host/db") == DatabaseSubtype.POSTGRESQL
+        assert (
+            _detect_subtype("postgres://user:pass@host/db")
+            == DatabaseSubtype.POSTGRESQL
+        )
 
     def test_mysql(self):
         assert _detect_subtype("mysql://user:pass@host/db") == DatabaseSubtype.MYSQL
 
     def test_mysql_pymysql(self):
-        assert _detect_subtype("mysql+pymysql://user:pass@host/db") == DatabaseSubtype.MYSQL
+        assert (
+            _detect_subtype("mysql+pymysql://user:pass@host/db")
+            == DatabaseSubtype.MYSQL
+        )
 
     def test_mysql_mysqldb(self):
-        assert _detect_subtype("mysql+mysqldb://user:pass@host/db") == DatabaseSubtype.MYSQL
+        assert (
+            _detect_subtype("mysql+mysqldb://user:pass@host/db")
+            == DatabaseSubtype.MYSQL
+        )
 
     def test_mariadb(self):
         assert _detect_subtype("mariadb://user:pass@host/db") == DatabaseSubtype.MARIADB
@@ -479,19 +490,30 @@ class TestDetectSubtype:
         assert _detect_subtype("mssql://user:pass@host/db") == DatabaseSubtype.MSSQL
 
     def test_mssql_pytds(self):
-        assert _detect_subtype("mssql+pytds://user:pass@host/db") == DatabaseSubtype.MSSQL
+        assert (
+            _detect_subtype("mssql+pytds://user:pass@host/db") == DatabaseSubtype.MSSQL
+        )
 
     def test_mssql_pymssql(self):
-        assert _detect_subtype("mssql+pymssql://user:pass@host/db") == DatabaseSubtype.MSSQL
+        assert (
+            _detect_subtype("mssql+pymssql://user:pass@host/db")
+            == DatabaseSubtype.MSSQL
+        )
 
     def test_sqlite(self):
         assert _detect_subtype("sqlite:///path/to/db") == DatabaseSubtype.SQLITE
 
     def test_clickhouse(self):
-        assert _detect_subtype("clickhouse://user:pass@host/db") == DatabaseSubtype.CLICKHOUSE
+        assert (
+            _detect_subtype("clickhouse://user:pass@host/db")
+            == DatabaseSubtype.CLICKHOUSE
+        )
 
     def test_unknown_cockroachdb(self):
-        assert _detect_subtype("cockroachdb://user:pass@host/db") == DatabaseSubtype.UNKNOWN
+        assert (
+            _detect_subtype("cockroachdb://user:pass@host/db")
+            == DatabaseSubtype.UNKNOWN
+        )
 
     def test_unknown_oracle(self):
         assert _detect_subtype("oracle://user:pass@host/db") == DatabaseSubtype.UNKNOWN
@@ -583,7 +605,5 @@ class TestDatabaseToolsetMeta:
     def test_meta_updated_after_prerequisites(self):
         toolset = DatabaseToolset()
         assert toolset.meta == {"type": "database", "subtype": "unknown"}
-        toolset.prerequisites_callable(
-            {"connection_url": "sqlite:///path/to/db"}
-        )
+        toolset.prerequisites_callable({"connection_url": "sqlite:///path/to/db"})
         assert toolset.meta == {"type": "database", "subtype": "sqlite"}

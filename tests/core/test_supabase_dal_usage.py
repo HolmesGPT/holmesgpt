@@ -85,23 +85,25 @@ class TestRecordUsageEvent:
         mock_dal.client.table.assert_not_called()
 
     def test_inserts_row_with_correct_payload(self, mock_dal):
-        mock_dal.record_usage_event(_make_state(
-            request_type="user_chat",
-            request_source="freeform",
-            source_ref="issue-42",
-            conversation_id="conv-abc",
-            conversation_source="chat_history",
-            model="anthropic/claude-sonnet-4-5",
-            provider="anthropic",
-            is_robusta_model=False,
-            iterations=3,
-            tool_call_count=5,
-            is_streaming=True,
-            finish_reason="stop",
-            user_id="user-xyz",
-            request_id="req-uuid-123",
-            meta={"experiment_id": "abc"},
-        ))
+        mock_dal.record_usage_event(
+            _make_state(
+                request_type="user_chat",
+                request_source="freeform",
+                source_ref="issue-42",
+                conversation_id="conv-abc",
+                conversation_source="chat_history",
+                model="anthropic/claude-sonnet-4-5",
+                provider="anthropic",
+                is_robusta_model=False,
+                iterations=3,
+                tool_call_count=5,
+                is_streaming=True,
+                finish_reason="stop",
+                user_id="user-xyz",
+                request_id="req-uuid-123",
+                meta={"experiment_id": "abc"},
+            )
+        )
 
         # client.table(<table>).insert(<payload>).execute()
         mock_dal.client.table.assert_called_once_with(HOLMES_USAGE_EVENTS_TABLE)
@@ -122,7 +124,7 @@ class TestRecordUsageEvent:
         assert payload["request_type"] == "user_chat"
         assert payload["request_source"] == "freeform"
         assert payload["source_ref"] == "issue-42"
-        assert payload["status"] == "success"   # default on the state
+        assert payload["status"] == "success"  # default on the state
         assert payload["model"] == "anthropic/claude-sonnet-4-5"
         assert payload["provider"] == "anthropic"
         assert payload["is_robusta_model"] is False
@@ -150,7 +152,7 @@ class TestRecordUsageEvent:
         assert payload["meta"] == {"experiment_id": "abc"}
 
     def test_falls_back_to_dal_cluster_when_cluster_id_not_supplied(self, mock_dal):
-        mock_dal.record_usage_event(_make_state())   # cluster_id left None
+        mock_dal.record_usage_event(_make_state())  # cluster_id left None
         payload = mock_dal.client.table.return_value.insert.call_args.args[0]
         assert payload["cluster_id"] == "test-cluster"
 

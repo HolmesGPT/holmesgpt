@@ -287,8 +287,7 @@ class TestIsAzureConfig:
     ):
         with caplog.at_level(logging.WARNING):
             assert (
-                AzurePrometheusConfig.is_azure_config({"azure_client_id": "x"})
-                is False
+                AzurePrometheusConfig.is_azure_config({"azure_client_id": "x"}) is False
             )
         assert "Partial Azure" in caplog.text
 

@@ -43,7 +43,9 @@ def test_convert_notion_url(fetch_notion_tool):
 
     # URL with query parameters should still be parsed correctly
     notion_url_with_params = f"{notion_url}?source=copy_link"
-    assert fetch_notion_tool.convert_notion_url(notion_url_with_params) == expected_api_url
+    assert (
+        fetch_notion_tool.convert_notion_url(notion_url_with_params) == expected_api_url
+    )
 
     api_url = "https://api.notion.com/v1/blocks/1234/children"
     assert (
@@ -120,16 +122,18 @@ def test_convert_notion_url_rejects_non_hex(fetch_notion_tool):
 
 def test_invoke_rejects_non_notion_host(fetch_notion_tool):
     """SSRF guard: never send Notion auth header to arbitrary hosts."""
-    with patch(
-        "holmes.plugins.toolsets.internet.notion.scrape"
-    ) as mock_scrape:
+    with patch("holmes.plugins.toolsets.internet.notion.scrape") as mock_scrape:
         result = fetch_notion_tool._invoke(
             {"url": "https://attacker.example.com/steal"},
             context=MagicMock(),
         )
     assert result.status == StructuredToolResultStatus.ERROR
     assert "attacker.example.com" in result.error
-    assert "Refusing" in result.error or "not allowed" in result.error.lower() or "allowed" in result.error.lower()
+    assert (
+        "Refusing" in result.error
+        or "not allowed" in result.error.lower()
+        or "allowed" in result.error.lower()
+    )
     # Critical: scrape() must NOT have been called — no header leak possible.
     mock_scrape.assert_not_called()
 

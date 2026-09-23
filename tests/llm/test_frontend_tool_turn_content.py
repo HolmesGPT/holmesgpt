@@ -20,7 +20,9 @@ def _assistant(content, *tool_names):
 def test_content_beside_frontend_tool_is_recovered():
     messages = [_assistant("The pod OOMed.", "SuggestSkills")]
 
-    output = join_frontend_tool_turn_content("Let me know if you want more.", messages, FRONTEND)
+    output = join_frontend_tool_turn_content(
+        "Let me know if you want more.", messages, FRONTEND
+    )
 
     assert "The pod OOMed." in output
     assert "Let me know if you want more." in output
@@ -64,7 +66,18 @@ def test_multiple_frontend_turns_keep_their_order():
 
 
 def test_missing_messages_falls_back_to_final_answer():
-    assert join_frontend_tool_turn_content("The pod OOMed.", None, FRONTEND) == "The pod OOMed."
-    assert join_frontend_tool_turn_content("The pod OOMed.", [], FRONTEND) == "The pod OOMed."
-    assert join_frontend_tool_turn_content("The pod OOMed.", [_assistant("x", "SuggestSkills")], None) == "The pod OOMed."
+    assert (
+        join_frontend_tool_turn_content("The pod OOMed.", None, FRONTEND)
+        == "The pod OOMed."
+    )
+    assert (
+        join_frontend_tool_turn_content("The pod OOMed.", [], FRONTEND)
+        == "The pod OOMed."
+    )
+    assert (
+        join_frontend_tool_turn_content(
+            "The pod OOMed.", [_assistant("x", "SuggestSkills")], None
+        )
+        == "The pod OOMed."
+    )
     assert join_frontend_tool_turn_content(None, None, FRONTEND) == ""

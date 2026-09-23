@@ -7,7 +7,10 @@ import pytest
 from requests.exceptions import HTTPError, RequestException  # type: ignore
 
 from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
-from holmes.plugins.toolsets.grafana.grafana_tempo_api import GrafanaTempoAPI, TempoAPIError
+from holmes.plugins.toolsets.grafana.grafana_tempo_api import (
+    GrafanaTempoAPI,
+    TempoAPIError,
+)
 
 # Test constants
 TEST_SERVICE_NAME = "checkout-service"

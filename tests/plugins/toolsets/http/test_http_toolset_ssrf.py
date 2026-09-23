@@ -460,7 +460,9 @@ def test_redirect_to_endpoint_disallowing_the_method_is_refused(responses):
         status=307,
         headers={"Location": "https://readonly.example.com/write"},
     )
-    register_trap(responses, "https://readonly.example.com/write", method="POST", body="written")
+    register_trap(
+        responses, "https://readonly.example.com/write", method="POST", body="written"
+    )
 
     tool = build_tool(
         methods=["GET", "POST"],
@@ -552,7 +554,9 @@ def test_internal_ips_reachable_by_default(monkeypatch, responses):
     """Whitelisted in-cluster endpoints must keep working out of the box —
     `block_internal_ips` defaults to False for exactly this reason."""
     internal_dns(monkeypatch, "10.0.0.5")
-    responses.get("http://prometheus.monitoring.svc:9090/-/healthy", status=200, body="ok")
+    responses.get(
+        "http://prometheus.monitoring.svc:9090/-/healthy", status=200, body="ok"
+    )
 
     tool = build_tool(hosts=["prometheus.monitoring.svc:9090"])
     result = tool._invoke(

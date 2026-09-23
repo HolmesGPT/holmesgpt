@@ -1,5 +1,3 @@
-import yaml
-
 from holmes.config import Config
 
 

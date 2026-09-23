@@ -42,7 +42,9 @@ def _log_task_exception(task: asyncio.Task) -> None:
         return
     exc = task.exception()
     if exc is not None:
-        logger.error(f"Trigger background task raised an exception: {exc}", exc_info=exc)
+        logger.error(
+            f"Trigger background task raised an exception: {exc}", exc_info=exc
+        )
 
 
 def track_task(task: asyncio.Task) -> None:

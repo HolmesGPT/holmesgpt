@@ -62,7 +62,11 @@ def extract_denied_commands(tool_calls: Any) -> List[str]:
         if result is None or not _is_denied_result(result):
             continue
         params = getattr(result, "params", None) or {}
-        command = getattr(result, "invocation", None) or params.get("command") or getattr(tc, "description", None)
+        command = (
+            getattr(result, "invocation", None)
+            or params.get("command")
+            or getattr(tc, "description", None)
+        )
         if command:
             denied.append(str(command))
     return denied

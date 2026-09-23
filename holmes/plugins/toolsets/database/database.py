@@ -10,6 +10,7 @@ from urllib.parse import quote, unquote, urlparse
 
 import certifi
 import requests
+import sqlalchemy
 from pydantic import ConfigDict, Field, model_validator
 
 from holmes.core.tools import (
@@ -25,8 +26,6 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
-
-import sqlalchemy
 
 logger = logging.getLogger(__name__)
 

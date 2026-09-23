@@ -75,7 +75,10 @@ class TestAlertsReachTheSkill:
         """The filter only fires with an alert context, so in chat the description is the
         only signal to the model that a skill is alert-specific."""
         instr = RobustaSkillInstruction(
-            id="u1", symptom="pods restart", title="Crashloop", alerts=[ALERT_A, ALERT_B]
+            id="u1",
+            symptom="pods restart",
+            title="Crashloop",
+            alerts=[ALERT_A, ALERT_B],
         )
         desc = map_robusta_instruction_to_skill(instr).description
         assert ALERT_A in desc and ALERT_B in desc
@@ -91,9 +94,7 @@ class TestAlertsReachTheSkill:
 
 class TestAlertFilteringInTheCatalog:
     def _scoped(self, id_, title, alerts):
-        return RobustaSkillInstruction(
-            id=id_, symptom="s", title=title, alerts=alerts
-        )
+        return RobustaSkillInstruction(id=id_, symptom="s", title=title, alerts=alerts)
 
     def test_alert_context_drops_skills_scoped_to_other_alerts(self):
         dal = _dal(

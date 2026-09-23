@@ -220,9 +220,7 @@ class TestPendingQueue:
             mock_k8s_api,
             trigger_name="verify-rollouts",
             namespace="prod",
-            entries=[
-                {"deployment": "checkout", "fireAt": "2999-01-01T00:00:00+00:00"}
-            ],
+            entries=[{"deployment": "checkout", "fireAt": "2999-01-01T00:00:00+00:00"}],
         )
 
         patched = mock_k8s_api.patch_namespaced_custom_object_status.call_args[1][
@@ -272,13 +270,15 @@ class TestSpawnCheck:
         owner = hc["metadata"]["ownerReferences"][0]
         assert owner["kind"] == "TriggeredHealthCheck"
         assert owner["uid"] == "thc-uid-1"
-        assert hc["metadata"]["labels"]["holmesgpt.dev/triggered-by"] == "verify-rollouts"
+        assert (
+            hc["metadata"]["labels"]["holmesgpt.dev/triggered-by"] == "verify-rollouts"
+        )
 
         # Status recorded the trigger (history + cooldown + counters)
         mock_k8s_api.patch_namespaced_custom_object_status.assert_called()
-        status = mock_k8s_api.patch_namespaced_custom_object_status.call_args[1]["body"][
-            "status"
-        ]
+        status = mock_k8s_api.patch_namespaced_custom_object_status.call_args[1][
+            "body"
+        ]["status"]
         assert status["lastTriggerDeployment"] == "checkout"
         assert status["triggerCount"] == 1
         assert status["history"][0]["checkName"].startswith("verify-rollouts-")

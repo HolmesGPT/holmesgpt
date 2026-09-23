@@ -31,9 +31,12 @@ if TYPE_CHECKING:
     from holmes.config import Config
     from holmes.core.supabase_dal import SupabaseDal
 
-ChatFunction = Callable[[ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]]
+ChatFunction = Callable[
+    [ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]
+]
 
 ADDITIONAL_SYSTEM_PROMPT_URL = f"{ROBUSTA_UI_DOMAIN}/api/additional-system-prompt.json"
+
 
 class ScheduledPromptsExecutor:
     def __init__(

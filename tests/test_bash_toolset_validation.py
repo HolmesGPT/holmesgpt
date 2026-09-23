@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset, RunBashCommand
+from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,
@@ -144,7 +144,9 @@ class TestParseCommandSegments:
 
     def test_multiple_pipes(self):
         """Test parsing multiple pipes."""
-        segments, has_compound = parse_command_segments("kubectl get pods | grep error | head -10")
+        segments, has_compound = parse_command_segments(
+            "kubectl get pods | grep error | head -10"
+        )
         assert segments == ["kubectl get pods", "grep error", "head -10"]
         assert not has_compound
 
@@ -156,7 +158,9 @@ class TestParseCommandSegments:
 
     def test_or_operator(self):
         """Test parsing || operator."""
-        segments, has_compound = parse_command_segments("test -f file.txt || touch file.txt")
+        segments, has_compound = parse_command_segments(
+            "test -f file.txt || touch file.txt"
+        )
         assert segments == ["test -f file.txt", "touch file.txt"]
         assert not has_compound
 
@@ -181,14 +185,18 @@ class TestParseCommandSegments:
 
     def test_for_loop_extracts_inner_segments(self):
         """For loop returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments('for i in 1 2 3; do echo "$i"; done')
+        segments, has_compound = parse_command_segments(
+            'for i in 1 2 3; do echo "$i"; done'
+        )
         assert has_compound
         assert len(segments) > 0
         assert any("echo" in s for s in segments)
 
     def test_if_statement_extracts_inner_segments(self):
         """If statement returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments("if [ -f file ]; then cat file; fi")
+        segments, has_compound = parse_command_segments(
+            "if [ -f file ]; then cat file; fi"
+        )
         assert has_compound
         assert len(segments) > 0
 
@@ -238,39 +246,78 @@ class TestCheckBlockedInRawCommand:
 
     def test_sudo_in_compound_detected(self):
         """Test that sudo inside a compound command is detected."""
-        assert check_blocked_in_raw_command("for i in 1 2; do sudo echo $i; done", HARDCODED_BLOCKS) == "sudo"
+        assert (
+            check_blocked_in_raw_command(
+                "for i in 1 2; do sudo echo $i; done", HARDCODED_BLOCKS
+            )
+            == "sudo"
+        )
 
     def test_su_in_compound_detected(self):
         """Test that su inside a compound command is detected."""
-        assert check_blocked_in_raw_command("if true; then su - root; fi", HARDCODED_BLOCKS) == "su"
+        assert (
+            check_blocked_in_raw_command(
+                "if true; then su - root; fi", HARDCODED_BLOCKS
+            )
+            == "su"
+        )
 
     def test_sudo_in_subshell_detected(self):
         """Test that sudo inside a subshell is detected."""
-        assert check_blocked_in_raw_command("echo $(sudo whoami)", HARDCODED_BLOCKS) == "sudo"
+        assert (
+            check_blocked_in_raw_command("echo $(sudo whoami)", HARDCODED_BLOCKS)
+            == "sudo"
+        )
 
     def test_normal_compound_not_blocked(self):
         """Test that normal compound commands are not blocked."""
-        assert check_blocked_in_raw_command("for i in 1 2 3; do echo $i; done", HARDCODED_BLOCKS) is None
+        assert (
+            check_blocked_in_raw_command(
+                "for i in 1 2 3; do echo $i; done", HARDCODED_BLOCKS
+            )
+            is None
+        )
 
     def test_no_false_positives_from_substring(self):
         """Test that words containing 'su' as substring are NOT blocked."""
-        assert check_blocked_in_raw_command("for f in issue result; do echo $f; done", HARDCODED_BLOCKS) is None
+        assert (
+            check_blocked_in_raw_command(
+                "for f in issue result; do echo $f; done", HARDCODED_BLOCKS
+            )
+            is None
+        )
         assert check_blocked_in_raw_command("echo sum", HARDCODED_BLOCKS) is None
 
     def test_case_insensitive(self):
         """Test that blocking is case-insensitive."""
-        assert check_blocked_in_raw_command("for i in 1; do SUDO echo $i; done", HARDCODED_BLOCKS) == "sudo"
+        assert (
+            check_blocked_in_raw_command(
+                "for i in 1; do SUDO echo $i; done", HARDCODED_BLOCKS
+            )
+            == "sudo"
+        )
 
     def test_deny_list_pattern_detected(self):
         """Test that deny list patterns are detected in raw commands."""
         deny_list = ["kubectl get secret", "rm"]
-        assert check_blocked_in_raw_command("case $x in 1) kubectl get secret;; esac", deny_list) == "kubectl get secret"
-        assert check_blocked_in_raw_command("case $x in 1) rm -rf /tmp;; esac", deny_list) == "rm"
+        assert (
+            check_blocked_in_raw_command(
+                "case $x in 1) kubectl get secret;; esac", deny_list
+            )
+            == "kubectl get secret"
+        )
+        assert (
+            check_blocked_in_raw_command("case $x in 1) rm -rf /tmp;; esac", deny_list)
+            == "rm"
+        )
 
     def test_deny_list_no_false_positives(self):
         """Test that deny list scanning doesn't have false positives from substrings."""
         deny_list = ["rm"]
-        assert check_blocked_in_raw_command("case $x in 1) echo format;; esac", deny_list) is None
+        assert (
+            check_blocked_in_raw_command("case $x in 1) echo format;; esac", deny_list)
+            is None
+        )
 
 
 class TestGetEffectiveLists:
@@ -868,7 +915,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Command contains complex syntax which requires approval."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
         assert result.prefixes_needing_approval == []
 
     # ==================== Subshells: validated via segment checking ====================
@@ -948,7 +997,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert "Segment(s) not in allow list: 'cat file1', 'cat file2'" in result.message
+        assert (
+            "Segment(s) not in allow list: 'cat file1', 'cat file2'" in result.message
+        )
 
     # ==================== STILL BLOCKED: Hardcoded blocks inside scripts ====================
 
@@ -1058,7 +1109,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Command contains complex syntax which requires approval."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
 
 
 # ==================== Integration: requires_approval prefixes_to_save ====================
@@ -1116,7 +1169,9 @@ class TestRequiresApprovalPrefixesToSave:
         assert result.needs_approval is True
         assert result.prefixes_to_save == ["mycustomtool"]
 
-    def test_piped_command_with_unapproved_segment_saves_only_unapproved(self, tool, context):
+    def test_piped_command_with_unapproved_segment_saves_only_unapproved(
+        self, tool, context
+    ):
         """Piped command where one segment is unapproved saves only the unapproved prefix."""
         params = {
             "command": "echo hello | mycustomtool --process",

@@ -218,7 +218,9 @@ def _pinned_connection_classes(pinned_ip: str):
         finally:
             self._dns_host = real_host
 
-    pinned_http = type("PinnedHTTPConnection", (HTTPConnection,), {"_new_conn": _new_conn})
+    pinned_http = type(
+        "PinnedHTTPConnection", (HTTPConnection,), {"_new_conn": _new_conn}
+    )
     pinned_https = type(
         "PinnedHTTPSConnection", (HTTPSConnection,), {"_new_conn": _new_conn}
     )

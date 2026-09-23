@@ -17,21 +17,10 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from pydantic import ConfigDict
 
-from holmes.core.tools import (
-    StructuredToolResult,
-    StructuredToolResultStatus,
-    Tool,
-    ToolInvokeContext,
-    Toolset,
-    ToolsetStatusEnum,
-    ToolsetTag,
-)
-from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.oauth_config import (
     MCPOAuthConfig,
     OAuthDecisionCode,
     OAuthEndpoints,
-    OAuthExchangeManager,
     OAuthTokenExchangeError,
     _get_exchange_manager,
     exchange_code_for_tokens,
@@ -43,10 +32,25 @@ from holmes.core.oauth_utils import (
     cli_oauth_flow,
     generate_pkce,
 )
-from holmes.plugins.toolsets.mcp.oauth_token_manager import OAuthTokenManager
-from holmes.plugins.toolsets.mcp.oauth_token_manager import _get_user_id
-from holmes.plugins.toolsets.mcp.oauth_token_store import _CachedToken
-from holmes.plugins.toolsets.mcp.oauth_token_store import DiskTokenStore, OAuthTokenCache
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    Tool,
+    ToolInvokeContext,
+    Toolset,
+    ToolsetStatusEnum,
+    ToolsetTag,
+)
+from holmes.core.tools_utils.tool_executor import ToolExecutor
+from holmes.plugins.toolsets.mcp.oauth_token_manager import (
+    OAuthTokenManager,
+    _get_user_id,
+)
+from holmes.plugins.toolsets.mcp.oauth_token_store import (
+    DiskTokenStore,
+    OAuthTokenCache,
+    _CachedToken,
+)
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
@@ -161,7 +165,9 @@ class TestOAuthTokenCache:
         cache = OAuthTokenCache()
         # Set with 0 expires_in — the code does max(expires_in - 30, 10) so minimum is 10s
         # Instead, directly manipulate the cache entry to test expiry
-        cache.set("conv-exp", "token-abc", expires_in=31)  # will be 1 second after buffer
+        cache.set(
+            "conv-exp", "token-abc", expires_in=31
+        )  # will be 1 second after buffer
         # Manually expire it
         cache._cache["conv-exp"].expires_at = time.monotonic() - 1
         cache._cache["conv-exp"].refresh_expires_at = time.monotonic() - 1
@@ -174,7 +180,6 @@ class TestOAuthTokenCache:
         cache.set("conv-2", "token-2", expires_in=60)
         assert cache.get_valid_access_token("conv-1") == "token-1"
         assert cache.get_valid_access_token("conv-2") == "token-2"
-
 
 
 class TestRequiresApproval:
@@ -196,7 +201,10 @@ class TestRequiresApproval:
         ctx = MagicMock()
         ctx.user_approved = False
         ctx.tool_call_id = tool_call_id
-        ctx.request_context = {"user_id": "test-user", "headers": {"X-Conversation-Id": conv_id}}
+        ctx.request_context = {
+            "user_id": "test-user",
+            "headers": {"X-Conversation-Id": conv_id},
+        }
         return ctx
 
     def test_requires_approval_with_oauth_metadata(self):
@@ -293,10 +301,17 @@ class TestExchangeCodeForToken:
         }
         mock_response.raise_for_status = MagicMock()
 
-        request_context = {"user_id": "test-user", "headers": {"X-Conversation-Id": conv_id}}
+        request_context = {
+            "user_id": "test-user",
+            "headers": {"X-Conversation-Id": conv_id},
+        }
 
-        with patch("holmes.core.oauth_utils.httpx.post", return_value=mock_response) as mock_post:
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        with patch(
+            "holmes.core.oauth_utils.httpx.post", return_value=mock_response
+        ) as mock_post:
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, request_context
+            )
 
             # Verify token endpoint was called correctly
             mock_post.assert_called_once()
@@ -311,7 +326,10 @@ class TestExchangeCodeForToken:
 
         # Verify token was cached using the real cache key
         cache_key = _get_token_manager().get_cache_key(oauth_config, request_context)
-        assert _get_token_manager().cache.get_valid_access_token(cache_key) == "final-access-token-abc"
+        assert (
+            _get_token_manager().cache.get_valid_access_token(cache_key)
+            == "final-access-token-abc"
+        )
 
         # Pending exchange should be consumed
         assert tool_call_id not in _get_exchange_manager()._pending
@@ -354,7 +372,9 @@ class TestExchangeCodeForToken:
         mock_store = MagicMock()
         _get_token_manager()._store = mock_store
         with patch("holmes.core.oauth_utils.httpx.post", return_value=mock_response):
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, request_context
+            )
 
             mock_store.store_token.assert_called_once()
             args, kwargs = mock_store.store_token.call_args
@@ -520,21 +540,30 @@ class TestResourceIndicator:
 
     def test_build_authorization_url_includes_resource(self):
         url = build_authorization_url(
-            "http://idp/authorize", "cid", "http://cb", "chal", "state1",
+            "http://idp/authorize",
+            "cid",
+            "http://cb",
+            "chal",
+            "state1",
             resource="http://mcp-server:8000/mcp",
         )
         params = parse_qs(urlparse(url).query)
         assert params["resource"] == ["http://mcp-server:8000/mcp"]
 
     def test_build_authorization_url_omits_resource_when_absent(self):
-        url = build_authorization_url("http://idp/authorize", "cid", "http://cb", "chal", "state1")
+        url = build_authorization_url(
+            "http://idp/authorize", "cid", "http://cb", "chal", "state1"
+        )
         params = parse_qs(urlparse(url).query)
         assert "resource" not in params
 
     # ── Token exchange ─────────────────────────────────────────────────
 
     def test_exchange_includes_resource(self):
-        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
+        with patch(
+            "holmes.core.oauth_config.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
             exchange_code_for_tokens(
                 token_url="http://idp/token",
                 code="c",
@@ -546,7 +575,10 @@ class TestResourceIndicator:
         assert post_data["resource"] == "http://mcp-server:8000/mcp"
 
     def test_exchange_omits_resource_when_absent(self):
-        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
+        with patch(
+            "holmes.core.oauth_config.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
             exchange_code_for_tokens(
                 token_url="http://idp/token",
                 code="c",
@@ -560,13 +592,22 @@ class TestResourceIndicator:
         tool_call_id = "tc-resource-config"
         oauth_config = self._oauth(resource="http://mcp-server:8000/mcp")
         _get_exchange_manager().register_pending(
-            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+            tool_call_id=tool_call_id,
+            code_verifier="v",
+            oauth_config=oauth_config,
         )
-        oauth_code = OAuthDecisionCode(toolset_name="t", code="c", redirect_uri="http://cb")
+        oauth_code = OAuthDecisionCode(
+            toolset_name="t", code="c", redirect_uri="http://cb"
+        )
         request_context = {"user_id": "test-user"}
 
-        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        with patch(
+            "holmes.core.oauth_config.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, request_context
+            )
         post_data = mock_post.call_args[1]["data"]
         assert post_data["resource"] == "http://mcp-server:8000/mcp"
 
@@ -574,16 +615,25 @@ class TestResourceIndicator:
         tool_call_id = "tc-resource-frontend"
         oauth_config = self._oauth(resource="http://config-resource/mcp")
         _get_exchange_manager().register_pending(
-            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+            tool_call_id=tool_call_id,
+            code_verifier="v",
+            oauth_config=oauth_config,
         )
         oauth_code = OAuthDecisionCode(
-            toolset_name="t", code="c", redirect_uri="http://cb",
+            toolset_name="t",
+            code="c",
+            redirect_uri="http://cb",
             resource="http://frontend-resource/mcp",
         )
         request_context = {"user_id": "test-user"}
 
-        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        with patch(
+            "holmes.core.oauth_config.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, request_context
+            )
         post_data = mock_post.call_args[1]["data"]
         assert post_data["resource"] == "http://frontend-resource/mcp"
 
@@ -591,13 +641,22 @@ class TestResourceIndicator:
         tool_call_id = "tc-resource-none"
         oauth_config = self._oauth()
         _get_exchange_manager().register_pending(
-            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+            tool_call_id=tool_call_id,
+            code_verifier="v",
+            oauth_config=oauth_config,
         )
-        oauth_code = OAuthDecisionCode(toolset_name="t", code="c", redirect_uri="http://cb")
+        oauth_code = OAuthDecisionCode(
+            toolset_name="t", code="c", redirect_uri="http://cb"
+        )
         request_context = {"user_id": "test-user"}
 
-        with patch("holmes.core.oauth_config.httpx.post", return_value=self._mock_token_response()) as mock_post:
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        with patch(
+            "holmes.core.oauth_config.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, request_context
+            )
         post_data = mock_post.call_args[1]["data"]
         assert "resource" not in post_data
 
@@ -605,9 +664,15 @@ class TestResourceIndicator:
 
     def test_refresh_request_includes_resource(self):
         mgr = _get_token_manager()
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
             result = mgr._do_refresh_request(
-                "http://idp/token", "cid", "rt", "cache-key-resource",
+                "http://idp/token",
+                "cid",
+                "rt",
+                "cache-key-resource",
                 resource="http://mcp-server:8000/mcp",
             )
         assert result is not None
@@ -617,8 +682,13 @@ class TestResourceIndicator:
 
     def test_refresh_request_omits_resource_when_absent(self):
         mgr = _get_token_manager()
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
-            result = mgr._do_refresh_request("http://idp/token", "cid", "rt", "cache-key-no-resource")
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
+            result = mgr._do_refresh_request(
+                "http://idp/token", "cid", "rt", "cache-key-no-resource"
+            )
         assert result is not None
         post_data = mock_post.call_args[1]["data"]
         assert "resource" not in post_data
@@ -637,7 +707,10 @@ class TestResourceIndicator:
         entry = mgr.cache._cache[cache_key]
         assert entry.resource == "http://mcp-server:8000/mcp"
 
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
             mgr._refresh_single_token(cache_key, entry)
         post_data = mock_post.call_args[1]["data"]
         assert post_data["resource"] == "http://mcp-server:8000/mcp"
@@ -649,7 +722,9 @@ class TestResourceIndicator:
         rows: dict = {}
         dal = MagicMock()
 
-        def upsert(provider_name, encrypted_token, signing_key_hash, token_expiry, user_id):
+        def upsert(
+            provider_name, encrypted_token, signing_key_hash, token_expiry, user_id
+        ):
             rows[(provider_name, user_id)] = {
                 "provider_name": provider_name,
                 "user_id": user_id,
@@ -658,8 +733,14 @@ class TestResourceIndicator:
             }
 
         dal.upsert_oauth_token.side_effect = upsert
-        dal.get_oauth_token.side_effect = lambda provider_name, user_id, signing_key_hash: rows.get((provider_name, user_id))
-        dal.get_all_oauth_tokens_for_cluster.side_effect = lambda signing_key_hash: list(rows.values())
+        dal.get_oauth_token.side_effect = (
+            lambda provider_name, user_id, signing_key_hash: rows.get(
+                (provider_name, user_id)
+            )
+        )
+        dal.get_all_oauth_tokens_for_cluster.side_effect = (
+            lambda signing_key_hash: list(rows.values())
+        )
         return dal, rows
 
     def _manager_on(self, dal) -> OAuthTokenManager:
@@ -671,7 +752,10 @@ class TestResourceIndicator:
         manager._store = DalTokenStore(dal=dal)
         return manager
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="restart-signing-key")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="restart-signing-key",
+    )
     def test_resource_survives_pod_restart(self, _mock):
         """Persist a token with a resource, 'restart' into a new manager with an empty
         cache, preload from the DB, and verify the sweep refresh still sends the resource."""
@@ -683,7 +767,11 @@ class TestResourceIndicator:
         manager1 = self._manager_on(dal)
         manager1.store_token(
             oauth_config,
-            {"access_token": "tok-before-restart", "expires_in": 3600, "refresh_token": "rt"},
+            {
+                "access_token": "tok-before-restart",
+                "expires_in": 3600,
+                "refresh_token": "rt",
+            },
             ctx,
         )
         assert rows, "token was not persisted to the DB"
@@ -698,12 +786,20 @@ class TestResourceIndicator:
         assert manager2.cache.get_valid_access_token(cache_key) == "tok-before-restart"
 
         # Background sweep refresh right after restart still sends the resource
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
             manager2._refresh_single_token(cache_key, entry)
-        assert mock_post.call_args[1]["data"]["resource"] == "http://mcp-server:8000/mcp"
+        assert (
+            mock_post.call_args[1]["data"]["resource"] == "http://mcp-server:8000/mcp"
+        )
         manager2.shutdown()
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="override-signing-key")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="override-signing-key",
+    )
     def test_frontend_resource_override_persists_and_wins_on_refresh(self, _mock):
         """A frontend-supplied resource must be the one persisted with the token and
         used by refreshes — not the configured default — including after a restart."""
@@ -714,18 +810,28 @@ class TestResourceIndicator:
 
         tool_call_id = "tc-override-refresh"
         _get_exchange_manager().register_pending(
-            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+            tool_call_id=tool_call_id,
+            code_verifier="v",
+            oauth_config=oauth_config,
         )
         oauth_code = OAuthDecisionCode(
-            toolset_name="t", code="c", redirect_uri="http://cb",
+            toolset_name="t",
+            code="c",
+            redirect_uri="http://cb",
             resource="http://frontend-resource/mcp",
         )
         exchange_response = self._mock_token_response()
         exchange_response.json.return_value = {
-            "access_token": "tok", "expires_in": 3600, "refresh_token": "rt",
+            "access_token": "tok",
+            "expires_in": 3600,
+            "refresh_token": "rt",
         }
-        with patch("holmes.core.oauth_config.httpx.post", return_value=exchange_response):
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, ctx, token_manager=manager)
+        with patch(
+            "holmes.core.oauth_config.httpx.post", return_value=exchange_response
+        ):
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, ctx, token_manager=manager
+            )
 
         # Cache holds the effective (frontend) resource, not the configured one
         cache_key = manager.get_cache_key(oauth_config, ctx)
@@ -735,18 +841,28 @@ class TestResourceIndicator:
         # The background sweep refreshes with the resource the token was issued
         # for. (A caller demanding a *different* resource instead gets an
         # audience-correct refresh — see test_cache_hit_refused_for_different_resource.)
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_post:
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_post:
             manager._refresh_single_token(cache_key, entry)
-        assert mock_post.call_args[1]["data"]["resource"] == "http://frontend-resource/mcp"
+        assert (
+            mock_post.call_args[1]["data"]["resource"] == "http://frontend-resource/mcp"
+        )
         manager.shutdown()
 
         # The override survives a restart: a fresh manager preloads it from the DB
         manager2 = self._manager_on(dal)
         manager2.preload_from_store()
-        assert manager2.cache._cache[cache_key].resource == "http://frontend-resource/mcp"
+        assert (
+            manager2.cache._cache[cache_key].resource == "http://frontend-resource/mcp"
+        )
         manager2.shutdown()
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="empty-override-signing-key")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="empty-override-signing-key",
+    )
     def test_frontend_empty_resource_override_preserved(self, _mock):
         """An explicit frontend resource='' override (opt out of RFC 8707) must not be
         replaced by the configured resource — through exchange, cache, refresh, and restart."""
@@ -757,17 +873,28 @@ class TestResourceIndicator:
 
         tool_call_id = "tc-empty-override"
         _get_exchange_manager().register_pending(
-            tool_call_id=tool_call_id, code_verifier="v", oauth_config=oauth_config,
+            tool_call_id=tool_call_id,
+            code_verifier="v",
+            oauth_config=oauth_config,
         )
         oauth_code = OAuthDecisionCode(
-            toolset_name="t", code="c", redirect_uri="http://cb", resource="",
+            toolset_name="t",
+            code="c",
+            redirect_uri="http://cb",
+            resource="",
         )
         exchange_response = self._mock_token_response()
         exchange_response.json.return_value = {
-            "access_token": "tok", "expires_in": 3600, "refresh_token": "rt",
+            "access_token": "tok",
+            "expires_in": 3600,
+            "refresh_token": "rt",
         }
-        with patch("holmes.core.oauth_config.httpx.post", return_value=exchange_response) as mock_post:
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, ctx, token_manager=manager)
+        with patch(
+            "holmes.core.oauth_config.httpx.post", return_value=exchange_response
+        ) as mock_post:
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, ctx, token_manager=manager
+            )
         # Exchange sent no resource parameter at all
         assert "resource" not in mock_post.call_args[1]["data"]
 
@@ -777,7 +904,10 @@ class TestResourceIndicator:
 
         # Refresh sends no resource parameter
         manager.cache._cache[cache_key].expires_at = time.monotonic() - 1
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=self._mock_token_response()) as mock_refresh:
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=self._mock_token_response(),
+        ) as mock_refresh:
             manager.get_access_token(oauth_config, ctx)
         assert "resource" not in mock_refresh.call_args[1]["data"]
         manager.shutdown()
@@ -790,7 +920,10 @@ class TestResourceIndicator:
 
     # ── RFC 8707 audience binding on token lookup ──────────────────────
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="audience-signing-key")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="audience-signing-key",
+    )
     def test_cache_hit_refused_for_different_resource(self, _mock):
         """A cached token issued for one MCP resource must not be served to a toolset
         that shares the IdP but targets a different resource; refresh mints an
@@ -808,8 +941,14 @@ class TestResourceIndicator:
         )
 
         refresh_response = self._mock_token_response()
-        refresh_response.json.return_value = {"access_token": "tok-for-b", "expires_in": 300}
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=refresh_response) as mock_post:
+        refresh_response.json.return_value = {
+            "access_token": "tok-for-b",
+            "expires_in": 300,
+        }
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=refresh_response,
+        ) as mock_post:
             token = manager.get_access_token(config_b, ctx)
 
         assert token != "tok-for-a"
@@ -818,7 +957,10 @@ class TestResourceIndicator:
         assert mock_post.call_args[1]["data"]["resource"] == "http://mcp-b:8000/mcp"
         manager.shutdown()
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="audience-signing-key-2")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="audience-signing-key-2",
+    )
     def test_stored_token_refused_for_different_resource(self, _mock):
         """A persisted token issued for one resource must not be loaded from the store
         for a toolset requesting a different resource."""
@@ -845,7 +987,10 @@ class TestResourceIndicator:
         assert manager_b.get_access_token(config_a, ctx) == "tok-for-a"
         manager_b.shutdown()
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="audience-signing-key-3")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="audience-signing-key-3",
+    )
     def test_legacy_cached_token_served_to_resource_aware_caller(self, _mock):
         """Safe fallback: a legacy token with no resource metadata keeps working for
         callers that do request a resource (no forced re-auth on upgrade)."""
@@ -855,12 +1000,19 @@ class TestResourceIndicator:
         manager = self._manager_on(dal)
 
         cache_key = manager.get_cache_key(config, ctx)
-        manager.cache.set(cache_key, "legacy-tok", expires_in=3600)  # no resource metadata
+        manager.cache.set(
+            cache_key, "legacy-tok", expires_in=3600
+        )  # no resource metadata
         assert manager.get_access_token(config, ctx) == "legacy-tok"
         manager.shutdown()
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="legacy-signing-key")
-    def test_legacy_token_without_resource_falls_back_to_config_after_restart(self, _mock):
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="legacy-signing-key",
+    )
+    def test_legacy_token_without_resource_falls_back_to_config_after_restart(
+        self, _mock
+    ):
         """A token persisted by a pre-upgrade pod (no resource in the blob) must pick up
         the config-derived resource when loaded on demand after a restart."""
         oauth_config = self._oauth(resource="http://mcp-server:8000/mcp")
@@ -883,7 +1035,9 @@ class TestResourceIndicator:
         token = manager_new.get_access_token(oauth_config, ctx)
         assert token == "legacy-tok"
         cache_key = manager_new.get_cache_key(oauth_config, ctx)
-        assert manager_new.cache._cache[cache_key].resource == "http://mcp-server:8000/mcp"
+        assert (
+            manager_new.cache._cache[cache_key].resource == "http://mcp-server:8000/mcp"
+        )
         manager_new.shutdown()
 
     # ── Frontend metadata ──────────────────────────────────────────────
@@ -976,7 +1130,9 @@ class TestOAuthCacheKeySharedIdP:
         ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-shared"}}
         key1 = _get_token_manager().get_cache_key(oauth1, ctx)
         key2 = _get_token_manager().get_cache_key(oauth2, ctx)
-        assert key1 == key2, "Same authorization_url + client_id should produce same cache key"
+        assert (
+            key1 == key2
+        ), "Same authorization_url + client_id should produce same cache key"
 
     def test_different_idp_different_cache_key(self):
         """Two MCP servers using different IdPs get different cache keys."""
@@ -995,7 +1151,9 @@ class TestOAuthCacheKeySharedIdP:
         ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-diff"}}
         key1 = _get_token_manager().get_cache_key(oauth1, ctx)
         key2 = _get_token_manager().get_cache_key(oauth2, ctx)
-        assert key1 != key2, "Different authorization_urls should produce different cache keys"
+        assert (
+            key1 != key2
+        ), "Different authorization_urls should produce different cache keys"
 
     def test_same_idp_same_cache_key_regardless_of_client_id(self):
         """Same IdP (authorization_url) produces same cache key regardless of client_id.
@@ -1051,7 +1209,10 @@ class TestOAuthCacheKeySharedIdP:
             token_url="http://internal:8080/token",  # different token_url, same auth
             client_id="shared-client",
         )
-        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "conv-share-test"}}
+        ctx = {
+            "user_id": "test-user",
+            "headers": {"X-Conversation-Id": "conv-share-test"},
+        }
 
         # Cache token via first MCP server's config
         cache_key1 = _get_token_manager().get_cache_key(oauth1, ctx)
@@ -1059,7 +1220,10 @@ class TestOAuthCacheKeySharedIdP:
 
         # Second MCP server should find the same token
         cache_key2 = _get_token_manager().get_cache_key(oauth2, ctx)
-        assert _get_token_manager().cache.get_valid_access_token(cache_key2) == "shared-token-xyz"
+        assert (
+            _get_token_manager().cache.get_valid_access_token(cache_key2)
+            == "shared-token-xyz"
+        )
 
 
 @pytest.mark.manual
@@ -1078,8 +1242,20 @@ class TestLiveAtlassianOAuthDiscovery:
         """Verify the MCP server returns 401 without a token."""
         response = httpx.post(
             self.ATLASSIAN_MCP_URL,
-            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
-            json={"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}, "id": 1},
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"},
+                },
+                "id": 1,
+            },
             timeout=15,
         )
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
@@ -1087,11 +1263,16 @@ class TestLiveAtlassianOAuthDiscovery:
     def test_atlassian_prm_not_available(self):
         """Atlassian doesn't serve RFC 9728 Protected Resource Metadata — verify graceful fallback."""
         # Root-based
-        r1 = httpx.get("https://mcp.atlassian.com/.well-known/oauth-protected-resource", timeout=10)
+        r1 = httpx.get(
+            "https://mcp.atlassian.com/.well-known/oauth-protected-resource", timeout=10
+        )
         assert r1.status_code != 200, f"Unexpected PRM at root: {r1.status_code}"
 
         # Path-based
-        r2 = httpx.get("https://mcp.atlassian.com/.well-known/oauth-protected-resource/v1/mcp", timeout=10)
+        r2 = httpx.get(
+            "https://mcp.atlassian.com/.well-known/oauth-protected-resource/v1/mcp",
+            timeout=10,
+        )
         assert r2.status_code != 200, f"Unexpected PRM at path: {r2.status_code}"
 
     def test_atlassian_legacy_oauth_metadata_available(self):
@@ -1103,11 +1284,21 @@ class TestLiveAtlassianOAuthDiscovery:
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         data = response.json()
 
-        assert "authorization_endpoint" in data, f"Missing authorization_endpoint. Keys: {list(data.keys())}"
-        assert "token_endpoint" in data, f"Missing token_endpoint. Keys: {list(data.keys())}"
-        assert "registration_endpoint" in data, f"Missing registration_endpoint (DCR). Keys: {list(data.keys())}"
-        assert "authorization_code" in data.get("grant_types_supported", []), f"authorization_code not in grant_types: {data.get('grant_types_supported')}"
-        assert "refresh_token" in data.get("grant_types_supported", []), f"refresh_token not in grant_types: {data.get('grant_types_supported')}"
+        assert (
+            "authorization_endpoint" in data
+        ), f"Missing authorization_endpoint. Keys: {list(data.keys())}"
+        assert (
+            "token_endpoint" in data
+        ), f"Missing token_endpoint. Keys: {list(data.keys())}"
+        assert (
+            "registration_endpoint" in data
+        ), f"Missing registration_endpoint (DCR). Keys: {list(data.keys())}"
+        assert "authorization_code" in data.get(
+            "grant_types_supported", []
+        ), f"authorization_code not in grant_types: {data.get('grant_types_supported')}"
+        assert "refresh_token" in data.get(
+            "grant_types_supported", []
+        ), f"refresh_token not in grant_types: {data.get('grant_types_supported')}"
 
     def test_atlassian_dcr_succeeds(self):
         """Dynamic Client Registration works with Atlassian's auth server."""
@@ -1130,10 +1321,15 @@ class TestLiveAtlassianOAuthDiscovery:
             },
             timeout=15,
         )
-        assert dcr_response.status_code in (200, 201), f"DCR failed: HTTP {dcr_response.status_code} - {dcr_response.text[:300]}"
+        assert dcr_response.status_code in (
+            200,
+            201,
+        ), f"DCR failed: HTTP {dcr_response.status_code} - {dcr_response.text[:300]}"
 
         dcr_data = dcr_response.json()
-        assert "client_id" in dcr_data, f"No client_id in DCR response. Keys: {list(dcr_data.keys())}"
+        assert (
+            "client_id" in dcr_data
+        ), f"No client_id in DCR response. Keys: {list(dcr_data.keys())}"
         assert len(dcr_data["client_id"]) > 0, "Empty client_id"
 
     def test_full_discovery_flow_via_toolset(self):
@@ -1149,21 +1345,39 @@ class TestLiveAtlassianOAuthDiscovery:
         initial_response = httpx.post(
             self.ATLASSIAN_MCP_URL,
             headers={"Content-Type": "application/json"},
-            json={"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}, "id": 1},
+            json={
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"},
+                },
+                "id": 1,
+            },
             timeout=15,
         )
         assert initial_response.status_code == 401
 
         # Run discovery
-        result = toolset._discover_oauth_endpoints(self.ATLASSIAN_MCP_URL, initial_response)
+        result = toolset._discover_oauth_endpoints(
+            self.ATLASSIAN_MCP_URL, initial_response
+        )
         assert result is True, "Discovery should succeed for Atlassian"
 
         oauth = toolset._mcp_config.oauth
-        assert oauth.authorization_url is not None, "authorization_url should be discovered"
+        assert (
+            oauth.authorization_url is not None
+        ), "authorization_url should be discovered"
         assert oauth.token_url is not None, "token_url should be discovered"
-        assert oauth.registration_endpoint is not None, "registration_endpoint should be discovered for deferred DCR"
+        assert (
+            oauth.registration_endpoint is not None
+        ), "registration_endpoint should be discovered for deferred DCR"
         # client_id is None because DCR is deferred to runtime (CLI or frontend handles it)
-        assert "atlassian" in oauth.authorization_url.lower() or "mcp" in oauth.authorization_url.lower(), f"Unexpected authorization_url: {oauth.authorization_url}"
+        assert (
+            "atlassian" in oauth.authorization_url.lower()
+            or "mcp" in oauth.authorization_url.lower()
+        ), f"Unexpected authorization_url: {oauth.authorization_url}"
 
     def test_full_oauth_flow_with_browser(self):
         """End-to-end: discover endpoints, register client, open browser for user login.
@@ -1180,10 +1394,21 @@ class TestLiveAtlassianOAuthDiscovery:
         initial_response = httpx.post(
             self.ATLASSIAN_MCP_URL,
             headers={"Content-Type": "application/json"},
-            json={"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}, "id": 1},
+            json={
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"},
+                },
+                "id": 1,
+            },
             timeout=15,
         )
-        result = toolset._discover_oauth_endpoints(self.ATLASSIAN_MCP_URL, initial_response)
+        result = toolset._discover_oauth_endpoints(
+            self.ATLASSIAN_MCP_URL, initial_response
+        )
         assert result is True, "Discovery failed"
 
         oauth = toolset._mcp_config.oauth
@@ -1239,7 +1464,9 @@ class TestLiveAtlassianOAuthDiscovery:
             )
             if dcr_resp.status_code in (200, 201):
                 oauth.client_id = dcr_resp.json().get("client_id", oauth.client_id)
-                print(f"  Re-registered client_id={oauth.client_id} with redirect_uri={redirect_uri}")
+                print(
+                    f"  Re-registered client_id={oauth.client_id} with redirect_uri={redirect_uri}"
+                )
 
         # Step 4: Build authorization URL and open browser
         state = secrets.token_urlsafe(32)
@@ -1263,7 +1490,9 @@ class TestLiveAtlassianOAuthDiscovery:
         server.handle_request()  # blocks until one request
         server.server_close()
 
-        assert "error" not in auth_code_result, f"OAuth error: {auth_code_result.get('error')}"
+        assert (
+            "error" not in auth_code_result
+        ), f"OAuth error: {auth_code_result.get('error')}"
         assert "code" in auth_code_result, "No auth code received"
         print(f"  Auth code received: {auth_code_result['code'][:20]}...")
 
@@ -1280,10 +1509,14 @@ class TestLiveAtlassianOAuthDiscovery:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )
-        assert token_response.status_code == 200, f"Token exchange failed: HTTP {token_response.status_code} - {token_response.text[:300]}"
+        assert (
+            token_response.status_code == 200
+        ), f"Token exchange failed: HTTP {token_response.status_code} - {token_response.text[:300]}"
 
         token_data = token_response.json()
-        assert "access_token" in token_data, f"No access_token in response. Keys: {list(token_data.keys())}"
+        assert (
+            "access_token" in token_data
+        ), f"No access_token in response. Keys: {list(token_data.keys())}"
         print(f"  Access token obtained: {token_data['access_token'][:30]}...")
         print(f"  Token type: {token_data.get('token_type')}")
         print(f"  Expires in: {token_data.get('expires_in')}s")
@@ -1292,7 +1525,9 @@ class TestLiveAtlassianOAuthDiscovery:
         # Step 7: Use token to list MCP tools
         async def list_tools():
             headers = {"Authorization": f"Bearer {token_data['access_token']}"}
-            async with streamablehttp_client(self.ATLASSIAN_MCP_URL, headers=headers) as (read, write, _):
+            async with streamablehttp_client(
+                self.ATLASSIAN_MCP_URL, headers=headers
+            ) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools = await session.list_tools()
@@ -1301,9 +1536,13 @@ class TestLiveAtlassianOAuthDiscovery:
         tools_result = asyncio.run(list_tools())
         print(f"\n  Discovered {len(tools_result.tools)} tools:")
         for t in tools_result.tools:
-            print(f"    - {t.name}: {t.description[:80] if t.description else 'no description'}")
+            print(
+                f"    - {t.name}: {t.description[:80] if t.description else 'no description'}"
+            )
 
-        assert len(tools_result.tools) > 0, "Expected at least one tool from Atlassian MCP server"
+        assert (
+            len(tools_result.tools) > 0
+        ), "Expected at least one tool from Atlassian MCP server"
 
 
 class TestCLIOAuthFlow:
@@ -1363,8 +1602,9 @@ class TestCLIOAuthFlow:
 
             threading.Thread(target=send_callback, daemon=True).start()
 
-        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), \
-             patch("holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open):
+        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), patch(
+            "holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open
+        ):
             result = cli_oauth_flow(oauth, "test-server")
 
         assert result is not None, "CLI flow should return token data"
@@ -1376,7 +1616,9 @@ class TestCLIOAuthFlow:
     def test_cli_flow_with_dcr(self):
         """CLI flow performs DCR when client_id is None."""
 
-        oauth = self._make_oauth_endpoints(client_id=None, registration_endpoint="http://idp.test/register")
+        oauth = self._make_oauth_endpoints(
+            client_id=None, registration_endpoint="http://idp.test/register"
+        )
 
         def mock_post(url, **kwargs):
             if "register" in url:
@@ -1387,7 +1629,10 @@ class TestCLIOAuthFlow:
             if "token" in url:
                 resp = MagicMock()
                 resp.status_code = 200
-                resp.json.return_value = {"access_token": "dcr-token", "expires_in": 300}
+                resp.json.return_value = {
+                    "access_token": "dcr-token",
+                    "expires_in": 300,
+                }
                 return resp
             raise ValueError(f"Unexpected URL: {url}")
 
@@ -1401,25 +1646,33 @@ class TestCLIOAuthFlow:
             def send_callback():
                 time.sleep(0.3)
                 try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{port}/callback?code=dcr-code&state={state}", timeout=5)
+                    urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/callback?code=dcr-code&state={state}",
+                        timeout=5,
+                    )
                 except Exception:
                     pass
 
             threading.Thread(target=send_callback, daemon=True).start()
 
-        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), \
-             patch("holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open):
+        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), patch(
+            "holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open
+        ):
             result = cli_oauth_flow(oauth, "dcr-test")
 
         assert result is not None
         assert result["access_token"] == "dcr-token"
-        assert oauth.client_id == "dcr-new-client", "DCR should set client_id on the config"
+        assert (
+            oauth.client_id == "dcr-new-client"
+        ), "DCR should set client_id on the config"
 
     def test_cli_flow_dcr_sets_client_id(self):
         """After DCR, client_id is set on the config. Cache key is based on
         authorization_url (stable across DCR), so it stays the same."""
 
-        oauth = self._make_oauth_endpoints(client_id=None, registration_endpoint="http://idp.test/register")
+        oauth = self._make_oauth_endpoints(
+            client_id=None, registration_endpoint="http://idp.test/register"
+        )
         ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "cli-conv"}}
 
         # Cache key before DCR (client_id=None)
@@ -1445,20 +1698,26 @@ class TestCLIOAuthFlow:
             def send_callback():
                 time.sleep(0.3)
                 try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{port}/callback?code=c&state={state}", timeout=5)
+                    urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/callback?code=c&state={state}",
+                        timeout=5,
+                    )
                 except Exception:
                     pass
 
             threading.Thread(target=send_callback, daemon=True).start()
 
-        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), \
-             patch("holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open):
+        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), patch(
+            "holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open
+        ):
             cli_oauth_flow(oauth, "key-test")
 
         # Cache key after DCR — same because it's based on authorization_url, not client_id
         key_after = _get_token_manager().get_cache_key(oauth, ctx)
 
-        assert key_before == key_after, "Cache key should be stable (based on authorization_url)"
+        assert (
+            key_before == key_after
+        ), "Cache key should be stable (based on authorization_url)"
         assert oauth.client_id == "new-dcr-id"
 
     def test_cli_flow_fails_without_endpoints(self):
@@ -1498,14 +1757,18 @@ class TestCLIOAuthFlow:
             def send_callback():
                 time.sleep(0.3)
                 try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{port}/callback?code=bad&state={state}", timeout=5)
+                    urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/callback?code=bad&state={state}",
+                        timeout=5,
+                    )
                 except Exception:
                     pass
 
             threading.Thread(target=send_callback, daemon=True).start()
 
-        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), \
-             patch("holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open):
+        with patch("holmes.core.oauth_utils.httpx.post", side_effect=mock_post), patch(
+            "holmes.core.oauth_utils.webbrowser.open", side_effect=mock_browser_open
+        ):
             result = cli_oauth_flow(oauth, "fail-test")
 
         assert result is None
@@ -1557,13 +1820,21 @@ class TestGetUserId:
 class TestOAuthTokenCacheRefresh:
     def test_get_refresh_token_valid(self):
         cache = OAuthTokenCache()
-        cache.set("k", "access", expires_in=60, refresh_token="refresh-tok", refresh_expires_in=3600)
+        cache.set(
+            "k",
+            "access",
+            expires_in=60,
+            refresh_token="refresh-tok",
+            refresh_expires_in=3600,
+        )
         assert cache.get_refresh_token("k") == "refresh-tok"
 
     def test_get_refresh_token_expired_still_returned(self):
         """Expired refresh tokens are still returned — the IdP decides if they're valid."""
         cache = OAuthTokenCache()
-        cache.set("k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600)
+        cache.set(
+            "k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600
+        )
         cache._cache["k"].refresh_expires_at = time.monotonic() - 1
         assert cache.get_refresh_token("k") == "r"
 
@@ -1573,24 +1844,32 @@ class TestOAuthTokenCacheRefresh:
 
     def test_has_true_when_access_expired_but_refresh_valid(self):
         cache = OAuthTokenCache()
-        cache.set("k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600)
+        cache.set(
+            "k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600
+        )
         cache._cache["k"].expires_at = time.monotonic() - 1
         assert cache.has_token_or_refresh("k") is True
 
     def test_get_returns_none_when_access_expired_refresh_valid(self):
         """get() should return None when access is expired, even if refresh is valid — caller must refresh."""
         cache = OAuthTokenCache()
-        cache.set("k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600)
+        cache.set(
+            "k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600
+        )
         cache._cache["k"].expires_at = time.monotonic() - 1
         assert cache.get_valid_access_token("k") is None
 
     def test_both_expired_still_has_if_refresh_token_present(self):
         """Entry kept even when both expired — refresh token may still work at the IdP."""
         cache = OAuthTokenCache()
-        cache.set("k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600)
+        cache.set(
+            "k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600
+        )
         cache._cache["k"].expires_at = time.monotonic() - 1
         cache._cache["k"].refresh_expires_at = time.monotonic() - 1
-        assert cache.has_token_or_refresh("k") is True  # kept because refresh token exists
+        assert (
+            cache.has_token_or_refresh("k") is True
+        )  # kept because refresh token exists
 
     def test_no_refresh_token_evicts_entry(self):
         """Entry without refresh token is evicted when access expires."""
@@ -1683,12 +1962,20 @@ class TestDiskTokenStore:
 # DB token encryption / decryption
 # ---------------------------------------------------------------------------
 class TestDBTokenEncryption:
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="test-signing-key-for-encryption")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="test-signing-key-for-encryption",
+    )
     def test_roundtrip(self, _mock):
         from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+
         store = DalTokenStore(dal=MagicMock())
 
-        token_data = {"access_token": "abc123", "refresh_token": "ref456", "expires_in": 300}
+        token_data = {
+            "access_token": "abc123",
+            "refresh_token": "ref456",
+            "expires_in": 300,
+        }
         encrypted = store._encrypt_token(token_data)
         assert encrypted is not None
         assert encrypted != json.dumps(token_data)
@@ -1698,19 +1985,29 @@ class TestDBTokenEncryption:
 
     def test_wrong_signing_key_returns_none(self):
         from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+
         store1 = DalTokenStore(dal=MagicMock())
-        with patch("holmes.config.Config.get_robusta_global_config_value", return_value="correct-key"):
+        with patch(
+            "holmes.config.Config.get_robusta_global_config_value",
+            return_value="correct-key",
+        ):
             token_data = {"access_token": "secret"}
             encrypted = store1._encrypt_token(token_data)
 
         store2 = DalTokenStore(dal=MagicMock())
-        with patch("holmes.config.Config.get_robusta_global_config_value", return_value="wrong-key"):
+        with patch(
+            "holmes.config.Config.get_robusta_global_config_value",
+            return_value="wrong-key",
+        ):
             result = store2._decrypt_token(encrypted)
         assert result is None
 
-    @patch("holmes.config.Config.get_robusta_global_config_value", return_value="some-key")
+    @patch(
+        "holmes.config.Config.get_robusta_global_config_value", return_value="some-key"
+    )
     def test_garbage_input_returns_none(self, _mock):
         from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+
         store = DalTokenStore(dal=MagicMock())
         result = store._decrypt_token("not-valid-fernet-ciphertext")
         assert result is None
@@ -1757,7 +2054,10 @@ class TestRenderHeadersOAuth:
             client_id="no-cache-cid",
         )
         ts = self._make_toolset(oauth)
-        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "no-cache-conv"}}
+        ctx = {
+            "user_id": "test-user",
+            "headers": {"X-Conversation-Id": "no-cache-conv"},
+        }
 
         result = ts._render_headers(ctx)
 
@@ -1771,14 +2071,20 @@ class TestRenderHeadersOAuth:
             client_id="refresh-inject-cid",
         )
         ts = self._make_toolset(oauth)
-        ctx = {"user_id": "test-user", "headers": {"X-Conversation-Id": "refresh-inject-conv"}}
+        ctx = {
+            "user_id": "test-user",
+            "headers": {"X-Conversation-Id": "refresh-inject-conv"},
+        }
         cache_key = _get_token_manager().get_cache_key(oauth, ctx)
 
-        _get_token_manager().cache.set(cache_key, "old", expires_in=60, refresh_token="r", refresh_expires_in=3600)
+        _get_token_manager().cache.set(
+            cache_key, "old", expires_in=60, refresh_token="r", refresh_expires_in=3600
+        )
         _get_token_manager().cache._cache[cache_key].expires_at = time.monotonic() - 1
 
         with patch.object(
-            type(_get_token_manager()), "_refresh_token",
+            type(_get_token_manager()),
+            "_refresh_token",
             return_value="refreshed-tok",
         ) as mock_refresh:
             result = ts._render_headers(ctx)
@@ -1896,7 +2202,9 @@ class TestDiscoverOAuthEndpoints:
             return resp
 
         with patch("holmes.core.oauth_utils.httpx.get", side_effect=mock_get):
-            result = ts._discover_oauth_endpoints("http://mcp-server:8000/v1/mcp", initial_resp)
+            result = ts._discover_oauth_endpoints(
+                "http://mcp-server:8000/v1/mcp", initial_resp
+            )
 
         assert result is True
         assert ts._mcp_config.oauth.authorization_url == "http://idp/authorize"
@@ -1928,11 +2236,19 @@ class TestDiscoverOAuthEndpoints:
             return resp
 
         with patch("holmes.core.oauth_utils.httpx.get", side_effect=mock_get):
-            result = ts._discover_oauth_endpoints("http://mcp-server:8000/v1/mcp", initial_resp)
+            result = ts._discover_oauth_endpoints(
+                "http://mcp-server:8000/v1/mcp", initial_resp
+            )
 
         assert result is True
-        assert ts._mcp_config.oauth.authorization_url == "http://auth-server.example.com/realm/authorize"
-        assert ts._mcp_config.oauth.token_url == "http://auth-server.example.com/realm/token"
+        assert (
+            ts._mcp_config.oauth.authorization_url
+            == "http://auth-server.example.com/realm/authorize"
+        )
+        assert (
+            ts._mcp_config.oauth.token_url
+            == "http://auth-server.example.com/realm/token"
+        )
         assert ts._mcp_config.oauth.scopes == ["mcp:tools"]
 
     def test_discovery_via_www_authenticate_header(self):
@@ -1964,7 +2280,9 @@ class TestDiscoverOAuthEndpoints:
             return resp
 
         with patch("holmes.core.oauth_utils.httpx.get", side_effect=mock_get):
-            result = ts._discover_oauth_endpoints("http://mcp-server:8000/v1/mcp", initial_resp)
+            result = ts._discover_oauth_endpoints(
+                "http://mcp-server:8000/v1/mcp", initial_resp
+            )
 
         assert result is True
         assert call_urls[0] == "http://custom-prm/metadata"
@@ -1980,7 +2298,9 @@ class TestDiscoverOAuthEndpoints:
             return resp
 
         with patch("holmes.core.oauth_utils.httpx.get", side_effect=mock_get):
-            result = ts._discover_oauth_endpoints("http://mcp-server:8000/v1/mcp", initial_resp)
+            result = ts._discover_oauth_endpoints(
+                "http://mcp-server:8000/v1/mcp", initial_resp
+            )
 
         assert result is False
 
@@ -2003,7 +2323,9 @@ class TestDiscoverOAuthEndpoints:
             return resp
 
         with patch("holmes.core.oauth_utils.httpx.get", side_effect=mock_get):
-            result = ts._discover_oauth_endpoints("http://mcp-server:8000/v1/mcp", initial_resp)
+            result = ts._discover_oauth_endpoints(
+                "http://mcp-server:8000/v1/mcp", initial_resp
+            )
 
         assert result is True
         assert ts._mcp_config.oauth.authorization_url == "http://manual/authorize"
@@ -2018,8 +2340,12 @@ class TestToolExecutorDynamicTools:
 
     def _make_tool(self, name: str, description: str = "test tool"):
         class FakeTool(Tool):
-            def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-                return StructuredToolResult(status="success", data="ok", params=params, invocation=self.name)
+            def _invoke(
+                self, params: dict, context: ToolInvokeContext
+            ) -> StructuredToolResult:
+                return StructuredToolResult(
+                    status="success", data="ok", params=params, invocation=self.name
+                )
 
             def get_parameterized_one_liner(self, params: dict) -> str:
                 return f"{self.name}({params})"
@@ -2028,11 +2354,25 @@ class TestToolExecutorDynamicTools:
 
     def _make_toolset(self, name: str, tools: list, mcp: bool = False):
         if mcp:
-            ts = RemoteMCPToolset(name=name, description="test", enabled=True, tools=tools, tags=[ToolsetTag.CORE])
+            ts = RemoteMCPToolset(
+                name=name,
+                description="test",
+                enabled=True,
+                tools=tools,
+                tags=[ToolsetTag.CORE],
+            )
         else:
+
             class FakeToolset(Toolset):
                 model_config = ConfigDict(extra="forbid")
-            ts = FakeToolset(name=name, description="test", enabled=True, tools=tools, tags=[ToolsetTag.CORE])
+
+            ts = FakeToolset(
+                name=name,
+                description="test",
+                enabled=True,
+                tools=tools,
+                tags=[ToolsetTag.CORE],
+            )
         ts.status = ToolsetStatusEnum.ENABLED
         return ts
 
@@ -2138,7 +2478,6 @@ class TestToolExecutorDynamicTools:
         assert "mcp_real" in tool_names
         assert "mcp_connect" not in tool_names
 
-
     def test_get_toolset_name_works_for_oauth_tools(self):
         """get_toolset_name returns correct name for per-user OAuth tools via _tool_to_toolset."""
         mcp_ts = self._make_toolset("atlassian", [], mcp=True)
@@ -2160,7 +2499,10 @@ class TestToolExecutorDynamicTools:
         executor.oauth_connector.store_user_tools("user-1", "atlassian", [real])
 
         # After storing: found with user_id
-        assert executor.get_toolset_name("searchConfluence", user_id="user-1") == "atlassian"
+        assert (
+            executor.get_toolset_name("searchConfluence", user_id="user-1")
+            == "atlassian"
+        )
         # Not found for wrong user
         assert executor.get_toolset_name("searchConfluence", user_id="user-2") is None
         # Not found without user_id
@@ -2218,7 +2560,6 @@ class TestInvokeOAuthConnectReturnsTools:
 
     def test_connect_returns_oauth_tools_in_result(self):
         """_invoke_oauth_connect populates oauth_tools on the result."""
-        from unittest.mock import AsyncMock
 
         ts = RemoteMCPToolset(name="test-mcp", enabled=True)
         ts._mcp_config = MCPConfig(
@@ -2233,6 +2574,7 @@ class TestInvokeOAuthConnectReturnsTools:
         )
         # Create a placeholder connect tool
         from mcp.types import Tool as MCP_Tool
+
         placeholder = MCP_Tool(
             name=ts.connect_tool_name,
             description="connect",
@@ -2245,7 +2587,10 @@ class TestInvokeOAuthConnectReturnsTools:
         mock_real_tool = MagicMock()
         mock_real_tool.name = "real_add"
         mock_real_tool.description = "Add numbers"
-        mock_real_tool.inputSchema = {"type": "object", "properties": {"a": {"type": "number"}}}
+        mock_real_tool.inputSchema = {
+            "type": "object",
+            "properties": {"a": {"type": "number"}},
+        }
         mock_tools_result.tools = [mock_real_tool]
 
         invoke_context = ToolInvokeContext.model_construct(
@@ -2256,8 +2601,12 @@ class TestInvokeOAuthConnectReturnsTools:
             request_context={"user_id": "user-connect-test"},
         )
 
-        with patch("holmes.plugins.toolsets.mcp.toolset_mcp.asyncio") as mock_asyncio, \
-             patch("holmes.plugins.toolsets.mcp.toolset_mcp.get_server_lock", return_value=MagicMock()):
+        with patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.asyncio"
+        ) as mock_asyncio, patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.get_server_lock",
+            return_value=MagicMock(),
+        ):
             mock_asyncio.run.return_value = mock_tools_result
             result = connect_tool._invoke_oauth_connect({}, invoke_context)
 
@@ -2272,10 +2621,20 @@ class TestInvokeOAuthConnectReturnsTools:
         ts._mcp_config = MCPConfig(
             url="http://mcp:8000",
             mode=MCPMode.STREAMABLE_HTTP,
-            oauth=MCPOAuthConfig(enabled=True, authorization_url="http://idp/auth", token_url="http://idp/token", client_id="c"),
+            oauth=MCPOAuthConfig(
+                enabled=True,
+                authorization_url="http://idp/auth",
+                token_url="http://idp/token",
+                client_id="c",
+            ),
         )
         from mcp.types import Tool as MCP_Tool
-        placeholder = MCP_Tool(name=ts.connect_tool_name, description="connect", inputSchema={"type": "object", "properties": {}})
+
+        placeholder = MCP_Tool(
+            name=ts.connect_tool_name,
+            description="connect",
+            inputSchema={"type": "object", "properties": {}},
+        )
         connect_tool = RemoteMCPTool.create(placeholder, ts)
 
         invoke_context = ToolInvokeContext.model_construct(
@@ -2286,8 +2645,12 @@ class TestInvokeOAuthConnectReturnsTools:
             request_context={"user_id": "user-fail"},
         )
 
-        with patch("holmes.plugins.toolsets.mcp.toolset_mcp.asyncio") as mock_asyncio, \
-             patch("holmes.plugins.toolsets.mcp.toolset_mcp.get_server_lock", return_value=MagicMock()):
+        with patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.asyncio"
+        ) as mock_asyncio, patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.get_server_lock",
+            return_value=MagicMock(),
+        ):
             mock_asyncio.run.side_effect = ConnectionError("MCP down")
             result = connect_tool._invoke_oauth_connect({}, invoke_context)
 
@@ -2298,7 +2661,9 @@ class TestInvokeOAuthConnectReturnsTools:
         """_directly_invoke_tool_call stores oauth_tools returned by connect on the executor."""
         placeholder = MagicMock()
         placeholder.name = "mcp_connect"
-        placeholder.get_openai_format.return_value = {"function": {"name": "mcp_connect"}}
+        placeholder.get_openai_format.return_value = {
+            "function": {"name": "mcp_connect"}
+        }
 
         real_tool = MagicMock()
         real_tool.name = "real_tool"
@@ -2317,8 +2682,9 @@ class TestInvokeOAuthConnectReturnsTools:
         mcp_ts.tools = [placeholder]
         executor = ToolExecutor([mcp_ts])
 
-        from holmes.core.tool_calling_llm import ToolCallingLLM
         from holmes.core.llm import LLM
+        from holmes.core.tool_calling_llm import ToolCallingLLM
+
         llm_mock = MagicMock(spec=LLM)
         llm_mock.get_max_token_count_for_single_tool.return_value = 1000
         tcl = ToolCallingLLM(
@@ -2363,10 +2729,14 @@ class TestBackgroundSweep:
         cache_key = "user1:__no_conv__:http://idp/auth:cid1"
 
         manager._cache.set(
-            cache_key, "old-access", expires_in=600,
+            cache_key,
+            "old-access",
+            expires_in=600,
             refresh_token="refresh-tok",
-            token_url="http://idp/token", client_id="cid1",
-            authorization_url="http://idp/auth", user_id="user1",
+            token_url="http://idp/token",
+            client_id="cid1",
+            authorization_url="http://idp/auth",
+            user_id="user1",
         )
         # Force the token to be "expiring soon"
         manager._cache._cache[cache_key].expires_at = time.monotonic() + 100
@@ -2379,7 +2749,10 @@ class TestBackgroundSweep:
             "refresh_token": "new-refresh",
         }
 
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=mock_response):
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=mock_response,
+        ):
             with patch.object(manager._store, "store_token") as mock_store:
                 manager._refresh_expiring_tokens()
 
@@ -2395,20 +2768,29 @@ class TestBackgroundSweep:
         cache_key = "user2:__no_conv__:http://idp2/auth:cid2"
 
         manager._cache.set(
-            cache_key, "old-access", expires_in=600,
-            token_url="http://idp2/token", client_id="cid2",
-            authorization_url="http://idp2/auth", user_id="user2",
+            cache_key,
+            "old-access",
+            expires_in=600,
+            token_url="http://idp2/token",
+            client_id="cid2",
+            authorization_url="http://idp2/auth",
+            user_id="user2",
         )
         manager._cache._cache[cache_key].expires_at = time.monotonic() + 100
 
         mock_store = MagicMock()
-        mock_store.get_token.return_value = {"access_token": "store-access", "expires_in": 7200}
+        mock_store.get_token.return_value = {
+            "access_token": "store-access",
+            "expires_in": 7200,
+        }
         manager._store = mock_store
 
         manager._refresh_expiring_tokens()
 
         assert manager._cache.get_valid_access_token(cache_key) == "store-access"
-        mock_store.get_token.assert_called_once_with("http://idp2/auth", user_id="user2")
+        mock_store.get_token.assert_called_once_with(
+            "http://idp2/auth", user_id="user2"
+        )
         manager.shutdown()
 
     def test_sweep_skips_non_expiring_tokens(self):
@@ -2417,13 +2799,19 @@ class TestBackgroundSweep:
         cache_key = "user3:__no_conv__:http://idp3/auth:cid3"
 
         manager._cache.set(
-            cache_key, "fresh-access", expires_in=7200,
+            cache_key,
+            "fresh-access",
+            expires_in=7200,
             refresh_token="refresh-tok",
-            token_url="http://idp3/token", client_id="cid3",
-            authorization_url="http://idp3/auth", user_id="user3",
+            token_url="http://idp3/token",
+            client_id="cid3",
+            authorization_url="http://idp3/auth",
+            user_id="user3",
         )
 
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post") as mock_post:
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post"
+        ) as mock_post:
             manager._refresh_expiring_tokens()
 
         # No refresh should have been attempted
@@ -2437,10 +2825,14 @@ class TestBackgroundSweep:
         cache_key = "user4:__no_conv__:http://idp4/auth:cid4"
 
         manager._cache.set(
-            cache_key, "old-access", expires_in=600,
+            cache_key,
+            "old-access",
+            expires_in=600,
             refresh_token="bad-refresh",
-            token_url="http://idp4/token", client_id="cid4",
-            authorization_url="http://idp4/auth", user_id="user4",
+            token_url="http://idp4/token",
+            client_id="cid4",
+            authorization_url="http://idp4/auth",
+            user_id="user4",
         )
         manager._cache._cache[cache_key].expires_at = time.monotonic() + 100
 
@@ -2448,10 +2840,16 @@ class TestBackgroundSweep:
         mock_response = MagicMock()
         mock_response.status_code = 401
         mock_store = MagicMock()
-        mock_store.get_token.return_value = {"access_token": "store-fallback", "expires_in": 3600}
+        mock_store.get_token.return_value = {
+            "access_token": "store-fallback",
+            "expires_in": 3600,
+        }
         manager._store = mock_store
 
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=mock_response):
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=mock_response,
+        ):
             manager._refresh_expiring_tokens()
 
         assert manager._cache.get_valid_access_token(cache_key) == "store-fallback"
@@ -2472,11 +2870,15 @@ class TestBackgroundSweep:
 
         # Store token with refresh, then expire BOTH access and refresh
         manager._cache.set(
-            cache_key, "old-access", expires_in=60,
+            cache_key,
+            "old-access",
+            expires_in=60,
             refresh_token="expired-refresh",
             refresh_expires_in=3600,
-            token_url="http://idp6/token", client_id="cid6",
-            authorization_url="http://idp6/auth", user_id="user6",
+            token_url="http://idp6/token",
+            client_id="cid6",
+            authorization_url="http://idp6/auth",
+            user_id="user6",
         )
         manager._cache._cache[cache_key].expires_at = time.monotonic() - 1
         manager._cache._cache[cache_key].refresh_expires_at = time.monotonic() - 1
@@ -2490,7 +2892,10 @@ class TestBackgroundSweep:
             "refresh_token": "new-refresh",
         }
 
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=mock_response) as mock_post:
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=mock_response,
+        ) as mock_post:
             token = manager.get_access_token(oauth, request_context)
 
         # Should have tried the expired refresh token
@@ -2517,11 +2922,15 @@ class TestBackgroundSweep:
         cache_key = manager.get_cache_key(oauth, request_context)
 
         manager._cache.set(
-            cache_key, "old-access", expires_in=60,
+            cache_key,
+            "old-access",
+            expires_in=60,
             refresh_token="dead-refresh",
             refresh_expires_in=3600,
-            token_url="http://idp7/token", client_id="cid7",
-            authorization_url="http://idp7/auth", user_id="user7",
+            token_url="http://idp7/token",
+            client_id="cid7",
+            authorization_url="http://idp7/auth",
+            user_id="user7",
         )
         manager._cache._cache[cache_key].expires_at = time.monotonic() - 1
         manager._cache._cache[cache_key].refresh_expires_at = time.monotonic() - 1
@@ -2530,7 +2939,10 @@ class TestBackgroundSweep:
         mock_response = MagicMock()
         mock_response.status_code = 401
 
-        with patch("holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=mock_response):
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post",
+            return_value=mock_response,
+        ):
             token = manager.get_access_token(oauth, request_context)
 
         # No token — user must re-authenticate
@@ -2543,9 +2955,13 @@ class TestBackgroundSweep:
         cache_key = "user5:__no_conv__:http://idp5/auth:cid5"
 
         manager._cache.set(
-            cache_key, "old-access", expires_in=600,
-            token_url="http://idp5/token", client_id="cid5",
-            authorization_url="http://idp5/auth", user_id="user5",
+            cache_key,
+            "old-access",
+            expires_in=600,
+            token_url="http://idp5/token",
+            client_id="cid5",
+            authorization_url="http://idp5/auth",
+            user_id="user5",
         )
         manager._cache._cache[cache_key].expires_at = time.monotonic() + 100
 
@@ -2576,6 +2992,7 @@ class TestUserIdGuard:
         manager._shutdown_event.set()
         if with_dal:
             from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+
             manager._store = DalTokenStore(dal=MagicMock())
         else:
             manager._store = DiskTokenStore(enabled=False)
@@ -2594,7 +3011,9 @@ class TestUserIdGuard:
         oauth = self._oauth()
 
         assert manager.get_access_token(oauth, request_context=None) is None
-        assert manager.get_access_token(oauth, request_context={"user_id": None}) is None
+        assert (
+            manager.get_access_token(oauth, request_context={"user_id": None}) is None
+        )
         assert manager.get_access_token(oauth, request_context={"user_id": ""}) is None
 
         manager.shutdown()

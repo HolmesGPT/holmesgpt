@@ -11,10 +11,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-display_logger = logging.getLogger("holmes.display.bash_toolset")
-
 from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH
-
 from holmes.core.tools import (
     ApprovalRequirement,
     CallablePrerequisite,
@@ -40,6 +37,8 @@ from holmes.plugins.toolsets.bash.validation import (
     get_effective_lists,
     validate_command,
 )
+
+display_logger = logging.getLogger("holmes.display.bash_toolset")
 
 
 def bash_result_to_structured(

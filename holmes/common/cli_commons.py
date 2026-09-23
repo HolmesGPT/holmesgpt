@@ -5,7 +5,6 @@ import typer
 
 from holmes.config import DEFAULT_CONFIG_LOCATION
 
-
 # Common cli options
 # The defaults for options that are also in the config file MUST be None or else the cli defaults will override settings in the config file
 opt_api_key: Optional[str] = typer.Option(

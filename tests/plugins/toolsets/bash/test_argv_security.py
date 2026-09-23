@@ -14,12 +14,12 @@ query that regenerates it and how to replay this check over it.
 
 import pytest
 
+from holmes.plugins.toolsets.bash.command_arg_rules import _uniq_positional_args
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 from holmes.plugins.toolsets.bash.common.default_lists import (
     CORE_ALLOW_LIST,
     EXTENDED_ALLOW_LIST,
 )
-from holmes.plugins.toolsets.bash.command_arg_rules import _uniq_positional_args
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
     ValidationStatus,
@@ -107,9 +107,15 @@ MUST_ALLOW = [
         "kubectl logs api-server-1 -n default --tail=50 2>&1 | tail -25",
         ["kubectl logs", "tail"],
     ),
-    ("kubectl get svc -A --no-headers | grep -Ei 'LoadBalancer|NodePort'", ["kubectl get", "grep"]),
+    (
+        "kubectl get svc -A --no-headers | grep -Ei 'LoadBalancer|NodePort'",
+        ["kubectl get", "grep"],
+    ),
     ("kubectl get pods -o yaml | grep -i image", ["kubectl get", "grep"]),
-    ('echo "=== deployments ==="; kubectl get deploy -n default', ["echo", "kubectl get"]),
+    (
+        'echo "=== deployments ==="; kubectl get deploy -n default',
+        ["echo", "kubectl get"],
+    ),
     # piped text filters — the dominant real-world pattern
     (
         "cat /tmp/.holmes/abc/tool_results/x.json | jq -r '.[].log' | sort | uniq -c",
@@ -148,18 +154,18 @@ MUST_ALLOW = [
 @pytest.mark.parametrize("command,prefixes", MUST_DENY, ids=[c for c, _ in MUST_DENY])
 def test_dangerous_commands_denied(command, prefixes):
     result = _validate(command, prefixes)
-    assert result.status == ValidationStatus.DENIED, (
-        f"expected DENIED for {command!r}, got {result.status} ({result.message})"
-    )
+    assert (
+        result.status == ValidationStatus.DENIED
+    ), f"expected DENIED for {command!r}, got {result.status} ({result.message})"
     assert result.deny_reason == DenyReason.DANGEROUS_ARGUMENT
 
 
 @pytest.mark.parametrize("command,prefixes", MUST_ALLOW, ids=[c for c, _ in MUST_ALLOW])
 def test_benign_commands_allowed(command, prefixes):
     result = _validate(command, prefixes)
-    assert result.status == ValidationStatus.ALLOWED, (
-        f"expected ALLOWED for {command!r}, got {result.status} ({result.message})"
-    )
+    assert (
+        result.status == ValidationStatus.ALLOWED
+    ), f"expected ALLOWED for {command!r}, got {result.status} ({result.message})"
 
 
 class TestRemovedFromAllowlist:
@@ -229,7 +235,9 @@ class TestUnsafeArgsMode:
             ("echo hi > /tmp/f", ["echo"]),
         ],
     )
-    def test_approval_mode_relaxes_deny_to_approval(self, command, prefixes, monkeypatch):
+    def test_approval_mode_relaxes_deny_to_approval(
+        self, command, prefixes, monkeypatch
+    ):
         monkeypatch.setenv("HOLMES_BASH_UNSAFE_ARGS_MODE", "approval")
         assert _validate(command, prefixes).status == ValidationStatus.APPROVAL_REQUIRED
 
@@ -255,15 +263,43 @@ class TestAllowListGuard:
     practice; add them to the `allow` config if a deployment needs them.)
     """
 
-    EXPECTED_CORE = frozenset({
-        "kubectl get", "kubectl describe", "kubectl logs", "kubectl top",
-        "kubectl explain", "kubectl api-resources", "kubectl config view",
-        "kubectl config current-context", "kubectl cluster-info", "kubectl version",
-        "kubectl auth can-i", "kubectl diff", "kubectl events",
-        "jq", "grep", "head", "tail", "sort", "uniq", "wc", "cut", "tr",
-        "id", "whoami", "hostname", "uname", "date", "which", "type", "echo",
-    })
-    EXPECTED_EXTENDED_ONLY = frozenset({"cat", "base64", "ls", "find", "stat", "du", "df"})
+    EXPECTED_CORE = frozenset(
+        {
+            "kubectl get",
+            "kubectl describe",
+            "kubectl logs",
+            "kubectl top",
+            "kubectl explain",
+            "kubectl api-resources",
+            "kubectl config view",
+            "kubectl config current-context",
+            "kubectl cluster-info",
+            "kubectl version",
+            "kubectl auth can-i",
+            "kubectl diff",
+            "kubectl events",
+            "jq",
+            "grep",
+            "head",
+            "tail",
+            "sort",
+            "uniq",
+            "wc",
+            "cut",
+            "tr",
+            "id",
+            "whoami",
+            "hostname",
+            "uname",
+            "date",
+            "which",
+            "type",
+            "echo",
+        }
+    )
+    EXPECTED_EXTENDED_ONLY = frozenset(
+        {"cat", "base64", "ls", "find", "stat", "du", "df"}
+    )
 
     def test_core_allow_list_unchanged(self):
         assert set(CORE_ALLOW_LIST) == self.EXPECTED_CORE
@@ -325,9 +361,9 @@ class TestCommandSubstitutionGuard:
     )
     def test_substitution_in_checked_command_requires_approval(self, command, prefixes):
         result = _validate(command, prefixes)
-        assert result.status == ValidationStatus.APPROVAL_REQUIRED, (
-            f"expected APPROVAL_REQUIRED for {command!r}, got {result.status}"
-        )
+        assert (
+            result.status == ValidationStatus.APPROVAL_REQUIRED
+        ), f"expected APPROVAL_REQUIRED for {command!r}, got {result.status}"
 
     def test_substitution_in_other_command_still_allowed(self):
         # echo/kubectl are not argv-checked; existing substitution behaviour is kept.

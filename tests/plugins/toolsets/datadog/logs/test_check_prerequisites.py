@@ -89,10 +89,7 @@ class TestDatadogToolsetCheckPrerequisites:
         assert toolset.dd_config is not None
         assert toolset.dd_config.api_key == "test-api-key"
         assert toolset.dd_config.app_key == "test-app-key"
-        assert (
-            str(toolset.dd_config.api_url).rstrip("/")
-            == "https://api.datadoghq.com"
-        )
+        assert str(toolset.dd_config.api_url).rstrip("/") == "https://api.datadoghq.com"
         assert toolset.dd_config.storage_tier == DEFAULT_STORAGE_TIER
 
         # Verify healthcheck was called with correct params
@@ -176,7 +173,10 @@ class TestDatadogToolsetCheckPrerequisites:
             "api_key": "test-api-key",
             "app_key": "test-app-key",
             "api_url": "https://api.datadoghq.com",
-            "storage_tiers": ["indexes", "flex"],  # legacy list form — last element wins
+            "storage_tiers": [
+                "indexes",
+                "flex",
+            ],  # legacy list form — last element wins
         }
         toolset.check_prerequisites()
 
@@ -188,7 +188,9 @@ class TestDatadogToolsetCheckPrerequisites:
     @patch(
         "holmes.plugins.toolsets.datadog.toolset_datadog_logs.execute_datadog_http_request"
     )
-    def test_check_prerequisites_legacy_empty_storage_tiers_falls_back_to_default(self, mock_execute):
+    def test_check_prerequisites_legacy_empty_storage_tiers_falls_back_to_default(
+        self, mock_execute
+    ):
         """Empty legacy `storage_tiers: []` should silently fall back to the default tier."""
         mock_result = Mock()
         mock_result.status = StructuredToolResultStatus.SUCCESS

@@ -65,9 +65,7 @@ def _build_dal(monkeypatch, ca_env=None):
             "holmes.core.supabase_dal.SupabaseRetryTransport",
             side_effect=fake_transport,
         ),
-        patch(
-            "holmes.core.supabase_dal.httpx.Client", side_effect=fake_httpx_client
-        ),
+        patch("holmes.core.supabase_dal.httpx.Client", side_effect=fake_httpx_client),
         patch(
             "holmes.core.supabase_dal.ssl.create_default_context",
             side_effect=fake_create_default_context,

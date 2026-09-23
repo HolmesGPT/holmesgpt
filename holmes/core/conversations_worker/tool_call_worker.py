@@ -17,7 +17,6 @@ Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 
 import base64
 import gzip
-import json
 import logging
 import threading
 import time

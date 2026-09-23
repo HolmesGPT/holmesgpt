@@ -5,10 +5,10 @@ import pytest
 from holmes.core.json_schema_coerce import coerce_params
 from holmes.core.tools import ToolParameter
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _schema(**fields: ToolParameter) -> dict:
     return fields
@@ -18,11 +18,14 @@ def _schema(**fields: ToolParameter) -> dict:
 # Stringified JSON → array / object  (structural coercions)
 # ---------------------------------------------------------------------------
 
+
 class TestStringifiedJsonCoercion:
     def test_stringified_array(self):
         result = coerce_params(
             {"metrics": '["cpu", "memory"]'},
-            _schema(metrics=ToolParameter(type="array", items=ToolParameter(type="string"))),
+            _schema(
+                metrics=ToolParameter(type="array", items=ToolParameter(type="string"))
+            ),
         )
         assert result["metrics"] == ["cpu", "memory"]
 
@@ -76,18 +79,23 @@ class TestStringifiedJsonCoercion:
 # Single value → array wrap
 # ---------------------------------------------------------------------------
 
+
 class TestSingleValueArrayWrap:
     def test_wrap_string_in_array(self):
         result = coerce_params(
             {"metrics": "cpu"},
-            _schema(metrics=ToolParameter(type="array", items=ToolParameter(type="string"))),
+            _schema(
+                metrics=ToolParameter(type="array", items=ToolParameter(type="string"))
+            ),
         )
         assert result["metrics"] == ["cpu"]
 
     def test_wrap_int_in_array(self):
         result = coerce_params(
             {"ids": 42},
-            _schema(ids=ToolParameter(type="array", items=ToolParameter(type="integer"))),
+            _schema(
+                ids=ToolParameter(type="array", items=ToolParameter(type="integer"))
+            ),
         )
         assert result["ids"] == [42]
 
@@ -109,6 +117,7 @@ class TestSingleValueArrayWrap:
 # ---------------------------------------------------------------------------
 # String → integer
 # ---------------------------------------------------------------------------
+
 
 class TestStringToInteger:
     def test_whole_number(self):
@@ -170,6 +179,7 @@ class TestStringToInteger:
 # String → number (float)
 # ---------------------------------------------------------------------------
 
+
 class TestStringToNumber:
     def test_float_string(self):
         result = coerce_params(
@@ -219,6 +229,7 @@ class TestStringToNumber:
 # ---------------------------------------------------------------------------
 # String → boolean
 # ---------------------------------------------------------------------------
+
 
 class TestStringToBoolean:
     def test_true_string(self):
@@ -270,6 +281,7 @@ class TestStringToBoolean:
 # ---------------------------------------------------------------------------
 # Edge cases and general behavior
 # ---------------------------------------------------------------------------
+
 
 class TestGeneralBehavior:
     def test_empty_params(self):

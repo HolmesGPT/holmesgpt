@@ -85,7 +85,9 @@ class TestEndpointConfig:
         assert endpoint.hosts == ["api.example.com", "api2.example.com"]
 
     def test_custom_methods(self):
-        endpoint = EndpointConfig(hosts=["example.com"], methods=["GET", "POST", "DELETE"])
+        endpoint = EndpointConfig(
+            hosts=["example.com"], methods=["GET", "POST", "DELETE"]
+        )
         assert endpoint.get_methods() == ["GET", "POST", "DELETE"]
 
     def test_methods_normalized_to_uppercase(self):
@@ -391,7 +393,9 @@ class TestHttpToolsetHostMatching:
         assert endpoint is None
 
     def test_host_match_with_port(self, toolset):
-        endpoint, error = toolset.match_endpoint("https://api.github.com:8443/repos/foo/bar")
+        endpoint, error = toolset.match_endpoint(
+            "https://api.github.com:8443/repos/foo/bar"
+        )
         assert error is None
         assert endpoint is not None
         assert "api.github.com" in endpoint.hosts
@@ -649,11 +653,7 @@ class TestHttpToolsetMultiInstance:
     def test_two_instances_different_names(self):
         ts1 = HttpToolset(name="confluence")
         ts1.prerequisites_callable(
-            {
-                "endpoints": [
-                    {"hosts": ["*.atlassian.net"], "auth": {"type": "none"}}
-                ]
-            }
+            {"endpoints": [{"hosts": ["*.atlassian.net"], "auth": {"type": "none"}}]}
         )
 
         ts2 = HttpToolset(name="dagster")
@@ -674,11 +674,7 @@ class TestHttpToolsetMultiInstance:
             name="confluence", llm_instructions="Use Confluence REST API v2."
         )
         toolset.prerequisites_callable(
-            {
-                "endpoints": [
-                    {"hosts": ["*.atlassian.net"], "auth": {"type": "none"}}
-                ]
-            }
+            {"endpoints": [{"hosts": ["*.atlassian.net"], "auth": {"type": "none"}}]}
         )
         assert "Use Confluence REST API v2." in toolset.llm_instructions
 
@@ -720,7 +716,9 @@ class TestHttpRequest:
         assert "Invalid headers JSON" in result.error
 
     @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
-    def test_error_response_includes_error_field(self, mock_request, toolset, mock_context):
+    def test_error_response_includes_error_field(
+        self, mock_request, toolset, mock_context
+    ):
         mock_response = Mock()
         mock_response.ok = False
         mock_response.status_code = 404
@@ -949,7 +947,9 @@ class TestHttpToolsetHealthCheck:
 
     @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
     def test_health_check_connection_error(self, mock_request):
-        mock_request.side_effect = requests.exceptions.ConnectionError("Connection refused")
+        mock_request.side_effect = requests.exceptions.ConnectionError(
+            "Connection refused"
+        )
 
         toolset = HttpToolset()
         success, message = toolset.prerequisites_callable(
@@ -1027,7 +1027,9 @@ class TestHttpRequestOneLiner:
     def test_default_method(self):
         ts = HttpToolset()
         tool = HttpRequest(ts)
-        result = tool.get_parameterized_one_liner({"url": "https://api.example.com/test"})
+        result = tool.get_parameterized_one_liner(
+            {"url": "https://api.example.com/test"}
+        )
         assert result.startswith("HTTP GET")
 
 
@@ -1039,7 +1041,11 @@ class TestDigestAuth:
                 "endpoints": [
                     {
                         "hosts": ["api.example.com"],
-                        "auth": {"type": "digest", "username": "user", "password": "pass"},
+                        "auth": {
+                            "type": "digest",
+                            "username": "user",
+                            "password": "pass",
+                        },
                     }
                 ]
             }

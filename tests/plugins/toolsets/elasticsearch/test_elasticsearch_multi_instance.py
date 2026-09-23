@@ -78,10 +78,12 @@ class TestElasticsearchMultiInstance:
             _health(rsps, US)
             ts = multi_instance(ElasticsearchDataToolset)
             ts.prerequisites_callable(
-                {"instances": [
-                    {"name": "eu", "api_url": EU, "api_key": "k_eu"},
-                    {"name": "us", "api_url": US, "api_key": "k_us"},
-                ]}
+                {
+                    "instances": [
+                        {"name": "eu", "api_url": EU, "api_key": "k_eu"},
+                        {"name": "us", "api_url": US, "api_key": "k_us"},
+                    ]
+                }
             )
         assert any(t.name == "elasticsearch_data_list_instances" for t in ts.tools)
 
