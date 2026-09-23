@@ -25,7 +25,7 @@ from typing import (
     Union,
 )
 
-from jinja2 import Template
+from jinja2 import Template, TemplateError
 
 from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
@@ -588,12 +588,11 @@ class YAMLTool(Tool, BaseModel):
 
     def get_parameterized_one_liner(self, params) -> str:
         params = sanitize_params(params)
-        if self.user_description:
-            template = Template(self.user_description)
-        else:
-            cmd_or_script = self.command or self.script
-            template = Template(cmd_or_script)  # type: ignore
-        return template.render(params)
+        one_liner_template = self.user_description or self.command or self.script
+        try:
+            return Template(one_liner_template).render(params)  # type: ignore
+        except TemplateError:
+            return one_liner_template  # type: ignore
 
     def _build_context(
         self, params: dict, request_context: Optional[Dict[str, Any]] = None
