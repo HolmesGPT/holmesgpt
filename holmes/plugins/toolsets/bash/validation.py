@@ -33,6 +33,7 @@ from holmes.plugins.toolsets.bash.shell_parser import (
     ParsedCommand,
     ShellParseError,
     parse_command,
+    scan_for_deny_checks,
 )
 
 logger = logging.getLogger(__name__)
@@ -300,13 +301,19 @@ def _raw_tokens(command: str) -> List[str]:
 def check_unsafe_args_in_raw_command(command: str) -> Optional[str]:
     """Coarse argv and write-redirect checks for commands shell_parser can't parse.
 
-    Keeps commands that would be denied for a dangerous argument (`find -exec`,
+    Uses both tree-sitter's best-effort tree and a shlex tokenization. Keeps commands that would be denied for a dangerous argument (`find -exec`,
     `sort -o`, ...) or a file write (`> file`) denied even when the full parser
     gives up. It errs toward flagging.
 
     Returns:
         A reason if the command appears to use such a primitive, None otherwise
     """
+    try:
+        tree_argvs, tree_targets = scan_for_deny_checks(command)
+    except Exception:  # best effort only
+        tree_argvs, tree_targets = [], []
+    if tree_targets:
+        return f"output redirection to '{tree_targets[0]}' writes to the filesystem"
     tokens = _raw_tokens(command)
     argv: List[str] = []
     argvs = [argv]
@@ -333,7 +340,7 @@ def check_unsafe_args_in_raw_command(command: str) -> Optional[str]:
             if word and not (not argv and (word in _RAW_LEADING_KEYWORDS or _RAW_ASSIGNMENT.match(word))):
                 argv.append(word)
         i += 1
-    for argv in argvs:
+    for argv in tree_argvs + argvs:
         reason = dangerous_argv_reason(argv)
         if reason:
             return reason
