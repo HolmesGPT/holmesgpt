@@ -125,7 +125,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           serviceAccountName: k8s-remediation-mcp-sa
           containers:
           - name: k8s-remediation-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.2.0
+            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.4.0
             imagePullPolicy: IfNotPresent
             ports:
             - containerPort: 8000
@@ -286,7 +286,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 
     The `config` keys in this section are read by the MCP server, not by Holmes.
     On an older image they are passed through and ignored, and probe targets are
-    unrestricted. The Helm chart pins 1.2.0 by default.
+    unrestricted. The Helm chart pins 1.4.0 by default.
 
 `run_preapproved_diagnostic_image` is auto-approved, and the images it launches
 are network-probing tools (`curl`, `dig`, `wget`, `tcpdump`). The image allowlist

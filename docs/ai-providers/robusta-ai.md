@@ -115,10 +115,37 @@ The endpoint must match the region your cluster is connected to in the Robusta p
 ## How It Works
 
 1. **Authentication**: HolmesGPT reads your Robusta token from the cluster configuration
+
 2. **Session creation**: A session token is created with the Robusta platform
-3. **Model discovery**: Available models are fetched from `${ROBUSTA_API_ENDPOINT}/api/llm/models/v2` (default: `https://api.robusta.dev/api/llm/models/v2`)
-4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `${ROBUSTA_API_ENDPOINT}/llm/{model_name}` (default: `https://api.robusta.dev/llm/{model_name}`)
+
+3. **Model discovery**: Available models are fetched from `${ROBUSTA_API_ENDPOINT}/api/llm/models/v3` - pick your region:
+
+    ```robusta-region
+    https://api.robusta.dev/api/llm/models/v3
+    ```
+
+    A self-hosted platform that does not serve this endpoint yet answers 404; the fetch fails and HolmesGPT falls back to its single legacy Robusta model, without the account's model catalog, until the platform is upgraded.
+
+4. **Proxy access**: Models are accessed through Robusta's proxy endpoint at `${ROBUSTA_API_ENDPOINT}/llm/{model_name}` - pick your region:
+
+    ```robusta-region
+    https://api.robusta.dev/llm/{model_name}
+    ```
+
 5. **Automatic refresh**: Authentication tokens are automatically refreshed when they expire
+
+## Account-level opt-out
+
+An account can turn Robusta-hosted models off for everyone in it, from **Settings > LLM Models** in the Robusta platform. This is an account setting, not a cluster one: it applies to every cluster connected to the account and cannot be overridden from a cluster's own configuration.
+
+With it set:
+
+- Model discovery returns no Robusta-hosted models, so HolmesGPT loads only the models configured on the cluster itself (`MODEL`, `MODEL_LIST_FILE_LOCATION`, or the model list) - `ROBUSTA_AI: "true"` does not put it back.
+- A cluster with no models of its own has nothing to run on, and each request fails with an error naming that: no models are configured and Robusta-hosted models are disabled for the account.
+- A call the platform refuses on a Robusta-hosted model fails with the platform's own message. `/api/chat` answers with the platform's status (401 or 403) when `stream` is false; a streamed chat has already answered 200, so the refusal arrives as an `error` event whose `error_code` is 5206 for a 401 and 5207 for a 403.
+- Turning the setting back off is picked up by the periodic model refresh - running agents do not need a restart.
+- An agent that could not reach the platform when it started loads its legacy Robusta model until the first refresh that does reach it. In that window the platform refuses each call on that model, so no data leaves the account; the refresh then drops the model.
+- Agents older than the release that added this keep their previous behaviour: they still load Robusta-hosted models, and the platform refuses each call they make on one.
 
 ## Available Models
 
