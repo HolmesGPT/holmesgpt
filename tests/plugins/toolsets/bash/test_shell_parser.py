@@ -66,7 +66,8 @@ class TestExtraction:
              ["kubectl", "get", "pods", "-o", "jsonpath={.items[*].metadata.name}"]),
             ("kubectl get pods -o jsonpath={.items[*].metadata.name}",
              ["kubectl", "get", "pods", "-o", "jsonpath={.items[*].metadata.name}"]),
-            ("echo {a,b} *.txt ~/x", ["echo", "{a,b}", "*.txt", "~/x"]),
+            ("echo {} *.txt ~/x", ["echo", "{}", "*.txt", "~/x"]),
+            ('echo "{a,b}" \\{a,b} {.a}', ["echo", "{a,b}", "{a,b}", "{.a}"]),
             ("echo héllo '日本'", ["echo", "héllo", "日本"]),
             ("echo a#b # comment", ["echo", "a#b"]),
         ],
@@ -195,6 +196,30 @@ class TestBypassRegressions:
         result = validate_command(command, [], *_EXTENDED)
         assert result.status == ValidationStatus.DENIED
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # bash deletes `\<NL>`, so `#` joins the previous word and `;touch`
+            # runs; tree-sitter read `#;touch pwn` as a comment
+            "ls -la\\\n#;touch pwn",
+            "kubectl get pods\\\n#;kubectl delete pod x",
+            'ls "a"\\\n#;touch pwn',
+            # `$(...)` in a `${...}` subscript or pattern runs
+            "echo ${a[$(touch /tmp/p)]}",
+            "echo ${HOME#$(touch /tmp/p)}",
+            "echo ${HOME^^$(touch /tmp/p)}",
+            "echo ${HOME%`touch /tmp/p`}",
+            "kubectl get pods ${a[$(kubectl delete ns prod)]}",
+            # brace expansion builds arguments the per-argument checks never see
+            "find . {-exec,} sh -c id \\;",
+            "find . -name x {-delete,}",
+            'find . {"-exec",} sh -c id \\;',
+        ],
+    )
+    def test_hidden_code_not_allowed(self, command):
+        result = validate_command(command, [], *_EXTENDED)
+        assert result.status != ValidationStatus.ALLOWED
+
     def test_ansi_c_quoted_argument_is_checked(self):
         # bashlex saw `$-delete` (a bogus expansion); bash runs find -delete
         result = validate_command("find . $'-delete'", [], *_EXTENDED)
@@ -241,6 +266,17 @@ class TestMisparseGuards:
             # `{}` is a word in bash, an empty group to tree-sitter
             "ls && {}",
             "export} A=1",
+            # `#` after `\<NL>` or an escaped blank is not a comment in bash
+            "ls -la\\\n#;touch pwn",
+            "ls \\ #c;touch pwn",
+            # substitutions tree-sitter keeps as text inside `${...}`
+            "echo ${HOME#$(id)}",
+            "echo ${HOME/x/`id`}",
+            # brace expansion
+            "echo {a,b}",
+            "echo a{,.bak}",
+            "echo {1..3}",
+            "cat >{a,b}",
         ],
     )
     def test_refused(self, command):
@@ -284,7 +320,35 @@ class TestUnparseableFallback:
 
     @pytest.mark.parametrize(
         "command",
-        ["[[ -f x ]] && cat x 2>/dev/null", "case $x in a) ls;; esac", "echo $((1+2)) 2>&1"],
+        [
+            "[[ -f x ]] > f",
+            "(( 3 > 2 )) && ls > f",
+            "echo $(( $(ls > f) + 1 ))",
+            # unquoted heredoc: bash runs the substitution in the body
+            "cat <<EOF\n$(echo x > f)\nEOF",
+            "cat <<EOF\nhi\nEOF\nls > f",
+            # `<<` in quotes is not a heredoc
+            "echo '<<EOF'\nls > f\nEOF",
+        ],
+    )
+    def test_writes_around_comparisons_and_heredocs_denied(self, command):
+        result = validate_command(command, [], *_EXTENDED)
+        assert result.status == ValidationStatus.DENIED
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "[[ -f x ]] && cat x 2>/dev/null",
+            "case $x in a) ls;; esac",
+            "echo $((1+2)) 2>&1",
+            # `>` compares here, or is heredoc data: not a file write
+            '[[ "$a" > "$b" ]]',
+            "echo $(( 3 > 2 ))",
+            "(( 3 > 2 )) && ls",
+            "cat <<EOF\n<html><body>x</body></html>\nEOF",
+            "cat <<'EOF'\nkey: >\n  folded\nEOF",
+            "cat <<'EOF'\n$(echo x > f)\nEOF",
+        ],
     )
     def test_approval(self, command):
         result = validate_command(command, [], *_EXTENDED)

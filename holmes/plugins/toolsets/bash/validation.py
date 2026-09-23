@@ -283,13 +283,40 @@ _RAW_OPERATOR_CHARS = "();<>|&"
 # `;`) as private-use characters, and restored afterwards.
 _RAW_ESCAPED = {c: chr(0xE000 + ord(c)) for c in _RAW_OPERATOR_CHARS}
 _RAW_UNESCAPE = str.maketrans({v: k for k, v in _RAW_ESCAPED.items()})
+_RAW_HEREDOC = re.compile(r"""(?<!<)<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2""")
+
+
+def _strip_heredoc_bodies(command: str) -> str:
+    """Drop heredoc bodies, which are data (`key: >`, HTML), not commands.
+    Bodies of unquoted heredocs that contain a substitution are kept: bash runs
+    those substitutions."""
+    lines = command.split("\n")
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        out.append(lines[i])
+        # a `<<` inside quotes is not a heredoc
+        heredocs = [m.groups() for m in _RAW_HEREDOC.finditer(lines[i])
+                    if lines[i][: m.start()].count("'") % 2 == 0 and lines[i][: m.start()].count('"') % 2 == 0]
+        i += 1
+        for strip_tabs, quote, delimiter in heredocs:
+            end = i
+            while end < len(lines) and (lines[end].lstrip("\t") if strip_tabs else lines[end]) != delimiter:
+                end += 1
+            body = lines[i:end]
+            if not quote and any(re.search(r"`|\$\(", line) for line in body):
+                out += body
+            i = end + 1 if end < len(lines) else end
+            if end < len(lines):
+                out.append(lines[end])
+    return "\n".join(out)
 
 
 def _raw_tokens(command: str) -> List[str]:
     """Best-effort shell tokenization for commands shell_parser can't parse.
     Lines that can't be tokenized (e.g. unbalanced quotes) are skipped. Escaped
     operator characters stay hidden in the tokens (see _RAW_ESCAPED)."""
-    hidden = re.sub(r"\\([();<>|&])", lambda m: _RAW_ESCAPED[m.group(1)], command)
+    hidden = re.sub(r"\\([();<>|&])", lambda m: _RAW_ESCAPED[m.group(1)], _strip_heredoc_bodies(command))
     tokens: List[str] = []
     for chunk in [hidden] + hidden.splitlines():
         lexer = shlex.shlex(chunk, posix=True, punctuation_chars=_RAW_OPERATOR_CHARS)
@@ -310,21 +337,54 @@ def _raw_argvs(command: str) -> Tuple[List[List[str]], List[str]]:
     """(argvs, write redirect targets) from a shlex tokenization of the command."""
     tokens = _raw_tokens(command)
     argvs: List[List[str]] = [[]]
-    parents: List[List[str]] = []  # argvs enclosing an open $( / <( / >(
+    # (argv, mode, arith depth) enclosing an open $( / <( / >( / $(( / ((
+    parents: List[Tuple[List[str], str, int]] = []
     targets: List[str] = []
+    # "cmd": tokens are commands; "test": inside `[[ ]]`, "arith": inside
+    # `$(( ))` / `(( ))`. In the last two `<` and `>` compare, not redirect.
+    mode, depth = "cmd", 0
     i = 0
     while i < len(tokens):
         tok = tokens[i]
         nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
         argv = argvs[-1]
+        is_operator = bool(tok) and all(c in _RAW_OPERATOR_CHARS for c in tok)
+        if tok.endswith("$") and nxt.startswith("((") or mode == "cmd" and not argv and tok.startswith("(("):
+            # arithmetic: `>` and `<` inside compare
+            opener = nxt if tok.endswith("$") else tok
+            if tok.endswith("$"):
+                argv.append(tok.rstrip("$") + "$((...))")
+            parents.append((argv, mode, depth))
+            mode, depth = "arith", opener.count("(") - opener.count(")")
+            argvs.append([])
+            i += 2 if tok.endswith("$") else 1
+            continue
         if tok.endswith("$") and nxt.startswith("(") or tok in ("<(", ">("):
             # command / process substitution: a word here, a command inside
             argv.append(tok.rstrip("$") + "$(...)")
-            parents.append(argv)
+            parents.append((argv, mode, depth))
+            mode, depth = "cmd", 0
             argvs.append([])
             i += 1 if tok in ("<(", ">(") else 2
             continue
-        if tok and all(c in _RAW_OPERATOR_CHARS for c in tok):
+        if mode == "arith":
+            if is_operator:
+                depth += tok.count("(") - tok.count(")")
+                if depth <= 0 and parents:
+                    parent, mode, depth = parents.pop()
+                    argvs.append(parent)
+            i += 1
+            continue
+        if mode == "test":
+            if tok == "]]" or ";" in tok:
+                mode = "cmd"
+            i += 1
+            continue
+        if tok == "[[" and not argv:
+            mode = "test"
+            i += 1
+            continue
+        if is_operator:
             if ">" in tok:
                 op = tok[tok.index(">") - 1 :] if tok.index(">") > 0 else tok
                 is_fd = ("&" in op or op.startswith("<")) and (nxt.isdigit() or nxt == "-")
@@ -336,7 +396,8 @@ def _raw_argvs(command: str) -> Tuple[List[List[str]], List[str]]:
                 i += 2  # input redirect and its source
                 continue
             if tok.startswith(")") and parents:
-                argvs.append(parents.pop())
+                parent, mode, depth = parents.pop()
+                argvs.append(parent)
             else:
                 argvs.append([])
             i += 1

@@ -11,7 +11,7 @@ in `$(...)`, backticks and `<(...)`):
 
 It supports simple commands joined by `|`, `&&`, `||`, `;`, `&` and newlines,
 with redirects and nested substitutions. Anything else (loops, conditionals,
-heredocs, `[[ ]]`, ...) raises ShellParseError, and so does input that
+heredocs, `[[ ]]`, brace expansion, ...) raises ShellParseError, and so does input that
 tree-sitter-bash is known to parse differently from bash. validate_command
 treats ShellParseError as "requires approval" after running its raw-text deny
 checks.
@@ -42,6 +42,12 @@ _DYNAMIC = frozenset({"simple_expansion", "expansion", "command_substitution", "
 _SUBSTITUTIONS = frozenset({"command_substitution", "process_substitution"})
 _WRITE_OPERATORS = frozenset({">", ">>", ">|", "&>", "&>>", ">&"})
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# Unquoted brace expansion: `{a,b}` or a sequence `{1..3}` / `{a..z}`.
+_BRACE_EXPANSION = re.compile(
+    r"\{[^{}]*,[^{}]*\}|\{(-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(\.\.-?\d+)?\}"
+)
+# Leaves whose text is literal to bash, so `$(` in them is not a substitution.
+_LITERAL_LEAVES = frozenset({"raw_string", "ansi_c_string", "comment"})
 
 _ANSI_C = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r",
            "t": "\t", "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?"}
@@ -168,8 +174,13 @@ class _Visitor:
                 raise ShellParseError(f"unsupported syntax: {self.text(x)}")
             if x.type == "negated_command" and not raw[1:2].isspace():
                 raise ShellParseError("'!' not followed by a blank")
-            if x.type in ("word", "string_content") and re.search(rb"`|\$[({]", raw):
+            # e.g. `${HOME#$(cmd)}`: tree-sitter keeps the pattern as a `regex`
+            # leaf, but bash runs the substitution
+            if x.is_named and x.child_count == 0 and x.type not in _LITERAL_LEAVES \
+                    and re.search(rb"`|\$[({\[]", raw):
                 raise ShellParseError("unparsed substitution inside a word")
+            if x.type == "comment":
+                self.check_comment_start(x)
             if x.type == "word" and re.search(rb"(?<!\\)\s", raw):
                 raise ShellParseError("ambiguous word boundary")
             if x.type in ("word", "concatenation", "variable_assignment") and b"\\\n" in raw:
@@ -182,6 +193,34 @@ class _Visitor:
         uncovered = bytes(b for b, c in zip(self.src.replace(b"\\\n", b"  "), covered) if not c)
         if uncovered.strip():
             raise ShellParseError("part of the command was not understood")
+
+    def check_comment_start(self, x: Node) -> None:
+        """`#` starts a comment only at the start of a word. tree-sitter also
+        treats it as one after `\\<NL>` (which bash deletes, gluing the `#`
+        to the previous word: `ls -la\\<NL>#;touch x` runs `touch x`) and
+        after an escaped blank."""
+        before = self.src[: x.start_byte]
+        if not before:
+            return
+        if before.endswith(b"\\\n"):
+            raise ShellParseError("comment after a line continuation")
+        if before[-1:] not in (b" ", b"\t", b"\n", b";", b"&", b"|", b"("):
+            raise ShellParseError("'#' inside a word")
+        backslashes = len(before[:-1]) - len(before[:-1].rstrip(b"\\"))
+        if backslashes % 2:
+            raise ShellParseError("'#' after an escaped character")
+
+    def check_braces(self, n: Node) -> None:
+        """Bash brace-expands `{a,b}` and `{1..3}` into several words, so the
+        argv we would check (`find . {-exec,} ...`) is not the one bash runs."""
+        def unquoted(c: Node) -> str:
+            if c.type == "word" or not c.is_named:
+                return re.sub(r"\\.", "__", self.text(c), flags=re.S)
+            if c.type == "concatenation":
+                return "".join(unquoted(k) for k in c.children)
+            return "_"  # quoted text and expansions never brace-expand
+        if _BRACE_EXPANSION.search(unquoted(n)):
+            raise ShellParseError("unsupported syntax: brace expansion")
 
     @staticmethod
     def check_quote_extent(x: Node, t: bytes) -> None:
@@ -239,6 +278,7 @@ class _Visitor:
             # rm {} \;`) as more targets; bash passes them to the command
             raise ShellParseError("unsupported redirect syntax")
         target = self.check_word(targets[0])
+        self.check_braces(target)
         self.visit_nested(target)
         if op in _WRITE_OPERATORS and not (op == ">&" and target.type == "number"):
             path = self.unquote(target)
@@ -264,6 +304,8 @@ class _Visitor:
                 words.append(self.check_word(c))
         if not words:
             raise ShellParseError("unsupported syntax: command without a name")
+        for w in words:
+            self.check_braces(w)
         self.result.command_argvs.append([self.unquote(w) for w in words])
         self.result.command_arg_dynamic.append(any(self.is_dynamic(w) for w in words[1:]))
         for x in words + assignments:
@@ -272,16 +314,17 @@ class _Visitor:
             self.visit_redirect(r)
 
     def visit_nested(self, n: Node) -> None:
-        """Visit commands inside `$(...)`, backticks and `<(...)`."""
+        """Visit commands inside `$(...)`, backticks and `<(...)`, wherever
+        they are in the word (including `${a[$(...)]}` subscripts)."""
         if n.type in _SUBSTITUTIONS:
             for c in n.named_children:
                 self.visit(c)
             return
         for c in n.named_children:
-            if c.type in _SUBSTITUTIONS or c.type in ("string", "concatenation", "expansion"):
-                self.visit_nested(c)
-            elif c.type == "arithmetic_expansion":
+            if c.type == "arithmetic_expansion":
                 raise ShellParseError("unsupported syntax: arithmetic expansion")
+            if c.type not in _LITERAL_LEAVES:
+                self.visit_nested(c)
 
 
 def parse_command(command: str) -> ParsedCommand:
